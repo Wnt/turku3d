@@ -4,6 +4,8 @@ The complete pipeline runs on the Mac. Shared inputs: `$TURKU3D_DATA/raw`
 (default `~/turku3d/data/raw`). Workers only read them. Writable products:
 `$TURKU3D_WORK/{build,cache,dist,reports}` (default `~/turku3d/data`).
 See [env/README.md](env/README.md) for the native arm64 toolchain.
+Shared point access, profiles, surfaces and relief detection are documented in
+[the lidar toolkit](turku3d/lidar/README.md).
 
 ```sh
 make pipeline-bootstrap pipeline-versions
