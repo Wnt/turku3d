@@ -231,3 +231,18 @@ All **50/50 tests passed, zero skipped**, in **39.28 s wall** (24.76 s user,
 1.63 s system CPU), including the unchanged standalone 150-walker fixtures.
 The full landing gate and real AOI rerun remain outside this explicitly limited
 rebase task; the orchestrator runs the landing gate.
+
+## Batch-4 landing repair
+
+Rebased onto main `8112bf0`, retaining structures, ground textures, facades,
+player and subsequent landed changes. The package script conflict keeps both
+main's `structures` command and the validator's single-file test execution.
+Gate routing retains every main stage and all six declared tags, with the
+validator dependency triggers and acceptance suite preserved.
+
+Synced Python environment with the current pipeline region/buildings/lidar and
+textures ground extras; no npm lockfile changed. Targeted TypeScript, ESLint,
+Ruff, gate TOML parsing and main stage/tag coverage checks passed. Area tests:
+**63/63 passed, zero skipped, 18.52 s wall**; `TURKU3D_JOBS=3` bounds the runner
+and the Node suite runs one file worker at a time. The log is
+`$TURKU3D_WORK/reports/batch4-validator-tests.log`. Full gate remains for landing.
