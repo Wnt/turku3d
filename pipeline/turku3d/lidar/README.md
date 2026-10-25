@@ -119,6 +119,8 @@ is mesh-step coverage. Added lengths are measured on exported polylines. Step
 percentiles are weighted by source station-interval length, including flush spans.
 Small-object blob/PCA labels (pole, bollard, bench, low_wall, planter) are candidates
 for later props, with low confidence to reflect semantic ambiguity.
+Their `center_xyz` is the horizontal footprint center at ground elevation; `height`
+is separate, so later prop assets can use a ground-level placement origin.
 
 ## Experimental mesh comparison
 
