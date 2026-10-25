@@ -141,7 +141,7 @@ def collision_tile(tile, layers, manifests, available):
 
 
 def facade_bindings(facades, layers):
-    """Only a filtered export tied to this geometry inventory can authorize unique maps."""
+    """Authorize exported maps for facades whose identity and dimensions still match."""
     manifest = facades.parent / "MANIFEST.json"
     if not manifest.exists():
         if facades.exists():
@@ -151,12 +151,33 @@ def facade_bindings(facades, layers):
     if not isinstance(export.get("bound"), list) or "inventory_sha256" not in export:
         raise ValueError(f"{manifest}: not a filtered texture assembly export")
     inventory = layers / "buildings/facades.geojson"
-    if (
-        not inventory.exists()
-        or hashlib.sha256(inventory.read_bytes()).hexdigest() != export["inventory_sha256"]
-    ):
-        return []  # Geometry changed since export: preserve library fallbacks.
-    return export["bound"]
+    if not inventory.exists():
+        return []
+    features = json.loads(inventory.read_text())["features"]
+    current = {
+        f"{p['building_id']}_{p['facade_index']}": p
+        for feature in features
+        if (p := feature["properties"]).get("building_id") is not None
+        and p.get("facade_index") is not None
+    }
+    bound = []
+    for facade_id in export["bound"]:
+        props = current.get(facade_id)
+        if props is None:
+            continue
+        building_id, index = facade_id.rsplit("_", 1)
+        sidecar = facades / building_id / f"{index}.json"
+        if not sidecar.exists():
+            continue
+        meta = json.loads(sidecar.read_text())
+        if (
+            meta.get("building_id") == props["building_id"]
+            and meta.get("facade_index") == props["facade_index"]
+            and abs(meta["width_m"] - props["width_m"]) <= 0.01
+            and abs(meta["height_m"] - (props["top_height"] - props["base_height"])) <= 0.01
+        ):
+            bound.append(facade_id)
+    return bound
 
 
 def visual_tiles(
@@ -401,6 +422,7 @@ def assemble(
         "changed": [tid for tid in changed if tid in tree.visual],
         "visual": len(tree.visual),
         "collision": len(tree.collision),
+        "facades_bound": len(bindings),
         "manifest": str(out / "manifest.json"),
     }
 

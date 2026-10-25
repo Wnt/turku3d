@@ -39,15 +39,20 @@ pass expands these ranges into draw groups only while capturing IDs. Normal rend
 draw per batch. Texture and material deduplication prevents repeated glTF texture transforms
 from exhausting the streaming cache before L0 can load. The assembler binds library albedo/normal/ORM
 maps and unique building facades, falling back to the library material when a facade is absent.
-Both texture defaults are under `$TURKU3D_WORK/textures/assembly`. Until W1-09's assets are
-promoted, pass `--library /Users/wnt/turku3d/wt/w1-09-facades/work/textures/assembly/library`
-and `--facades /Users/wnt/turku3d/wt/w1-09-facades/work/textures/assembly/facades`.
+Both texture defaults are under `$TURKU3D_WORK/textures/assembly`. The assembler prints
+`facades_bound` in its JSON result, including on a cache hit. For assets exported to a
+different work root, pass its `library` and `facades` paths explicitly.
 Only W1-09's filtered export may supply unique facades: its parent `MANIFEST.json` must
-have `bound` facade IDs (`<building_id>_<facade_index>`) and an `inventory_sha256` matching the current
-`layers/buildings/facades.geojson`. Missing or changed geometry keeps the library fallback.
+have `bound` facade IDs (`<building_id>_<facade_index>`) and an `inventory_sha256` recording its
+source inventory. Each bound facade must still appear in the current `layers/buildings/facades.geojson`
+with matching width and height within 1 cm; unrelated inventory changes do not disable its map.
+Missing or changed facade geometry keeps the library fallback.
 Raw staging is rejected. Unlisted indices are ignored even when matching files exist.
 Sidecars must identify the building/index, declare metre UVs, pass `qa.gltf_basisu_valid`,
 and supply all three `files` and matching SHA-256 `hashes`. Changed exported maps fail assembly.
+Large UASTC facade normals are packaged from their half resolution mip and aligned to four pixel
+blocks for WebGPU. The optimized copy is cached in the sandbox texture cache; the QA-approved
+source and its hash remain intact. This keeps dense facade tiles within the 8 MB L0 wire limit.
 `uv.scale`/`uv.offset` apply through `KHR_texture_transform` to albedo, normal, occlusion
 and metallic/roughness, with clamped sampling. Library `material.json` `uv_scale` applies
 to all library maps with repeating sampling; its default is `[1,1]`. Embedded source maps

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 
 // W1-03 colour/material classes mapped deliberately to the five available W1-09 assets.
 // Brick, timber and tile are approximations until corresponding library materials exist.
@@ -29,6 +30,43 @@ function pair(value, name) {
 export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextureTransform }) {
   const textures = new Map();
   const bindings = new Set(request.facadeBindings);
+  function compactNormal(filename) {
+    const source = fs.readFileSync(filename);
+    // Exported UASTC normals are 32 px/m. A 16 px/m mip retains wall relief and
+    // keeps the L0 tile within its wire budget when many unique facades share it.
+    const width = source.readUInt32LE(20), height = source.readUInt32LE(24);
+    if (width <= 256 && height <= 256) return filename;
+    const key = createHash('sha256').update('facade-normal-mip1-block4-v1').update(source).digest('hex');
+    const target = path.join(request.textureCache, `${key}.ktx2`);
+    if (fs.existsSync(target)) return target;
+    fs.mkdirSync(request.textureCache, { recursive: true });
+    const png = path.join(request.textureCache, `${key}.png`);
+    const aligned = path.join(request.textureCache, `${key}-aligned.png`);
+    const pending = path.join(request.textureCache, `${key}.${process.pid}.tmp.ktx2`);
+    const run = (program, args) => {
+      const result = spawnSync(program, args, { encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(`${program}: ${result.error?.message ?? result.stderr}`);
+    };
+    try {
+      run('ktx', ['extract', '--transcode', 'rgb8', '--level', '1', filename, png]);
+      const mipWidth = Math.max(1, width >> 1), mipHeight = Math.max(1, height >> 1);
+      const blockWidth = Math.max(4, Math.round(mipWidth / 4) * 4);
+      const blockHeight = Math.max(4, Math.round(mipHeight / 4) * 4);
+      if (blockWidth !== mipWidth || blockHeight !== mipHeight) {
+        run('sips', ['--resampleHeightWidth', String(blockHeight), String(blockWidth), png,
+          '--out', aligned]);
+      }
+      run('toktx', ['--t2', '--genmipmap', '--threads', '2', '--assign_oetf', 'linear',
+        '--encode', 'uastc', '--uastc_quality', '2', '--zcmp', '18', pending,
+        fs.existsSync(aligned) ? aligned : png]);
+      fs.renameSync(pending, target);
+    } finally {
+      fs.rmSync(png, { force: true });
+      fs.rmSync(aligned, { force: true });
+      fs.rmSync(pending, { force: true });
+    }
+    return target;
+  }
   function texture(filename) {
     if (!textures.has(filename)) {
       const ext = path.extname(filename);
@@ -72,6 +110,7 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
       }
       maps[slot] = f;
     }
+    maps.normal = compactNormal(maps.normal);
     return { maps, scale: pair(meta.uv.scale, 'uv.scale'), offset: pair(meta.uv.offset, 'uv.offset'), unique: true };
   }
   return (material, prim, e) => {

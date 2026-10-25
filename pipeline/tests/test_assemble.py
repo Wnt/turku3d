@@ -189,7 +189,10 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     with pytest.raises(ValueError, match="filtered texture assembly export"):
         assemble(["t0_0_0"], layers=layers, out=out, library=library, facades=facades)
     inventory = buildings / "facades.geojson"
-    inventory.write_text('{"type":"FeatureCollection","features":[]}')
+    feature = dict(
+        properties=dict(building_id="b1", facade_index=0, width_m=20, base_height=0, top_height=10)
+    )
+    inventory.write_text(json.dumps(dict(type="FeatureCollection", features=[feature])))
     export = dict(
         inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(), bound=["b1_0"]
     )
@@ -212,6 +215,8 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
         facade_index=0,
         files=files,
         hashes=hashes,
+        width_m=20,
+        height_m=10,
         qa=dict(gltf_basisu_valid=True),
         uv=dict(units="metres", scale=[-0.05, -0.1], offset=[1, 1]),
     )
@@ -235,6 +240,22 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
         assert js["samplers"][tex["sampler"]]["wrapS"] == 33071
     assert {im.get("name") for im in js["images"]} >= set(files.values())
     assert assemble(["t0_0_0"], **kwargs)["changed"] == []
+    # A layer republish can change the inventory bytes without changing this facade.
+    republished = dict(
+        type="FeatureCollection",
+        features=[
+            feature,
+            dict(
+                properties=dict(
+                    building_id="other", facade_index=0, width_m=2, base_height=0, top_height=2
+                )
+            ),
+        ],
+    )
+    inventory.write_text(json.dumps(republished))
+    assert assemble(["t0_0_0"], **kwargs)["changed"] == []
+    js, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
+    assert any(im.get("name") == "0.ktx2" for im in js["images"])
     normal_path = facades / "b1" / files["normal"]
     original = normal_path.read_bytes()
     normal_path.write_bytes(b"changed after QA")
@@ -246,7 +267,8 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
         export["bound"] = [] if change == "unlisted" else ["b1_0"]
         (facades.parent / "MANIFEST.json").write_text(json.dumps(export))
         if change == "geometry":
-            inventory.write_text("changed geometry inventory")
+            feature["properties"]["top_height"] = 11
+            inventory.write_text(json.dumps(republished))
         assemble(["t0_0_0"], **kwargs)
         js, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
         assert not any(im.get("name") == "0.ktx2" for im in js["images"])
