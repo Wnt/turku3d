@@ -1,13 +1,17 @@
 """Canonical constrained triangulation, adaptive ground samples and exact tile seams."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import numpy as np
 import shapely
-from shapely.geometry import LineString, box
 import triangle
+from shapely.geometry import LineString, box
+
 from turku3d import config as C
 from turku3d.col.materials import mat_id
+
 from .points import base_points
 
 
@@ -19,14 +23,19 @@ class Mesh:
 
     def compact(self):
         used, inverse = np.unique(self.indices, return_inverse=True)
-        return Mesh(self.positions[used].astype(np.float64), inverse.reshape(-1, 3).astype(np.uint32),
-                    self.material.astype(np.uint8))
+        return Mesh(
+            self.positions[used].astype(np.float64),
+            inverse.reshape(-1, 3).astype(np.uint32),
+            self.material.astype(np.uint8),
+        )
 
     def save(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix('.tmp')
-        with temporary.open('wb') as stream:
-            np.savez_compressed(stream, positions=self.positions, indices=self.indices, material=self.material)
+        temporary = path.with_suffix(".tmp")
+        with temporary.open("wb") as stream:
+            np.savez_compressed(
+                stream, positions=self.positions, indices=self.indices, material=self.material
+            )
         if path.exists() and path.read_bytes() == temporary.read_bytes():
             temporary.unlink()
         else:
@@ -35,31 +44,39 @@ class Mesh:
     @classmethod
     def load(cls, path):
         with np.load(path, allow_pickle=False) as a:
-            return cls(a['positions'], a['indices'], a['material'])
+            return cls(a["positions"], a["indices"], a["material"])
 
 
-def parts(geometry, kinds=('LineString', 'LinearRing')):
+def parts(geometry, kinds=("LineString", "LinearRing")):
     if geometry.is_empty:
         return
     if geometry.geom_type in kinds:
         yield geometry
-    elif hasattr(geometry, 'geoms'):
+    elif hasattr(geometry, "geoms"):
         for part in geometry.geoms:
             yield from parts(part, kinds)
 
 
 def triangulate(vertices, segments):
-    data = {'vertices': vertices[:, :2], 'vertex_attributes': vertices[:, 2:3], 'segments': segments}
-    out = triangle.triangulate(data, 'pc')
-    p = np.column_stack((out['vertices'][:, 0], out['vertex_attributes'][:, 0], out['vertices'][:, 1]))
-    f = out['triangles'][:, [0, 2, 1]].astype(np.uint32)  # x/z is clockwise when viewed from +y
+    data = {
+        "vertices": vertices[:, :2],
+        "vertex_attributes": vertices[:, 2:3],
+        "segments": segments,
+    }
+    out = triangle.triangulate(data, "pc")
+    p = np.column_stack(
+        (out["vertices"][:, 0], out["vertex_attributes"][:, 0], out["vertices"][:, 1])
+    )
+    f = out["triangles"][:, [0, 2, 1]].astype(np.uint32)  # x/z is clockwise when viewed from +y
     return p, f
 
 
 class HeightQuery:
     """Triangle-aware linear interpolation (never re-Delaunay a constrained mesh)."""
+
     def __init__(self, mesh):
         import matplotlib.tri as tri
+
         p, f = mesh.positions, mesh.indices
         # Triangle pc is CCW in x/z before our upward winding reversal.
         self.triangulation = tri.Triangulation(p[:, 0], p[:, 2], f[:, [0, 2, 1]])
@@ -70,7 +87,7 @@ class HeightQuery:
         return np.asarray(self.interpolator(xz[:, 0], xz[:, 1]).filled(np.nan))
 
 
-def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tolerance=.01):
+def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tolerance=0.01):
     """Build with 50 m support, then extract tiles by constrained triangle ownership.
 
     All neighbouring tiles use the SAME vertex array before compaction; no rounding or
@@ -82,7 +99,7 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
         constraints.append(box(*tile.bbox.as_tuple()).boundary)
     curb_lines, curb_heights = [], []
     for curb in curbs:
-        if curb.kind == 'quay':
+        if curb.kind == "quay":
             continue
         for line in curb.lines():
             curb_lines.append(LineString(line[:, :2]))
@@ -108,38 +125,46 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
                 lookup[key] = len(vertices)
                 vertices.append(key)
             chain.append(lookup[key])
-        segments.extend((a, b) for a, b in zip(chain, chain[1:]) if a != b)
+        segments.extend((a, b) for a, b in zip(chain, chain[1:], strict=False) if a != b)
     xy = np.array(vertices)
     h = surface.sample(xy)[0]
     if curb_lines:
         tree = shapely.STRtree(curb_lines)
-        ids, distances = tree.query_nearest(shapely.points(xy), return_distance=True, all_matches=False)
-        for qi, li, distance in zip(*ids, distances):
+        ids, distances = tree.query_nearest(
+            shapely.points(xy), return_distance=True, all_matches=False
+        )
+        for qi, li, distance in zip(*ids, distances, strict=True):
             if distance < 2e-8:
                 original = curb_heights[li]
-                chainage = np.r_[0, np.cumsum(np.linalg.norm(np.diff(original[:, :2], axis=0), axis=1))]
+                chainage = np.r_[
+                    0, np.cumsum(np.linalg.norm(np.diff(original[:, :2], axis=0), axis=1))
+                ]
                 along = curb_lines[li].project(shapely.Point(xy[qi]))
                 h[qi] = np.interp(along, chainage, original[:, 2])
     fixed = np.c_[xy, h]
     # Start coarse, add observed half-metre cell samples only where error exceeds 1 cm.
-    candidates = base_points(surface.points, .5)
+    candidates = base_points(surface.points, 0.5)
     cxz = candidates[:, [0, 2]]
     inside = shapely.contains_xy(envelope, *cxz.T)
     if curb_lines:
-        exclusion = shapely.union_all(curb_lines).buffer(.25)
+        exclusion = shapely.union_all(curb_lines).buffer(0.25)
         inside &= ~shapely.contains_xy(exclusion, *cxz.T)
     inside &= ~shapely.contains_xy(water, *cxz.T)
     # Do not add vertices on a constraint (Triangle would split them again).
     constraint_tree = shapely.STRtree(lines)
-    nearest, distances = constraint_tree.query_nearest(shapely.points(cxz), return_distance=True, all_matches=False)
+    nearest, distances = constraint_tree.query_nearest(
+        shapely.points(cxz), return_distance=True, all_matches=False
+    )
     distance = np.empty(len(cxz))
     distance[nearest[0]] = distances
     candidates = candidates[inside & (distance > 1e-7)]
-    coarse = base_points(candidates, 2.)
-    nearest, distances = constraint_tree.query_nearest(shapely.points(coarse[:, [0, 2]]), return_distance=True, all_matches=False)
+    coarse = base_points(candidates, 2.0)
+    nearest, distances = constraint_tree.query_nearest(
+        shapely.points(coarse[:, [0, 2]]), return_distance=True, all_matches=False
+    )
     distance = np.empty(len(coarse))
     distance[nearest[0]] = distances
-    coarse = coarse[distance > .01]
+    coarse = coarse[distance > 0.01]
     points = np.r_[fixed, coarse[:, [0, 2, 1]]]
     seg = np.array(segments, dtype=np.int32)
     p, f = triangulate(points, seg)
@@ -159,7 +184,7 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
     mids = materials.lookup(centers)
     # Only the strip between the double lines is curb collision material.
     for curb in curbs:
-        if curb.kind == 'quay':
+        if curb.kind == "quay":
             continue
         sides = curb.lines()
         polygon = shapely.make_valid(shapely.Polygon(np.r_[sides[0][:, :2], sides[1][::-1, :2]]))
@@ -172,20 +197,29 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
     wf = inverse.reshape(-1, 3) + len(p)
     positions = np.r_[p, wp]
     indices = np.r_[f[~wet], wf].astype(np.uint32)
-    material = np.r_[mids[~wet], np.full(wet.sum(), mat_id('water'), np.uint8)]
-    return Mesh(positions, indices, material), {'adaptive_added': refinement_counts, 'triangles': len(indices)}
+    material = np.r_[mids[~wet], np.full(wet.sum(), mat_id("water"), np.uint8)]
+    return Mesh(positions, indices, material), {
+        "adaptive_added": refinement_counts,
+        "triangles": len(indices),
+    }
 
 
 def tile_mesh(mesh, tile):
     centers = mesh.positions[mesh.indices].mean(axis=1)
     b = tile.bbox
-    inside = (centers[:, 0] >= b.xmin) & (centers[:, 0] < b.xmax) & (centers[:, 2] >= b.zmin) & (centers[:, 2] < b.zmax)
+    inside = (
+        (centers[:, 0] >= b.xmin)
+        & (centers[:, 0] < b.xmax)
+        & (centers[:, 2] >= b.zmin)
+        & (centers[:, 2] < b.zmax)
+    )
     return Mesh(mesh.positions, mesh.indices[inside], mesh.material[inside]).compact()
 
 
 def seam_errors(meshes):
     """Compare actual boundary edge coordinates and multiplicities, not just vertex sets."""
     errors = []
+
     def boundary(mesh, axis, value):
         f = mesh.indices
         edges = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
@@ -193,9 +227,14 @@ def seam_errors(meshes):
         selected = np.all(xyz[:, :, axis] == value, axis=1)
         # Direction-independent byte equality, including water sensor edges.
         return sorted(tuple(sorted((a.tobytes(), b.tobytes()))) for a, b in xyz[selected])
+
     for tile, mesh in meshes.items():
-        for axis, neighbor, value in [(0, C.CollisionTile(tile.i + 1, tile.j), tile.bbox.xmax),
-                                       (2, C.CollisionTile(tile.i, tile.j + 1), tile.bbox.zmax)]:
-            if neighbor in meshes and boundary(mesh, axis, value) != boundary(meshes[neighbor], axis, value):
+        for axis, neighbor, value in [
+            (0, C.CollisionTile(tile.i + 1, tile.j), tile.bbox.xmax),
+            (2, C.CollisionTile(tile.i, tile.j + 1), tile.bbox.zmax),
+        ]:
+            if neighbor in meshes and boundary(mesh, axis, value) != boundary(
+                meshes[neighbor], axis, value
+            ):
                 errors.append([tile.id, neighbor.id])
     return errors

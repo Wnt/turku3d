@@ -79,3 +79,47 @@ infer transition width from the configured breakline spacing.
 that assembler path. The shared material mapping now lives in `materials.py`. Run
 `make tile-test` when changing the Phase 0 integration. The ground layer does not change
 runtime streaming or publish its own tileset.
+
+
+## Detector breakline interface (W1-13)
+
+```sh
+make ground-build GROUND_ARGS="--breaklines $TURKU3D_WORK/build/layers/lidar/breaklines.json"
+```
+
+The optional input is a JSON list. Each entry has:
+
+```json
+{
+  "object_id": "lidar:curb:42",
+  "kind": "curb",
+  "centers_xz": [[168, 246], [170, 246]],
+  "normals_xz": [[0, 1], [0, 1]],
+  "side_heights": [[4.1, 4.25], [4.12, 4.27]]
+}
+```
+
+Coordinates are world-local engine metres from `config`, heights are absolute N2000.
+The three arrays have matching lengths >=2. Normals are unit x/z vectors; side heights
+are ordered **minus normal, plus normal**. The collision lines lie 3 cm on either side
+of each center. Kinds are `curb`, `curb_dropped`, `crossing`, `quay`. Additional detector
+metadata (confidence, provenance, relief class) is permitted. IDs replace matching city
+fits; other IDs add breaklines. The importer does not refit supplied heights or bridge
+missing spans: export separate objects across occlusion. Independent odd stations are
+resampled from the held-out lidar for QA. Inputs participate in artifact cache identities.
+
+`breaklines.json` exports the same contract for every fitted line. `quays.json` is its
+quay subset for W1-02. `curbs.geojson` supplies per-segment declared fit steps to W1-05
+using `turku3d_coords: engine-xz`; the manifest advertises `validation.curbs`.
+
+## Revised acceptance (user decision, 2026-10-25)
+
+Curb presence is estimated by length-weighted odd stations (2 m intervals, clipped at
+line endpoints). The denominator is vector length where independent held-out profiles
+show >=6 cm relief; a real mesh step is >=3 cm. Naturally flush sidewalk edges and
+kerb drops are reported rather than counted as missing raised curbs. Unsupported
+held-out profiles and rejected input lines are reported explicitly. Targets are >=85%
+of that raised length retaining a mesh step and median absolute held-out step error
+<=5 cm; p90 is also reported. Width, <3 cm error fraction and off-curb controls remain
+diagnostics. Coverage >=95%, noise MAD <=1.5 cm, held-out open-ground RMSE <=3 cm,
+150k triangles/tile, exact seams and material completeness remain acceptance checks.
