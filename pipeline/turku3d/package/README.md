@@ -66,9 +66,15 @@ Missing or changed facade geometry keeps the library fallback.
 Raw staging is rejected. Unlisted indices are ignored even when matching files exist.
 Sidecars must identify the building/index, declare metre UVs, pass `qa.gltf_basisu_valid`,
 and supply all three `files` and matching SHA-256 `hashes`. Changed exported maps fail assembly.
-Large UASTC facade normals are packaged from their half resolution mip and aligned to four pixel
-blocks for WebGPU. The optimized copy is cached in the sandbox texture cache; the QA-approved
-source and its hash remain intact. This keeps dense facade tiles within the 8 MB L0 wire limit.
+Facade maps have a package-time texel density cap: 48 pixels per metre for full-height
+walls and 72 pixels per metre for short, ground-floor walls, never exceeding the source
+dimensions. When a tile exceeds the fixed 8 MB wire limit including ground maps, the
+assembler estimates the savings from each facade's exported map bytes and reduces the
+farthest bound facades from the office spawn to 4 pixels per metre first. It extends
+that set, then uses 2 or 1 pixels per metre only if measured wire bytes still exceed
+the limit. The source files and QA hashes remain intact;
+encoded variants are cached outside the export. The manifest records each tile's wire
+size before and after adaptation as `budget_before_bytes` and `wire_bytes`.
 `uv.scale`/`uv.offset` apply through `KHR_texture_transform` to albedo, normal, occlusion
 and metallic/roughness, with clamped sampling. Library `material.json` `uv_scale` applies
 to all library maps with repeating sampling; its default is `[1,1]`. Embedded source maps
@@ -81,9 +87,15 @@ Brick, wood and roof tile remain explicit generic approximations. Original `mate
 is retained in node/material extras; `library_material_key` records the chosen library key.
 Untextured inputs retain their source colors. PNG/JPEG maps become ETC1S albedo or UASTC +
 Zstandard linear maps through KTX-Software 4.4.2 **before** lossless meshopt compression.
-Facade normal maps are transcoded to ETC1S at their original resolution and cached by source hash;
-albedo and ORM maps retain their authored encoding. Library KTX2 maps remain UASTC where authored,
+Facade albedo and ORM maps use ETC1S; normal maps use UASTC with Zstandard, retaining
+normal detail. Library KTX2 maps remain UASTC where authored,
 but are published once under `visual/shared/` and referenced by relative URI from each GLB.
+The codec selection was measured on exported facade `103277350D_45` at 176 × 772 pixels:
+ETC1S gave 42.64 dB albedo and 45.27 dB ORM at 12.6/11.1 KB, while UASTC used
+44.0/31.3 KB; normals measured 29.09 dB ETC1S versus 61.06 dB UASTC. Already
+compliant source maps are kept at their authored resolution and codec. Scaled maps
+are cached by source and size, then maps whose full decoded pixels match at 6-bit
+precision share one encoded KTX2 image (maximum source difference 3/255 per channel).
 `manifest.json` lists these shared images on each visual entry and verifies their hashes.
 It never invokes `optimize`, simplifies L0 geometry, or quantizes positions.
 The packaged GLB is decoded and compared, and L0 brotli size is limited to 8 MB at quality 5, matching the local server.

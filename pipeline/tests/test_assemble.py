@@ -19,12 +19,32 @@ from turku3d.layers import (
     write_manifest,
     write_visual,
 )
-from turku3d.package.assemble import assemble
+from turku3d.package.assemble import assemble, facade_priorities
 from turku3d.package.gltf import GlbMesh, read_glb
 from turku3d.package.manifest import verify_tree
 from turku3d.package.seams import verify_seams
 from turku3d.parked.__main__ import publish as publish_parked
 from turku3d.parked.models import MODELS
+
+
+def test_facade_budget_priority_uses_spawn_distance_and_tile(tmp_path):
+    inventory = tmp_path / "facades.geojson"
+    features = []
+    for index, e, n in [
+        (0, C.ORIGIN_E + 20, C.ORIGIN_N - 20),
+        (1, C.ORIGIN_E + 200, C.ORIGIN_N - 200),
+        (2, C.ORIGIN_E + 270, C.ORIGIN_N - 20),
+    ]:
+        features.append(
+            dict(
+                properties=dict(building_id="b", facade_index=index),
+                geometry=dict(type="LineString", coordinates=[[e, n], [e + 1, n]]),
+            )
+        )
+    inventory.write_text(json.dumps(dict(type="FeatureCollection", features=features)))
+    priorities = facade_priorities(inventory, ["b_0", "b_1", "b_2"], {"position": [20, 0, 20]})
+    assert priorities["t0_0_0"] == ["b_1", "b_0"]
+    assert priorities["t0_1_0"] == ["b_2"]
 
 
 @pytest.fixture(autouse=True)
@@ -327,8 +347,12 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     assert {im.get("name") for im in js["images"]} >= set(files.values())
     normal_tex = js["textures"][material["normalTexture"]["index"]]
     normal_image = js["images"][normal_tex["extensions"]["KHR_texture_basisu"]["source"]]
-    normal_view = js["bufferViews"][normal_image["bufferView"]]
-    assert struct.unpack_from("<I", encoded, normal_view["byteOffset"] + 44)[0] == 1
+    if "uri" in normal_image:
+        normal_data = (out / "visual/0" / normal_image["uri"]).read_bytes()
+    else:
+        normal_view = js["bufferViews"][normal_image["bufferView"]]
+        normal_data = encoded[normal_view["byteOffset"] :]
+    assert struct.unpack_from("<I", normal_data, 44)[0] == 2
     assert assemble(["t0_0_0"], **kwargs)["changed"] == []
     # A layer republish can change the inventory bytes without changing this facade.
     republished = dict(

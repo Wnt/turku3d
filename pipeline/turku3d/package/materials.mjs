@@ -29,12 +29,12 @@ function pair(value, name) {
 export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextureTransform }) {
   const textures = new Map();
   const bindings = new Set(request.facadeBindings);
-  function texture(filename, shared, slot) {
+  function texture(filename, shared, slot, facadeInfo) {
     if (!textures.has(filename)) {
       const ext = path.extname(filename);
       const mime = ext === '.ktx2' ? 'image/ktx2' : ext === '.png' ? 'image/png' : 'image/jpeg';
       textures.set(filename, doc.createTexture(path.basename(filename)).setImage(fs.readFileSync(filename)).setMimeType(mime)
-        .setExtras({ shared_library: shared, facade_normal: !shared && slot === 'normal' }));
+        .setExtras({ shared_library: shared, facade_map: facadeInfo ? { ...facadeInfo, slot } : null }));
       if (ext === '.ktx2') doc.createExtension(KHRTextureBasisu).setRequired(true);
     }
     return textures.get(filename);
@@ -73,7 +73,8 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
       }
       maps[slot] = f;
     }
-    return { maps, scale: pair(meta.uv.scale, 'uv.scale'), offset: pair(meta.uv.offset, 'uv.offset'), unique: true };
+    return { maps, scale: pair(meta.uv.scale, 'uv.scale'), offset: pair(meta.uv.offset, 'uv.offset'), unique: true,
+      facadeInfo: { id: `${e.building_id}_${e.facade_index}`, width: meta.width_m, height: meta.height_m } };
   }
   return (material, prim, e) => {
     const key = LIBRARY_FALLBACKS[e.material_key] ?? e.material_key;
@@ -81,9 +82,9 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
     const { albedo, normal, orm } = selected.maps;
     if ((albedo || normal || orm) && !prim.getAttribute('TEXCOORD_0')) throw new Error(`Missing UVs: ${e.object_id}`);
     material.setExtras({ ...material.getExtras(), material_key: e.material_key, library_material_key: key });
-    if (albedo) material.setBaseColorTexture(texture(albedo, !selected.unique, 'albedo')).setBaseColorFactor([1, 1, 1, 1]);
-    if (normal) material.setNormalTexture(texture(normal, !selected.unique, 'normal'));
-    if (orm) material.setOcclusionTexture(texture(orm, !selected.unique, 'orm')).setMetallicRoughnessTexture(texture(orm, !selected.unique, 'orm'))
+    if (albedo) material.setBaseColorTexture(texture(albedo, !selected.unique, 'albedo', selected.facadeInfo)).setBaseColorFactor([1, 1, 1, 1]);
+    if (normal) material.setNormalTexture(texture(normal, !selected.unique, 'normal', selected.facadeInfo));
+    if (orm) material.setOcclusionTexture(texture(orm, !selected.unique, 'orm', selected.facadeInfo)).setMetallicRoughnessTexture(texture(orm, !selected.unique, 'orm', selected.facadeInfo))
       .setMetallicFactor(1).setRoughnessFactor(1);
     for (const [slot, filename] of [['BaseColor', albedo], ['Normal', normal], ['Occlusion', orm], ['MetallicRoughness', orm]]) {
       if (!filename) continue; // Preserve embedded source textures and their UV contract.

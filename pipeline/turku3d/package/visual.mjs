@@ -17,9 +17,64 @@ const { Document, NodeIO } = await dep('@gltf-transform/core');
 const { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu, KHRTextureTransform } = await dep('@gltf-transform/extensions');
 const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrimitive, simplifyPrimitive, listTextureSlots } = await dep('@gltf-transform/functions');
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
+const sharp = (await dep('sharp')).default;
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
+function run(tool, args) {
+  const proc = spawnSync(tool, args, { encoding:'utf8' });
+  if (proc.status !== 0) throw new Error(`${tool}: ${proc.error?.message ?? proc.stderr}\n${proc.stdout ?? ''}`);
+}
+
+async function encodeFacade(t, request) {
+  const { id, width, height, slot } = t.getExtras().facade_map;
+  const sourceSize = [t.getImage().readUInt32LE(20), t.getImage().readUInt32LE(24)];
+  const density = request.facadeDensity?.[id] ?? (height <= 5 ? 72 : 48);
+  const target = [Math.max(4, Math.min(sourceSize[0], Math.round(width * density / 4) * 4)),
+    Math.max(4, Math.min(sourceSize[1], Math.round(height * density / 4) * 4))];
+  if (target[0] === sourceSize[0] && target[1] === sourceSize[1]) return;
+  const linear = slot !== 'albedo';
+  // A measured codec comparison selects ETC1S for colour/ORM and UASTC for normals.
+  const codec = slot === 'normal' ? 'uastc' : 'etc1s';
+  const key = createHash('sha256').update('facade-density-v2').update(slot)
+    .update(codec).update(JSON.stringify(target)).update(t.getImage()).digest('hex');
+  const mapping = path.join(request.textureCache, key + '.hash');
+  if (fs.existsSync(mapping)) {
+    const cached = path.join(request.textureCache, fs.readFileSync(mapping, 'utf8') + '.ktx2');
+    if (fs.existsSync(cached)) { t.setImage(fs.readFileSync(cached)); return; }
+  }
+  const workKey = `${key}.${process.pid}`;
+  const source = path.join(request.textureCache, workKey + '.source.ktx2');
+  const png = path.join(request.textureCache, workKey + '.png');
+  const resized = path.join(request.textureCache, workKey + '.resized.png');
+  let temp;
+  fs.writeFileSync(source, t.getImage());
+  try {
+    run('ktx', ['extract', '--transcode', 'rgb8', source, png]);
+    run('sips', ['-z', String(target[1]), String(target[0]), png, '--out', resized]);
+    // Equal 6-bit pixels differ by at most 3/255 in each channel. This safely
+    // shares visually indistinguishable maps from independent facade exports.
+    const { data, info } = await sharp(resized).raw().toBuffer({ resolveWithObject:true });
+    for (let i = 0; i < data.length; i++) data[i] >>= 2;
+    const content = createHash('sha256').update('facade-near-v1').update(slot)
+      .update(codec).update(JSON.stringify([info.width, info.height, info.channels]))
+      .update(data).digest('hex');
+    const dest = path.join(request.textureCache, content + '.ktx2');
+    if (!fs.existsSync(dest)) {
+      temp = dest + `.${process.pid}.tmp.ktx2`;
+      run('toktx', ['--t2', '--genmipmap', '--threads', '2', '--assign_oetf', linear ? 'linear' : 'srgb',
+        '--assign_primaries', linear ? 'none' : 'bt709', '--encode', codec,
+        ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80'] : ['--uastc_quality', '2', '--zcmp', '18']),
+        temp, resized]);
+      run('ktx', ['validate', '--gltf-basisu', temp]);
+      fs.renameSync(temp, dest);
+    }
+    t.setImage(fs.readFileSync(dest));
+    fs.writeFileSync(mapping, content);
+  } finally {
+    for (const file of [source, png, resized, temp]) if (file && fs.existsSync(file)) fs.unlinkSync(file);
+  }
+}
 async function assembleVisual(request) {
   const doc = new Document();
   const scene = doc.createScene(request.tile);
@@ -123,30 +178,7 @@ async function assembleVisual(request) {
   // Cache encoded images independently of tiles. Coarse parents reuse the same GPU textures.
   fs.mkdirSync(request.textureCache, { recursive:true });
   for (const t of doc.getRoot().listTextures()) {
-    if (t.getExtras().facade_normal && t.getMimeType() === 'image/ktx2') {
-      const key = createHash('sha256').update('facade-normal-etc1s-q80-v1').update(t.getImage()).digest('hex');
-      const dest = path.join(request.textureCache, key + '.ktx2');
-      if (!fs.existsSync(dest)) {
-        const source = path.join(request.textureCache, key + '.source.ktx2');
-        const png = path.join(request.textureCache, key + '.png');
-        const temp = dest + `.${process.pid}.tmp.ktx2`;
-        fs.writeFileSync(source, t.getImage());
-        for (const [tool, args] of [
-          ['ktx', ['extract', '--transcode', 'rgb8', source, png]],
-          ['toktx', ['--t2', '--genmipmap', '--threads', '2', '--assign_oetf', 'linear',
-            '--assign_primaries', 'none', '--encode', 'etc1s', '--qlevel', '80', temp, png]],
-          ['ktx', ['validate', '--gltf-basisu', temp]],
-        ]) {
-          const proc = spawnSync(tool, args, { encoding:'utf8' });
-          if (proc.status !== 0) throw new Error(`${tool}: ${proc.error?.message ?? proc.stderr}\n${proc.stdout ?? ''}`);
-        }
-        fs.renameSync(temp, dest);
-        fs.unlinkSync(source);
-        fs.unlinkSync(png);
-      }
-      t.setImage(fs.readFileSync(dest));
-      continue;
-    }
+    if (t.getExtras().facade_map && t.getMimeType() === 'image/ktx2') { await encodeFacade(t, request); continue; }
     if (t.getMimeType() === 'image/ktx2') continue;
     const slots = listTextureSlots(t);
     const srgb = slots.some(s => s === 'baseColorTexture' || s === 'emissiveTexture');
@@ -168,6 +200,22 @@ async function assembleVisual(request) {
     }
     t.setImage(fs.readFileSync(dest)).setMimeType('image/ktx2');
     doc.createExtension(KHRTextureBasisu).setRequired(true);
+  }
+  const canonicalFacade = new Map();
+  let facadeShares = 0;
+  for (const t of doc.getRoot().listTextures()) {
+    const slot = t.getExtras().facade_map?.slot;
+    if (!slot) continue;
+    const key = slot + ':' + createHash('sha256').update(t.getImage()).digest('hex');
+    const first = canonicalFacade.get(key);
+    if (!first) { canonicalFacade.set(key, t); continue; }
+    for (const material of doc.getRoot().listMaterials()) {
+      for (const property of ['BaseColor', 'Normal', 'Occlusion', 'MetallicRoughness']) {
+        if (material[`get${property}Texture`]() === t) material[`set${property}Texture`](first);
+      }
+    }
+    facadeShares++;
+    t.dispose();
   }
   const sharedHashes = new Set(doc.getRoot().listTextures()
     .filter(t => t.getExtras().shared_library)
@@ -193,7 +241,6 @@ async function assembleVisual(request) {
     [zlibConstants.BROTLI_PARAM_QUALITY]: 5,
     [zlibConstants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
   } }).length;
-  if (request.level === 0 && wire > 8_000_000) throw new Error(`L0 brotli budget exceeded: ${wire}`);
   // Core getBounds sees only prototype geometry, not EXT_mesh_gpu_instancing transforms.
   const bounds = { min:[Infinity,Infinity,Infinity], max:[-Infinity,-Infinity,-Infinity] };
   for (const mesh of after) for (let i=0; i<mesh.v.length; i++) {
@@ -203,7 +250,7 @@ async function assembleVisual(request) {
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
   fs.writeFileSync(request.stats, JSON.stringify({ tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
     bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, shared_images:shared,
-    textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()) }));
+    textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()), facade_shares:facadeShares }));
 
 }
 for (const request of JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))) await assembleVisual(request);

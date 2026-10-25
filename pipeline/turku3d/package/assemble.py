@@ -184,12 +184,20 @@ def facade_bindings(facades, layers):
 
 
 def visual_tiles(
-    tiles, stage, library, facades, texture_cache, coarse_ids, bindings, ground_bindings
+    tiles,
+    stage,
+    library,
+    facades,
+    texture_cache,
+    coarse_ids,
+    bindings,
+    ground_bindings,
+    facade_density=None,
 ):
     requests = []
     for tile, inputs in tiles.items():
         work = stage / tile.id
-        work.mkdir()
+        work.mkdir(exist_ok=True)
         requests.append(
             dict(
                 tile=tile.id,
@@ -200,6 +208,7 @@ def visual_tiles(
                 library=str(library),
                 facades=str(facades),
                 facadeBindings=bindings,
+                facadeDensity=(facade_density or {}).get(tile.id, {}),
                 groundBinding=ground_bindings.get(tile.id),
                 textureCache=str(texture_cache),
                 coarseTerrain=tile.id in coarse_ids,
@@ -219,6 +228,34 @@ def visual_tiles(
         )
         for tile in tiles
     }
+
+
+def facade_priorities(inventory: Path, bindings: list[str], spawn: dict) -> dict[str, list[str]]:
+    """Rank each tile's exported facades from farthest to nearest spawn."""
+    if not inventory.exists() or not spawn:
+        return {}
+    bound = set(bindings)
+    sx, _, sz = spawn["position"]
+    ranked: dict[str, list[tuple[float, str]]] = {}
+    for feature in json.loads(inventory.read_text())["features"]:
+        props = feature["properties"]
+        facade_id = f"{props.get('building_id')}_{props.get('facade_index')}"
+        if facade_id not in bound:
+            continue
+        coords = feature["geometry"]["coordinates"]
+        e = sum(point[0] for point in coords) / len(coords)
+        n = sum(point[1] for point in coords) / len(coords)
+        x, z = e - C.ORIGIN_E, C.ORIGIN_N - n
+        tile_id = C.VisualTile(0, math.floor(x / 250), math.floor(z / 250)).id
+        ranked.setdefault(tile_id, []).append((math.hypot(x - sx, z - sz), facade_id))
+    return {tile: [fid for _, fid in sorted(rows, reverse=True)] for tile, rows in ranked.items()}
+
+
+def facade_source_bytes(facades: Path, facade_id: str) -> int:
+    building_id, index = facade_id.rsplit("_", 1)
+    directory = facades / building_id
+    meta = json.loads((directory / f"{index}.json").read_text())
+    return sum((directory / filename).stat().st_size for filename in meta["files"].values())
 
 
 def assemble(
@@ -402,15 +439,63 @@ def assemble(
             bindings,
             ground_bindings,
         )
+        budget_before = {
+            tile.id: stats["brotli_bytes"]
+            + ground_bindings.get(tile.id, {}).get("texture_bytes", 0)
+            for tile, (data, stats) in pending_visual.items()
+            if data is not None and tile.level == 0
+        }
+        priorities = facade_priorities(root / "buildings/facades.geojson", bindings, tree.spawn)
+        facade_density: dict[str, dict[str, int]] = {}
         for tile, (data, stats) in pending_visual.items():
-            if data is not None and tile.level == 0:
+            if data is None or tile.level != 0:
+                continue
+            wire_bytes = budget_before[tile.id]
+            ranked = priorities.get(tile.id, [])
+            plan = facade_density.setdefault(tile.id, {})
+            if wire_bytes > 8_000_000 and ranked:
+                # KTX headers and tiny mips limit savings from resampling. The
+                # estimate selects a first batch; measured wire bytes decide
+                # whether to extend it. Near-spawn facades retain source detail.
+                needed = wire_bytes - 7_750_000
+                predicted = 0
+                for facade_id in ranked:
+                    plan[facade_id] = 4
+                    predicted += facade_source_bytes(facades, facade_id) * 0.94
+                    if predicted >= needed:
+                        break
+            while wire_bytes > 8_000_000 and ranked and plan:
+                data, stats = visual_tiles(
+                    {tile: pending_inputs[tile]},
+                    stage,
+                    library,
+                    facades,
+                    out.parent / ".texture-cache",
+                    coarse_ids,
+                    bindings,
+                    ground_bindings,
+                    facade_density,
+                )[tile]
+                pending_visual[tile] = (data, stats)
                 wire_bytes = stats["brotli_bytes"] + ground_bindings.get(tile.id, {}).get(
                     "texture_bytes", 0
                 )
-                if wire_bytes > 8_000_000:
-                    raise ValueError(
-                        f"{tile.id}: visual plus ground textures exceeds 8 MB: {wire_bytes}"
-                    )
+                if wire_bytes <= 8_000_000:
+                    break
+                remaining = [facade_id for facade_id in ranked if facade_id not in plan]
+                if remaining:
+                    for facade_id in remaining[: max(1, math.ceil(len(ranked) * 0.1))]:
+                        plan[facade_id] = 4
+                elif all(density == 4 for density in plan.values()):
+                    plan.update({facade_id: 2 for facade_id in ranked})
+                elif all(density == 2 for density in plan.values()):
+                    plan.update({facade_id: 1 for facade_id in ranked})
+                else:
+                    break
+            if wire_bytes > 8_000_000:
+                raise ValueError(
+                    f"{tile.id}: visual plus ground textures exceeds 8 MB after facade scaling: {wire_bytes}"
+                )
         shipped = {
             cid: read_col(out / entry["url"])
             for cid, entry in tree.collision.items()
@@ -442,6 +527,7 @@ def assemble(
                 brotli_bytes=stats["brotli_bytes"],
                 ground_texture_bytes=ground_bytes,
                 wire_bytes=wire_bytes,
+                budget_before_bytes=budget_before.get(tile.id, wire_bytes),
                 max_error_m=stats["max_error_m"],
                 bounds=stats["bounds"],
                 shared_images=[
