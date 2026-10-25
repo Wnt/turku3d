@@ -56,3 +56,5 @@ the `probe` scheme (or re-measure) to meet "climbs every curb ≤ 25 cm".
 water sensor and query-only treads present); `neg_hole`, `neg_open_building`, `neg_steep_stair`, `neg_material0`
 must fail holes+belowGround, buildings, stairs and format respectively. `expected.json` is the contract read by
 `test/fixtures.test.ts`.
+
+Codec round-trip fixtures from `make col-test` use `$TURKU3D_WORK/build/col-roundtrip` (override `COL_RT_DIR` explicitly if needed).

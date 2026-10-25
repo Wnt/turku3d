@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import path from 'node:path';
+import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
 test.setTimeout(25_000);
 
@@ -92,7 +94,7 @@ test('virtual Xbox: ascend and descend slope stairs with feet on query treads', 
     expect(Math.abs(c.ankle[1] - c.target[1])).toBeLessThan(0.045);
     expect(c.lift).toBeLessThan(0.06);
   }
-  await page.screenshot({ path: `test-results/screenshots/${info.project.name}-stair-ik.png` });
+  await page.screenshot({ path: path.join(reportsRoot, 'screenshots', `${info.project.name}-stair-ik.png`) });
   await axes(page, 0, -0.65);
   await page.waitForFunction(() => (window as any).__game.state().feet[2] < 217.5);
   await axes(page, 0, 0); await page.waitForTimeout(200);

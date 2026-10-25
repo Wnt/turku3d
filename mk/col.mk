@@ -2,7 +2,7 @@
 PIPELINE_VENV ?= $(REPO)/pipeline/.venv
 PIPELINE_PY   ?= $(PIPELINE_VENV)/bin/python
 VALIDATOR     := $(REPO)/tools/validator
-COL_RT_DIR    ?= $(REPO)/tools/validator/.roundtrip
+COL_RT_DIR    ?= $(TURKU3D_WORK)/build/col-roundtrip
 
 .PHONY: col-deps col-materials col-fixtures col-test col-test-py col-test-ts col-typecheck col-validate col-validate-fixtures
 

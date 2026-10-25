@@ -17,7 +17,7 @@ tests/               pytest (fake codex binary: no network, no quota)
 ## Setup and tests
 
 ```bash
-cd /Users/wnt/Documents/game-test
+# Run from your current worktree root after sourcing sandbox.env.
 make textures-setup        # textures/.venv + npm ci in textures/node + DeepBump clone in <data>/tools/DeepBump
 make textures-test         # 29 tests
 make textures-usage        # {"used_percent": 1, ...}  (free: codex app-server JSON-RPC, no model call)

@@ -93,13 +93,14 @@ shells, and run `make game-e2e` concurrently. Each installs its own npm dependen
 
 ## Wave 0 integration
 
-W0-C changes the local pipeline defaults and replaces `mk/tile.mk`. Keep its local pipeline commands, retain
-`config.work_root()` / `build_dir()` from this branch, and serve `$(GAME_DIST)` (`work/build/game`) in its
-`tile-show` and `tile-qa` targets. Both branches agree that `raw_dir()` is shared and cache/dist are writable
-sandbox paths. W0-B should map `scripts/dev/` to `make tooling-test` and include `tools/dev/environment.mjs`
+The branch includes W0-C's native local pipeline and W1-06's controller/character work. `mk/tile.mk` keeps
+its ordered local build chain and serves `$(GAME_DIST)` (`work/build/game`) for `tile-show` and `tile-qa`.
+`raw_dir()` reads shared inputs; `work_root()` / `build_dir()` / cache/dist helpers use sandbox outputs.
+Remote and sync commands are removed. Controller screenshots use the same sandbox report root as other e2e tests.
+The English-language policy from COMMON now lives in AGENTS.md. W0-B should map `scripts/dev/` to `make tooling-test` and include `tools/dev/environment.mjs`
 in the game/QA configuration dependency scope. Its gate CLI is already used as `gate --base <main-sha>`.
 
-Acceptance checked on macOS, 2026-10-25: two new worktrees from implementation commit `1f9b1d9`, ports
+Initial acceptance before the integration rebase (macOS, 2026-10-25): two new worktrees from implementation commit `1f9b1d9`, ports
 5260–5269 and 5270–5279, ran `make game-e2e` concurrently: **10/10 each**, 83.01 s and 84.09 s including
 first npm installs and builds. The real `gpt-6-astra` runner smoke call finished in 13.2 s with the correct
 sandbox environment and `## Result: DONE`. Synthetic tests verified a trivial fast-forward to their own
