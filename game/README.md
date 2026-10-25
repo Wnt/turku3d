@@ -6,6 +6,38 @@ Rendering v1 adds sky IBL, street-scale CSM, light GTAO, TRAA, bloom, AgX, mater
 See [the rendering README](src/render/README.md) for quality tiers, HiDPI/SSE, `window.__perf`, GPU timing and exact
 1440p acceptance/screenshot commands. Hardware results currently use the synthetic dev tile until assembled AOI layers land.
 
+## Play it and inspect the evidence
+
+From the repository root:
+
+```sh
+# In a worktree, source its sandbox.env first (this sandbox: source ../sandbox.env).
+make play                    # first run builds the four AOI tiles and game; cached startup <5 s
+make playtest                # both backends, virtual Xbox, videos, screenshots, HTML report
+open "${TURKU3D_WORK:-$HOME/turku3d/data/build/main}/reports/playtest/index.html"
+make playtest-test game-test  # fast offline checks
+```
+
+`make play` prints the playable URL on `TURKU3D_PORT_BASE` (main default 5170).
+It uses read-only cached raw inputs, builds missing tiles through `make tile-build`, verifies
+artifact hashes, and caches the production game under `$TURKU3D_WORK/dist/game`. Game cache
+keys include source, public assets, lockfiles and build configuration, including uncommitted
+changes. The default main work directory is `~/turku3d/data/build/main`. `TILE_DIST` can select
+an already assembled complete AOI; explicit tile directories are never rebuilt automatically.
+Use `make play-prepare` to prepare everything without starting a server. Ctrl-C stops only
+the server launched by this command. A busy port fails without selecting another port.
+
+The start screen shows live controller status and Xbox bindings. Press Ⓐ or select **Start
+playing**. The existing office spawn has a car six metres to the right. `make playtest` uses
+ports base+2 and base+3, separate isolated Chrome contexts, and two concurrent workers.
+Select subsystems with `make playtest PLAYTEST_ARGS='--grep @vehicle'`.
+
+**Current limitation:** the AOI is the Phase 0 coarse real-data heightfield. Full street-loop,
+five-building, real stair, curb-strike and quay-wall acceptance remains blocked by Wave 1
+layers. The HTML report distinguishes real-AOI terrain checks from synthetic controller
+checks and lists these gaps even when the baseline suite is green. See
+[playtest coverage and gate tags](tests/e2e-playtest/README.md).
+
 ## Commands
 
 ```bash

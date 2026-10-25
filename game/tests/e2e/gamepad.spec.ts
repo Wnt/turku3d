@@ -1,5 +1,6 @@
 import { frames, settled } from './waits';
 import { expect, test, type Page } from '@playwright/test';
+import { installPad } from './fixtures';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
@@ -12,15 +13,9 @@ test.beforeEach(async ({ page }) => {
 // Use the shared functional timeout. Frame/throughput budgets live in performance.spec.ts.
 
 async function start(page: Page, backend: string, spawn: string) {
-  await page.addInitScript(() => {
-    const virtual = { connected: true, axes: [0, 0, 0, 0], buttons: Array(17).fill(0) };
-    (window as any).__virtualPad = virtual;
-    Object.defineProperty(navigator, 'getGamepads', { value: () => virtual.connected ? [{
-      id: 'Xbox Wireless Controller', index: 0, mapping: 'standard', connected: true, timestamp: performance.now(),
-      axes: virtual.axes, buttons: virtual.buttons.map(value => ({ value, pressed: value > 0.5, touched: value > 0 })),
-    }] : [] });
-  });
+  await installPad(page);
   await page.goto(`/?backend=${backend}&spawn=${spawn}`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => (window as any).__game?.ready && (window as any).__game.state().grounded);
 }
 async function axes(page: Page, x: number, y: number, rx = 0, ry = 0) {
@@ -32,7 +27,7 @@ async function button(page: Page, index: number, value: number) {
 }
 const state = (page: Page) => page.evaluate(() => (window as any).__game.state());
 
-test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ["@input", "@walk", "@curb"] }, async ({ page }, info) => {
+test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ['@input', '@walk', '@curb', '@character', '@ground', '@synthetic'] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704260'); // x168,z240, 2m south of curb
   const initial = await state(page);
   // Set input and capture its first matching physics state in the same browser task.
@@ -51,7 +46,7 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   expect(Math.hypot(walking.vel[0], walking.vel[2])).toBeLessThan(1.6);
   await axes(page, 0, -1); await button(page, 0, 1);
   await page.waitForFunction(() => (window as any).__game.state().feet[2] < 236.8);
-  expect(Math.hypot((await state(page)).vel[0], (await state(page)).vel[2])).toBeGreaterThan(4);
+  await expect.poll(async () => { const s = await state(page); return Math.hypot(s.vel[0], s.vel[2]); }).toBeGreaterThan(4);
   await axes(page, 0, 0); await button(page, 0, 0);
   await settled(page);
   const curb = await state(page);
@@ -84,7 +79,7 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   expect((await state(page)).errors).toEqual([]);
 });
 
-test('virtual Xbox: ascend and descend slope stairs with feet on query treads', { tag: ["@input", "@walk"] }, async ({ page }, info) => {
+test('virtual Xbox: ascend and descend slope stairs with feet on query treads', { tag: ['@input', '@walk', '@character', '@structures', '@synthetic'] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459631,6704279'); // x131,z221
   await page.evaluate(() => {
     (window as any).__footSamples = [];
@@ -128,7 +123,7 @@ test('virtual Xbox: ascend and descend slope stairs with feet on query treads', 
   expect((await state(page)).errors).toEqual([]);
 });
 
-test('virtual Xbox: Y enters/exits, RT drives, LT reverses and RB brakes', { tag: ["@input", "@drive"] }, async ({ page }, info) => {
+test('virtual Xbox: Y enters/exits, RT drives, LT reverses and RB brakes', { tag: ['@input', '@drive', '@vehicle', '@synthetic'] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704254');
   await axes(page, 1, 0);
   await page.waitForFunction(() => (window as any).__game.state().feet[0] > 170.8);

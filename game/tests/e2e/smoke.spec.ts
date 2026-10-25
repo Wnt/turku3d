@@ -35,10 +35,11 @@ function watchConsole(page: Page) {
   return { bad, all };
 }
 
-test('loads, walks 5 m forward on the dummy tile, no console errors', { tag: ["@walk"] }, async ({ page }, info) => {
+test('loads, walks 5 m forward on the dummy tile, no console errors', { tag: ['@walk', '@ground', '@character', '@streaming'] }, async ({ page }, info) => {
   const backend = info.project.name; // 'webgpu' | 'webgl'
   const con = watchConsole(page);
   await page.goto(`/?backend=${backend}`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 });
   // wait for the visual tile and the spawn collision tile
   await page.waitForFunction(() => { const s = (window as any).__game.state(); return s.tilesSettled && s.collision.tiles > 0 && s.grounded; }, null, { timeout: 60_000 });
@@ -93,7 +94,7 @@ test('loads, walks 5 m forward on the dummy tile, no console errors', { tag: ["@
   expect(errs).toEqual([]);
 });
 
-test('QA camera mode renders the requested view and sets __qaReady', { tag: ["@qa", "@render"] }, async ({ page }, info) => {
+test('QA camera mode renders the requested view and sets __qaReady', { tag: ['@qa', '@render'] }, async ({ page }, info) => {
   const backend = info.project.name;
   const con = watchConsole(page);
   // looking north-east from the SW part of the tile towards the NE marker, 1.7 m eye height above the 2 m ground
@@ -108,10 +109,11 @@ test('QA camera mode renders the requested view and sets __qaReady', { tag: ["@q
   expect(con.bad, con.all.join('\n')).toEqual([]);
 });
 
-test('enter the car with F, drive forward, exit with F', { tag: ["@drive"] }, async ({ page }, info) => {
+test('enter the car with F, drive forward, exit with F', { tag: ['@drive', '@vehicle', '@input'] }, async ({ page }, info) => {
   const backend = info.project.name;
   const con = watchConsole(page);
   await page.goto(`/?backend=${backend}`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; }, null, { timeout: 60_000 });
   // the car is parked 6 m to the right (east) of the spawn: strafe right until within 3 m
   await page.keyboard.down('KeyD');
@@ -146,7 +148,7 @@ test('enter the car with F, drive forward, exit with F', { tag: ["@drive"] }, as
   expect(con.bad, con.all.join('\n')).toEqual([]);
 });
 
-test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json: vertical fov, roll, aspect)', { tag: ["@qa", "@render"] }, async ({ browser }, info) => {
+test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json: vertical fov, roll, aspect)', { tag: ['@qa', '@render'] }, async ({ browser }, info) => {
   const backend = info.project.name;
   const golden = JSON.parse(fs.readFileSync(new URL('../../../qa/tests/golden_projection.json', import.meta.url), 'utf8'));
   const ctx = await browser.newContext({ viewport: { width: golden.width, height: golden.height }, deviceScaleFactor: 1 });
@@ -174,7 +176,7 @@ test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json:
   await ctx.close();
 });
 
-test('QA pose outside the tileset reports the outside-tileset error', { tag: ["@qa", "@render"] }, async ({ page }, info) => {
+test('QA pose outside the tileset reports __qaError quickly (not the 120 s timeout)', { tag: ['@qa', '@render'] }, async ({ page }, info) => {
   const backend = info.project.name;
   await page.goto(`/?backend=${backend}&cam=23469668,6714254,5,0,-10,60&qa=1`); // 10 km NE of the dev tiles
   await page.waitForFunction(() => (window as any).__qaReady === true || (window as any).__qaError, null, { timeout: 30_000 });

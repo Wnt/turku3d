@@ -24,6 +24,7 @@ import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual } from './actors/car';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
+import { StartScreen } from './ui/startScreen';
 import { IdPass } from './render/idPass';
 import { MATERIALS } from './shared/col/materials';
 import type { VehicleInput } from './physics/protocol';
@@ -183,6 +184,7 @@ async function runPlay() {
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
   audio.mount(document.body);
   addEventListener('pagehide', () => audio.dispose(), { once: true });
+  const startScreen = new StartScreen(input);
   const hud = new Hud(hudEl);
   const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
   if (!params.hud) hud.toggle();
@@ -252,6 +254,7 @@ async function runPlay() {
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, ready: true });
 
+  startScreen.ready();
   renderer.setAnimationLoop(() => {
     perf.begin();
     const now = performance.now();
@@ -261,6 +264,14 @@ async function runPlay() {
 
     input.update(dt);
     if (input.consume('hud')) { hud.toggle(); clockControl.hidden = !hud.visible; }
+    if (startScreen.active) {
+      startScreen.update(input);
+      // Let gravity settle both actors, but discard actions used to dismiss the screen.
+      for (const action of Object.keys(input.actions) as (keyof typeof input.actions)[]) {
+        input.consume(action); input.actions[action] = 0;
+      }
+      input.lookX = input.lookY = input.zoom = 0;
+    }
     if (input.consume('pause')) paused = !paused;
     if (input.consume('mute')) audio.emit({ type: 'mute' });
     const resetCamera = !paused && input.consume('cameraReset');

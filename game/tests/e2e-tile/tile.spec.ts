@@ -55,11 +55,12 @@ async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: numbe
   return { w: r.w, h: r.h, px: new Uint8Array(Buffer.from(r.b64, 'base64')) };
 }
 
-test('assembled tile from the pipeline renders and the character walks on its collision', { tag: ["@walk", "@pipeline"] }, async ({ page }, info) => {
+test('assembled tile from the pipeline renders and the character walks on its collision', { tag: ['@walk', '@pipeline', '@ground', '@character', '@streaming', '@aoi'] }, async ({ page }, info) => {
   const backend = info.project.name;
   const bad = watchConsole(page);
   expect(Object.keys(manifest.visual).length).toBeGreaterThan(0);
   await page.goto(`/?backend=${backend}&tiles=${TILES}&spawn=${OFFICE.E},${OFFICE.N},0`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 });
   await page.waitForFunction(() => { const s = (window as any).__game.state(); return s.tilesSettled && s.collision.tiles > 0 && s.grounded; }, null, { timeout: 60_000 });
   const start = await page.evaluate(() => (window as any).__game.state());
@@ -91,7 +92,7 @@ test('assembled tile from the pipeline renders and the character walks on its co
   expect(await page.evaluate(() => (window as any).__game.errors)).toEqual([]);
 });
 
-test('QA render contract on the assembled tile: pose echo, projection, ID pass', { tag: ["@qa", "@render"] }, async ({ browser }, info) => {
+test('QA render contract on the assembled tile: pose echo, projection, ID pass', { tag: ['@qa', '@render', '@aoi'] }, async ({ browser }, info) => {
   const backend = info.project.name;
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
@@ -145,13 +146,14 @@ test('QA render contract on the assembled tile: pose echo, projection, ID pass',
   await ctx.close();
 });
 
-test('character crosses all four L0 seams without a height step', { tag: ['@walk', '@pipeline'] }, async ({ page }, info) => {
+test('character crosses all four L0 seams without a height step', { tag: ['@walk', '@pipeline', '@ground', '@character', '@streaming', '@aoi'] }, async ({ page }, info) => {
   const required = ['t0_0_0', 't0_1_0', 't0_1_1', 't0_0_1'];
   test.skip(required.some((id) => !manifest.visual[id]), 'Requires the full four-tile Phase 1 build');
   const bad = watchConsole(page);
   // A 12 m square around the four-tile junction, on the coarse river heightfield.
   // Start east of the junction so the car parked 6 m east stays outside the route.
   await page.goto(`/?backend=${info.project.name}&tiles=${TILES}&spawn=23459756,6704256,0`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => {
     const s = (window as any).__game?.state?.();
     return s?.tilesSettled && s.grounded && s.collision.tiles >= 16;

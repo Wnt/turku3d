@@ -70,6 +70,7 @@ export class Input {
     this.mouseX = this.mouseY = this.wheel = 0;
   }
   get connected() { return this.pad !== null; }
+  get gamepadName() { return this.pad?.id ?? null; }
   get sprinting() { return this.actions.sprint > 0.5 || this.time < this.sprintUntil; }
   consume(action: Action) { const pressed = this.edges.has(action); this.edges.delete(action); return pressed; }
   rebind(action: Action, bindings: Binding[]) { this.bindings[action] = structuredClone(bindings); }

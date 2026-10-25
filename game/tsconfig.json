@@ -22,7 +22,8 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "incremental": true,
-    "tsBuildInfoFile": ".cache/typecheck.tsbuildinfo"
+    "tsBuildInfoFile": ".cache/typecheck.tsbuildinfo",
+    "allowJs": true
   },
   "include": [
     "src",
@@ -36,6 +37,8 @@
     "tests/headless",
     "playwright.render.config.ts",
     "tests/render",
-    "vite.ground.config.ts"
+"vite.ground.config.ts",
+    "tests/e2e-playtest",
+    "playwright.playtest.config.ts"
   ]
 }
