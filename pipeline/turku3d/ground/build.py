@@ -341,7 +341,9 @@ def run(args):
         (output / name).write_text(json.dumps(data, indent=2) + "\n")
         artifacts.append(name)
     log("Evaluating withheld lidar, curb stations and seams")
-    report = evaluate(meshes, accepted, heldout, curbs, water, buildings, core, materials, surface)
+    report = evaluate(
+        meshes, accepted, heldout, curbs, water, buildings, core, materials, surface, lines
+    )
     report.update(
         {
             "selection": selection,

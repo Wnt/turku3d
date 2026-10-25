@@ -402,7 +402,7 @@ def test_missing_curb_relief_fails_length_acceptance(curb_cloud):
     from turku3d.ground.qa import evaluate
 
     surface = Surface(curb_cloud)
-    curbs = fit_curbs([("missing", LineString([(2.15, 0), (2.15, 12)]))], surface)[0]
+    source_lines = [("missing", LineString([(2.15, 0), (2.15, 12)]))]
     p = np.array([[-1.0, 0, -1.0], [5.0, 0, -1.0], [5.0, 0, 14.0], [-1.0, 0, 14.0]])
     mesh = Mesh(
         p, np.array([[0, 2, 1], [0, 3, 2]], np.uint32), np.full(2, mat_id("road"), np.uint8)
@@ -411,12 +411,13 @@ def test_missing_curb_relief_fails_length_acceptance(curb_cloud):
         {C.CollisionTile(0, 0): mesh},
         curb_cloud,
         curb_cloud,
-        curbs,
+        [],
         shapely.Polygon(),
         shapely.Polygon(),
         C.BBoxLocal(-1, -1, 5, 14),
         ConstantMaterials(),
         surface,
+        source_lines,
     )
     assert report["metrics"]["curbs"]["mesh_step_length_fraction"] == 0
     assert not report["checks"]["curb_length"]

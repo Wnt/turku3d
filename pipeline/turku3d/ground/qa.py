@@ -9,7 +9,7 @@ import shapely
 
 from turku3d.col.materials import mat_id
 
-from .curbs import fit_profile
+from .curbs import Curb, fit_profile, stations
 from .mesh import HeightQuery, Mesh, seam_errors
 from .points import Surface
 
@@ -45,8 +45,50 @@ def measure_mesh_step(offsets, profile):
 
 
 def evaluate(
-    meshes, accepted, heldout, curbs, water, buildings, bounds, materials, fitting_surface
+    meshes,
+    accepted,
+    heldout,
+    curbs,
+    water,
+    buildings,
+    bounds,
+    materials,
+    fitting_surface,
+    source_lines=(),
 ):
+    curbs = list(curbs)
+    fitted_ids = {c.object_id for c in curbs}
+    # Missing/unsupported fits are evaluated too, so rejecting a city line cannot
+    # make the mesh-presence score improve by removing its validation stations.
+    for object_id, line in source_lines:
+        if object_id in fitted_ids:
+            continue
+        station = stations(line)
+        if station is None:
+            continue
+        d, p, n = station
+        validation = [
+            {
+                "distance": float(d[i]),
+                "center": p[i].tolist(),
+                "normal": n[i].tolist(),
+                "length_weight_m": min(2.0, line.length - d[i] + 1.0),
+            }
+            for i in range(1, len(d), 2)
+        ]
+        curbs.append(
+            Curb(
+                object_id,
+                d,
+                np.empty(0),
+                p,
+                n,
+                np.zeros_like(p),
+                np.zeros(len(p)),
+                "unmodelled",
+                validation,
+            )
+        )
     solid_positions, solid_faces, offset = [], [], 0
     for mesh in meshes.values():
         solid = Mesh(
@@ -100,6 +142,7 @@ def evaluate(
     station_results, controls, profiles = [], [], []
     validation_surface = Surface(heldout) if curbs and len(heldout) >= 6 else None
     unsupported_stations = 0
+    unsupported_length = 0.0
     offsets = np.linspace(-1.2, 1.2, 241)
     for curb in curbs:
         if curb.kind == "quay":
@@ -120,6 +163,7 @@ def evaluate(
             )
             if observed is None:
                 unsupported_stations += 1
+                unsupported_length += station.get("length_weight_m", 2.0)
                 continue
             shift, truth_h = observed
             center = center + shift * normal
@@ -209,6 +253,17 @@ def evaluate(
             "heldout_stations": len(station_results),
             "unsupported_heldout_stations": unsupported_stations,
             "strong_stations": len(strong),
+            "source_vector_length_m": float(
+                sum(
+                    line.intersection(shapely.box(*bounds.as_tuple())).length
+                    for _, line in source_lines
+                )
+            ),
+            "supported_vector_length_m": sum(s["length_weight_m"] for s in station_results),
+            "unsupported_vector_length_m": unsupported_length,
+            "all_supported_vector_step_fraction": ratio(
+                [abs(s.get("mesh_step", 0)) >= 0.03 for s in station_results]
+            ),
             "raised_vector_length_m": expected_length,
             "mesh_step_length_m": step_length,
             "mesh_step_length_fraction": length_fraction,

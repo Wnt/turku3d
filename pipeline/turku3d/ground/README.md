@@ -118,7 +118,8 @@ Curb presence is estimated by length-weighted odd stations (2 m intervals, clipp
 line endpoints). The denominator is vector length where independent held-out profiles
 show >=6 cm relief; a real mesh step is >=3 cm. Naturally flush sidewalk edges and
 kerb drops are reported rather than counted as missing raised curbs. Unsupported
-held-out profiles and rejected input lines are reported explicitly. Targets are >=85%
+held-out profiles and rejected input lines are reported explicitly. Rejected fits are
+still evaluated against held-out lidar, so a missing breakline cannot improve coverage. Targets are >=85%
 of that raised length retaining a mesh step and median absolute held-out step error
 <=5 cm; p90 is also reported. Width, <3 cm error fraction and off-curb controls remain
 diagnostics. Coverage >=95%, noise MAD <=1.5 cm, held-out open-ground RMSE <=3 cm,
