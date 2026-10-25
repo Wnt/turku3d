@@ -276,3 +276,8 @@ advanced during that first run, so the branch was rebased again and the full gat
 was run on the final base. It passed all stages in **226.607 s**. The run used
 `TURKU3D_JOBS=3 scripts/dev/gate`; unchanged stage results came from the gate's
 PASS-only cache. No tests or checks were weakened.
+
+Main advanced once more during integration with the curbside spawn change
+(`ddf38a1`). The branch was rebased onto that tip and the full gate rerun there:
+all **22 stages passed in 154.420 s** with `TURKU3D_JOBS=3`. This is the final
+landing verification.
