@@ -18,8 +18,10 @@ tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams
 
 tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
 	mkdir -p $(TILE_REPORTS)
-	cd $(VALIDATOR) && for t in $(TILE_IDS); do \
-	  node src/cli.ts --walkers $(TILE_WALKERS) --out $(TILE_REPORTS)/validate-$$t.json $(DIST_MIRROR)/tiles/collision/$$t || exit 1; done
+	cd $(VALIDATOR) && node src/cli.ts --walkers $(TILE_WALKERS) --workers 4 \
+	  --require buildings,curbs,stairs,cars --out $(TILE_REPORTS)/validate-aoi.json \
+	  $(if $(wildcard $(TURKU3D_WORK)/layers),--layers $(TURKU3D_WORK)/layers) \
+	  $(VALIDATOR_ARGS) $(foreach tile,$(TILE_IDS),$(DIST_MIRROR)/tiles/collision/$(tile))
 
 tile-e2e: game-install ## Build the game and test real tiles with Chrome WebGPU and WebGL2
 	cd $(GAME_DIR) && npm run build && E2E_TILE_PORT=$(DIST_PORT) TILE_DIST=$(DIST_MIRROR)/tiles npx playwright test -c playwright.tile.config.ts

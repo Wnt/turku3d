@@ -68,7 +68,7 @@ export function loadFootprints(fc: any): Footprint[] {
   return out;
 }
 
-interface CurbLine { id: string; points: [number, number][]; }
+interface CurbLine { id: string; points: [number, number][]; height?: number; }
 
 export function loadLines(fc: any): CurbLine[] {
   const cv = convertor(fc);
@@ -78,7 +78,7 @@ export function loadLines(fc: any): CurbLine[] {
     const g = f.geometry;
     if (!g) continue;
     const lines = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
-    for (const l of lines) out.push({ id: String(f.properties?.id ?? f.id ?? `line${k++}`), points: (l as number[][]).map(cv) });
+    for (const l of lines) out.push({ id: String(f.properties?.id ?? f.id ?? `line${k++}`), height: f.properties?.height ?? f.properties?.step, points: (l as number[][]).map(cv) });
   }
   return out;
 }

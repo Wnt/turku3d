@@ -6,11 +6,17 @@ import { writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { CHECKS, DEFAULT_OPTIONS, validate } from './validate.ts';
 import type { CheckName, Options } from './validate.ts';
+import { htmlReport } from './report.ts';
 import { DEFAULT_KCC } from './kcc.ts';
 
 const USAGE = `usage: node src/cli.ts [options] <tile.col|dir>...
   --footprints F.geojson   building footprints (Polygon/MultiPolygon, engine [x,z]; or "turku3d_coords":"en")
   --curbs F.geojson        curb lines (LineString); default: stations from curb/quay/wall faces in the tiles
+  --layers DIR            read validation sidecars from layer MANIFEST.json files
+  --stairs flights.json   layer stair list: [{id,bottom:[x,y,z],top:[x,y,z],width}]
+  --workers N (4)         parallel collision-tile workers (1 = serial)
+  --html report.html      write an offline failure map (also written beside --out)
+  --ortho image.png       georeferenced backdrop; requires --ortho-bounds x0,z0,x1,z1
   --out report.json        write the JSON report (default: stdout summary only)
   --checks a,b             subset of ${CHECKS.join(',')}
   --require a,b            these checks must not be 'skipped' (e.g. buildings for real tiles)
@@ -31,6 +37,8 @@ async function main(): Promise<number> {
     a = parseArgs({
       allowPositionals: true,
       options: {
+        layers: { type: 'string' }, stairs: { type: 'string' }, workers: { type: 'string' },
+        html: { type: 'string' }, ortho: { type: 'string' }, 'ortho-bounds': { type: 'string' },
         footprints: { type: 'string' }, curbs: { type: 'string' }, out: { type: 'string' },
         checks: { type: 'string' }, require: { type: 'string' },
         walkers: { type: 'string' }, 'walk-seconds': { type: 'string' }, seed: { type: 'string' },
@@ -51,12 +59,13 @@ async function main(): Promise<number> {
     return v.help ? 0 : 2;
   }
   const checks = v.checks ? (v.checks.split(',') as CheckName[]) : undefined;
-  for (const c of checks ?? []) if (!(CHECKS as readonly string[]).includes(c)) { console.error(`unknown check ${c}`); return 2; }
+  for (const c of [...(checks ?? []), ...(v.require?.split(',') ?? [])]) if (!(CHECKS as readonly string[]).includes(c)) { console.error(`unknown check ${c}`); return 2; }
   const mode = (v['kcc-mode'] ?? 'probe') as 'probe' | 'split';
   if (mode !== 'probe' && mode !== 'split') { console.error('--kcc-mode must be probe or split'); return 2; }
   const opts: Options = {
     ...DEFAULT_OPTIONS,
     inputs: a.positionals,
+    layers: v.layers, stairs: v.stairs, workers: Number(v.workers ?? 4),
     footprints: v.footprints,
     curbs: v.curbs,
     checks,
@@ -79,6 +88,11 @@ async function main(): Promise<number> {
     },
     aoi: v.aoi ? (nums(v.aoi) as [number, number, number, number]) : undefined,
   };
+  for (const key of ['workers', 'walkers', 'walkSeconds', 'rayDensity', 'dropSpacing', 'curbSpacing', 'climbRequired', 'blockRequired', 'stairMaxSlopeDeg'] as const) {
+    if (!Number.isFinite(opts[key]) || opts[key]! <= 0) { console.error(`invalid ${key}: expected a positive finite number`); return 2; }
+  }
+  if (!Number.isInteger(opts.workers) || !Number.isInteger(opts.walkers) || opts.curbSpeeds.some(n => !Number.isFinite(n) || n <= 0)) return 2;
+  if (opts.aoi && (opts.aoi.length !== 4 || !opts.aoi.every(Number.isFinite) || opts.aoi[2] <= opts.aoi[0] || opts.aoi[3] <= opts.aoi[1])) return 2;
   let report: any;
   try {
     report = await validate(opts);
@@ -90,14 +104,21 @@ async function main(): Promise<number> {
   for (const r of required) {
     if (report.checks[r]?.status === 'skipped' || !report.checks[r]) {
       report.pass = false;
+      report.checks[r] = { ...report.checks[r], status: 'fail', reason: 'required check has no testable layer input', originalStatus: report.checks[r]?.status ?? 'absent' };
+      report.summary[r] = 'fail';
       report.requiredMissing = [...(report.requiredMissing ?? []), r];
     }
   }
-  if (v.out) writeFileSync(v.out, JSON.stringify(report, null, 1) + '\n');
+  try {
+    if (v.out) writeFileSync(v.out, JSON.stringify(report, null, 1) + '\n');
+    const html = v.html ?? (v.out ? v.out.replace(/\.json$/, '') + '.html' : undefined);
+    if (html) writeFileSync(html, htmlReport(report, v.ortho, v['ortho-bounds'] ? nums(v['ortho-bounds']) : undefined));
+  } catch (error) { console.error(`report output error: ${error}`); return 2; }
   if (!v.quiet) {
     console.log(`tiles: ${report.tiles.map((t: any) => t.id ?? t.file).join(' ')}  rapier ${report.rapier}  ${report.elapsedMs} ms`);
     for (const [k, c] of Object.entries(report.checks) as [string, any][]) {
-      const extra = k === 'holes' ? `rays=${c.rays} misses=${c.misses}`
+      const extra = c.originalStatus ? c.reason : c.perTile ? `${c.perTile.filter((t: any) => t.status === 'fail').length}/${c.perTile.length} tiles failed`
+        : k === 'holes' ? `rays=${c.rays} misses=${c.misses}`
         : k === 'buildings' ? (c.status === 'skipped' ? c.reason : `walkers=${c.walkers} insideAnyFrame=${c.insideAnyFrame} insideAtEnd=${c.insideAtEnd}`)
         : k === 'curbs' ? `stations=${c.stations} climb ${c.climbed}/${c.climbExpected} block ${c.blocked}/${c.blockExpected} info=${c.infoBand}`
         : k === 'stairs' ? (c.status === 'skipped' ? c.reason : `flights=${c.count} failed=${c.failed}`)
@@ -105,7 +126,7 @@ async function main(): Promise<number> {
         : k === 'format' ? `${c.errors.length} errors${c.errors.length ? ': ' + c.errors.slice(0, 3).join(' | ') : ''}` : '';
       console.log(`  ${k.padEnd(12)} ${c.status.toUpperCase().padEnd(8)} ${extra}`);
     }
-    if (report.requiredMissing) console.log(`  required but skipped: ${report.requiredMissing.join(',')}`);
+    if (report.requiredMissing) console.log(`  required coverage missing: ${report.requiredMissing.join(',')}`);
     console.log(report.pass ? 'PASS' : 'FAIL');
   }
   return report.pass ? 0 : 1;

@@ -1,6 +1,6 @@
 // Rapier validator for .col collision tiles (ARCHITECTURE Task 1.11).
-// Checks: format, holes (rays), buildings (random walkers vs footprints), curbs (step climb/block),
-// stairs (sloped colliders up/down), belowGround (drops + every walker trajectory).
+// Checks: format, seams, holes, building walkers, curb climbs, stair flights,
+// the shared game car, and below-ground samples from all walker trajectories.
 
 import { readFileSync } from 'node:fs';
 import { collectColFiles, tileConsistency } from './tileChecks.ts';
@@ -16,8 +16,11 @@ import { CHECKS, type CheckName, type Options } from './options.ts';
 export { CHECKS, DEFAULT_OPTIONS, type CheckName, type Options } from './options.ts';
 import { FootprintIndex, loadFootprints, loadLines, mulberry32, ringOrientation } from './geo.ts';
 import type { Footprint } from './geo.ts';
+import { checkSeams } from './seams.ts';
+import { checkCars } from './car.ts';
+import { resolveInputs } from './inputs.ts';
 
-const TILE = 62.5;
+export const TILE = 62.5;
 type Status = 'pass' | 'fail' | 'skipped';
 interface Loaded {
   file: string;
@@ -29,18 +32,32 @@ interface Loaded {
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
 export async function validate(opts: Options): Promise<any> {
+  opts = resolveInputs(opts);
+  const files = collectColFiles(opts.inputs);
+  if ((opts.workers ?? 4) > 1 && files.length > 2) {
+    const { validateParallel } = await import('./parallel.ts');
+    return validateParallel(opts, files);
+  }
+  return validateSerial(opts);
+}
+
+export async function validateSerial(opts: Options): Promise<any> {
+  opts = resolveInputs(opts);
   const t0 = performance.now();
+  const cpuStart = process.threadCpuUsage();
   await RAPIER.init();
   await MeshoptDecoder.ready;
   const want = new Set<CheckName>(opts.checks ?? CHECKS);
+  const physics = [...want].some(c => c !== 'format' && c !== 'seams');
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   const files = collectColFiles(opts.inputs);
   const report: any = {
     validator: 'turku3d-col-validator',
-    reportVersion: 1,
+    reportVersion: 2,
     rapier: RAPIER.version(),
     started: new Date().toISOString(),
-    options: { ...opts, kcc: { ...opts.kcc } },
+    options: { ...opts, metadata: undefined, kcc: { ...opts.kcc } },
+    sources: opts.metadata!.sources,
     tiles: [] as any[],
     checks: {} as Record<string, any>,
   };
@@ -59,9 +76,10 @@ export async function validate(opts: Options): Promise<any> {
       continue;
     }
     const errs = [...checkShippable(tile), ...tileConsistency(tile)];
-    const built = buildTileColliders(RAPIER, world, tile);
+    const built: BuiltTile = physics ? buildTileColliders(RAPIER, world, tile) : { tileId: tile.id, colliders: [], byHandle: new Map(), buildMs: 0 };
     Object.assign(entry, {
       id: tile.id,
+      bounds: [tile.header.origin[0], tile.header.origin[2], tile.header.origin[0] + TILE, tile.header.origin[2] + TILE],
       bytes: buf.byteLength,
       vertices: tile.header.vertexCount,
       triangles: tile.header.triangleCount,
@@ -85,17 +103,22 @@ export async function validate(opts: Options): Promise<any> {
   report.aoi = ctx.aoiDesc();
 
   if (want.has('format')) report.checks.format = { status: formatErrors.length ? 'fail' : 'pass', errors: formatErrors };
+  if (want.has('seams')) report.checks.seams = checkSeams(loaded.map(l => l.tile), TILE);
   if (want.has('holes')) report.checks.holes = ctx.checkHoles();
-  if (want.has('buildings')) report.checks.buildings = opts.footprints ? ctx.checkBuildings(loadFootprints(JSON.parse(readFileSync(opts.footprints, 'utf8')))) : { status: 'skipped', reason: 'no --footprints given' };
-  if (want.has('curbs')) report.checks.curbs = ctx.checkCurbs(opts.curbs ? JSON.parse(readFileSync(opts.curbs, 'utf8')) : undefined);
+  if (want.has('buildings')) report.checks.buildings = opts.metadata!.footprints.features.length ? ctx.checkBuildings(loadFootprints(opts.metadata!.footprints)) : { status: 'skipped', reason: 'no building footprints in layer outputs or --footprints' };
+  if (want.has('curbs')) report.checks.curbs = ctx.checkCurbs(opts.metadata!.curbs.features.length ? opts.metadata!.curbs : undefined);
   if (want.has('stairs')) report.checks.stairs = ctx.checkStairs();
+  if (want.has('cars')) report.checks.cars = ctx.checkCars();
   if (want.has('belowGround')) report.checks.belowGround = ctx.checkBelowGround();
 
   ctx.walker.free();
+  world.free();
   const statuses = Object.values(report.checks).map((c: any) => c.status as Status);
   report.pass = !statuses.includes('fail');
   report.summary = Object.fromEntries(Object.entries(report.checks).map(([k, v]: [string, any]) => [k, v.status]));
   report.elapsedMs = Math.round(performance.now() - t0);
+  const cpu = process.threadCpuUsage(cpuStart);
+  report.cpuMs = (cpu.user + cpu.system) / 1000;
   return report;
 }
 
@@ -108,6 +131,7 @@ interface Station {
   low: number;
   high: number;
   step: number;
+  expectedStep?: number;
 }
 
 class Ctx {
@@ -168,12 +192,6 @@ class Ctx {
     return hit ? yFrom - hit.timeOfImpact : NaN;
   }
 
-  /** True when there is a solid directly above (x, y, z) within `dist` (i.e. under a roof). */
-  solidAbove(x: number, y: number, z: number, dist = 200): boolean {
-    const ray = new this.RAPIER.Ray({ x, y, z }, { x: 0, y: 1, z: 0 });
-    return !!this.world.castRay(ray, dist, false, this.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, SOLID_QUERY_FILTER, undefined, undefined, (c: any) => this.trimeshHandles.has(c.handle));
-  }
-
   /** Below ground = no solid surface at or under the feet (fell through), or far below the tiles. */
   isBelowGround(x: number, feetY: number, z: number): boolean {
     if (feetY < this.minY - 2) return true;
@@ -208,9 +226,19 @@ class Ctx {
     }
   }
 
+  owns(x: number, z: number) {
+    return !this.o.coreTile || (Math.floor(x / TILE) === this.o.coreTile[0] && Math.floor(z / TILE) === this.o.coreTile[1]);
+  }
+
+  sampleBounds(): [number, number, number, number] {
+    const c = this.o.coreTile;
+    return c ? [Math.max(this.aoi[0], c[0] * TILE), Math.max(this.aoi[1], c[1] * TILE),
+      Math.min(this.aoi[2], (c[0] + 1) * TILE), Math.min(this.aoi[3], (c[1] + 1) * TILE)] : this.aoi;
+  }
+
   // ------------------------------------------------------------------------------ holes
   checkHoles() {
-    const [x0, z0, x1, z1] = this.aoi;
+    const [x0, z0, x1, z1] = this.sampleBounds();
     const step = Math.sqrt(1 / this.o.rayDensity);
     let rays = 0, misses = 0;
     const samples: any[] = [];
@@ -221,7 +249,7 @@ class Ctx {
         rays++;
         if (!Number.isFinite(this.surfaceY(jx, jz, this.maxY + 20, true))) {
           misses++;
-          if (samples.length < this.o.maxSamples) samples.push([r3(jx), r3(jz)]);
+          if (samples.length < this.o.maxSamples) samples.push([jx, jz]);
         }
       }
     return { status: misses === 0 && rays > 0 ? 'pass' : 'fail', rays, raySpacing: r3(step), misses, missSamples: samples };
@@ -232,7 +260,7 @@ class Ctx {
     const idx = new FootprintIndex(fps);
     const usable = fps.filter((f) => {
       const [x0, z0, x1, z1] = f.bbox;
-      return this.inside((x0 + x1) / 2, (z0 + z1) / 2);
+      return this.inside((x0 + x1) / 2, (z0 + z1) / 2) && this.owns((x0 + x1) / 2, (z0 + z1) / 2);
     });
     if (!usable.length) return { status: 'skipped', reason: 'no footprint inside the loaded tiles', footprints: fps.length };
     const k = this.o.kcc;
@@ -240,17 +268,19 @@ class Ctx {
     let insideAny = 0, insideEnd = 0, started = 0, rejected = 0;
     const samples: any[] = [];
     const perFp = new Map<string, number>();
+    const testedFootprints = new Set<string>();
     for (let n = 0; n < this.o.walkers; n++) {
       let s: any = null;
-      for (let tries = 0; tries < 30 && !s; tries++) s = this.walkerStart(usable, idx);
+      for (let tries = 0; tries < 30 && !s; tries++) s = this.walkerStart([usable[n % usable.length]], idx);
       if (!s) { rejected++; continue; }
       started++;
+      testedFootprints.add(usable[n % usable.length].id);
       const w = this.walker;
       w.place(s.x, s.ground, s.z);
       let hitInside = false;
       const isInside = () => {
         const f = idx.containing(w.x, w.z, 0.05);
-        return f && this.solidAbove(w.x, w.y, w.z) ? f : undefined;
+        return f && w.feetY < s.ground + 1.8 ? f : undefined;
       };
       this.simulate(frames, () => [s.vx, s.vz], () => {
         const f = isInside();
@@ -264,7 +294,8 @@ class Ctx {
       if (isInside()) insideEnd++;
     }
     return {
-      status: insideAny === 0 && insideEnd === 0 && started > 0 ? 'pass' : 'fail',
+      status: insideAny === 0 && insideEnd === 0 && started > 0 && testedFootprints.size === usable.length ? 'pass' : 'fail',
+      untestedFootprints: usable.filter(f => !testedFootprints.has(f.id)).map(f => ({ id: f.id, at: [(f.bbox[0] + f.bbox[2]) / 2, (f.bbox[1] + f.bbox[3]) / 2] })),
       footprints: fps.length,
       walkers: started,
       rejectedStarts: rejected,
@@ -310,8 +341,8 @@ class Ctx {
   }
 
   // ------------------------------------------------------------------------------ curbs
-  curbStationsFromTiles(): Station[] {
-    const mats = new Set<number>([MAT.curb, MAT.quay, MAT.wall]);
+  curbStationsFromTiles(midpoints = false, barriers = false): Station[] {
+    const mats = new Set<number>(barriers ? [MAT.quay, MAT.wall] : [MAT.curb]);
     const out: Station[] = [];
     const seen = new Set<string>();
     const sp = this.o.curbSpacing;
@@ -337,23 +368,43 @@ class Ctx {
         const tx = -hz, tz = hx; // along the face
         const s = v.map((p) => p[0] * tx + p[2] * tz);
         const smin = Math.min(...s), smax = Math.max(...s);
-        if (smax - smin < 0.6) continue;
+        if (smax <= smin) continue;
         const cx = (v[0][0] + v[1][0] + v[2][0]) / 3, cz = (v[0][2] + v[1][2] + v[2][2]) / 3;
         const dc = cx * hx + cz * hz; // face line offset
-        const first = Math.ceil((smin + 0.5) / sp) * sp;
-        for (let q = first; q <= smax - 0.5; q += sp) {
+        const first = midpoints || smax - smin < sp + 1 ? (smin + smax) / 2 : Math.ceil((smin + 0.5) / sp) * sp;
+        for (let q = first; q <= Math.max(first, smax - 0.5); q += midpoints ? smax - smin + 1 : sp) {
           const x = q * tx + dc * hx, z = q * tz + dc * hz;
           const key = `${Math.round(x / (sp / 2))},${Math.round(z / (sp / 2))},${Math.round(Math.atan2(hz, hx) * 8 / Math.PI)}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          out.push(this.measureStation(`${tile.id}:${MATERIALS[m].name}`, x, z, hx, hz));
+          const station = this.measureStation(`${tile.id}:${MATERIALS[m].name}`, x, z, hx, hz);
+          if (barriers) { station.high = Math.max(...v.map(p => p[1])); station.step = station.high - station.low; }
+          out.push(station);
         }
+      }
+    }
+    if (barriers) for (const { tile } of this.loaded) for (const p of tile.primitives) {
+      if (p.kind !== 1 || (p.material !== MAT.wall && p.material !== MAT.quay)) continue;
+      const [qx, qy, qz, qw] = p.rotation;
+      const rotate = (x: number, y: number, z: number) => {
+        const tx = 2 * (qy * z - qz * y), ty = 2 * (qz * x - qx * z), tz = 2 * (qx * y - qy * x);
+        return [x + qw * tx + qy * tz - qz * ty, y + qw * ty + qz * tx - qx * tz, z + qw * tz + qx * ty - qy * tx];
+      };
+      for (const [nx, nz, extent] of [[1, 0, p.params[0]], [-1, 0, p.params[0]], [0, 1, p.params[2]], [0, -1, p.params[2]]]) {
+        const n = rotate(nx, 0, nz), offset = rotate(nx * extent, 0, nz * extent);
+        const x = tile.header.origin[0] + p.center[0] + offset[0], z = tile.header.origin[2] + p.center[2] + offset[2];
+        const length = Math.hypot(n[0], n[2]);
+        if (!length) continue;
+        const station = this.measureStation(`${tile.id}:${MATERIALS[p.material].name}`, x, z, n[0] / length, n[2] / length);
+        station.high = tile.header.origin[1] + p.center[1] + p.params[1];
+        station.step = station.high - station.low;
+        out.push(station);
       }
     }
     return out;
   }
 
-  curbStationsFromLines(fc: any): Station[] {
+  curbStationsFromLines(fc: any, midpoints = false): Station[] {
     const out: Station[] = [];
     const sp = this.o.curbSpacing;
     for (const line of loadLines(fc)) {
@@ -361,14 +412,14 @@ class Ctx {
       for (let i = 0; i + 1 < pts.length; i++) {
         const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
         const L = Math.hypot(bx - ax, bz - az);
-        if (L < 0.6) continue;
+        if (L === 0) continue;
         const ex = (bx - ax) / L, ez = (bz - az) / L;
-        for (let d = Math.min(0.5, L / 2); d <= L - 0.5 + 1e-9; d += sp) {
+        for (let d = midpoints ? L / 2 : Math.min(0.5, L / 2); d <= Math.max(L / 2, L - 0.5) + 1e-9; d += midpoints ? L + 1 : sp) {
           const x = ax + ex * d, z = az + ez * d;
           let nx = ez, nz = -ex;
           const a = this.surfaceY(x + nx * 0.6, z + nz * 0.6), b = this.surfaceY(x - nx * 0.6, z - nz * 0.6);
           if (a > b) { nx = -nx; nz = -nz; }
-          out.push(this.measureStation(line.id, x, z, nx, nz));
+          out.push({ ...this.measureStation(line.id, x, z, nx, nz), expectedStep: line.height });
         }
       }
     }
@@ -386,21 +437,21 @@ class Ctx {
   }
 
   checkCurbs(lines?: any) {
-    const stations = (lines ? this.curbStationsFromLines(lines) : this.curbStationsFromTiles()).filter((s) => this.inside(s.x, s.z, 1.5));
+    const stations = (lines ? this.curbStationsFromLines(lines) : this.curbStationsFromTiles()).filter((s) => this.inside(s.x, s.z, 1.5) && this.owns(s.x, s.z));
     const k = this.o.kcc;
     let climbExpected = 0, climbed = 0, blockExpected = 0, blocked = 0, info = 0, flush = 0, invalid = 0;
     const failures: any[] = [];
     const results: any[] = [];
     for (const st of stations) {
-      if (!Number.isFinite(st.step)) { invalid++; continue; }
-      if (st.step < 0.03) { flush++; continue; }
-      const expect = st.step <= this.o.climbRequired ? 'climb' : st.step >= this.o.blockRequired ? 'block' : 'info';
+      if (!Number.isFinite(st.step)) { invalid++; if (failures.length < this.o.maxSamples) failures.push({ source: st.source, x: st.x, z: st.z, reason: 'missing curb surface' }); continue; }
+      if (st.step < 0.03 && (st.expectedStep === undefined || st.expectedStep < 0.03)) { flush++; continue; }
+      const expect = (st.expectedStep ?? st.step) <= this.o.climbRequired ? 'climb' : st.step >= this.o.blockRequired ? 'block' : 'info';
       const sx = st.x + st.nx * 1.0, sz = st.z + st.nz * 1.0;
       const per: any = { source: st.source, x: r3(st.x), z: r3(st.z), step: r3(st.step), expect, speeds: {} };
-      let ok = true;
+      let ok = st.expectedStep === undefined || Math.abs(st.step - st.expectedStep) < 0.03;
       for (const v of this.o.curbSpeeds) {
         const g = this.surfaceY(sx, sz);
-        if (!Number.isFinite(g) || !this.capsuleFree(sx, g + k.halfHeight + k.radius + 0.05, sz)) { per.speeds[v] = 'no-start'; continue; }
+        if (!Number.isFinite(g) || !this.capsuleFree(sx, g + k.halfHeight + k.radius + 0.05, sz)) { per.speeds[v] = 'no-start'; ok = false; continue; }
         this.walker.place(sx, g, sz);
         const frames = Math.round(Math.max(2.5, 3.0 / v) * 60);
         let crossed = false;
@@ -413,8 +464,8 @@ class Ctx {
         if (expect === 'block' && crossed) ok = false;
       }
       const outcomes = Object.values(per.speeds).filter((s) => s !== 'no-start');
-      if (!outcomes.length) { invalid++; continue; }
-      per.ok = expect === 'info' ? null : ok;
+      if (!outcomes.length) { invalid++; if (failures.length < this.o.maxSamples) failures.push({ ...per, ok: false, reason: 'no usable walker approach' }); continue; }
+      per.ok = expect === 'info' && ok ? null : ok;
       if (expect === 'climb') { climbExpected++; if (ok) climbed++; }
       else if (expect === 'block') { blockExpected++; if (ok) blocked++; }
       else info++;
@@ -443,7 +494,7 @@ class Ctx {
       for (const o of Object.values(r.speeds) as string[]) b.outcomes[o] = (b.outcomes[o] ?? 0) + 1;
     }
     return {
-      status: tested === 0 ? 'skipped' : climbed === climbExpected && blocked === blockExpected ? 'pass' : 'fail',
+      status: invalid || failures.length ? 'fail' : tested === 0 ? 'skipped' : climbed === climbExpected && blocked === blockExpected ? 'pass' : 'fail',
       mode: lines ? 'lines' : 'tiles',
       thresholds: { climbRequired: this.o.climbRequired, blockRequired: this.o.blockRequired, speeds: this.o.curbSpeeds },
       stations: stations.length,
@@ -463,6 +514,17 @@ class Ctx {
   // ------------------------------------------------------------------------------ stairs
   checkStairs() {
     const flights: any[] = [];
+    for (const f of this.o.metadata!.stairs) {
+      const [bx, by, bz] = f.bottom, [tx, ty, tz] = f.top;
+      if (!this.owns((bx + tx) / 2, (bz + tz) / 2) || !this.inside((bx + tx) / 2, (bz + tz) / 2)) continue;
+      const length = Math.hypot(tx - bx, tz - bz);
+      if (!length) { flights.push({ id: f.id, ok: false, reason: 'zero stair run' }); continue; }
+      const dx = -(tz - bz) / length * f.width / 2, dz = (tx - bx) / length * f.width / 2;
+      const a = [bx + dx, by, bz + dz], b = [bx - dx, by, bz - dz];
+      const c = [tx - dx, ty, tz - dz], d = [tx + dx, ty, tz + dz];
+      flights.push(this.testFlight(f.id, [[a, b, c], [a, c, d]]));
+    }
+    if (this.o.metadata!.stairs.length) return { status: flights.some(f => !f.ok) ? 'fail' : flights.length ? 'pass' : 'skipped', count: flights.length, failed: flights.filter(f => !f.ok).length, flights, mode: 'layer-list' };
     for (const { tile } of this.loaded) {
       const [ox, oy, oz] = tile.header.origin;
       const P = tile.positions, I = tile.indices;
@@ -482,6 +544,8 @@ class Ctx {
       }))));
     }
     if (!flights.length) return { status: 'skipped', reason: 'no stair_slope triangles', flights: [] };
+    const owned = flights.filter(f => this.owns((f.bottom[0] + f.top[0]) / 2, (f.bottom[1] + f.top[1]) / 2));
+    flights.splice(0, flights.length, ...owned);
     const bad = flights.filter((f) => !f.ok);
     return { status: bad.length ? 'fail' : 'pass', count: flights.length, failed: bad.length, flights };
   }
@@ -537,13 +601,32 @@ class Ctx {
       top: at(smax).map(r3),
       up,
       down,
-      ok: up.result === 'ok' && down.result === 'ok',
+      ok: up.result === 'ok' && down.result === 'ok' && !slopeFlag,
     };
+  }
+
+  checkCars() {
+    const lines = this.o.metadata!.curbs;
+    const stations = lines.features.length ? this.curbStationsFromLines(lines, true) : this.curbStationsFromTiles(true);
+    const curbs = stations.filter(s => this.owns(s.x, s.z) && this.inside(s.x, s.z) && (!Number.isFinite(s.step) || s.step <= 1));
+    const barriers = [...this.curbStationsFromTiles(true, true), ...stations.filter(s => s.step > 1)].filter(s => this.owns(s.x, s.z) && this.inside(s.x, s.z) && s.step > 0.35);
+    for (const f of loadFootprints(this.o.metadata!.footprints)) {
+      const ring = f.rings[0], orient = ringOrientation(ring);
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (!length) continue;
+        const x = (a[0] + b[0]) / 2, z = (a[1] + b[1]) / 2;
+        if (!this.owns(x, z) || !this.inside(x, z)) continue;
+        barriers.push(this.measureStation(f.id, x, z, orient * (b[1] - a[1]) / length, -orient * (b[0] - a[0]) / length));
+      }
+    }
+    return checkCars(this.RAPIER, this.world, curbs, barriers, (x, z) => this.surfaceY(x, z));
   }
 
   // ------------------------------------------------------------------------------ below ground
   checkBelowGround() {
-    const [x0, z0, x1, z1] = this.aoi;
+    const [x0, z0, x1, z1] = this.sampleBounds();
     const sp = this.o.dropSpacing;
     let drops = 0, voids = 0;
     const voidSamples: any[] = [];

@@ -20,13 +20,14 @@ col-fixtures: col-deps ## Regenerate the synthetic validator fixtures in tools/v
 col-test-py: col-deps ## Python writer/reader/codec/fixture tests (pytest)
 	cd $(REPO)/pipeline && $(PIPELINE_PY) -m pytest -q turku3d/col/tests
 
-col-typecheck: col-deps ## tsc --noEmit over game/src/shared/col + tools/validator
+col-typecheck: col-deps game-install ## tsc --noEmit over game/src/shared/col + tools/validator
 	cd $(VALIDATOR) && npx tsc -p tsconfig.json
 
 col-test-ts: col-deps col-typecheck ## Python->TS round trip, KCC behaviour and fixture pass/fail tests (node --test)
 	rm -rf $(COL_RT_DIR)
 	cd $(REPO)/pipeline && $(PIPELINE_PY) -m turku3d.col.roundtrip --out $(COL_RT_DIR)
 	cd $(VALIDATOR) && COL_RT_DIR=$(COL_RT_DIR) node --test --test-concurrency=1 test/roundtrip.test.ts test/kcc.test.ts test/fixtures.test.ts
+	cd $(VALIDATOR) && COL_RT_DIR=$(COL_RT_DIR) node --test --test-concurrency=1 test/roundtrip.test.ts test/kcc.test.ts test/fixtures.test.ts test/acceptance.test.ts
 
 col-test: col-test-py col-test-ts ## All .col + validator tests
 
