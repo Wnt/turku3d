@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Turku props layer QA</title>
+<style>body{margin:0;background:#d8e2e7;font:16px system-ui;color:#17323d}canvas{display:block}header{position:absolute;top:24px;left:30px;background:#fffE;padding:18px 24px;border-radius:8px;max-width:880px}h1{font-size:28px;margin:0 0 6px}p{margin:0;line-height:1.6}#labels{position:absolute;bottom:20px;left:30px;background:#fffE;padding:12px 20px;border-radius:8px}</style>
+<script type="importmap">{"imports":{"three":"/three/build/three.module.js","three/addons/":"/three/examples/jsm/"}}</script>
+<header><h1>Turku / Street furniture</h1><p id="description"></p></header><div id="labels"></div>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const scene=new THREE.Scene(); scene.background=new THREE.Color('#d8e2e7');
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(1);renderer.setClearColor('#d8e2e7');document.body.appendChild(renderer.domElement);
+renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;
+const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,2000);
+scene.add(new THREE.HemisphereLight('#fff9e8','#627f87',2));const sun=new THREE.DirectionalLight('#fff7e0',1.8);sun.position.set(-50,100,80);scene.add(sun);
+const config=await (await fetch('/scene.json')).json();const catalog=new URLSearchParams(location.search).has('catalog');
+const loader=new GLTFLoader();for(const name of (catalog?['catalog.glb']:config.tiles)){const gltf=await loader.loadAsync('/layer/'+name);scene.add(gltf.scene);}
+const grid=new THREE.GridHelper(catalog?90:650,catalog?45:26,'#839ca5','#b7c9ce');scene.add(grid);grid.position.set(catalog?12:250,-.02,catalog?5:250);
+const controls=new OrbitControls(camera,renderer.domElement);
+if(catalog){camera.position.set(15,11,24);controls.target.set(12,1,-2);document.querySelector('#description').textContent='Procedural model catalogue · original CC0 geometry · shared glTF meshes';document.querySelector('#labels').textContent='Back: Finnish sign faces E1, E2, C37, C38, B5, D3.1, E6, H20 · Front: bench, bin, bollard, rack, bike station, meter, lamp, stop, post';}
+else {camera.position.set(240,470,650);controls.target.set(240,0,245);document.querySelector('#description').textContent=`Actual city-register placements · ${config.metrics.objects} objects · ${config.metrics.triangles.toLocaleString()} triangles · ${(config.metrics.visual_bytes/1048576).toFixed(2)} MiB source GLB`;document.querySelector('#labels').textContent='Props-only QA view · EPSG:3877 → engine metres · heights from ground lidar · buildings and street surfaces omitted';}
+if(new URLSearchParams(location.search).has('detail')){const p=config.focus; camera.position.set(p.x+Math.sin(p.yaw)*10+4,p.y+6,p.z+Math.cos(p.yaw)*12);controls.target.set(p.x,p.y+1,p.z);document.querySelector('#description').textContent='Office riverside · actual register placement '+p.object_id;document.querySelector('#labels').textContent='Props-only close view · ground surface omitted · base height '+p.y.toFixed(2)+' m N2000';}controls.update();renderer.render(scene,camera);window.__propsReady=true;window.__propsStats={calls:renderer.info.render.calls,triangles:renderer.info.render.triangles};
+renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+</script></html>

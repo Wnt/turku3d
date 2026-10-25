@@ -1,0 +1,155 @@
+"""Tiny fixtures for register classification, transforms, ownership and instance reuse."""
+
+import math
+
+import numpy as np
+import pytest
+from shapely.geometry import LineString
+from shapely.strtree import STRtree
+from turku3d import config as C
+from turku3d.layers import read_collision, read_manifest, read_visual
+from turku3d.package.gltf import accessor_array, read_glb
+from turku3d.props import Prop, classify, face_road, primitives, publish
+from turku3d.props.models import SUPPORTED_SIGNS, atlas, model
+
+
+@pytest.mark.parametrize(
+    ("label", "kind"),
+    [
+        ("Kiintopenkki", "bench"),
+        ("Roskakori", "bin"),
+        ("Pollari", "bollard"),
+        ("Polkupyöräteline", "bike_rack"),
+        ("Unknown", "post"),
+    ],
+)
+def test_classification(label, kind):
+    assert classify({"Varustelaji": label}) == kind
+
+
+def test_road_facing_and_collision_rotation():
+    yaw, source = face_road(5, 5, STRtree([LineString([(10, 0), (10, 20)])]))
+    assert source == "nearest_road"
+    assert yaw == pytest.approx(math.pi / 2)
+    p = Prop("bench", "bench", 5, 3, 5, yaw)
+    collision = primitives(p)
+    assert collision["kind"].tolist() == ["box", "box"]
+    assert collision[1]["center"] == pytest.approx([4.76, 3.73, 5])
+    assert collision[0]["yaw"] == pytest.approx(yaw)
+
+
+def test_boundary_ownership_and_shared_mesh_roundtrip(tmp_path):
+    props = [
+        Prop("one", "bench", 62.49, 4, 3),
+        Prop("two", "bench", 62.51, 5, 3),
+        Prop("edge", "lamp", 250, 6, 250),
+        Prop("negative", "post", -0.01, 4, -0.01),
+    ]
+    root = tmp_path / "props"
+    metrics = publish(props, root, {}, {})
+    manifest = read_manifest(root)
+    assert metrics["objects"] == 4
+    assert len(manifest["tiles"]) == 7
+    a = read_collision(root / "c_0_0.col.npz")
+    b = read_collision(root / "c_1_0.col.npz")
+    assert len(a.primitives) == len(b.primitives) == 2
+    assert a.positions.shape == (0, 3)
+    js, blob = read_glb(read_visual(root / "t0_0_0.vis.glb"))
+    assert len(js["meshes"]) == 1
+    nodes = js["nodes"][1:]
+    assert [n["mesh"] for n in nodes] == [0, 0]
+    assert nodes[0]["translation"] == [62.49, 4, 3]
+    assert nodes[1]["extras"]["object_id"] == "two"
+    pos = accessor_array(js, blob, js["meshes"][0]["primitives"][0]["attributes"]["POSITION"])
+    assert pos[:, 0].max() == pytest.approx(0.9)
+    assert metrics["collision_primitives"] == 6
+    # Re-publication with fewer objects must not expose old files in the manifest.
+    publish(props[:1], root, {}, {})
+    assert set(read_manifest(root)["tiles"]) == {"t0_0_0.vis.glb", "c_0_0.col.npz"}
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "bench",
+        "bin",
+        "bollard",
+        "bike_rack",
+        "bike_station",
+        "parking_meter",
+        "lamp",
+        "bus_stop",
+        "sign",
+        "post",
+    ],
+)
+def test_models_have_finite_non_degenerate_geometry(kind):
+    m = model(kind, "E2" if kind == "sign" else "")
+    assert np.isfinite(m.positions).all()
+    assert len(m.indices) < 1000
+    tri = m.positions[m.indices]
+    assert (
+        np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) > 0
+    ).all()
+    assert len(primitives(Prop("p", kind, 0, 0, 0))) > 0
+
+
+def test_sign_faces_are_distinct_embedded_pngs():
+    faces = [atlas(code) for code in sorted(SUPPORTED_SIGNS)]
+    assert len(set(faces)) == len(SUPPORTED_SIGNS)
+    assert all(face.startswith(b"\x89PNG") for face in faces)
+
+
+def test_register_ingestion_and_missing_optional_sources(tmp_path, monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import Point
+    from turku3d.props import read_sources
+
+    monkeypatch.setattr(C, "data_root", lambda: tmp_path)
+    root = tmp_path / "raw/wfs/work-3x3"
+    root.mkdir(parents=True)
+
+    def write(name, records, points):
+        frame = gpd.GeoDataFrame(records, geometry=points, crs=C.CRS_HORIZONTAL)
+        frame["geometry_local"] = gpd.GeoSeries(points, crs=C.CRS_HORIZONTAL)
+        frame.to_parquet(root / (name + ".parquet"))
+
+    write(
+        "GIS_Varusteet",
+        [
+            dict(Id="a", feature_key="a", Tyyppi="Penkki"),
+            dict(Id="b", feature_key="b", Tyyppi="Penkki"),
+        ],
+        [Point(10, 10, 80), Point(10, 10, 80)],
+    )
+    write(
+        "GIS_Liikennemerkit",
+        [
+            dict(Id="s", feature_key="s", Varustelaji_koodi="E6"),
+            dict(Id="u", feature_key="u", Varustelaji_koodi="XYZ"),
+        ],
+        [Point(15, 15), Point(20, 20)],
+    )
+    write("kanta_Pysakki", [dict(feature_key="stop")], [Point(15.1, 15.1)])
+    props, inputs, meta = read_sources(C.BBoxLocal(0, 0, 25, 25))
+    assert [p.kind for p in props] == ["sign", "post", "bench"]
+    assert props[1].code == "XYZ"
+    assert props[2].y == 0  # register point Z must not become a ground elevation
+    assert meta["skipped"]["duplicates"] == meta["skipped"]["duplicate_stop"] == 1
+    assert "kanta_Sahkoverkonosa.parquet" in meta["missing_sources"]
+    assert len(inputs) == 3
+    assert all(p.orientation == "no_road_default" for p in props)
+
+
+def test_ground_interpolation_and_unsupported_distance():
+    from scipy.spatial import cKDTree
+    from turku3d.props import GroundHeights
+
+    ground = GroundHeights.__new__(GroundHeights)
+    ground.points = np.array([[0, 3, 0], [2, 3, 0], [0, 3, 2], [2, 3, 2]], dtype=float)
+    ground.tree = cKDTree(ground.points[:, [0, 2]])
+    height, distance = ground.at(1, 1)
+    assert height == pytest.approx(3)
+    assert distance == pytest.approx(2**0.5)
+    with pytest.raises(ValueError, match="No ground sample"):
+        ground.at(40, 40)
