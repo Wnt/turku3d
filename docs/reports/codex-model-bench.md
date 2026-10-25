@@ -121,21 +121,13 @@ is claimed. Image experiments require renewed user authorization before running.
 The scoped gate passed all seven selected stages in 38.614 s, with serialized stages, two pytest
 workers and at most three tooling workers. New coverage exercises route switching, explicit
 CLI precedence over environment, fallback routing and the 95% budget boundary. A final gate
-run is recorded below. Reproduction uses the normal gate implementation with reduced concurrency:
+run is recorded below. Reproduction after integrating the shared worker controls uses the normal gate:
 
 ```sh
 source ../sandbox.env
 scripts/dev/codex-cost --by job_type
-PYTHONPATH=scripts/dev TURKU3D_JOBS=3 .venv/bin/python - <<'PYCODE'
-from pathlib import Path
-import tomllib
-import gate_lib
-root = Path.cwd()
-config = tomllib.loads((root / 'scripts/dev/gate.toml').read_text())
-config['gate']['workers'] = 1
-config['gate']['python_workers'] = 2
-raise SystemExit(gate_lib.run_gate(root, config, gate_lib.changes(root, 'main'), as_json=True))
-PYCODE
+scripts/dev/wt sync-env
+TURKU3D_JOBS=3 scripts/dev/gate --json
 ```
 
 ## Follow-ups
@@ -146,7 +138,14 @@ PYCODE
    beyond the eight 2D stress cases before unattended acceptance.
 3. Only after renewed authorization, run the four-facade improve lever comparisons and Astra
    reference assessments; keep these separate from the completed zero-image emergency pilot.
-4. At integration retain the load-robust gate owner's richer shared `TURKU3D_JOBS` implementation
-   if it overlaps the local tooling-test worker cap.
+The final rebase retained the load-robust gate owner's shared worker-pool implementation.
+`scripts/dev/wt sync-env` passed in 8.473 s on that revision.
 
 Final scoped gate: **GREEN**, seven selected stages, **25.802 s**. Evidence: `$TURKU3D_WORK/reports/costbench/gate-v2-final.json`.
+
+Post-rebase verification: `scripts/dev/wt sync-env` passed in **8.473 s**.
+`TURKU3D_JOBS=3 scripts/dev/gate --json` is **GREEN**, eight selected stages including
+environment sync, **7.788 s** (three unchanged stages used the owner's PASS-only cache).
+The initial post-rebase gate exposed a test hard-coding Astra as QA default; it now asserts
+that the QA runner reads a temporary routing configuration, retaining quota and image-order
+assertions. Evidence: `$TURKU3D_WORK/reports/costbench/gate-v2-rebased-final.json`.

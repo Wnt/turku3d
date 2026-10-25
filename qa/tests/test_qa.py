@@ -194,10 +194,15 @@ def test_judge_prompt_and_quota_guard(monkeypatch, tmp_path):
         with pytest.raises(j.QuotaError):
             j.judge(a, a, cap=100)
     assert called == []  # codex never invoked
+    config = tmp_path / "routing.toml"
+    config.write_text(
+        '[default]\nmodel="fallback"\neffort="medium"\n[qa]\nmodel="configured-qa"\neffort="low"\n'
+    )
+    monkeypatch.setenv("TURKU3D_CODEX_ROUTING", str(config))
     d = j.judge(a, a, dry_run=True)
     cmd = d["cmd"]
     assert (
-        cmd[:4] == ["codex", "exec", "-m", "gpt-6-astra"]
+        cmd[:4] == ["codex", "exec", "-m", "configured-qa"]
         and "read-only" in cmd
         and "--output-schema" in cmd
     )

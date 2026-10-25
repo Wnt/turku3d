@@ -482,7 +482,7 @@ response budgets are explicit perf tests outside the functional gate.
 `codex-task` records each completed/failed turn while streaming events, with distinct identities
 across resumes. Texture attempts and QA judge attempts use the same append-only ledger at
 `~/turku3d/ledger/codex-calls.jsonl`; tests set `TURKU3D_CODEX_LEDGER` to an isolated file.
-Model defaults come from `textures/codex-routing.toml`; task effort remains explicit.
+Model and effort defaults come from `textures/codex-routing.toml`; explicit task flags override them.
 
 ```sh
 source ../sandbox.env
@@ -524,4 +524,5 @@ Precedence: explicit `--model` / `--effort`, then `TURKU3D_CODEX_MODEL` /
 selects the task route when `--route` is omitted. `TURKU3D_CODEX_ROUTING` selects an
 alternate TOML file. Explicit route changes reset inherited model/effort to that route's
 configuration. Environment model/effort overrides also apply to texture and QA runners.
-Tooling tests use at most three workers (`TURKU3D_JOBS` may reduce this).
+Set `TURKU3D_JOBS=3` to bound tooling tests to three workers; the shared resource helper
+controls the default and all worker pools.
