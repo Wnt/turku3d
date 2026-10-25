@@ -39,7 +39,7 @@ Vitest uses `related --run`; deleted sources and dependency/config changes use t
 Validator Node tests remain Node tests, preserving their cross-language round-trip coverage.
 
 Playwright paths are explicitly tagged in the table. Specs use `@walk`, `@drive`, `@render`,
-`@qa` and `@pipeline`; the table's `related.tags` selects the affected subsets. A new/unmapped
+`@qa`, `@input` and `@pipeline`; the table's `related.tags` selects the affected subsets. A new/unmapped
 browser trigger selects all specs. Both WebGPU and WebGL2 run. The pipeline browser fixture is
 built from synthetic points and a deterministic RGB texture, without reading raw data.
 The long browser stage is deliberately excluded from ordinary pure-core/unit changes.

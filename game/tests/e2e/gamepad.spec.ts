@@ -25,7 +25,7 @@ async function button(page: Page, index: number, value: number) {
 }
 const state = (page: Page) => page.evaluate(() => (window as any).__game.state());
 
-test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', async ({ page }, info) => {
+test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ["@input", "@walk"] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704260'); // x168,z240, 2m south of curb
   const initial = await state(page);
   await axes(page, 0, -0.5);
@@ -67,7 +67,7 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   expect((await state(page)).errors).toEqual([]);
 });
 
-test('virtual Xbox: ascend and descend slope stairs with feet on query treads', async ({ page }, info) => {
+test('virtual Xbox: ascend and descend slope stairs with feet on query treads', { tag: ["@input", "@walk"] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459631,6704279'); // x131,z221
   await page.evaluate(() => {
     (window as any).__footSamples = [];
@@ -111,7 +111,7 @@ test('virtual Xbox: ascend and descend slope stairs with feet on query treads', 
   expect((await state(page)).errors).toEqual([]);
 });
 
-test('virtual Xbox: Y enters/exits, RT drives, LT reverses and RB brakes', async ({ page }, info) => {
+test('virtual Xbox: Y enters/exits, RT drives, LT reverses and RB brakes', { tag: ["@input", "@drive"] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704254');
   await axes(page, 1, 0);
   await page.waitForFunction(() => (window as any).__game.state().feet[0] > 170.8);

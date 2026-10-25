@@ -144,7 +144,7 @@ commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
 [[stages]]
 name = "game-e2e"
 kind = "e2e"
-triggers = ["game/src/main.ts", "game/src/render/*", "game/src/actors/*", "game/src/physics/worker.ts", "game/src/physics/client.ts", "game/src/world/tiles.ts", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/package/*"]
+triggers = ["game/src/main.ts", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/worker.ts", "game/src/physics/client.ts", "game/src/world/tiles.ts", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/package/*"]
 # Subsystem tags are declared on the specs; unmapped e2e triggers select all.
 [[stages.related]]
 paths = ["game/src/render/*", "qa/tests/golden_projection.json"]
@@ -152,3 +152,7 @@ tags = ["@render", "@qa"]
 [[stages.related]]
 paths = ["game/src/actors/*", "game/src/physics/*"]
 tags = ["@walk", "@drive"]
+
+[[stages.related]]
+paths = ["game/src/input/*"]
+tags = ["@input"]

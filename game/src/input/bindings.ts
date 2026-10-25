@@ -23,9 +23,9 @@ export const DEFAULT_BINDINGS: Bindings = {
   pause: [button(9), key('Escape')], vehicleReset: [key('KeyR')], hud: [key('KeyH')],
 };
 export const emptyActions = (): Actions => Object.fromEntries(ACTIONS.map(a => [a, 0])) as Actions;
-export interface Curve { deadZone: number; exponent: number }
+interface Curve { deadZone: number; exponent: number }
 export const MOVE_CURVE: Curve = { deadZone: 0.16, exponent: 1.35 };
-export const LOOK_CURVE: Curve = { deadZone: 0.12, exponent: 1.6 };
+const LOOK_CURVE: Curve = { deadZone: 0.12, exponent: 1.6 };
 export const clamp = (x: number, lo = -1, hi = 1) => Math.min(hi, Math.max(lo, Number.isFinite(x) ? x : 0));
 /** Circular dead zone, continuous at the edge, direction preserved even at diagonals. */
 export function radial(x: number, y: number, curve: Curve = MOVE_CURVE): [number, number] {
@@ -54,7 +54,7 @@ export function mapActions(pad: Gamepad | null, keys: ReadonlySet<string>, bindi
   if (length > 1) { out.moveX /= length; out.moveY /= length; }
   return out;
 }
-export const XBOX_BUTTONS = ['Ⓐ', 'Ⓑ', 'ⓧ', 'Ⓨ', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L3', 'R3', '↑', '↓', '←', '→', 'Xbox'];
+const XBOX_BUTTONS = ['Ⓐ', 'Ⓑ', 'ⓧ', 'Ⓨ', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L3', 'R3', '↑', '↓', '←', '→', 'Xbox'];
 export function glyph(action: Action, bindings: Bindings, gamepad: boolean): string {
   const b = bindings[action].find(b => gamepad ? b.kind !== 'key' : b.kind === 'key');
   if (!b) return '—';
