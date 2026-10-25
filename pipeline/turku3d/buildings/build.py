@@ -21,18 +21,17 @@ from turku3d.layers import CollisionLayer, write_manifest, write_visual
 
 from . import citygml, roofer
 from .facades import make_visuals, ortho_roof_key
-from .fallback import lidar_extrusion
+from .fallback import extrusion, lidar_extrusion, placeholder_extrusion
 from .height import overlap_points
 from .inputs import (
     attach_osm,
-    envelope,
     local_polygon,
     read_footprints,
     read_points,
     write_roofer_footprints,
 )
 from .select import choose
-from .tiles import collision_tiles
+from .tiles import collision_tiles, ownership_point
 
 
 def sha256(path):
@@ -47,7 +46,9 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
 
 
-def _publish(buildings, selected, records, output, streets, ortho_paths, inputs, params):
+def _publish(
+    buildings, selected, records, output, streets, ortho_paths, inputs, params, visual_tiles=None
+):
     """Failed quality remains explicit; products contain only valid closed shells."""
     output.mkdir(parents=True, exist_ok=True)
     visuals, features, files = defaultdict(list), [], []
@@ -61,17 +62,24 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
         record["roof"] = {"material_key": key, **color}
         record["semantics"] = building.properties
         meshes, facades = make_visuals(
-            building, shell, streets, [b.footprint for b in buildings], key
+            building,
+            shell,
+            streets,
+            [b.footprint for b in buildings],
+            key,
+            placeholder=record["choice"] == "placeholder",
         )
         # Whole objects are owned once by the tile containing their representative point.
         # Assembler uses actual mesh bounds for cross-tile culling.
-        point = building.footprint.representative_point()
+        point = ownership_point(building.footprint, visual_tiles)
         tile = C.VisualTile.at(point.x, point.y)
         visuals[tile.id].extend(meshes)
         features.extend(facades)
         accepted.append(shell)
     footprints = [b.footprint for b in buildings if b.id in selected]
-    for tid, arrays in collision_tiles(accepted, footprints, provenance=True).items():
+    for tid, arrays in collision_tiles(
+        accepted, footprints, provenance=True, visual_tiles=visual_tiles
+    ).items():
         name = tid + ".col.npz"
         # Keep per-triangle ownership for isolated walker validation.
         CollisionLayer(arrays["positions"], arrays["indices"], arrays["material"]).validate()
@@ -115,6 +123,9 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
         "shell_coverage_pass": len(selected) == len(buildings) > 0,
         "collision_building_ids": [b.id for b in buildings if b.id in selected],
         "fallback_count": sum(r.get("fallback") is not None for r in records),
+        "model_count": sum(r["choice"] in ("city", "roofer") for r in records),
+        "lidar_shell_count": sum(r["choice"] in ("lidar_extrusion", "lidar_flat") for r in records),
+        "placeholder_count": sum(r["choice"] == "placeholder" for r in records),
         "pass": bool(buildings) and all(r["pass"] for r in records),
         "buildings": records,
         "params": params,
@@ -174,12 +185,16 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
     return report
 
 
-def publish(buildings, selected, records, output, streets, ortho_paths, inputs, params):
+def publish(
+    buildings, selected, records, output, streets, ortho_paths, inputs, params, visual_tiles=None
+):
     """Prepare the complete layer before replacing any existing artifact."""
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".buildings-", dir=output.parent) as temporary:
         stage = Path(temporary) / "buildings"
-        report = _publish(buildings, selected, records, stage, streets, ortho_paths, inputs, params)
+        report = _publish(
+            buildings, selected, records, stage, streets, ortho_paths, inputs, params, visual_tiles
+        )
         output.mkdir(parents=True, exist_ok=True)
         previous = output / "MANIFEST.json"
         old = json.loads(previous.read_text()) if previous.exists() else {}
@@ -206,6 +221,12 @@ def main(argv=None):
         "--roofer-output", type=Path, help="Reuse an existing CityJSONSeq reconstruction"
     )
     ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument(
+        "--tiles",
+        nargs="+",
+        default=[t.id for t in C.OFFICE_BLOCK.visual_tiles],
+        help="L0 visual tiles to cover (default: the four office tiles)",
+    )
     args = ap.parse_args(argv)
     started = time.monotonic()
     cache = C.work_root() / "cache/buildings"
@@ -215,7 +236,20 @@ def main(argv=None):
         name: source / (name + ".parquet")
         for name in ["kanta_Rakennus", "bldg_Building_LOD2", "GIS_Keskilinjat"]
     }
-    buildings = read_footprints(paths["kanta_Rakennus"])
+    visual_tiles = [C.VisualTile.parse(tid) for tid in args.tiles]
+    if any(tile.level != 0 for tile in visual_tiles):
+        raise ValueError("building source tiles must be L0")
+    region = C.BBoxLocal(
+        min(t.bbox.xmin for t in visual_tiles),
+        min(t.bbox.zmin for t in visual_tiles),
+        max(t.bbox.xmax for t in visual_tiles),
+        max(t.bbox.zmax for t in visual_tiles),
+    )
+    buildings = read_footprints(paths["kanta_Rakennus"], region)
+    from shapely.geometry import box
+
+    tile_regions = [box(t.bbox.xmin, t.bbox.zmin, t.bbox.xmax, t.bbox.zmax) for t in visual_tiles]
+    buildings = [b for b in buildings if any(b.footprint.intersects(r) for r in tile_regions)]
     print(f"Footprints: {len(buildings)}", flush=True)
     if not buildings:
         raise ValueError("no AOI buildings")
@@ -229,10 +263,15 @@ def main(argv=None):
     laz = [
         C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz") for t in C.laz_tiles_for_bbox(bounds)
     ]
-    reconstruction = args.roofer_output or cache / "roofer"
+    footprint_key = hashlib.sha256(
+        b"".join(b.id.encode() + b.footprint.wkb for b in buildings)
+        + Path(roofer.__file__).read_bytes()
+        + json.dumps([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in laz]).encode()
+    ).hexdigest()[:20]
+    reconstruction = args.roofer_output or cache / "roofer" / footprint_key
     execution = reconstruction / "execution.json"
     command = json.loads(execution.read_text()).get("command") if execution.exists() else None
-    if args.roofer_output is None:
+    if args.roofer_output is None and not list(reconstruction.glob("*.city.jsonl")):
         footprints = cache / "footprints.gpkg"
         write_roofer_footprints(buildings, footprints)
         command = roofer.run(laz, footprints, reconstruction, args.jobs)
@@ -292,14 +331,39 @@ def main(argv=None):
                     "roofer": reconstructed.get(building.id, []),
                     "lidar_extrusion": surfaces,
                 }
+                if evidence.get("roof_shape") != "flat":
+                    alternatives["lidar_flat"] = extrusion(
+                        building.footprint, evidence["base_m"], evidence["roof_m"]
+                    )
                 shell, record = choose(building, alternatives, points[keep])
                 record["fallback"] = {
                     "reason": reason,
-                    "selected": record["choice"] == "lidar_extrusion",
+                    "selected": record["choice"] in ("lidar_extrusion", "lidar_flat"),
                     "height_evidence": evidence,
                 }
             except ValueError as exc:
                 record["fallback"] = {"reason": reason, "error": str(exc)}
+        if shell is None:
+            ground_points = None
+            if reconstruction_metadata.get(building.id, {}).get("rf_h_ground") is None:
+                from turku3d.lidar import TileStore
+
+                store = TileStore(
+                    source_dir=C.raw_dir("laz") / "pistepilvi",
+                    cache_dir=C.cache_dir("lidar"),
+                )
+                ground_points = store.query(
+                    C.BBoxLocal(x0 - 15, z0 - 15, x1 + 15, z1 + 15), classes=[2]
+                ).points
+            surfaces, evidence = placeholder_extrusion(
+                building, reconstruction_metadata.get(building.id, {}), ground_points
+            )
+            shell, record = choose(building, {"placeholder": surfaces}, points[keep])
+            record["fallback"] = {
+                "reason": "no_usable_model_or_lidar_shell",
+                "selected": shell is not None,
+                "height_evidence": evidence,
+            }
         record["shell_valid"] = shell is not None
         record["city_match"] = matches.get(building.id)
         record["roofer_metadata"] = reconstruction_metadata.get(building.id)
@@ -319,7 +383,8 @@ def main(argv=None):
         input_files.append(execution)
     inputs = {str(p): sha256(p) for p in input_files}
     params = {
-        "aoi_local": envelope().as_tuple(),
+        "aoi_local": region.as_tuple(),
+        "visual_tiles": args.tiles,
         "median_limit_m": 0.10,
         "p75_limit_m": 0.25,
         "residual_metric": "euclidean_point_to_shell",
@@ -329,7 +394,9 @@ def main(argv=None):
         "roof_uv_origin_en": [C.ORIGIN_E, C.ORIGIN_N],
     }
     output = C.work_root() / "build/layers/buildings"
-    report = publish(buildings, selected, records, output, streets, ortho, inputs, params)
+    report = publish(
+        buildings, selected, records, output, streets, ortho, inputs, params, visual_tiles
+    )
     print(
         json.dumps(
             {

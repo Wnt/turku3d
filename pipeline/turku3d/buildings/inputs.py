@@ -39,10 +39,10 @@ def local_polygon(poly):
     )
 
 
-def read_footprints(path: Path) -> list[Building]:
+def read_footprints(path: Path, bounds_local=None) -> list[Building]:
     df = gpd.read_parquet(path)
     df = df[df.geom_type.isin(["Polygon", "MultiPolygon"]) & df.kplkoodi.isin(["66000", "66001"])]
-    bounds = box(*envelope().to_en().as_tuple())
+    bounds = box(*(bounds_local or envelope()).to_en().as_tuple())
     buildings, seen = [], set()
     for row in df.itertuples():
         if not row.geometry.intersects(bounds):
@@ -134,5 +134,9 @@ def attach_osm(buildings, path):
                 overlap = en.intersection(row.geometry).area / en.union(row.geometry).area
                 if overlap > score:
                     best, score = tags, overlap
-        b.properties["osm"] = {k: best[k] for k in ("building:levels", "roof:shape") if k in best}
+        b.properties["osm"] = {
+            k: best[k]
+            for k in ("building:levels", "roof:shape", "addr:street", "addr:housenumber")
+            if k in best
+        }
         b.properties["entrances"] = entries

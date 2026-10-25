@@ -3,11 +3,12 @@
 Run from the repository root with the sandbox environment loaded:
 
 ```sh
-source /Users/wnt/turku3d/wt/w1-03-buildings/sandbox.env
+source ../sandbox.env
 make buildings-test
 make buildings-build
 make buildings-validate
 bash pipeline/env/run.sh python -m turku3d.buildings.audit
+bash pipeline/env/run.sh python -m turku3d.buildings.coverage
 ```
 
 `buildings-build` runs native roofer with four jobs. To reuse a completed reconstruction:
@@ -20,8 +21,11 @@ bash pipeline/env/run.sh python -m turku3d.buildings \
 Inputs are immutable `raw/wfs/work-3x3/{kanta_Rakennus,bldg_Building_LOD2,GIS_Keskilinjat}.parquet`,
 class-6 points in `raw/laz/pistepilvi`, OSM GeoParquet, and `raw/ortho/ortho2022to/work-3x3`.
 The WFS cache preserves CityGML polygon rings, holes and semantic surface types.
-The area is the four visual tiles intersecting `config.OFFICE_BLOCK`, plus `config.MESH_MARGIN`.
-Buildings touching the area retain their complete footprints, including parts outside the margin.
+The default producer region is the four whole L0 visual tiles intersecting `config.OFFICE_BLOCK`.
+`--tiles t0_i_j [...]` selects another tile or region. Buildings touching selected tiles
+retain their complete footprints, including parts outside the boundary. A cross-tile
+building is owned by the requested tile containing the largest footprint area, so a
+four-tile build includes its visual shell.
 Footprint inventory includes kantakartta codes 66000 and 66001; no building is removed because
 lidar or a candidate model is missing. Shared data is never modified.
 
@@ -65,6 +69,20 @@ complete shell coverage; `params.accuracy_acceptance` and `metrics.json.pass` re
 unchanged residual check. No inferred heights silently pass accuracy acceptance.
 
 ## Artifacts
+
+For four-corner roofs with supported class-6 returns, the fallback fits a closed
+gable, hip or two-level roof from height profiles. Other roofs use the measured flat
+extrusion. If no usable model
+or lidar shell exists, the fallback publishes a closed footprint placeholder using
+building levels or 10 m above lidar ground. Its walls carry amber `WORK IN PROGRESS`
+artwork with building ID and OSM street address where available. Placeholder facades
+are excluded from photo binding.
+
+`python -m turku3d.buildings.coverage` audits delivered visual GLBs against source
+footprints and writes `coverage.json` and a top-down `coverage.png` under
+`$TURKU3D_WORK/reports/building-coverage/`. Use `--layer`, `--tiles`, and `--out`
+to compare another layer or region. Green means model, blue lidar shell, amber
+placeholder, and red missing.
 
 All output is under `$TURKU3D_WORK/build/layers/buildings`:
 

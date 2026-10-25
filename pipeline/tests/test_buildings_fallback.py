@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 import shapely
-from turku3d.buildings.fallback import lidar_extrusion
+from turku3d.buildings.fallback import lidar_extrusion, placeholder_extrusion
 from turku3d.buildings.inputs import Building
 from turku3d.buildings.select import choose
 from turku3d.buildings.shells import make_shell
-from turku3d.buildings.tiles import collision_tiles
+from turku3d.buildings.tiles import collision_tiles, ownership_point
 
 
 def test_missing_reconstruction_uses_measured_height():
@@ -26,6 +26,65 @@ def test_missing_reconstruction_uses_measured_height():
     for tile in collision_tiles([shell], [building.footprint], provenance=True).values():
         assert len(tile["building_index"]) == len(tile["indices"])
         assert (tile["building_index"] == 0).all()
+
+
+def test_measured_gable_is_closed_and_placeholder_is_labelled():
+    from turku3d.buildings.facades import make_visuals
+
+    building = Building(
+        "test-17",
+        shapely.box(0, 0, 20, 10),
+        {"osm": {"addr:street": "Test Street", "addr:housenumber": "17"}},
+    )
+    x, z = np.meshgrid(np.linspace(0.2, 19.8, 30), np.linspace(0.2, 9.8, 20))
+    points = np.column_stack((x.ravel(), (6 + 2 * (1 - np.abs(z - 5) / 5)).ravel(), z.ravel()))
+    surfaces, evidence = lidar_extrusion(building, points, {"rf_h_ground": 0.0})
+    assert evidence["roof_shape"] == "gable"
+    shell = make_shell(surfaces, building.footprint)
+    assert len(shell.indices) > 0
+    placeholder, details = placeholder_extrusion(building, {"rf_h_ground": 1.0})
+    assert details["height_source"] == "default_10m"
+    visual, facades = make_visuals(
+        building,
+        make_shell(placeholder, building.footprint),
+        shapely.GeometryCollection(),
+        [],
+        "roof_metal_gray",
+        placeholder=True,
+    )
+    assert not facades
+    walls = [mesh for mesh in visual if mesh.extras.get("material_key") == "work_in_progress"]
+    assert walls and all(mesh.image[:8] == b"\x89PNG\r\n\x1a\n" for mesh in walls)
+
+
+def test_measured_hip_and_multilevel_roofs_are_closed():
+    from turku3d.buildings.fallback import _roof_from_class6
+
+    footprint = shapely.box(0, 0, 20, 10)
+    x, z = np.meshgrid(np.linspace(0.2, 19.8, 30), np.linspace(0.2, 9.8, 20))
+    heights = [
+        ("hip", 6 + 2 * np.minimum(1 - np.abs(z - 5) / 5, np.minimum(x, 20 - x) / 4)),
+        ("multi_level", np.where(x < 10, 7.0, 10.0)),
+    ]
+    for expected, y in heights:
+        points = np.column_stack((x.ravel(), y.ravel(), z.ravel()))
+        surfaces, evidence = _roof_from_class6(footprint, 0, points)
+        assert evidence["roof_shape"] == expected
+        assert len(make_shell(surfaces, footprint).indices) > 0
+
+
+def test_ownership_stays_in_requested_tile_for_cross_boundary_footprint():
+    from turku3d import config as C
+
+    footprint = shapely.box(245, 10, 270, 30)
+    tile = C.VisualTile(0, 0, 0)
+    point = ownership_point(footprint, [tile])
+    assert tile.bbox.xmin <= point.x < tile.bbox.xmax
+    shell = make_shell(
+        placeholder_extrusion(Building("edge", footprint), {"rf_h_ground": 0})[0], footprint
+    )
+    published = collision_tiles([shell], [footprint], visual_tiles=[tile])
+    assert len(published) == 1
 
 
 def test_nearby_height_does_not_count_as_residual_evidence():

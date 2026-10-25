@@ -3,14 +3,31 @@
 from collections import defaultdict
 
 import numpy as np
+from shapely.geometry import box
 
 from turku3d import config as C
 
 
-def collision_tiles(shells, footprints, provenance=False):
+def ownership_point(footprint, visual_tiles=None):
+    """Own a cross-boundary building in the requested region it visibly occupies."""
+    tiles = visual_tiles or C.OFFICE_BLOCK.visual_tiles
+    overlaps = []
+    for tile in tiles:
+        bounds = tile.bbox
+        region = box(bounds.xmin, bounds.zmin, bounds.xmax, bounds.zmax)
+        area = footprint.intersection(region).area
+        if area > 0:
+            overlaps.append((area, tile.id, region))
+    if overlaps:
+        _, _, region = max(overlaps)
+        return footprint.intersection(region).representative_point()
+    return footprint.representative_point()
+
+
+def collision_tiles(shells, footprints, provenance=False, visual_tiles=None):
     buckets = defaultdict(list)
     for owner, (shell, footprint) in enumerate(zip(shells, footprints, strict=True)):
-        center = footprint.centroid
+        center = ownership_point(footprint, visual_tiles)
         tile = C.CollisionTile.at(center.x, center.y)
         buckets[tile.id].append((owner, shell))
     result = {}

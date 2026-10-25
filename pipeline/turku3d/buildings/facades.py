@@ -1,7 +1,10 @@
 """Stable facade order, metric UVs, street visibility and orthophoto roof classes."""
 
+from io import BytesIO
+
 import numpy as np
 import shapely
+from PIL import Image, ImageDraw, ImageFont
 from shapely.geometry import LineString, Point
 from shapely.ops import nearest_points
 
@@ -31,7 +34,26 @@ def facade_material(building):
     )
 
 
-def make_visuals(building, shell, streets, blockers, roof_key):
+def placeholder_image(building):
+    osm = building.properties.get("osm", {})
+    address = " ".join(filter(None, [osm.get("addr:street"), osm.get("addr:housenumber")]))
+    image = Image.new("RGB", (1024, 512), "#26150b")
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 70)
+        small = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 45)
+    except OSError:
+        font = small = ImageFont.load_default()
+    draw.rectangle((12, 12, 1012, 500), outline="#ffbf00", width=18)
+    draw.text((55, 72), "WORK IN PROGRESS", fill="#ffbf00", font=font)
+    draw.text((55, 240), f"ID: {building.id[:32]}", fill="white", font=small)
+    draw.text((55, 340), address[:38] or "ADDRESS UNKNOWN", fill="white", font=small)
+    out = BytesIO()
+    image.save(out, format="PNG")
+    return out.getvalue()
+
+
+def make_visuals(building, shell, streets, blockers, roof_key, *, placeholder=False):
     footprint = building.footprint
     edges = []
     for ring in [
@@ -41,6 +63,7 @@ def make_visuals(building, shell, streets, blockers, roof_key):
         coords = np.array(ring.coords)
         edges.extend((a, b) for a, b in zip(coords[:-1], coords[1:], strict=True))
     walls, meshes, features = [], [], []
+    label = placeholder_image(building) if placeholder else None
     for sid, surface in enumerate(shell.surfaces):
         selected = shell.indices[shell.surface_ids == sid]
         if not len(selected):
@@ -94,6 +117,9 @@ def make_visuals(building, shell, streets, blockers, roof_key):
         end = start + direction * (distances.max() - distances.min())
         base, top = float(p[:, 1].min()), float(p[:, 1].max())
         uv = np.column_stack((distances - distances.min(), p[:, 1] - base))
+        if placeholder:
+            uv[:, 0] /= max(float(distances.max() - distances.min()), 1e-6)
+            uv[:, 1] /= max(top - base, 1e-6)
         mid = (start + end) / 2
         facing = False
         if not streets.is_empty:
@@ -108,16 +134,18 @@ def make_visuals(building, shell, streets, blockers, roof_key):
             "layer": "buildings",
             "object_id": oid,
             "building_id": building.id,
-            "facade_index": index,
+            "facade_index": None if placeholder else index,
             "street_facing": bool(facing),
-            "material_key": facade_material(building),
+            "material_key": "work_in_progress" if placeholder else facade_material(building),
             "base_height": base,
             "top_height": top,
             "normal": normal.tolist(),
             "width_m": float(distances.max() - distances.min()),
         }
-        meshes.append(GlbMesh(oid, p, idx, uvs=uv, extras=props))
+        meshes.append(GlbMesh(oid, p, idx, uvs=uv, image=label, extras=props))
         coords = [[float(x + C.ORIGIN_E), float(C.ORIGIN_N - z)] for x, z in (start, end)]
+        if placeholder:
+            continue
         features.append(
             {
                 "type": "Feature",
