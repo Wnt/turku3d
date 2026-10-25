@@ -22,7 +22,6 @@ Run from this worktree:
 
 ```bash
 source ../sandbox.env
-export GATE_PYTHON="$HOME/turku3d/envs/pipeline/bin/python"
 scripts/dev/gate --base main
 # Focused character acceptance (after the gate has built the game):
 cd game
@@ -62,3 +61,55 @@ viewport with useful ground visibility; no camera tuning was needed.
 The before captures are from baseline `2d75e2c`; final after captures are from the rebased
 player version. The artist-facing result is a first version; physical controller feel remains
 the existing manual hardware check, while injected Xbox controls are automated.
+
+## Landing follow-up: asynchronous movement acknowledgement
+
+The zero-speed failure was in the test sampler, not the retarget or locomotion. The
+sampler had an independent five-second wall-clock deadline and returned the current
+state when it expired. `ready && grounded` only establishes spawn readiness; it does
+not acknowledge a newly submitted movement command. Sampling on animation frames does
+not help if the physics response itself is delayed.
+
+Repeated normal routes measured 0.64–0.80 m/s with the textured model and advancing
+physics ticks. A controlled diagnostic delayed the first movement response by 6.5 s
+without blocking Chrome. The old sampler failed after 5.010 s with speed 0.000003 m/s,
+while input was active, focus was true, tiles were settled and 287 frames had been
+sampled. This isolates the premature snapshot from loading, focus and skin deformation.
+The state-driven wait passes that delayed response.
+
+The fix keeps input injection and first matching state capture in one browser task,
+removes the independent five-second deadline, and uses the existing 120 s test timeout.
+Both speed assertions (>0.6 and <1.6 m/s) and all movement/IK assertions remain intact.
+The browser worker cap is three. No asset, runtime input or physics changes are needed.
+Temporary diagnostic response interception is removed after verification; its before/after
+sources and logs remain under `$TURKU3D_WORK/reports/player-delayed-worker*`.
+
+The sandbox now has its own ignored Python environment, created with:
+
+```bash
+source ../sandbox.env
+uv venv --python 3.12 .venv
+uv pip install -e 'pipeline[dev,fetch,lidar]' -e 'textures[post,dev]' -r scripts/dev/requirements.txt
+```
+
+The requested `@input|@walk` subset passed all 12 tests on WebGPU and WebGL2 in
+2.1 minutes with three workers, including the controlled 6.5 s movement-response
+delay on both backends. The final scoped gate runs without diagnostic interception:
+
+```bash
+source ../sandbox.env
+(cd game && npx playwright test --grep '@input|@walk' --workers=3)
+scripts/dev/gate --paths game/tests/e2e/gamepad.spec.ts --json
+(cd game && npx eslint playwright.config.ts)
+```
+
+The verification artifacts are `player-input-walk.log` and `player-startup-gate.json`
+in `$TURKU3D_WORK/reports/`. This follow-up uses synthetic fixtures and does not rebuild
+the wider AOI. The existing office camera screenshots remain applicable; the player
+asset and camera code are unchanged.
+
+The final scoped gate passed all six selected stages in **141.171 s**: policy,
+generated materials using the local `.venv`, ESLint, TypeScript, knip and browser
+acceptance. Its eight `@input` cases passed on both backends with three workers and
+no diagnostic interception. Separate ESLint for the worker-cap configuration passed.
+Unrelated pipeline/browser suites were skipped by the normal subsystem selector.

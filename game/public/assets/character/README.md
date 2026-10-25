@@ -59,7 +59,7 @@ normal builds and tests do not download or encode anything.
 
 ```bash
 source ../sandbox.env
-GATE_PYTHON="$HOME/turku3d/envs/pipeline/bin/python" scripts/dev/gate --base main
+scripts/dev/gate --base main
 cd game
 npm run build
 npx playwright test tests/e2e/character.spec.ts tests/e2e/gamepad.spec.ts

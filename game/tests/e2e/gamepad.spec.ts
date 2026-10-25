@@ -34,14 +34,14 @@ const state = (page: Page) => page.evaluate(() => (window as any).__game.state()
 test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ["@input", "@walk"] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704260'); // x168,z240, 2m south of curb
   const initial = await state(page);
-  // Capture transient analog speed on a game frame; slow protocol polling under
-  // parallel GPU load can miss movement samples between physics updates.
+  // Set input and capture its first matching physics state in the same browser task.
+  // Startup shader/worker stalls must not return a stale zero-speed snapshot: the
+  // shared functional test timeout bounds this wait, rather than a 5 s speed budget.
   const walking = await page.evaluate(() => new Promise<any>(resolve => {
     (window as any).__virtualPad.axes = [0, -0.5, 0, 0];
-    const deadline = performance.now() + 5_000;
     const sample = () => {
       const s = (window as any).__game.state();
-      if (Math.hypot(s.vel[0], s.vel[2]) > 0.6 || performance.now() >= deadline) resolve(s);
+      if (Math.hypot(s.vel[0], s.vel[2]) > 0.6) resolve(s);
       else requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
