@@ -24,17 +24,33 @@ def task(name):
     return path
 
 
-def identity(pid):
-    result = s.run("ps", "-p", str(pid), "-o", "lstart=", "-o", "stat=", check=False).stdout.strip()
+def identity(pid, *, locale="C"):
+    # Persist a stable start time even when launcher and observer locales differ.
+    result = s.run(
+        "ps",
+        "-p",
+        str(pid),
+        "-o",
+        "lstart=",
+        "-o",
+        "stat=",
+        check=False,
+        env={**os.environ, "LC_ALL": locale},
+    ).stdout.strip()
     return (
         " ".join(result.split()[:-1]) if result and not result.split()[-1].startswith("Z") else None
     )
 
 
 def running(meta):
-    return bool(
-        meta.get("pid") and meta.get("identity") and identity(meta["pid"]) == meta["identity"]
-    )
+    if not meta.get("pid") or not meta.get("identity"):
+        return False
+    if identity(meta["pid"]) == meta["identity"]:
+        return True
+    # Existing tasks stored localized ps output. Never rewrite those records just
+    # to inspect them; compare the full pid/start identity in the launcher's locale.
+    legacy_locale = os.environ.get("LC_TIME") or os.environ.get("LANG", "C")
+    return legacy_locale != "C" and identity(meta["pid"], locale=legacy_locale) == meta["identity"]
 
 
 def read_events(path):

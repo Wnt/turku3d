@@ -131,6 +131,12 @@ triggers = ["scripts/dev/task_runner.py", "scripts/dev/landing.py", "scripts/dev
 commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_environment.py", "test_stop.py"]]
 
 [[stages]]
+name = "watch-tests"
+kind = "command"
+triggers = ["scripts/dev/watch", "scripts/dev/watch_*.py", "scripts/dev/tests/test_watch.py", "scripts/dev/task_runner.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py"]
+commands = [["{python}", "scripts/dev/tests/test_watch.py"]]
+
+[[stages]]
 name = "js-lint"
 kind = "js-lint"
 configs = ["eslint.config.mjs", "package*.json", "scripts/dev/gate.toml"]

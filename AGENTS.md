@@ -60,6 +60,7 @@ progress updates and final reports. This overrides personal default language set
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.
   `--force` explicitly discards dirty or unmerged work; it never kills processes. `wt gc` only prunes missing entries.
 - Exact commands and troubleshooting: `scripts/dev/README.md`. No new API keys or paid services.
+- Watch agents live with `scripts/dev/watch`; `--plain --once` replays task and coordination events read-only.
 
 ## Coordination
 

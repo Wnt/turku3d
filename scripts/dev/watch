@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Live read-only view of Turku3D Codex tasks."""
+
+import sys
+
+# A reader must not create __pycache__ beside the task tooling either.
+sys.dont_write_bytecode = True
+
+from watch_ui import main  # noqa: E402
+
+sys.exit(main())
