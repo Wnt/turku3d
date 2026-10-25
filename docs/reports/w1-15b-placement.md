@@ -24,7 +24,7 @@ identical cameras, not claims of textured live-game acceptance.
 - `validation.json`: combined published-inventory audit, including orientation unknowns.
 - `aurasilta-before.png`, `aurasilta-after.png`: Auransilta vicinity (city register name).
 - `rantakatu-before.png`, `rantakatu-after.png`: Läntinen Rantakatu 15 riverside.
-- `teatterisilta-before.png`, `teatterisilta-after.png`: the three registered bridge benches.
+- `teatterisilta-before.png`, `teatterisilta-after.png`: additional bridge-location context only.
 - `gate.json`, `props-build.log`, `vegetation-build.log`, `parked-build.log`, `assemble.log`.
 
 Measured output: 756 props, 248 trees and 16 parked cars. The source audit omitted
@@ -38,7 +38,10 @@ The missing-deck inventory contains 16 props and one lidar tree candidate. The t
 bench IDs `GIS_Varusteet:314386465`, `GIS_Varusteet:314386532` and
 `GIS_Varusteet:314386536` are around engine x2–9/z390–399, at **Teatterisilta**, rather
 than Auransilta. Both requested camera locations are retained; the additional bridge
-view shows the specific omitted benches. Ground polygons labelled material 24 cannot
+view is location context only: the original 352-prop baseline covers the office core
+and does not include those three Teatterisilta records. The rebuilt 756-prop inventory
+covers the wider Phase 1 envelope, so added objects outside baseline coverage are not
+placement corrections. The requested office-riverside views retain identical cameras. Ground polygons labelled material 24 cannot
 stand in for actual structures-layer bridge decks.
 
 ## Verification results
@@ -69,6 +72,9 @@ make tile-show
 manifests must exist before the producers run. Preview generation also requires the
 baseline copies under `reports/placement/before/`; it uses sandbox port 5543 and an
 isolated browser profile. No process in another sandbox is used or stopped.
+
+Assembly completed successfully: nine visual tiles (four L0 plus parents) and 64
+collision tiles were published to the sandbox `dist/tiles/manifest.json`.
 
 ## Remaining concrete work
 
