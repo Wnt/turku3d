@@ -69,6 +69,16 @@
     "seconds": 8.516,
     "pipeline_tests": 88
   },
+  "post_rebase_verification": {
+    "base": "8c1f9a5103384e4971c22e528e14b2ef026d6a39",
+    "lidar_tests_passed": 9,
+    "pytest_seconds": 1.8,
+    "workers": 1,
+    "ruff_check_passed": true,
+    "ruff_format_passed": true,
+    "full_gate_run": false,
+    "reason": "Orchestrator requested scoped tests only and will gate landing."
+  },
   "mesh_integration": {
     "status": "deferred",
     "before": null,

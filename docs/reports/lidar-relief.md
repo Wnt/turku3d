@@ -53,11 +53,28 @@ Median speedup: **648.2x**, exceeding 10x. Both paths used the warm OS file cach
 initial source partitioning is excluded from repeated-access timing. Cached counts and
 coordinate checksums matched the LAZ crops on every repeat.
 
-The final gate on main `2d75e2c` passed policy, generated materials, Python lint/format
+The pre-batch-1 gate on main `2d75e2c` passed policy, generated materials, Python lint/format
 and **88 pipeline tests in 8.516 s total** (pytest 8.17 s). The nine lidar tests
 cover cache invalidation/mmap, polygon/class/return queries, signed steps on slopes,
 outlier rejection, support holes, edge linking, withheld splits, CHM semantics, typed
 objects and comparison accounting. No checks or thresholds were weakened.
+
+Rebased onto batch-1 main `8c1f9a5` on 2026-10-25, preserving main's newer
+`matplotlib>=3.9` dependency. Synced the editable Python packages and development
+requirements. The only changed npm lockfile, `textures/node/package-lock.json`,
+was deleted upstream; no retained npm lockfile changed. Post-rebase verification:
+**9 lidar tests passed in 1.80 s**, using one worker and one numerical thread;
+Ruff lint and format checks passed for all 12 lidar Python files. The full gate
+was deliberately not rerun, as requested by the orchestrator for this rebase.
+The orchestrator runs the landing gate.
+
+```sh
+source ../sandbox.env
+uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar]' -e 'textures[post,dev]' -r scripts/dev/requirements.txt
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 .venv/bin/python -m pytest pipeline/tests/test_lidar.py -q
+.venv/bin/ruff check pipeline/turku3d/lidar pipeline/tests/test_lidar.py
+.venv/bin/ruff format --check pipeline/turku3d/lidar pipeline/tests/test_lidar.py
+```
 
 ## Reproduce
 
