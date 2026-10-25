@@ -4,7 +4,7 @@
 // get kind 'other' and their node name.
 import * as THREE from 'three/webgpu';
 
-export interface IdEntry { kind: string; id: string; tile: string | null; material?: string }
+export interface IdEntry { kind: string; id: string; tile: string | null; material?: string; facade?: string; building?: string; layer?: string }
 
 const KINDS = new Set(['building', 'ground', 'prop', 'vegetation', 'water', 'other']);
 
@@ -28,7 +28,7 @@ export class IdPass {
   }
 
   private idFor(e: IdEntry): number {
-    const key = `${e.kind}\u0000${e.id}\u0000${e.tile ?? ''}`;
+    const key = JSON.stringify(e);
     let n = this.byKey.get(key);
     if (n === undefined) {
       n = this.next++;
@@ -43,19 +43,29 @@ export class IdPass {
     model.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      let src: Record<string, unknown> | null = null;
+      // Layer extras and package extras are inherited; nearest node wins.
+      const parents: THREE.Object3D[] = [];
       for (let p: THREE.Object3D | null = m; p; p = p.parent) {
-        const u = p.userData as Record<string, unknown>;
-        if (u && (typeof u.kind === 'string' || (typeof u.id === 'string' && p !== model))) { src = u; break; }
+        parents.unshift(p);
         if (p === model) break;
       }
-      const kind = typeof src?.kind === 'string' && KINDS.has(src.kind) ? src.kind : 'other';
-      const entry: IdEntry = { kind, id: typeof src?.id === 'string' ? src.id : m.name || 'mesh', tile: typeof src?.tile === 'string' ? src.tile : tileId };
-      if (typeof src?.material === 'string') entry.material = src.material;
-      const mat = new THREE.MeshBasicNodeMaterial({ color: IdPass.color(this.idFor(entry)) });
-      mat.toneMapped = false;
-      mat.fog = false;
-      m.material = mat;
+      const src = Object.assign({}, ...parents.map(p => p.userData)) as Record<string, unknown>;
+      const layerKinds: Record<string, string> = { buildings: 'building', ground: 'ground', vegetation: 'vegetation', props: 'prop' };
+      const kind = typeof src.kind === 'string' && KINDS.has(src.kind) ? src.kind : layerKinds[String(src.layer)] ?? 'other';
+      const entry: IdEntry = { kind, id: String(src.object_id ?? src.id ?? (m.name || 'mesh')),
+        tile: typeof src.tile === 'string' ? src.tile : tileId };
+      if (src.layer != null) entry.layer = String(src.layer);
+      if (src.building_id != null) entry.building = String(src.building_id);
+      if (src.facade_index != null || src.facade != null) entry.facade = String(src.facade_index ?? src.facade);
+      const replace = (original: THREE.Material) => {
+        const material = original.userData.material_key ?? src.material_key ?? src.material ?? original.name;
+        const item = { ...entry, ...(material ? { material: String(material) } : {}) };
+        const mat = new THREE.MeshBasicNodeMaterial({ color: IdPass.color(this.idFor(item)), side: original.side });
+        mat.toneMapped = false;
+        mat.fog = false;
+        return mat;
+      };
+      m.material = Array.isArray(m.material) ? m.material.map(replace) : replace(m.material);
       m.castShadow = m.receiveShadow = false;
     });
   }

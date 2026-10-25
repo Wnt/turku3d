@@ -22,11 +22,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
 export function parseArgs(argv) {
-  const a = { pass: 'both', timeout: 120000, channel: 'chromium', backend: null, headed: false, extra: '' };
+  const a = { port: Number(process.env.TURKU3D_PORT_BASE || 0), pass: 'both', timeout: 120000, channel: 'chromium', backend: null, headed: false, extra: '' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const next = () => argv[++i];
-    if (k === '--views') a.views = next();
+    if (k === '--port') a.port = Number(next());
+    else if (k === '--views') a.views = next();
     else if (k === '--url') a.url = next();
     else if (k === '--serve') a.serve = next();
     else if (k === '--out') a.out = next();
@@ -40,6 +41,7 @@ export function parseArgs(argv) {
     else throw new Error(`unknown option ${k}`);
   }
   if (!a.views || !a.out || !(a.url || a.serve)) throw new Error('need --views, --out and --url or --serve');
+  if (!['color', 'id', 'both'].includes(a.pass)) throw new Error('invalid pass');
   return a;
 }
 
@@ -50,16 +52,19 @@ export function contractUrl(base, view, { pass = 'color', backend = null, extra 
   const p = view.pose;
   const u = new URL(base);
   u.searchParams.set('cam', [fmt(p.E, 3), fmt(p.N, 3), fmt(p.H, 3), fmt(p.yaw, 3), fmt(p.pitch, 3), fmt(p.fov, 3)].join(','));
+  u.searchParams.delete('roll');
   if (p.roll) u.searchParams.set('roll', fmt(p.roll, 3));
+  u.searchParams.delete('time');
   if (view.time) u.searchParams.set('time', view.time); // URLSearchParams encodes '+' as %2B
   u.searchParams.set('qa', '1');
+  u.searchParams.delete('pass');
   if (pass === 'id') u.searchParams.set('pass', 'id');
   if (backend) u.searchParams.set('backend', backend);
   for (const [k, v] of new URLSearchParams(extra)) u.searchParams.set(k, v);
   return u.toString();
 }
 
-function serveDir(dir) {
+function serveDir(dir, port) {
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg' };
   const srv = http.createServer((req, res) => {
     const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '') || 'index.html';
@@ -68,7 +73,7 @@ function serveDir(dir) {
     res.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' });
     fs.createReadStream(f).pipe(res);
   });
-  return new Promise((ok) => srv.listen(0, '127.0.0.1', () => ok(srv)));
+  return new Promise((ok, reject) => { srv.once('error', reject); srv.listen(port, '127.0.0.1', () => ok(srv)); });
 }
 
 export function loadViews(file, ids) {
@@ -98,23 +103,28 @@ async function shoot(browser, url, view, file, timeout) {
   return { ...state, url, file: error ? null : file, ms: Date.now() - t0, error, console: consoleLines };
 }
 
-function poseEcho(view, echoed) {
+export function poseEcho(view, echoed) {
   if (!echoed) return 'missing window.__qaPose';
-  for (const k of ['E', 'N', 'H', 'yaw', 'pitch', 'fov']) if (Math.abs(echoed[k] - view.pose[k]) > 1e-3) return `pose echo mismatch on ${k}: ${echoed[k]} vs ${view.pose[k]}`;
+  for (const k of ['E', 'N', 'H', 'yaw', 'pitch', 'roll', 'fov']) if (!Number.isFinite(echoed[k]) || Math.abs(echoed[k] - (view.pose[k] ?? 0)) > 1e-3) return `pose echo mismatch on ${k}: ${echoed[k]} vs ${view.pose[k]}`;
   return null;
 }
 
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), sharedBrowser = null) {
   const a = parseArgs(argv);
   const views = loadViews(path.resolve(a.views), a.ids);
+  if (!views.length || (a.ids && a.ids.some(id => !views.some(v => v.id === id)))) throw new Error('empty or unknown view selection');
   fs.mkdirSync(a.out, { recursive: true });
   let srv = null, base = a.url;
   if (a.serve) {
     const dir = a.serve === 'stub' ? path.join(HERE, 'stub') : path.resolve(a.serve);
-    srv = await serveDir(dir);
+    srv = await serveDir(dir, a.port);
     base = `http://127.0.0.1:${srv.address().port}/index.html`;
   }
-  const browser = await chromium.launch({
+  if (process.env.TURKU3D_BROWSER_DIR) {
+    fs.mkdirSync(process.env.TURKU3D_BROWSER_DIR, { recursive: true });
+    process.env.TMPDIR = process.env.TURKU3D_BROWSER_DIR;
+  }
+  const browser = sharedBrowser ?? await chromium.launch({
     channel: a.channel === 'chrome' ? 'chrome' : undefined, headless: !a.headed,
     args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist', '--hide-scrollbars'],
   });
@@ -125,6 +135,8 @@ export async function main(argv = process.argv.slice(2)) {
     const meta = { view_id: v.id, width: v.width, height: v.height, pose: v.pose, time: v.time ?? null, passes: {} };
     for (const pass of passes) {
       const file = path.join(a.out, pass === 'id' ? `${v.id}.id.png` : `${v.id}.png`);
+      fs.rmSync(file, { force: true });
+      if (pass === 'id') fs.rmSync(path.join(a.out, `${v.id}.id.json`), { force: true });
       const r = await shoot(browser, contractUrl(base, v, { pass, backend: a.backend, extra: a.extra }), v, file, a.timeout);
       if (!r.error) r.error = poseEcho(v, r.pose);
       if (!r.error && (r.inner[0] !== v.width || r.inner[1] !== v.height)) r.error = `viewport ${r.inner} != ${v.width}x${v.height}`;
@@ -134,14 +146,14 @@ export async function main(argv = process.argv.slice(2)) {
       }
       delete r.idTable;
       meta.passes[pass] = r;
-      if (r.error) failed++;
+      if (r.error) { failed++; fs.rmSync(file, { force: true }); }
       console.log(`${v.id} [${pass}] ${r.error ? 'FAIL ' + r.error : 'ok ' + r.ms + ' ms'} `);
     }
     fs.writeFileSync(path.join(a.out, `${v.id}.meta.json`), JSON.stringify(meta, null, 1));
     summary.push(meta);
   }
   fs.writeFileSync(path.join(a.out, 'render-summary.json'), JSON.stringify({ base, backend: a.backend, browser: browser.version(), views: summary }, null, 1));
-  await browser.close();
+  if (!sharedBrowser) await browser.close();
   if (srv) srv.close();
   return failed;
 }

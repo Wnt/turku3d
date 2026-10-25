@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -47,6 +48,8 @@ def usage_percent() -> int | None:
 
 
 def check_quota(cap: float) -> int:
+    if not math.isfinite(cap) or not 0 < cap <= 100:
+        raise ValueError("quota cap must be finite and in (0, 100]")
     pct = usage_percent()
     if pct is None:
         raise QuotaError("could not read Codex usage; refusing to call (fix codex login or codex_usage.py)")
@@ -78,7 +81,11 @@ def judge(ref, render, id_image=None, context="", model=DEFAULT_MODEL, cap=None,
           dry_run=False, retries=1) -> dict:
     cap = float(cap if cap is not None else os.environ.get("QA_CODEX_CAP", 100))
     prompt = build_prompt(context, id_image is not None)
-    tmp = Path(tempfile.mkdtemp(prefix="qa-judge-"))
+    with tempfile.TemporaryDirectory(prefix="qa-judge-") as directory:
+        return _judge_in_dir(Path(directory), ref, render, id_image, context, model, cap, timeout, dry_run, retries, prompt)
+
+
+def _judge_in_dir(tmp, ref, render, id_image, context, model, cap, timeout, dry_run, retries, prompt):
     imgs = [("1_reference", ref), ("2_render", render)] + ([("3_object_ids", id_image)] if id_image else [])
     args = []
     for name, src in imgs:
@@ -99,7 +106,12 @@ def judge(ref, render, id_image=None, context="", model=DEFAULT_MODEL, cap=None,
         if attempt:
             check_quota(cap)
         ta = time.time()
-        p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
+        last.unlink(missing_ok=True)
+        try:
+            p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            attempts.append({"rc": -1, "error": "judge timeout", "secs": round(time.time() - ta, 1)})
+            continue
         thread_id, tokens = None, None
         for line in p.stdout.splitlines():
             try:
@@ -112,6 +124,8 @@ def judge(ref, render, id_image=None, context="", model=DEFAULT_MODEL, cap=None,
                 tokens = ev.get("usage")
         rec = {"rc": p.returncode, "thread_id": thread_id, "tokens": tokens, "secs": round(time.time() - ta, 1)}
         try:
+            if p.returncode:
+                raise ValueError(f"codex exited {p.returncode}")
             cand = json.loads(last.read_text())
             jsonschema.validate(cand, schema)
             result = _clean(cand)
@@ -122,7 +136,6 @@ def judge(ref, render, id_image=None, context="", model=DEFAULT_MODEL, cap=None,
             rec["stderr_tail"] = p.stderr[-800:]
             attempts.append(rec)
     after = usage_percent()
-    shutil.rmtree(tmp, ignore_errors=True)
     return {"model": model, "ref": str(ref), "render": str(render), "id_image": str(id_image) if id_image else None,
             "context": context, "result": result, "ok": result is not None, "attempts": attempts,
             "secs": round(time.time() - t0, 1), "usage_before_pct": before, "usage_after_pct": after}

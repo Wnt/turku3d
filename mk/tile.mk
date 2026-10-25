@@ -36,8 +36,9 @@ tile-show: game-build ## Serve the local result on the sandbox dist port
 tile-test: ## Offline packaging tests with synthetic inputs
 	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n 4 tests/test_package.py
 
-tile-qa: qa-venv game-build ## Render the reference views on local tiles (JUDGE=1 enables judging)
-	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIR)/dist --port $(TILE_PORT) --mount /tiles=$(DIST_MIRROR)/tiles & pid=$$!; \
-	  trap "kill $$pid" EXIT; sleep 1; \
-	  $(QA_PY) $(QA_DIR)/loop.py --url "http://localhost:$(TILE_PORT)/?tiles=/tiles/tileset.json" $(if $(JUDGE),,--no-judge) \
+TILE_QA_PORT ?= $(TILE_PORT)
+tile-qa: qa-venv game-build ## Render local tiles (colour+ID); JUDGE=1 enables quota-guarded parallel judging
+	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIR)/dist --port $(TILE_QA_PORT) --mount /tiles=$(DIST_MIRROR)/tiles & pid=$$!; \
+	  trap 'kill "$$pid" 2>/dev/null || true' EXIT; sleep 1; kill -0 "$$pid" || exit 1; \
+	  $(QA_PY) $(QA_DIR)/loop.py --url "http://localhost:$(TILE_QA_PORT)/?tiles=/tiles/tileset.json" $(if $(filter 1,$(JUDGE)),,--no-judge) --workers $(QA_WORKERS) --manifest "$(DIST_MIRROR)/tiles/manifest.json" \
 	    --run-id $(or $(QA_RUN),tile-$(shell date +%Y%m%d-%H%M%S))

@@ -29,7 +29,7 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": {"enum": ["google_streetview", "apple_lookaround", "360tour", "gmaps_photosphere", "photo", "synthetic"]},
+        "kind": {"enum": ["google_streetview", "apple_lookaround", "360tour", "gmaps_photosphere", "mapillary", "photo", "synthetic"]},
         "pano_id": {"type": "string"},
         "pano_heading": {"type": "number"},
         "url": {"type": "string"},

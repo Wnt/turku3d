@@ -58,7 +58,7 @@ def collect(rd: Path):
             for k, it in enumerate(res["issues"]):
                 tickets.append({"run_id": run["run_id"], "pair_id": p["pair_id"], "view_id": p.get("view_id"),
                                 "n": k, **it, "status": "open", "ref": p["ref"], "render": p["render"],
-                                "thread_id": (j["attempts"][-1] or {}).get("thread_id")})
+                                "thread_id": ((j.get("attempts") or [{}])[-1]).get("thread_id")})
         pairs.append({**p, "judge": j, "result": res})
     return run, pairs, tickets
 
@@ -70,12 +70,14 @@ def history_row(run, pairs):
         if p["result"]:
             by_label.setdefault(p.get("label") or "render", []).append(p["result"]["similarity"])
     return {"run_id": run["run_id"], "kind": run.get("kind", "render"), "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "commit": run.get("commit"), "dirty": run.get("dirty"), "complete": run.get("complete", False),
+            "comparison_key": run.get("comparison_key"), "manifest_sha256": run.get("manifest_sha256"),
             "scores": scores, "mean_by_label": {k: round(sum(v) / len(v), 2) for k, v in by_label.items()},
             "n_issues": sum(len(p["result"]["issues"]) for p in pairs if p["result"])}
 
 
-def trend_svg(history: list[dict], kind: str) -> str:
-    rows = [h for h in history if h.get("kind") == kind]
+def trend_svg(history: list[dict], kind: str, comparison_key=None) -> str:
+    rows = [h for h in history if h.get("kind") == kind and (comparison_key is None or h.get("comparison_key") == comparison_key)]
     if not rows:
         return ""
     labels = sorted({k for h in rows for k in h["mean_by_label"]})
@@ -126,7 +128,7 @@ def render_html(rd: Path, run, pairs, history, ev=None) -> str:
         rows = ""
         if res:
             for k, it in enumerate(res["issues"], 1):
-                objs = ", ".join(f'{o.get("kind")}:{o.get("id", o["oid"])} ({o["frac"]:.0%})' for o in it.get("objects", []))
+                objs = ", ".join(f'{o.get("kind")}:{o.get("id", o["oid"])} tile={o.get("tile")} facade={o.get("facade")} material={o.get("material")} ({o["frac"]:.0%})' for o in it.get("objects", []))
                 rows += (f'<tr><td>{k}</td><td><span class="sev s{it["severity"]}">{it["severity"]}</span></td>'
                          f'<td><span class="cat" style="--c:{CAT_COLOURS.get(it["category"], "#94a3b8")}">{it["category"]}</span></td>'
                          f'<td>{html.escape(it["what"])}</td><td>{html.escape(it["fix_hint"])}</td><td>{html.escape(objs)}</td></tr>')
@@ -161,6 +163,13 @@ def render_html(rd: Path, run, pairs, history, ev=None) -> str:
         rc = ev.get("planted_recall")
         evblock = (f'<p>Self-test: planted recall <b>{rc[0]}/{rc[1]}</b>, strict score separation '
                    f'identical &gt; degraded &gt; other: <b>{ev.get("strict_separation")}</b></p>')
+    calibration_path = rd / "calibration.json"
+    if calibration_path.exists():
+        calibration = json.loads(calibration_path.read_text())
+        evblock += (f'<p>Judge consistency (n=3): scores {html.escape(str(calibration["scores"]))}; '
+                    f'sample variance {calibration["sample_variance"]:.4f}; '
+                    f'standard deviation {calibration["sample_stddev"]:.4f}. '
+                    'Three repeats on one pair do not establish whole-range reliability.</p>')
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>QA Run Report</title>
 <style>
@@ -185,8 +194,10 @@ table{{border-collapse:collapse;width:100%;margin-top:8px}} td,th{{border-top:1p
 </style></head><body><main>
 <h1>QA run {html.escape(run["run_id"])}</h1>
 <p class="muted">{html.escape(run.get("kind", "render"))} &middot; {len(pairs)} pairs &middot; generated {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
+<p>Commit: {html.escape(str(run.get("commit", "unknown")))}; dirty: {run.get("dirty", "unknown")}; complete: {run.get("complete", False)}; package: {html.escape(str(run.get("manifest_sha256", "unknown")))}</p>
+<pre>{html.escape(chr(10).join(run.get("errors", [])))}</pre>
 {evblock}
-<h2>Mean similarity per run ({html.escape(run.get("kind", "render"))})</h2>{trend_svg(history, run.get("kind", "render"))}
+<h2>Mean similarity per run ({html.escape(run.get("kind", "render"))})</h2>{trend_svg(history, run.get("kind", "render"), run.get("comparison_key"))}
 <table><thead><tr><th>pair</th><th>label</th><th>score</th><th>same place</th><th>issues</th></tr></thead><tbody>{summary_rows}</tbody></table>
 {"".join(cards)}
 </main></body></html>'''

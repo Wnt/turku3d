@@ -32,7 +32,7 @@ from qalib.pano import perspective  # noqa: E402
 from qalib.paths import data_dir, rel, resolve  # noqa: E402
 
 
-LA_CENTRE_OFFSET = -90.0  # see fetch_lookaround(); one-sample visual estimate
+LA_CENTRE_OFFSET = 180.0  # equirect centre is inverse travel; Apple heading is CCW
 
 
 def _sv():
@@ -67,10 +67,9 @@ def fetch_google(pano_id: str, zoom: int = 4):
 def fetch_lookaround(lat: float, lon: float, zoom: int = 2):
     """Experimental: nearest Look Around pano -> equirect via streetlevel.lookaround.reproject
     (needs torch + torchvision installed in qa/.venv). Returns (meta, equirect, heading_of_centre).
-    UNVERIFIED: the compass yaw of the equirect centre. streetlevel documents it as 'the inverse
-    direction of travel', but on one Turku pano (2021-07-09, id 12202934725221942688) heading+180
-    was visibly wrong and heading-90 (+-15 deg, judged by eye from the river bank) fitted. We use
-    heading + LA_CENTRE_OFFSET and mark the pose low-confidence; solve it properly before use."""
+    The equirect centre faces inverse travel. Apple heading is counter-clockwise from north,
+    so centre compass bearing is -heading + 180 degrees. Checked against a co-located Google
+    crop (de5igFTgjff1c9FgktKFXQ) on 2026-10-25; remaining pose uncertainty is retained."""
     from streetlevel import lookaround
     from streetlevel.lookaround.reproject import to_equirectangular  # imports torch
     try:
@@ -84,7 +83,7 @@ def fetch_lookaround(lat: float, lon: float, zoom: int = 2):
     auth = lookaround.Authenticator()
     faces = [Image.open(io.BytesIO(lookaround.get_panorama_face(best, f, zoom, auth))) for f in range(6)]
     eq = to_equirectangular(faces, best.camera_metadata)
-    return best, eq, (math.degrees(best.heading) + LA_CENTRE_OFFSET) % 360.0
+    return best, eq, (-math.degrees(best.heading) + LA_CENTRE_OFFSET) % 360.0
 
 
 def cmd_search(a):
@@ -137,9 +136,9 @@ def make_view(*, pano_id=None, near=None, provider="google", look_at=None, yaw=N
         cam_h = float(meta.elevation)
         date = meta.date.strftime("%Y-%m-%d") if meta.date else None
         src = {"kind": "apple_lookaround", "pano_id": str(meta.id), "pano_heading": round(heading, 3),
-               "note": f"EXPERIMENTAL: equirect centre yaw assumed heading{LA_CENTRE_OFFSET:+.0f} (1-sample visual estimate)"}
+               "note": f"EXPERIMENTAL: equirect centre yaw = -heading{LA_CENTRE_OFFSET:+.0f}; visual cross-check against Street View"}
         conf = {"level": "low", "xy_m": 2.0, "h_m": 1.0, "angle_deg": 15.0,
-                "note": "Look Around reprojection orientation unverified"}
+                "note": "Look Around orientation cross-checked; pose not lidar-registered"}
     else:
         raise SystemExit(f"unknown provider {provider}")
 

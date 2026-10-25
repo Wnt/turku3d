@@ -40,3 +40,5 @@ Rules for issues:
 - Look at the whole frame systematically (left to right, ground to sky) before answering. Do not invent problems.
 
 Write every text value in English. Do not run shell commands; the images are attached. Answer only with the JSON object required by the output schema.
+
+Calibration rule: first compare only permanent structures visible in both views. Do not subtract points for cars, people, boats, season, weather, foliage density or exposure. Mention these only in ignored_differences. At low pose confidence, do not label a displacement or an apparent width change as a geometry error unless permanent landmarks independently support it. Missing surfaces have no object-ID pixels: do not claim that the background object's ID identifies the missing asset. Keep scores on the same anchored scale across repeats; severity describes the permanent defect, not the size of its pixel box.

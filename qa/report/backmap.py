@@ -19,7 +19,9 @@ def load_ids(id_png: str | Path) -> np.ndarray:
 
 def objects_in_bbox(ids: np.ndarray, table: dict, bbox, min_frac: float = 0.02, top: int = 5) -> list[dict]:
     h, w = ids.shape
-    x0, y0, x1, y1 = bbox
+    x0, y0, x1, y1 = np.clip(bbox, 0, 1)
+    if x1 <= x0 or y1 <= y0:
+        return []
     sub = ids[int(y0 * h):max(int(y0 * h) + 1, int(np.ceil(y1 * h))), int(x0 * w):max(int(x0 * w) + 1, int(np.ceil(x1 * w)))]
     vals, counts = np.unique(sub, return_counts=True)
     tot = counts.sum()
@@ -41,5 +43,10 @@ def annotate(issues: list[dict], id_png, id_json) -> list[dict]:
     ids = load_ids(id_png)
     table = json.loads(Path(id_json).read_text())
     for it in issues:
-        it["objects"] = objects_in_bbox(ids, table, it["bbox"])
+        objects = objects_in_bbox(ids, table, it["bbox"])
+        # A missing object is not the ground/sky visible behind where it should be.
+        it["objects"] = [] if it.get("category") == "missing_object" else objects
+        it["overlapping_objects"] = objects
+        it["mapping_status"] = ("missing_asset_requires_spatial_lookup" if it.get("category") == "missing_object"
+                                else "mapped" if objects else "no_visible_asset")
     return issues

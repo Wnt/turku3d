@@ -1,9 +1,9 @@
 """Repo and data locations for qa/.
 
 Images (references, renders, judge outputs) are data and live outside git:
-  $QA_DATA if set, else $TURKU3D_WORK/qa   (the root /data/ is git-ignored).
-Registry rows store image paths relative to the repo root when the file is inside the repo,
-else absolute paths.
+  QA_DATA > TURKU3D_WORK/qa > TURKU3D_DATA/qa > ~/turku3d/data/qa.
+Paths under the QA data directory use the portable data/qa/ registry prefix.
+Other paths are repo-relative when possible, otherwise absolute.
 """
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ def data_dir() -> Path:
 def rel(p: str | Path) -> str:
     """Path as stored in registries: repo-relative if inside the repo, else absolute."""
     p = Path(p).resolve()
+    if p.is_relative_to(data_dir()):
+        return str(Path("data/qa") / p.relative_to(data_dir()))
     try:
         return str(p.relative_to(REPO))
     except ValueError:
