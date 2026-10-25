@@ -87,8 +87,19 @@ The first full gate found missing newly landed environment dependencies and the
 local gamepad deadline. Dependencies were installed according to the current
 pipeline extras and streetlevel requirements. Corrective checks passed:
 147 pipeline tests in 9.13 s, 61 texture tests (one skip) in 3.62 s, and all six
-gamepad browser tests in 49.0 s. The consolidated gate runs with serialized stages
-and at most two test workers, retaining every configured check.
+gamepad browser tests in 49.0 s. The consolidated serialized rerun was interrupted by the Codex quota limit before
+writing a result; it is not counted as a pass. After the reset and rebase onto
+main `dfb9204`, the targeted gate passed all nine selected stages in
+9.702 s. The assembler rerun also passed with all nine visual tiles cached.
+
+Final gate command:
+
+```sh
+scripts/dev/gate --paths pipeline/turku3d/structures/layer.py \
+  pipeline/turku3d/structures/inputs.py pipeline/turku3d/structures/snapshot.py \
+  pipeline/turku3d/structures/__main__.py pipeline/tests/test_structures.py \
+  tools/validator/src/structures.ts tools/validator/test/structures.test.ts
+```
 
 Full logs and physics cases remain under `$TURKU3D_WORK/reports/structures/`.
 
