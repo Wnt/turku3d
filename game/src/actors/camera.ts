@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 
 export class OrbitCamera {
   yaw = 0;
-  pitch = -0.25;
+  pitch = -0.12;
   distance = 4.5;
   minDist = 1.5;
   maxDist = 14;

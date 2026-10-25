@@ -28,6 +28,10 @@ const position = m => new Vector3().setFromMatrixPosition(m);
 const world = n => new Matrix4().fromArray(n.getWorldMatrix());
 const axis = m => new Vector3(0, 1, 0).transformDirection(m);
 const parts = ['base_body', 'clothing_hoodie', 'clothing_jeans', 'clothing_shoes', 'hair_short02'];
+// The MakeHuman torso has shorter spine segments than UAL. Moving its chest vertices
+// to UAL's spine joint centres lifts the hoodie collar into the face in the bind pose.
+// Preserve the source's anatomical height while keeping UAL's joints for animation.
+const torso = new Set(['pelvis', 'spine_01', 'spine_02', 'spine_03', 'neck_01', 'head', 'clavicle_l', 'clavicle_r']);
 const sources = [];
 let triangles = 0;
 for (const part of parts) {
@@ -40,7 +44,9 @@ for (const part of parts) {
     const from = world(joint), to = world(dest);
     // Align the limb direction without importing either exporter's arbitrary bone roll.
     const rotation = new Quaternion().setFromUnitVectors(axis(from), axis(to));
-    return { from: position(from), to: position(to), rotation, index: joints.indexOf(dest) };
+    const sourcePosition = position(from), targetPosition = position(to);
+    if (torso.has(joint.getName())) targetPosition.y = sourcePosition.y * 1.035;
+    return { from: sourcePosition, to: targetPosition, rotation, index: joints.indexOf(dest) };
   });
   for (const node of src.getRoot().listNodes().filter(n => n.getMesh())) {
     const mesh = node.getMesh(), nodeWorld = world(node), normalMatrix = new Matrix3().getNormalMatrix(nodeWorld);

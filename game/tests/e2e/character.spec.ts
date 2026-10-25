@@ -26,7 +26,7 @@ test('textured player stays framed in third person', { tag: ['@walk'] }, async (
   const bounds = await page.evaluate(height => {
     const s = (window as any).__game.state();
     const camera = s.camera.pos, feet = s.visualFeet;
-    const target = [feet[0], feet[1] + 1.6, feet[2]];
+    const target = [feet[0], feet[1] + 1.25, feet[2]];
     const f = target.map((v: number, i: number) => v - camera[i]);
     const len = Math.hypot(...f); for (let i = 0; i < 3; i++) f[i] /= len;
     const r = [-f[2], 0, f[0]], rl = Math.hypot(...r); for (let i = 0; i < 3; i++) r[i] /= rl;

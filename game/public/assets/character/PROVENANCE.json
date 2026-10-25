@@ -1,6 +1,6 @@
 {
   "triangles": 37225,
-  "bytes": 3527780,
+  "bytes": 3527752,
   "clips": [
     "Driving_Loop",
     "Idle_Loop",
@@ -39,5 +39,5 @@
   "source_repository": "https://github.com/kblood/CharacterCreator",
   "ual_revision": "2d75e2c56c2db4a011f4197fe16f4367c494e0be",
   "height_m": 1.79024,
-  "sha256": "506f76f39e2b986e5e81c77545611a017a053d2b6fe7f29135b9b56e53949dfe"
+  "sha256": "5e0ef5e1a4b245f911e88df310d21cc819a24196f54b244b102ded5142b11545"
 }

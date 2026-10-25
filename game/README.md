@@ -61,7 +61,7 @@ The KCC moves on `stair_slope` (material 16), while `foot` worker queries prefer
 
 Each worker state includes the previous fixed-step character pose, tick and accumulator remainder. Rendering interpolates with one 60 Hz tick of latency; duplicate packets at 120/240 Hz do not reset interpolation. Teleports and enter/exit transitions snap. This character interpolation does not yet interpolate the car.
 
-The [CC0 autumn player](public/assets/character/README.md) uses a textured MakeHuman human with a green hoodie, jeans and shoes, retargeted offline to the existing UAL skeleton. KTX2 textures and meshopt are decoded by the player loader. The default camera frames the 1.79 m body on both backends.
+The [CC0 autumn player](public/assets/character/README.md) uses a textured MakeHuman human with a green hoodie, jeans and shoes, retargeted offline to the existing UAL skeleton. KTX2 textures and meshopt are decoded by the player loader. The foot camera aims 1.25 m above the feet with a slight downward pitch, framing the 1.79 m body on both backends.
 
 CC0 Quaternius UAL Standard is extended with `Walk_Formal_Loop` for the slower stair gait. The inspected Standard archive contains no stair up/down clips; stair direction states use procedural swing clearance plus IK. Walk/jog/sprint gait phases stay synchronized while blending. Source, archive hash and retained clips are recorded in `public/assets/LICENSES.md`.
 

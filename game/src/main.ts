@@ -266,7 +266,7 @@ async function runPlay() {
     const resetCamera = !paused && input.consume('cameraReset');
     if (mode === 'foot' && !paused) {
       orbit.input(input.lookX, input.lookY, input.zoom);
-      if (resetCamera) { orbit.yaw = player.root.rotation.y - Math.PI; orbit.pitch = -0.25; }
+      if (resetCamera) { orbit.yaw = player.root.rotation.y - Math.PI; orbit.pitch = -0.12; }
     }
     const { moveY: fwd, moveX: side } = input.actions;
 
@@ -333,7 +333,7 @@ async function runPlay() {
       wasGrounded = grounded;
     }
 
-    const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.6, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
+    const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
     if (mode === 'car' && st?.vehicle && !paused) chase.update(dt, st.vehicle, input.lookX, input.lookY, resetCamera);
     else if (mode === 'foot') orbit.update(dt, focus);
     // camera collision: async ray from the focus towards the camera (result applies next frame)
