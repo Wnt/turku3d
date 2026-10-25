@@ -1,12 +1,13 @@
-// Headless Chrome test: serves dist/ via `vite preview`, opens ?auto=1, collects
+// Headless Chrome test: serves the sandbox probe build via `vite preview`, opens ?auto=1, collects
 // console + verdict. Usage: node scripts/headless-test.mjs [chrome|chromium] [webgl]
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { port, screenshot } from './environment.mjs';
 
 const channel = process.argv[2] === 'chromium' ? undefined : 'chrome';
 const forceWebGL = process.argv.includes('webgl');
 const headed = process.argv.includes('headed');
-const PORT = 4173;
+const PORT = port(3);
 
 const srv = spawn('./node_modules/.bin/vite', ['preview', '--port', String(PORT), '--strictPort'], { stdio: 'pipe' });
 await new Promise((res, rej) => {
@@ -37,7 +38,7 @@ const probe = await page.evaluate(() => {
     sab: typeof SharedArrayBuffer !== 'undefined', coi: self.crossOriginIsolated,
     samples: p.samples.filter((_, i) => i % 2 === 0).map((s) => ({ t: s.t, stairs: s.walkers.stairs, r15: s.walkers.ramp15, r55: s.walkers.ramp55, car: { x: s.car.x, y: s.car.y, v: s.car.speed, w: s.car.wheelsInContact } })) };
 });
-await page.screenshot({ path: `probe-${channel ?? 'chromium'}${forceWebGL ? '-webgl' : ''}.png` });
+await page.screenshot({ path: screenshot(`probe-${channel ?? 'chromium'}${forceWebGL ? '-webgl' : ''}.png`) });
 console.log(`loaded+ran in ${Date.now() - t0} ms, browser ${browser.version()}`);
 console.log(JSON.stringify({ ...probe, samples: undefined }, null, 1));
 for (const s of probe.samples)

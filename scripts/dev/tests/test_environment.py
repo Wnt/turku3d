@@ -19,8 +19,9 @@ class EnvironmentTests(unittest.TestCase):
             env.pop('TILE_DIST', None)
             script = '''
               import { workRoot, gameDist, tileDist, reportsRoot, port, isolateBrowser } from './tools/dev/environment.mjs';
+              import { screenshot } from './tools/engine-probe/scripts/environment.mjs';
               isolateBrowser();
-              console.log(JSON.stringify({workRoot, gameDist, tileDist, reportsRoot, ports: [port(),port(1),port(2)], tmp: process.env.TMPDIR}));
+              console.log(JSON.stringify({workRoot, gameDist, tileDist, reportsRoot, ports: [port(),port(1),port(2)], tmp: process.env.TMPDIR, probeScreenshot: screenshot('test.png')}));
             '''
             result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=REPO,
                                     env=env, capture_output=True, text=True, check=True)
@@ -28,7 +29,8 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(values, {'workRoot': str(base / 'worker'),
                 'gameDist': str(base / 'worker/build/game'), 'tileDist': str(base / 'worker/dist/tiles'),
                 'reportsRoot': str(base / 'worker/reports'), 'ports': [6000, 6001, 6002],
-                'tmp': str(base / 'browser/tmp')})
+                'tmp': str(base / 'browser/tmp'),
+                'probeScreenshot': str(base / 'worker/reports/engine-probe/test.png')})
             self.assertTrue((base / 'browser/tmp').is_dir())
 
     def test_local_make_chain_serves_the_sandbox_build(self):

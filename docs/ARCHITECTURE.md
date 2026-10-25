@@ -216,7 +216,7 @@ Pipeline principles:
 │   ├── engine-probe/                    existing probe (kept as reference)
 │   ├── reconstruction/  research/       existing research scripts
 │   ├── validator/                       Node Rapier tile validator (walkers; cars TBD), reads .col via game/src/shared/col
-│   └── dev/ (serve-dist.mjs with COOP/COEP + brotli, sync.sh)
+│   └── dev/ (serve-dist.mjs with COOP/COEP + brotli, environment helpers)
 ├── data-manifests/                      small, committed: what bulk data exists and where
 │   ├── laz-tiles.csv                    copied from leikkipuistodata (read-only source)
 │   ├── sources.yaml                     endpoints, layers, years, licences notes

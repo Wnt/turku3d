@@ -175,6 +175,8 @@ def fallback_targets(paths):
     for path in paths:
         if path.startswith(('scripts/dev/', 'tools/dev/')):
             targets.update(('tooling-test', 'game-dev-tools-test'))
+        elif path.startswith('tools/engine-probe/'):
+            targets.add('engine-probe-test')
         elif path.startswith('game/'):
             targets.update(('game-test', 'game-e2e'))
         elif path.startswith('pipeline/'):
