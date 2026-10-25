@@ -76,7 +76,9 @@ def derive_spawn(root, collision):
     feet, target, facade = selected
     heading = math.degrees(math.atan2(target.x - feet[0], feet[2] - target.y)) % 360
     street_line = min(street, key=lambda item: item[0].distance(Point(feet[[0, 2]])))[0]
-    vehicle = curbside_position(collision["ground"], blockers, feet, street_line)
+    vehicle = curbside_position(
+        collision["ground"], blockers, feet, street_line, vehicle_roads(feet)
+    )
     if vehicle is None:
         vehicle = parking_position(collision["ground"], blockers, feet)
     if vehicle is None:
@@ -92,54 +94,122 @@ def derive_spawn(root, collision):
     }
 
 
-def curbside_position(ground, blockers, feet, street_line, max_distance=25.0, min_distance=3.0):
-    """Park the player's car on the road next to the start, aligned with the office street.
+VEHICLE_HIGHWAYS = {
+    "primary",
+    "secondary",
+    "tertiary",
+    "unclassified",
+    "residential",
+    "living_street",
+    "service",
+}
+
+
+def vehicle_roads(feet, radius=40.0):
+    """OSM carriageways near the start as (centreline, half width) pairs.
+
+    The ground classes alone miss them: the office front is a pedestrian street, and the nearest
+    motor-vehicle lanes are service roads paved like the sidewalk.
+    """
+    import geopandas as gpd
+
+    roads = []
+    for source in osm_sources():
+        frame = gpd.read_parquet(source)
+        if "highway" not in frame:
+            continue
+        for _, row in frame[frame["highway"].isin(VEHICLE_HIGHWAYS)].iterrows():
+            tags = json.loads(row["tags"])
+            line = row["geometry_local"]
+            if line.geom_type != "LineString" or line.distance(Point(feet[[0, 2]])) > radius:
+                continue
+            if tags.get("access") in ("private", "no") or tags.get("motor_vehicle") == "no":
+                continue
+            width = float(tags.get("width", 3.5 if row["highway"] == "service" else 6.0))
+            roads.append((line, width / 2))
+    return roads
+
+
+def curbside_position(
+    ground, blockers, feet, street_line, roads=(), max_distance=25.0, min_distance=3.0
+):
+    """Park the player's car on a carriageway next to the start.
 
     A game start wants the car within a few steps of the player; legal parking may be far away.
-    The car body must lie on flat road triangles, clear of footprints and the player.
+    The car body must lie on flat ground that is road material or an OSM carriageway, clear of
+    footprints and the player. It is aligned with its carriageway, or with the office street.
     """
     road = [m.id for m in table() if m.name == "road"]
+    solid = [m.id for m in table() if m.cls == "solid" and "NOWALK" not in m.flags]
     coords = np.array(street_line.coords)
-    tangent = coords[-1] - coords[0]
-    tangent /= np.linalg.norm(tangent)
-    normal = np.array([-tangent[1], tangent[0]])
+    street = coords[-1] - coords[0]
+    street /= np.linalg.norm(street)
     origin = feet[[0, 2]]
-    surfaces = []
-    candidates = []
+    flat_ground, road_ground, candidates = [], [], []
     for layer in ground.values():
         triangles = layer.positions[layer.indices]
         centers = triangles.mean(axis=1)
         normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
         distances = np.linalg.norm(centers[:, [0, 2]] - origin, axis=1)
-        flat = normals[:, 1] > np.linalg.norm(normals, axis=1) * 0.98
-        on_road = np.isin(layer.material, road) & flat & (distances < max_distance + 4)
-        surfaces.extend(Polygon(t[:, [0, 2]]) for t in triangles[on_road])
+        near = (normals[:, 1] > np.linalg.norm(normals, axis=1) * 0.98) & (
+            distances < max_distance + 4
+        )
+        on_road = near & np.isin(layer.material, road)
+        flat_ground.extend(
+            Polygon(t[:, [0, 2]]) for t in triangles[near & np.isin(layer.material, solid)]
+        )
+        road_ground.extend(Polygon(t[:, [0, 2]]) for t in triangles[on_road])
         keep = on_road & (distances >= min_distance) & (distances <= max_distance)
-        candidates.extend(zip(distances[keep], centers[keep], strict=True))
-    if not surfaces:
+        candidates.extend(
+            (d, c[[0, 2]], street) for d, c in zip(distances[keep], centers[keep], strict=True)
+        )
+    for line, _ in roads:
+        for step in np.arange(0.0, line.length, 1.0):
+            point = np.array(line.interpolate(step).coords[0])
+            ahead = np.array(line.interpolate(min(step + 1.0, line.length)).coords[0])
+            behind = np.array(line.interpolate(max(step - 1.0, 0.0)).coords[0])
+            distance = np.linalg.norm(point - origin)
+            if min_distance <= distance <= max_distance:
+                tangent = (ahead - behind) / np.linalg.norm(ahead - behind)
+                candidates.append((distance, point, tangent))
+    if not flat_ground:
         return None
-    surface = unary_union(surfaces).buffer(0.05)
-    for _, center in sorted(candidates, key=lambda row: row[0]):
-        point = center[[0, 2]]
+    lanes = unary_union(
+        road_ground + [line.buffer(half_width, cap_style="flat") for line, half_width in roads]
+    )
+    drivable = lanes.buffer(0.05).intersection(unary_union(flat_ground).buffer(0.05))
+    for _, point, tangent in sorted(candidates, key=lambda row: row[0]):
+        normal = np.array([-tangent[1], tangent[0]])
         body = Polygon(
             [
                 point + a * tangent + b * normal
                 for a, b in ((2.5, 1.1), (-2.5, 1.1), (-2.5, -1.1), (2.5, -1.1))
             ]
         )
-        if not surface.covers(body) or blockers.intersects(body.buffer(0.5)):
+        if not drivable.covers(body) or blockers.intersects(body.buffer(0.5)):
             continue
         if body.distance(Point(origin)) < min_distance - 1.0:
             continue
         return {
-            "position": center.tolist(),
+            "position": [float(point[0]), ground_height(ground, point), float(point[1])],
             "yaw": math.atan2(-tangent[1], tangent[0]),
             "source": "curbside road next to the start",
         }
     return None
 
 
-def parking_sources():
+def ground_height(ground, point):
+    """Highest ground triangle under an engine-xz point."""
+    best = None
+    for layer in ground.values():
+        triangles = layer.positions[layer.indices]
+        for t in triangles[np.linalg.norm(triangles.mean(axis=1)[:, [0, 2]] - point, axis=1) < 3]:
+            if Polygon(t[:, [0, 2]]).buffer(1e-6).covers(Point(point)):
+                best = max(best if best is not None else -1e9, float(t[:, 1].mean()))
+    return best
+
+
+def osm_sources():
     return sorted((C.data_root() / "raw/osm/work-3x3").glob("*.parquet"))
 
 
@@ -148,7 +218,7 @@ def parking_position(ground, blockers, feet):
     import geopandas as gpd
 
     choices = []
-    for source in parking_sources():
+    for source in osm_sources():
         frame = gpd.read_parquet(source)
         for _, row in frame[frame["amenity"] == "parking"].iterrows():
             tags = json.loads(row["tags"])

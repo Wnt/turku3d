@@ -610,7 +610,7 @@ def test_office_spawn_uses_ground_outside_footprints_and_public_parking(tmp_path
         geometry=[parking],
         crs="EPSG:3877",
     )
-    monkeypatch.setattr(spawn, "parking_sources", lambda: [tmp_path / "parking.parquet"])
+    monkeypatch.setattr(spawn, "osm_sources", lambda: [tmp_path / "parking.parquet"])
     monkeypatch.setattr(gpd, "read_parquet", lambda _: frame)
     result = spawn.derive_spawn(root, {"ground": {"c_2_3": layer}})
     assert result["position"][1] == 3
@@ -677,7 +677,7 @@ def test_office_spawn_parks_car_curbside_next_to_player(tmp_path, monkeypatch):
     layer = CollisionLayer(
         np.array(positions, np.float64), np.array(indices, np.uint32), np.array(materials, np.uint8)
     )
-    monkeypatch.setattr(spawn, "parking_sources", lambda: [])
+    monkeypatch.setattr(spawn, "osm_sources", lambda: [])
     result = spawn.derive_spawn(root, {"ground": {"c_2_3": layer}})
     car = np.array(result["vehicle"]["position"])[[0, 2]]
     feet = np.array(result["position"])[[0, 2]]

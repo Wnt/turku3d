@@ -18,7 +18,7 @@ from turku3d.layers import layer_root, read_collision, read_manifest, read_visua
 from turku3d.package import coarse
 from turku3d.package.manifest import DistTree, _atomic_write, git_sha, verify_tree
 from turku3d.package.seams import edge_equal, verify_tile_seams
-from turku3d.package.spawn import derive_spawn, parking_sources
+from turku3d.package.spawn import derive_spawn, osm_sources
 
 BRIDGE = Path(__file__).with_name("visual.mjs")
 
@@ -311,9 +311,7 @@ def assemble(
                 ):
                     inputs.extend(paths)
             terrain = coarse.discover(tile) if tile.level > 0 else None
-            files = (
-                inputs + [root / name / "MANIFEST.json" for name in manifests] + parking_sources()
-            )
+            files = inputs + [root / name / "MANIFEST.json" for name in manifests] + osm_sources()
             if terrain:
                 files += terrain["files"]
             key = digest(files, [code, texture_hash, bindings, tile.id, sorted(available), area])
