@@ -14,10 +14,17 @@ local time, including the date and daylight-saving offset. H hides both the HUD 
   light-space texel snapping. FOV/aspect changes update the cascade frustums. Camera motion does not resize them.
 - An opaque normal/velocity/depth prepass feeds GTAO. AO radius is 0.6 m and the effect only attenuates indirect light,
   with a low blend strength to avoid doubling the occlusion already in facade albedo.
+- Velocity uses **signed half-float** storage, independently of the unsigned-byte packed normals. Three.js lazily
+  clones the first attachment when creating another MRT texture; inheriting the normal format clamps negative motion
+  to zero and quantises small motion, leaving old car and wheel edges in temporal history.
 - TRAA runs at full output resolution with MSAA disabled. Bloom is subdued (HDR threshold 1.5), followed by subtle
   desaturation/warm grading and **AgX**, exposure **0.65**. Tone mapping and sRGB conversion happen exactly once.
 - QA `pass=id` bypasses IBL generation, material styling and all post-processing; there is no AA, grading, exposure,
   fog or shadow modulation. Colour QA waits for 32 settled frames to let temporal history converge.
+
+`?aa=off|taa|fxaa` is a diagnostic selector (default `taa`) on both backends. `off` bypasses colour AA; `fxaa`
+uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,
+bloom and grading. `pass=id` continues to bypass post-processing entirely.
 
 These are permanent user quality settings (`?quality=low|medium|high`, default **medium**), not feature flags:
 
@@ -134,3 +141,21 @@ running render tests, and is not an AOI layer or shipped game asset.
 The landing gate runs `tests/e2e/render-materials.spec.ts` (all tiers, both backends) and the HiDPI/time control
 contract as part of its `game-e2e` stage. The fixed-path hardware budget remains an explicit `make render-perf`
 acceptance run so unrelated concurrent browser stages do not invalidate timestamp measurements.
+
+
+### Car motion regression
+
+```sh
+source ../sandbox.env
+npm --prefix game run build
+(cd game && ./node_modules/.bin/playwright test tests/e2e/car-ghost.spec.ts --workers=1)
+```
+
+The test drives the actual worker-controlled sedan at 10–20 m/s on the synthetic development tile, captures 20
+consecutive frames from each of two roadside views, and reads GPU motion at a visible roof point. It compares the
+history lookup against the previous projected physics position (maximum error 1.25 pixels), for both signs of motion
+and both backends. Frame IDs ensure that capture skips no rendered frames. The camera is held fixed during these
+captures to isolate object motion from asynchronous chase-camera collision queries; vehicle and wheel updates use
+the normal play path. PNG sequences and motion JSON are saved under `$TURKU3D_WORK/reports/car-ghost/after/`.
+`GHOST_CAPTURE=before` selects a separate evidence directory for a baseline run. The test asserts actual motion and
+10–20 m/s speed, so a stationary car or missing velocity cannot pass. The `@drive`/`@render` tags include it in the gate.

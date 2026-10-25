@@ -1,6 +1,7 @@
 // URL parameters. See game/README.md for the contract.
 import { OFFICE_EN } from './origin';
 import { parseQuality, type QualityTier } from '../render/quality';
+import type { Antialiasing } from '../render/post';
 
 /** QA camera pose, qa/README.md §2 + qa/qalib/camera.py: yaw = compass bearing, pitch + up, roll + = camera turned
  *  clockwise seen from behind, fov = VERTICAL degrees (three.js camera.fov), H = absolute camera height N2000. */
@@ -19,6 +20,7 @@ interface Params {
   test: boolean;
   collisionRadius: number;
   quality: QualityTier;
+  aa: Antialiasing;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -54,6 +56,8 @@ export function parseParams(search: string): Params {
   const colRadius = Number(p.get('colRadius') ?? 200);
   if (!(colRadius > 0)) throw new Error(`bad ?colRadius= (metres > 0): ${p.get('colRadius')}`);
   const backend = (p.get('backend') ?? '').toLowerCase() === 'webgl' || p.has('webgl') ? 'webgl' : 'webgpu';
+  const aa = p.get('aa') ?? 'taa';
+  if (aa !== 'off' && aa !== 'taa' && aa !== 'fxaa') throw new Error(`bad ?aa= (off|taa|fxaa): ${aa}`);
   return {
     backend,
     tileset,
@@ -67,5 +71,6 @@ export function parseParams(search: string): Params {
     test: p.has('test'),
     collisionRadius: colRadius,
     quality: parseQuality(p.get('quality')),
+    aa,
   };
 }

@@ -69,7 +69,7 @@ camera.rotation.order = 'YXZ';
 const env = new Environment(scene, renderer, params.quality);
 env.setTime(params.time);
 if (!idPass) env.updateIBL();
-const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality);
+const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
 window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
   const date = new Date(iso);

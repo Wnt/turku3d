@@ -77,6 +77,7 @@ Source `../sandbox.env` from the repository root first. Dev uses `TURKU3D_PORT_B
 | `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles` (an absolute `tiles` URL on another origin, e.g. `make game-serve-dist` on :8081, keeps that origin). |
 | `spawn=E,N[,heading]` | Spawn point in EPSG:3877 (default: the office, E 23459668 N 6704254, heading 0 = north). |
 | `time=<ISO-8601>` | Sun and sky IBL (NOAA formula, Turku lat/lon). Default: `2026-10-15T14:00:00+03:00`; play mode also has a time slider. |
+| `aa=off\|taa\|fxaa` | AA diagnostic; default `taa`. `off` and `fxaa` disable temporal jitter/history and AO temporal sampling; ID passes always bypass AA. |
 | `quality=low\|medium\|high` | Render quality tier; medium is the default. All tiers include GTAO, TRAA, bloom and CSM. |
 | `colRadius=<m>` | Collision streaming radius (default 200, must be > 0). Tiles unload beyond radius + 50 m. Candidate tiles come from the i/j grid window around the player, not a scan of the whole manifest. |
 | `hud=0` | Start with the HUD hidden. |

@@ -14,6 +14,9 @@ test('heading <-> yaw', () => {
   for (const h of [0, 45, 90, 180, 270, 359]) expect(yawToHeading(headingToYaw(h))).toBeCloseTo(h, 6);
 });
 test('url params', () => {
+  expect(parseParams('').aa).toBe('taa');
+  for (const aa of ['off', 'taa', 'fxaa']) expect(parseParams(`?aa=${aa}`).aa).toBe(aa);
+  expect(() => parseParams('?aa=unknown')).toThrow(/aa/);
   const p = parseParams('?cam=23459668,6704254,4.5,90,-5,70&time=2026-07-01T10:00:00Z&backend=webgl');
   expect(p.backend).toBe('webgl');
   expect(p.qa).toEqual({ E: 23459668, N: 6704254, H: 4.5, yawDeg: 90, pitchDeg: -5, fovDeg: 70, rollDeg: 0 });
