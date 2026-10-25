@@ -24,7 +24,7 @@ make region AREA=next-ring DRY=1
 make region AREA=office-block
 make region AREA=office-block  # successful steps should now report cached
 make cache-gc
-scripts/dev/gate --base HEAD^
+scripts/dev/gate --base HEAD~2
 ```
 
 Region logs and summaries are in `$TURKU3D_WORK/reports/region/`. The first gate run passed
@@ -36,6 +36,6 @@ The real office-block run passed all four Rapier validators. A subsequent unchan
 reported fetch, assemble and validate as cached (0.754 seconds summed step time); unavailable
 producer layers were explicitly skipped. The next gate run was green in 73.554 seconds.
 
-Final verification: all six selected gate stages passed in **12.593 seconds**, including
+Final verification: all six selected gate stages passed in **13.615 seconds**, including
 7 synthetic region tests and the legacy/shared panorama-cache regressions. `make cache-gc`
 and `make cache-gc APPLY=1` succeeded; the new shared cache was empty and no data was removed.

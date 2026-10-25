@@ -170,7 +170,16 @@ def plan(area, source, workers, report):
     steps.append(
         Step(
             "assemble",
-            [py + ["turku3d.region.dispatch", "assemble", source, assembler, *tiles]],
+            [
+                py
+                + [
+                    "turku3d.region.dispatch",
+                    "assemble",
+                    source if assembler == "stub_tile" else area.name,
+                    assembler,
+                    *tiles,
+                ]
+            ],
             sources
             + common
             + [code / "package", code / "ground", layers, C.work_root() / "textures"],
