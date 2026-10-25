@@ -108,6 +108,48 @@ main branch, red-gate/result/dirty-tree refusals, and a concurrent-main-change r
 branch was not landed. Temporary acceptance worktrees were removed after retaining logs in
 `~/turku3d/wt/w0-tooling/work/reports/` and the real task record in `~/turku3d/tasks/w0-verify-a/`.
 
-Final area checks: 119 passed, 2 optional texture tests skipped (KTX2 npm dependencies and DeepBump are not
+Pre-rebase area checks: 119 passed, 2 optional texture tests skipped (KTX2 npm dependencies and DeepBump are not
 installed in this sandbox). Tooling tests: 9.87 s; foundation: 0.57 s; game units: 1.77 s; dist server: 0.39 s;
 QA Python: 0.97 s; QA render: 12.56 s; texture tests: 5.28 s. `here`: 0.16 s in main, 0.33 s in the sandbox.
+
+## Rebase verification (2026-10-25)
+
+Rebased onto `7218b14` (including W1-06 `9523b80` and W0-C), preserving the native local pipeline,
+controller tests and sandbox environment. Keyboard routes now hide host gamepads; virtual-controller
+routes still inject their own inputs. No movement thresholds or timing limits were weakened.
+Engine feasibility probes also use sandbox ports, browser profiles, build/cache directories and screenshots.
+
+```bash
+source ../sandbox.env
+make -j 3 tooling-test foundation-test pipeline-test col-test game-test qa-test textures-test game-build game-dev-tools-test
+make game-e2e
+make engine-probe-test
+# Complete concurrent stacks, from this implementation branch:
+scripts/dev/wt new verify-a --from wt/w0-tooling
+scripts/dev/wt new verify-b --from wt/w0-tooling
+# Terminal A:
+source ~/turku3d/wt/verify-a/sandbox.env
+cd ~/turku3d/wt/verify-a/repo
+make game-e2e
+# Terminal B, while A is running:
+source ~/turku3d/wt/verify-b/sandbox.env
+cd ~/turku3d/wt/verify-b/repo
+make game-e2e
+```
+
+All requested area targets passed: tooling 12, foundation 21, pipeline 54, collision 38,
+game 44, QA 23, textures 31 (2 optional dependency skips). Dist-server checks: 6 passed.
+The area batch took 55.56 s; individual elapsed times were tooling 11.07 s, foundation 1.19 s,
+pipeline 9.52 s, collision 52.52 s, game 2.41 s, QA 44.49 s, textures 4.58 s,
+game build 1.36 s and dist-server tests 0.37 s. The final tooling rerun passed in 17.64 s.
+A tooling run overlapping the browser stress checks exceeded the existing orientation/removal timing
+limits; it was repeated successfully after the browser work finished, with those limits unchanged.
+
+The final standalone game suite passed 16/16 in 154.22 s. Two complete stacks at `066d712`,
+ports 5330–5339 and 5340–5349, passed 16/16 each concurrently in 220.72 s and 213.25 s.
+Logs are retained in `~/turku3d/wt/w0-tooling/work/reports/rebase/`; temporary acceptance
+sandboxes are removed. The project main branch was not modified. Main continued advancing during
+verification; the tested integration base is explicitly `7218b14`.
+
+Engine-probe build/Node checks passed in 38.52 s under concurrent load; its Chrome WebGPU
+headless route passed in 27.37 s. Final `scripts/dev/here` completed in 0.37 s.
