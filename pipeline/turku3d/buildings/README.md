@@ -59,8 +59,10 @@ Nearby points **never** count as in-footprint residual evidence. No evidence mea
 hard error, not an assumed storey height. Every fallback passes the same manifold,
 triangle-budget and footprint checks. Coverage and measured accuracy are separate:
 `pass` retains strict accuracy acceptance and `shell_coverage_pass` checks all shells.
-A valid shell with failing residuals is exported with explicit degradation and the
-strict build exits 1. No inferred building heights silently pass accuracy acceptance.
+A valid shell with failing residuals is exported with explicit degradation. Under the
+current release scope, build exit status and manifest `geometry_acceptance` follow
+complete shell coverage; `accuracy_acceptance` and `metrics.json.pass` retain the
+unchanged residual check. No inferred heights silently pass accuracy acceptance.
 
 ## Artifacts
 

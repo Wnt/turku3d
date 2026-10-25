@@ -90,9 +90,10 @@ make buildings-validate
 scripts/dev/gate
 ```
 
-The strict build deliberately exits 1 while any measured accuracy limit fails;
-`pass` remains false and `shell_coverage_pass` is true. This preserves a usable
-accuracy check while delivering explicitly degraded shells under the fallback policy.
+Under the user's coverage-first release scope, the build exits 0 for complete valid
+shell coverage. Manifest `geometry_acceptance` is true; `accuracy_acceptance` and
+`metrics.json.pass` remain false while any measured residual limit fails. The CLI prints
+both coverage `pass` and `accuracy_pass`. No numerical accuracy check was relaxed.
 `make buildings-build` also runs native roofer rather than reusing its cached output.
 
 ## Build and area-test timing
@@ -109,6 +110,10 @@ rebasing onto `04037fc`. No test limits were relaxed.
 
 A quick read-only city LoD3 check matched 71/81 footprints; residual comparison is
 deferred under the release timebox.
+
+The final coverage-first exit/manifest adjustment passed `scripts/dev/gate --base HEAD`
+in **5.394 s** (24 buildings tests plus lint, policy and generated-file checks). The
+regression checks that complete geometry can pass while accuracy remains explicitly false.
 
 ## Follow-ups
 

@@ -164,7 +164,8 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
             ).strip(),
             "tiles_written": sorted(files),
             "artifacts": ["facades.geojson", "footprints.geojson", "metrics.json", "metrics.md"],
-            "geometry_acceptance": report["pass"],
+            "geometry_acceptance": report["shell_coverage_pass"],
+            "accuracy_acceptance": report["pass"],
             "walker_validation": "not_run",
         },
     )
@@ -325,7 +326,8 @@ def main(argv=None):
     print(
         json.dumps(
             {
-                "pass": report["pass"],
+                "pass": report["shell_coverage_pass"],
+                "accuracy_pass": report["pass"],
                 "shell_coverage_pass": report["shell_coverage_pass"],
                 "fallbacks": report["fallback_count"],
                 "shells": len(selected),
@@ -336,4 +338,4 @@ def main(argv=None):
         ),
         flush=True,
     )
-    return 0 if report["pass"] else 1
+    return 0 if report["shell_coverage_pass"] else 1

@@ -46,6 +46,6 @@ compares final snapped shells against class-6 lidar, and writes facade-ready lay
 
 ```sh
 make -j2 buildings-test                   # synthetic geometry and Rapier regression tests
-make buildings-build                     # full real-data build; nonzero if acceptance fails
+make buildings-build                     # full build; nonzero if shell coverage fails
 make buildings-validate                  # 2,000 walkers against the exported NPZ triangles
 ```

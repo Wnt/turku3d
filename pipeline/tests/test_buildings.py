@@ -309,7 +309,14 @@ def test_publish_layer_contract_and_remove_only_stale_owned_files(two_buildings,
     (out / "notes.txt").write_text("keep")
     manifest["tiles_written"].append("obsolete.col.npz")
     (out / "MANIFEST.json").write_text(json.dumps(manifest))
-    publish(two_buildings, selected, records, out, LineString(), [ortho], [], {})
+    b = two_buildings[0]
+    point = b.footprint.representative_point()
+    _, records[0] = choose(b, {"roofer": extrusion(b.footprint)}, np.array([[point.x, 9, point.y]]))
+    records[0]["fallback"] = {"reason": "residual_limits_exceeded", "selected": False}
+    degraded = publish(two_buildings, selected, records, out, LineString(), [ortho], [], {})
+    assert degraded["shell_coverage_pass"] and not degraded["pass"]
+    acceptance = json.loads((out / "MANIFEST.json").read_text())
+    assert acceptance["geometry_acceptance"] and not acceptance["accuracy_acceptance"]
     assert not (out / "obsolete.col.npz").exists()
     assert (out / "notes.txt").read_text() == "keep"
     from turku3d.buildings.audit import audit
