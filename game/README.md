@@ -31,7 +31,8 @@ Use `make play-prepare` to prepare everything without starting a server. Ctrl-C 
 the server launched by this command. A busy port fails without selecting another port.
 
 The start screen shows live controller status and Xbox bindings. Press Ⓐ or select **Start
-playing**. The existing office spawn has a car six metres to the right. `make playtest` uses
+playing**. Published starts use the mapped parking position; explicit debug spawns place
+a car six metres to the right. `make playtest` uses
 ports base+8 and base+9, separate isolated Chrome contexts, and one route at a time per
 backend. The two backend workers still run in parallel.
 Select subsystems with `make playtest PLAYTEST_ARGS='--grep @vehicle'`.

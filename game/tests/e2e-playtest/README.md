@@ -16,7 +16,7 @@ silently skipped or counted as passing.
 | Audio startup | Synthetic dev tiles | Start dialog dismissal, audio unlock, bank decode, mute, footsteps and spatial effects | `@audio @input` |
 | Four-seam loop | Real-data AOI | 48 m loop, four distinct L0 tiles, final position, speed bounds, continuous finite positions, sampled ground clearance | `@ground @streaming @character @aoi` |
 | Office buildings | Assembled AOI with building shells | Five distinct facades approached with virtual Xbox input, each blocking the character before penetration; grounded and framewise safety | `@walk @character @buildings @aoi` |
-| Office drive | Real-data AOI | Y enter, RT drives 5 m north on mapped ground, speed/lateral bounds, RB stops, Y exit, ground clearance | `@vehicle @ground @input @aoi` |
+| Office drive | Real-data AOI | Y enter beside mapped parking, RT drives 15 m south, speed/lateral bounds, RB stops, Y exit, ground clearance | `@vehicle @ground @input @aoi` |
 | Existing Xbox controls | Synthetic dev tiles | Analog walk, sprint, 12 cm curb, jump, camera, pause, hot-plug | `@input @character @ground @synthetic` |
 | Existing stair route | Synthetic dev tiles | Ascent/descent, measured heights, locomotion and tread IK | `@character @structures @synthetic` |
 | Existing car controls | Synthetic dev tiles | Enter, throttle, brake/reverse, exit | `@input @vehicle @synthetic` |

@@ -79,9 +79,9 @@ for (const approach of approaches) {
 }
 
 test('AOI office: Xbox enters the parked car, drives, brakes and exits', { tag: ['@drive', '@vehicle', '@ground', '@input', '@aoi'] }, async ({ page }, info) => {
-  // Stage on mapped ground beside the office; the original coordinate is inside its roof collider.
-  const en = engineToEN(190, 0, 255);
-  await start(page, info.project.name, en.E, en.N);
+  // Static parked cars occupy the northbound lane; drive south through the clear parking strip.
+  const en = engineToEN(224, 0, 181);
+  await start(page, info.project.name, en.E, en.N, 180);
   await padAxes(page, 1, 0);
   await page.waitForFunction(() => {
     const s = (window.__game!.state as () => any)();
@@ -91,7 +91,7 @@ test('AOI office: Xbox enters the parked car, drives, brakes and exits', { tag: 
   await expect.poll(async () => (await gameState(page)).mode).toBe('car');
   const origin = (await gameState(page)).vehicle!.pos;
   await padButton(page, 7, 0.7);
-  await page.waitForFunction(origin => origin[2] - (window.__game!.state as () => any)().vehicle.pos[2] > 5, origin, { timeout: 8_000 });
+  await page.waitForFunction(origin => (window.__game!.state as () => any)().vehicle.pos[2] - origin[2] > 15, origin, { timeout: 8_000 });
   const driving = await gameState(page);
   expect(driving.vehicle!.speed).toBeGreaterThan(3);
   expect(Math.abs(driving.vehicle!.pos[0] - origin[0])).toBeLessThan(3);
