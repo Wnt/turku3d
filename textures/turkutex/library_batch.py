@@ -128,6 +128,8 @@ def material_valid(directory: Path, key: str | None = None) -> bool:
         rec.get("qa", {}).get("pass_seam")
         and rec.get("qa", {}).get("pass_lowfreq")
         and rec.get("gltf_basisu_valid")
+        and set(rec.get("map_qa", {})) == {"normal", "height", "orm"}
+        and all(v["pass_seam"] for v in rec.get("map_qa", {}).values())
     ):
         return False
     return bool(rec.get("hashes")) and all(
@@ -175,7 +177,11 @@ def main(argv=None):
         post = process(
             source, out, tile="xy", flatten="xy", size="1024x1024", material=meta["preset"]
         )
-        if not (post["qa_after"]["pass_seam"] and post["qa_after"]["pass_lowfreq"]):
+        if not (
+            post["qa_after"]["pass_seam"]
+            and post["qa_after"]["pass_lowfreq"]
+            and all(v["pass_seam"] for v in post["map_qa"].values())
+        ):
             raise RuntimeError(f"{meta['material_key']}: seam QA failed")
         write_json(
             out / "material.json",
@@ -185,6 +191,7 @@ def main(argv=None):
                 "uv_scale": [1 / meta["width_m"], 1 / meta["height_m"]],
                 "gltf_basisu_valid": all(v["gltf_basisu_valid"] for v in post["ktx2"].values()),
                 "qa": post["qa_after"],
+                "map_qa": post["map_qa"],
                 "normal_method": post["maps"],
                 "thread_id": rec.get("thread_id"),
                 "imagegen_calls": len(rec.get("imagegen_calls", [])),

@@ -91,6 +91,22 @@ def height_deepbump(normals: np.ndarray, seamless: bool = True) -> np.ndarray:
         return np.asarray(Image.open(h).convert("L"))
 
 
+def periodic_normals(normals: np.ndarray, axes: str) -> np.ndarray:
+    """Blend a narrow periodic boundary and restore unit tangent-space vectors."""
+    from .tileable import feather_wrap_x
+
+    result = normals
+    if "x" in axes:
+        result = feather_wrap_x(result, max(4, result.shape[1] // 128))
+    if "y" in axes:
+        result = feather_wrap_x(
+            result.transpose(1, 0, 2), max(4, result.shape[0] // 128)
+        ).transpose(1, 0, 2)
+    vectors = result.astype(np.float32) / 127.5 - 1
+    vectors /= np.maximum(np.linalg.norm(vectors, axis=-1, keepdims=True), 1e-8)
+    return np.clip(np.rint((vectors + 1) * 127.5), 0, 255).astype(np.uint8)
+
+
 def normals_sobel(albedo: np.ndarray, strength: float = 2.0, wrap: bool = True) -> np.ndarray:
     L = albedo[..., :3].astype(np.float32).mean(-1) / 255.0
     L = ndimage.gaussian_filter(L, 1.0, mode="wrap" if wrap else "nearest")

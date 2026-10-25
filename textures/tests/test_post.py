@@ -65,6 +65,18 @@ def test_sobel_normals_and_orm():
     assert maps.orm(img, h, "metal_painted")[..., 2].min() > 100
 
 
+def test_periodic_normals_close_both_edges_and_remain_unit_vectors():
+    normals = maps.normals_sobel(textured(64, 64), wrap=False)
+    normals[:, 0] = [40, 100, 230]
+    normals[:, -1] = [210, 150, 230]
+    result = maps.periodic_normals(normals, "xy")
+    np.testing.assert_array_equal(result[:, 0], result[:, -1])
+    np.testing.assert_array_equal(result[0], result[-1])
+    vectors = result.astype(float) / 127.5 - 1
+    np.testing.assert_allclose(np.linalg.norm(vectors, axis=-1), 1, atol=0.01)
+    assert qa.metrics(result, "xy")["pass_seam"]
+
+
 def test_target_size():
     assert pow2_floor(1254) == 1024 and pow2_floor(724) == 512
     assert target_size(2172, 724, None) == (2048, 512)

@@ -152,12 +152,18 @@ def process(
     Image.fromarray(img).save(out / "albedo.png")
     if not sobel and maps.deepbump_available():
         nrm = maps.normals_deepbump(img)
+        if axes:
+            nrm = maps.periodic_normals(nrm, axes)
         hgt = maps.height_deepbump(nrm, seamless=bool(axes))
         how = "DeepBump color_to_normals (LARGE overlap) + normals_to_height"
     else:
         nrm = maps.normals_sobel(img, wrap=bool(axes))
+        if axes:
+            nrm = maps.periodic_normals(nrm, axes)
         hgt = maps.height_from_luminance(img)
         how = "Sobel on luminance (DeepBump not installed or --sobel)"
+    if axes:
+        how += "; periodic normal-edge blend and unit renormalization"
     Image.fromarray(nrm).save(out / "normal.png")
     Image.fromarray(hgt).save(out / "height.png")
     o = maps.orm(img, hgt, material)
@@ -166,14 +172,9 @@ def process(
         out / "tile2x2.jpg", quality=88
     )
     qa_after = qa.metrics(img, axes)
-    map_seams = (
+    map_qa = (
         {
-            k: {
-                a: round(
-                    qa.seam_ratio(np.asarray(Image.open(out / f"{k}.png").convert("RGB")), a), 3
-                )
-                for a in axes
-            }
+            k: qa.metrics(np.asarray(Image.open(out / f"{k}.png").convert("RGB")), axes)
             for k in ("normal", "height", "orm")
         }
         if axes
@@ -193,7 +194,8 @@ def process(
         "maps": how,
         "qa_before": qa_before,
         "qa_after": qa_after,
-        "map_seam_ratio": map_seams,
+        "map_seam_ratio": {k: {a: v[f"seam_{a}"] for a in axes} for k, v in map_qa.items()},
+        "map_qa": map_qa,
         "ktx2": {},
     }
     if ktx2:
