@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "materials": [
+    {"key": "asphalt_fresh", "metres": 2, "preset": "asphalt", "description": "fresh dark grey Finnish asphalt, fine crushed aggregate, no markings or cracks"},
+    {"key": "asphalt_worn", "metres": 2, "preset": "asphalt", "description": "weathered medium grey Finnish asphalt, exposed fine granite aggregate, subtle wear, no large cracks or markings"},
+    {"key": "granite_curb", "metres": 2, "preset": "ground_stone", "description": "grey and muted pink Finnish granite curb stone, finely bush-hammered flat surface, mineral speckles, no joints"},
+    {"key": "cobblestone", "metres": 2, "preset": "ground_stone", "description": "Turku grey granite rectangular cobblestone setts in staggered straight rows, 15 by 20 cm blocks, narrow dark sandy joints, slightly rounded worn tops"},
+    {"key": "concrete_slabs", "metres": 2, "preset": "concrete", "description": "Finnish pale grey sidewalk concrete slabs, 50 cm squares in an aligned grid, narrow straight joints, fine surface grains and subtle wear"},
+    {"key": "grass", "metres": 2, "preset": "grass", "description": "short mown Finnish urban lawn, natural muted greens, fine individual blades, sparse dry blades, no flowers"},
+    {"key": "gravel", "metres": 2, "preset": "gravel", "description": "compacted Finnish grey granite gravel, irregular 5 to 15 mm stones and fine grey sand, no large rocks"},
+    {"key": "quay_stone", "metres": 2, "preset": "ground_stone", "description": "old Turku Aura river quay granite paving, large worn grey stone blocks in straight staggered rows, narrow mortar joints, faint mineral discoloration"}
+  ]
+}

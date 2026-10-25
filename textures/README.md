@@ -39,6 +39,12 @@ make textures-facade-inventory OUT="$TURKU3D_WORK/textures/aoi/all-facades.geojs
 export FACADES="$TURKU3D_WORK/textures/aoi/all-facades.geojson"
 make textures-library-batch FACADES="$FACADES" TEX_J=6 TEX_MAX_PCT=100
 make textures-facade-batch FACADES="$FACADES" TEX_J=6 TEX_MAX_PCT=100
+
+```bash
+# From the repository root, after sourcing the sandbox environment
+make textures-setup        # textures/.venv + npm ci in textures/node + DeepBump clone in <data>/tools/DeepBump
+make textures-test         # offline fixtures, four pytest workers
+make textures-usage        # {"used_percent": 1, ...}  (free: codex app-server JSON-RPC, no model call)
 ```
 
 The temporary `turkutex/inventory.py` explicitly marks heights and facade indices provisional.
@@ -231,3 +237,13 @@ New panorama downloads use `$TURKU3D_DATA/cache/streetlevel` with locking and at
 `TURKUTEX_STREETVIEW` overrides that root. Existing caches are not migrated. `make cache-gc`
 reports sizes; `make cache-gc APPLY=1` removes only old partial downloads.
 See [region cache details](../pipeline/turku3d/region/README.md).
+
+## Ground materials and ortho products (W1-10)
+
+See [turkutex/ground/README.md](turkutex/ground/README.md) for the four-tile build, quota-aware
+library generation, vector markings, memory accounting, and exact verification commands.
+The renderer/assembler interface is [game/src/render/ground](../game/src/render/ground/README.md).
+Run `source ../sandbox.env && make -j2 ground-test` for the fast checks. The `ground` Python extra
+provides rasterio, shapely, geopandas and pyarrow; `make textures-venv` includes it.
+DeepBump runs in a bounded ONNX worker (one intra-op thread, one inter-op thread, no spinning)
+so concurrent texture jobs do not each occupy a full-machine thread pool.

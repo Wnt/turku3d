@@ -35,6 +35,7 @@
     "tests/e2e-tile",
     "tests/headless",
     "playwright.render.config.ts",
-    "tests/render"
+    "tests/render",
+    "vite.ground.config.ts"
   ]
 }

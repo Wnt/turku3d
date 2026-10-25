@@ -1,0 +1,29 @@
+{
+  "checked_on": "2026-10-25",
+  "sources": [
+    {
+      "id": "turku_city",
+      "products": ["2022 true ortho", "2025 ortho", "GIS:Katualueet carriageway geometry"],
+      "source_license": "CC-BY-4.0",
+      "attribution": "Base map © City of Turku, CC BY 4.0",
+      "license_source": "https://www.turku.fi/tietoa-turusta/kartat-ja-paikkatieto",
+      "changes": "Resampling, colour matching, temporal cleanup, semantic classification and geometric clipping"
+    },
+    {
+      "id": "openstreetmap",
+      "products": ["Crossing and explicit road-marking semantics/geometry"],
+      "source_license": "ODbL-1.0",
+      "attribution": "© OpenStreetMap contributors",
+      "license_source": "https://www.openstreetmap.org/copyright",
+      "changes": "Crossing stripe construction and clipping to city carriageway polygons"
+    },
+    {
+      "id": "generated_ground_library",
+      "products": ["Eight ground material albedos and derived PBR maps"],
+      "source_license": null,
+      "provenance": "OpenAI image_gen generated outputs under the applicable OpenAI terms; no CC0 source claim",
+      "source_record": "Sandbox textures/library/MANIFEST.json records thread IDs, job keys, source/output hashes and processing",
+      "changes": "Low-frequency flattening, tileable quilting, Sobel normals/height, heuristic ORM, KTX2 encoding"
+    }
+  ]
+}

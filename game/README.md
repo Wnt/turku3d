@@ -240,3 +240,7 @@ input. The analog-speed regression captures a frame-local sample with its origin
 GPU/frame throughput budgets remain in `make render-perf`. `npm run test:all` shares one production
 build between unit and browser suites. Use `scripts/dev/gate --paths game/src/physics/worker.ts`
 from the repository root to run the walk/drive subset with its synthetic pipeline tile.
+
+Ground texture material API and isolated Chrome QA: [src/render/ground/README.md](src/render/ground/README.md).
+From the repo root, source the sandbox environment and run `make ground-render-test` (port 5310
+by default; override `GROUND_QA_PORT` outside the W1-10 sandbox).
