@@ -86,6 +86,10 @@ and `__qaProject` remain in CSS pixels. This rule avoids requesting finer LOD wi
 - Each distribution reports `samples`, `p50`, `p95` (nearest rank). No samples means `null`, never a fabricated zero.
 - `gpuStatus` says `timestamp-query`, `unsupported` or the timing error; `gpuSkipped` counts unavailable/disjoint slots.
 - `drawCalls` and `triangles` count **all** passes, including shadows, prepass, reflections and fullscreen quads.
+  Tile meshes use their own bounds for frustum culling. Their non-ground geometry is
+  merged into one shadow caster per loaded tile; ground does not cast shadows.
+  Colour meshes and ID-pass object ranges remain separate. The shadow mesh is built
+  at load time and disposed with its tile.
   They are captured inside the animation callback before three.js resets its counters. Resident triangles remain a
   separate streaming statistic. The HUD updates four times per second to keep percentile sorting out of the hot loop.
 

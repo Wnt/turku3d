@@ -45,6 +45,20 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   await page.evaluate(() => (window as any).__render.perf.reset());
   await page.waitForTimeout(4000);
   const perf = await page.evaluate(() => (window as any).__perf);
+  const draws = await page.evaluate(() => {
+    const rows: Record<string, number> = {};
+    (window as any).__game.tiles.tiles.group.traverse((object: any) => {
+      if (!object.isMesh || !object.visible) return;
+      let parent = object;
+      while (parent && !parent.userData?.layer) parent = parent.parent;
+      const layer = parent?.userData?.layer ?? 'unknown';
+      const material = object.material?.userData?.material_key ?? parent?.userData?.material_key ?? 'unknown';
+      const key = `${layer}/${material}`;
+      rows[key] = (rows[key] ?? 0) + (Array.isArray(object.material) ? object.material.length : 1);
+    });
+    return rows;
+  });
+  console.log(`[${backend}] visible mesh draws by layer/material ${JSON.stringify(draws)}`);
   expect(perf.drawCalls).toBeLessThan(500);
   await page.screenshot({ path: path.join(shots, `integration-${backend}-street.png`) });
   await info.attach('1440p-performance', { body: JSON.stringify(perf, null, 2), contentType: 'application/json' });
@@ -61,7 +75,17 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   await page.waitForFunction(() => (window as any).__game.state().mode === 'car');
   await page.waitForTimeout(1000);
   await page.screenshot({ path: path.join(shots, `integration-${backend}-car.png`) });
+  expect(bad).toEqual([]);
+});
 
+test('office facades keep visible ID pixels and QA views', { tag: ['@pipeline', '@qa', '@render'] }, async ({ page }, info) => {
+  test.skip(!manifest.visual.t0_0_0 || manifest.visual.t0_0_0.tris < 1000, 'Requires the assembled office layers');
+  expect(manifest.spawn).toBeTruthy();
+  const bad: string[] = [];
+  page.on('pageerror', e => bad.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') bad.push(m.text()); });
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  const backend = info.project.name;
   const [x, y, z] = manifest.spawn.position;
   const heading = manifest.spawn.headingDeg;
   const bearing = heading * Math.PI / 180;

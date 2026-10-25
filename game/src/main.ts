@@ -81,7 +81,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   if (!idPass) env.updateIBL();
 } };
 const renderFrame = () => { if (post) post.render(); else renderer.render(scene, camera); };
-const tiles = new VisualTiles(params.tileset, renderer, camera, scene);
+const tiles = new VisualTiles(params.tileset, renderer, camera, scene, !!idPass);
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa, params.tileset);
 tiles.tiles.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.apply(model));
 tiles.tiles.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.release(model));

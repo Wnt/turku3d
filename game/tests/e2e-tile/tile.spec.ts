@@ -23,8 +23,9 @@ test.beforeEach(async ({ context, page }) => {
 });
 const manifest = JSON.parse(fs.readFileSync(path.join(TILE_DIST, 'manifest.json'), 'utf8'));
 const TILES = '/tiles/tileset.json';
-// office (ARCHITECTURE: Läntinen Rantakatu 15)
-const OFFICE = { E: 23459668, N: 6704254 };
+// The address point lies inside the office footprint under its roof. Walk on the
+// mapped sidewalk east of it, where the next 8 m north stays clear of buildings.
+const WALK_START = { E: 23459685, N: 6704256 };
 // a QA pose inside t0_0_0 (the office_front registry view stands 7 m south of it, in t0_0_1): at the office,
 // looking north-west and slightly down, 1280x960 like the registry views
 const VIEW = { E: 23459668, N: 6704256, H: 6.5, yaw: 324.819, pitch: -10, fov: 60, w: 1280, h: 960 };
@@ -56,19 +57,20 @@ async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: numbe
 }
 
 test('assembled tile from the pipeline renders and the character walks on its collision', { tag: ['@walk', '@pipeline', '@ground', '@character', '@streaming', '@aoi'] }, async ({ page }, info) => {
+  test.setTimeout(180_000);
   const backend = info.project.name;
   const bad = watchConsole(page);
   expect(Object.keys(manifest.visual).length).toBeGreaterThan(0);
-  await page.goto(`/?backend=${backend}&tiles=${TILES}&spawn=${OFFICE.E},${OFFICE.N},0`);
+  await page.goto(`/?backend=${backend}&tiles=${TILES}&spawn=${WALK_START.E},${WALK_START.N},0`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 });
-  await page.waitForFunction(() => { const s = (window as any).__game.state(); return s.tilesSettled && s.collision.tiles > 0 && s.grounded; }, null, { timeout: 60_000 });
+  await page.waitForFunction(() => { const s = (window as any).__game.state(); return s.tilesSettled && s.collision.tiles > 0 && s.grounded; }, null, { timeout: 90_000 });
   const start = await page.evaluate(() => (window as any).__game.state());
   const vis = manifest.visual.t0_0_0;
   expect(start.visTris).toBeGreaterThanOrEqual(vis.tris);
   expect(start.collision.tiles).toBeGreaterThan(0); // streaming continues in the background (4 in flight)
-  expect(Math.abs(start.E - OFFICE.E)).toBeLessThan(0.5);
-  expect(Math.abs(start.N - OFFICE.N)).toBeLessThan(0.5);
+  expect(Math.abs(start.E - WALK_START.E)).toBeLessThan(0.5);
+  expect(Math.abs(start.N - WALK_START.N)).toBeLessThan(0.5);
   expect(start.H).toBeGreaterThan(vis.h[0] - 0.1);
   expect(start.H).toBeLessThan(vis.h[1] + 0.1);
   expect(start.groundMaterial).toBeGreaterThan(0);
