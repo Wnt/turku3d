@@ -1,9 +1,10 @@
 # W1-02 structures: integration and real acceptance
 
-Landing scope: **structures code and synthetic acceptance**, 2026-10-25.
+Status: **BLOCKED — full gate is red**, 2026-10-25.
+Landing scope: structures code and synthetic acceptance.
 The user deferred curbs and real AOI acceptance to the next iteration. Earlier
 real acceptance below remains failing; it is not evidence of production readiness.
-Branch: `wt/w1-02-structures`, rebased onto main `04037fc`. Conflicts preserve
+Branch: `wt/w1-02-structures`, rebased onto main `662f646`. Conflicts preserve
 both coordination tooling and the macOS stop-race fix. No merge to main was made.
 The main build has no `build/layers/ground/MANIFEST.json` at this checkpoint,
 so no new real AOI build was run for this scoped landing.
@@ -112,3 +113,25 @@ No shipped `.col` or tileset was produced.
 4. Rerun complete real acceptance against the final plain ground generation before
    claiming real AOI coverage. Publish the validator stairs sidecar when integrating
    the assembled collision; the current landing establishes synthetic acceptance only.
+
+
+## Final gate evidence
+
+On main base `662f646`, `scripts/dev/gate --json` passed 19/20 stages in
+293.930 s. The unchanged retry passed 18/20 stages in 383.638 s. Structures
+synthetic acceptance passed in both runs (21 Python tests and 13 Rapier tests).
+No assertion, timeout or threshold was weakened.
+
+The retry failures were:
+
+- `tooling-tests`: `test_rm_refuses_unmerged_and_live_then_releases`,
+  `subprocess.TimeoutExpired: ... wt rm a ... timed out after 20 seconds`.
+- `game-e2e`: WebGPU gamepad test exceeded 25,000 ms; WebGPU render-controls
+  expected the time slider hidden after KeyH but it remained visible for 5,000 ms.
+  The other 24 browser tests passed.
+
+Logs: `$TURKU3D_WORK/reports/structures/final-gate.json` and `gate-retry.json`.
+The iteration stops after this retry under the user timebox. Main advanced with
+assembler integration during testing; closeout rebases those changes, but a
+new gate run is required before landing. Historical real AOI failures are deferred
+by scope and are not the reason for this blocked gate result.
