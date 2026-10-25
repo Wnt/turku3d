@@ -195,7 +195,7 @@ async function runPlay() {
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const carLoad = car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`);
-  const playerLoad = player.load(`${import.meta.env.BASE_URL}assets/character/mannequin.glb`);
+  const playerLoad = player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer);
 
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const selected = params.spawnGiven ? undefined : manifest.spawn;

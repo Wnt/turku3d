@@ -1,0 +1,155 @@
+# License notes
+
+This is a summary, not legal advice. Check the upstream licenses when in doubt.
+
+## Code licence
+
+- **Code in this repository: GPL-3.0-or-later** (SPDX `GPL-3.0-or-later`), full text in [LICENSE](LICENSE).
+  Copyright (C) 2026 Kasper Olesen. Source files carry the header `SPDX-License-Identifier: GPL-3.0-or-later`.
+- **Relicensed from MIT on 2026-10-03** by the owner, who holds all copyright (the only other contributors are AI
+  agents working for him). The change takes effect with the commit that adds this section (branch `license/gpl`).
+  All earlier commits (master up to `0d78054`) were released under the MIT licence, and anyone who received a copy
+  under MIT keeps the MIT rights for that copy.
+- Why GPL: the plugin is not meant to be built into closed-source games, and GPL-3.0-or-later matches MPFB 2.
+- Third-party libraries keep their own licences and notices (three.js: MIT, GPL-compatible). MPFB 2 is
+  GPL-3.0-or-later and therefore compatible with this code.
+
+## Generated files (owner decision 2026-10-03)
+
+Files **generated** by our pipeline are released under **CC0-1.0 where all their sources are CC0** (MakeHuman
+system assets, our own authored data). The code that generates them stays GPL-3.0-or-later.
+
+| Class of file | Licence |
+|---|---|
+| Character / body GLBs (`output/base_body*.glb`), hair GLBs (`output/hair_*.glb`) | CC0-1.0 (all sources CC0) |
+| Garment GLBs (`output/clothing_*.glb`), incl. the `project-original` and `CC0 source + project-original extension` items | CC0-1.0 (all sources CC0 or our own authored data) |
+| Morph targets in the GLBs, incl. generated ones (`dyn_breast_*`, `corr_*`, `look_*`), and generated textures (pore normal, `skin_regions`) | CC0-1.0 |
+| Animation clips (`output/animations/*.json` and the baked clips in `base_body_anim.glb`) | CC0-1.0 (procedural, our own data) |
+| JSON catalogs and sidecars we generate (`clothing.json`, `hair.json`, `asset_licenses.json`, `*.joints.json`, `body_colliders.json`) | CC0-1.0 |
+| A generated file derived from a **CC-BY** asset | **not** CC0: the CC-BY attribution requirement stays. None today: `output/asset_licenses.json` lists 37 assets, all CC0, and `clothing.json` / `hair.json` list no CC-BY item. |
+| A generated file whose source licence is missing or unknown | not released until resolved. None today. |
+
+CC0 imposes no conditions on derivatives, so a file made only from CC0 sources and our own data can itself be CC0.
+The rule of MakeHuman's asset library that uploads must be CC0 or CC-BY applies only to uploads to that library,
+not to what we derive from its CC0 assets. The licence strings the build already writes into `clothing.json`
+(`CC0`, `project-original`, `CC0 source + project-original extension`) describe the sources; under this decision
+all three mean CC0-1.0 for the generated file.
+
+## Using the plugin in a game (GPL-3.0-or-later)
+
+Not legal advice; read the licence and ask a lawyer for a concrete case.
+
+1. Commercial use and selling are allowed. The GPL requires that recipients can get the source code of the
+   GPL-covered part, and that changes to it are shared under the same licence.
+2. Typically not covered by the code licence: your game's art, audio, levels, music, story and other **data**, as
+   long as it is separate data and not part of a combined program. The generated character files (GLB etc.) follow
+   the asset licences in this file (see "Generated files"), not the code licence.
+3. A game that loads the plugin into the same program forms a combined work with it, so the game must itself be
+   GPL-compatible and provide its source to its recipients.
+4. Practical limits: closed engines, app stores and many console terms are often incompatible with GPL code
+   (Unity, Unreal, console SDKs: check their terms). The GPL does not allow technical measures that stop users
+   from running modified versions.
+5. Revenue models that work with GPL games: selling builds, support, extra content (data), and services.
+
+| Part | Source | License | Consequence |
+|---|---|---|---|
+| MPFB 2 Blender extension (code) | makehumancommunity/mpfb2 | GPL-3.0 | Only *runs* inside Blender at build time. It is not copied into this repo or into the GLB. If you ever vendor or modify MPFB code here, that code is GPL. |
+| MakeHuman base mesh, macro/detail targets, `game_engine` rig and weights | MakeHuman system assets | CC0 1.0 | `output/*.glb` and `output/*.joints.json` are derived from CC0 data only, so they can be used in closed/commercial projects without attribution. |
+| Face detail targets (`face_*` morphs), eyelid closure expression units (`blink_*`), macro targets used for the corrective morphs (`corr_*`) | MakeHuman targets as shipped in MPFB's `data/targets` (`nose/`, `mouth/`, `chin/`, `eyes/`, `forehead/`, `head/`, `expression/units/caucasian/`, `macrodetails/`) | CC0 1.0 | Baked into the morph targets of all GLBs. MakeHuman's LICENSE.md, section C, releases the targets (incl. expression units) as CC0: <https://raw.githubusercontent.com/makehumancommunity/makehuman/master/LICENSE.md>. `look_*` morphs are computed rotations (no asset). |
+| Breast morphs: `breast_cup_min/max`, `breast_firm_min/max` (and their `corr_*`), `bdet_breast_*` | MakeHuman breast macro targets (`breast/female-<age>-<muscle>-<weight>-<cup>-<firmness>`, as combined by MPFB's `cupsize`/`firmness` macros) and detail targets `breast/breast-dist-decr/incr`, `breast-point-decr/incr`, `breast-trans-down/up` from MPFB's `data/targets` | CC0 1.0 | Same MakeHuman LICENSE.md section C as above. Baked into the morph targets of all GLBs. |
+| Breast motion morphs `dyn_breast_*`, `ccJiggle` extras | generated by this project's code (`blender/build_base.py`: rigid 2 cm translation weighted by a tissue mask derived from the CC0 cupsize target) | generated: CC0-1.0 (see "Generated files") | No external geometry. |
+| Eyes, eyebrows, eyelashes, teeth, tongue, 8 hair styles, skin texture (table below) | MakeHuman system assets CC0 pack | CC0 1.0 | Meshes and (re-processed) textures ship inside `output/base_body.glb`, `output/base_body_anim.glb` and `output/hair_*.glb`. |
+| Pore micro-normal texture, skin region mask (`skin_regions`) | generated by this project's code (`web/materials.js`, `blender/cc_textures.py`) | generated: CC0-1.0 (see "Generated files") | No external image source. |
+| three.js (loaded by `web/`) | mrdoob/three.js | MIT | Keep the MIT notice if three.js files are vendored into the site. `RoomEnvironment` (IBL) is part of three.js. |
+| Scripts in this repo (`blender/`, `web/`, `tools/`, `tests/`, `experiments/`, `docs/`) | this project | GPL-3.0-or-later (see `LICENSE`) | Copyright (C) 2026 Kasper Olesen. Earlier commits: MIT (see "Code licence"). Files under `output/` are CC0 as listed in this file. |
+| Clothing: T-shirt, jeans, skirt, shoes, shorts, long-sleeve shirt, jacket, boots (table below) | MakeHuman system assets CC0 pack | CC0 1.0 | Fitted, re-processed meshes + textures ship in `output/clothing_*.glb`. |
+| Trench coat, long (`output/clothing_trenchcoat.glb`) | jacket of the CC0 `male_casualsuit05` (without its collar and chest pockets), cut at the waist; long skirt, belt, standing collar and lapels generated by this project's code (`blender/cc_clothing.py` `coat_skirt`, `coat_collar`, `coat_drop_pockets`) | CC0 source + project-original extension | No CC0 long coat exists in the pack. The jacket body and sleeves are the CC0 asset. Generated by project code: the floor-length skirt (open front, back vent, hem flare) and the belt band (971 vertices, 23 rows x 37 columns); the tall standing collar and the peaked lapels (285 vertices, 57 columns x 5 rows) that replace the CC0 collar; the fill of the removed chest pocket holes (30 vertices, texels in-painted from the jacket cloth); their UVs, morph deltas (fitted, then mirror-symmetrised), skin weights, pin mask, and their textures (median colour of the jacket cloth + procedural noise; belt: procedural grain + stitch lines). No third-party asset is involved. |
+| Hoodie (`output/clothing_hoodie.glb`) | sweater of the CC0 `male_casualsuit02` (1250 vertices, unchanged topology, offset 6 mm outwards); the lying hood generated by this project's code (`blender/cc_clothing.py` `hood_down`) | CC0 source + project-original extension | The sweater body and sleeves are the CC0 asset. Generated by project code: the hood (429 vertices, 33 columns x 13 rows) grown from the neckline, its UVs, morph deltas (fitted, then mirror-symmetrised), skin weights; the whole texture is procedural (`tex_procedural`: knit noise, rib bands at cuffs / hem / neck, kangaroo pocket drawn on, hood seam). No third-party image and no other asset is involved. |
+| Dress (`output/clothing_dress.glb`) | short-sleeve top of the CC0 `female_casualsuit01` as the bodice, cut at the waist; knee-length A-line skirt and belt generated by this project's code (`blender/cc_clothing.py` `coat_skirt`, closed) | CC0 source + project-original extension | The bodice and sleeves are the CC0 asset. Generated by project code: the closed skirt (36 columns, rows every 4 cm, waist to knee) and the belt band, their UVs, morph deltas (fitted, then mirror-symmetrised), skin weights and pin mask; the whole texture is procedural (`tex_procedural` style `dress`: cloth noise, piping, hem stitches, belt buckle). No third-party image and no other asset is involved. |
+| Underwear: briefs, panties, bra (`output/clothing_briefs.glb`, `output/clothing_panties.glb`, `output/clothing_bra.glb`) | generated by this project's code (`blender/cc_clothing.py` `add_generated`, `underwear_fields`, `SurfaceFit`, `tex_generated`) | project-original (generated: CC0-1.0) | No third-party asset. The surface is a copy of the CC0 base body's own faces inside a region (waist / leg line, cups + underbust band) clipped by project code and lifted 2-2.5 mm along the body normal. UVs, skin weights and morph deltas are interpolated from the body; the textures (knit noise + trim band) are procedural. `clothing.json` marks them `license: "project-original"`. |
+| Body collision capsules (`output/body_colliders.json`) | computed from the CC0 body by `tools/make_colliders.mjs` | derived from CC0 data | No asset. |
+| Future assets | various | check each | Prefer CC0; record source + license per asset here. |
+
+Why the GPL does not reach the exported assets: the GLB contains only mesh/morph/weight/texture data that
+comes from the CC0 MakeHuman assets and our own generated data; the GPL applies to program code (MPFB's and
+ours), not to the data it outputs.
+
+## Shipped MakeHuman assets
+
+Source for all of them: the MakeHuman "system assets" CC0 pack,
+<https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip>
+(author `makehuman_system`, <http://www.makehumancommunity.org>). Fetched into the git-ignored
+`build/mh_assets/` by `blender/tools/fetch_mh_assets.py`; nothing from the pack is committed except the
+derived `output/` files.
+
+| Asset | Type | File in the pack | License | Shipped in |
+|---|---|---|---|---|
+| young_caucasian_female | skin (albedo, used for the albedo + generated normal map) | `skins/young_caucasian_female/young_caucasian_female.mhmat` + `.png` | CC0 | base / anim GLB (`skin_albedo`, `skin_normal`) |
+| high-poly | eye mesh | `eyes/high-poly/high-poly.mhclo` | CC0 | base / anim GLB (`Eyes`) |
+| lightblue | eye texture (iris made grey + tintable) | `eyes/materials/lightblue.mhmat` | CC0 | base / anim GLB (`eye`) |
+| eyebrow001 | eyebrows | `eyebrows/eyebrow001/eyebrow001.mhclo` | CC0 | base / anim GLB (`Eyebrows`) |
+| eyelashes01 | eyelashes | `eyelashes/eyelashes01/eyelashes01.mhclo` | CC0 | base / anim GLB (`Eyelashes`) |
+| teeth_base | teeth | `teeth/teeth_base/teeth_base.mhclo` | CC0 | base / anim GLB (`Teeth`) |
+| tongue01 | tongue | `tongue/tongue01/tongue01.mhclo` | CC0 | base / anim GLB (`Tongue`) |
+| short02 | hair | `hair/short02/short02.mhclo` | CC0 | `output/hair_short02.glb` |
+| bob02 | hair | `hair/bob02/bob02.mhclo` | CC0 | `output/hair_bob02.glb` |
+| long01 | hair | `hair/long01/long01.mhclo` | CC0 | `output/hair_long01.glb` |
+| ponytail01 | hair | `hair/ponytail01/ponytail01.mhclo` | CC0 | `output/hair_ponytail01.glb` |
+| braid01 | hair | `hair/braid01/braid01.mhclo` | CC0 | `output/hair_braid01.glb` |
+| short04 | hair (added 2026-09-30) | `hair/short04/short04.mhclo` | CC0 | `output/hair_short04.glb` |
+| bob01 | hair (added 2026-09-30) | `hair/bob01/bob01.mhclo` | CC0 | `output/hair_bob01.glb` |
+| afro01 | hair (added 2026-09-30) | `hair/afro01/afro01.mhclo` | CC0 | `output/hair_afro01.glb` |
+| male_casualsuit04 | clothes: T-shirt part (component of 810 vertices) and jeans part (886 vertices) | `clothes/male_casualsuit04/male_casualsuit04.mhclo` + `.mhmat` | CC0 | `output/clothing_tshirt.glb`, `output/clothing_jeans.glb` |
+| female_elegantsuit01 | clothes: skirt part (395 vertices; the jacket is not used); its lower part is widened radially by project code (`cc_clothing.py` `flare`, up to x1.15, no new vertices) | `clothes/female_elegantsuit01/female_elegantsuit01.mhclo` + `.mhmat` | CC0 | `output/clothing_skirt.glb` |
+| shoes01 | clothes: shoes + socks (the socks' skin weights are blended from the shoe's by project code, `sock_weights`; geometry unchanged) | `clothes/shoes01/shoes01.mhclo` + `.mhmat` | CC0 | `output/clothing_shoes.glb` |
+| male_casualsuit05 | clothes: jacket (1659 vertices; collar, trousers and shirt not used; chest pockets removed), extended to a trench coat by project code | `clothes/male_casualsuit05/male_casualsuit05.mhclo` + `.mhmat` | CC0 (source) | `output/clothing_trenchcoat.glb` |
+| male_casualsuit04 (shorts) | clothes: the jeans part again (886 vertices), cut above the knee by project code (`cut_legs`, 463 vertices kept) and widened at the hem (`flare_legs`); texture: the pack's jeans albedo luminance + procedural hem stitches (`tex_procedural`) | `clothes/male_casualsuit04/male_casualsuit04.mhclo` + `.mhmat` | CC0 | `output/clothing_shorts.glb` |
+| male_casualsuit03 | clothes: shirt (1613 vertices; trousers and the rest not used; the inner cuff tubes removed by `drop_inner_cuffs`); texture fully procedural (`tex_procedural`: weave, collar / cuffs / buttons in the secondary-colour mask, stitch lines) | `clothes/male_casualsuit03/male_casualsuit03.mhclo` + `.mhmat` | CC0 | `output/clothing_shirt.glb` |
+| male_casualsuit02 | clothes: sweater (1250 vertices; trousers not used), extended with a generated hood | `clothes/male_casualsuit02/male_casualsuit02.mhclo` + `.mhmat` | CC0 (source) | `output/clothing_hoodie.glb` |
+| female_casualsuit01 | clothes: short-sleeve top (1311 vertices; trousers not used), cut at the waist as the dress bodice and extended with a generated skirt + belt | `clothes/female_casualsuit01/female_casualsuit01.mhclo` + `.mhmat` | CC0 (source) | `output/clothing_dress.glb` |
+| male_casualsuit05 (jacket) | clothes: the jacket again (1659 vertices) with its collar / lapels (277 vertices), uncut, offset 8 mm outwards (`inflate`); shirt front and trousers not used | `clothes/male_casualsuit05/male_casualsuit05.mhclo` + `.mhmat` | CC0 | `output/clothing_jacket.glb` |
+| shoes03 | clothes: shoes + calf-high socks used as the boot shaft (strap buckles not used; the socks' skin weights blended from the shoe's, `sock_weights`; geometry otherwise unchanged) | `clothes/shoes03/shoes03.mhclo` + `.mhmat` | CC0 | `output/clothing_boots.glb` |
+
+Beard: the CC0 system pack contains no beard/facial-hair proxy, so none is shipped. Community beards exist
+but are mostly CC-BY and were not used.
+
+How the licenses were verified (automatically, on every build, in `blender/build_base.py` `check_license`):
+
+1. the pack's own index `packs/makehuman_system_assets.json` lists the asset with `"license": "CC0"`
+   (all 94 assets of the pack are CC0), and
+2. the asset's own `.mhclo`/`.mhmat` header contains the MakeHuman statement "... explicitly released as
+   CC0 in september 2020"; the skin PNGs additionally carry the "PUBLICDOMAIN MAKEHUMAN.ORG" mark.
+
+The build aborts if either check fails, and writes the verified list to `asset_licenses.json` next to the
+.blend; `output/hair.json` repeats license + source per hair style, `output/clothing.json` per garment. The
+clothing assets go through the same `check_license` (via `add_asset`, both `.mhclo` and `.mhmat`), and
+`tests/clothing.test.mjs` fails if a garment is not CC0, not listed in this file, or (when the build folder
+exists) not recorded as CC0 by `makehuman_system` in `asset_licenses.json`. The generated underwear is the
+only exception: it must be `project-original`, record its generator and be listed here by file name.
+
+The textures in the GLBs are derived from these CC0 images (resized, colour-normalised, iris greyed,
+normal map generated from the albedo luminance plus procedural noise); no other image source is used.
+
+Not used: MakeHuman community assets (other packs, often CC-BY); only the CC0 system pack is used.
+
+## Contributing to GPL projects
+
+The project's working rule, not legal advice. Ask a lawyer if it matters for a concrete case.
+
+- **Code may flow both ways.** These repos and MPFB 2 are all GPL-3.0-or-later, so code may move to and from
+  MPFB with proper notices: the copyright and licence notices of the original authors are kept. The owner keeps
+  the copyright of his own contributions (MPFB asks for no CLA as far as we know).
+- **Attribute copied code.** Code copied from another project keeps its copyright line, and the file says where it
+  came from (project, file, version or commit).
+- **Check forks before copying.** Do not copy from a fork or branch without checking that fork's licence and who
+  wrote the code; a fork may carry code under other terms.
+- **Architecture rule, not a licence rule.** Build scripts may import MPFB and call its API inside Blender at build
+  time (as `blender/build_base.py` does), but the plugin/runtime contains no MPFB code, so it stays independent of
+  Blender and MPFB (ROADMAP section 3 point 4). `tools/check_no_gpl_paste.mjs` is a tripwire for that rule.
+  MPFB's output data (meshes, targets, weights from the CC0 assets) is not GPL.
+- **CC0 assets are fine** in both directions: MakeHuman's CC0 targets, `macro.json`, meshes and textures may be
+  used here and referenced in an MPFB contribution.
+- `docs/PROVENANCE.md` records the macro-weight comparison. Its clean-room rewrite is no longer required for
+  licence reasons (its result may still be used). Code that follows MPFB's logic should name MPFB and its
+  copyright holders as the source (see PROVENANCE.md section 5 for the Baseline's two macro files).
+- Whether AI assistance is disclosed upstream is the owner's decision (roadmap decision 4).
