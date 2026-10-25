@@ -6,12 +6,14 @@ import subprocess
 import numpy as np
 
 from turku3d import config as C
+from turku3d.layers import read_manifest, write_manifest
 
 from .build import sha256, write_json
 
 
 def main():
     layer = C.work_root() / "build/layers/buildings"
+    manifest = read_manifest(layer)
     manifest_hash = sha256(layer / "MANIFEST.json")
     report = json.loads((layer / "metrics.json").read_text())
     footprints = json.loads((layer / "footprints.geojson").read_text())
@@ -26,8 +28,10 @@ def main():
         "base_heights": bases,
         "building_ids": report["collision_building_ids"],
     }
-    for path in sorted(layer.glob("*.col.npz")):
-        with np.load(path) as tile:
+    for name in sorted(manifest["tiles"]):
+        if not name.endswith(".col.npz"):
+            continue
+        with np.load(layer / name) as tile:
             data["tiles"].append(
                 {
                     "positions": tile["positions"].ravel().tolist(),
@@ -60,11 +64,16 @@ def main():
                 f"{walkers['entered']} entered, {walkers['endedInside']} ended inside. "
                 f"Elapsed: {walkers['elapsed_ms']} ms.\n\n{walkers['terrain']}.\n"
             )
-        manifest = json.loads((layer / "MANIFEST.json").read_text())
-        manifest["walker_validation"] = "pass" if walkers["pass"] else "fail"
-        if "walkers.json" not in manifest["artifacts"]:
-            manifest["artifacts"].append("walkers.json")
-        write_json(layer / "MANIFEST.json", manifest)
+        write_manifest(
+            layer,
+            inputs=manifest["inputs"],
+            params={
+                **manifest["params"],
+                "walker_validation": "pass" if walkers["pass"] else "fail",
+            },
+            code=manifest["code"],
+            tiles=list(manifest["tiles"]),
+        )
     return result.returncode
 
 

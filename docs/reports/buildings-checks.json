@@ -1,10 +1,10 @@
 {
   "pass": true,
   "errors": [],
-  "collision_tiles": 87,
-  "seam_pairs": 137,
+  "collision_tiles": 50,
+  "seam_pairs": 0,
   "shells": 81,
-  "max_clipped_triangles": 1800,
+  "max_clipped_triangles": 1444,
   "visual_tiles": 12,
   "meshes": 7479,
   "facades": 6370,

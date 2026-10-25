@@ -128,9 +128,11 @@ def test_facade_uvs_metadata_and_stable_order(two_buildings):
     assert features == again
 
 
-def test_collision_tiles_bitwise_seams_and_area(two_buildings):
+def test_collision_tiles_preserve_whole_shells_and_area(two_buildings):
+    import trimesh
+
     shells = [make_shell(extrusion(b.footprint), b.footprint) for b in two_buildings]
-    tiles = collision_tiles(shells)
+    tiles = collision_tiles(shells, [b.footprint for b in two_buildings])
     total = 0
     for arrays in tiles.values():
         p, idx, mat = arrays.values()
@@ -148,10 +150,15 @@ def test_collision_tiles_bitwise_seams_and_area(two_buildings):
         for s in shells
     )
     assert total == pytest.approx(original)
-    left, right = tiles["c_0_0"]["positions"], tiles["c_1_0"]["positions"]
-    assert set(map(bytes, left[left[:, 0] == 62.5])) == set(map(bytes, right[right[:, 0] == 62.5]))
-    top, bottom = tiles["c_0_0"]["positions"], tiles["c_0_1"]["positions"]
-    assert set(map(bytes, top[top[:, 2] == 62.5])) == set(map(bytes, bottom[bottom[:, 2] == 62.5]))
+    from turku3d import config as C
+
+    assert sum(len(t["indices"]) for t in tiles.values()) == sum(len(s.indices) for s in shells)
+    for building, shell in zip(two_buildings, shells, strict=True):
+        c = building.footprint.centroid
+        data = tiles[C.CollisionTile.at(c.x, c.y).id]
+        assert set(map(bytes, shell.positions)) <= set(map(bytes, data["positions"]))
+        mesh = trimesh.Trimesh(data["positions"], data["indices"], process=False)
+        assert mesh.is_watertight and mesh.is_winding_consistent
 
 
 def test_t_junction_repaired():
@@ -271,6 +278,7 @@ def test_publish_layer_contract_and_remove_only_stale_owned_files(two_buildings,
     from rasterio.transform import from_origin
     from turku3d import config as C
     from turku3d.buildings.build import publish
+    from turku3d.layers import read_collision, read_manifest
 
     ortho = tmp_path / "ortho.tif"
     rgb = np.zeros((3, 50, 50), np.uint8)
@@ -294,12 +302,17 @@ def test_publish_layer_contract_and_remove_only_stale_owned_files(two_buildings,
         selected[b.id] = shell
         records.append(record)
     out = tmp_path / "buildings"
-    report = publish(two_buildings, selected, records, out, LineString(), [ortho], [], {})
+    report = publish(two_buildings, selected, records, out, LineString(), [ortho], {}, {})
     assert report["pass"] and report["shell_count"] == 2
     assert all(r["roof"]["material_key"] == "roof_tile_red" for r in records)
-    manifest = json.loads((out / "MANIFEST.json").read_text())
-    assert manifest["code_version"] and manifest["layer"] == "buildings"
-    assert all((out / name).exists() for name in manifest["tiles_written"])
+    manifest = read_manifest(out)
+    assert manifest["code"] and manifest["layer"] == "buildings"
+    assert all((out / name).exists() for name in manifest["tiles"])
+    assert manifest["format"] == "turku3d-layer" and manifest["version"] == 1
+    assert isinstance(manifest["inputs"], dict)
+    for name in manifest["tiles"]:
+        if name.endswith(".col.npz"):
+            read_collision(out / name)
     assert not list(out.glob("*.col")) and not (out / "tileset.json").exists()
     facades = json.loads((out / "facades.geojson").read_text())
     assert facades["schema_version"] == 1
@@ -307,15 +320,15 @@ def test_publish_layer_contract_and_remove_only_stale_owned_files(two_buildings,
     # A previous owned tile should disappear, an unrelated file should survive.
     (out / "obsolete.col.npz").write_bytes(b"obsolete")
     (out / "notes.txt").write_text("keep")
-    manifest["tiles_written"].append("obsolete.col.npz")
+    manifest["tiles"]["obsolete.col.npz"] = {}
     (out / "MANIFEST.json").write_text(json.dumps(manifest))
     b = two_buildings[0]
     point = b.footprint.representative_point()
     _, records[0] = choose(b, {"roofer": extrusion(b.footprint)}, np.array([[point.x, 9, point.y]]))
     records[0]["fallback"] = {"reason": "residual_limits_exceeded", "selected": False}
-    degraded = publish(two_buildings, selected, records, out, LineString(), [ortho], [], {})
+    degraded = publish(two_buildings, selected, records, out, LineString(), [ortho], {}, {})
     assert degraded["shell_coverage_pass"] and not degraded["pass"]
-    acceptance = json.loads((out / "MANIFEST.json").read_text())
+    acceptance = read_manifest(out)["params"]
     assert acceptance["geometry_acceptance"] and not acceptance["accuracy_acceptance"]
     assert not (out / "obsolete.col.npz").exists()
     assert (out / "notes.txt").read_text() == "keep"
@@ -324,13 +337,25 @@ def test_publish_layer_contract_and_remove_only_stale_owned_files(two_buildings,
     result = audit(out)
     assert result["pass"], result["errors"]
     assert result["shells"] == 2
-    assert result["seam_pairs"] > 0
+    assert result["seam_pairs"] == 0  # Whole objects have no clipped surface seams.
     path = next(out.glob("*.col.npz"))
     with np.load(path) as tile:
         arrays = {key: tile[key].copy() for key in tile.files}
     for key in ("indices", "material", "building_index"):
         arrays[key] = arrays[key][1:]
     np.savez_compressed(path, **arrays)
+    with pytest.raises(ValueError, match="hash/size mismatch"):
+        read_manifest(out)
+    from turku3d.layers import write_manifest
+
+    manifest = read_manifest(out, verify=False)
+    write_manifest(
+        out,
+        inputs=manifest["inputs"],
+        params=manifest["params"],
+        code=manifest["code"],
+        tiles=list(manifest["tiles"]),
+    )
     broken = audit(out)
     assert not broken["pass"]
     assert any("not closed" in error for error in broken["errors"])

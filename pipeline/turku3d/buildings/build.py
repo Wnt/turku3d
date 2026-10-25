@@ -17,7 +17,7 @@ from shapely.geometry import mapping
 from shapely.ops import unary_union
 
 from turku3d import config as C
-from turku3d.package.gltf import write_glb
+from turku3d.layers import CollisionLayer, write_manifest, write_visual
 
 from . import citygml, roofer
 from .facades import make_visuals, ortho_roof_key
@@ -70,13 +70,16 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
         visuals[tile.id].extend(meshes)
         features.extend(facades)
         accepted.append(shell)
-    for tid, arrays in collision_tiles(accepted, provenance=True).items():
+    footprints = [b.footprint for b in buildings if b.id in selected]
+    for tid, arrays in collision_tiles(accepted, footprints, provenance=True).items():
         name = tid + ".col.npz"
+        # Keep per-triangle ownership for isolated walker validation.
+        CollisionLayer(arrays["positions"], arrays["indices"], arrays["material"]).validate()
         np.savez_compressed(output / name, **arrays)
         files.append(name)
     for tid, meshes in sorted(visuals.items()):
         name = tid + ".vis.glb"
-        write_glb(meshes, output / name, root_extras={"layer": "buildings", "tile": tid})
+        write_visual(output / name, meshes, root_extras={"layer": "buildings", "tile": tid})
         files.append(name)
     write_json(
         output / "facades.geojson",
@@ -147,27 +150,26 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
     )
     code_files = sorted(Path(__file__).parent.glob("*.py")) + [
         Path(C.__file__),
+        C.REPO_ROOT / "pipeline/turku3d/layers.py",
         C.REPO_ROOT / "pipeline/turku3d/package/gltf.py",
         C.REPO_ROOT / "pipeline/turku3d/col/materials_v1.json",
     ]
     code_hash = hashlib.sha256("".join(sha256(p) for p in code_files).encode()).hexdigest()
-    write_json(
-        output / "MANIFEST.json",
-        {
-            "schema_version": 1,
-            "layer": "buildings",
-            "inputs": inputs,
-            "params": params,
-            "code_version": code_hash,
+    write_manifest(
+        output,
+        inputs=inputs,
+        params={
+            **params,
+            "seams": "objects",
             "git_revision": subprocess.check_output(
                 ["git", "-C", str(C.REPO_ROOT), "rev-parse", "HEAD"], text=True
             ).strip(),
-            "tiles_written": sorted(files),
-            "artifacts": ["facades.geojson", "footprints.geojson", "metrics.json", "metrics.md"],
             "geometry_acceptance": report["shell_coverage_pass"],
             "accuracy_acceptance": report["pass"],
             "walker_validation": "not_run",
         },
+        code=code_hash,
+        tiles=files,
     )
     return report
 
@@ -176,13 +178,18 @@ def publish(buildings, selected, records, output, streets, ortho_paths, inputs, 
     """Prepare the complete layer before replacing any existing artifact."""
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".buildings-", dir=output.parent) as temporary:
-        stage = Path(temporary)
+        stage = Path(temporary) / "buildings"
         report = _publish(buildings, selected, records, stage, streets, ortho_paths, inputs, params)
         output.mkdir(parents=True, exist_ok=True)
         previous = output / "MANIFEST.json"
         old = json.loads(previous.read_text()) if previous.exists() else {}
         fresh = {p.name for p in stage.iterdir()}
-        for name in old.get("tiles_written", []) + old.get("artifacts", []):
+        for name in [
+            *old.get("tiles", {}),
+            *old.get("tiles_written", []),
+            *old.get("artifacts", []),
+            "walkers.json",
+        ]:
             if Path(name).name != name:
                 raise ValueError("unsafe layer manifest path")
             if name not in fresh:
@@ -310,7 +317,7 @@ def main(argv=None):
     input_files = [*paths.values(), *laz, osm_paths[-1], *seq, *ortho]
     if execution.exists():
         input_files.append(execution)
-    inputs = [{"path": str(p), "sha256": sha256(p)} for p in input_files]
+    inputs = {str(p): sha256(p) for p in input_files}
     params = {
         "aoi_local": envelope().as_tuple(),
         "median_limit_m": 0.10,

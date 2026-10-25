@@ -14,9 +14,9 @@ including complete footprints crossing the four-tile envelope plus 50 m margin.
 - 63/81 meet the measured residual limits. There are 21 explicit fallback/degradation
   records: 19 extrusions replacing invalid/missing geometry and two retained roofer
   shells whose fit is better than a flat extrusion but still misses the limits.
-- 87 collision tiles, 12 visual tiles, 7,479 visual meshes and 6,370 facade polygons.
-- 137 bitwise-matching collision seam pairs. Every exported building is closed,
-  consistently oriented and positive-volume; the maximum after clipping is 1,800 triangles.
+- 50 collision tiles, 12 visual tiles, 7,479 visual meshes and 6,370 facade polygons.
+- Whole-object collision ownership requires no clipped surface seams. Every exported
+  building is closed, consistently oriented and positive-volume; the maximum is 1,444 triangles.
 - Facade UVs, stable indices, material metadata and the [facade contract](../specs/facades.md)
   remain available to texturing and assembly.
 
@@ -91,7 +91,7 @@ scripts/dev/gate
 ```
 
 Under the user's coverage-first release scope, the build exits 0 for complete valid
-shell coverage. Manifest `geometry_acceptance` is true; `accuracy_acceptance` and
+shell coverage. Manifest `params.geometry_acceptance` is true; `params.accuracy_acceptance` and
 `metrics.json.pass` remain false while any measured residual limit fails. The CLI prints
 both coverage `pass` and `accuracy_pass`. No numerical accuracy check was relaxed.
 `make buildings-build` also runs native roofer rather than reusing its cached output.
@@ -121,3 +121,34 @@ Improve the two remaining part reconstructions and the 16 other accuracy-failing
 fallbacks using verified building-part associations or newer source data. Four of
 these footprints have no class-6 returns. W1-04 must bind materials, use complete
 object bounds across visual tile boundaries and run integrated terrain/vehicle checks.
+
+## Shared publisher integration
+
+Rebased onto batch main `aaf46d1` and replaced the custom manifest with
+`turku3d.layers.write_manifest` (turku3d-layer v1). The shared reader verifies
+every collision/visual filename, byte count and SHA256. Visual output uses
+`write_visual`; collision arrays pass shared `CollisionLayer` validation while
+retaining the optional per-triangle building ownership used by isolated walkers.
+Acceptance and revision live in `params`; detailed metrics and facade inventories
+remain sidecars. Walker validation republishes the same shared schema and preserves
+tile hashes. Rebuilding clears stale walker evidence.
+
+Focused Python suite: **25 passed, 2.02 s**, including shared-reader compatibility,
+corrupt-tile rejection, stale-owned-file removal and walker manifest publication.
+Ruff passes. The full gate is deliberately deferred to the orchestrator's batch,
+as requested for this urgent integration.
+
+The first assembly check exposed grid-clipping slivers below the delivery format's
+1e-6 m² minimum. Collision publication now follows the shared object contract:
+whole shells in footprint-centroid tiles with `params.seams = "objects"`.
+Selection applies the unchanged delivery `check_tile` checks after float32 conversion;
+unshippable candidates use the existing explicitly flagged fallback. The regression
+requires unchanged triangle counts, exact source vertices, total area and closed
+tile meshes. No delivery check or tolerance was weakened.
+
+Final cached reconstruction rebuild: **128.55 s**, 81/81 shells and unchanged 63/81
+accuracy passes. Shared manifest reader: **62 verified files** (50 collision,
+12 visual). Exported shell audit: **PASS**, max 1,444 triangles per building.
+After the final batch rebase, all **25 Python tests passed in 49.46 s** under
+shared host load above 300. The historical 2,000-walker result above predates
+the collision ownership change; integrated physics should be rerun on assembly.

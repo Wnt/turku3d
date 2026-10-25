@@ -7,6 +7,7 @@ import numpy as np
 import trimesh
 
 from turku3d import config as C
+from turku3d.layers import read_manifest
 from turku3d.package.gltf import accessor_array, read_glb
 
 
@@ -25,7 +26,8 @@ def audit(layer):
             tid = C.CollisionTile.parse(path.name.removesuffix(".col.npz"))
             borders[(tid.i, tid.j)] = p
     seams = 0
-    for (i, j), p in borders.items():
+    continuous = read_manifest(layer)["params"].get("seams") == "continuous"
+    for (i, j), p in borders.items() if continuous else []:
         for axis, neighbour, value in [
             (0, (i + 1, j), (i + 1) * C.COLLISION_TILE_SIZE),
             (2, (i, j + 1), (j + 1) * C.COLLISION_TILE_SIZE),

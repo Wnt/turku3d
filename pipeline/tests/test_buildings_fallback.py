@@ -23,7 +23,7 @@ def test_missing_reconstruction_uses_measured_height():
     assert evidence["height_source"] == "class6_inside_footprint"
     assert not evidence["accuracy_certified"]
     assert shell.hausdorff == 0
-    for tile in collision_tiles([shell], provenance=True).values():
+    for tile in collision_tiles([shell], [building.footprint], provenance=True).values():
         assert len(tile["building_index"]) == len(tile["indices"])
         assert (tile["building_index"] == 0).all()
 
@@ -96,3 +96,42 @@ def test_local_overlap_plane_precedes_distant_building_proxy():
     assert not evidence["accuracy_certified"]
     _, record = choose(building, {"lidar_extrusion": surfaces}, distant)
     assert not record["pass"] and record["candidates"]["lidar_extrusion"]["points"] == 0
+
+
+def test_walker_validation_preserves_shared_manifest(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from turku3d import config as C
+    from turku3d.buildings import validate
+    from turku3d.layers import read_manifest, write_manifest
+
+    monkeypatch.setattr(C, "work_root", lambda: tmp_path)
+    layer = tmp_path / "build/layers/buildings"
+    layer.mkdir(parents=True)
+    (layer / "metrics.json").write_text(json.dumps({"collision_building_ids": []}))
+    for name in ("footprints.geojson", "facades.geojson"):
+        (layer / name).write_text(json.dumps({"features": []}))
+    write_manifest(layer, inputs={"fixture": "source-hash"}, params={}, code="test", tiles=[])
+
+    def run(command):
+        result = {
+            "pass": True,
+            "walkers": 2000,
+            "entered": 0,
+            "endedInside": 0,
+            "elapsed_ms": 1,
+            "terrain": "synthetic validation fixture",
+        }
+        from pathlib import Path
+
+        Path(command[-1]).write_text(json.dumps(result))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(validate.subprocess, "run", run)
+    assert validate.main() == 0
+    manifest = read_manifest(layer)
+    assert manifest["params"]["walker_validation"] == "pass"
+    assert manifest["inputs"] == {"fixture": "source-hash"}
+    assert manifest["code"] == "test" and manifest["tiles"] == {}
+    assert json.loads((layer / "metrics.json").read_text())["walker_validation"]["pass"]

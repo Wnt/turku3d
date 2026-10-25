@@ -3,6 +3,8 @@
 import numpy as np
 import shapely
 
+from turku3d import config as C
+from turku3d.col.format import ColTile, check_tile
 from turku3d.col.materials import mat_id
 
 from .distance import surface_distances
@@ -60,6 +62,13 @@ def choose(building, candidates, points):
     for name, surfaces in sorted(candidates.items()):
         try:
             shell = make_shell(surfaces, building.footprint)
+            center = building.footprint.centroid
+            tile = C.CollisionTile.at(center.x, center.y)
+            errors = check_tile(
+                ColTile.for_tile(tile.i, tile.j, shell.positions, shell.indices, shell.material)
+            )
+            if errors:
+                raise ValueError("delivery collision: " + "; ".join(errors))
             vertical = residuals(shell, points, building.footprint)
             inside = shapely.intersects_xy(building.footprint, points[:, 0], points[:, 2])
             errors = surface_distances(shell.positions, shell.indices, points[inside])
