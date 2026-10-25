@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image
+from jsonschema import ValidationError, validate
 
 from . import rollout as ro
 from . import usage
@@ -242,6 +243,8 @@ class Runner:
         if not (self.use_cache and cp and (cp / "record.json").exists()):
             return None
         rec = json.loads((cp / "record.json").read_text())
+        if not self._valid_record(job, rec, cp):
+            return None
         dst = self.out / "images" / job.id
         if dst.exists():
             shutil.rmtree(dst)
@@ -259,6 +262,23 @@ class Runner:
             primary=next((i["path"] for i in imgs if i.get("primary")), None),
         )
         return rec
+
+    @staticmethod
+    def _valid_record(job: Job, rec: dict, cache_path: Path | None = None) -> bool:
+        if not rec.get("ok"):
+            return False
+        if job.expect_images and not rec.get("images"):
+            return False
+        for im in rec.get("images", []):
+            path = cache_path / Path(im["path"]).name if cache_path else Path(im["path"])
+            if not path.is_file() or sha256_file(path) != im.get("sha256"):
+                return False
+        if job.schema:
+            try:
+                validate(rec.get("answer"), json.loads(job.schema.read_text()))
+            except ValidationError:
+                return False
+        return True
 
     def _cache_put(self, key: str, rec: dict):
         cp = self._cache_path(key)
@@ -406,6 +426,11 @@ class Runner:
             rec["error"] = "schema job but last message is not JSON"
         elif job.expect_images and not rec["images"]:
             rec["error"] = f"expected {job.expect_images} image(s), thread produced none"
+        if rec["error"] is None and job.schema:
+            try:
+                validate(rec["answer"], json.loads(job.schema.read_text()))
+            except ValidationError as e:
+                rec["error"] = f"schema validation: {e.message}"
         rec["ok"] = rec["error"] is None
         if job.expect_images and len(rec["images"]) > job.expect_images:
             rec["note"] = (
@@ -446,6 +471,7 @@ class Runner:
         rec = None
         for attempt in range(1, self.retries + 2):
             rec = self._call(job, key, attempt)
+            self._append("attempts.jsonl", rec)
             if rec["ok"]:
                 break
         self._append("out.jsonl", rec)
@@ -458,7 +484,7 @@ class Runner:
         todo = []
         for j in jobs:
             r = done.get(j.id)
-            if not force and r and r.get("ok") and r.get("key") == j.key():
+            if not force and r and r.get("key") == j.key() and self._valid_record(j, r):
                 continue
             todo.append(j)
         self.log(

@@ -1,11 +1,10 @@
 import json
-import shutil
 
 import numpy as np
 import pytest
 from PIL import Image
 from turkutex.post import maps, qa
-from turkutex.post.pipeline import ktx2_header, pow2_floor, process, target_size
+from turkutex.post.pipeline import ktx2_header, native_encoder, pow2_floor, process, target_size
 from turkutex.post.tileable import flatten_lowfreq, make_tileable
 
 
@@ -82,12 +81,8 @@ def test_process_sobel_no_ktx2(tmp_path):
     assert json.loads((tmp_path / "out" / "post.json").read_text())["files"]["albedo.png"]["sha256"]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.skipif(native_encoder() is None, reason="run make textures-ktx")
 def test_ktx2_encode(tmp_path):
-    from turkutex.paths import NODE_DIR
-
-    if not (NODE_DIR / "node_modules" / "ktx2-encoder").exists():
-        pytest.skip("run `make textures-setup` (npm install in textures/node)")
     src = tmp_path / "in.png"
     Image.fromarray(textured(128, 128)).save(src)
     r = process(src, tmp_path / "out", tile="xy", flatten="xy", ktx2=True, sobel=True)
@@ -99,6 +94,7 @@ def test_ktx2_encode(tmp_path):
         and a["supercompression"] == "BasisLZ(ETC1S)"
     )
     assert n["valid"] and n["supercompression"] == "zstd"
+    assert all(v["gltf_basisu_valid"] for v in r["ktx2"].values())
     assert ktx2_header(tmp_path / "out" / "orm.ktx2")["valid"]
 
 

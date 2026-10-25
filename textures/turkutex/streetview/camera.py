@@ -149,7 +149,7 @@ def sample_bilinear(img: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray
     u0 %= W
     u1 = (u0 + 1) % W
     v1 = np.minimum(v0 + 1, H - 1)
-    im = img.astype(np.float32)
+    im = img  # Gather only crop pixels; a full 16K float panorama costs 1.6 GB.
     if im.ndim == 2:
         im = im[..., None]
     a = im[v0, u0] * (1 - fu) + im[v0, u1] * fu

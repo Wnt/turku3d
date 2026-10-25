@@ -222,3 +222,23 @@ def test_usage_cmd_missing_is_unknown(monkeypatch):
 
     monkeypatch.setenv("TURKUTEX_USAGE_CMD", "/nonexistent/usage-cmd")
     assert usage.used_percent() is None
+
+
+def test_schema_validation_rejects_wrong_json(env):
+    tmp, jf = env
+    (tmp / 'schema.json').write_text(json.dumps({'type': 'object', 'required': ['missing_field']}))
+    jobs = load_jobs(jf)[:1]
+    runner = Runner(tmp / 'strict', retries=0)
+    assert runner.run(jobs) == 1
+    assert 'schema validation' in runner.done_records()['lab']['error']
+
+
+def test_deleted_image_is_not_a_resume_hit(env):
+    tmp, jf = env
+    job = load_jobs(jf)[1]
+    runner = Runner(tmp / 'repair', retries=0)
+    assert runner.run([job]) == 0
+    before = len(calls(tmp))
+    Path(runner.done_records()['gen']['primary']).unlink()
+    assert runner.run([job]) == 0
+    assert len(calls(tmp)) == before + 1

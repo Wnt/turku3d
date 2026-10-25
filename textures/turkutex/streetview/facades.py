@@ -96,23 +96,20 @@ def load_facades(path: Path) -> list[Facade]:
     out = []
     for f in d["features"]:
         pr = dict(f["properties"])
+        if f["geometry"]["type"] != "LineString":
+            raise ValueError("facade geometry must be a LineString in EPSG:3877")
         c = f["geometry"]["coordinates"]
         if len(c) != 2:
             raise ValueError(f"facade {pr.get('id')}: expected 2 points, got {len(c)}")
         fid = pr.pop("id")
-        if not re.match(r"^[A-Za-z0-9_.-]+$", fid):
+        if fid in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.-]+", fid):
             raise ValueError(f"bad facade id {fid!r}")
-        out.append(
-            Facade(
-                fid,
-                np.array(c[0][:2], float),
-                np.array(c[1][:2], float),
-                float(pr.pop("height_m")),
-                pr.pop("base_h", None),
-                pr,
-                pr.pop("normal", "right"),
-            )
-        )
+        facade = Facade(fid, np.array(c[0][:2], float), np.array(c[1][:2], float),
+                        float(pr.pop("height_m")), pr.pop("base_h", None), pr, pr.pop("normal", "right"))
+        if (not np.isfinite(np.r_[facade.p0, facade.p1, facade.height_m]).all()
+                or min(facade.length, facade.height_m) <= 0 or facade.normal_side not in ("left", "right")):
+            raise ValueError(f"{fid}: invalid facade geometry")
+        out.append(facade)
     return out
 
 
@@ -150,7 +147,7 @@ def read_footprints(gml: Path) -> list[dict]:
         if poly is None:
             continue
         ring = _coords(poly.find(".//gml:outerBoundaryIs//gml:coordinates", NS).text)
-        if np.allclose(ring[0], ring[-1]):
+        if np.allclose(ring[0], ring[-1], rtol=0, atol=1e-6):
             ring = ring[:-1]
         area2 = np.sum(ring[:, 0] * np.roll(ring[:, 1], -1) - np.roll(ring[:, 0], -1) * ring[:, 1])
         if area2 < 0:

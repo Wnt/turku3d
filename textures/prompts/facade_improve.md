@@ -10,5 +10,5 @@ $albedo_rules
 $negatives
 $style
 Where the photos and the style note disagree, follow the photos.
-Fill areas hidden in the photos plausibly in the same style. Output exactly one opaque, landscape image with an aspect ratio of about $aspect (width:height), the wall filling the whole frame edge to edge.
+Fill areas hidden in the photos plausibly in the same style. Output exactly one opaque image with an aspect ratio of about $aspect (width:height), the wall filling the whole frame edge to edge.
 When done, reply in English with one line of JSON: {"notes": "<what you kept, changed or invented>"}
