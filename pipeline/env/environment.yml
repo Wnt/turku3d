@@ -22,6 +22,7 @@ dependencies:
   - pyarrow>=16
   - lxml>=5.0
   - trimesh
+  - matplotlib-base
   - mapbox_earcut
   # rasters
   - gdal>=3.9
