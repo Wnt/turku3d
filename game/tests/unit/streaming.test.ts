@@ -35,3 +35,15 @@ test('a city-sized manifest (84k collision tiles) updates in well under 8 ms', (
   for (let k = 0; k < 20; k++) s.update(5000 + k, 5000, true);
   expect((performance.now() - t0) / 20).toBeLessThan(2);
 });
+
+test('full request capacity still unloads distant tiles and resumes after requests finish', async () => {
+  const { manifest, physics } = fakes(16, 16);
+  const s = new CollisionStreamer(manifest, physics as never, 100, 50);
+  expect(s.update(300, 300, true)).toHaveLength(4);
+  physics.loaded.set('c_0_0', {});
+  expect(s.update(900, 900, true)).toEqual([]);
+  expect(physics.unloadTile).toHaveBeenCalledWith('c_0_0');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(s.pending).toBe(0);
+  expect(s.update(900, 900, true)).toHaveLength(4);
+});

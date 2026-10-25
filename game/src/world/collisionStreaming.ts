@@ -33,6 +33,8 @@ export class CollisionStreamer {
       const ij = parseCollisionId(id);
       if (ij && distToCollisionTile(x, z, ij.i, ij.j) > this.radius + this.hysteresis) this.physics.unloadTile(id);
     }
+    // Keep unloading while requests are in flight, but only search/sort when a slot is available.
+    if (this.loading.size >= this.maxConcurrent) return [];
     const want = this.near(x, z, this.radius).filter(({ id }) => !this.physics.loaded.has(id) && !this.loading.has(id) && !this.failed.has(id));
     want.sort((a, b) => a.d - b.d);
     const started: string[] = [];
