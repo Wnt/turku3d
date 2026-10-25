@@ -24,7 +24,6 @@ make region AREA=next-ring DRY=1
 make region AREA=office-block
 make region AREA=office-block  # successful steps should now report cached
 make cache-gc
-scripts/dev/gate --base HEAD~2
 ```
 
 Region logs and summaries are in `$TURKU3D_WORK/reports/region/`. The first gate run passed
@@ -36,6 +35,30 @@ The real office-block run passed all four Rapier validators. A subsequent unchan
 reported fetch, assemble and validate as cached (0.754 seconds summed step time); unavailable
 producer layers were explicitly skipped. The next gate run was green in 73.554 seconds.
 
-Final verification: all six selected gate stages passed in **13.615 seconds**, including
+Original pre-rebase verification: all six selected gate stages passed in **13.615 seconds**, including
 7 synthetic region tests and the legacy/shared panorama-cache regressions. `make cache-gc`
 and `make cache-gc APPLY=1` succeeded; the new shared cache was empty and no data was removed.
+
+## Batch-1 rebase verification
+
+Rebased onto main `8c1f9a5`, including the second building-layer publication fix.
+Resolved Python extras, texture documentation and panorama-cache conflicts while retaining
+main's photosphere/Mapillary providers, read-through APIs and corrupt-JSON fallback. New
+writes use the shared process lock and atomic publication; legacy caches remain read-only.
+Mapillary images also reuse legacy caches. Shared `layers.py` now participates in region
+fingerprints, and production assembly uses only the landed batch assembler.
+
+Synced `.venv` with `pipeline[dev,fetch,lidar]`, `textures[post,dev]` and
+`scripts/dev/requirements.txt`, plus the documented Street View dependencies and
+`streetlevel==0.12.13 --no-deps`. The only changed Node lockfile was deleted with the old
+texture encoder; no retained Node lockfile changed.
+
+```sh
+source ../sandbox.env
+.venv/bin/python -m pytest -q -n 3 pipeline/tests/test_region.py textures/tests/test_paths.py textures/tests/test_facade_batch.py textures/tests/test_streetview_geometry.py textures/tests/test_mapillary_camera.py
+make region AREA=next-ring DRY=1 REGION_WORKERS=3
+```
+
+Result: **43 passed in 1.56 seconds**, with three workers. Scoped Ruff lint and formatting
+checks passed. The next-ring dry run succeeded. The full gate and real-data build were not
+rerun during this rebase, as instructed; the orchestrator performs the landing gate.
