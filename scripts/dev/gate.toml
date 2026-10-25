@@ -54,6 +54,9 @@ tests = ["tests/test_fetch.py"]
 paths = ["pipeline/turku3d/fetch/common.py", "pipeline/turku3d/ground/*"]
 tests = ["tests/test_package.py"]
 [[stages.related]]
+paths = ["pipeline/turku3d/buildings/*", "pipeline/tests/test_buildings*.py"]
+tests = ["tests/test_buildings.py", "tests/test_buildings_fallback.py"]
+[[stages.related]]
 paths = ["pipeline/turku3d/package/*", "pipeline/tests/test_package.py"]
 tests = ["tests/test_package.py"]
 [[stages.related]]
@@ -130,7 +133,7 @@ cwd = "game"
 name = "validator-tests"
 kind = "command"
 triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*"]
-commands = [["node", "--test", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts"]]
+commands = [["node", "--test", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/buildings.test.ts"]]
 
 [[stages]]
 name = "dev-server-tests"

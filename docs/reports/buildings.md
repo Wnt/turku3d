@@ -102,6 +102,14 @@ tests, TypeScript typechecking and both positive/negative Rapier regressions; th
 portion took 25.77 s under heavy shared machine load. The gate result after rebasing is
 recorded below.
 
+`scripts/dev/gate`: **GREEN**, all 19 stages, **261.019 s**. The routing edit
+intentionally selected the full suite, including both browser backends. Ruff formatting,
+explicit paired-iteration length checks and buildings test routing were added after
+rebasing onto `04037fc`. No test limits were relaxed.
+
+A quick read-only city LoD3 check matched 71/81 footprints; residual comparison is
+deferred under the release timebox.
+
 ## Follow-ups
 
 Improve the two remaining part reconstructions and the 16 other accuracy-failing
