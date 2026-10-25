@@ -94,3 +94,21 @@ Each camera is raycast onto real terrain and placed 1.7 m above it. Before/after
 lighting and cameras match; the baseline removes only the ground binding from served GLBs.
 The runner asserts both terrain and buildings are present, counts textured meshes, rejects console
 errors, and records SHA-256 for each PNG. Close both servers after capture.
+
+For the bounded gate used by this run (same checks, serial stages, two test workers):
+
+```sh
+TURKU3D_JOBS=2 PYTHONPATH=scripts/dev .venv/bin/python - <<'PY'
+import tomllib
+from pathlib import Path
+from gate_lib import changes, run_gate
+root = Path.cwd()
+config = tomllib.loads((root / 'scripts/dev/gate.toml').read_text())
+config['gate']['workers'] = 1
+raise SystemExit(run_gate(root, config, changes(root, 'main')))
+PY
+```
+
+For a timeboxed capture, append `before webgpu` or `after webgpu` to the scene runner command.
+Separate mode runs preserve the other mode's manifest records. Omit both arguments for the full
+three-view, two-backend matrix.

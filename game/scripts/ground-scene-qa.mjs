@@ -36,7 +36,7 @@ if (process.argv[3]) {
   try { results = JSON.parse(await fs.readFile(path.join(output, 'manifest.json'), 'utf8')).filter(r => !modes.includes(r.mode)); }
   catch { /* No previous capture. */ }
 }
-for (const backend of ['webgpu', 'webgl']) {
+for (const backend of (process.argv[4] ?? 'webgpu,webgl').split(',')) {
   const context = await chromium.launchPersistentContext(path.join(browserRoot, 'ground-scene', backend), {
     channel: 'chrome', headless: true, viewport: { width: 1280, height: 960 }, deviceScaleFactor: 1,
     args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'],
@@ -85,7 +85,7 @@ for (const backend of ['webgpu', 'webgl']) {
       if (errors.length) throw new Error(errors.join('\n'));
       const file = `${backend}-${view.id}-${mode}.png`;
       const bytes = await page.screenshot({ path: path.join(output, file) });
-      results.push({ backend, view: view.id, mode, file, sha256: createHash('sha256').update(bytes).digest('hex'), ...state, errors });
+      results.push({ backend, view: view.id, headingDeg: view.yaw, pitchDeg: -12, fovDeg: 65, quality: 'medium', mode, file, sha256: createHash('sha256').update(bytes).digest('hex'), ...state, errors });
       await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify(results, null, 2));
       console.log(`${file}: ${state.texturedGroundMeshes} textured ground / ${state.buildingMeshes} building meshes`);
       await page.close();
