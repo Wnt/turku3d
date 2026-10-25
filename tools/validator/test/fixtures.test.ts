@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DEFAULT_OPTIONS, validate } from '../src/validate.ts';
@@ -13,14 +14,28 @@ const FIX = join(HERE, 'fixtures');
 const expected = JSON.parse(readFileSync(join(FIX, 'expected.json'), 'utf8'));
 const WALKERS = Number(process.env.FIXTURE_WALKERS ?? 150);
 
-const reports: Record<string, any> = {};
+// Small deterministic gate samples; the standalone suite defaults to 150 and tile-validate
+// retains its 2,000 walkers. Every fixture expectation and detailed assertion runs in both.
+const reports: Record<string, Promise<any>> = {};
+const names = Object.keys(expected);
+let next = 0;
+async function fill() {
+  while (next < names.length) {
+    const name = names[next++];
+    const result = new Promise<any>((resolve, reject) => {
+      const worker = new Worker(new URL('./fixture-worker.ts', import.meta.url), {
+        workerData: { name, directory: FIX, walkers: WALKERS, checks: Object.keys(expected[name].checks) },
+      });
+      worker.once('message', resolve);
+      worker.once('error', reject);
+      worker.once('exit', code => { if (code) reject(new Error(`fixture ${name}: worker exit ${code}`)); });
+    });
+    reports[name] = result;
+    await result;
+  }
+}
+await Promise.all([fill(), fill()]);
 async function run(name: string) {
-  reports[name] ??= await validate({
-    ...DEFAULT_OPTIONS,
-    inputs: [join(FIX, name)],
-    footprints: join(FIX, name, 'footprints.geojson'),
-    walkers: WALKERS,
-  });
   return reports[name];
 }
 

@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test';
 test('@render HiDPI SSE follows output pixels after resize and the debug time slider refreshes sunlight', async ({ browser }, info) => {
   const context = await browser.newContext({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 2 });
   const page = await context.newPage();
+  const session = await context.newCDPSession(page);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

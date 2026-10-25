@@ -13,7 +13,9 @@ fs.mkdirSync(SHOTS, { recursive: true });
 
 // Keyboard routes must be independent of physical controllers connected to the shared host.
 // Controller routes provide their own virtual gamepad in gamepad.spec.ts.
-test.beforeEach(async ({ context }) => {
+test.beforeEach(async ({ context, page }) => {
+  const session = await context.newCDPSession(page);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'getGamepads', { value: () => [] });
   });

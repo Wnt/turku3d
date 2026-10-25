@@ -18,6 +18,7 @@ import shutil
 import struct
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -199,11 +200,20 @@ def process(
         "ktx2": {},
     }
     if ktx2:
-        rec["ktx2"]["albedo"] = encode_ktx2(out / "albedo.png", out / "albedo.ktx2", "etc1s", False)
-        rec["ktx2"]["orm"] = encode_ktx2(out / "orm.png", out / "orm.ktx2", "etc1s", True)
-        rec["ktx2"]["normal"] = encode_ktx2(
-            out / "normal.png", out / "normal.ktx2", "uastc-normal", True
-        )
+        maps_to_encode = [
+            ("albedo", "etc1s", False),
+            ("orm", "etc1s", True),
+            ("normal", "uastc-normal", True),
+        ]
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            jobs = {
+                name: pool.submit(
+                    encode_ktx2, out / f"{name}.png", out / f"{name}.ktx2", mode, linear
+                )
+                for name, mode, linear in maps_to_encode
+            }
+            rec["ktx2"] = {name: job.result() for name, job in jobs.items()}
+
     rec["files"] = {
         p.name: {"bytes": p.stat().st_size, "sha256": sha(p)}
         for p in sorted(out.iterdir())

@@ -1,7 +1,7 @@
 # The only path -> stage routing table. Globs use fnmatch: * includes slashes.
 # A trigger selects a stage; sources bounds the files linted by that stage.
 [gate]
-full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py"]
+full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py"]
 prose = ["*.md"]
 workers = 6
 python = ".venv/bin/python"
@@ -38,7 +38,7 @@ name = "python-lint"
 kind = "python-lint"
 configs = ["ruff.toml", "*/pyproject.toml", "scripts/dev/gate.toml"]
 triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
-sources = ["pipeline/*.py", "qa/*.py", "textures/*.py", "scripts/*.py", "scripts/dev/*"]
+sources = ["pipeline/*.py", "qa/*.py", "textures/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
 
 [[stages]]
 name = "pipeline-tests"
@@ -63,6 +63,22 @@ tests = ["tests/test_package.py", "tests/test_layers.py", "tests/test_assemble.p
 paths = ["pipeline/turku3d/col/*"]
 tests = ["turku3d/col/tests", "tests/test_package.py", "tests/test_specs.py"]
 
+[[stages.related]]
+paths = ["pipeline/turku3d/lidar/*", "pipeline/tests/test_lidar.py"]
+tests = ["tests/test_lidar.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/region/*", "pipeline/tests/test_region.py"]
+tests = ["tests/test_region.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/parked/*", "pipeline/tests/test_parked.py"]
+tests = ["tests/test_parked.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/props/*", "pipeline/tests/test_props.py"]
+tests = ["tests/test_props.py"]
+
 [[stages]]
 name = "qa-python-tests"
 kind = "pytest"
@@ -70,17 +86,22 @@ triggers = ["qa/*.py", "qa/*.json", "qa/*.jsonl", "qa/requirements*.txt", "pipel
 cwd = "qa"
 tests = ["tests"]
 
+# report.report is called directly by these tests and by loop.main's failure path.
+[[stages.related]]
+paths = ["qa/report/report.py"]
+tests = ["tests/test_qa.py::test_build_report", "tests/test_regression.py::test_concurrent_history_updates_preserve_runs", "tests/test_regression.py::test_loop_rejects_missing_render_and_keeps_report"]
+
 [[stages]]
 name = "textures-tests"
 kind = "pytest"
-triggers = ["textures/*.py", "textures/pyproject.toml", "pipeline/turku3d/config.py"]
+triggers = ["bench/codex/*.py", "textures/*.py", "textures/node/*", "textures/pyproject.toml", "pipeline/turku3d/config.py"]
 cwd = "textures"
 tests = ["tests"]
 [[stages.related]]
-paths = ["textures/turkutex/codex/*", "textures/tests/test_codex_runner.py", "textures/tests/fake_codex.py"]
+paths = ["bench/codex/*.py", "textures/turkutex/codex/*", "textures/tests/test_codex_runner.py", "textures/tests/fake_codex.py"]
 tests = ["tests/test_codex_runner.py", "tests/test_jobs.py"]
 [[stages.related]]
-paths = ["textures/turkutex/post/*", "textures/tests/test_post.py"]
+paths = ["textures/turkutex/post/*", "textures/node/*", "textures/tests/test_post.py"]
 tests = ["tests/test_post.py"]
 [[stages.related]]
 paths = ["textures/turkutex/streetview/*", "textures/tests/test_streetview_geometry.py"]
@@ -90,13 +111,13 @@ tests = ["tests/test_streetview_geometry.py"]
 name = "gate-tests"
 kind = "command"
 triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "docs/flags.toml"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py"]]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py"]]
 
 [[stages]]
 name = "tooling-tests"
 kind = "command"
-triggers = ["scripts/dev/*", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_environment.py"]]
+triggers = ["scripts/dev/task_runner.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_environment.py", "test_stop.py"]]
 
 [[stages]]
 name = "js-lint"
@@ -132,6 +153,7 @@ cwd = "game"
 [[stages]]
 name = "validator-tests"
 kind = "command"
+env = { FIXTURE_WALKERS = "32" }
 triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*"]
 commands = [["node", "--test", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/buildings.test.ts"]]
 
@@ -158,21 +180,21 @@ commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
 name = "game-e2e"
 kind = "e2e"
 tile_tags = ["@walk", "@pipeline", "@render", "@qa"]
-triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/worker.ts", "game/src/physics/client.ts", "game/src/world/tiles.ts", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/package/*", "pipeline/turku3d/layers.py", "pipeline/tests/fixtures/*"]
+triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json"]
 # Subsystem tags are declared on the specs; unmapped e2e triggers select all.
 [[stages.related]]
-paths = ["game/src/render/*", "qa/tests/golden_projection.json"]
+paths = ["game/src/render/*", "game/src/world/materials.ts", "qa/tests/golden_projection.json", "game/tests/e2e/render-*.spec.ts"]
 tags = ["@render", "@qa"]
 [[stages.related]]
-paths = ["game/src/actors/*", "game/src/physics/*"]
+paths = ["game/src/actors/*", "game/src/physics/*", "game/src/shared/col/*"]
 tags = ["@walk", "@drive"]
 
 [[stages.related]]
-paths = ["game/src/input/*"]
+paths = ["game/src/input/*", "game/tests/e2e/gamepad.spec.ts"]
 tags = ["@input"]
 
 [[stages.related]]
-paths = ["game/src/vehicle/*"]
+paths = ["game/src/vehicle/*", "game/tests/e2e/vehicle.spec.ts"]
 tags = ["@drive"]
 
 [[stages]]

@@ -393,3 +393,42 @@ one optional DeepBump test (not installed in this sandbox), and two multi-tile s
 tests (the offline gate builds one synthetic visual tile). No assertions or thresholds were relaxed.
 JSON reports, the timing script and tooling output are retained under
 `~/turku3d/wt/w0-gate/work/reports/w0-gate-integration/`.
+
+## Gate speed and reproducible routing probes
+
+`--paths` profiles an explicit repository-relative change without editing files. Normal gates,
+pre-push, and landing still derive the complete diff from Git; routing edits still force the full gate.
+
+```sh
+source ../sandbox.env
+scripts/dev/gate --paths docs/STATUS.md --json
+scripts/dev/gate --paths pipeline/turku3d/package/manifest.py --json
+scripts/dev/gate --paths game/src/render/renderer.ts --json
+scripts/dev/gate --paths game/src/physics/worker.ts --json
+scripts/dev/gate --paths qa/report/report.py --json
+scripts/dev/gate --all
+```
+
+Package edits select Python package tests without unrelated browser, texture, or tooling suites.
+Unmapped modules still select their full package. Runtime physics/shared collision changes select
+walk/drive browser tags; rendering selects render/QA; input and vehicle specs select their own tags.
+QA report edits run report generation, concurrent history, and the loop's failure/report integration.
+The lidar, region and benchmark producer paths are reserved for their incoming branches.
+
+Browser suites share one Vite build per gate and use four workers. Gameplay pages emulate focus
+through Chrome's protocol so another window cannot suppress controller/keyboard input. Synthetic
+browser tiles are reused only when producer sources, codec lockfile and numeric-library versions
+match and all manifest hashes verify. The full tile acceptance command remains `make tile-validate`.
+`npm --prefix game run test:all` builds once, then runs units and browser tests.
+
+Validator fixtures use two independent WASM workers and 32 deterministic walkers in the gate;
+the standalone fixture suite keeps 150, and real tile validation keeps its 2,000-walker default.
+Every fixture expectation and assertion remains. Texture header/mipmap tests use a two-colour
+128×128 input; image-quality tests retain their noisy fixtures. Independent texture encodes run
+concurrently with identical encoding settings.
+
+`stop` ignores zombies, treats ESRCH/EPERM as an exit race only when no original live identity
+remains, and escalates by verified individual PID rather than a possibly recycled process group.
+Real permission failures remain errors. `wt rm` checks cheap Git refusals first, scans cwd entries
+separately, and inspects sockets only when IPv4/IPv6 wildcard port probes detect occupancy.
+See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limitations and timings.

@@ -166,29 +166,9 @@ def e2e(root, stage, changed, full, env):
         [
             [
                 env["PIPELINE_PY"],
-                "-m",
-                "fixtures.make_layers",
-                "--out",
-                str(root / ".cache/gate-layers"),
-            ],
-            [
-                env["PIPELINE_PY"],
-                "-m",
-                "turku3d.package.assemble",
-                "--layers",
-                str(root / ".cache/gate-layers"),
-                "--out",
+                str(root / "scripts/dev/gate_fixtures.py"),
                 env["TILE_DIST"],
-                "--library",
-                str(root / ".cache/gate-inputs/library"),
-                "--facades",
-                str(root / ".cache/gate-inputs/facades"),
-                "--tile",
-                "t0_0_0",
-                "t0_0_1",
-                "t0_1_0",
-                "t0_1_1",
-            ],
+            ]
         ],
         {
             **env,
@@ -228,7 +208,18 @@ def execute(root, stage, changed, files, full, env, config):
                 commands = lint_commands(root, stage, changed, files, full, env)
             elif kind == "pytest":
                 tests = (None if full else related(stage, changed, "tests")) or stage["tests"]
-                commands = [[env["PIPELINE_PY"], "-m", "pytest", "-q", "-n", "auto", *tests]]
+                commands = [
+                    [
+                        env["PIPELINE_PY"],
+                        "-m",
+                        "pytest",
+                        "-q",
+                        "--durations=5",
+                        "-n",
+                        "auto",
+                        *tests,
+                    ]
+                ]
             elif kind == "vitest":
                 paths = [
                     os.path.relpath(root / p, root / cwd)
@@ -244,7 +235,7 @@ def execute(root, stage, changed, files, full, env, config):
                 commands = [["game/node_modules/.bin/vitest", *args, "--maxWorkers=2"]]
             else:
                 commands = stage["commands"]
-            code, output = run_commands(root, commands, env, cwd)
+            code, output = run_commands(root, commands, {**env, **stage.get("env", {})}, cwd)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         code, output = 1, str(exc)
     return {
@@ -326,11 +317,14 @@ def main(argv=None):
     parser.add_argument("--all", action="store_true", dest="full")
     parser.add_argument("--list", action="store_true", dest="listing")
     parser.add_argument("--json", action="store_true", dest="as_json")
+    parser.add_argument(
+        "--paths", nargs="+", help="profile explicit repo-relative paths instead of Git changes"
+    )
     args = parser.parse_args(argv)
     try:
         root = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
         config = tomllib.loads((root / "scripts/dev/gate.toml").read_text())
-        changed = changes(root, args.base)
+        changed = args.paths if args.paths is not None else changes(root, args.base)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.error(f"cannot select changes: {exc}")
     return run_gate(

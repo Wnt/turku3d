@@ -77,3 +77,9 @@ Missing shells fail coverage and are listed in `missingShells`; existing shells 
 receive the complete 2,000-trial run. Any entry into a footprint fails, even if the walker
 later exits. This does not replace integrated terrain/vehicle/streaming validation.
 Closed/open-wall and nested-part masking regressions are included in `make -j2 buildings-test`.
+
+The gate runs all synthetic assertions with `FIXTURE_WALKERS=32`, two concurrent fixture workers,
+and only the explicitly expected checks on each negative fixture. The good fixture still exercises
+all checks. Standalone `node --test tools/validator/test/*.test.ts` retains 150 fixture walkers;
+set `PIPELINE_PY=$PWD/.venv/bin/python` from the repository root for its codec generator.
+`make tile-validate` retains full real-tile sampling and thresholds.

@@ -14,7 +14,7 @@ from unittest.mock import patch
 DEV = Path(__file__).resolve().parents[1]
 REPO = DEV.parents[1]
 sys.path.insert(0, str(DEV))
-from gate_lib import changes, e2e, related  # noqa: E402
+from gate_lib import changes, e2e, matches, related  # noqa: E402
 from hooks import snapshot  # noqa: E402
 
 
@@ -172,10 +172,46 @@ class GateTest(unittest.TestCase):
             self.assertEqual(run.call_count, 3)
             fixture_call = run.call_args_list[1]
             commands, fixture_env = fixture_call.args[1:3]
-            self.assertEqual(commands[0][2], "fixtures.make_layers")
-            self.assertEqual(commands[1][2], "turku3d.package.assemble")
-            self.assertEqual(commands[1][-4:], ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"])
+            self.assertEqual(commands[0][1], str(REPO / "scripts/dev/gate_fixtures.py"))
+            self.assertEqual(commands[0][2], str(REPO / ".cache/gate-tiles"))
             self.assertEqual(fixture_env["TURKU3D_DATA"], str(REPO / ".cache/gate-inputs"))
+
+    def test_production_routing(self):
+        config = tomllib.loads((DEV / "gate.toml").read_text())
+
+        def selected(path):
+            return {s["name"] for s in config["stages"] if matches(path, s.get("triggers", []))}
+
+        package = selected("pipeline/turku3d/package/manifest.py")
+        self.assertIn("pipeline-tests", package)
+        self.assertFalse(package & {"game-e2e", "textures-tests", "tooling-tests"})
+        for path in ("game/src/physics/world.ts", "game/src/shared/col/rapierBuild.ts"):
+            self.assertIn("game-e2e", selected(path))
+        self.assertNotIn("tooling-tests", selected("scripts/dev/tests/test_gate.py"))
+        self.assertIn("tooling-tests", selected("scripts/dev/task_runner.py"))
+        self.assertIn("textures-tests", selected("textures/node/encode.mjs"))
+        stage = next(s for s in config["stages"] if s["name"] == "pipeline-tests")
+        self.assertEqual(
+            related(stage, ["pipeline/turku3d/lidar/store.py"], "tests"), ["tests/test_lidar.py"]
+        )
+
+    def test_incoming_producer_rows_and_qa_callers(self):
+        config = tomllib.loads((DEV / "gate.toml").read_text())
+        pipeline = next(s for s in config["stages"] if s["name"] == "pipeline-tests")
+        for producer in ("lidar", "region", "parked", "props"):
+            self.assertEqual(
+                related(pipeline, [f"pipeline/turku3d/{producer}/build.py"], "tests"),
+                [f"tests/test_{producer}.py"],
+            )
+        qa = next(s for s in config["stages"] if s["name"] == "qa-python-tests")
+        self.assertEqual(
+            set(related(qa, ["qa/report/report.py"], "tests")),
+            {
+                "tests/test_qa.py::test_build_report",
+                "tests/test_regression.py::test_concurrent_history_updates_preserve_runs",
+                "tests/test_regression.py::test_loop_rejects_missing_render_and_keeps_report",
+            },
+        )
 
     def test_index_snapshot_excludes_unstaged_and_untracked(self):
         f = self.fixture

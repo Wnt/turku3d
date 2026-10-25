@@ -214,3 +214,12 @@ Resume remaining acquisition and generation only when a new batch is authorized:
 make textures-facade-batch \
   FACADES="$TURKU3D_WORK/build/layers/buildings/facades.geojson" TEX_J=6 TEX_MAX_PCT=100
 ```
+
+From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
+`scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)
+for dependency setup, path selection, caches, sandbox ports and Git hooks.
+
+For focused offline checks, source the sandbox environment and run
+`scripts/dev/gate --paths textures/turkutex/post/pipeline.py`. Post-processing encodes albedo,
+ORM and normal maps concurrently with unchanged codec settings. The KTX2 header/mipmap test
+uses a 128×128 two-colour fixture; noisy seam and normal-quality tests remain separate.

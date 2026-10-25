@@ -11,7 +11,8 @@ const TILE_DIST = tileDist;
 export default defineConfig({
   testDir: 'tests/e2e-tile',
   timeout: 120_000,
-  workers: 1,
+  workers: 4,
+  fullyParallel: true,
   reporter: [['list']],
   outputDir: path.join(reportsRoot, 'playwright-tile'),
   use: {

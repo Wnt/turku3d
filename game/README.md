@@ -222,3 +222,10 @@ failures are permanent and surface through the game's error callback (`__qaError
 CRC checking runs in the physics worker. Failed steps report their sequence, release the
 client's in-flight slot and surface the error; the worker message queue continues.
 Verify with `make game-test` (synthetic streaming, client and worker failure tests).
+
+Gate browser tests use four workers with file-level parallelism and the shared 120-second
+functional deadline. Gameplay contexts emulate focus so unrelated Chrome windows do not clear
+input. The analog-speed regression captures a frame-local sample with its original speed bounds;
+GPU/frame throughput budgets remain in `make render-perf`. `npm run test:all` shares one production
+build between unit and browser suites. Use `scripts/dev/gate --paths game/src/physics/worker.ts`
+from the repository root to run the walk/drive subset with its synthetic pipeline tile.

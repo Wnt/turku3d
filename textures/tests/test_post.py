@@ -96,7 +96,11 @@ def test_process_sobel_no_ktx2(tmp_path):
 @pytest.mark.skipif(native_encoder() is None, reason="run make textures-ktx")
 def test_ktx2_encode(tmp_path):
     src = tmp_path / "in.png"
-    Image.fromarray(textured(128, 128)).save(src)
+    # Header/mipmap integration needs a small palette, not expensive noise compression.
+    # Seam/normal quality is exercised on noisy fixtures by the tests above.
+    pixels = np.full((128, 128, 3), 80, dtype=np.uint8)
+    pixels[:, 64:] = 160
+    Image.fromarray(pixels).save(src)
     r = process(src, tmp_path / "out", tile="xy", flatten="xy", ktx2=True, sobel=True)
     a, n = r["ktx2"]["albedo"]["header"], r["ktx2"]["normal"]["header"]
     assert (

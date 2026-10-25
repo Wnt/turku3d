@@ -2,7 +2,13 @@ import { expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
-test.setTimeout(25_000);
+// Isolate input focus from other parallel Chrome windows on the shared Mac.
+test.beforeEach(async ({ page }) => {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+});
+
+// Use the shared functional timeout. Frame/throughput budgets live in performance.spec.ts.
 
 async function start(page: Page, backend: string, spawn: string) {
   await page.addInitScript(() => {
@@ -28,9 +34,19 @@ const state = (page: Page) => page.evaluate(() => (window as any).__game.state()
 test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ["@input", "@walk"] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704260'); // x168,z240, 2m south of curb
   const initial = await state(page);
-  await axes(page, 0, -0.5);
-  await expect.poll(async () => Math.hypot(...(await state(page)).vel.filter((_: number, i: number) => i !== 1))).toBeGreaterThan(0.6);
-  const walking = await state(page);
+  // Capture transient analog speed on a game frame; slow protocol polling under
+  // parallel GPU load can miss movement samples between physics updates.
+  const walking = await page.evaluate(() => new Promise<any>(resolve => {
+    (window as any).__virtualPad.axes = [0, -0.5, 0, 0];
+    const deadline = performance.now() + 5_000;
+    const sample = () => {
+      const s = (window as any).__game.state();
+      if (Math.hypot(s.vel[0], s.vel[2]) > 0.6 || performance.now() >= deadline) resolve(s);
+      else requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  }));
+  expect(Math.hypot(walking.vel[0], walking.vel[2])).toBeGreaterThan(0.6);
   expect(Math.hypot(walking.vel[0], walking.vel[2])).toBeLessThan(1.6);
   await axes(page, 0, -1); await button(page, 0, 1);
   await page.waitForFunction(() => (window as any).__game.state().feet[2] < 236.8);

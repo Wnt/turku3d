@@ -6,6 +6,12 @@ import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
 import fs from 'node:fs';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
+// Isolate input focus from other parallel Chrome windows on the shared Mac.
+test.beforeEach(async ({ page }) => {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+});
+
 const SHOTS = path.join(reportsRoot, 'screenshots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
