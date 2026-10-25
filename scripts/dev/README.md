@@ -311,3 +311,27 @@ The test runner accepts file patterns, for example:
 ```sh
 .venv/bin/python scripts/dev/tests/run.py test_tooling.py test_environment.py
 ```
+
+### Frozen-main gate verification (2026-10-25)
+
+Integrated W0-A tooling, W1-07 vehicles and W1-11 visual QA on main `58a85d0` (the final
+addition after `3431e92` is the W0-D brief). All **19 gate stages passed in 139.799 s**.
+The real-gate tooling suite passed 14 tests, including a trivial documentation landing,
+a real oversized-binary rejection with main unchanged, and refusal when the gate is missing.
+The project main branch was not modified.
+
+Clean-tree samples used `scripts/dev/gate --base HEAD --json`, with each temporary edit
+restored byte-for-byte afterward. Wall time includes process startup:
+
+| Sample | File | Wall time |
+|---|---|---:|
+| Documentation | `README.md` | 0.688 s |
+| Game core | `game/src/core/origin.ts` | 3.864 s |
+| Pipeline fetch | `pipeline/turku3d/fetch/wfs.py` | 4.602 s |
+
+The complete run passed 71 pipeline, 32 QA Python, 69 game unit, 7 QA render, 22 game
+browser, 13 vehicle Node and 25 gate/tooling tests. Existing conditional skips remain:
+one optional DeepBump test (not installed in this sandbox), and two multi-tile seam browser
+tests (the offline gate builds one synthetic visual tile). No assertions or thresholds were relaxed.
+JSON reports, the timing script and tooling output are retained under
+`~/turku3d/wt/w0-gate/work/reports/w0-gate-integration/`.
