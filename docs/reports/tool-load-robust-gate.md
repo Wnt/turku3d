@@ -86,15 +86,26 @@ Raw logs and JSON are retained in this checkout's `.cache/` (`full-gate.log`, `f
 
 ## Rebase verification (2026-10-26)
 
-Rebased onto main `637bdfb`, preserving the integration/spawn fixes, parked vehicles, props,
+Initially rebased onto main `637bdfb`, preserving the integration/spawn fixes, parked vehicles, props,
 vegetation, region and audio changes. Conflict resolution retained the shared worker setting,
 generous assertion deadlines and both region/pytest-xdist dependency declarations. Environment
 synchronization and the clean import check now install the region extra as well.
 
 The combined gate exposed upstream vegetation instancing loss and an unused visual-packager
-import. Applied the integration owner's existing `b669448` batching fix and removed the import;
-all functional assertions remain intact. The eight-active-agent measurement is a follow-up,
+import. Verified the integration owner's existing `b669448` batching fix, then dropped the duplicate
+local patch and rebased onto its landed main revision `78bac9b` (including the new player work).
+Removed the unused import; all functional assertions remain intact. The eight-active-agent measurement is a follow-up,
 as explicitly agreed by the orchestrator, rather than a completion prerequisite.
+
+The corrected combined full gate passed **21 steps in 199.557 s**, including browser checks
+in **185.964 s**. A repeated run exposed real Xbox input unlocking the new audio test before
+its initial locked-state assertion. Stubbing hardware gamepads before navigation isolates that
+test without removing any assertion; the playtest owner independently reproduced and fixed it.
+The final gate after the `78bac9b` rebase passed **21 steps in 229.831 s**; the browser stage
+passed in **219.669 s**. Thirteen unchanged stages reused GREEN results; changed JavaScript
+lint, types, Knip, unit tests and browser checks reran. Logs: `.cache/rebased-main-final-gate.log`.
+The follow-up exceeded its ten-minute target while awaiting the main integration correction
+and verifying the newly landed audio/player code; no performance benchmark was started.
 
 ## Remaining measurement
 
