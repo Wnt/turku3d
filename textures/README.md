@@ -195,7 +195,7 @@ See [ONNX Runtime telemetry controls](https://github.com/microsoft/onnxruntime/b
 
 ## Scoped landing and authoritative assembly
 
-The current batch is stopped at 127 generated facade images. Incomplete or rejected walls use
+The original W1-09 batch stopped at 127 generated facade images. Incomplete or rejected walls use
 library fallbacks; full photo coverage remains a follow-up batch. The loader also accepts W1-03
 schema v1 (`base_height`, `top_height`, engine XYZ `normal`, `building_id`, `facade_index`).
 Never give the assembler the provisional staging tree directly. Export into a separate lookup
@@ -221,6 +221,12 @@ Resume remaining acquisition and generation only when a new batch is authorized:
 make textures-facade-batch \
   FACADES="$TURKU3D_WORK/build/layers/buildings/facades.geojson" TEX_J=6 TEX_MAX_PCT=100
 ```
+
+[W1-09b round 1](../docs/reports/w1-09b-facades.md) uses an unrounded subset of the
+authoritative inventory, prioritized by distance from the office spawn. Its report records
+validated bindings, per-facade calls/tokens/wall time, screenshots, and exact export/assembly
+commands. Generated-image counts from a provisional inventory are not binding counts:
+always compare the current geometry and run the filtered export before assembly.
 
 From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
 `scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)

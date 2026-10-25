@@ -33,7 +33,7 @@ checked bitwise before and after conversion, including neighbouring previously s
 Complete objects are not clipped or duplicated. `AOI_BORDER` follows the available collision
 inventory, and changes on existing neighbours when new tiles are added.
 
-Visuals preserve L0 topology and object IDs. Compatible primitives are batched per tile, layer and material.
+Visuals preserve L0 topology and source object IDs. Compatible primitives are batched per tile, layer and material.
 Batches carry `extras.objects` with source metadata and index `start`/`count` ranges; the QA ID
 pass expands these ranges into draw groups only while capturing IDs. Normal rendering uses one
 draw per batch. Texture and material deduplication prevents repeated glTF texture transforms

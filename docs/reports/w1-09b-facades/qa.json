@@ -1,0 +1,619 @@
+{
+  "version": "facades-v1",
+  "inventory_sha256": "0e0f3085c2936d48c4b0a4177290f39353a3a0272a2e9c8af03ca45366e6cbdb",
+  "facades": 32,
+  "complete": 30,
+  "missing": 2,
+  "missing_roofs": 0,
+  "buildings": [
+    {
+      "building_id": "103295893K",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    },
+    {
+      "building_id": "103295899S",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    },
+    {
+      "building_id": "103295888D",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    },
+    {
+      "building_id": "103295889E",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    },
+    {
+      "building_id": "1032958849",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    },
+    {
+      "building_id": "103295900T",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    },
+    {
+      "building_id": "103295896N",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    },
+    {
+      "building_id": "103295901U",
+      "roof_material_key": "roof_standing_seam_metal",
+      "roof_complete": true
+    }
+  ],
+  "usage": [],
+  "rows": [
+    {
+      "facade_id": "103295893K_36",
+      "building_id": "103295893K",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295893K_38",
+      "building_id": "103295893K",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295893K_34",
+      "building_id": "103295893K",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295893K_42",
+      "building_id": "103295893K",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295899S_253",
+      "building_id": "103295899S",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295888D_26",
+      "building_id": "103295888D",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295899S_259",
+      "building_id": "103295899S",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295888D_24",
+      "building_id": "103295888D",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295899S_308",
+      "building_id": "103295899S",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295889E_23",
+      "building_id": "103295889E",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295889E_22",
+      "building_id": "103295889E",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295899S_341",
+      "building_id": "103295899S",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295889E_21",
+      "building_id": "103295889E",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295899S_347",
+      "building_id": "103295899S",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "1032958849_81",
+      "building_id": "1032958849",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295899S_368",
+      "building_id": "103295899S",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "lookaround",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "1032958849_77",
+      "building_id": "1032958849",
+      "street_facing": true,
+      "reference_count": 3,
+      "sources": [
+        "google"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295899S_32",
+      "building_id": "103295899S",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295900T_106",
+      "building_id": "103295900T",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [
+        "generated facade aspect mismatch"
+      ],
+      "complete": false,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "1032958849_7",
+      "building_id": "1032958849",
+      "street_facing": true,
+      "reference_count": 0,
+      "sources": [],
+      "calls": {
+        "label": 0,
+        "improve": 0,
+        "imagegen": 0
+      },
+      "problems": [
+        "no reference",
+        "no cleaned texture"
+      ],
+      "complete": false,
+      "imagegen_calls": 0
+    },
+    {
+      "facade_id": "103295896N_17",
+      "building_id": "103295896N",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295896N_8",
+      "building_id": "103295896N",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295896N_30",
+      "building_id": "103295896N",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295896N_1",
+      "building_id": "103295896N",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295900T_110",
+      "building_id": "103295900T",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "1032958849_64",
+      "building_id": "1032958849",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295901U_23",
+      "building_id": "103295901U",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "google",
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295900T_30",
+      "building_id": "103295900T",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295901U_26",
+      "building_id": "103295901U",
+      "street_facing": true,
+      "reference_count": 2,
+      "sources": [
+        "google"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "1032958849_27",
+      "building_id": "1032958849",
+      "street_facing": true,
+      "reference_count": 3,
+      "sources": [
+        "lookaround",
+        "mapillary"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "103295900T_115",
+      "building_id": "103295900T",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    },
+    {
+      "facade_id": "1032958849_32",
+      "building_id": "1032958849",
+      "street_facing": true,
+      "reference_count": 4,
+      "sources": [
+        "lookaround"
+      ],
+      "calls": {
+        "label": 1,
+        "improve": 1,
+        "imagegen": 1
+      },
+      "problems": [],
+      "complete": true,
+      "imagegen_calls": 1
+    }
+  ]
+}

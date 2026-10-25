@@ -1,0 +1,30 @@
+{
+  "l0": {
+    "t0_0_0": {
+      "bytes": 7640004,
+      "brotli_bytes": 6534079,
+      "tris": 86499,
+      "max_error_m": 0
+    },
+    "t0_0_1": {
+      "bytes": 6933144,
+      "brotli_bytes": 6269493,
+      "tris": 198371,
+      "max_error_m": 0
+    },
+    "t0_1_0": {
+      "bytes": 4580384,
+      "brotli_bytes": 3841296,
+      "tris": 130377,
+      "max_error_m": 0
+    },
+    "t0_1_1": {
+      "bytes": 5509388,
+      "brotli_bytes": 4922885,
+      "tris": 198957,
+      "max_error_m": 0
+    }
+  },
+  "visual_tiles": 9,
+  "collision_tiles": 64
+}
