@@ -1,5 +1,6 @@
 // URL parameters. See game/README.md for the contract.
 import { OFFICE_EN } from './origin';
+import { parseQuality, type QualityTier } from '../render/quality';
 
 /** QA camera pose, qa/README.md §2 + qa/qalib/camera.py: yaw = compass bearing, pitch + up, roll + = camera turned
  *  clockwise seen from behind, fov = VERTICAL degrees (three.js camera.fov), H = absolute camera height N2000. */
@@ -17,10 +18,11 @@ interface Params {
   hud: boolean;
   test: boolean;
   collisionRadius: number;
+  quality: QualityTier;
 }
 
-/** Default sun time when ?time= is absent: a fixed summer afternoon in Turku (deterministic screenshots). */
-const DEFAULT_TIME = '2026-06-21T14:00:00+03:00';
+/** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
+const DEFAULT_TIME = '2026-10-15T14:00:00+03:00';
 
 /** manifest.json next to the tileset. Same-origin paths stay page-relative (as before); an absolute tileset URL on
  *  another host (e.g. `make game-serve-dist` on the sandbox dist port) keeps its origin, otherwise the manifest would be fetched from
@@ -64,5 +66,6 @@ export function parseParams(search: string): Params {
     hud: p.get('hud') !== '0',
     test: p.has('test'),
     collisionRadius: colRadius,
+    quality: parseQuality(p.get('quality')),
   };
 }

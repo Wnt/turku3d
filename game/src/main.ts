@@ -8,6 +8,11 @@ import { enToEngine, engineToEN, collisionTileAt, headingToYaw, yawToHeading } f
 import { Input } from './input';
 import { createRenderer } from './render/renderer';
 import { Environment } from './render/environment';
+import { PostProcessing } from './render/post';
+import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
+import { renderPixelRatio } from './render/quality';
+import { timeControl } from './render/debug';
+import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
 import { loadManifest, type Manifest } from './world/manifest';
 import { CollisionStreamer } from './world/collisionStreaming';
@@ -30,6 +35,9 @@ declare global {
     __qaIdTable?: Record<string, unknown>;
     __qaProject?: (E: number, N: number, H: number) => [number, number] | null;
     __game?: Record<string, unknown>;
+    __perf?: PerfSnapshot;
+    __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
+      perf: PerformanceMonitor; setTime: (iso: string) => void; beforeFrame?: () => boolean; afterFrame?: () => void };
   }
 }
 
@@ -54,18 +62,34 @@ addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await createRenderer(params.backend, document.body, { qa: !!params.qa, idPass: !!idPass });
+const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
 camera.rotation.order = 'YXZ';
-const env = new Environment(scene, !!params.qa);
+const env = new Environment(scene, renderer, params.quality);
 env.setTime(params.time);
+if (!idPass) env.updateIBL();
+const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality);
+Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
+window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
+  env.setTime(date);
+  if (!idPass) env.updateIBL();
+} };
+const renderFrame = () => { if (post) post.render(); else renderer.render(scene, camera); };
 const tiles = new VisualTiles(params.tileset, renderer, camera, scene);
+const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa);
+tiles.tiles.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.apply(model));
+tiles.tiles.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.release(model));
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   if (params.qa) applyQaCamera();
   camera.updateProjectionMatrix();
+  renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!params.qa));
   renderer.setSize(innerWidth, innerHeight);
+  env.resize();
 });
 
 window.__game = { backend, params, errors, tiles, three: THREE.REVISION };
@@ -111,21 +135,28 @@ async function runQa() {
     window.__qaIdTable = idPass.table;
   }
   window.__qaInfo = { renderer: `three.js r${THREE.REVISION} WebGPURenderer`, backend, pass: params.pass,
-    time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, tileset: params.tileset };
+    time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, tileset: params.tileset,
+    quality: params.quality, effectiveTime: params.time.toISOString(), sseUnits: 'drawing-buffer-pixels' };
   env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
-  let stable = 0, idleEmpty = 0;
+  let stable = 0;
+  let idleEmptySince: number | null = null;
   const bounds = new THREE.Box3();
   const t0 = performance.now();
   renderer.setAnimationLoop(() => {
+    if (window.__render?.beforeFrame?.() === false) return;
+    perf.begin();
     tiles.update(camera);
-    renderer.render(scene, camera);
+    renderFrame();
+    perf.end();
+    window.__render?.afterFrame?.();
     if (window.__qaReady || window.__qaError) return;
     if (tiles.errors.length) { window.__qaError = tiles.errors[0]; return; }
     stable = tiles.settled ? stable + 1 : 0;
     // contract: a pose outside the loaded data reports __qaError instead of running into the 120 s timeout. Only when
     // nothing loaded for ~2 s although the tileset is idle, and the camera stands outside the tileset footprint.
-    idleEmpty = tiles.tiles.root && tiles.loadedModels === 0 && tiles.tiles.loadProgress >= 1 ? idleEmpty + 1 : 0;
-    if (idleEmpty >= 120 && tiles.tiles.getBoundingBox(bounds)) {
+    const empty = tiles.tiles.root && tiles.loadedModels === 0 && tiles.tiles.loadProgress >= 1;
+    idleEmptySince = empty ? idleEmptySince ?? performance.now() : null;
+    if (idleEmptySince !== null && performance.now() - idleEmptySince >= 2000 && tiles.tiles.getBoundingBox(bounds)) {
       bounds.applyMatrix4(tiles.tiles.group.matrixWorld);
       const c = camera.position;
       if (c.x < bounds.min.x || c.x > bounds.max.x || c.z < bounds.min.z || c.z > bounds.max.z) {
@@ -133,8 +164,8 @@ async function runQa() {
         return;
       }
     }
-    // ready after the tileset settled for 10 consecutive frames (textures transcoded and uploaded; contract: >= 2)
-    if (stable >= 10) {
+    // Allow temporal colour history to converge after textures finish uploading (QA contract: >= 2 frames).
+    if (stable >= 32) {
       window.__qaReady = true;
       window.__game!.qa = { loadMs: Math.round(performance.now() - t0), visTris: tiles.residentTris, models: tiles.residentModels, sunElevation: env.sunElevation, sunAzimuth: env.sunAzimuth };
     }
@@ -146,7 +177,9 @@ async function runQa() {
 async function runPlay() {
   const input = new Input(renderer.domElement);
   const hud = new Hud(hudEl);
+  const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
   if (!params.hud) hud.toggle();
+  clockControl.hidden = !hud.visible;
   const physics = new PhysicsClient();
   physics.onError = (e) => fail(`physics: ${e}`);
   const [rapier, manifest] = await Promise.all([physics.ready, loadManifest(params.manifest) as Promise<Manifest>]);
@@ -206,13 +239,14 @@ async function runPlay() {
   Object.assign(window.__game!, { input, state, physics, rapier, ready: true });
 
   renderer.setAnimationLoop(() => {
+    perf.begin();
     const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     frameEma += (dt * 1000 - frameEma) * 0.05;
 
     input.update(dt);
-    if (input.consume('hud')) hud.toggle();
+    if (input.consume('hud')) { hud.toggle(); clockControl.hidden = !hud.visible; }
     if (input.consume('pause')) paused = !paused;
     const resetCamera = !paused && input.consume('cameraReset');
     if (mode === 'foot' && !paused) {
@@ -298,7 +332,7 @@ async function runPlay() {
     streamer.update(feet.x, feet.z);
     env.follow(feet);
     tiles.update(camera);
-    renderer.render(scene, camera);
+    renderFrame();
 
     const en = engineToEN(feet.x, feet.y, feet.z);
     const tot = physics.totals();
@@ -309,10 +343,12 @@ async function runPlay() {
       colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
       E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),
       ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`,
+      perf,
     });
     const help = document.getElementById('help')!;
     help.textContent = paused ? `${input.prompt('pause')} Resume` : mode === 'foot'
       ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter car · ${input.prompt('cameraReset')} camera · ${input.prompt('pause')} pause`
       : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('pause')} pause`;
+    perf.end();
   });
 }

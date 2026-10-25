@@ -209,6 +209,8 @@ function material(key, color, textured) {
 }
 let visTris = 0, ymin = Infinity, ymax = -Infinity;
 function addMesh(name, pos, idx, mat, color, textured) {
+  const materialKey = { ground_road: 'asphalt_standard', ground_grass: 'grass_park', sidewalk: 'granite_curb',
+    stairs: 'granite_steps', platform: 'cobblestone_grey', building: 'plaster_pale' }[name];
   const P = new Float32Array(pos);
   const normals = new Float32Array(P.length);
   for (let k = 0; k < idx.length; k += 3) { // flat-ish: accumulate face normals
@@ -230,7 +232,8 @@ function addMesh(name, pos, idx, mat, color, textured) {
   }
   for (let k = 1; k < P.length; k += 3) { ymin = Math.min(ymin, P[k]); ymax = Math.max(ymax, P[k]); }
   visTris += idx.length / 3;
-  sceneNode.addChild(doc.createNode(name).setMesh(doc.createMesh(name).addPrimitive(prim)));
+  sceneNode.addChild(doc.createNode(name).setMesh(doc.createMesh(name).addPrimitive(prim))
+    .setExtras(materialKey ? { material_key: materialKey } : {}));
 }
 // ground split by material (tile-local == world for t0_0_0)
 for (const m of [MAT.road, MAT.grass]) {

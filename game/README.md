@@ -2,6 +2,10 @@
 
 Game skeleton (ARCHITECTURE.md Phase 0 step 7). It uses Vite 8, TypeScript, three.js 0.186.1 (`three/webgpu` and TSL) with a WebGPU / WebGL2 switch, and Rapier 0.21 (`@dimforge/rapier3d`, non-compat build through `vite-plugin-wasm`) in a physics Web Worker. Visual tiles stream through 3DTilesRendererJS 0.5.3 with KTX2 and meshopt. The player is a third-person CC0 character, and a Kenney CC0 sedan with a raycast suspension, material-based curb strikes and gamepad driving.
 
+Rendering v1 adds sky IBL, street-scale CSM, light GTAO, TRAA, bloom, AgX, material detail and planar river reflections.
+See [the rendering README](src/render/README.md) for quality tiers, HiDPI/SSE, `window.__perf`, GPU timing and exact
+1440p acceptance/screenshot commands. Hardware results currently use the synthetic dev tile until assembled AOI layers land.
+
 ## Commands
 
 ```bash
@@ -11,6 +15,7 @@ npm run dev # http://localhost:${TURKU3D_PORT_BASE:-5170}/  (COOP/COEP on; ?back
 npm run build          # tsc --noEmit + vite build -> $TURKU3D_WORK/build/game
 npm test               # vitest (Node): .col reader, Rapier character/car on the dev tiles, origin, URL params, sun
 npm run test:e2e # build + Playwright, Chrome channel (real Metal GPU), both backends; screenshots in $TURKU3D_WORK/reports/screenshots/
+npm run test:render    # render tiers/material/ID contract + fixed-path 1440p performance
 npm run dev-tiles      # regenerate public/dev-tiles/ (dummy tileset)
 TILE_DIST="$TURKU3D_WORK/dist/tiles" npx playwright test -c playwright.tile.config.ts   # after npm run build: pipeline stub tiles (make tile)
 npm run probe -- "http://localhost:${TURKU3D_PORT_BASE:-5170}/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
@@ -71,7 +76,8 @@ Source `../sandbox.env` from the repository root first. Dev uses `TURKU3D_PORT_B
 | `tiles=<url>` | tileset.json to load. The default is `dev-tiles/tileset.json`. For real tiles use e.g. `tiles=/tiles/tileset.json` with `make game-preview`. |
 | `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles` (an absolute `tiles` URL on another origin, e.g. `make game-serve-dist` on :8081, keeps that origin). |
 | `spawn=E,N[,heading]` | Spawn point in EPSG:3877 (default: the office, E 23459668 N 6704254, heading 0 = north). |
-| `time=<ISO-8601>` | Sun position (NOAA formula, Turku lat/lon). The default is the fixed `2026-06-21T14:00:00+03:00`, so screenshots are deterministic. |
+| `time=<ISO-8601>` | Sun and sky IBL (NOAA formula, Turku lat/lon). Default: `2026-10-15T14:00:00+03:00`; play mode also has a time slider. |
+| `quality=low\|medium\|high` | Render quality tier; medium is the default. All tiers include GTAO, TRAA, bloom and CSM. |
 | `colRadius=<m>` | Collision streaming radius (default 200, must be > 0). Tiles unload beyond radius + 50 m. Candidate tiles come from the i/j grid window around the player, not a scan of the whole manifest. |
 | `hud=0` | Start with the HUD hidden. |
 | `cam=...` | Visual QA camera, see below. |
@@ -85,9 +91,9 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 - `E,N`: EPSG:3877 metres. `H`: absolute camera (eye) height, N2000.
 - `yaw`: compass bearing, clockwise from north. `pitch`: positive looks up. `roll` (separate param; a 7th `cam` value is also accepted): positive = camera turned clockwise seen from behind.
 - `fov`: **vertical** field of view in degrees (three.js `camera.fov`). Mapping: `camera.rotation.set(rad(pitch), -rad(yaw), -rad(roll), 'YXZ')`.
-- `time`: ISO-8601 with offset (`+` URL-encoded as `%2B`). Sun azimuth/elevation, frozen clouds. Absent: the fixed default `2026-06-21T14:00+03:00`.
+- `time`: ISO-8601 with offset (`+` URL-encoded as `%2B`). Sun azimuth/elevation, clear sky, frozen waves. Absent: `2026-10-15T14:00+03:00`.
 - QA mode: no HUD, help, player, car or physics worker; pixel ratio 1 so the canvas is 1:1 with the viewport.
-- Globals: `__qaReady` (tileset settled for 10 consecutive frames), `__qaError` (bad params, tile load error, camera outside the tileset footprint with nothing loaded after ~2 s, 120 s timeout), `__qaPose` `{E,N,H,yaw,pitch,roll,fov}`, `__qaInfo` `{renderer, backend, pass, time, three, tiles[], tileset}`, `__qaProject(E,N,H)` → `[px,py]` CSS pixels or `null` behind the camera. `window.__game.qa` holds `{loadMs, visTris, models, sunElevation, sunAzimuth}`.
+- Globals: `__qaReady` (tileset settled for 32 consecutive frames), `__qaError` (bad params, tile load error, camera outside the tileset footprint with nothing loaded after ~2 s, 120 s timeout), `__qaPose` `{E,N,H,yaw,pitch,roll,fov}`, `__qaInfo` `{renderer, backend, pass, time, effectiveTime, quality, sseUnits, three, tiles[], tileset}`, `__qaProject(E,N,H)` → `[px,py]` CSS pixels or `null` behind the camera. `window.__game.qa` holds `{loadMs, visTris, models, sunElevation, sunAzimuth}`.
 - `pass=id` (`src/render/idPass.ts`): every mesh unlit (`MeshBasicNodeMaterial`), no antialiasing, no tone mapping, linear output (no sRGB encode), no sky/fog/shadows; id = `R<<16|G<<8|B`, 0 = sky. Ids come from glTF node extras `{kind, id, tile, material}` (docs/specs/tiles.md §3.1); `__qaIdTable` maps id → entry.
 - Driver: `node qa/render/render.mjs --views qa/views/views.jsonl --url "http://localhost:8080/?tiles=/tiles/tileset.json" --out DIR`, or `make tile-qa` (serves `dist/` + the synced tiles and runs `qa/loop.py --no-judge`).
 - Tested by `tests/e2e-tile/tile.spec.ts` on the pipeline stub tile (pose echo, canvas size, `__qaProject` centre and behind-camera, colour pass not blank, ID pass pixels all in the table) and by `tests/e2e/smoke.spec.ts` on the dev tiles (`__qaProject` against `qa/tests/golden_projection.json` incl. roll and vertical fov; out-of-tileset pose errors fast).
@@ -111,7 +117,12 @@ src/core/params.ts          URL parameters
 src/input/                  named actions, Gamepad API, keyboard/mouse, bindings and Xbox glyphs
 src/core/sun.ts             solar position
 src/render/renderer.ts      WebGPURenderer(forceWebGL), AgX, PCF shadows
-src/render/environment.ts   SkyMesh, sun light following the player, hemisphere light
+src/render/environment.ts   SkyMesh, PMREM sky IBL and street-scale cascaded sun shadows
+src/render/post.ts          GTAO, TRAA, bloom and colour grading
+src/render/materials.ts     material_key styling preserving GLB PBR texture bindings
+src/render/water.ts         normal-map waves, Fresnel and planar reflection
+src/render/performance.ts   per-frame CPU/GPU distributions and renderer counters
+src/render/gpuTimer.ts      whole-frame WebGPU timestamp / WebGL2 disjoint queries
 src/world/tiles.ts          TilesRenderer + GLTFExtensionsPlugin(KTX2Loader, MeshoptDecoder); group.rotation.x = -PI/2
 src/world/manifest.ts       manifest.json loader + origin/grid assertions
 src/world/collisionStreaming.ts   .col tiles within radius -> worker (transferable ArrayBuffer)
@@ -158,7 +169,9 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 
 ## Status and known gaps
 
-- The HUD shows backend, fps and ms/frame, physics ms per step message, and resident visual tris (counted on `load-model`/`dispose-model`, because `renderer.info` reads 0 on WebGPU). It also shows collision tiles, tris and MB, where the WASM figure is an estimate at 135 B/tri from engine.md. Player E/N/H is in EPSG:3877 + N2000.
+- The HUD shows backend, fps, frame/physics time, CPU/GPU/frame p95, drawn triangles/draw calls and resident visual triangles.
+  Renderer counters are captured before their per-frame reset. Collision tiles, triangles and MB remain available; WASM
+  memory is estimated at 135 B/tri. Player E/N/H is in EPSG:3877 + N2000. `window.__perf` exposes the measurements.
 - Verified with the dev tileset in the e2e test: the 3D Tiles Z-up ↔ engine Y-up handling is correct. The NE marker at tile-local (240, ·, 10) ends up at engine x 240, z 10, so `tiles.group.rotation.x = -PI/2` together with the renderer's default glTF Y-up → Z-up rotation is right. This resolves the [U] in docs/specs/tiles.md §1.
 - **Rapier 0.21 bug:** `castRayAndGetNormal(...).featureId` is always 0 for trimesh faces. A canary test covers this. Material lookup therefore uses `triLocator.ts`. `src/shared/col/rapierBuild.ts#hitMaterial` relies on `featureId`, so it returns the material of triangle 0.
 - Character rendering interpolates 60 Hz physics states; car rendering still uses the latest state. On foot, camera collision uses an async worker raycast; driving uses a swept sphere and commits only the checked camera pose.

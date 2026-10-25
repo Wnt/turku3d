@@ -1,17 +1,19 @@
 // WebGPURenderer with an explicit WebGL2 switch (?backend=webgl). TSL-only code keeps both backends equal.
 import * as THREE from 'three/webgpu';
+import { renderPixelRatio } from './quality';
 
 interface RendererInfo { renderer: THREE.WebGPURenderer; backend: 'WebGPU' | 'WebGL2' }
 
 /** opts.qa: canvas 1:1 with the viewport (pixel ratio 1, qa/README.md §2); opts.idPass: no antialiasing. */
 export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTMLElement, opts: { qa?: boolean; idPass?: boolean } = {}): Promise<RendererInfo> {
-  const renderer = new THREE.WebGPURenderer({ antialias: !opts.idPass, forceWebGL: want === 'webgl' });
-  renderer.setPixelRatio(opts.qa ? 1 : Math.min(devicePixelRatio, 2));
+  // TRAA handles color antialiasing; MSAA must be off for its depth/velocity history.
+  const renderer = new THREE.WebGPURenderer({ antialias: false, forceWebGL: want === 'webgl', trackTimestamp: true });
+  renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoftShadowMap is not supported by WebGPURenderer
   renderer.toneMapping = THREE.AgXToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 0.65;
   canvasParent.appendChild(renderer.domElement);
   await renderer.init();
   const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';

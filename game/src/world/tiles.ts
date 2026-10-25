@@ -13,15 +13,17 @@ export class VisualTiles {
   loadedModels = 0;
   errors: string[] = [];
   private triCount = new Map<THREE.Object3D, number>();
+  private resolution = new THREE.Vector2();
 
-  constructor(url: string, renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, scene: THREE.Scene) {
+  constructor(url: string, private renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, scene: THREE.Scene) {
     const ktx2 = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
     this.tiles = new TilesRenderer(url);
     this.tiles.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: ktx2, meshoptDecoder: MeshoptDecoder }));
     this.tiles.errorTarget = 8;
     this.tiles.group.rotation.x = -Math.PI / 2;
     this.tiles.setCamera(camera);
-    this.tiles.setResolution(camera, innerWidth, innerHeight);
+    renderer.getDrawingBufferSize(this.resolution);
+    this.tiles.setResolution(camera, this.resolution.x, this.resolution.y);
     this.tiles.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => {
       let tris = 0;
       model.traverse((o) => {
@@ -46,7 +48,9 @@ export class VisualTiles {
 
   update(camera: THREE.PerspectiveCamera) {
     camera.updateMatrixWorld();
-    this.tiles.setResolution(camera, innerWidth, innerHeight);
+    // SSE is measured in actual output pixels on every backend, including HiDPI and capped render sizes.
+    this.renderer.getDrawingBufferSize(this.resolution);
+    this.tiles.setResolution(camera, this.resolution.x, this.resolution.y);
     this.tiles.update();
   }
 

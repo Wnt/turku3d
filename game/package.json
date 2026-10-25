@@ -11,6 +11,7 @@
     "dev-tiles": "node scripts/make-dev-tiles.mjs",
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
+    "test:render": "npm run build && playwright test -c playwright.render.config.ts",
     "test:all": "npm run build && npm test && npm run test:e2e",
     "probe": "node scripts/probe-page.mjs",
     "prepare-character": "node scripts/prepare-character.mjs",
