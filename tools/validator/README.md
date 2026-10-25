@@ -64,3 +64,13 @@ Codec round-trip fixtures from `make col-test` use `$TURKU3D_WORK/build/col-roun
 From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
 `scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../../scripts/dev/README.md)
 for dependency setup, path selection, caches, sandbox ports and Git hooks.
+
+## Buildings layer before assembly
+
+`make buildings-validate` checks W1-03 layer NPZ triangles through `src/buildings.ts`;
+no shipped `.col` is created. It uses this validator's `Walker`, 2,000 seeded ten-second
+trials, and a temporary horizontal pad at each shell's base to isolate wall blocking.
+Missing shells fail coverage and are listed in `missingShells`; existing shells still
+receive the complete 2,000-trial run. Any entry into a footprint fails, even if the walker
+later exits. This does not replace integrated terrain/vehicle/streaming validation.
+The closed/open-wall regression test is included in `make -j2 buildings-test`.

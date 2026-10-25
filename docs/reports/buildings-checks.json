@@ -1,0 +1,11 @@
+{
+  "collision_tiles": 78,
+  "seam_pairs": 119,
+  "seam_errors": 0,
+  "visual_tiles": 10,
+  "meshes": 6888,
+  "facades": 5817,
+  "street_facing_facades": 600,
+  "shells": 62,
+  "passing_footprints": 57
+}

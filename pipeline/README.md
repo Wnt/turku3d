@@ -40,3 +40,12 @@ slice that same grid, avoiding repeated LAZ decompression/TIN construction and s
 From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
 `scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)
 for dependency setup, path selection, caches, sandbox ports and Git hooks.
+
+The [buildings layer](turku3d/buildings/README.md) reads both city LoD2 and roofer LoD2.2,
+compares final snapped shells against class-6 lidar, and writes facade-ready layer artifacts:
+
+```sh
+make -j2 buildings-test                   # synthetic geometry and Rapier regression tests
+make buildings-build                     # full real-data build; nonzero if acceptance fails
+make buildings-validate                  # 2,000 walkers against the exported NPZ triangles
+```

@@ -57,3 +57,13 @@ Phase 1 visual envelope. WMS blank results expire after one hour instead of pers
 
 Rapier 0.21 trimesh ray hits still need `game/src/physics/triLocator.ts` for triangle material
 lookup. The reference camera poses have medium confidence and are not lidar-registered.
+
+## Buildings layer (W1-03)
+
+The buildings implementation and [facade contract](specs/facades.md) are available;
+real-data acceptance is **blocked**, not complete. The four-tile envelope plus margin
+contains 71 building and 10 building-part footprints. 62 have validated closed shells,
+57 meet the lidar residual limits. All 119 exported collision seam comparisons pass;
+2,000 Rapier walkers have zero penetrations, but missing/untested coverage still fails.
+See [the measured report](reports/buildings.md) for rejected IDs, timings and commands.
+`make -j2 buildings-test` passes in 5.63 s. This layer is not yet assembled into the game.
