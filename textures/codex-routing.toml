@@ -1,4 +1,4 @@
-# Conservative routing until the fixed-corpus pilot establishes a cheaper passing model.
+# Measured visual routes and operator-selected development/light defaults.
 # Explicit job/CLI model and effort take precedence. See docs/reports/codex-model-bench.md.
 [default]
 model = "gpt-6-astra"
@@ -16,8 +16,14 @@ effort = "medium"
 model = "gpt-6-astra"
 effort = "medium"
 [qa]
-model = "gpt-6-astra"
-effort = "medium"
+model = "gpt-6-sol"
+effort = "low"
 [task]
-model = "gpt-6-astra"
-effort = "high"
+model = "gpt-6-sol"
+effort = "medium"
+[task_rebase]
+model = "gpt-6-luna"
+effort = "low"
+[light]
+model = "gpt-6-luna"
+effort = "low"

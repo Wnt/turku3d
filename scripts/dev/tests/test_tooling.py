@@ -187,7 +187,40 @@ class ToolingTests(unittest.TestCase):
         self.assertEqual(len(ledger), 2)
         self.assertEqual(len({row["call_id"] for row in ledger}), 2)
         self.assertEqual(sum(row["tokens"]["input_tokens"] for row in ledger), 20)
-        self.assertTrue(all(row["task"] == "demo" and row["effort"] == "high" for row in ledger))
+        self.assertTrue(all(row["task"] == "demo" and row["effort"] == "medium" for row in ledger))
+
+    def test_task_route_and_explicit_overrides(self):
+        self.start()
+        self.cli(
+            "codex-task",
+            "resume",
+            "demo",
+            "Verify only",
+            "--route",
+            "task_rebase",
+            env={**self.env, "FAKE_EXPECT_MODEL": "gpt-6-luna"},
+        )
+        self.wait_done("demo")
+        meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
+        self.assertEqual(
+            (meta["model"], meta["effort"], meta["route"]), ("gpt-6-luna", "low", "task_rebase")
+        )
+        self.cli(
+            "codex-task",
+            "resume",
+            "demo",
+            "Explicit override",
+            "--route",
+            "light",
+            "--model",
+            "gpt-6-sol",
+            "--effort",
+            "high",
+            env={**self.env, "TURKU3D_CODEX_MODEL": "gpt-6-astra", "TURKU3D_CODEX_EFFORT": "low"},
+        )
+        self.wait_done("demo")
+        meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
+        self.assertEqual((meta["model"], meta["effort"]), ("gpt-6-sol", "high"))
 
     def test_quota_refusal_and_override(self):
         env = {**self.env, "FAKE_QUOTA": "100"}

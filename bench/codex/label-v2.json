@@ -1,0 +1,302 @@
+{
+  "version": "geometry-derived-v2",
+  "sources": {
+    "/Users/wnt/turku3d/wt/w1-03-buildings/work/build/layers/buildings/metrics.json": "29314469feb365d569eb4c6a45618ccc41601c90f235b31b5bac2617a75cae70",
+    "/Users/wnt/turku3d/wt/w1-03-buildings/work/build/layers/buildings/facades.geojson": "e029bf118cfa77d48f819603c67dcea495b0b61f3f121694c7bad1a1dfad33de",
+    "/Users/wnt/turku3d/data/raw/wfs/work-3x3/bldg_Building_LOD2.parquet": "4e876a8a068002eda18f12397665967b009bcdedaead3ac8c0ac2366b08c1f10"
+  },
+  "cases": [
+    {
+      "id": "1032958849/facade/64",
+      "truth": {
+        "floors": 4,
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.839,
+      "eave_top_proxy": 16.404,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_908843",
+      "roof_planes": 32,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        170.0,
+        178.0,
+        187.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-00.jpg",
+      "sha256": "d8737bb6d63e468dea3096e4f0d2258c94d8952560c5cde0471803966a42ae42"
+    },
+    {
+      "id": "103295900T/facade/110",
+      "truth": {
+        "floors": 6,
+        "roof_shape": "flat",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.7070000000000003,
+      "eave_top_proxy": 23.61,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_822867",
+      "roof_planes": 29,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        183.0,
+        177.0,
+        173.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-01.jpg",
+      "sha256": "9e5b09135584d4fc6bc23663d9163a0e0f14e999cd7abfe6d8191fc6dfa7d840"
+    },
+    {
+      "id": "103295901U/facade/23",
+      "truth": {
+        "floors": 6,
+        "wall_material": "concrete",
+        "roof_shape": "flat",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.41,
+      "eave_top_proxy": 23.962,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_815499",
+      "roof_planes": 5,
+      "wall_source_value": "betoni",
+      "roof_colour_rgb": [
+        175.0,
+        183.0,
+        191.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-02.jpg",
+      "sha256": "6c775110c38f3d9bcc63fd83bcd077be8e9f27e551bfd1594c2254f46fd3b17f"
+    },
+    {
+      "id": "103295888D/facade/26",
+      "truth": {
+        "floors": 2,
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.696,
+      "eave_top_proxy": 8.909,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_822852",
+      "roof_planes": 9,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        139.0,
+        145.5,
+        137.5
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-03.jpg",
+      "sha256": "014c69fa532091bac39087c416575adaaa83760d0fd3a82bd0bd134e44034b33"
+    },
+    {
+      "id": "103295896N/facade/8",
+      "truth": {
+        "floors": 5,
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.868,
+      "eave_top_proxy": 19.478,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_822854",
+      "roof_planes": 18,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        206.0,
+        213.0,
+        214.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-04.jpg",
+      "sha256": "49de18ffab1d064844f489ca9964460a56c77affa847c597dc1bd4feeac95516"
+    },
+    {
+      "id": "103295893K/facade/36",
+      "truth": {
+        "floors": 2,
+        "wall_material": "wood",
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.609,
+      "eave_top_proxy": 10.593,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_93552",
+      "roof_planes": 11,
+      "wall_source_value": "puu",
+      "roof_colour_rgb": [
+        103.0,
+        112.0,
+        121.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-05.jpg",
+      "sha256": "bf1f8095ee60571fff7d15ab87a19c2f30197b4c463c688c36b48abe9cdea511"
+    },
+    {
+      "id": "103295899S/facade/259",
+      "truth": {
+        "floors": 6,
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.483,
+      "eave_top_proxy": 21.352,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_822869",
+      "roof_planes": 215,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        162.0,
+        177.0,
+        176.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-06.jpg",
+      "sha256": "d868aaf58b5163e742448d434556b77462f22fcb33d0ca925079ceb3bc291f0f"
+    },
+    {
+      "id": "103295889E/facade/21",
+      "truth": {
+        "floors": 2,
+        "wall_material": "wood",
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.73,
+      "eave_top_proxy": 9.242,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_822851",
+      "roof_planes": 9,
+      "wall_source_value": "puu",
+      "roof_colour_rgb": [
+        88.5,
+        114.0,
+        144.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-07.jpg",
+      "sha256": "fe9a01e56ec15fe8bd9a71d5d3d1773ebb3435d5533d128e64cb1461dd527dc6"
+    },
+    {
+      "id": "103295900T/facade/115",
+      "truth": {
+        "floors": 6,
+        "roof_shape": "flat",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.7070000000000003,
+      "eave_top_proxy": 23.559,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_822867",
+      "roof_planes": 29,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        183.0,
+        177.0,
+        173.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-08.jpg",
+      "sha256": "f3d934088aea5188bfd475a6382aa6a4779db3ea971b861532b777d0ebfc2667"
+    },
+    {
+      "id": "103295900T/facade/30",
+      "truth": {
+        "floors": 6,
+        "roof_shape": "flat",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.7070000000000003,
+      "eave_top_proxy": 23.407,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_822867",
+      "roof_planes": 29,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        183.0,
+        177.0,
+        173.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-09.jpg",
+      "sha256": "4e7b2f4dcc12fed3992dd9cea11c52853ee3c7f037a98820c7462a6c6f76eeee"
+    },
+    {
+      "id": "1032958849/facade/32",
+      "truth": {
+        "floors": 3,
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.839,
+      "eave_top_proxy": 14.780000000000001,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_908843",
+      "roof_planes": 32,
+      "wall_source_value": "muu materiaali",
+      "roof_colour_rgb": [
+        170.0,
+        178.0,
+        187.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-10.jpg",
+      "sha256": "cd1598ed83355a14f42143bf7c00dd4b5ce4b1e0497a514e02b7b768c3ac121b"
+    },
+    {
+      "id": "103295893K/facade/42",
+      "truth": {
+        "floors": 2,
+        "wall_material": "wood",
+        "roof_shape": "pitched",
+        "roof_colour": "gray"
+      },
+      "truth_kind": "geometry-derived",
+      "base_height": 3.609,
+      "eave_top_proxy": 10.55,
+      "floors_rule": "round_half_up((wall top - base)/3.2); gables and split-level walls remain proxy uncertainty",
+      "roof_shape_source": "City LoD2 RoofSurface median plane slope; flat <10deg",
+      "city_id": "Building_93552",
+      "roof_planes": 11,
+      "wall_source_value": "puu",
+      "roof_colour_rgb": [
+        103.0,
+        112.0,
+        121.0
+      ],
+      "roof_material": null,
+      "input": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/v2/label-11.jpg",
+      "sha256": "849f8793d4547cc9742e90f7c98e9243a97845c8649a153de2010dd6b37c84ba"
+    }
+  ]
+}

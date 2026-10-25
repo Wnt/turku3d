@@ -76,3 +76,32 @@ Tests use small fake events and cover idempotent/concurrent append, partial tail
 cost, effort cache invalidation, quota boundary/reset refusal, and one-to-one difference matching.
 The gate owner has been asked to map benchmark-only edits to these tests; until integrated, run
 these explicit benchmark checks as well as the gate.
+
+## Geometry-derived / harder-difference pilot v2
+
+```sh
+source ../sandbox.env
+.venv/bin/python bench/codex/prepare_v2.py
+.venv/bin/python bench/codex/run_v2.py
+```
+
+Preparation reads the frozen W1-03 layer metrics/geometry, City LoD2 source and W1-09b
+reference images, and writes sandbox-owned image copies plus versioned truth manifests.
+These source sandboxes must remain available for reconstruction. Labels are geometry
+proxies, not reviewed visual ground truth: floor height is 3.2 m; top wall height can
+include a gable. Roof shape comes from City LoD2 planes, roof colour from the layer's
+orthophoto median; physical roof material is unknown. Wall material is scored only
+when the city semantics explicitly contain it. No bays or invented material truth.
+
+V2 runs four small models at low effort on labels and hard QA plus one Astra low QA
+reference: nine calls total, no retries, no image generation. A persisted 3-point quota
+allowance, one-point reserve and absolute95% cap apply; missing telemetry stops calls.
+A resume reuses terminal records (including failures), verifies frozen image hashes and
+preserves the budget baseline. It never upgrades a failed call to a free retry. Inputs
+and truth may not change during a resumed run. The run holds an exclusive output lock.
+
+The harder QA set contains two colour shifts, two roof recolours, two procedurally added
+balconies removed from the render, and two pasted-storey defects. It is a controlled
+2D stress set, not a simulation of physically rendered architecture. Exact category and
+IoU>=0.25 are required; unmatched predictions count as false positives. The older easy
+set supplies unchanged controls. Results cannot establish production false-positive rates.

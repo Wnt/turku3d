@@ -506,3 +506,22 @@ No token-to-weekly-percentage conversion is claimed.
 
 Append-only corrections have `record_type: "void"` and `voids: "<call_id>"`; aggregate readers
 must exclude both the annotation and its referenced call. `codex-cost` applies these annotations.
+
+### Model routing for task turns
+
+Development tasks use `task` (gpt-6-sol, medium). Use the light route explicitly for
+rebase, verification or finish-only work; ordinary resumes retain their previous selection.
+The resolved model, effort and route are persisted in task metadata and each ledger turn.
+
+```sh
+scripts/dev/codex-task run example --brief docs/briefs/example.md --route task
+scripts/dev/codex-task resume example "Rebase, verify and finish" --route task_rebase
+scripts/dev/codex-task resume example "Verify only" --route light --model gpt-6-sol --effort low
+```
+
+Precedence: explicit `--model` / `--effort`, then `TURKU3D_CODEX_MODEL` /
+`TURKU3D_CODEX_EFFORT`, then `textures/codex-routing.toml`. `TURKU3D_CODEX_TASK_ROUTE`
+selects the task route when `--route` is omitted. `TURKU3D_CODEX_ROUTING` selects an
+alternate TOML file. Explicit route changes reset inherited model/effort to that route's
+configuration. Environment model/effort overrides also apply to texture and QA runners.
+Tooling tests use at most three workers (`TURKU3D_JOBS` may reduce this).

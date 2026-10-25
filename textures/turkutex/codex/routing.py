@@ -14,4 +14,7 @@ def route(kind, model=None, effort=None):
     with path.open("rb") as stream:
         config = tomllib.load(stream)
     selected = config.get(kind, config["default"])
-    return model or selected["model"], effort or selected["effort"]
+    return (
+        model or os.environ.get("TURKU3D_CODEX_MODEL") or selected["model"],
+        effort or os.environ.get("TURKU3D_CODEX_EFFORT") or selected["effort"],
+    )

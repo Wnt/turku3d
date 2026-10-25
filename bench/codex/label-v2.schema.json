@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "facades"
+  ],
+  "properties": {
+    "facades": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "floors",
+          "wall_material",
+          "roof_shape",
+          "roof_colour"
+        ],
+        "properties": {
+          "floors": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "wall_material": {
+            "type": "string",
+            "enum": [
+              "brick",
+              "wood",
+              "render",
+              "concrete",
+              "metal",
+              "unknown"
+            ]
+          },
+          "roof_shape": {
+            "type": "string",
+            "enum": [
+              "flat",
+              "pitched",
+              "unknown"
+            ]
+          },
+          "roof_colour": {
+            "type": "string",
+            "enum": [
+              "gray",
+              "dark",
+              "red",
+              "green",
+              "unknown"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

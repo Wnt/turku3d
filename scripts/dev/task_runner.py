@@ -60,7 +60,16 @@ def quota(force=False):
     return pct
 
 
-def launch(name, brief=None, ref="main", effort="high", force=False, followup=None):
+def launch(
+    name,
+    brief=None,
+    ref="main",
+    effort=None,
+    force=False,
+    followup=None,
+    model=None,
+    route_name=None,
+):
     s.name_ok(name)
     path = s.tasks_root() / name
     path.mkdir(parents=True, exist_ok=True)
@@ -107,6 +116,28 @@ def launch(name, brief=None, ref="main", effort="high", force=False, followup=No
             meta["session_id"] = sessions[-1]
             prompt = coord.PROMPT + "\n" + followup
             (path / f"resume-{time.time_ns()}.md").write_text(prompt)
+        sys.path.insert(0, str(s.REPO / "textures"))
+        from turkutex.codex import routing
+
+        selected_route = (
+            route_name or os.environ.get("TURKU3D_CODEX_TASK_ROUTE") or meta.get("route", "task")
+        )
+        # An explicit route starts from its defaults; an ordinary resume retains its selection.
+        preserve = (
+            followup is not None
+            and not route_name
+            and not os.environ.get("TURKU3D_CODEX_TASK_ROUTE")
+        )
+        selected_model, selected_effort = routing.route(
+            selected_route,
+            model=model
+            or os.environ.get("TURKU3D_CODEX_MODEL")
+            or (meta.get("model") if preserve else None),
+            effort=effort
+            or os.environ.get("TURKU3D_CODEX_EFFORT")
+            or (meta.get("effort") if preserve else None),
+        )
+        meta.update(model=selected_model, effort=selected_effort, route=selected_route)
         home = s.sandbox(name)
         env = {**os.environ, **s.read_env(home / "sandbox.env")}
         (path / "input.md").write_text(prompt)
@@ -140,7 +171,9 @@ def worker(name):
     signal.signal(
         signal.SIGTERM, lambda *_: None
     )  # reap Codex and record the result after group TERM
-    model, effort = routing.route("task", effort=meta["effort"])
+    model, effort = routing.route(
+        meta.get("route", "task"), model=meta.get("model"), effort=meta["effort"]
+    )
     cmd = [
         "codex",
         "exec",
@@ -151,7 +184,7 @@ def worker(name):
         "-C",
         meta["repo"],
         "-c",
-        f'model_reasoning_effort="{meta["effort"]}"',
+        f'model_reasoning_effort="{effort}"',
         "-c",
         'approval_policy="never"',
     ]
@@ -186,7 +219,7 @@ def worker(name):
                             source=path / "events.jsonl",
                             model=model,
                             effort=effort,
-                            job_type="task",
+                            job_type=meta.get("route", "task"),
                             task=name,
                             started=started,
                             seconds=time.time() - started,
@@ -203,7 +236,7 @@ def worker(name):
                         source=path / "events.jsonl",
                         model=model,
                         effort=effort,
-                        job_type="task",
+                        job_type=meta.get("route", "task"),
                         task=name,
                         started=started,
                         seconds=time.time() - started,
@@ -218,7 +251,7 @@ def worker(name):
             source=path / "events.jsonl",
             model=model,
             effort=effort,
-            job_type="task",
+            job_type=meta.get("route", "task"),
             task=name,
             started=meta["started"],
             seconds=time.time() - meta["started"],
@@ -435,9 +468,9 @@ def main():
     p.add_argument("name")
     p.add_argument("--brief", required=True)
     p.add_argument("--from", dest="ref", default="main")
-    p.add_argument(
-        "--effort", default="high", choices=("low", "medium", "high", "xhigh", "max", "ultra")
-    )
+    p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max", "ultra"))
+    p.add_argument("--model")
+    p.add_argument("--route", choices=("task", "task_rebase", "light"))
     p.add_argument("--force", action="store_true")
     subs.add_parser("ls")
     for cmd in ("status", "log", "result", "resume", "stop", "land", "_worker"):
@@ -449,15 +482,25 @@ def main():
             p.add_argument("n", type=int, default=20, nargs="?")
         if cmd == "resume":
             p.add_argument("text")
+            p.add_argument("--model")
+            p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max", "ultra"))
+            p.add_argument("--route", choices=("task", "task_rebase", "light"))
         if cmd in ("resume", "land"):
             p.add_argument("--force", action="store_true")
     a = ap.parse_args()
     if coord.dispatch(a):
         return
     if a.cmd == "run":
-        launch(a.name, a.brief, a.ref, a.effort, a.force)
+        launch(a.name, a.brief, a.ref, a.effort, a.force, model=a.model, route_name=a.route)
     elif a.cmd == "resume":
-        launch(a.name, force=a.force, followup=a.text)
+        launch(
+            a.name,
+            force=a.force,
+            followup=a.text,
+            model=a.model,
+            effort=a.effort,
+            route_name=a.route,
+        )
     elif a.cmd == "ls":
         list_tasks()
     elif a.cmd == "status":

@@ -31,7 +31,7 @@ else:
     if "resume" in sys.argv:
         assert "fake-session-123" in sys.argv
     assert os.environ["TURKU3D_WORK"].endswith("/work")
-    assert "gpt-6-astra" in sys.argv
+    assert os.environ.get("FAKE_EXPECT_MODEL", "gpt-6-sol") in sys.argv
     assert "danger-full-access" in sys.argv
     if os.environ.get("FAKE_SLEEP"):
         child = subprocess.Popen([sys.executable, "-c", "import signal; signal.pause()"])

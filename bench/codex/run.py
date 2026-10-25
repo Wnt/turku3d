@@ -56,8 +56,8 @@ def main(argv=None):
     ap.add_argument("--efforts", nargs="+", default=["low", "medium"], choices=["low", "medium"])
     ap.add_argument("--limit", type=int)
     args = ap.parse_args(argv)
-    if not 0 < args.budget <= 3 or not 0 < args.cap <= 80:
-        ap.error("budget must be in (0,3], cap in (0,80]")
+    if not 0 < args.budget <= 3 or not 0 < args.cap <= 95:
+        ap.error("budget must be in (0,3], cap in (0,95]")
     manifest = json.loads(args.manifest.read_text())
     digest = hashlib.sha256(args.manifest.read_bytes()).hexdigest()
     args.out.mkdir(parents=True, exist_ok=True)

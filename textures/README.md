@@ -273,3 +273,8 @@ source ../sandbox.env
 scripts/dev/codex-cost --by job_type
 scripts/dev/codex-cost --by model --json
 ```
+
+Cost routing is configured in `textures/codex-routing.toml`. Explicit job model/effort
+wins over `TURKU3D_CODEX_MODEL` / `TURKU3D_CODEX_EFFORT`, which wins over the routing
+file. See `docs/reports/codex-model-bench.md` for measured quality and limits; unknown
+label truth is excluded from scoring. The emergency pilot makes no improve/image calls.

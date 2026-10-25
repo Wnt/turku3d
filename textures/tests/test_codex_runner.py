@@ -303,6 +303,10 @@ def test_benchmark_metrics_and_budget():
     for current in [{"usedPercent": 74, "resetsAt": 123}, {"usedPercent": 72, "resetsAt": 124}, {}]:
         with pytest.raises(module.QuotaStop):
             module.check_budget(state, current)
+    elevated = {"start": 93, "budget": 3, "cap": 95, "reset": 123}
+    module.check_budget(elevated, {"usedPercent": 93, "resetsAt": 123})
+    with pytest.raises(module.QuotaStop):
+        module.check_budget(elevated, {"usedPercent": 94, "resetsAt": 123})
     issue = {"category": "texture", "bbox": [0, 0, 1, 1]}
     score = module.metrics.qa({"issues": [issue, issue]}, [issue])
     assert score["recall"] == 1 and score["false_positives"] == 1
@@ -385,3 +389,21 @@ def test_backfill_multiturn_matches_live_ledger(tmp_path, monkeypatch):
     )
     assert cost.backfill([run]) == 0
     assert len(list(accounting.rows(accounting.ledger_path()))) == 2
+
+
+def test_routing_override_precedence(monkeypatch, tmp_path):
+    from turkutex.codex.routing import route
+
+    config = tmp_path / "routes.toml"
+    config.write_text(
+        '[default]\nmodel="fallback"\neffort="medium"\n[light]\nmodel="small"\neffort="low"\n'
+    )
+    monkeypatch.setenv("TURKU3D_CODEX_ROUTING", str(config))
+    monkeypatch.delenv("TURKU3D_CODEX_MODEL", raising=False)
+    monkeypatch.delenv("TURKU3D_CODEX_EFFORT", raising=False)
+    assert route("light") == ("small", "low")
+    assert route("unregistered") == ("fallback", "medium")
+    monkeypatch.setenv("TURKU3D_CODEX_MODEL", "environment")
+    monkeypatch.setenv("TURKU3D_CODEX_EFFORT", "high")
+    assert route("light") == ("environment", "high")
+    assert route("light", "explicit", "low") == ("explicit", "low")

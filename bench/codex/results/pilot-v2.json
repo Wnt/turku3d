@@ -1,0 +1,1692 @@
+{
+  "version": "geometry-derived-hard-qa-v2",
+  "budget": {
+    "start": 35,
+    "reset": 1793568603,
+    "cap": 95,
+    "budget": 3,
+    "last": 36,
+    "manifest": "a7b19fe080a26827f2bb536d3671e708cfede4f4540133a2ce58d5cc3fc24da3"
+  },
+  "results": [
+    {
+      "id": "building_label.gpt-6-luna.low",
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "kind": "building_label",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 29246,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 258,
+        "reasoning_output_tokens": 0
+      },
+      "seconds": 10.1,
+      "error": null,
+      "metrics": {
+        "accuracy": 0.375,
+        "correct": 15,
+        "fields": 40,
+        "facades": 12,
+        "per_field": {
+          "floors": {
+            "correct": 2,
+            "fields": 12,
+            "accuracy": 0.16666666666666666
+          },
+          "wall_material": {
+            "correct": 3,
+            "fields": 4,
+            "accuracy": 0.75
+          },
+          "roof_shape": {
+            "correct": 5,
+            "fields": 12,
+            "accuracy": 0.4166666666666667
+          },
+          "roof_colour": {
+            "correct": 5,
+            "fields": 12,
+            "accuracy": 0.4166666666666667
+          }
+        }
+      }
+    },
+    {
+      "id": "building_label.gpt-5.6-luna.low",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "kind": "building_label",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 27509,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 640,
+        "reasoning_output_tokens": 378
+      },
+      "seconds": 10.9,
+      "error": null,
+      "metrics": {
+        "accuracy": 0.325,
+        "correct": 13,
+        "fields": 40,
+        "facades": 12,
+        "per_field": {
+          "floors": {
+            "correct": 1,
+            "fields": 12,
+            "accuracy": 0.08333333333333333
+          },
+          "wall_material": {
+            "correct": 2,
+            "fields": 4,
+            "accuracy": 0.5
+          },
+          "roof_shape": {
+            "correct": 8,
+            "fields": 12,
+            "accuracy": 0.6666666666666666
+          },
+          "roof_colour": {
+            "correct": 2,
+            "fields": 12,
+            "accuracy": 0.16666666666666666
+          }
+        }
+      }
+    },
+    {
+      "id": "building_label.gpt-5.6-terra.low",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "kind": "building_label",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 29028,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 647,
+        "reasoning_output_tokens": 381
+      },
+      "seconds": 33.2,
+      "error": null,
+      "metrics": {
+        "accuracy": 0.35,
+        "correct": 14,
+        "fields": 40,
+        "facades": 12,
+        "per_field": {
+          "floors": {
+            "correct": 1,
+            "fields": 12,
+            "accuracy": 0.08333333333333333
+          },
+          "wall_material": {
+            "correct": 3,
+            "fields": 4,
+            "accuracy": 0.75
+          },
+          "roof_shape": {
+            "correct": 8,
+            "fields": 12,
+            "accuracy": 0.6666666666666666
+          },
+          "roof_colour": {
+            "correct": 2,
+            "fields": 12,
+            "accuracy": 0.16666666666666666
+          }
+        }
+      }
+    },
+    {
+      "id": "building_label.gpt-6-sol.low",
+      "model": "gpt-6-sol",
+      "effort": "low",
+      "kind": "building_label",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 29355,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 663,
+        "reasoning_output_tokens": 397
+      },
+      "seconds": 16.2,
+      "error": null,
+      "metrics": {
+        "accuracy": 0.375,
+        "correct": 15,
+        "fields": 40,
+        "facades": 12,
+        "per_field": {
+          "floors": {
+            "correct": 1,
+            "fields": 12,
+            "accuracy": 0.08333333333333333
+          },
+          "wall_material": {
+            "correct": 3,
+            "fields": 4,
+            "accuracy": 0.75
+          },
+          "roof_shape": {
+            "correct": 10,
+            "fields": 12,
+            "accuracy": 0.8333333333333334
+          },
+          "roof_colour": {
+            "correct": 1,
+            "fields": 12,
+            "accuracy": 0.08333333333333333
+          }
+        }
+      }
+    },
+    {
+      "id": "qa_batch.gpt-6-luna.low",
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "kind": "qa_batch",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 26746,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 724,
+        "reasoning_output_tokens": 0
+      },
+      "seconds": 16.3,
+      "error": null,
+      "metrics": {
+        "recall": 0.125,
+        "false_positives": 3,
+        "views": 8,
+        "per_view": [
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "qa_batch.gpt-5.6-luna.low",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "kind": "qa_batch",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 24197,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 908,
+        "reasoning_output_tokens": 133
+      },
+      "seconds": 12.8,
+      "error": null,
+      "metrics": {
+        "recall": 0.0,
+        "false_positives": 4,
+        "views": 8,
+        "per_view": [
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "qa_batch.gpt-5.6-terra.low",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "kind": "qa_batch",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 25748,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1421,
+        "reasoning_output_tokens": 434
+      },
+      "seconds": 39.7,
+      "error": null,
+      "metrics": {
+        "recall": 0.25,
+        "false_positives": 4,
+        "views": 8,
+        "per_view": [
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "qa_batch.gpt-6-sol.low",
+      "model": "gpt-6-sol",
+      "effort": "low",
+      "kind": "qa_batch",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 26063,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 904,
+        "reasoning_output_tokens": 84
+      },
+      "seconds": 15.6,
+      "error": null,
+      "metrics": {
+        "recall": 0.5,
+        "false_positives": 2,
+        "views": 8,
+        "per_view": [
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "qa_batch.gpt-6-astra.low",
+      "model": "gpt-6-astra",
+      "effort": "low",
+      "kind": "qa_batch",
+      "ok": true,
+      "tokens": {
+        "input_tokens": 26548,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 984,
+        "reasoning_output_tokens": 127
+      },
+      "seconds": 41.2,
+      "error": null,
+      "metrics": {
+        "recall": 0.375,
+        "false_positives": 3,
+        "views": 8,
+        "per_view": [
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 1,
+            "planted": 1,
+            "recall": 1.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 0
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          },
+          {
+            "true_positives": 0,
+            "planted": 1,
+            "recall": 0.0,
+            "false_positives": 1
+          }
+        ]
+      }
+    }
+  ],
+  "answers": [
+    {
+      "id": "building_label.gpt-6-luna.low",
+      "key": "5b4efb83ffaa28b80e7a0ad3aae0bc527f44cc46e4737a2d7714bce22ac09d68",
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "thread_id": "01a1752a-d5bc-7561-a305-49571f13e91b",
+      "answer": {
+        "facades": [
+          {
+            "floors": 0,
+            "wall_material": "unknown",
+            "roof_shape": "unknown",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 4,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 6,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "red"
+          },
+          {
+            "floors": 3,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 2,
+            "wall_material": "wood",
+            "roof_shape": "unknown",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 5,
+            "wall_material": "concrete",
+            "roof_shape": "unknown",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 3,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 3,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 2,
+            "wall_material": "render",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 10.1,
+      "tokens": {
+        "input_tokens": 29246,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 258,
+        "reasoning_output_tokens": 0
+      }
+    },
+    {
+      "id": "building_label.gpt-5.6-luna.low",
+      "key": "1d6019acc6f5da246105212dc72b2c43926ea9dcacee241736ab12299f9241a0",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "thread_id": "01a1752b-05b8-76a0-815d-e8e988fbfc4c",
+      "answer": {
+        "facades": [
+          {
+            "floors": 0,
+            "wall_material": "unknown",
+            "roof_shape": "unknown",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 4,
+            "wall_material": "render",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 5,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "red"
+          },
+          {
+            "floors": 3,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 2,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          },
+          {
+            "floors": 1,
+            "wall_material": "render",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 3,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 3,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 2,
+            "wall_material": "render",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 10.9,
+      "tokens": {
+        "input_tokens": 27509,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 640,
+        "reasoning_output_tokens": 378
+      }
+    },
+    {
+      "id": "building_label.gpt-5.6-terra.low",
+      "key": "3e8bb2ee5af4695cd8923a399cd46f0b956e4240bad47ecd2ac5b8df0b0ea99a",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "thread_id": "01a1752b-47c4-7a31-a466-2adb8393771a",
+      "answer": {
+        "facades": [
+          {
+            "floors": 0,
+            "wall_material": "unknown",
+            "roof_shape": "unknown",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 4,
+            "wall_material": "concrete",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 6,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "red"
+          },
+          {
+            "floors": 3,
+            "wall_material": "render",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          },
+          {
+            "floors": 4,
+            "wall_material": "concrete",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          },
+          {
+            "floors": 3,
+            "wall_material": "concrete",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 3,
+            "wall_material": "concrete",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 2,
+            "wall_material": "render",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "gray"
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 33.2,
+      "tokens": {
+        "input_tokens": 29028,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 647,
+        "reasoning_output_tokens": 381
+      }
+    },
+    {
+      "id": "building_label.gpt-6-sol.low",
+      "key": "32673b855c36a35e08674559042dc712472e505038a1777ad600a04c6417479b",
+      "model": "gpt-6-sol",
+      "effort": "low",
+      "thread_id": "01a1752b-d2b3-7f02-8a03-89a1ca2441b7",
+      "answer": {
+        "facades": [
+          {
+            "floors": 0,
+            "wall_material": "unknown",
+            "roof_shape": "unknown",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 4,
+            "wall_material": "concrete",
+            "roof_shape": "flat",
+            "roof_colour": "gray"
+          },
+          {
+            "floors": 6,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "red"
+          },
+          {
+            "floors": 3,
+            "wall_material": "render",
+            "roof_shape": "unknown",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          },
+          {
+            "floors": 3,
+            "wall_material": "concrete",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          },
+          {
+            "floors": 3,
+            "wall_material": "render",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 3,
+            "wall_material": "brick",
+            "roof_shape": "flat",
+            "roof_colour": "unknown"
+          },
+          {
+            "floors": 2,
+            "wall_material": "render",
+            "roof_shape": "pitched",
+            "roof_colour": "dark"
+          },
+          {
+            "floors": 1,
+            "wall_material": "wood",
+            "roof_shape": "pitched",
+            "roof_colour": "unknown"
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 16.2,
+      "tokens": {
+        "input_tokens": 29355,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 663,
+        "reasoning_output_tokens": 397
+      }
+    },
+    {
+      "id": "qa_batch.gpt-6-luna.low",
+      "key": "04484be5b34db28ce4e2d9af034b979ddcbc549ed3c4d099e1cd78fe2278e18b",
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "thread_id": "01a1752c-2315-7f03-ba71-d8801c999780",
+      "answer": {
+        "judgements": [
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render matches the reference; permanent buildings, street layout, and visible details are indistinguishable.",
+            "issues": [],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render matches the reference, including the ornate stone facade, street, and surrounding buildings.",
+            "issues": [],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8,
+            "summary": "The same wooden building and viewpoint are clearly recognizable, but a large section of the upper facade is unnaturally green compared with the weathered brown wood in the reference.",
+            "issues": [
+              {
+                "what": "The upper wall and eaves are covered by a conspicuous green surface/tint that obscures the facade\u2019s natural weathered wood appearance.",
+                "bbox": [
+                  0.64,
+                  0.12,
+                  1,
+                  0.43
+                ],
+                "category": "material",
+                "severity": 3,
+                "fix_hint": "Remove the green overlay and restore the weathered brown wood material continuously across the upper facade and eaves."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8,
+            "summary": "The street and ornate stone building match well, but the render adds a conspicuous green roof over the yellow building that is not present in the reference.",
+            "issues": [
+              {
+                "what": "A bright green roof surface appears above the yellow building; the reference shows a muted gray-brown roof.",
+                "bbox": [
+                  0.71,
+                  0.3,
+                  0.86,
+                  0.4
+                ],
+                "category": "material",
+                "severity": 3,
+                "fix_hint": "Replace the green roof material with the subdued gray-brown metal roofing visible in the reference."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9.5,
+            "summary": "The render closely matches the reference. A rectangular striped patch on the stone facade is absent from the render, but it appears to be a privacy or image artifact rather than a permanent feature.",
+            "issues": [],
+            "ignored_differences": [
+              "Striped facade patch in the reference appears to be an image artifact."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8.5,
+            "summary": "The viewpoint and ornate stone facade match, though the render adds a rectangular inset showing a mismatched facade detail in the upper-right area.",
+            "issues": [
+              {
+                "what": "A floating rectangular inset of facade texture overlays the upper-right wall and does not align with the surrounding building.",
+                "bbox": [
+                  0.72,
+                  0.15,
+                  0.99,
+                  0.4
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Remove the inset texture patch and re-project or blend the facade texture so the stonework and lantern details are continuous."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8.5,
+            "summary": "The same wooden building, street, and viewpoint are clearly recognizable, but a rectangular facade texture patch in the upper-right is misaligned with the surrounding windows and boards.",
+            "issues": [
+              {
+                "what": "A rectangular texture patch overlays the upper-right facade, duplicating and misaligning windows and horizontal boards.",
+                "bbox": [
+                  0.67,
+                  0.11,
+                  0.99,
+                  0.35
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Remove the duplicate patch and re-project the wooden facade texture continuously across the windows and boards."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render matches the reference; permanent structures and the street scene are indistinguishable.",
+            "issues": [],
+            "ignored_differences": []
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 16.3,
+      "tokens": {
+        "input_tokens": 26746,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 724,
+        "reasoning_output_tokens": 0
+      }
+    },
+    {
+      "id": "qa_batch.gpt-5.6-luna.low",
+      "key": "8108c86c173a51221df0fcd148750c3d3a71564325c42a17c0dfdc8e2d32d8fc",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "thread_id": "01a1752c-e897-79c1-9387-5ca81947c17b",
+      "answer": {
+        "judgements": [
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render matches the reference view and permanent structures essentially exactly.",
+            "issues": [],
+            "ignored_differences": [
+              "People, vehicles, bicycles, temporary construction elements, weather, and foliage variations."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render is effectively identical to the reference in place, viewpoint, geometry, and facade appearance.",
+            "issues": [],
+            "ignored_differences": [
+              "People, vehicles, bicycles, weather, and other transient details."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The same historic wooden building and street are reproduced, but a conspicuous green rendering artifact overlays the upper facade.",
+            "issues": [
+              {
+                "what": "Large translucent green artifact across the upper roofline and facade.",
+                "bbox": [
+                  0.614,
+                  0.091,
+                  0.999,
+                  0.285
+                ],
+                "category": "other",
+                "severity": 3,
+                "fix_hint": "Remove the erroneous green overlay or debug visualization from the final render and verify the facade material pass."
+              }
+            ],
+            "ignored_differences": [
+              "Temporary scaffolding, construction fencing, people, bicycles, flower pots, vehicles, weather, and foliage."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The permanent architecture and street layout match closely, with only a conspicuous green artifact on the small roof.",
+            "issues": [
+              {
+                "what": "Translucent green artifact overlays the small roof and upper wall of the yellow building.",
+                "bbox": [
+                  0.621,
+                  0.466,
+                  0.783,
+                  0.595
+                ],
+                "category": "other",
+                "severity": 3,
+                "fix_hint": "Remove the green debug/highlight overlay from the roof material or final compositing pass."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, vehicles, temporary furniture and construction items, weather, and foliage."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render matches the reference; the striped patch appears only in the reference and is a camera/privacy artifact.",
+            "issues": [],
+            "ignored_differences": [
+              "Reference-only striped privacy/camera artifact, people, vehicles, bicycles, weather, and transient street details."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render matches the reference architecture and viewpoint; the reference-only striped patch is ignorable.",
+            "issues": [],
+            "ignored_differences": [
+              "Reference-only striped privacy/camera artifact, people, vehicles, bicycles, weather, and transient street details."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The same street and ornate facade are present, but the render contains an obvious rectangular inset/texture patch on the right facade.",
+            "issues": [
+              {
+                "what": "Rectangular inset patch with mismatched scale and shading overlays the upper-right facade and lantern area.",
+                "bbox": [
+                  0.719,
+                  0.156,
+                  0.989,
+                  0.425
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Remove the pasted inset texture and restore continuous facade UVs/materials across the wall and lantern."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, vehicles, temporary street objects, weather, foliage, and reference-only privacy artifacts."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The historic wooden facade and street are recognisable and correctly placed, but a large rectangular inset patch disrupts the upper-right building texture.",
+            "issues": [
+              {
+                "what": "Rectangular duplicated facade texture patch appears over the upper-right wooden wall and window.",
+                "bbox": [
+                  0.667,
+                  0.111,
+                  0.999,
+                  0.359
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Remove the duplicated patch and re-project or tile the wooden facade texture continuously with correct alignment."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, vehicles, temporary construction elements, flower pots, weather, and foliage."
+            ]
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 12.8,
+      "tokens": {
+        "input_tokens": 24197,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 908,
+        "reasoning_output_tokens": 133
+      }
+    },
+    {
+      "id": "qa_batch.gpt-5.6-terra.low",
+      "key": "c6367044c496f95b4321a5fab2cb8614ebda0f64a7555c8525fffc12fec6661f",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "thread_id": "01a1752d-df94-7ba3-babd-cdace07a55aa",
+      "answer": {
+        "judgements": [
+          {
+            "same_place": "yes",
+            "similarity": 9.8,
+            "summary": "The render is recognisably the identical street view, with matching building massing, facade layout, paving, and street furniture.",
+            "issues": [
+              {
+                "what": "The painted timber facade on the main left building is slightly too warm/beige compared with the pale cool grey-blue reference finish.",
+                "bbox": [
+                  0.14,
+                  0.22,
+                  0.55,
+                  0.72
+                ],
+                "category": "material",
+                "severity": 1,
+                "fix_hint": "Adjust the facade albedo toward the cooler, pale grey-blue painted wood tone in the reference."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, temporary construction equipment, flower pots, and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9.3,
+            "summary": "The street and historic building are clearly the same place and viewpoint. A visible facade projection/seam artifact affects the far-right building.",
+            "issues": [
+              {
+                "what": "A broad, faintly discoloured vertical texture/projection strip is visible over the right edge of the ornate facade.",
+                "bbox": [
+                  0.88,
+                  0.0,
+                  1.0,
+                  0.58
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Correct the facade UV/projection boundary and blend the source imagery so the stonework and window area have no vertical overlay or colour seam."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, cars, flower pots, and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 7.5,
+            "summary": "The distinctive wooden historic building, windows, stone plinth, and street layout match, but the upper facade is visibly corrupted by a green overlay.",
+            "issues": [
+              {
+                "what": "A large translucent green band incorrectly covers the eaves and upper-right wooden facade.",
+                "bbox": [
+                  0.66,
+                  0.06,
+                  1.0,
+                  0.36
+                ],
+                "category": "texture",
+                "severity": 4,
+                "fix_hint": "Remove the erroneous green projected layer and restore the continuous weathered brown timber and dark eave detail from the facade source."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, temporary scaffolding and construction barriers, flower pots, and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8.2,
+            "summary": "The same pedestrian street and buildings are present, but the roof of the yellow timber building has an obviously incorrect green material overlay.",
+            "issues": [
+              {
+                "what": "The low metal roof on the yellow building is bright green instead of the muted grey metal roof in the reference, with a small pale cyan projection artifact at its left edge.",
+                "bbox": [
+                  0.62,
+                  0.36,
+                  0.86,
+                  0.49
+                ],
+                "category": "material",
+                "severity": 4,
+                "fix_hint": "Assign the roof its muted grey metal material and remove the stray cyan projection/mesh at the left roof edge."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, cars, temporary cafe items, flower pots, and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9.9,
+            "summary": "The render matches the same street and viewpoint with no meaningful permanent-asset discrepancy visible.",
+            "issues": [],
+            "ignored_differences": [
+              "People, bicycles, cars, flower pots, and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9.9,
+            "summary": "The render matches the same street and viewpoint with no meaningful permanent-asset discrepancy visible.",
+            "issues": [],
+            "ignored_differences": [
+              "People, bicycles, cars, flower pots, and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 7.8,
+            "summary": "The place is clearly correct, but a large duplicated rectangular facade patch is pasted over the upper-right part of the ornate building.",
+            "issues": [
+              {
+                "what": "A rectangular duplicate texture patch overlays the upper-right facade, cutting across the building's real windows, ornament, and roofline.",
+                "bbox": [
+                  0.72,
+                  0.14,
+                  0.99,
+                  0.4
+                ],
+                "category": "texture",
+                "severity": 4,
+                "fix_hint": "Remove the duplicate projected tile and rebuild/reproject this facade region using its correctly aligned source texture and UVs."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, cars, flower pots, and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 7.5,
+            "summary": "The historic wooden building and viewpoint match, but duplicated facade tiles visibly cover the upper-right roof and window area.",
+            "issues": [
+              {
+                "what": "Two misaligned duplicated rectangular texture patches cover the upper-right portion of the wooden facade and windows.",
+                "bbox": [
+                  0.67,
+                  0.1,
+                  1.0,
+                  0.46
+                ],
+                "category": "texture",
+                "severity": 4,
+                "fix_hint": "Remove the duplicate texture tiles and reproject the wooden facade and window textures once, aligned to the actual building geometry."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, temporary scaffolding and construction barriers, flower pots, and weather."
+            ]
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 39.7,
+      "tokens": {
+        "input_tokens": 25748,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1421,
+        "reasoning_output_tokens": 434
+      }
+    },
+    {
+      "id": "qa_batch.gpt-6-sol.low",
+      "key": "a60c9480298b9741be7858a0c3575d1a656b01c435bdb7b6543fa2c8ac96b520",
+      "model": "gpt-6-sol",
+      "effort": "low",
+      "thread_id": "01a1752e-840b-7dc3-9e1d-894fb4840b2e",
+      "answer": {
+        "judgements": [
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The render matches the reference view and its permanent structures.",
+            "issues": [],
+            "ignored_differences": [
+              "People, vehicles, temporary construction equipment and flower pots."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The buildings, street layout and permanent details match the reference.",
+            "issues": [],
+            "ignored_differences": [
+              "People, bicycles, flower pots and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8.5,
+            "summary": "The wooden facade is recognisable, but a green band appears beneath the roofline.",
+            "issues": [
+              {
+                "what": "A dark green strip replaces the weathered brown wood beneath the roofline on the right.",
+                "bbox": [
+                  0.566,
+                  0.002,
+                  0.996,
+                  0.3
+                ],
+                "category": "material",
+                "severity": 3,
+                "fix_hint": "Restore the weathered brown wood material across the upper facade and eaves."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, temporary scaffolding, flower pots and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8.5,
+            "summary": "The street and buildings match, but part of the small building's roof is bright green.",
+            "issues": [
+              {
+                "what": "The near section of the small building's roof is bright green instead of muted grey metal.",
+                "bbox": [
+                  0.62,
+                  0.352,
+                  0.845,
+                  0.488
+                ],
+                "category": "material",
+                "severity": 3,
+                "fix_hint": "Apply the reference's muted grey metal roof material consistently across this roof section."
+              }
+            ],
+            "ignored_differences": [
+              "People, vehicles, movable street objects and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The viewpoint and architecture match. A striped rectangular facade element visible in the reference is absent from the render.",
+            "issues": [
+              {
+                "what": "The striped rectangular element on the upper right facade is missing.",
+                "bbox": [
+                  0.817,
+                  0.342,
+                  0.944,
+                  0.439
+                ],
+                "category": "missing_object",
+                "severity": 2,
+                "fix_hint": "Add the narrow vertical-striped facade element at the reference position and scale."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, flower pots and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The viewpoint and architecture match. A striped rectangular facade element visible in the reference is absent from the render.",
+            "issues": [
+              {
+                "what": "The striped rectangular element on the upper facade is missing.",
+                "bbox": [
+                  0.714,
+                  0.342,
+                  0.824,
+                  0.439
+                ],
+                "category": "missing_object",
+                "severity": 2,
+                "fix_hint": "Add the narrow vertical-striped facade element at the reference position and scale."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, flower pots and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 7.5,
+            "summary": "The street remains recognisable, but a large misplaced facade patch covers the upper windows of the right-hand building.",
+            "issues": [
+              {
+                "what": "A rectangular duplicate of the lower facade, including its lamp, covers the upper-floor windows and ornament.",
+                "bbox": [
+                  0.717,
+                  0.139,
+                  0.969,
+                  0.382
+                ],
+                "category": "texture",
+                "severity": 4,
+                "fix_hint": "Remove the duplicated facade patch and restore the upper-floor window and ornament textures beneath it."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, flower pots and weather."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 7.5,
+            "summary": "The wooden building remains recognisable, but a duplicated window texture obscures part of its upper facade and roofline.",
+            "issues": [
+              {
+                "what": "A rectangular duplicate of the right-hand windows is pasted across the upper facade and roofline.",
+                "bbox": [
+                  0.668,
+                  0.097,
+                  0.966,
+                  0.321
+                ],
+                "category": "texture",
+                "severity": 4,
+                "fix_hint": "Remove the duplicated texture patch and restore the original eaves and wooden facade in that area."
+              }
+            ],
+            "ignored_differences": [
+              "People, bicycles, temporary scaffolding, flower pots and weather."
+            ]
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 15.6,
+      "tokens": {
+        "input_tokens": 26063,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 904,
+        "reasoning_output_tokens": 84
+      }
+    },
+    {
+      "id": "qa_batch.gpt-6-astra.low",
+      "key": "b210f8a720dbc022fb65725c112a87061fb88631ad724ca5b90d492078f6e15b",
+      "model": "gpt-6-astra",
+      "effort": "low",
+      "thread_id": "01a1752e-c9f6-7ca2-8cc7-9428f1ed8ae7",
+      "answer": {
+        "judgements": [
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The viewpoint and permanent structures match closely. The wooden facade is warmer and more beige than the cool pale grey reference.",
+            "issues": [
+              {
+                "what": "The painted wooden facade has a beige cast instead of the reference's cool pale grey finish.",
+                "bbox": [
+                  0.229,
+                  0.266,
+                  0.537,
+                  0.776
+                ],
+                "category": "material",
+                "severity": 2,
+                "fix_hint": "Adjust the siding base colour toward cool pale grey while preserving its weathering and shading."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 9,
+            "summary": "The street and architectural details match closely. The large right-hand facade is slightly too warm and brown.",
+            "issues": [
+              {
+                "what": "The right-hand masonry facade is warmer and browner than the reference's greyer stonework.",
+                "bbox": [
+                  0.599,
+                  0,
+                  1,
+                  0.84
+                ],
+                "category": "material",
+                "severity": 2,
+                "fix_hint": "Reduce the warm tint in the masonry base colour, preserving the contrasting reddish upper wall panels."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8.5,
+            "summary": "The building and viewpoint are clearly the same. An unnatural green patch alters the upper wooden facade.",
+            "issues": [
+              {
+                "what": "A green tint covers the upper-right timber frieze and eaves, which are weathered brown in the reference.",
+                "bbox": [
+                  0.577,
+                  0.002,
+                  0.993,
+                  0.342
+                ],
+                "category": "material",
+                "severity": 3,
+                "fix_hint": "Remove the green material tint or overlay and restore the weathered brown timber appearance across the upper facade."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8.5,
+            "summary": "The street remains readily recognisable, but the yellow building's roof has a conspicuous green overlay.",
+            "issues": [
+              {
+                "what": "The grey metal roof and cornice are tinted green, with a sharp-edged patch extending beyond the roof silhouette.",
+                "bbox": [
+                  0.62,
+                  0.352,
+                  0.839,
+                  0.497
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Remove the green overlay, restore the grey standing-seam roof texture, and constrain material masks to the actual roof surfaces."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The permanent street scene and architecture match the reference. The striped rectangle in the reference appears to be an image overlay rather than a physical facade feature.",
+            "issues": [],
+            "ignored_differences": [
+              "The reference-only striped rectangular image overlay on the upper-right facade."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 10,
+            "summary": "The permanent structures and viewpoint match the reference. The reference's striped rectangle is an image artefact rather than a missing architectural element.",
+            "issues": [],
+            "ignored_differences": [
+              "The reference-only striped rectangular image overlay across the upper facade."
+            ]
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8,
+            "summary": "The location is clearly recognisable, but a duplicated facade patch disrupts the upper storey of the right-hand building.",
+            "issues": [
+              {
+                "what": "A rectangular copy of the lower facade, including a wall lantern and ground-floor windows, is pasted over the upper-storey windows and ornament.",
+                "bbox": [
+                  0.719,
+                  0.139,
+                  0.99,
+                  0.378
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Remove the duplicated patch and restore the correctly aligned upper-storey facade texture, including windows and cornices."
+              }
+            ],
+            "ignored_differences": []
+          },
+          {
+            "same_place": "yes",
+            "similarity": 8,
+            "summary": "The wooden building remains clearly identifiable. A rectangular duplicated window texture incorrectly covers part of its upper facade and roofline.",
+            "issues": [
+              {
+                "what": "A displaced rectangular window-and-siding patch overlays the upper-right frieze and eaves, creating repeated windows and hard seams.",
+                "bbox": [
+                  0.669,
+                  0.099,
+                  0.988,
+                  0.321
+                ],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "Remove the displaced texture patch and restore continuous timber frieze, eaves and roof detail with correctly aligned UVs."
+              }
+            ],
+            "ignored_differences": []
+          }
+        ]
+      },
+      "ok": true,
+      "seconds": 41.2,
+      "tokens": {
+        "input_tokens": 26548,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 984,
+        "reasoning_output_tokens": 127
+      }
+    }
+  ],
+  "sources": {
+    "label-v2.json": "6bea31847e42aa3f381e44518ee601c403648d3bbc3a2cdb2bd2aac3864e2793",
+    "qa-v2.json": "e10395321d1a7e985fc42e87f206052f25c5d1fbabe4d3fcf4c82714100c50de",
+    "label-v2.schema.json": "4906bac343994fc9619737f7f163bc8b9941cc9b723508dfeee2423523c912a6",
+    "qa-batch.schema.json": "738ab0c4b026ee959a85032a29ea07c2871f7125f5b919786052b728b874f4ea"
+  }
+}
