@@ -104,6 +104,13 @@ def best_view(f, refs: Path):
     views = [v for v in _views(refs / f.id) if v.get("part") == "full"]
     if not views:
         raise ValueError("no usable full-wall panorama view")
+    preferred = refs / f.id / "preferred.json"
+    if preferred.is_file():
+        view_id = json.loads(preferred.read_text())["view_id"]
+        selected = next((v for v in views if v["view_id"] == view_id), None)
+        if selected is None:
+            raise ValueError("preferred full-wall panorama view is unavailable")
+        return selected
     return max(views, key=lambda v: (v.get("score") or 0, v.get("px_per_m") or 0))
 
 
@@ -305,6 +312,7 @@ def main(argv=None):
     ap.add_argument("--ppm", type=int, default=32)
     ap.add_argument("--report-inventory", type=Path)
     ap.add_argument("--contact", type=Path)
+    ap.add_argument("--contact-radius", type=float, default=120)
     ap.add_argument(
         "--labels", type=Path, help="grouped visual labels with usable/problem verdicts"
     )
@@ -358,7 +366,15 @@ def main(argv=None):
         print(json.dumps(rows[-1]), flush=True)
     write_json(a.staging.parent / "facade-direct-results.json", rows)
     if a.report_inventory and a.contact:
-        contact_sheet(a.report_inventory, a.refs, a.staging, a.output, rows, a.contact)
+        contact_sheet(
+            a.report_inventory,
+            a.refs,
+            a.staging,
+            a.output,
+            rows,
+            a.contact,
+            radius=a.contact_radius,
+        )
     return 0
 
 

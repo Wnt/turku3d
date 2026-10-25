@@ -1,7 +1,10 @@
+import json
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from PIL import Image
-from turkutex.facade_direct import clean_reference
+from turkutex.facade_direct import best_view, clean_reference
 
 
 def test_masked_bay_uses_same_wall_and_library_edges():
@@ -30,3 +33,22 @@ def test_reference_with_too_little_visible_wall_is_rejected():
     mask = Image.new("L", (32, 32), 0)
     with pytest.raises(ValueError, match="35%"):
         clean_reference(photo, mask, photo, photo, (32, 32), 8)
+
+
+def test_preferred_alternate_view_must_exist(tmp_path, monkeypatch):
+    directory = tmp_path / "wall"
+    directory.mkdir()
+    (directory / "refs.json").write_text("{}")
+    facade = SimpleNamespace(id="wall")
+    monkeypatch.setattr("turkutex.building_jobs.reference_matches", lambda *_: True)
+    views = [
+        {"view_id": "primary", "part": "full", "score": 1.0},
+        {"view_id": "alternate", "part": "full", "score": 0.5},
+    ]
+    monkeypatch.setattr("turkutex.facade_direct._views", lambda *_: views)
+    assert best_view(facade, tmp_path)["view_id"] == "primary"
+    (directory / "preferred.json").write_text(json.dumps({"view_id": "alternate"}))
+    assert best_view(facade, tmp_path)["view_id"] == "alternate"
+    (directory / "preferred.json").write_text(json.dumps({"view_id": "missing"}))
+    with pytest.raises(ValueError, match="unavailable"):
+        best_view(facade, tmp_path)

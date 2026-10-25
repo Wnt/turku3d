@@ -123,6 +123,20 @@ def candidates(
                 m = network_result(partial(cache.google_newest, p["id"]), errors, "google", None)
                 if m:
                     res[f"g:{m.id}"] = m
+                    if "google_history" in sources:
+                        base = network_result(
+                            partial(cache.google_meta, p["id"]), errors, "google", None
+                        )
+                        history = sorted(
+                            base.extra.get("historical", []) if base else [],
+                            key=lambda item: item.get("date") or "",
+                        )
+                        for item in history[:: max(1, len(history) // 3)][:3]:
+                            older = network_result(
+                                partial(cache.google_meta, item["id"]), errors, "google", None
+                            )
+                            if older:
+                                res[f"g:{older.id}"] = older
         if "lookaround" in sources:
             for m in network_result(
                 partial(cache.lookaround_coverage, lat, lon), errors, "lookaround", []

@@ -100,6 +100,41 @@ textures/.venv/bin/python -m turkutex.facade_repair "$NEAR" \
 The assembly manifest retains earlier bindings; direct staging and reports stay
 in the current sandbox. The bundled label schema records uncertainty explicitly.
 
+For rejected walls, run `python -m turkutex facade-batch refs` again into a
+separate sandbox reference directory with
+`--sources google,lookaround,mapillary`. Run
+`python -m turkutex.facade_alternates FACADES --original-refs OLD --alternate-refs NEW
+--output SELECTED.geojson` to write `preferred.json` for a different full-wall
+panorama per wall. Label `SELECTED.geojson` with `turkutex.facade_labels`, then
+run `turkutex.facade_direct` with `--refs NEW --labels LABELS`. A selected view
+is recorded by ID; source scores remain intact. To inspect older Street View
+dates, use `--sources google,google_history --ref-max-views 8` in a separate
+reference directory, then add `--older-than-newest` to
+`turkutex.facade_alternates` to choose a rendered historical view. Keep
+`TURKUTEX_STREETVIEW` under `$TURKU3D_WORK/cache`
+and set `TURKUTEX_READ_CACHE=$TURKU3D_DATA/cache/streetlevel` to reuse the
+shared panorama cache while isolating new writes.
+
+The direct contact sheet defaults to 120 m around the spawn. For the four-tile
+run, combine resumed batches with:
+
+```sh
+T="$TURKU3D_WORK/textures"
+R="$TURKU3D_WORK/reports"
+textures/.venv/bin/python -m turkutex.facade_contact "$T/four-tiles-all.geojson" \
+  --assembly "$TURKU3D_DATA/textures/assembly" \
+  --refs "$T/refs" "$T/alternate-refs" "$T/history-refs" \
+  --staging "$T/direct-staging" "$T"/direct-staging-part{1,2,3} \
+    "$T"/direct-staging-acquired{1..8} "$T/direct-staging-acquired7-rest" \
+    "$T/alternate-direct-staging" \
+    "$T/history-direct-staging" \
+  --labels "$T/label-batch/labels.json" "$T/alternate-labels/labels.json" \
+    "$T/history-labels/labels.json" \
+  --results "$R"/four-tiles-direct-*.log "$R"/alternate-direct*.log \
+    "$R"/history-direct.log \
+  --contact "$R/facade-contact-four-tiles.html"
+```
+
 Use W1-03's `$TURKU3D_WORK/build/layers/buildings/facades.geojson` as soon as it is available.
 Until then, derive the full four-visual-tile AOI plus margin from the existing footprint extractor:
 

@@ -488,11 +488,14 @@ def main(argv=None) -> int:
     ap.add_argument("--sources", default="google,lookaround,mapillary,photospheres")
     ap.add_argument("-j", type=int, default=6)
     ap.add_argument("--ref-workers", type=int, default=3)
+    ap.add_argument("--ref-max-views", type=int, default=4)
     ap.add_argument("--post-workers", type=int, default=2)
     ap.add_argument("--max-pct", type=float, default=100)
     ap.add_argument("--max-side", type=int, default=2048)
     ap.add_argument("--ppm", type=float, default=64)
     a = ap.parse_args(argv)
+    if not 1 <= a.ref_max_views <= 12:
+        ap.error("--ref-max-views must be between 1 and 12")
     facades = validate_inventory(a.facades, a.output)
     a.run.mkdir(parents=True, exist_ok=True)
     stages = ["refs", "label", "improve", "post", "report"] if a.stage == "all" else [a.stage]
@@ -505,7 +508,13 @@ def main(argv=None) -> int:
             cache = PanoCache()
 
             def make_reference(f, cache=cache):
-                return facade_refs(cache, f, a.refs, SelectParams(), tuple(a.sources.split(",")))
+                return facade_refs(
+                    cache,
+                    f,
+                    a.refs,
+                    SelectParams(max_views=a.ref_max_views),
+                    tuple(a.sources.split(",")),
+                )
 
             with cf.ThreadPoolExecutor(max_workers=a.ref_workers) as pool:
                 futures = {
