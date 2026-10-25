@@ -104,3 +104,9 @@ required preserving `EXT_mesh_gpu_instancing` nodes in the batcher; ordinary sha
 primitives are cloned before baking transforms. The existing instancing/world-bounds
 regression passed (1 test, 3.46 s). These are packaging compatibility changes; the measured
 input inventory contains ground and buildings only.
+
+After the instancing compatibility change, the scoped gate is **GREEN: 24.739 s**
+(packaging tests, JS lint, knip, generated data and policy). No runtime rendering source
+changed after the full gate and office screenshots. Main contains the spawn/reflection
+change as `f53dcad`; the original worker commit was `8bf6461`. The original cache/batching
+fix is on main as `9d9eba5` (worker `b153768`).
