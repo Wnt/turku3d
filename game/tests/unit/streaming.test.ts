@@ -47,3 +47,38 @@ test('full request capacity still unloads distant tiles and resumes after reques
   expect(s.pending).toBe(0);
   expect(s.update(900, 900, true)).toHaveLength(4);
 });
+
+test('network/503 failures retry with exponential backoff and clear after success', async () => {
+  const { manifest, physics } = fakes(1, 1);
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const fetcher = vi.mocked(fetch).mockRejectedValueOnce(new TypeError('offline'))
+    .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+    .mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) } as Response);
+  const s = new CollisionStreamer(manifest, physics as never, 10);
+  try {
+    expect(s.update(20, 20, true)).toEqual(['c_0_0']);
+    await new Promise(r => setTimeout(r, 0));
+    clock.mockReturnValue(499); expect(s.update(20,20,true)).toEqual([]);
+    clock.mockReturnValue(500); expect(s.update(20,20,true)).toEqual(['c_0_0']);
+    await new Promise(r => setTimeout(r, 0));
+    clock.mockReturnValue(1499); expect(s.update(20,20,true)).toEqual([]);
+    clock.mockReturnValue(1500); expect(s.update(20,20,true)).toEqual(['c_0_0']);
+    await new Promise(r => setTimeout(r, 0));
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(physics.loaded.has('c_0_0')).toBe(true);
+  } finally { clock.mockRestore(); warn.mockRestore(); }
+});
+
+for (const failure of ['size', 'CRC'] as const) test(`${failure} failures are permanent and surfaced`, async () => {
+  const { manifest, physics } = fakes(1,1);
+  const onError = vi.fn(); Object.assign(physics, { onError });
+  if (failure === 'size') vi.mocked(fetch).mockResolvedValue({ ok:true, arrayBuffer:async()=>new ArrayBuffer(3) } as Response);
+  else physics.loadTile.mockRejectedValue(Object.assign(new Error('CRC-32 mismatch'), { permanent:true }));
+  const s = new CollisionStreamer(manifest, physics as never,10);
+  s.update(20,20,true);
+  await new Promise(r=>setTimeout(r,0));
+  expect(s.update(20,20,true)).toEqual([]);
+  expect(onError).toHaveBeenCalledWith(expect.stringContaining(failure === 'size' ? 'size' : 'CRC'));
+  expect(s.pending).toBe(0);
+});

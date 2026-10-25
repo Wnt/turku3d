@@ -2,6 +2,7 @@
 import * as RAPIER from '@dimforge/rapier3d';
 import { PhysicsWorld } from './world';
 import { colReaderName } from './colTile';
+import { ColFormatError } from '../shared/col/colFormat';
 import type { FromWorker, ToWorker } from './protocol';
 
 // typed locally (the DOM lib is global in this project; avoid pulling the WebWorker lib in)
@@ -13,7 +14,10 @@ const post = (m: FromWorker, transfer: Transferable[] = []) => ctx.postMessage(m
 let chain: Promise<void> = Promise.resolve();
 ctx.onmessage = (ev: MessageEvent<ToWorker>) => {
   const msg = ev.data;
-  chain = chain.then(() => handle(msg)).catch((e) => post({ type: 'error', error: String((e as Error)?.stack ?? e) }));
+  chain = chain.then(() => handle(msg)).catch((e) => {
+    const error = String((e as Error)?.stack ?? e);
+    post(msg.type === 'step' ? { type: 'stepError', seq: msg.seq, error } : { type: 'error', error });
+  });
 };
 
 // Messages that arrive while the module (and its wasm, via top-level await) is still evaluating can be
@@ -27,7 +31,7 @@ async function handle(msg: ToWorker) {
   switch (msg.type) {
     case 'loadTile':
       try { post({ type: 'tileLoaded', stats: await pw.loadTile(msg.id, msg.buffer) }); }
-      catch (e) { post({ type: 'tileError', id: msg.id, error: String((e as Error).message ?? e) }); }
+      catch (e) { post({ type: 'tileError', id: msg.id, error: String((e as Error).message ?? e), permanent: e instanceof ColFormatError }); }
       break;
     case 'unloadTile':
       pw.unloadTile(msg.id);

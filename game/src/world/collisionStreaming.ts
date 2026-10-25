@@ -6,6 +6,7 @@ import type { PhysicsClient } from '../physics/client';
 export class CollisionStreamer {
   private loading = new Set<string>();
   private failed = new Set<string>();
+  private retries = new Map<string, { attempts: number; at: number }>();
   private lastCheck = -Infinity;
   readonly maxConcurrent = 4;
   /** Tile ids within `r` of (x,z), found through the i/j grid window instead of a scan over the whole manifest
@@ -35,7 +36,7 @@ export class CollisionStreamer {
     }
     // Keep unloading while requests are in flight, but only search/sort when a slot is available.
     if (this.loading.size >= this.maxConcurrent) return [];
-    const want = this.near(x, z, this.radius).filter(({ id }) => !this.physics.loaded.has(id) && !this.loading.has(id) && !this.failed.has(id));
+    const want = this.near(x, z, this.radius).filter(({ id }) => !this.physics.loaded.has(id) && !this.loading.has(id) && !this.failed.has(id) && (this.retries.get(id)?.at ?? 0) <= now);
     want.sort((a, b) => a.d - b.d);
     const started: string[] = [];
     for (const { id } of want) {
@@ -49,14 +50,26 @@ export class CollisionStreamer {
   private async fetchAndLoad(id: string) {
     const e = this.manifest.collision[id];
     try {
-      const res = await fetch(new URL(e.url, this.manifest.baseUrl));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fetch(new URL(e.url, this.manifest.baseUrl), { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), {
+        permanent: res.status < 500 && res.status !== 408 && res.status !== 429,
+      });
       const buf = await res.arrayBuffer();
-      if (buf.byteLength !== e.bytes) throw new Error(`size ${buf.byteLength} != manifest ${e.bytes}`);
+      if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
       await this.physics.loadTile(id, buf);
+      this.retries.delete(id);
     } catch (err) {
-      this.failed.add(id);
-      console.error(`[collision] ${id}: ${(err as Error).message}`);
+      const error = err as Error & { permanent?: boolean };
+      if (error.permanent) {
+        this.failed.add(id);
+        this.retries.delete(id);
+        this.physics.onError?.(`collision ${id}: ${error.message}`);
+      } else {
+        const attempts = (this.retries.get(id)?.attempts ?? 0) + 1;
+        const delay = Math.min(30_000, 500 * 2 ** Math.min(attempts - 1, 6));
+        this.retries.set(id, { attempts, at: performance.now() + delay });
+        console.warn(`[collision] ${id}: ${error.message}; retry in ${delay} ms`);
+      }
     } finally {
       this.loading.delete(id);
     }

@@ -212,3 +212,12 @@ From the repository root, run `scripts/dev/gate --base HEAD` for local changes o
 for dependency setup, path selection, caches, sandbox ports and Git hooks.
 
 Regenerate the CC0 sedan asset with `cd game && npm run prepare-car`.
+
+### Collision streaming recovery
+
+Transient network failures, HTTP 408/429 and server errors retry after 0.5, 1, 2, … seconds,
+capped at 30 seconds while the tile remains nearby. Manifest-size and `.col` format/CRC
+failures are permanent and surface through the game's error callback (`__qaError`).
+CRC checking runs in the physics worker. Failed steps report their sequence, release the
+client's in-flight slot and surface the error; the worker message queue continues.
+Verify with `make game-test` (synthetic streaming, client and worker failure tests).

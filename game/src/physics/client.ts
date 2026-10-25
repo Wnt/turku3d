@@ -36,13 +36,23 @@ export class PhysicsClient {
           this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, performance.now() / 1000);
           break;
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
-        case 'tileError': this.tileWaiters.get(m.id)?.reject(new Error(m.error)); this.tileWaiters.delete(m.id); this.onError(`tile ${m.id}: ${m.error}`); break;
+        case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
         case 'cameraCastResult': case 'raycastResult': case 'statsResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
+        case 'stepError':
+          if (m.seq === this.seq) { this.inFlight = false; this.pendingDt = 0; }
+          this.onError(`step ${m.seq}: ${m.error}`);
+          break;
         case 'error': this.onError(m.error); break;
       }
     };
-    this.worker.onerror = (e) => this.onError(e.message || 'worker failed to load');
+    this.worker.onerror = (e) => {
+      this.inFlight = false;
+      const error = new Error(e.message || 'worker failed to load');
+      for (const waiter of this.tileWaiters.values()) waiter.reject(error);
+      this.tileWaiters.clear();
+      this.onError(error.message);
+    };
   }
 
   private send(m: ToWorker, transfer: Transferable[] = []) {

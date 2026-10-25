@@ -22,7 +22,7 @@ export const colReaderName = 'src/shared/col/colFormat.ts#readCol';
 
 export async function readCol(buffer: ArrayBuffer, opts: { checkCrc?: boolean } = {}): Promise<ColTile> {
   await MeshoptDecoder.ready;
-  const t = readShared(buffer, { decoder: MeshoptDecoder, verifyCrc: opts.checkCrc ?? false, onWarning: (w) => console.warn(`[col] ${w}`) });
+  const t = readShared(buffer, { decoder: MeshoptDecoder, verifyCrc: opts.checkCrc ?? true, onWarning: (w) => console.warn(`[col] ${w}`) });
   return {
     id: t.id, origin: t.header.origin, tileI: t.header.tileI, tileJ: t.header.tileJ, flags: t.header.flags,
     positions: t.positions, indices: t.indices, materials: t.materials,
