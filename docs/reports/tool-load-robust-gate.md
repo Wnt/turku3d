@@ -127,6 +127,15 @@ its browser stage in **179.267 s** and fresh import stage in **60.868 s**; it wa
 the malformed Knip JSON discovered immediately after conflict resolution. Logs are in
 `.cache/rebase-affected.log` and `.cache/rebase-affected-green.log`.
 
+## Structures integration follow-up rebase
+
+Main advanced to `8112bf0` during the final check. Rebased again, keeping its
+`structures` validator command and the shared `--test-concurrency=1` budget. The new
+`structures-physics` gate route remained intact. With `TURKU3D_JOBS=3`, a scoped gate for
+pipeline structures and validator inputs passed in **11.100 s**; pipeline structures,
+physics, validator types/tests, Python/JavaScript lint, generated materials and policy all
+passed. Log: `.cache/rebase-structures-affected.log`.
+
 ## Remaining measurement
 
 Repeat the typical-change probes during an orchestrator-confirmed eight-active-agent window.
