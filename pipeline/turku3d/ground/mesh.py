@@ -112,7 +112,9 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
         constraints.extend(parts(water.intersection(envelope).boundary))
     # Node intersections once, before Triangle, including curb/tile crossings.
     clipped = [g.intersection(envelope) for g in constraints]
-    network = shapely.union_all([g for g in clipped if not g.is_empty])
+    # City vectors can meet a lidar-snapped endpoint a few millimetres apart.
+    # Node them on a 5 mm grid so Triangle cannot emit sub-mm sliver faces.
+    network = shapely.union_all([g for g in clipped if not g.is_empty], grid_size=0.005)
     lines = list(parts(network))
     vertices, segments, lookup = [], [], {}
     for line in lines:
@@ -134,7 +136,7 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
             shapely.points(xy), return_distance=True, all_matches=False
         )
         for qi, li, distance in zip(*ids, distances, strict=True):
-            if distance < 2e-8:
+            if distance < 0.004:
                 original = curb_heights[li]
                 chainage = np.r_[
                     0, np.cumsum(np.linalg.norm(np.diff(original[:, :2], axis=0), axis=1))
@@ -157,7 +159,7 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
     )
     distance = np.empty(len(cxz))
     distance[nearest[0]] = distances
-    candidates = candidates[inside & (distance > 1e-7)]
+    candidates = candidates[inside & (distance > 0.005)]
     coarse = base_points(candidates, 2.0)
     nearest, distances = constraint_tree.query_nearest(
         shapely.points(coarse[:, [0, 2]]), return_distance=True, all_matches=False
@@ -189,6 +191,38 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
         sides = curb.lines()
         polygon = shapely.make_valid(shapely.Polygon(np.r_[sides[0][:, :2], sides[1][::-1, :2]]))
         mids[shapely.contains_xy(polygon, *centers.T)] = mat_id(curb.kind)
+    # The material on either side follows the measured rise, even where the
+    # source street polygons stop short of the lidar edge.
+    upper, lower = [], []
+    for curb in curbs:
+        if curb.kind != "curb":
+            continue
+        low, high = curb.lines()
+        for i in range(len(low) - 1):
+            low_side, high_side = (
+                (low, high) if low[i : i + 2, 2].mean() < high[i : i + 2, 2].mean() else (high, low)
+            )
+            direction = high_side[i : i + 2, :2] - low_side[i : i + 2, :2]
+            direction /= np.maximum(np.linalg.norm(direction, axis=1)[:, None], 1e-12)
+            for line, offset, target in (
+                (low_side, -direction, lower),
+                (high_side, direction, upper),
+            ):
+                edge = line[i : i + 2, :2]
+                polygon = shapely.make_valid(
+                    shapely.Polygon(np.r_[edge, (edge + 1.0 * offset)[::-1]])
+                )
+                if not polygon.is_empty:
+                    target.append(polygon)
+    if lower:
+        mids[
+            shapely.contains_xy(shapely.union_all(lower, grid_size=1e-5), *centers.T)
+            & (mids != mat_id("curb"))
+        ] = mat_id("road")
+        mids[
+            shapely.contains_xy(shapely.union_all(upper, grid_size=1e-5), *centers.T)
+            & (mids != mat_id("curb"))
+        ] = mat_id("sidewalk")
     wet = shapely.contains_xy(water, *centers.T)
     # Duplicate shoreline vertices for the sensor: ground-bank height is not water height.
     water_ids, inverse = np.unique(f[wet], return_inverse=True)

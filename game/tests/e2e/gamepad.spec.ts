@@ -32,7 +32,7 @@ async function button(page: Page, index: number, value: number) {
 }
 const state = (page: Page) => page.evaluate(() => (window as any).__game.state());
 
-test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ["@input", "@walk"] }, async ({ page }, info) => {
+test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ["@input", "@walk", "@curb"] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704260'); // x168,z240, 2m south of curb
   const initial = await state(page);
   // Set input and capture its first matching physics state in the same browser task.

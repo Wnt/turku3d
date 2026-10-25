@@ -1,14 +1,16 @@
 # Ground layer
 
 The default build produces plain lidar terrain for the four Phase 1 visual tiles and
-64 collision tiles. Curbs are deferred by user decision (2026-10-25): the default target
-does not fit city curb vectors and curb accuracy does not gate this iteration.
+64 collision tiles. To add measured curbs around the office, run the lidar relief
+producer and pass its complete breakline file to the ground builder:
 
 ```sh
 source ../sandbox.env
 make ground-test
 make ground-build
 make ground-build  # unchanged inputs: hash-verified no-op
+bash pipeline/env/run.sh python -m turku3d.lidar relief --scope office-block
+make ground-build GROUND_ARGS="--breaklines $TURKU3D_WORK/reports/lidar/office-block/breaklines.json"
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 ```
 
@@ -21,7 +23,7 @@ Outputs are under `$TURKU3D_WORK/build/layers/ground/`, following the shared
   `{layer, object_id, material_key}`. The assembler binds textures.
 - `MANIFEST.json`: source identities, parameters, code hash, layer file hashes, tile
   cache identities and acceptance status.
-- `breaklines.json`, `quays.json`, `curbs.geojson`: reserved breakline handoff and
+- `breaklines.json`, `quays.json`, `curbs.geojson`: measured breakline handoff and
   validation sidecars; empty in the default plain build.
 
 QA is written to `$TURKU3D_WORK/reports/ground/ground-qa.{json,md}`. Acceptance checks
@@ -40,6 +42,9 @@ Triangle `pc` triangulates one canonical graph containing every tile boundary an
 shoreline. Base points start at 2 m and refine from observed 0.5 m cell representatives
 where error exceeds 2 cm. Neighbouring tiles copy the same canonical float64 vertices.
 No independently rounded edge heights can introduce seams.
+Constraint intersections use a 5 mm precision grid to merge nearly coincident
+lidar/vector endpoints before triangulation; this prevents sub-mm faces rejected
+by the shipped collision format.
 
 Katualueet polygons supply physical materials; natural-stone paving overrides functional
 road labels. Outside street polygons, an orthophoto RGB vegetation classifier supplies
@@ -63,12 +68,12 @@ Raw returns, selected points and canonical terrain have separate caches in
 QA hashes are checked before returning a no-op. Repairing a missing artifact reuses the
 canonical mesh and preserves unchanged artifact bytes and mtimes.
 
-## Measured breakline interface (next iteration, W1-13)
+## Measured breakline interface
 
 The implementation remains available as an explicit data input:
 
 ```sh
-make ground-build GROUND_ARGS="--breaklines $TURKU3D_WORK/build/layers/lidar/added-breaklines.json"
+make ground-build GROUND_ARGS="--breaklines $TURKU3D_WORK/reports/lidar/office-block/breaklines.json"
 ```
 
 A JSON list contains entries such as:
@@ -87,9 +92,23 @@ Coordinates are engine-local metres, heights absolute N2000. All three arrays ha
 same length >=2; normals are unit x/z vectors. Side heights are **minus normal, plus
 normal**. Kinds are `curb`, `curb_dropped`, `crossing`, `quay`. Additional provenance,
 confidence and relief-class fields are permitted. Export separate objects across
-occlusion; the loader does not refit heights. Exported handoffs use the same schema.
+occlusion; the loader does not refit heights and ignores fragments shorter than
+5 cm. Raised `curb` heights are clamped to
+6–20 cm about their measured midpoint; dropped curbs and quays retain measured
+heights. The collision strip carries `curb` material and nearby lower/upper sides
+carry `road`/`sidewalk`. Exported handoffs use the same schema.
+
+Measure actual collision mesh steps against a plain baseline:
+
+```sh
+bash pipeline/env/run.sh python -m turku3d.ground.curb_coverage \
+  --before "$TURKU3D_WORK/build/layers/ground-before" \
+  --after "$TURKU3D_WORK/build/layers/ground" \
+  --breaklines "$TURKU3D_WORK/reports/lidar/office-block/breaklines.json" \
+  --output "$TURKU3D_WORK/reports/ground/curb-coverage.json"
+```
 
 `curbs.py` retains the B3 gradient-snapped double-breakline fitter; `qa.py:evaluate`
 retains independent held-out profile diagnostics. Neither is called by the default
-build. Those experiments and their previous accuracy targets are deferred, not silently
-promoted to current acceptance. `ground_qa.py` owns the plain-ground checks.
+build. `ground_qa.py` checks topology, coverage and budgets for both build modes;
+`curb_coverage.py` measures the actual curb step length for the measured mode.

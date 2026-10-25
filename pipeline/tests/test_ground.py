@@ -6,6 +6,7 @@ import shapely
 from shapely.geometry import LineString, box
 from turku3d import config as C
 from turku3d.col.materials import mat_id
+from turku3d.ground.breaklines import clamp_curb_heights
 from turku3d.ground.build import visual_meshes
 from turku3d.ground.curbs import fit_curbs, fit_profile
 from turku3d.ground.materials import surface_material
@@ -150,6 +151,11 @@ def test_constrained_curb_is_sharp_and_visual_is_separate(curb_cloud):
     center, normal = c.centers[2], c.normals[2]
     heights = query(np.array([center - 0.031 * normal, center + 0.031 * normal]))
     assert abs(abs(heights[1] - heights[0]) - 0.15) < 0.02
+    centers = mesh.positions[mesh.indices].mean(axis=1)[:, [0, 2]]
+    low = center - 0.7 * normal if c.heights[2, 0] < c.heights[2, 1] else center + 0.7 * normal
+    high = center + 0.7 * normal if c.heights[2, 0] < c.heights[2, 1] else center - 0.7 * normal
+    assert mesh.material[np.argmin(np.linalg.norm(centers - low, axis=1))] == mat_id("road")
+    assert mesh.material[np.argmin(np.linalg.norm(centers - high, axis=1))] == mat_id("sidewalk")
     before = mesh.positions.copy()
     visual = visual_meshes(mesh, C.VisualTile(0, 0, 0), curbs)
     assert any(m.extras.get("visual_only_bevel") for m in visual)
@@ -176,6 +182,42 @@ def test_flush_crossing_semantics(curb_cloud):
     surface = Surface(lowered)
     assert fit_curbs(line, surface)[0][0].kind == "curb_dropped"
     assert fit_curbs(line, surface, box(1, 0, 3, 12))[0][0].kind == "crossing"
+
+
+def test_measured_curb_rise_is_clamped_without_moving_midpoint(curb_cloud):
+    curb = fit_curbs([("curb", LineString([(2.15, 0), (2.15, 12)]))], Surface(curb_cloud))[0][0]
+    midpoint = curb.heights.mean(axis=1).copy()
+    curb.heights[0] = midpoint[0] + np.array([-0.01, 0.01])
+    curb.heights[1] = midpoint[1] + np.array([0.3, -0.3])
+    clamp_curb_heights([curb])
+    np.testing.assert_allclose(curb.heights.mean(axis=1), midpoint)
+    np.testing.assert_allclose(np.abs(np.diff(curb.heights[:2], axis=1))[:, 0], [0.06, 0.20])
+
+
+def test_collision_mesh_step_coverage_counts_actual_height(tmp_path, curb_cloud):
+    import json
+
+    from turku3d.ground.breaklines import records
+    from turku3d.ground.curb_coverage import measure
+
+    surface = Surface(curb_cloud)
+    curb = fit_curbs([("mapped", LineString([(2.15, 0), (2.15, 12)]))], surface)[0][0]
+    bounds = C.BBoxLocal(0, 0, 5, 12)
+    flat = Surface(curb_cloud.copy())
+    flat.points[:, 1] -= (flat.points[:, 0] > 2) * 0.15
+    before, _ = build_mesh(flat, bounds, [], [], shapely.Polygon(), 0, ConstantMaterials())
+    after, _ = build_mesh(surface, bounds, [], [curb], shapely.Polygon(), 0, ConstantMaterials())
+    old, new = tmp_path / "before", tmp_path / "after"
+    before.save(old / "c_0_0.col.npz")
+    after.save(new / "c_0_0.col.npz")
+    line = records([curb])[0]
+    line["provenance"] = "kantakartta+lidar"
+    source = tmp_path / "breaklines.json"
+    source.write_text(json.dumps([line]))
+    result = measure(old, new, source)["combined"]
+    assert result["before"]["step_length_m"] == 0
+    assert result["after"]["fraction"] > 0.8
+    assert result["curb_material_length_m"] / result["measured_length_m"] > 0.8
 
 
 def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
@@ -395,6 +437,15 @@ def test_breakline_interchange_validation_and_direct_heights(tmp_path, curb_clou
     assert sidecar["turku3d_coords"] == "engine-xz"
     assert sidecar["features"]
     assert all(abs(f["properties"]["step"] - 0.15) < 0.02 for f in sidecar["features"])
+    tiny = dict(
+        data[0],
+        object_id="millimetre-transition",
+        centers_xz=[[2, 3], [2.003, 3.002]],
+        normals_xz=[[1, 0], [1, 0]],
+        side_heights=[[0, 0.1], [0, 0.1]],
+    )
+    path.write_text(json.dumps(data + [tiny]))
+    assert len(load_breaklines(path)) == 1
     data[0]["normals_xz"][0] = [0.0, 0.0]
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="unit length"):

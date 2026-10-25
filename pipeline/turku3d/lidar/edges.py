@@ -96,6 +96,8 @@ def measured_breaklines(
         profiles = [measured[i] for i in run]
         kind = relief_class(profiles[len(profiles) // 2])
         shifted = [centers[i] + measured[i].shift * normals[i] for i in run]
+        if LineString(shifted).length < 0.05:
+            return
         output.append(
             {
                 "object_id": f"{object_id}:{run[0]}",

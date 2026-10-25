@@ -53,6 +53,9 @@ tests = ["tests/test_fetch.py"]
 paths = ["pipeline/turku3d/fetch/common.py", "pipeline/turku3d/ground/*"]
 tests = ["tests/test_package.py"]
 [[stages.related]]
+paths = ["pipeline/turku3d/ground/*", "pipeline/tests/test_ground.py"]
+tests = ["tests/test_ground.py"]
+[[stages.related]]
 paths = ["pipeline/turku3d/buildings/*", "pipeline/tests/test_buildings*.py"]
 tests = ["tests/test_buildings.py", "tests/test_buildings_fallback.py"]
 [[stages.related]]
@@ -198,7 +201,7 @@ name = "game-e2e"
 inputs = ["game/*", "pipeline/*", "tools/validator/*", "qa/tests/golden_projection.json"]
 kind = "e2e"
 tile_tags = ["@walk", "@pipeline", "@render", "@qa"]
-triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json"]
+triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/ground/*"]
 # Subsystem tags are declared on the specs; unmapped e2e triggers select all.
 [[stages.related]]
 paths = ["game/src/render/*", "game/src/world/materials.ts", "qa/tests/golden_projection.json", "game/tests/e2e/render-*.spec.ts"]
@@ -214,6 +217,10 @@ tags = ["@input"]
 [[stages.related]]
 paths = ["game/src/vehicle/*", "game/tests/e2e/vehicle.spec.ts"]
 tags = ["@drive"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/ground/*", "pipeline/tests/test_ground.py"]
+tags = ["@curb"]
 
 [[stages]]
 name = "vehicle-node-tests"

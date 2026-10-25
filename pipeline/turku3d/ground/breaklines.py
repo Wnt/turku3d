@@ -32,6 +32,8 @@ def load_breaklines(path):
         lengths = np.linalg.norm(np.diff(p, axis=0), axis=1)
         if np.any(lengths <= 0):
             raise ValueError(f"{object_id}: consecutive vertices must differ")
+        if lengths.sum() < 0.05:
+            continue
         kind = record["kind"]
         if kind not in ("curb", "curb_dropped", "crossing", "quay"):
             raise ValueError(f"{object_id}: unsupported kind {kind}")
@@ -47,6 +49,19 @@ def load_breaklines(path):
             )
         result.append(Curb(object_id, d, d, p, n, h, np.zeros(len(p)), kind, validation))
     return result
+
+
+def clamp_curb_heights(curbs, minimum=0.06, maximum=0.20):
+    """Keep measured curb midpoints and sign while bounding the playable rise."""
+    for curb in curbs:
+        if curb.kind != "curb":
+            continue
+        midpoint = curb.heights.mean(axis=1)
+        rise = np.clip(np.abs(np.diff(curb.heights, axis=1)[:, 0]), minimum, maximum)
+        direction = np.where(curb.heights[:, 1] >= curb.heights[:, 0], 1, -1)
+        curb.heights[:, 0] = midpoint - direction * rise / 2
+        curb.heights[:, 1] = midpoint + direction * rise / 2
+    return curbs
 
 
 def records(curbs):

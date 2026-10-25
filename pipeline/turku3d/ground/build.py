@@ -17,7 +17,7 @@ from turku3d.layers import CollisionLayer, write_collision, write_manifest, writ
 from turku3d.package.gltf import GlbMesh
 from turku3d.package.manifest import _atomic_write
 
-from .breaklines import load_breaklines, records, validation_geojson
+from .breaklines import clamp_curb_heights, load_breaklines, records, validation_geojson
 from .ground_qa import evaluate_ground
 from .inputs import fingerprints, read_lidar, source_paths, vectors
 from .materials import Materials
@@ -256,9 +256,11 @@ def run(args):
             f"lowest supported river-interior lidar mode ({len(sample)} returns)",
         )
     log(f"Ground selection: {selection}; water level {water_level:.3f} ({water_source})")
-    # This iteration ships plain lidar terrain. Measured breaklines remain an
-    # explicit data input for the next iteration; city vectors are not fitted here.
-    curbs = load_breaklines(args.breaklines) if getattr(args, "breaklines", None) else []
+    curbs = (
+        clamp_curb_heights(load_breaklines(args.breaklines))
+        if getattr(args, "breaklines", None)
+        else []
+    )
     curb_key = hashlib.sha256(json.dumps(records(curbs), sort_keys=True).encode()).hexdigest()
     rejected = []
     materials = Materials(streets, paths["ortho"])
@@ -315,13 +317,19 @@ def run(args):
         artifacts.append(name)
     log("Evaluating coverage, topology, water, materials and seams")
     report = evaluate_ground(meshes, accepted, water, buildings, core)
+    if curbs:
+        report["acceptance"] = (
+            "Measured curb ground; topology and budget checks. Mesh-step coverage is reported separately."
+        )
     report.update(
         {
             "selection": selection,
             "mesh_build": mesh_info,
             "rejected_curb_lines": rejected,
             "source_lines": len(lines),
-            "curb_fitting": "deferred by user; plain lidar ground",
+            "curb_fitting": "measured lidar breaklines; raised curb heights clamped to 6-20 cm"
+            if curbs
+            else "plain lidar ground",
             "quay_lines": len(handoff),
             "water_level": {"metres_n2000": water_level, "source": water_source},
             "river_bed": {

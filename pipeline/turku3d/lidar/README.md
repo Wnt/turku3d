@@ -91,6 +91,8 @@ positions within 45 cm. Lidar-only additions exclude an 80 cm corridor around
 mapped curbs, building interiors (+0.3 m) and water; they require at least 5 cm step,
 confidence >= 0.25 and surviving measured polylines at least 2 m long. Unsupported
 stations split polylines. No span is bridged across a rejected station.
+Class-transition fragments shorter than 5 cm are discarded before export;
+they cannot form a stable collision strip.
 The AOI runner reserves 20% of returns by the same deterministic coordinate hash
 as W1-01 before ground selection, profiling and edge detection. Reserved returns
 remain available to independently evaluate a later mesh.
