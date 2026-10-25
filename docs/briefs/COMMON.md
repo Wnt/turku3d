@@ -32,7 +32,9 @@ isolation, verification, commits and run results. Tool commands: [scripts/dev/RE
 ## 4. Layer contract (Wave 1)
 
 Pipeline steps produce **layers**. The assembler (`turku3d.package`, brief W1-04) composes them into the shipped
-`.col`, GLB and tileset. A layer never writes shipped artifacts itself.
+`.col`, GLB and tileset. A layer never writes shipped artifacts itself. The precise v1 schema and shared Python helpers are in
+[`docs/specs/layers.md`](../specs/layers.md) (`turku3d.layers`). Sandbox paths use
+`$TURKU3D_WORK/build/layers/<layer>/`.
 
 ```
 $TURKU3D_WORK/build/layers/<layer>/<collision_tile_id>.col.npz

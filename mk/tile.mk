@@ -30,7 +30,7 @@ tile-show: game-build ## Serve the local result on the sandbox dist port
 	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIST) --port $(DIST_PORT) --mount /tiles=$(DIST_MIRROR)/tiles
 
 tile-test: ## Offline packaging tests with synthetic inputs
-	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n 4 tests/test_package.py
+	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n 4 tests/test_package.py tests/test_layers.py
 
 TILE_QA_PORT ?= $(DIST_PORT)
 tile-qa: qa-venv game-build ## Render local tiles (colour+ID); JUDGE=1 enables quota-guarded parallel judging
