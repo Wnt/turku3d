@@ -19,11 +19,13 @@ make playtest-test game-test  # fast offline checks
 ```
 
 `make play` prints the playable URL on `TURKU3D_PORT_BASE` (main default 5170).
-It uses read-only cached raw inputs, builds missing tiles through `make tile-build`, verifies
-artifact hashes, and caches the production game under `$TURKU3D_WORK/build/game`. Game cache
+It assembles published layers through `make tile-build`, verifies artifact hashes, and caches the production game under `$TURKU3D_WORK/build/game`. Game cache
 keys include source, public assets, lockfiles and build configuration, including uncommitted
 changes. The default main work directory is `~/turku3d/data`. `TILE_DIST` can select
 an already assembled complete AOI; explicit tile directories are never rebuilt automatically.
+When `build/layers/*/MANIFEST.json` exists, the assembler checks its input cache on every launch
+so changed layers replace stale tiles. Publish layers before building a new AOI; existing verified
+AOI builds can still be reused when no layer inventory is present.
 Use `make play-prepare` to prepare everything without starting a server. Ctrl-C stops only
 the server launched by this command. A busy port fails without selecting another port.
 

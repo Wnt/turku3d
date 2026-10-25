@@ -54,10 +54,14 @@ function prepare(s) {
   fs.mkdirSync(s.cache, { recursive: true });
   const env = { ...process.env, TURKU3D_WORK: s.work, TURKU3D_PORT_BASE: String(s.port), npm_config_cache: path.join(s.work, 'cache/npm') };
   const tiles = inspectTiles(s.tiles);
-  if (tiles.missing.length) {
-    if (process.env.TILE_DIST) throw new Error('TILE_DIST must contain a complete four-tile AOI; it is never overwritten automatically');
-    run('make', ['tile-fetch'], { env });
-    run('make', ['tile-build', `T=${tiles.missing.join(' ')}`], { env });
+  const layers = path.join(s.work, 'build/layers');
+  const published = fs.existsSync(layers) && fs.readdirSync(layers).some(name => fs.existsSync(path.join(layers, name, 'MANIFEST.json')));
+  if (process.env.TILE_DIST) {
+    if (tiles.missing.length) throw new Error('TILE_DIST must contain a complete four-tile AOI; it is never overwritten automatically');
+    console.log('Reusing verified explicit AOI tiles.');
+  } else if (published || tiles.missing.length) {
+    // The assembler owns input invalidation and no-op caching; changed layers must not leave stale tiles.
+    run('make', ['tile-build', `T=${aoi.join(' ')}`], { env });
     if (inspectTiles(s.tiles).missing.length) throw new Error('Tile build did not produce the full AOI');
   } else console.log('Reusing verified AOI tiles.');
   const game = path.join(repo, 'game');
