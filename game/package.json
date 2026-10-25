@@ -13,7 +13,8 @@
     "test:e2e": "npm run build && playwright test",
     "test:all": "npm run build && npm test && npm run test:e2e",
     "probe": "node scripts/probe-page.mjs",
-    "prepare-character": "node scripts/prepare-character.mjs"
+    "prepare-character": "node scripts/prepare-character.mjs",
+    "test:vehicle-node": "node --test tests/headless/vehicle.test.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d": "0.21.0",

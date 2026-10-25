@@ -43,6 +43,9 @@ async function handle(msg: ToWorker) {
       post({ type: 'state', seq: msg.seq, substeps, tick: pw.tick, remainder: pw.remainder, previousCharacter: pw.previousCharacter, stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState() });
       break;
     }
+    case 'cameraCast':
+      post({ type: 'cameraCastResult', id: msg.id, distance: pw.cameraCast(msg.origin, msg.dir, msg.distance) });
+      break;
     case 'raycast':
       post({ type: 'raycastResult', id: msg.id, hit: pw.raycast(msg.origin, msg.dir, msg.maxToi, msg.filter) });
       break;

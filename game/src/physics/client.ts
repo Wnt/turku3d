@@ -38,7 +38,7 @@ export class PhysicsClient {
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
         case 'tileError': this.tileWaiters.get(m.id)?.reject(new Error(m.error)); this.tileWaiters.delete(m.id); this.onError(`tile ${m.id}: ${m.error}`); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
-        case 'raycastResult': case 'statsResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
+        case 'cameraCastResult': case 'raycastResult': case 'statsResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
         case 'error': this.onError(m.error); break;
       }
     };
@@ -73,6 +73,14 @@ export class PhysicsClient {
     this.jumpPending = false;
   }
 
+  cameraCast(origin: V3, dir: V3, distance: number): Promise<number> {
+    const id = this.nextId++;
+    return new Promise(resolve => {
+      this.pending.set(id, m => resolve(m.type === 'cameraCastResult' ? m.distance : 0));
+      this.send({ type: 'cameraCast', id, origin, dir, distance });
+    });
+  }
+
   raycast(origin: V3, dir: V3, maxToi: number, filter: RayFilter = 'solid'): Promise<RayHit | null> {
     const id = this.nextId++;
     return new Promise((resolve) => {
@@ -88,8 +96,8 @@ export class PhysicsClient {
     });
   }
   totals() {
-    let tris = 0, bytes = 0;
-    for (const s of this.loaded.values()) { tris += s.tris; bytes += s.bytes; }
-    return { tiles: this.loaded.size, tris, colBytes: bytes, estWasmBytes: tris * 135 };
+    let tris = 0, bytes = 0, curbTris = 0;
+    for (const s of this.loaded.values()) { tris += s.tris; bytes += s.bytes; curbTris += s.curbTris ?? 0; }
+    return { tiles: this.loaded.size, tris, colBytes: bytes, estWasmBytes: (tris + curbTris) * 135 };
   }
 }

@@ -40,6 +40,11 @@ export class TriLocator {
     return best;
   }
 
+  /** Highest vertex of the contacted face, in world-local metres. */
+  top(triangle: number): number {
+    return this.origin[1] + Math.max(...[0, 1, 2].map(k => this.pos[3 * this.idx[3 * triangle + k] + 1]));
+  }
+
   private distToTri(t: number, px: number, py: number, pz: number): number {
     const P = this.pos, I = this.idx;
     const a = 3 * I[3 * t], b = 3 * I[3 * t + 1], c = 3 * I[3 * t + 2];

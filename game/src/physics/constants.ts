@@ -22,8 +22,9 @@ export const CAR = {
     { x: 1.35, y: -0.15, z: -0.8 }, { x: 1.35, y: -0.15, z: 0.8 },
     { x: -1.35, y: -0.15, z: -0.8 }, { x: -1.35, y: -0.15, z: 0.8 },
   ],
-  engineForce: 2200, // N per driven (rear) wheel
-  brakeForce: 40,
+  topSpeed: 27,
+  engineForce: 3200, // N per driven (rear) wheel
+  brakeForce: 100,
   maxSteer: 0.55,
 } as const;
 

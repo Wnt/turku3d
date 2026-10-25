@@ -1,37 +1,61 @@
-// Car visual (procedural): chassis frame forward = +X, axle = Z, same dimensions as physics/world.ts CAR.
 import * as THREE from 'three/webgpu';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CAR } from '../physics/constants';
 import type { VehicleState } from '../physics/protocol';
 
+/** Kenney CC0 sedan, +X forward. Authored wheels are independently steered and suspended. */
 export class CarVisual {
   readonly root = new THREE.Group();
   private wheels: THREE.Group[] = [];
+  loaded = false;
 
-  constructor(scene: THREE.Scene) {
-    this.root.name = 'car';
-    const h = CAR.halfExt;
-    const paint = new THREE.MeshStandardMaterial({ color: 0xc8202a, metalness: 0.5, roughness: 0.35 });
-    const glass = new THREE.MeshStandardMaterial({ color: 0x223040, metalness: 0.2, roughness: 0.1 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(h.x * 2, h.y * 2, h.z * 2), paint);
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(h.x * 1.0, 0.5, h.z * 1.8), glass);
-    cabin.position.set(-0.2, h.y + 0.25, 0);
-    const light = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 1.4), new THREE.MeshStandardMaterial({ color: 0xffffee, emissive: 0xffffcc, emissiveIntensity: 0.6 }));
-    light.position.set(h.x, 0.05, 0);
-    for (const m of [body, cabin, light]) { m.castShadow = true; m.receiveShadow = true; this.root.add(m); }
-    const tyre = new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.9 });
-    const rim = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.8, roughness: 0.3 });
-    const wg = new THREE.CylinderGeometry(CAR.wheelRadius, CAR.wheelRadius, 0.24, 20).rotateX(Math.PI / 2);
-    const rg = new THREE.BoxGeometry(CAR.wheelRadius * 1.2, 0.08, 0.26);
-    for (let i = 0; i < 4; i++) {
-      const g = new THREE.Group();
-      const spin = new THREE.Group();
-      const t = new THREE.Mesh(wg, tyre); t.castShadow = true;
-      spin.add(t, new THREE.Mesh(rg, rim));
-      g.add(spin);
-      this.root.add(g);
-      this.wheels.push(g);
+  constructor(scene: THREE.Scene) { this.root.name = 'car'; scene.add(this.root); }
+
+  async load(url: string) {
+    const { scene } = await new GLTFLoader().loadAsync(url);
+    const body = scene.getObjectByName('body');
+    if (!body) throw new Error('Car asset is missing body');
+    body.removeFromParent();
+    // Match the authored wheel arches to the physics wheelbase without stretching the tyres.
+    body.traverse(o => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry = mesh.geometry.clone();
+      const positions = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < positions.count; i++) {
+        const z = positions.getZ(i) - 0.025;
+        const mapped = Math.abs(z) <= 0.66 ? z * (1.35 / 0.66)
+          : Math.sign(z) * (1.35 + (Math.abs(z) - 0.66) * (0.75 / (z > 0 ? 0.59 : 0.64)));
+        positions.setZ(i, mapped);
+      }
+      mesh.geometry.computeVertexNormals();
+      mesh.geometry.computeBoundingBox();
+      mesh.geometry.computeBoundingSphere();
+    });
+    body.scale.set(1.2, 1.1, 1);
+    body.rotation.y = Math.PI / 2;
+    body.position.set(0, -0.55, 0);
+    this.root.add(body);
+    const names = ['wheel-front-left', 'wheel-front-right', 'wheel-back-left', 'wheel-back-right'];
+    for (const name of names) {
+      const wheel = scene.getObjectByName(name) as THREE.Mesh | undefined;
+      if (!wheel?.isMesh) throw new Error(`Car asset is missing ${name}`);
+      wheel.removeFromParent();
+      const geometry = wheel.geometry.clone();
+      geometry.computeBoundingBox();
+      const bounds = geometry.boundingBox!;
+      const center = bounds.getCenter(new THREE.Vector3());
+      geometry.translate(-center.x, -center.y, -center.z);
+      geometry.scale(0.24 / (bounds.max.x - bounds.min.x), CAR.wheelRadius / 0.3, CAR.wheelRadius / 0.3);
+      geometry.rotateY(Math.PI / 2);
+      wheel.geometry = geometry;
+      wheel.position.set(0, 0, 0);
+      wheel.rotation.set(0, 0, 0);
+      const steering = new THREE.Group(); steering.add(wheel);
+      this.root.add(steering); this.wheels.push(steering);
     }
-    scene.add(this.root);
+    this.root.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    this.loaded = true;
   }
 
   update(s: VehicleState) {
@@ -39,6 +63,7 @@ export class CarVisual {
     this.root.quaternion.set(s.rot.x, s.rot.y, s.rot.z, s.rot.w);
     s.wheels.forEach((w, i) => {
       const g = this.wheels[i];
+      if (!g) return;
       g.position.set(w.pos.x, w.pos.y, w.pos.z);
       g.rotation.set(0, w.steer, 0);
       g.children[0].rotation.z = -w.rotation;

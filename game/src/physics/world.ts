@@ -6,6 +6,9 @@ import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
 import { CHARACTER, CAR } from './constants';
+import { Vehicle } from '../vehicle/vehicle';
+import { CurbQueries } from '../vehicle/curbQueries';
+import { isCurbMaterial } from '../vehicle/curbStrike';
 export { CHARACTER, CAR };
 import type { CharacterInput, CharacterState, RayFilter, RayHit, TileStats, VehicleInput, VehicleState } from './protocol';
 
@@ -38,12 +41,13 @@ export class PhysicsWorld {
   private charEnabled = true;
 
   // vehicle
-  private chassis: RAPIER_NS.RigidBody | null = null;
-  private vehicle: RAPIER_NS.DynamicRayCastVehicleController | null = null;
+  vehicle: Vehicle | null = null;
+  private curbQueries: CurbQueries;
 
   constructor(private readonly R: R) {
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
+    this.curbQueries = new CurbQueries(R, this.world);
   }
 
   // ------------------------------------------------------------------ tiles
@@ -52,7 +56,7 @@ export class PhysicsWorld {
     const t0 = performance.now();
     const col = await readCol(buffer);
     const colliders = this.buildTile(id, col);
-    const stats: TileStats = { id, tris: col.indices.length / 3, prims: col.prims.length, bytes: buffer.byteLength, buildMs: +(performance.now() - t0).toFixed(2), colliders: colliders.length };
+    const stats: TileStats = { id, tris: col.indices.length / 3, prims: col.prims.length, bytes: buffer.byteLength, buildMs: +(performance.now() - t0).toFixed(2), colliders: colliders.length, curbTris: colliders.reduce((n, c) => n + this.curbQueries.triangleCount(c.handle), 0) };
     this.tiles.set(id, { stats, colliders });
     return stats;
   }
@@ -77,6 +81,24 @@ export class PhysicsWorld {
       this.applyClass(desc, cls, 0.85);
       const c = this.world.createCollider(desc);
       this.colliderInfo.set(c.handle, { tile: id, triMat, mat: triMat[0], locator: new TriLocator(col.positions, idx, col.origin) });
+      const curbIdx: number[] = [], curbMat: number[] = [];
+      tris.forEach((t, k) => {
+        if (isCurbMaterial(triMat[k])) { curbIdx.push(...col.indices.subarray(t * 3, t * 3 + 3)); curbMat.push(triMat[k]); }
+      });
+      if (curbIdx.length) {
+        // Compact the helper: do not duplicate the full ground vertex buffer in WASM.
+        const remap = new Map<number, number>(), vertices: number[] = [];
+        const indices = Uint32Array.from(curbIdx, index => {
+          if (!remap.has(index)) { remap.set(index, remap.size); vertices.push(...col.positions.subarray(index * 3, index * 3 + 3)); }
+          return remap.get(index)!;
+        });
+        const positions = Float32Array.from(vertices);
+        const locator = new TriLocator(positions, indices, col.origin);
+        out.push(this.curbQueries.add(c, new R.TriMesh(positions, indices), point => {
+          const t = locator.locate(point.x, point.y, point.z, 0.04);
+          return t < 0 ? null : { material: curbMat[t], top: locator.top(t) };
+        }));
+      }
       out.push(c);
     }
     for (const p of col.prims) {
@@ -90,6 +112,12 @@ export class PhysicsWorld {
       this.applyClass(desc, materialClass(p.material), MATERIALS[p.material]?.friction ?? 0.8);
       const c = this.world.createCollider(desc);
       this.colliderInfo.set(c.handle, { tile: id, triMat: null, mat: p.material, locator: null });
+      if (isCurbMaterial(p.material)) out.push(this.curbQueries.add(c, c.shape, point => {
+        // Sample the actual rotated primitive, not its axis-aligned bounds.
+        const ray = new R.Ray({ x: point.x, y: point.y + 10, z: point.z }, { x: 0, y: -1, z: 0 });
+        const hit = c.castRay(ray, 20, true);
+        return hit < 0 ? null : { material: p.material, top: point.y + 10 - hit };
+      }));
       out.push(c);
     }
     return out;
@@ -104,7 +132,7 @@ export class PhysicsWorld {
   unloadTile(id: string): boolean {
     const t = this.tiles.get(id);
     if (!t) return false;
-    for (const c of t.colliders) { this.colliderInfo.delete(c.handle); this.world.removeCollider(c, false); }
+    for (const c of t.colliders) { this.colliderInfo.delete(c.handle); this.curbQueries.remove(c.handle); this.world.removeCollider(c, false); }
     this.tiles.delete(id);
     return true;
   }
@@ -186,66 +214,12 @@ export class PhysicsWorld {
 
   // ------------------------------------------------------------------ vehicle
   spawnVehicle(pos: V3, yaw: number) {
-    const R = this.R;
-    if (this.chassis) { this.resetVehicle(pos, yaw); return; }
-    const q = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-    const chassis = this.world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setRotation(q).setCanSleep(false).setCcdEnabled(true));
-    const h = CAR.halfExt;
-    this.world.createCollider(
-      R.ColliderDesc.cuboid(h.x, h.y, h.z).setDensity(CAR.mass / (8 * h.x * h.y * h.z)).setFriction(0.5)
-        .setCollisionGroups(groups(GROUP.VEHICLE, GROUP.STATIC_SOLID | GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00)),
-      chassis,
-    );
-    const v = this.world.createVehicleController(chassis);
-    for (const w of CAR.wheels) v.addWheel(w, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, CAR.rest, CAR.wheelRadius);
-    for (let i = 0; i < CAR.wheels.length; i++) {
-      v.setWheelSuspensionStiffness(i, 30);
-      v.setWheelSuspensionCompression(i, 4.4);
-      v.setWheelSuspensionRelaxation(i, 2.3);
-      v.setWheelMaxSuspensionTravel(i, 0.25);
-      v.setWheelFrictionSlip(i, 2.2);
-      v.setWheelSideFrictionStiffness(i, 1.0);
-      v.setWheelMaxSuspensionForce(i, 30000);
-    }
-    this.chassis = chassis;
-    this.vehicle = v;
+    if (this.vehicle) { this.vehicle.reset(pos, yaw); return; }
+    this.vehicle = new Vehicle(this.R, this.world, pos, yaw, this.curbQueries);
   }
 
-  resetVehicle(pos: V3, yaw: number) {
-    if (!this.chassis) return;
-    this.chassis.setTranslation(pos, true);
-    this.chassis.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
-    this.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
-  }
-
-  private applyVehicleInput(input: VehicleInput | null) {
-    const v = this.vehicle!;
-    const i0 = input ?? { throttle: 0, steer: 0, brake: 0, handbrake: false };
-    // brake when the throttle opposes the current motion; otherwise drive
-    const fwd = v.currentVehicleSpeed();
-    let engine = i0.throttle * CAR.engineForce, brake = i0.brake * CAR.brakeForce;
-    if (i0.throttle < 0 && fwd > 0.5) { brake = -i0.throttle * CAR.brakeForce; engine = 0; }
-    if (!input) brake = 0.3 * CAR.brakeForce; // parked: hold
-    for (let i = 0; i < 4; i++) {
-      const front = i < 2;
-      v.setWheelSteering(i, front ? i0.steer * CAR.maxSteer : 0);
-      v.setWheelEngineForce(i, front ? 0 : engine);
-      v.setWheelBrake(i, brake + (!front && i0.handbrake ? CAR.brakeForce : 0));
-    }
-  }
-
-  vehicleState(): VehicleState | null {
-    if (!this.chassis || !this.vehicle) return null;
-    const t = this.chassis.translation(), r = this.chassis.rotation(), lv = this.chassis.linvel();
-    const v = this.vehicle;
-    const wheels = CAR.wheels.map((_, i) => {
-      const cp = v.wheelChassisConnectionPointCs(i) ?? CAR.wheels[i];
-      const sl = v.wheelSuspensionLength(i) ?? CAR.rest;
-      return { pos: { x: cp.x, y: cp.y - sl, z: cp.z }, steer: v.wheelSteering(i) ?? 0, rotation: v.wheelRotation(i) ?? 0, contact: v.wheelIsInContact(i), suspension: sl };
-    });
-    return { pos: { x: t.x, y: t.y, z: t.z }, rot: { x: r.x, y: r.y, z: r.z, w: r.w }, linvel: { x: lv.x, y: lv.y, z: lv.z }, speed: Math.hypot(lv.x, lv.y, lv.z), forwardSpeed: v.currentVehicleSpeed(), wheels };
-  }
+  resetVehicle(pos: V3, yaw: number) { this.vehicle?.reset(pos, yaw); }
+  vehicleState(): VehicleState | null { return this.vehicle?.state() ?? null; }
 
   // ------------------------------------------------------------------ stepping
   /** Advances real time dt with fixed 60 Hz substeps. Returns the number of substeps run. */
@@ -266,14 +240,18 @@ export class PhysicsWorld {
     this.previousCharacter = this.characterState();
     this.tick++;
     if (this.cc && this.charEnabled) this.stepCharacter(character);
-    if (this.vehicle) {
-      this.applyVehicleInput(vehicle);
-      this.vehicle.updateVehicle(DT, this.R.QueryFilterFlags.EXCLUDE_SENSORS, groups(GROUP.VEHICLE, GROUP.STATIC_SOLID | GROUP.DYNAMIC));
-    }
+    this.vehicle?.step(DT, vehicle);
     this.world.step();
   }
 
   // ------------------------------------------------------------------ queries
+  cameraCast(origin: V3, dir: V3, distance: number): number {
+    const hit = this.world.castShape(origin, { x: 0, y: 0, z: 0, w: 1 }, dir,
+      new this.R.Ball(0.3), 0, distance, true, this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      groups(0xff00, GROUP.STATIC_SOLID));
+    return hit ? Math.max(0, hit.time_of_impact - 0.03) : distance;
+  }
+
   raycast(origin: V3, dir: V3, maxToi: number, filter: RayFilter = 'solid'): RayHit | null {
     // Treads are query-only and can be below the KCC slope: prefer them over the solid ramp.
     if (filter === 'foot') {
@@ -300,9 +278,9 @@ export class PhysicsWorld {
   }
 
   totals() {
-    let tris = 0, bytes = 0;
-    for (const t of this.tiles.values()) { tris += t.stats.tris; bytes += t.stats.bytes; }
-    return { tris, colBytes: bytes, estWasmBytes: tris * 135 }; // ~135 B/tri measured (engine.md 2.2)
+    let tris = 0, bytes = 0, curbTris = 0;
+    for (const t of this.tiles.values()) { tris += t.stats.tris; bytes += t.stats.bytes; curbTris += t.stats.curbTris ?? 0; }
+    return { tris, colBytes: bytes, estWasmBytes: (tris + curbTris) * 135 }; // ~135 B/tri measured (engine.md 2.2)
   }
 }
 
