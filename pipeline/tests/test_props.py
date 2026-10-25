@@ -141,15 +141,28 @@ def test_register_ingestion_and_missing_optional_sources(tmp_path, monkeypatch):
     assert all(p.orientation == "no_road_default" for p in props)
 
 
-def test_ground_interpolation_and_unsupported_distance():
-    from scipy.spatial import cKDTree
-    from turku3d.props import GroundHeights
+def test_published_surface_and_unsupported_distance():
+    from turku3d.placement import Surfaces
 
-    ground = GroundHeights.__new__(GroundHeights)
-    ground.points = np.array([[0, 3, 0], [2, 3, 0], [0, 3, 2], [2, 3, 2]], dtype=float)
-    ground.tree = cKDTree(ground.points[:, [0, 2]])
-    height, distance = ground.at(1, 1)
-    assert height == pytest.approx(3)
-    assert distance == pytest.approx(2**0.5)
-    with pytest.raises(ValueError, match="No ground sample"):
-        ground.at(40, 40)
+    ground = Surfaces(
+        [[[0, 3, 0], [2, 3, 0], [0, 3, 2]], [[2, 3, 0], [2, 3, 2], [0, 3, 2]]], [2, 2]
+    )
+    assert ground.at(1, 1)[0] == pytest.approx(3)
+    assert ground.at(40, 40) is None
+
+
+def test_assembled_shared_prototypes_keep_each_world_transform(tmp_path, monkeypatch):
+    import json
+
+    from turku3d.package.assemble import assemble
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    props = [Prop("one", "bench", 10, 3, 20), Prop("two", "bench", 30, 5, 40)]
+    root = tmp_path / "layers/props"
+    publish(props, root, {}, {})
+    out = tmp_path / "dist"
+    assemble(["t0_0_0"], layers=root.parent, out=out)
+    entry = json.loads((out / "manifest.json").read_text())["visual"]["t0_0_0"]
+    expected = np.concatenate([model("bench").positions + [p.x, p.y, p.z] for p in props])
+    np.testing.assert_allclose(entry["bounds"], [expected.min(0), expected.max(0)], atol=0.002)

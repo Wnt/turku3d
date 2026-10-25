@@ -98,42 +98,6 @@ def sha(path: Path) -> str:
     return h.hexdigest()
 
 
-class GroundHeights:
-    """Cheap ground-only LAZ interpolation; never substitute roof/source point Z."""
-
-    def __init__(self, bbox, inputs):
-        import laspy
-        from scipy.spatial import cKDTree
-
-        samples = []
-        for tile in C.laz_tiles_for_bbox(bbox.buffered(15)):
-            p = C.raw_dir("laz/maanpinta") / f"{tile.name}.laz"
-            if not p.exists():
-                continue
-            inputs[str(p.relative_to(C.data_root()))] = sha(p)
-            las = laspy.read(p)
-            x, y, z = C.en_to_local(np.asarray(las.x), np.asarray(las.y), np.asarray(las.z))
-            mask = (
-                (x >= bbox.xmin - 15)
-                & (x <= bbox.xmax + 15)
-                & (z >= bbox.zmin - 15)
-                & (z <= bbox.zmax + 15)
-            )
-            samples.append(np.column_stack((x[mask], y[mask], z[mask])))
-        self.points = np.concatenate(samples) if samples else np.empty((0, 3))
-        if not len(self.points):
-            raise ValueError("No ground LAZ coverage; refusing zero-height props")
-        self.tree = cKDTree(self.points[:, [0, 2]])
-
-    def at(self, x, z):
-        distances, indices = self.tree.query([x, z], k=min(4, len(self.points)))
-        distances, indices = np.atleast_1d(distances), np.atleast_1d(indices)
-        if distances[0] > 15:
-            raise ValueError(f"No ground sample within 15 m of {x},{z}")
-        weights = 1 / np.maximum(distances, 0.01) ** 2
-        return float(np.average(self.points[indices, 1], weights=weights)), float(distances[0])
-
-
 def read_sources(bbox, source_area="work-3x3"):
     import geopandas as gpd
 
@@ -357,7 +321,7 @@ def publish(props, directory, inputs, metadata):
         params={
             "seams": "objects",
             "models": "procedural-cc0-v1",
-            "height": "maanpinta-idw4",
+            "height": "published-collision-triangles",
             "metrics": metrics,
             "sign_faces": sorted(SUPPORTED_SIGNS),
         },

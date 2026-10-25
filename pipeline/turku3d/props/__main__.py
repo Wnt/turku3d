@@ -6,7 +6,8 @@ import time
 
 from turku3d import config as C
 from turku3d.layers import layer_root
-from turku3d.props import GroundHeights, publish, read_sources
+from turku3d.placement.inputs import place_objects
+from turku3d.props import publish, read_sources
 
 
 def main():
@@ -40,17 +41,7 @@ def main():
     props, inputs, metadata = read_sources(bbox, args.source_area)
     if not props:
         raise ValueError("No props in requested area")
-    heights = GroundHeights(bbox, inputs)
-    placed, unsupported = [], []
-    for p in props:
-        try:
-            p.y, p.height_distance = heights.at(p.x, p.z)
-        except ValueError:
-            unsupported.append(p.object_id)
-            continue
-        placed.append(p)
-    metadata["missing_ground_objects"] = unsupported
-    props = placed
+    props = place_objects(props, "props", bbox, inputs, args.source_area)
     metadata.update(
         bbox_local=list(bbox.as_tuple()),
         source_area=args.source_area,

@@ -51,3 +51,12 @@ nearest-seed crown segmentation in touching crowns, inferred trunk diameters,
 no building-mask rejection of lidar-only candidates, and coarse row sampling.
 Adopt the shared `turku3d.lidar.TileStore` in `load_points` when that module lands;
 the current branch deliberately has no dependency on an unlanded toolkit.
+
+## Shared placement acceptance
+
+After canopy measurement, the [shared validator](../placement/README.md) snaps trunk
+bases to published ground/structures triangles and checks grass/soil/tree-pit semantics,
+water, missing bridge decks, buildings, access and other object bases. Corrections are
+limited to 2 m; omitted trees and original/final positions are retained in JSON/HTML
+orthophoto reports under `$TURKU3D_WORK/reports/placement/vegetation`. Residual hard
+violations fail publication. Ground and building layers must exist before this build.

@@ -20,9 +20,10 @@ from turku3d.layers import (
     write_visual,
 )
 from turku3d.package.gltf import GlbMesh
+from turku3d.placement.inputs import place_objects
 
 from .models import ASSETS, model, palette
-from .placement import Feature, footprint, place
+from .placement import Feature, place
 
 
 def sha(path):
@@ -38,38 +39,6 @@ def read_features(path, bounds, osm=True):
             key = f"osm:{row['osm_type']}:{row['osm_id']}" if osm else f"city:{row['feature_key']}"
             result.append(Feature(key, g, tags))
     return result
-
-
-def heights(cars, bounds, inputs):
-    import laspy
-    from scipy.interpolate import LinearNDInterpolator
-    from scipy.spatial import cKDTree
-
-    points = []
-    for tile in C.laz_tiles_for_bbox(C.BBoxLocal(*bounds.bounds).buffered(30)):
-        path = C.raw_dir("laz") / "maanpinta" / f"{tile.name}.laz"
-        if not path.exists():
-            continue
-        inputs[str(path)] = sha(path)
-        laz = laspy.read(path)
-        x, y, z = C.en_to_local(np.asarray(laz.x), np.asarray(laz.y), np.asarray(laz.z))
-        points.append(np.column_stack((x, z, y)))
-    points = np.concatenate(points)
-    tin = LinearNDInterpolator(points[:, :2], points[:, 2])
-    tree = cKDTree(points[:, :2])
-    kept = []
-    for car in cars:
-        ring = np.array(
-            footprint(car["x"], car["z"], car["yaw"], car["width"], car["length"]).exterior.coords
-        )[:4]
-        h = tin(ring)
-        distance, _ = tree.query(ring)
-        if not np.isfinite(h).all() or distance.max() > 20 or np.ptp(h) > 0.35:
-            continue
-        car["y"] = float(np.mean(h))
-        car["ground_range_m"] = float(np.ptp(h))
-        kept.append(car)
-    return kept
 
 
 def publish(cars, directory, inputs, seed):
@@ -156,7 +125,7 @@ def main():
     cars, excluded, roads, rejected = place(features, city, bounds, (spawn_x, spawn_z), args.seed)
     inputs = {str(p): sha(p) for p in [osm, city_path, *sorted(ASSETS.iterdir())] if p.is_file()}
     before = len(cars)
-    cars = heights(cars, bounds, inputs)
+    cars = place_objects(cars, "traffic_static", C.OFFICE_BLOCK.core, inputs)
     if not cars:
         raise ValueError("No safe parking placements found")
     args.output.mkdir(parents=True, exist_ok=True)

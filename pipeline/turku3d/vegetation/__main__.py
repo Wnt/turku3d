@@ -18,6 +18,7 @@ from turku3d.layers import (
     write_collision,
     write_manifest,
 )
+from turku3d.placement.inputs import place_objects
 from turku3d.vegetation.trees import digest, load_points, measure, register
 from turku3d.vegetation.visual import ASSETS, write_instances
 
@@ -93,6 +94,7 @@ def main():
     inputs.update(lidar_inputs)
     print(f"Measuring {len(trees)} mapped trees against {len(canopy)} canopy returns", flush=True)
     trees = measure(trees, ground, canopy, bounds)
+    trees = place_objects(trees, "vegetation", bounds, inputs)
     report = publish(
         trees,
         args.out,

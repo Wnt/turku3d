@@ -11,7 +11,7 @@ make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 
 The default build covers the 250 m office core (`c_1_2` through `c_4_5`).
 The producer reads the latest cached `raw/osm/work-3x3/*.parquet`, city
-`GIS_Katualueet.parquet`, and measured `raw/laz/maanpinta` heights. `--osm PATH`
+`GIS_Katualueet.parquet`, and published ground/structures collision heights. `--osm PATH`
 pins a particular snapshot. It never downloads or writes raw data. Outputs are
 `$TURKU3D_WORK/build/layers/traffic_static`: shared-publisher NPZ box primitives,
 GLBs (one mesh per car), a completed `MANIFEST.json`, and `placements.json`.
@@ -32,13 +32,11 @@ entrances, crossings (5 m buffer), and a 12 m player/driven-car spawn envelope.
 Underground/rooftop/multistorey parking is excluded. Geometry order cannot affect
 seeded results. Objects crossing tile boundaries have exactly one centroid owner.
 
-Four wheel-area corners sample the ground TIN. Missing or sparse support (>20 m)
-and height ranges >0.35 m are rejected; accepted cars sit at mean height. This is
-a static upright-body approximation, not suspension fitting. OSM access geometry
-can be incomplete: the guarantee is against the supplied mapped exclusions, not
-an on-site survey. Diagonal/perpendicular street lanes require explicit polygons.
-The JSON report records all positions, source IDs, exclusions and reject counts;
-its hash is recorded in the layer's inputs for audit.
+The [shared placement validator](../placement/README.md) samples the published collision
+at the centre and four base corners, enforces the 0.15 m support limit, snaps height,
+checks other layer inventories, and repairs small offsets within 2 m. Missing support
+or unsafe placements are omitted and reported. Residual hard violations fail the build.
+The original seeded bay, lane and access exclusions remain in force.
 
 ## Asset provenance
 

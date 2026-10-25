@@ -1,6 +1,6 @@
 # Props layer v1
 
-Build from the immutable `work-3x3` WFS/OSM snapshot and `maanpinta` ground lidar:
+Build from the immutable `work-3x3` WFS/OSM snapshot and published ground/structures collision:
 
 ```sh
 source ../sandbox.env
@@ -38,12 +38,10 @@ are intentionally ignored by layer readers. Do not build concurrently with assem
 - Finnish E1, E2, E6, C37, C38, B5, D3.1 and H20 have small procedural faces. These are
   stylised approximations, not regulatory artwork. Unsupported codes remain attached
   to generic posts and are counted separately. No invented speed limits or text.
-- Ground elevation is four-neighbour inverse-distance interpolation of the city's
-  ground-only LAZ. Nearest samples beyond 15 m cause omission with the object ID
-  reported; there is no zero-height fallback. Ground under bridge decks can remain
-  inaccurate. Heights are N2000; source register point Z is not trusted as terrain.
-- Model +Z faces the nearest `GIS_Keskilinjat` carriageway. Missing/coincident roads
-  produce an explicitly reported default yaw. No lidar orientation fit in v1.
+- Placement uses [the shared validator](../placement/README.md): collision-surface heights,
+  whole-base support and semantic/access clearance, deterministic repair within 2 m,
+  and explicit missing-bridge-deck omissions. JSON/HTML reports retain every violation.
+- Model +Z faces the nearby walkway (benches) or road (signs) after relocation.
 - Dimensions are representative, not surveyed. A bike station symbol represents a
   register location, not its reported capacity; rack locations use three hoops.
 - Whole objects belong to their placement-centre collision tile; no clipping or
