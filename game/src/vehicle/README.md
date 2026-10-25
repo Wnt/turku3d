@@ -18,7 +18,8 @@ const state = car.state();
 // On tile unload: surfaces.remove(helper.handle); world.removeCollider(helper, false).
 ```
 
-`PhysicsWorld.loadTile` already registers and unregisters these surfaces. It preserves the solid trimesh topology
+`PhysicsWorld.loadTile` and the Node tile validator share the `tileCurbs.ts` adapter
+for material-selected meshes and rotated primitives. Tile unload unregisters these surfaces. It preserves the solid trimesh topology
 needed by KCC, then creates a compact curb submesh as a non-interacting sensor (collision and solver groups 0).
 The helper caches Rapier's BVH. Wheel queries first use the world broad phase, then pairwise sphere casts against
 only registered curb helpers. Helpers never enter solid queries, foot-IK helpers or physical contacts. Their triangles
@@ -65,6 +66,12 @@ entry, analog driving, curb events, wheel motion, rumble, speed-dependent FOV, o
 Input comes directly from W1-06's landed `src/input/` module. `main.ts` passes the named
 `{throttle, brake, steer, handbrake}` actions unchanged to the vehicle; its brake/reverse and steering conventions
 belong to `handling.ts`. Character interpolation and foot IK remain supplied by W1-06.
+
+The tile validator now enforces the same ARCHITECTURE 1.14 limits through its own
+scripted routes. Its nine low-curb scenarios measure 2.48–8.77° pitch and
+7.32–18.26% loss; 26/30/40 cm steps block at 2 m/s. It also checks decoded `.col`
+curb faces through the shared adapter, and catches deliberately absent registrations.
+Run `node --test tools/validator/test/acceptance.test.ts` from the repository root.
 
 ## Audio collision telemetry
 

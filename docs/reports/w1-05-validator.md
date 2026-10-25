@@ -1,13 +1,13 @@
 # W1-05 validator acceptance run — 2026-10-25
 
 The validator now checks bitwise collision seams and their edge partitions,
-runs the game's extracted `GameVehicle` implementation, accepts independent
+runs the game's shared W1-07 `Vehicle` implementation, accepts independent
 layer footprints/curb lines/stair lists, partitions physics checks across
 collision-tile workers with neighboring halos, and emits JSON plus an offline
 orthophoto failure map. `make tile-validate` requires the Phase 1 feature checks;
 a ground-only build cannot pass by skipping them.
 
-## Regression gate
+## Original pre-rebase regression gate
 
 * `make col-test-ts`: typecheck and **33/33 tests passed**. Final Node test time
   82.123 s during shared-host contention (previous serial-fixture run: 163.890 s).
@@ -17,8 +17,8 @@ a ground-only build cannot pass by skipping them.
 * `make game-test`: **44/44 tests passed**, 25.24 s.
 * Game TypeScript check passed; the vehicle-specific 20-test subset also passed.
 * `git diff --check`: passed.
-* No `AGENTS.md` or `scripts/dev/gate` exists on this branch; these are the area
-  checks required by the pre-Wave-0 brief.
+* At the original run, `AGENTS.md` and `scripts/dev/gate` were not yet present;
+  these were the area checks required by the pre-Wave-0 brief.
 
 ## Current real build
 
@@ -64,7 +64,7 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 make col-test-ts \
   PIPELINE_PY=$HOME/turku3d/envs/pipeline/bin/python \
   COL_RT_DIR=$TURKU3D_WORK/roundtrip
 make game-test
-$HOME/turku3d/envs/pipeline/bin/python tools/validator/ortho.py \
+bash pipeline/env/run.sh python tools/validator/ortho.py \
   --root "$TURKU3D_DATA/raw/ortho/ortho2022to/work-3x3" \
   --bounds 0 0 500 500 --out "$TURKU3D_WORK/reports/ortho.png"
 make tile-validate T="t0_0_0 t0_0_1 t0_1_0 t0_1_1" \
@@ -77,15 +77,29 @@ The final command is expected to exit non-zero on these inputs. Its report says
 building/curb/stair/car coverage. This is a data acceptance failure, not a waived
 validator regression. The validator CLI returns 1; Make propagates failure.
 
-## Follow-ups for the layer and vehicle owners
+## Follow-ups for the layer owners
 
 * W1-01 / W1-04: investigate the reproducible `c_2_0` ground ray miss above.
 * W1-01, W1-02, W1-03 / W1-04: publish validation sidecars alongside the layer
   manifests and assemble the real AOI. The exact schemas and commands are in
   `tools/validator/README.md`. Rerun all checks and the timing measurement.
-* W1-07: place curb-strike physics in the shared `GameVehicle.update` path and
-  enforce the ARCHITECTURE 1.14 pitch/speed-loss criteria when it lands. Current
-  3/6/10 m/s response metrics are deliberately report-only. Low-speed blocking
-  and 30 m/s barriers already fail on violations. A synthetic 30 cm platform
-  currently lets the chassis centre advance across the face at 2 m/s, which the
-  new validator catches.
+
+## Wave 0 / W1-07 integration
+
+Rebased onto main `b3e34d8`, preserving Wave 0 policy, native pipeline, input,
+vehicle and visual QA changes. The earlier `GameVehicle` extraction was removed;
+the validator imports W1-07's `Vehicle` and shares the game's `tileCurbs.ts`
+registration adapter. The validator context and orchestration were split to meet
+the 600-line source budget without exceptions. Gate routing includes the new
+Python helpers, acceptance suite and shared vehicle dependencies.
+
+All nine 7/12/15 cm × 3/6/10 m/s routes passed through the validator:
+**pitch 2.48–8.77°, speed loss 7.32–18.26%**. ARCHITECTURE 1.14 limits are now
+mandatory, including strike events and successful crossing. The 26/30/40 cm steps
+block at 2 m/s under continued throttle; the 30 m/s thin-wall test passes.
+Deliberately missing curb registration fails response/blocking checks, and a
+12 cm decoded `.col` platform passes all twelve face/speed runs through the same
+adapter used by `PhysicsWorld`.
+
+The W1-07 follow-up from the original run is resolved. Complete real-layer inputs
+and investigation of the recorded ground ray miss remain the layer-owner follow-ups.

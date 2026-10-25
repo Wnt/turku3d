@@ -9,7 +9,11 @@ const PAD = 0.05;
 
 export class TriLocator {
   private cells = new Map<number, number[]>();
-  constructor(private pos: Float32Array, private idx: Uint32Array, private origin: [number, number, number]) {
+  private pos: Float32Array;
+  private idx: Uint32Array;
+  private origin: [number, number, number];
+  constructor(pos: Float32Array, idx: Uint32Array, origin: [number, number, number]) {
+    this.pos = pos; this.idx = idx; this.origin = origin;
     const n = idx.length / 3;
     for (let t = 0; t < n; t++) {
       let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;

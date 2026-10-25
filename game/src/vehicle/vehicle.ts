@@ -1,5 +1,7 @@
 // Headless car implementation: no renderer, browser globals or input devices.
 import type * as Rapier from '@dimforge/rapier3d';
+export type RapierModule = typeof Rapier;
+type RapierApi = Pick<RapierModule, 'RigidBodyDesc' | 'ColliderDesc' | 'QueryFilterFlags' | 'Ray'>;
 import type { V3 } from '../core/origin.ts';
 import type { VehicleInput, VehicleState } from '../physics/protocol.ts';
 import { CAR } from '../physics/constants.ts';
@@ -22,11 +24,11 @@ export class Vehicle {
   private impact: VehicleState['impact'] = null;
   private impactCooldown = 0;
 
-  private R: typeof Rapier;
+  private R: RapierApi;
   private world: Rapier.World;
   private surfaces: WheelQueries;
 
-  constructor(R: typeof Rapier, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries) {
+  constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })

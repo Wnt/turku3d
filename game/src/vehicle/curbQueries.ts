@@ -1,4 +1,5 @@
 import type * as Rapier from '@dimforge/rapier3d';
+type RapierApi = Pick<typeof Rapier, 'Ball' | 'ColliderDesc' | 'TriMesh'>;
 import type { V3 } from '../core/origin.ts';
 import { CAR } from '../physics/constants.ts';
 import { rotate } from './math.ts';
@@ -16,8 +17,8 @@ export class CurbQueries implements WheelQueries {
   private surfaces = new Map<number, Surface>();
   private wheel: Rapier.Ball;
   private world: Rapier.World;
-  private R: typeof Rapier;
-  constructor(R: typeof Rapier, world: Rapier.World) { this.R = R; this.world = world; this.wheel = new R.Ball(CAR.wheelRadius); }
+  private R: RapierApi;
+  constructor(R: RapierApi, world: Rapier.World) { this.R = R; this.world = world; this.wheel = new R.Ball(CAR.wheelRadius); }
   add(collider: Rapier.Collider, shape: Rapier.Shape, sample: Surface['sample']): Rapier.Collider {
     const p = collider.translation();
     // Cache the submesh BVH in Rapier. Collision groups 0 and sensor status exclude it from

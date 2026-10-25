@@ -20,7 +20,7 @@ tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
 	mkdir -p $(TILE_REPORTS)
 	cd $(VALIDATOR) && node src/cli.ts --walkers $(TILE_WALKERS) --workers 4 \
 	  --require buildings,curbs,stairs,cars --out $(TILE_REPORTS)/validate-aoi.json \
-	  $(if $(wildcard $(TURKU3D_WORK)/layers),--layers $(TURKU3D_WORK)/layers) \
+	  $(if $(wildcard $(TURKU3D_WORK)/build/layers),--layers $(TURKU3D_WORK)/build/layers) \
 	  $(VALIDATOR_ARGS) $(foreach tile,$(TILE_IDS),$(DIST_MIRROR)/tiles/collision/$(tile))
 
 tile-e2e: game-install ## Build the game and test real tiles with Chrome WebGPU and WebGL2

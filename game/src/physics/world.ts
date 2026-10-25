@@ -8,7 +8,7 @@ import { TriLocator } from './triLocator';
 import { CHARACTER } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
-import { isCurbMaterial } from '../vehicle/curbStrike';
+import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 export { CHARACTER };
 import type { CharacterInput, CharacterState, RayFilter, RayHit, TileStats, VehicleInput, VehicleState } from './protocol';
 
@@ -81,24 +81,8 @@ export class PhysicsWorld {
       this.applyClass(desc, cls, 0.85);
       const c = this.world.createCollider(desc);
       this.colliderInfo.set(c.handle, { tile: id, triMat, mat: triMat[0], locator: new TriLocator(col.positions, idx, col.origin) });
-      const curbIdx: number[] = [], curbMat: number[] = [];
-      tris.forEach((t, k) => {
-        if (isCurbMaterial(triMat[k])) { curbIdx.push(...col.indices.subarray(t * 3, t * 3 + 3)); curbMat.push(triMat[k]); }
-      });
-      if (curbIdx.length) {
-        // Compact the helper: do not duplicate the full ground vertex buffer in WASM.
-        const remap = new Map<number, number>(), vertices: number[] = [];
-        const indices = Uint32Array.from(curbIdx, index => {
-          if (!remap.has(index)) { remap.set(index, remap.size); vertices.push(...col.positions.subarray(index * 3, index * 3 + 3)); }
-          return remap.get(index)!;
-        });
-        const positions = Float32Array.from(vertices);
-        const locator = new TriLocator(positions, indices, col.origin);
-        out.push(this.curbQueries.add(c, new R.TriMesh(positions, indices), point => {
-          const t = locator.locate(point.x, point.y, point.z, 0.04);
-          return t < 0 ? null : { material: curbMat[t], top: locator.top(t) };
-        }));
-      }
+      const helper = addCurbMesh(R, this.curbQueries, c, col.positions, idx, triMat, col.origin);
+      if (helper) out.push(helper);
       out.push(c);
     }
     for (const p of col.prims) {
@@ -112,12 +96,8 @@ export class PhysicsWorld {
       this.applyClass(desc, materialClass(p.material), MATERIALS[p.material]?.friction ?? 0.8);
       const c = this.world.createCollider(desc);
       this.colliderInfo.set(c.handle, { tile: id, triMat: null, mat: p.material, locator: null });
-      if (isCurbMaterial(p.material)) out.push(this.curbQueries.add(c, c.shape, point => {
-        // Sample the actual rotated primitive, not its axis-aligned bounds.
-        const ray = new R.Ray({ x: point.x, y: point.y + 10, z: point.z }, { x: 0, y: -1, z: 0 });
-        const hit = c.castRay(ray, 20, true);
-        return hit < 0 ? null : { material: p.material, top: point.y + 10 - hit };
-      }));
+      const helper = addCurbPrimitive(R, this.curbQueries, c, p.material);
+      if (helper) out.push(helper);
       out.push(c);
     }
     return out;

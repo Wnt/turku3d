@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { COL_FLAG, MAT_FLAG, materialHasFlag } from '../../../game/src/shared/col/index.ts';
 import type { ColTile } from '../../../game/src/shared/col/index.ts';
 
-const TILE = 62.5;
+export const TILE = 62.5;
 
 export function collectColFiles(inputs: string[]): string[] {
   const out: string[] = [];

@@ -3,8 +3,9 @@ import { availableParallelism } from 'node:os';
 import { readFileSync } from 'node:fs';
 import { MeshoptDecoder } from 'meshoptimizer';
 import { readCol } from '../../../game/src/shared/col/index.ts';
-import { CHECKS, TILE, validateSerial } from './validate.ts';
+import { CHECKS, validateSerial } from './validate.ts';
 import type { Options } from './validate.ts';
+import { TILE } from './tileChecks.ts';
 import { loadFootprints } from './geo.ts';
 
 export async function validateParallel(opts: Options, files: string[]) {

@@ -37,7 +37,7 @@ name = "python-lint"
 kind = "python-lint"
 configs = ["ruff.toml", "*/pyproject.toml", "scripts/dev/gate.toml"]
 triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
-sources = ["pipeline/*.py", "qa/*.py", "textures/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
+sources = ["tools/validator/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
 
 [[stages]]
 name = "pipeline-tests"
@@ -152,7 +152,7 @@ commands = [["game/node_modules/.bin/tsc", "-b", "game/tsconfig.json", "--noEmit
 [[stages]]
 name = "validator-types"
 kind = "command"
-triggers = ["tools/validator/*.ts", "tools/validator/*.json", "game/src/shared/col/*.ts"]
+triggers = ["tools/validator/*.ts", "tools/validator/*.json", "game/src/shared/col/*.ts", "game/src/vehicle/*", "game/src/physics/triLocator.ts", "game/src/physics/constants.ts", "game/src/physics/protocol.ts"]
 commands = [["tools/validator/node_modules/.bin/tsc", "-b", "tools/validator/tsconfig.json", "--noEmit"]]
 
 [[stages]]
@@ -171,8 +171,8 @@ cwd = "game"
 name = "validator-tests"
 kind = "command"
 env = { FIXTURE_WALKERS = "32" }
-triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*"]
-commands = [["node", "--test", "--test-concurrency=1", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/buildings.test.ts"]]
+triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*", "game/src/vehicle/*", "game/src/physics/triLocator.ts", "game/src/physics/constants.ts", "game/src/physics/protocol.ts"]
+commands = [["node", "--test", "--test-concurrency=1", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/acceptance.test.ts", "tools/validator/test/buildings.test.ts"]]
 
 [[stages]]
 name = "dev-server-tests"

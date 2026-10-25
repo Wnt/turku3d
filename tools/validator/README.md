@@ -1,13 +1,15 @@
 # Tile physics acceptance gate
 
 Node 24, Rapier 0.21 WASM and the shared `.col` reader. The validator imports
-`game/src/physics/vehicle.ts`; `PhysicsWorld` uses that same module. No vehicle
-physics are copied into the validator. The browser and Node pass their Rapier
-module into `GameVehicle`.
+`game/src/vehicle/vehicle.ts`; `PhysicsWorld` uses that same W1-07 module. Both
+register decoded curb geometry through `game/src/vehicle/tileCurbs.ts`, including
+the same material filtering and face-height lookup. No vehicle physics are copied.
+The Node binding bridges the nominal types of the two pinned Rapier 0.21 packages.
 
 Run from the repository root, with the sandbox environment exported:
 
 ```sh
+scripts/dev/gate  # authoritative changed-path gate; setup: scripts/dev/README.md
 make col-deps PIPELINE_PY=$HOME/turku3d/envs/pipeline/bin/python
 make col-test-ts PIPELINE_PY=$HOME/turku3d/envs/pipeline/bin/python COL_RT_DIR=$TURKU3D_WORK/roundtrip
 make game-test
@@ -23,7 +25,7 @@ in `--require`. Exit codes: 0 pass, 1 failed or missing required checks, 2 input
 
 ```sh
 node tools/validator/src/cli.ts --help
-node tools/validator/src/cli.ts --layers "$TURKU3D_WORK/layers" \
+node tools/validator/src/cli.ts --layers "$TURKU3D_WORK/build/layers" \
   --require buildings,curbs,stairs,cars --workers 4 \
   --out "$TURKU3D_WORK/reports/validate-aoi.json" "$TURKU3D_WORK/dist/tiles/collision"
 ```
@@ -68,7 +70,7 @@ also retain whole flights that cross collision-tile boundaries.
 | `buildings` | 2,000 seeded walkers over the AOI, ten seconds each; every footprint gets walkers. Entry >5 cm into a footprint at walking height fails, including roofless/missing shells. Untestable footprints fail. |
 | `curbs` | Every ≤25 cm curb climbs at 1.5 and 4 m/s; ≥35 cm blocks. The middle band is informational, but a mismatch with the layer's declared height fails. Missing surfaces or starts fail. |
 | `stairs` | Every listed flight climbs up/down, reaches the landing within 10 cm, and has slope ≤40°. Fallback: each stair-slope mesh component. |
-| `cars` | Exact game car coasts across every curb segment at 3/6/10 m/s. Pitch spike and speed loss are reported; ARCHITECTURE 1.14 response thresholds remain report-only pending W1-07. Steps >25 cm at 2 m/s must stop the chassis centre on the approach side (5 cm tolerance). At 30 m/s it must not cross a building/quay/wall face at any frame. |
+| `cars` | Exact game car coasts across every curb segment at 3/6/10 m/s. For 7–15 cm curbs, ARCHITECTURE 1.14 requires crossing with pitch spike ≥2° and speed loss 5–20%; missing strike events also fail. Steps >25 cm at 2 m/s must stop the chassis centre on the approach side (5 cm tolerance). At 30 m/s it must not cross a building/quay/wall face at any frame. |
 | `belowGround` | Drops on a 5 m grid and samples every tenth frame of all walker trajectories must retain ground under their feet |
 
 The KCC uses one movement per 60 Hz step, grounded vertical speed −0.5 m/s,
@@ -89,7 +91,7 @@ checks retain all details under `perTile`, including skipped tiles.
 Build a north-up backdrop directly from cached 2022 true ortho GeoTIFFs:
 
 ```sh
-$HOME/turku3d/envs/pipeline/bin/python tools/validator/ortho.py \
+bash pipeline/env/run.sh python tools/validator/ortho.py \
   --root "$TURKU3D_DATA/raw/ortho/ortho2022to/work-3x3" \
   --bounds 0 0 500 500 --out "$TURKU3D_WORK/reports/ortho.png"
 make tile-validate T="t0_0_0 t0_0_1 t0_1_0 t0_1_1" \
@@ -112,13 +114,17 @@ non-colliding wall), a 30 cm curb violating a 25 cm declaration, low-speed car
 blocking, layer manifests, worker ownership and escaped offline reports.
 
 ```sh
-$HOME/turku3d/envs/pipeline/bin/python tools/validator/test/generate_acceptance.py
+bash pipeline/env/run.sh python tools/validator/test/generate_acceptance.py
 make col-fixtures PIPELINE_PY=$HOME/turku3d/envs/pipeline/bin/python
 ```
 
-The existing good fixture is a **walker** acceptance scene; car acceptance is
-covered separately because raycast wheels have known curb limitations pending
-W1-07. No physics threshold is relaxed to make that scene pass as a car scene.
+The existing good fixture is a **walker** acceptance scene. Car acceptance is
+covered separately with all nine 7/12/15 cm × 3/6/10 m/s scenarios, 26/30/40 cm
+blocking, thin walls, deliberately missing curb registrations and a decoded `.col`
+curb mesh. The same W1-07 code runs in the browser and validator. Speed loss spans
+the tick before the first strike to the tick after the last strike; it includes
+wheelbase drag but excludes approach and post-strike coasting. No feature switch
+or report-only path bypasses the acceptance criteria.
 
 ## Buildings layer before assembly
 
