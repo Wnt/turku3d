@@ -3,7 +3,8 @@
 Production consumes the complete manifests under `$TURKU3D_WORK/build/layers/`.
 Publish layers first with [`turku3d.layers`](../../../docs/specs/layers.md).
 Missing optional layers are fine; a requested tile needs at least one visual layer.
-There is no automatic stub or raw-data fallback.
+L0 and collision have no stub or raw-data fallback. Coarse parents may read the cached
+maanpinta ground points and 2022 ortho to fill their complete footprint.
 
 ```sh
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
@@ -36,13 +37,19 @@ maps and unique building facades, falling back to the library material when a fa
 Untextured inputs retain their source colors. PNG/JPEG maps become ETC1S albedo or UASTC +
 Zstandard linear maps through KTX-Software 4.4.2 **before** lossless meshopt compression.
 It never invokes `optimize`, joins L0 meshes, simplifies L0 geometry, or quantizes positions.
-The packaged GLB is decoded and compared, and L0 brotli size is limited to 8 MB.
+The packaged GLB is decoded and compared, and L0 brotli size is limited to 8 MB at quality 5, matching the local server.
 
-500 m and 1 km parents include all published ground and roofs in their footprint, including
-available L0 layers outside the requested tile list. Ground preserves its supplied ortho UVs
-and images, with coarse-only terrain simplification and locked boundaries. Parents do not
-invent terrain where no ground layer exists. The tileset is a REPLACE quadtree; bounds include
-whole objects and descendant content, even when they extend outside nominal grid cells.
+500 m and 1 km parents combine roofs from every published building layer in their footprint
+with an ortho-draped DTM. When complete cached maanpinta LAZ and 2022 ortho coverage exists,
+the assembler samples a 15.625 m visual-only DTM and embeds a 1024² ortho crop. This fills the
+entire 1 km parent even when only the four Phase 1 L0 tiles have been published. Core input
+coverage is required; it does not invent terrain beyond the observations. With no complete
+raw coverage, parents retain available published ground, with coarse-only simplification and
+locked boundaries. Structures-only inputs omit empty parent content. Raw LAZ, VRT and image
+dependencies participate in the content hash; all writes remain in the sandbox.
+
+The tileset is a REPLACE quadtree; bounds include whole objects and descendant content,
+even when they extend outside nominal grid cells.
 
 Inputs, implementation, texture contents and tool lock are hashed. An unchanged, verified
 build writes nothing (including manifest timestamps). Changed/corrupt outputs rebuild;

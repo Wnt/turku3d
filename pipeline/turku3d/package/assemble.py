@@ -16,6 +16,7 @@ from turku3d.layers import layer_root, read_collision, read_manifest, read_visua
 from turku3d.col.format import ColTile, Primitive, read_col, write_col
 from turku3d.package.manifest import DistTree, _atomic_write, verify_tree, git_sha
 from turku3d.package.seams import edge_equal, verify_tile_seams
+from turku3d.package import coarse
 
 BRIDGE = Path(__file__).with_name('visual.mjs')
 
@@ -101,14 +102,14 @@ def collision_tile(tile, layers, manifests, available):
     return data, dict(tris=len(col.indices), prims=len(primitives), h=(lo[1], hi[1]), flags=decoded.flags)
 
 
-def visual_tiles(tiles, stage, library, facades, texture_cache):
+def visual_tiles(tiles, stage, library, facades, texture_cache, coarse_ids):
     requests = []
     for tile, inputs in tiles.items():
         work = stage / tile.id
         work.mkdir()
         requests.append(dict(tile=tile.id, level=tile.level, inputs=[str(p) for p in inputs],
                              output=str(work / 'tile.glb'), stats=str(work / 'stats.json'), library=str(library),
-                             facades=str(facades), textureCache=str(texture_cache)))
+                             facades=str(facades), textureCache=str(texture_cache), coarseTerrain=tile.id in coarse_ids))
     req = stage / 'requests.json'; req.write_text(json.dumps(requests))
     proc = subprocess.run(['node', str(BRIDGE), str(req)], capture_output=True, text=True)
     if proc.returncode:
@@ -159,6 +160,7 @@ def assemble(tile_ids: list[str], *, layers: Path | None = None, out: Path | Non
             if any(c.id in v for v in collision.values()):
                 available.add(c.id)
     changed, pending_inputs, pending_collision, keys = [], {}, {}, {}
+    coarse_ids, points_cache = set(), {}
     tree_valid = (out / "manifest.json").exists() and not verify_tree(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='assemble-', dir=out.parent) as temp:
@@ -169,11 +171,17 @@ def assemble(tile_ids: list[str], *, layers: Path | None = None, out: Path | Non
                 if (tile.level == 0 and tile == child) or (tile.level > 0 and
                         child.i // 2**tile.level == tile.i and child.j // 2**tile.level == tile.j):
                     inputs.extend(paths)
+            terrain = coarse.discover(tile) if tile.level > 0 else None
             files = inputs + [root / name / 'MANIFEST.json' for name in manifests]
+            if terrain:
+                files += terrain['files']
             key = digest(files, [code, texture_hash, tile.id, sorted(available), area])
             keys[tile.id] = key
             if cache.get(tile.id) == key and (tile.id in tree.visual or tile.level > 0) and tree_valid:
                 continue
+            if terrain:
+                inputs = inputs + [coarse.build(tile, terrain, stage / (tile.id + '.dtm.glb'), points_cache)]
+                coarse_ids.add(tile.id)
             pending_inputs[tile] = inputs
             changed.append(tile.id)
             if tile.level == 0:
@@ -182,7 +190,7 @@ def assemble(tile_ids: list[str], *, layers: Path | None = None, out: Path | Non
                         pending_collision[c] = collision_tile(c, collision, manifests, available)
         if not changed:
             return {'changed': [], 'cached': sorted(t.id for t in build)}
-        pending_visual = visual_tiles(pending_inputs, stage, library, facades, out.parent / ".texture-cache")
+        pending_visual = visual_tiles(pending_inputs, stage, library, facades, out.parent / ".texture-cache", coarse_ids)
         shipped = {cid: read_col(out / entry['url']) for cid, entry in tree.collision.items()
                    if cid in available and C.CollisionTile.parse(cid) not in pending_collision}
         shipped.update({tile.id: read_col(data) for tile, (data, _) in pending_collision.items()})
@@ -198,6 +206,8 @@ def assemble(tile_ids: list[str], *, layers: Path | None = None, out: Path | Non
                 continue
             entry = tree.add_visual(tile, data, tris=stats['tris'], h=stats['h'])
             entry.update(brotli_bytes=stats['brotli_bytes'], max_error_m=stats['max_error_m'], bounds=stats['bounds'])
+            if tile.level > 0:
+                entry['coarse_dtm'] = tile.id in coarse_ids
         for tile, (data, stats) in pending_collision.items():
             tree.add_collision(tile, data, **stats)
         for cid in set(tree.collision) - available:

@@ -15,6 +15,12 @@ from turku3d.package.seams import verify_seams
 from turku3d.col.format import read_col
 
 
+@pytest.fixture(autouse=True)
+def isolated_raw_data(tmp_path, monkeypatch):
+    # Unit tests must never discover the shared real-data cache.
+    monkeypatch.setenv('TURKU3D_DATA', str(tmp_path/'data'))
+
+
 def fixture(root, ids=('t0_0_0',), *, image=False):
     ground = root / 'ground'
     files = []
@@ -83,7 +89,10 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     assert m['visual']['t2_0_0']['tris'] == 3
     for img in glb['images']:
         assert img['mimeType'] == 'image/ktx2'
+    assert all(n['extras']['kind'] == 'building' for n in glb['nodes'] if n.get('extras',{}).get('layer') == 'buildings')
     mat = glb['materials'][0]
+    assert mat['pbrMetallicRoughness'].get('metallicFactor', 1) == 1
+    assert mat['pbrMetallicRoughness'].get('roughnessFactor', 1) == 1
     def compression(texture_info):
         tex = glb['textures'][texture_info['index']]
         image = glb['images'][tex['extensions']['KHR_texture_basisu']['source']]
@@ -167,3 +176,37 @@ def test_structures_only_can_ship_without_empty_parent_content(tmp_path):
     assert set(m['visual']) == {'t0_0_0'}
     assert m['collision'] == {}
     assert assemble(['t0_0_0'],layers=directory.parent,out=out)['changed'] == []
+
+
+def test_coarse_dtm_uses_complete_cached_coverage(tmp_path):
+    import laspy
+    import rasterio
+    from rasterio.transform import from_origin
+    from rasterio.shutil import copy as copy_raster
+    from turku3d.package import coarse
+    from turku3d.package.gltf import accessor_array
+    tile = C.VisualTile(1,0,0)
+    lazdir = C.raw_dir('laz')/'maanpinta'; lazdir.mkdir(parents=True)
+    las = laspy.create(point_format=0, file_version='1.2')
+    las.header.offsets = [C.ORIGIN_E, C.ORIGIN_N, 0]
+    las.x = np.array([C.ORIGIN_E, C.ORIGIN_E+500, C.ORIGIN_E, C.ORIGIN_E+500])
+    las.y = np.array([C.ORIGIN_N, C.ORIGIN_N, C.ORIGIN_N-500, C.ORIGIN_N-500])
+    las.z = np.array([2.,3.,4.,5.])
+    las.write(lazdir/'23459500_6704500.laz')
+    ortho = C.raw_dir('ortho')/'ortho2022to'; ortho.mkdir(parents=True)
+    with rasterio.open(ortho/'tiny.tif','w',driver='GTiff',width=16,height=16,count=3,dtype='uint8',
+                       crs='EPSG:3877',transform=from_origin(C.ORIGIN_E,C.ORIGIN_N,62.5,62.5)) as ds:
+        ds.write(np.full((3,16,16),100,np.uint8))
+    copy_raster(ortho/'tiny.tif',ortho/'tiny.vrt',driver='VRT')
+    sources = coarse.discover(tile)
+    assert sources and len(sources['laz']) == 1
+    assert ortho/'tiny.tif' in sources['files']
+    assert coarse.discover(C.VisualTile(2,0,0)) is None  # Three required LAZ tiles absent.
+    output = coarse.build(tile,sources,tmp_path/'dtm.glb',{})
+    js, blob = read_glb(output.read_bytes())
+    primitive = js['meshes'][0]['primitives'][0]
+    pos = accessor_array(js,blob,primitive['attributes']['POSITION'])
+    assert pos[:,0].min() == pos[:,2].min() == 0
+    assert pos[:,0].max() == pos[:,2].max() == 500
+    assert pos[:,1].min() == 2 and pos[:,1].max() == 5
+    assert js['images'][0]['mimeType'] == 'image/png'
