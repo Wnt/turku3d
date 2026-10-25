@@ -1,0 +1,43 @@
+# Remote pipeline env: ~/turku3d/envs/pipeline (created by pipeline/env/bootstrap-remote.sh).
+# conda-forge only. Pins are lower bounds that were verified on osgallery-dev on 2026-10-25;
+# the exact resolved versions are recorded in ~/turku3d/envs/pipeline.lock.txt by the bootstrap.
+name: turku3d-pipeline
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  # lidar
+  - pdal>=2.10
+  - python-pdal>=3.4
+  # without this the solver picks hdf5 1.14 and the libpdal-hdf/icebridge plugins fail to load
+  # (they link libhdf5_cpp.so.320) -> "(PDAL Error) Can't load library" spam on every pdal import
+  - hdf5>=2
+  - laspy>=2.5
+  - lazrs-python>=0.6
+  # geometry / vectors
+  - numpy>=2.0
+  - scipy>=1.13
+  - shapely>=2.0
+  - pyproj>=3.6
+  - geopandas>=1.0
+  - pyarrow>=16
+  - lxml>=5.0
+  - trimesh
+  - mapbox_earcut
+  # rasters
+  - gdal>=3.9
+  - rasterio>=1.4
+  - pillow>=10
+  # OSM
+  - osmium-tool>=1.16
+  - pyosmium
+  # misc
+  - pyyaml
+  - requests
+  - pytest>=8
+  - pip:
+      # Shewchuk Triangle python binding (the conda-forge "triangle" package is only the C library)
+      - triangle>=20230923
+      # conda-forge open3d 0.20 is broken against filament 1.77 (undefined symbol at import); the CPU wheel works
+      - open3d-cpu>=0.19

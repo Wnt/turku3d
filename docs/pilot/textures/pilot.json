@@ -1,0 +1,487 @@
+{
+ "usage_log": [
+  {
+   "used_percent": 1,
+   "resets_at": 1793550798,
+   "window_mins": 10080,
+   "plan": "pro",
+   "limit_reached": null,
+   "t": 1792950742.057395
+  },
+  {
+   "used_percent": 1,
+   "resets_at": 1793550798,
+   "window_mins": 10080,
+   "plan": "pro",
+   "limit_reached": null,
+   "t": 1792950811.050348
+  },
+  {
+   "used_percent": 1,
+   "resets_at": 1793550798,
+   "window_mins": 10080,
+   "plan": "pro",
+   "limit_reached": null,
+   "t": 1792950901.522916
+  }
+ ],
+ "facades": {
+  "lr15_se": {
+   "facade": {
+    "type": "Feature",
+    "properties": {
+     "id": "lr15_se",
+     "height_m": 5.5,
+     "normal": "right",
+     "building_id": "103295893K",
+     "address": "Läntinen Rantakatu 15",
+     "floors": 1,
+     "material": "puu",
+     "year": "1809",
+     "street": "Läntinen Rantakatu",
+     "street_dist_m": 1.7,
+     "length_m": 38.77,
+     "height_source": "pilot estimate: LOD2 measuredHeight minus roof, checked on the crops; replace with lidar eave height",
+     "source_id": "103295893K_151"
+    },
+    "geometry": {
+     "type": "LineString",
+     "coordinates": [
+      [
+       23459650.252,
+       6704236.607
+      ],
+      [
+       23459684.215,
+       6704255.295
+      ]
+     ]
+    }
+   },
+   "base_h": 3.99,
+   "views": [
+    "v0_p_g_hOH16IE5o9B6",
+    "v1_p_g_yf3WuGulqNxb",
+    "v2_p_g_9YcdVIRiQEgv",
+    "v3_p_g_GX4MZSFv2sCC"
+   ],
+   "label": {
+    "thread_id": "01a17431-32e3-7d71-bf6d-60ca1affd212",
+    "seconds": 49.3,
+    "tokens": {
+     "input_tokens": 23757,
+     "cached_input_tokens": 0,
+     "cache_write_input_tokens": 0,
+     "output_tokens": 1403,
+     "reasoning_output_tokens": 804,
+     "total_tokens": 25160
+    },
+    "answer": {
+     "facade_id": "lantinen_rantakatu_15",
+     "views": [
+      {
+       "view": "v0_p_g_hOH16IE5o9B6.jpg",
+       "usable": true,
+       "issue": "street_furniture"
+      },
+      {
+       "view": "v1_p_g_yf3WuGulqNxb.jpg",
+       "usable": true,
+       "issue": "scaffolding_or_wrap"
+      },
+      {
+       "view": "v2_p_g_9YcdVIRiQEgv.jpg",
+       "usable": true,
+       "issue": "street_furniture"
+      },
+      {
+       "view": "v3_p_g_GX4MZSFv2sCC.jpg",
+       "usable": true,
+       "issue": "scaffolding_or_wrap"
+      }
+     ],
+     "building_type": "wooden_house",
+     "era_style": "historicist_1850_1900",
+     "floors_above_ground": 1,
+     "bays": 14,
+     "doors": 1,
+     "wall": {
+      "material": "wood_clapboard_horizontal",
+      "color_hex": "#BDBBB0",
+      "condition": "worn"
+     },
+     "plinth": {
+      "material": "granite_smooth",
+      "color_hex": "#96938D",
+      "height_m": 1.1
+     },
+     "window": {
+      "type": "casement_multi_pane",
+      "frame_color_hex": "#CDD0C2",
+      "surround": "ornamented",
+      "rows": 1,
+      "height_m": 2.3,
+      "width_m": 1.35
+     },
+     "trim_color_hex": "#7C847C",
+     "ornaments": [
+      "cornice",
+      "pilasters",
+      "window_pediments",
+      "string_course",
+      "carved_boards",
+      "dormers"
+     ],
+     "ground_floor_use": "unknown",
+     "roof_visible": {
+      "type": "gable",
+      "material": "standing_seam_metal",
+      "color_hex": "#626865"
+     },
+     "wall_height_m": 5.5,
+     "notes": "Facade undergoing restoration, with extensive stripped timber and vertical boarding below the windows. Paint colors estimated from the restored left section. Estimated 14 bays combine four simpler left windows, three ornate left windows, four central pedimented windows and three ornate right windows. One apparent lower-level door is partly obscured by scaffolding. Historicist detailing appears later than the registered 1809 construction. Roof form is only partly visible.",
+     "confidence": 0.76
+    }
+   },
+   "improve": {
+    "thread_id": "01a17432-401e-7390-9d74-761ef2410578",
+    "seconds": 82.7,
+    "tokens": {
+     "input_tokens": 88829,
+     "cached_input_tokens": 69760,
+     "cache_write_input_tokens": 0,
+     "output_tokens": 1453,
+     "reasoning_output_tokens": 118,
+     "total_tokens": 90282
+    },
+    "images": [
+     {
+      "w": 2176,
+      "h": 722,
+      "sha256": "8353ec54f996139204c874ee16ddd810345448896de42474f9d06be0021fbc2b",
+      "referenced": true,
+      "primary": true
+     }
+    ],
+    "imagegen_prompt": "Create exactly ONE opaque landscape game-engine BASE COLOR ALBEDO texture, approximately 3.02:1 aspect ratio. Rectify and reconstruct the real wooden facade at Läntinen Rantakatu 15, Turku, Finland from ALL five supplied reference photos. Images 1,3,4 provide distinctive ornament and window geometry; image 2 supplies the restored paint palette; image 5 is ONLY a target-boundary guide, never reproduce its red outline. This is a material texture, NOT a street photograph or shaded architectural render.\nCOMPOSITION: exactly SIX complete evenly spaced typical window bays across a 16.6 m wide by 5.5 m high wall section, from bottom of granite plinth at ground level to top of eaves. Window centers at 1/12,3/12,5/12,7/12,9/12,11/12 of image width. One story, one row of windows. Match reference window proportions approx 1.35 m wide x 2.3 m tall. Wall fills entire rectangular canvas edge to edge. Both side edges slice through identical plain inter-bay wall midway between windows, seamless horizontally in paint, grain, courses, cornice and plinth. No corner boards or building ends. Absolutely orthographic front elevation, verticals exactly vertical, all courses horizontal, zero perspective, zero lens distortion.\nPRESERVE REAL IDENTITY: horizontal clapboard main wall, lower vertical boarded apron below window sill string course, carved window surrounds, small rosette details, dentil-like brackets beneath window crowns, pilaster-like carved trim, deep eaves cornice and repeated small corbels from photos. Four central windows have the distinctive open triangular split pediments visible in image 1; outer two windows use the flat projecting ornamental crowns seen in images 3 and 4. Use the main target's window geometry: a single wide upper transom above two tall narrow lower casement panes, slender wooden mullions, same heights and alignment. Do not substitute generic modern windows or add arbitrary pane grids. No doors within this repeating typical window section. Granite plinth approx 1.1 m high, two courses of large dressed grey stone blocks and small dark rectangular cellar vents with trapezoidal upper stone joints as in photos.\nRESTORED MATERIALS: repaint the stripped wood seen in images 1,3,4 to finished maintained muted warm light grey/off-white clapboards (#BDBBB0), grey-sage decorative surrounds and cornice (#7C847C), pale grey-green casement frames (#CDD0C2), guided by restored parts of image 2. Preserve subtle natural wood grain under paint, restrained lived-in wear and faint sill streaks; no extensive bare brown stripped boards or construction patches. Grey granite #96938D with modest mottling and slightly darker plinth top. Reference colors override generic Nordic style suggestions. All glass uniformly dark neutral grey-blue, no reflection, no silhouettes, no interiors, no bright glare.\nSTRICT DELIGHTING: perfectly flat even diffuse color everywhere. No directional light, cast shadows, ambient occlusion gradients, strong shading beneath projecting ornament, sun patches or specular highlights. Show carved detail through fine material boundaries and paint texture, not dramatic lighting. Photoreal surface detail suitable for a PBR base-color map.\nREMOVE COMPLETELY: people, cars, bikes, scooters, furniture, poles, lamps, traffic signs, umbrellas, pots, scaffolding, fences, wraps, drainpipes, cables, plaques, text, logos, numbers, posters, graffiti, watermarks, red outline, borders, vignette. No sky, roof surface, dormers, pavement, ground strip or adjacent buildings. No Mediterranean details. Plausibly reconstruct obscured areas with matching historic Nordic woodwork. Deliver one seamless six-bay texture only.",
+    "answer": {
+     "notes": "Säilytin kuusi ikkunaväliä, ikkunoiden jaon, koristeaiheet, laudoituksen ja graniittisokkelin. Käytin kunnostetun osan värejä, poistin katuympäristön ja heijastukset sekä täydensin peittyneet yksityiskohdat. Koristeisiin jäi lievää varjostusta; saumattomuutta ei ole testattu."
+    },
+    "meta": {
+     "facade_id": "lr15_se",
+     "kind": "improve",
+     "mode": "strip",
+     "width_m": 16.61,
+     "height_m": 5.5,
+     "bays": 14,
+     "aspect": 3.021,
+     "views_used": [
+      "v0_p_g_hOH16IE5o9B6",
+      "v1_p_g_yf3WuGulqNxb",
+      "v2_p_g_9YcdVIRiQEgv",
+      "v3_p_g_GX4MZSFv2sCC"
+     ],
+     "tile": "x"
+    }
+   },
+   "post": {
+    "size": [
+     2048,
+     512
+    ],
+    "tile": "x",
+    "material": "wood_painted",
+    "maps": "DeepBump color_to_normals (LARGE overlap) + normals_to_height",
+    "qa_before": {
+     "width": 2048,
+     "height": 512,
+     "seam_x": 1.857,
+     "seam_y": 2.424,
+     "seam_rank_x": 91.1,
+     "seam_rank_y": 92.2,
+     "lowfreq_x": 0.0107,
+     "lowfreq_y": 0.086,
+     "mean_rgb": [
+      128.5,
+      126.0,
+      118.2
+     ],
+     "std_lum": 36.74,
+     "axes": "x",
+     "pass_seam": true,
+     "pass_lowfreq": true
+    },
+    "qa_after": {
+     "width": 2048,
+     "height": 512,
+     "seam_x": 0.0,
+     "seam_y": 2.435,
+     "seam_rank_x": 0.0,
+     "seam_rank_y": 92.4,
+     "lowfreq_x": 0.0068,
+     "lowfreq_y": 0.0864,
+     "mean_rgb": [
+      128.4,
+      125.9,
+      118.2
+     ],
+     "std_lum": 36.59,
+     "axes": "x",
+     "pass_seam": true,
+     "pass_lowfreq": true
+    },
+    "map_seam_ratio": {
+     "normal": {
+      "x": 0.43
+     },
+     "height": {
+      "x": 0.446
+     },
+     "orm": {
+      "x": 0.126
+     }
+    }
+   },
+   "ktx2": {
+    "albedo": {
+     "bytes": 158348,
+     "supercompression": "BasisLZ(ETC1S)",
+     "levels": 12
+    },
+    "orm": {
+     "bytes": 103876,
+     "supercompression": "BasisLZ(ETC1S)",
+     "levels": 12
+    },
+    "normal": {
+     "bytes": 796105,
+     "supercompression": "zstd",
+     "levels": 12
+    }
+   }
+  },
+  "aurakatu2_se": {
+   "facade": {
+    "type": "Feature",
+    "properties": {
+     "id": "aurakatu2_se",
+     "height_m": 11.5,
+     "normal": "right",
+     "building_id": "1032958849",
+     "address": "Aurakatu 2",
+     "floors": 2,
+     "material": "muu materiaali",
+     "year": "1811",
+     "street": "Läntinen Rantakatu",
+     "street_dist_m": 1.7,
+     "length_m": 22.54,
+     "height_source": "pilot estimate: LOD2 measuredHeight minus roof, checked on the crops; replace with lidar eave height",
+     "source_id": "1032958849_151"
+    },
+    "geometry": {
+     "type": "LineString",
+     "coordinates": [
+      [
+       23459739.413,
+       6704284.237
+      ],
+      [
+       23459759.172,
+       6704295.079
+      ]
+     ]
+    }
+   },
+   "base_h": 4.781,
+   "views": [
+    "v0_f_g_Ng7nDt08o1hO",
+    "v1_p_g_8qDFHujwGqqI",
+    "v2_p_g_yz7Il6o5Px4m",
+    "v3_f_g_YpJel-Jkzb-h"
+   ],
+   "label": {
+    "thread_id": "01a17431-32e3-7262-8a4b-849e4bc84aef",
+    "seconds": 33.6,
+    "tokens": {
+     "input_tokens": 26757,
+     "cached_input_tokens": 0,
+     "cache_write_input_tokens": 0,
+     "output_tokens": 879,
+     "reasoning_output_tokens": 287,
+     "total_tokens": 27636
+    },
+    "answer": {
+     "facade_id": "aurakatu2_se",
+     "views": [
+      {
+       "view": "v0_f_g_Ng7nDt08o1hO.jpg",
+       "usable": true,
+       "issue": "too_oblique"
+      },
+      {
+       "view": "v1_p_g_8qDFHujwGqqI.jpg",
+       "usable": true,
+       "issue": "street_furniture"
+      },
+      {
+       "view": "v2_p_g_yz7Il6o5Px4m.jpg",
+       "usable": true,
+       "issue": "street_furniture"
+      },
+      {
+       "view": "v3_f_g_YpJel-Jkzb-h.jpg",
+       "usable": false,
+       "issue": "scaffolding_or_wrap"
+      }
+     ],
+     "building_type": "public_building",
+     "era_style": "historicist_1850_1900",
+     "floors_above_ground": 2,
+     "bays": 7,
+     "doors": 0,
+     "wall": {
+      "material": "render_rusticated",
+      "color_hex": "#B98B7E",
+      "condition": "good"
+     },
+     "plinth": {
+      "material": "granite_rusticated",
+      "color_hex": "#96938C",
+      "height_m": 1.0
+     },
+     "window": {
+      "type": "arched_top",
+      "frame_color_hex": "#817667",
+      "surround": "ornamented",
+      "rows": 2,
+      "height_m": 3.0,
+      "width_m": 1.3
+     },
+     "trim_color_hex": "#D5CBB3",
+     "ornaments": [
+      "cornice",
+      "pilasters",
+      "window_pediments",
+      "string_course",
+      "rustication",
+      "arches"
+     ],
+     "ground_floor_use": "public",
+     "roof_visible": {
+      "type": "not_visible",
+      "material": "not_visible",
+      "color_hex": "#444444"
+     },
+     "wall_height_m": 11.5,
+     "notes": "Seven window bays across the outlined central facade; adjoining wings excluded. Smooth muted salmon render upstairs, grey-beige rusticated render downstairs, and cream ornamentation. The central ground-floor opening is a window, not a door. Visible historicist detailing appears later than the registered 1811 construction date. Dimensions are approximate. The 2026 view shows renovation coverings over the lower storey; condition describes the unobstructed 2019 views.",
+     "confidence": 0.9
+    }
+   },
+   "improve": {
+    "thread_id": "01a17432-401e-7e80-ad97-362c6b5c352b",
+    "seconds": 88.4,
+    "tokens": {
+     "input_tokens": 92414,
+     "cached_input_tokens": 71936,
+     "cache_write_input_tokens": 0,
+     "output_tokens": 1231,
+     "reasoning_output_tokens": 0,
+     "total_tokens": 93645
+    },
+    "images": [
+     {
+      "w": 1756,
+      "h": 896,
+      "sha256": "6e5f696156738223426a22189acb82048048a0f922c266e6dd9a20d7a147d733",
+      "referenced": true,
+      "primary": true
+     }
+    ],
+    "imagegen_prompt": "Create exactly ONE opaque landscape image, aspect ratio 1.96:1. A production photorealistic game BASE COLOR ALBEDO texture of the real Aurakatu 2 southeast facade in Turku Finland. Reconstruct and orthographically rectify the SAME facade from all four references jointly. Image 1 shows whole facade obliquely; images 2 and 3 show complementary detailed portions; image 4 red polygon identifies the target extent only, never reproduce the red line. The image is entirely wall from left facade boundary to right boundary and from bottom of granite plinth to top of cornice: approximately 22.5 m wide, 11.5 m high. Exactly SEVEN window bays across, TWO stories with seven windows in each row, 14 windows total, no doors. Preserve observed actual window rhythms and positions and central enriched ground-floor surround. Do not extend to adjacent wings. The full facade must fit edge to edge without cropping outer bays.\nArchitecture identity: richly ornamented Nordic historicist public building. Muted dusty rose salmon upper-story render (#B98B7E), pale cream limestone/offwhite trim (#D5CBB3), grey taupe rusticated ground story with alternating smooth courses and rough horizontal stone bands, grey rough granite block plinth (#96938C) around one metre high with small cellar vents. Two rows of tall round-arched windows. Follow photographs for window mullion and transom layout: paired tall casement panes under arched fanlight area, slender muted brown-grey frames (#817667), not generic black grids. Ground-story arched cream stone surrounds, ornamented keystones, imposts and sills. Central ground-floor window enriched by tall flanking pilasters and ornate arch as seen in complementary photos. Upper windows have richly molded arched surrounds, carved rosettes and decorative segmental pediments, sill brackets. Preserve continuous sculpted floral friezes, horizontal string courses, deep ornamental top cornice with closely spaced sculpted brackets and end pilasters. Match materials, ornaments, proportions, colors and actual pane configurations of supplied photos over generic style assumptions. Upper windows aligned to ground-floor bays. Maintain subtle realistic material grain, fine plaster wear, very faint sill weathering, restrained darker coloration on plinth top, clean maintained finish.\nStrict orthographic front elevation: parallel wall and image planes, all verticals truly vertical, all sills and bands horizontal, no perspective convergence, no visible sidewalls, no lens distortion. De-lit texture only: completely flat uniform diffuse illumination across all pixels, no directional lighting, no cast shadows, no ambient occlusion baked into recesses, no highlights or sun patches, no shading gradient or vignette. Ornament detail expressed through intrinsic color/material texture with minimal tonal relief, not strong shadows. All glass uniformly dark neutral grey-blue, no reflections of sky, clouds, trees, buildings or street, no specular glints. Plausibly reconstruct obscured wall and ornaments consistently from visible parts.\nExclude completely: sky, visible roof, rooftop crest and flag, ground, pavement, neighbors, people, cars, bicycles, scooters, benches, bins, street furniture, lamp posts, poles, traffic signs, umbrellas, terrace furniture, flower pots, plants, scaffolding, fences, construction wraps, drainpipes, cables, signs, writing, logos, numbers, posters, graffiti, watermarks including Google marks, borders, framing and vignettes. No shutters or Mediterranean features. Image filled by this facade alone, edge-to-edge rectangular architectural texture, full seven-bay elevation.",
+    "answer": {
+     "notes": "Säilytetty seitsemän ikkuna-akselia, kaksi kerrosta, kaari-ikkunat, koristeaiheet, graniittisokkeli ja julkisivun värit. Perspektiivi suoristettu, katuelementit ja heijastukset poistettu; peittyneet yksityiskohdat täydennetty. Koristeisiin jäi lievää varjostusta, joten albedo ei ole täysin varjoton."
+    },
+    "meta": {
+     "facade_id": "aurakatu2_se",
+     "kind": "improve",
+     "mode": "whole",
+     "width_m": 22.54,
+     "height_m": 11.5,
+     "bays": 7,
+     "aspect": 1.96,
+     "views_used": [
+      "v0_f_g_Ng7nDt08o1hO",
+      "v1_p_g_8qDFHujwGqqI",
+      "v2_p_g_yz7Il6o5Px4m"
+     ],
+     "tile": "none"
+    }
+   },
+   "post": {
+    "size": [
+     2048,
+     1024
+    ],
+    "tile": "none",
+    "material": "render",
+    "maps": "DeepBump color_to_normals (LARGE overlap) + normals_to_height",
+    "qa_before": {
+     "width": 2048,
+     "height": 1024,
+     "seam_x": 1.65,
+     "seam_y": 2.038,
+     "seam_rank_x": 88.2,
+     "seam_rank_y": 89.5,
+     "lowfreq_x": 0.0004,
+     "lowfreq_y": 0.0009,
+     "mean_rgb": [
+      134.2,
+      117.9,
+      100.0
+     ],
+     "std_lum": 39.27,
+     "axes": "",
+     "pass_seam": true,
+     "pass_lowfreq": true
+    },
+    "qa_after": {
+     "width": 2048,
+     "height": 1024,
+     "seam_x": 1.65,
+     "seam_y": 2.038,
+     "seam_rank_x": 88.2,
+     "seam_rank_y": 89.5,
+     "lowfreq_x": 0.0004,
+     "lowfreq_y": 0.0009,
+     "mean_rgb": [
+      134.2,
+      117.9,
+      100.0
+     ],
+     "std_lum": 39.27,
+     "axes": "",
+     "pass_seam": true,
+     "pass_lowfreq": true
+    },
+    "map_seam_ratio": {}
+   },
+   "ktx2": {
+    "albedo": {
+     "bytes": 315830,
+     "supercompression": "BasisLZ(ETC1S)",
+     "levels": 12
+    },
+    "orm": {
+     "bytes": 172934,
+     "supercompression": "BasisLZ(ETC1S)",
+     "levels": 12
+    },
+    "normal": {
+     "bytes": 1576671,
+     "supercompression": "zstd",
+     "levels": 12
+    }
+   }
+  }
+ }
+}

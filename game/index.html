@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Turku3D</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      canvas { display: block; }
+      #hud { position: fixed; left: 8px; top: 8px; color: #e8e8e8; font: 12px/1.45 ui-monospace, Menlo, monospace; background: #000a; padding: 6px 10px; white-space: pre; pointer-events: none; border-radius: 4px; }
+      #help { position: fixed; right: 8px; bottom: 8px; color: #ddd; font: 11px/1.4 ui-monospace, Menlo, monospace; background: #0008; padding: 4px 8px; white-space: pre; pointer-events: none; border-radius: 4px; }
+      body.qa #hud, body.qa #help { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">loading…</div>
+    <div id="help">click: mouse look · WASD move · Shift sprint · Alt walk · Space jump/handbrake · F enter/exit car · H hud</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

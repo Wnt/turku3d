@@ -1,0 +1,119 @@
+// Phase 0 exit criterion (ARCHITECTURE §4): Chrome shows the pipeline-built stub tile (dist/tiles from
+// `make tile`, synced to the Mac) and the character walks on its collision. Also checks the qa/README.md §2
+// render contract on the real tile: pose echo, __qaProject, and the object-ID pass.
+// Run: npx playwright test -c playwright.tile.config.ts   (after `npm run build`; TILE_DIST=<dir> optional)
+import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const TILE_DIST = process.env.TILE_DIST ?? path.join(os.homedir(), 'turku3d-data/dist/tiles');
+const SHOTS = 'test-results/screenshots';
+fs.mkdirSync(SHOTS, { recursive: true });
+const manifest = JSON.parse(fs.readFileSync(path.join(TILE_DIST, 'manifest.json'), 'utf8'));
+const TILES = '/tiles/tileset.json';
+// office (ARCHITECTURE: Läntinen Rantakatu 15)
+const OFFICE = { E: 23459668, N: 6704254 };
+// a QA pose inside t0_0_0 (the office_front registry view stands 7 m south of it, in t0_0_1): at the office,
+// looking north-west and slightly down, 1280x960 like the registry views
+const VIEW = { E: 23459668, N: 6704256, H: 6.5, yaw: 324.819, pitch: -10, fov: 60, w: 1280, h: 960 };
+const rad = Math.PI / 180;
+
+function watchConsole(page: Page) {
+  const bad: string[] = [];
+  page.on('console', (m: ConsoleMessage) => { if (m.type() === 'error') bad.push(m.text()); });
+  page.on('pageerror', (e) => bad.push(`pageerror: ${e.message}`));
+  return bad;
+}
+
+async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: number; px: number[] }> {
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d', { colorSpace: 'srgb' })!;
+    g.drawImage(img, 0, 0);
+    return { w: img.width, h: img.height, px: Array.from(g.getImageData(0, 0, img.width, img.height).data) };
+  }, png.toString('base64'));
+}
+
+test('stub tile from the pipeline renders and the character walks on its collision', async ({ page }, info) => {
+  const backend = info.project.name;
+  const bad = watchConsole(page);
+  expect(Object.keys(manifest.visual).length).toBeGreaterThan(0);
+  await page.goto(`/?backend=${backend}&tiles=${TILES}&spawn=${OFFICE.E},${OFFICE.N},0`);
+  await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 });
+  await page.waitForFunction(() => { const s = (window as any).__game.state(); return s.tilesSettled && s.collision.tiles > 0 && s.grounded; }, null, { timeout: 60_000 });
+  const start = await page.evaluate(() => (window as any).__game.state());
+  const vis = manifest.visual.t0_0_0;
+  expect(start.visTris).toBeGreaterThanOrEqual(vis.tris);
+  expect(start.collision.tiles).toBeGreaterThan(0); // streaming continues in the background (4 in flight)
+  expect(Math.abs(start.E - OFFICE.E)).toBeLessThan(0.5);
+  expect(Math.abs(start.N - OFFICE.N)).toBeLessThan(0.5);
+  expect(start.H).toBeGreaterThan(vis.h[0] - 0.1);
+  expect(start.H).toBeLessThan(vis.h[1] + 0.1);
+  expect(start.groundMaterial).toBeGreaterThan(0);
+  await page.screenshot({ path: `${SHOTS}/tile-${backend}-start.png` });
+
+  await page.keyboard.down('KeyW');
+  await page.waitForFunction((s0) => { const s = (window as any).__game.state(); return Math.hypot(s.feet[0] - s0[0], s.feet[2] - s0[2]) >= 8; }, start.feet, { timeout: 8_000 });
+  await page.keyboard.up('KeyW');
+  await page.waitForTimeout(500);
+  const end = await page.evaluate(() => (window as any).__game.state());
+  console.log(`[${backend}] stub tile: walked ${Math.hypot(end.feet[0] - start.feet[0], end.feet[2] - start.feet[2]).toFixed(2)} m, `
+    + `N ${start.N.toFixed(2)} -> ${end.N.toFixed(2)}, H ${start.H.toFixed(3)} -> ${end.H.toFixed(3)}, ground mat ${end.groundMaterial}, `
+    + `vis tris ${end.visTris}, col tiles ${end.collision.tiles}, frame ${end.frameMs.toFixed(1)} ms`);
+  expect(end.N - start.N).toBeGreaterThan(7);
+  // every collision tile within the 200 m streaming radius gets loaded (>= 9 around the office)
+  await page.waitForFunction(() => (window as any).__game.state().collision.tiles >= 9, null, { timeout: 15_000 });
+  expect(end.grounded).toBe(true);
+  expect(Math.abs(end.H - start.H)).toBeLessThan(2); // terrain follows the stub heightfield, no fall-through
+  await page.screenshot({ path: `${SHOTS}/tile-${backend}-walked.png` });
+  expect(bad).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__game.errors)).toEqual([]);
+});
+
+test('QA render contract on the stub tile: pose echo, projection, ID pass', async ({ browser }, info) => {
+  const backend = info.project.name;
+  const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  const bad = watchConsole(page);
+  const cam = `cam=${VIEW.E},${VIEW.N},${VIEW.H},${VIEW.yaw},${VIEW.pitch},${VIEW.fov}`;
+  // a point 10 m straight ahead must project to the image centre; a point behind the camera to null
+  const f = [Math.sin(VIEW.yaw * rad) * Math.cos(VIEW.pitch * rad), Math.cos(VIEW.yaw * rad) * Math.cos(VIEW.pitch * rad), Math.sin(VIEW.pitch * rad)];
+  const ahead = [VIEW.E + 10 * f[0], VIEW.N + 10 * f[1], VIEW.H + 10 * f[2]];
+  const behind = [VIEW.E - 5 * f[0], VIEW.N - 5 * f[1], VIEW.H];
+  for (const pass of ['color', 'id'] as const) {
+    await page.goto(`/?backend=${backend}&tiles=${TILES}&${cam}&qa=1&pass=${pass}&time=2019-06-15T14:00:00%2B03:00`);
+    await page.waitForFunction(() => (window as any).__qaReady === true || (window as any).__qaError, null, { timeout: 60_000 });
+    const st = await page.evaluate(([ahead, behind]) => ({ err: (window as any).__qaError, pose: (window as any).__qaPose, info: (window as any).__qaInfo,
+      ids: (window as any).__qaIdTable, inner: [innerWidth, innerHeight], canvas: [document.querySelector('canvas')!.width, document.querySelector('canvas')!.height],
+      // a point straight ahead must project to the image centre; a point behind the camera to null
+      ahead: (window as any).__qaProject(...ahead), behind: (window as any).__qaProject(...behind) }), [ahead, behind]);
+    expect(st.err).toBeFalsy();
+    expect(st.pose).toEqual({ E: VIEW.E, N: VIEW.N, H: VIEW.H, yaw: VIEW.yaw, pitch: VIEW.pitch, roll: 0, fov: VIEW.fov });
+    expect(st.inner).toEqual([VIEW.w, VIEW.h]);
+    expect(st.canvas).toEqual([VIEW.w, VIEW.h]);
+    expect(st.ahead[0]).toBeCloseTo(VIEW.w / 2, 1);
+    expect(st.ahead[1]).toBeCloseTo(VIEW.h / 2, 1);
+    expect(st.behind).toBeNull();
+    expect(st.info.tiles).toContain('t0_0_0');
+    const png = await page.screenshot({ path: `${SHOTS}/tile-${backend}-qa-${pass}.png` });
+    if (pass === 'id') {
+      const { w, h, px } = await decodePng(page, png);
+      expect([w, h]).toEqual([VIEW.w, VIEW.h]);
+      const at = (x: number, y: number) => { const k = 4 * (y * w + x); return (px[k] << 16) | (px[k + 1] << 8) | px[k + 2]; };
+      const ground = at(w / 2, h - 5); // bottom centre looks at the ground
+      console.log(`[${backend}] id pass: bottom-centre id ${ground} -> ${JSON.stringify(st.ids[String(ground)])}`);
+      expect(st.ids[String(ground)]).toMatchObject({ kind: 'ground', tile: 't0_0_0' });
+      // every pixel is either sky (0) or a listed id: no antialiasing / tone mapping / sRGB drift
+      const seen = new Set<number>();
+      for (let k = 0; k < px.length; k += 4 * 97) seen.add((px[k] << 16) | (px[k + 1] << 8) | px[k + 2]);
+      for (const v of seen) if (v !== 0) expect(st.ids[String(v)], `id ${v}`).toBeTruthy();
+    }
+  }
+  expect(bad).toEqual([]);
+  await ctx.close();
+});

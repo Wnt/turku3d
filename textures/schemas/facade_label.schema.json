@@ -1,0 +1,315 @@
+{
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "facade_id",
+  "views",
+  "building_type",
+  "era_style",
+  "floors_above_ground",
+  "bays",
+  "doors",
+  "wall",
+  "plinth",
+  "window",
+  "trim_color_hex",
+  "ornaments",
+  "ground_floor_use",
+  "roof_visible",
+  "wall_height_m",
+  "notes",
+  "confidence"
+ ],
+ "properties": {
+  "facade_id": {
+   "type": "string"
+  },
+  "views": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "view",
+     "usable",
+     "issue"
+    ],
+    "properties": {
+     "view": {
+      "type": "string"
+     },
+     "usable": {
+      "type": "boolean"
+     },
+     "issue": {
+      "type": "string",
+      "enum": [
+       "none",
+       "scaffolding_or_wrap",
+       "trees",
+       "vehicles",
+       "people",
+       "street_furniture",
+       "different_building",
+       "too_oblique",
+       "blurry_or_far",
+       "other"
+      ]
+     }
+    }
+   }
+  },
+  "building_type": {
+   "type": "string",
+   "enum": [
+    "wooden_house",
+    "stone_or_brick_townhouse",
+    "apartment_block",
+    "public_building",
+    "commercial",
+    "church",
+    "industrial",
+    "other"
+   ]
+  },
+  "era_style": {
+   "type": "string",
+   "enum": [
+    "pre_1850_empire",
+    "historicist_1850_1900",
+    "jugend_1900_1920",
+    "classicism_1920s",
+    "functionalism_1930_1950",
+    "modernism_1950_1975",
+    "postmodern_1975_2000",
+    "contemporary_2000_plus",
+    "unknown"
+   ]
+  },
+  "floors_above_ground": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 40
+  },
+  "bays": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 80
+  },
+  "doors": {
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 40
+  },
+  "wall": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "material",
+    "color_hex",
+    "condition"
+   ],
+   "properties": {
+    "material": {
+     "type": "string",
+     "enum": [
+      "wood_clapboard_horizontal",
+      "wood_board_vertical",
+      "log",
+      "render_smooth",
+      "render_rusticated",
+      "brick_exposed",
+      "natural_stone",
+      "concrete",
+      "metal_panel",
+      "glass_curtain",
+      "other"
+     ]
+    },
+    "color_hex": {
+     "type": "string",
+     "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "condition": {
+     "type": "string",
+     "enum": [
+      "new",
+      "good",
+      "weathered",
+      "worn"
+     ]
+    }
+   }
+  },
+  "plinth": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "material",
+    "color_hex",
+    "height_m"
+   ],
+   "properties": {
+    "material": {
+     "type": "string",
+     "enum": [
+      "granite_rusticated",
+      "granite_smooth",
+      "concrete",
+      "render",
+      "brick",
+      "none"
+     ]
+    },
+    "color_hex": {
+     "type": "string",
+     "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "height_m": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 5
+    }
+   }
+  },
+  "window": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "type",
+    "frame_color_hex",
+    "surround",
+    "rows",
+    "height_m",
+    "width_m"
+   ],
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "casement_2_pane",
+      "casement_multi_pane",
+      "fixed_single",
+      "arched_top",
+      "shop_window",
+      "mixed",
+      "other"
+     ]
+    },
+    "frame_color_hex": {
+     "type": "string",
+     "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "surround": {
+     "type": "string",
+     "enum": [
+      "none",
+      "simple",
+      "ornamented"
+     ]
+    },
+    "rows": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 40
+    },
+    "height_m": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 6
+    },
+    "width_m": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 6
+    }
+   }
+  },
+  "trim_color_hex": {
+   "type": "string",
+   "pattern": "^#[0-9a-fA-F]{6}$"
+  },
+  "ornaments": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "cornice",
+     "pilasters",
+     "window_pediments",
+     "string_course",
+     "quoins",
+     "carved_boards",
+     "rustication",
+     "balconies",
+     "dormers",
+     "arches",
+     "none"
+    ]
+   }
+  },
+  "ground_floor_use": {
+   "type": "string",
+   "enum": [
+    "residential",
+    "shop",
+    "restaurant",
+    "office",
+    "public",
+    "mixed",
+    "unknown"
+   ]
+  },
+  "roof_visible": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "type",
+    "material",
+    "color_hex"
+   ],
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "gable",
+      "hip",
+      "mansard",
+      "flat",
+      "not_visible"
+     ]
+    },
+    "material": {
+     "type": "string",
+     "enum": [
+      "standing_seam_metal",
+      "clay_pantile",
+      "felt",
+      "concrete_tile",
+      "not_visible",
+      "other"
+     ]
+    },
+    "color_hex": {
+     "type": "string",
+     "pattern": "^#[0-9a-fA-F]{6}$"
+    }
+   }
+  },
+  "wall_height_m": {
+   "type": "number",
+   "minimum": 0,
+   "maximum": 100
+  },
+  "notes": {
+   "type": "string"
+  },
+  "confidence": {
+   "type": "number",
+   "minimum": 0,
+   "maximum": 1
+  }
+ },
+ "$schema": "http://json-schema.org/draft-07/schema#",
+ "title": "facade_label v1"
+}

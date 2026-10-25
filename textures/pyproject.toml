@@ -1,0 +1,31 @@
+[project]
+name = "turkutex"
+version = "0.1.0"
+description = "Turku texture tooling: Codex runner, Street View facade references, texture post-processing"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "pillow>=10.0",
+  "pyproj>=3.6",
+  "turku3d",
+]
+
+[project.optional-dependencies]
+post = ["onnxruntime>=1.18", "scipy>=1.13", "imageio>=2.30"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+turkutex = "turkutex.cli:main"
+
+[tool.uv.sources]
+turku3d = { path = "../pipeline", editable = true }
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["turkutex*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

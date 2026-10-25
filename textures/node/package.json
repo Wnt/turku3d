@@ -1,0 +1,13 @@
+{
+  "name": "turkutex-ktx2",
+  "private": true,
+  "type": "module",
+  "description": "KTX2 (Basis Universal) encoder wrapper for textures/: ETC1S for albedo/ORM, UASTC for normals",
+  "scripts": {
+    "encode": "node encode.mjs"
+  },
+  "dependencies": {
+    "ktx2-encoder": "0.4.2",
+    "pngjs": "7.0.0"
+  }
+}

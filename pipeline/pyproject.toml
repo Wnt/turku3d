@@ -1,0 +1,29 @@
+[project]
+name = "turku3d"
+version = "0.0.1"
+description = "Turku open-world data pipeline (lidar, vectors, buildings, packaging)"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "pyproj>=3.6",
+]
+
+[project.optional-dependencies]
+# Heavy stacks are added by the workers that need them (pdal/open3d come from conda-forge on the remote).
+lidar = ["laspy[lazrs]>=2.5", "scipy>=1.13", "shapely>=2.0", "triangle>=20230923", "lxml>=5.0"]
+# fetchers (turku3d.fetch); on the remote these come from conda-forge (pipeline/env/environment.yml)
+fetch = ["shapely>=2.0", "geopandas>=1.0", "pyarrow>=16", "rasterio>=1.4", "pillow>=10", "laspy[lazrs]>=2.5"]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["turku3d*"]
+
+[tool.setuptools.package-data]
+"turku3d.col" = ["*.json", "*.mjs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

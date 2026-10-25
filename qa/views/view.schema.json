@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "turku3d/qa/view.schema.json",
+  "title": "QA reference view (one line of views.jsonl)",
+  "type": "object",
+  "required": ["id", "image", "width", "height", "pose", "source", "capture_date", "pose_confidence"],
+  "additionalProperties": true,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,96}$"},
+    "image": {"type": "string", "description": "repo-relative or absolute path of the reference image (JPEG/PNG)"},
+    "width": {"type": "integer", "minimum": 16},
+    "height": {"type": "integer", "minimum": 16},
+    "pose": {
+      "type": "object",
+      "required": ["E", "N", "H", "yaw", "pitch", "roll", "fov"],
+      "additionalProperties": false,
+      "properties": {
+        "E": {"type": "number", "minimum": 23300000, "maximum": 23700000, "description": "EPSG:3877 easting, m"},
+        "N": {"type": "number", "minimum": 6600000, "maximum": 6800000, "description": "EPSG:3877 northing, m"},
+        "H": {"type": "number", "minimum": -50, "maximum": 1000, "description": "N2000 height of the camera centre, m"},
+        "yaw": {"type": "number", "minimum": 0, "exclusiveMaximum": 360, "description": "compass bearing of the view axis, deg"},
+        "pitch": {"type": "number", "minimum": -90, "maximum": 90},
+        "roll": {"type": "number", "minimum": -180, "maximum": 180},
+        "fov": {"type": "number", "exclusiveMinimum": 1, "exclusiveMaximum": 170, "description": "VERTICAL fov, deg"}
+      }
+    },
+    "time": {"type": ["string", "null"], "description": "ISO 8601 local time with offset for the sun (render ?time=); null = unknown"},
+    "source": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["google_streetview", "apple_lookaround", "360tour", "gmaps_photosphere", "photo", "synthetic"]},
+        "pano_id": {"type": "string"},
+        "pano_heading": {"type": "number"},
+        "url": {"type": "string"},
+        "note": {"type": "string"}
+      }
+    },
+    "capture_date": {"type": ["string", "null"], "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?"},
+    "pose_confidence": {
+      "type": "object",
+      "required": ["level"],
+      "properties": {
+        "level": {"enum": ["high", "medium", "low"]},
+        "xy_m": {"type": "number"},
+        "h_m": {"type": "number"},
+        "angle_deg": {"type": "number"},
+        "note": {"type": "string"}
+      }
+    },
+    "area": {"type": "string"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "created": {"type": "string"}
+  }
+}
