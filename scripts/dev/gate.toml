@@ -6,6 +6,7 @@ prose = ["*.md"]
 workers = 6
 python = ".venv/bin/python"
 python_workers = 2
+tool_dirs = ["~/turku3d/envs/pipeline/bin", "~/turku3d/tools/bin"]
 
 [budgets]
 lines = { py = 800, ts = 600, js = 600, mjs = 600, sh = 400, md = 800, toml = 600 }
@@ -48,7 +49,10 @@ tests = ["tests", "turku3d/col/tests"]
 # Unmapped modules conservatively select the whole package.
 [[stages.related]]
 paths = ["pipeline/turku3d/fetch/*", "pipeline/tests/test_fetch.py"]
-tests = ["tests/test_fetch.py", "tests/test_package.py"]
+tests = ["tests/test_fetch.py"]
+[[stages.related]]
+paths = ["pipeline/turku3d/fetch/common.py", "pipeline/turku3d/ground/*"]
+tests = ["tests/test_package.py"]
 [[stages.related]]
 paths = ["pipeline/turku3d/package/*", "pipeline/tests/test_package.py"]
 tests = ["tests/test_package.py"]

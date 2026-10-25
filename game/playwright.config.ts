@@ -24,7 +24,7 @@ export default defineConfig({
     { name: 'webgl', use: { backendParam: 'webgl' } as never },
   ],
   webServer: {
-    command: `npx vite preview --port ${PORT} --strictPort`,
+    command: `./node_modules/.bin/vite preview --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 30_000,

@@ -64,6 +64,13 @@ def environment(root, config):
     if not python.is_absolute():
         python = root / python
     env["PIPELINE_PY"] = str(python)
+    # Native CLI dependencies are prepared by make pipeline-bootstrap, never by this gate.
+    env["PATH"] = os.pathsep.join(
+        [
+            env.get("PATH", ""),
+            *(str(Path(path).expanduser()) for path in config["gate"].get("tool_dirs", [])),
+        ]
+    )
     env["PYTHONPATH"] = os.pathsep.join(
         str(root / p) for p in ("pipeline", "textures", "qa", "qa/tests")
     )

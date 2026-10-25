@@ -7,6 +7,7 @@ assets or calls paid/model services. Python 3.12+, Node 24+, shfmt and ShellChec
 Initial dependency setup (network allowed here only):
 
 ```sh
+make pipeline-bootstrap       # native GDAL/osmium CLI tools; setup only
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar]' -e 'textures[post,dev]' -r scripts/dev/requirements.txt
 npm ci --no-audit --no-fund
@@ -52,6 +53,8 @@ test workers use `base+4` / `base+5`. The default base is 5190; parallel
 sandboxes must set their allocated base. The gate bounds pytest `-n auto` to two workers per
 package and runs up to six stages concurrently, with numeric-library threads limited to one.
 `GATE_PYTHON` can select a prepared Python environment instead of `.venv/bin/python`.
+The table's `tool_dirs` adds the prepared native pipeline CLI directories to PATH, preserving
+the caller's existing tools first. Missing native dependencies fail; the gate never installs them.
 
 ### Git hooks
 

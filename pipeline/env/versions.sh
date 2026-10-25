@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Print tool + library versions of the local pipeline toolchain; exit 1 if anything is missing.
 set -uo pipefail
-# Generated outside the repository by bootstrap-remote.sh; unavailable to static analysis.
+# Generated outside the repository by bootstrap.sh; unavailable to static analysis.
 # shellcheck source=/dev/null
 source ~/turku3d/envs/pipeline.env
 export PYTHONPATH="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}/pipeline"
@@ -23,6 +23,8 @@ v node node --version
 v gltf-transform gltf-transform --version
 v gltfpack bash -c 'gltfpack -h 2>&1 | head -1 | grep -i gltfpack'
 v toktx toktx --version
+# Passed as a command to v(), which invokes "$@".
+# shellcheck disable=SC2329
 roofer_version() (
   scratch=$(mktemp -d)
   trap 'rm -rf "$scratch"' EXIT
