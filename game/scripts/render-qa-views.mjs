@@ -1,5 +1,5 @@
 // Capture the registry poses and a synthetic street view on both backends.
-// Usage: node scripts/render-qa-views.mjs http://localhost:5230/ test-results/render/before
+// Usage: npm run render-qa -- [preview-url] [output-directory]; defaults to sandbox preview and reports.
 import { port, reportsRoot, isolateBrowser } from '../../tools/dev/environment.mjs';
 import { chromium } from '@playwright/test';
 import fs from 'node:fs/promises';

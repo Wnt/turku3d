@@ -9,8 +9,7 @@ local time, including the date and daylight-saving offset. H hides both the HUD 
 
 - `SkyMesh` supplies analytic Rayleigh/Mie scattering. It was smoke-tested under both backends before adding effects;
   no takram dependency is needed. Clouds are off for this clear-afternoon scene.
-- A 128-pixel PMREM cube derived from the same sky provides IBL. It is regenerated only on time edits; the previous
-  target is disposed. The sun uses `core/sun.ts`, including true-north to grid-north convergence.
+- A 128-pixel PMREM cube derived from the same sky provides IBL. It is regenerated only on time edits, reusing the target to retain material bindings and shader programs. The sun uses `core/sun.ts`, including true-north to grid-north convergence.
 - `CSMShadowNode` uses custom street-scale splits, PCF, a 2.5 cm normal bias, cascade fades and the addon's existing
   light-space texel snapping. FOV/aspect changes update the cascade frustums. Camera motion does not resize them.
 - An opaque normal/velocity/depth prepass feeds GTAO. AO radius is 0.6 m and the effect only attenuates indirect light,
@@ -92,7 +91,7 @@ and include GPU work between render passes. Unsupported timers are explicitly re
 ```sh
 make render-test                              # typecheck + focused synthetic unit tests
 make game-test                                # all game unit tests
-E2E_PORT=5232 make game-e2e                    # existing play and QA camera contract, both backends
+E2E_PORT=5232 make game-e2e                    # play, QA camera and material contract, both backends
 E2E_PORT=5231 make render-e2e                  # all tiers/materials/ID pass + 1440p performance
 E2E_PORT=5231 make render-perf                 # performance only, both backends
 ```
@@ -107,14 +106,14 @@ WebGL2 also fences each frame: ANGLE elapsed-time queries otherwise include over
 That fence/scheduling cost is included in the WebGL2 frame and drained-time budgets. The report records the pacing protocol.
 CPU, GPU, conservative work and rendered-frame p95 must be ≤16.6 ms on WebGPU, ≤22 ms on WebGL2. WebGPU requires ≥90%
 valid GPU samples. The report records commit, dirty status, browser, tileset SHA-256, dataset, path, settings and counters.
-Results and screenshots are in `game/test-results/perf/<commit>[-dirty]/`; each run also attaches its JSON to Playwright.
+Results and screenshots are in `$TURKU3D_WORK/reports/perf/<commit>[-dirty]/`; each run also attaches its JSON to Playwright.
 Run after committing for a clean per-commit record. Hardware performance tests are separate from the fast unit gate.
 
-Default measurements use the **synthetic development tile (2,182 resident triangles)**. This is not evidence of the
+Default measurements use the **synthetic development tile (2,192 resident triangles)**. This is not evidence of the
 final AOI's performance or photographic facade quality. To test assembled tiles served on an owned port:
 
 ```sh
-node tools/dev/serve-dist.mjs --root "$TURKU3D_DATA/dist" --port 5233
+node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/dist" --port 5233
 PERF_TILES=http://localhost:5233/tiles/tileset.json E2E_PORT=5231 make render-perf
 ```
 
@@ -123,11 +122,15 @@ Capture all three QA registry views and a synthetic street view on both backends
 ```sh
 cd game
 npm run build
-npx vite preview --port 5230 --strictPort
+npm run preview
 # In another terminal, using the same sandbox environment:
-node scripts/render-qa-views.mjs http://localhost:5230/ test-results/render/after
+npm run render-qa
 ```
 
 Before/after runs have per-view PNGs and a manifest with camera, time, backend and errors. Browser profiles are isolated
-under `TURKU3D_BROWSER_DIR` (or `game/test-results/browser`). The shader fixture is generated only into `game/dist/` when
+under `TURKU3D_BROWSER_DIR` (with the shared sandbox environment helper). The shader fixture is generated only into `$TURKU3D_WORK/build/game/` when
 running render tests, and is not an AOI layer or shipped game asset.
+
+The landing gate runs `tests/e2e/render-materials.spec.ts` (all tiers, both backends) and the HiDPI/time control
+contract as part of its `game-e2e` stage. The fixed-path hardware budget remains an explicit `make render-perf`
+acceptance run so unrelated concurrent browser stages do not invalidate timestamp measurements.

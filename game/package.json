@@ -16,7 +16,9 @@
     "probe": "node scripts/probe-page.mjs",
     "prepare-character": "node scripts/prepare-character.mjs",
     "test:vehicle-node": "node --test tests/headless/vehicle.test.ts",
-    "prepare-car": "node scripts/prepare-car.mjs"
+    "prepare-car": "node scripts/prepare-car.mjs",
+    "render-fixture": "node scripts/make-render-fixture.mjs",
+    "render-qa": "node scripts/render-qa-views.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d": "0.21.0",

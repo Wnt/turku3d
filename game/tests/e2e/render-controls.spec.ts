@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('HiDPI SSE follows output pixels after resize and the debug time slider refreshes sunlight', async ({ browser }, info) => {
+test('@render HiDPI SSE follows output pixels after resize and the debug time slider refreshes sunlight', async ({ browser }, info) => {
   const context = await browser.newContext({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 2 });
   const page = await context.newPage();
   const errors: string[] = [];

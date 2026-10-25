@@ -1,6 +1,6 @@
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 import { test, expect, type Page } from '@playwright/test';
-import type { Scene } from 'three/webgpu';
+import type { Scene, RenderTarget } from 'three/webgpu';
 import fs from 'node:fs';
 
 async function pixels(page: Page, png: Buffer) {
@@ -17,7 +17,7 @@ async function pixels(page: Page, png: Buffer) {
 }
 
 for (const quality of ['low', 'medium', 'high']) {
-  test(`${quality}: material shaders, planar river, time edit and exact QA IDs`, async ({ page }, info) => {
+  test(`@render ${quality}: material shaders, planar river, time edit and exact QA IDs`, async ({ page }, info) => {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -31,16 +31,28 @@ for (const quality of ['low', 'medium', 'high']) {
     const screenshot = await page.screenshot({ path: `${reportsRoot}/render/materials/${info.project.name}-${quality}.png` });
     await info.attach(`${quality}-materials`, { body: screenshot, contentType: 'image/png' });
     expect(new Set(await pixels(page, screenshot)).size).toBeGreaterThan(100);
-    const state = await page.evaluate(() => {
+    const state = await page.evaluate(async () => {
       const env = window.__render!.environment;
+      // Read the actual filtered sky pixels, not just texture identity: time edits reuse the render target.
+      const target = (env as unknown as { environmentTarget: RenderTarget }).environmentTarget;
+      const pixels = async () => {
+        const data = await window.__render!.renderer.readRenderTargetPixelsAsync(target, 0, 0, target.width, target.height);
+        let hash = 2166136261;
+        for (const byte of new Uint8Array(data.buffer, data.byteOffset, data.byteLength)) hash = Math.imul(hash ^ byte, 16777619);
+        return hash;
+      };
+      const beforePixels = await pixels();
       const before = { elevation: env.sunElevation, texture: (env.sky.parent as Scene).environment?.uuid };
       window.__render!.setTime('2026-10-15T06:00:00Z');
+      const afterPixels = await pixels();
       const after = { elevation: env.sunElevation, texture: (env.sky.parent as Scene).environment?.uuid };
       window.__render!.setTime('2026-10-15T06:00:00Z');
-      return { before, after, repeatedTexture: (env.sky.parent as Scene).environment?.uuid };
+      return { before, after, beforePixels, afterPixels, repeatedPixels: await pixels(), repeatedTexture: (env.sky.parent as Scene).environment?.uuid };
     });
     expect(state.after.elevation).toBeLessThan(state.before.elevation);
-    expect(state.after.texture).not.toBe(state.before.texture);
+    expect(state.after.texture).toBe(state.before.texture);
+    expect(state.afterPixels).not.toBe(state.beforePixels);
+    expect(state.repeatedPixels).toBe(state.afterPixels);
     expect(state.repeatedTexture).toBe(state.after.texture);
 
     await page.goto(`${url}&pass=id`);

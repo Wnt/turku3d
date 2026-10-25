@@ -64,14 +64,13 @@ export class Environment {
     this.iblDirty = true;
   }
 
-  /** Regenerate only after a time edit, not every frame. Old PMREM targets are released. */
+  /** Regenerate only after a time edit, not every frame. Reuse the target so time edits keep material bindings and shader programs warm. */
   updateIBL() {
     if (!this.iblDirty) return;
     this.iblDirty = false;
-    const next = this.pmrem.fromScene(this.skyScene, 0, 0.1, 6000, { size: 128 });
-    this.scene.environment = next.texture;
-    this.environmentTarget?.dispose();
-    this.environmentTarget = next;
+    this.environmentTarget = this.pmrem.fromScene(this.skyScene, 0, 0.1, 6000,
+      { size: 128, renderTarget: this.environmentTarget });
+    this.scene.environment = this.environmentTarget.texture;
   }
 
   /** CSM itself snaps each cascade's light-space centre to shadow texels. */

@@ -5,7 +5,7 @@ import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
 
 /** Periodic normal map from a small directional wave spectrum: no external asset request or seams. */
-export function waveNormalTexture() {
+function waveNormalTexture() {
   const size = 64, data = new Uint8Array(size * size * 4);
   const bands = [[3, 2, 0.035, 0.4], [7, -5, 0.02, 2.1], [13, 4, 0.012, 1.2],
     [2, 11, 0.013, 3.4], [17, -9, 0.006, 5.2]];

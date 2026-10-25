@@ -6,7 +6,7 @@ import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
 import type { Environment } from './environment';
 
-export type SurfaceStyle = 'asphalt' | 'granite' | 'cobblestone' | 'grass' | 'water' | 'standard';
+type SurfaceStyle = 'asphalt' | 'granite' | 'cobblestone' | 'grass' | 'water' | 'standard';
 
 export function surfaceStyle(key: string): SurfaceStyle {
   const words = key.toLowerCase().split(/[^a-z0-9]+/);
