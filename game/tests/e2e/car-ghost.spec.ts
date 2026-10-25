@@ -62,7 +62,8 @@ test('car history follows signed motion at driving speed', { tag: ['@drive', '@r
           reads.push(r.renderer.readRenderTargetPixelsAsync(target, Math.round(x),
             backend === 'webgl' ? 539 - Math.round(y) : Math.round(y), 1, 1, index).then(a => Array.from(a)));
           frames.push({ frame: r.renderer.info.frame, speed: state.vehicle.speed, x, y,
-            type: target.textures[index].type, physics: state.vehicle.pos, visual: car.position.toArray(),
+            type: target.textures[index].type, physics: state.vehicle.pos,
+            previous: g.physics.latest?.previousVehicle?.pos, visual: car.position.toArray(),
             image: r.renderer.domElement.toDataURL() });
         }
         const velocities = await Promise.all(reads);
@@ -93,12 +94,17 @@ test('car history follows signed motion at driving speed', { tag: ['@drive', '@r
     expect(frames[i].frame - frames[i - 1].frame, 'capture must not skip rendered frames').toBe(1);
     expect(frames[i].speed).toBeGreaterThanOrEqual(10);
     expect(frames[i].speed).toBeLessThanOrEqual(20);
-    expect(frames[i].visual).toEqual(frames[i].physics);
+    for (const [axis, value] of frames[i].visual.entries()) {
+      const previous = frames[i].previous[['x', 'y', 'z'][axis]];
+      const current = frames[i].physics[axis];
+      expect(value, 'visual car must stay between adjacent fixed-step poses').toBeGreaterThanOrEqual(Math.min(previous, current) - 1e-4);
+      expect(value, 'visual car must stay between adjacent fixed-step poses').toBeLessThanOrEqual(Math.max(previous, current) + 1e-4);
+    }
   }
   for (const side of [-1, 1]) {
     const moving = measurements.filter(f => f.side === side && f.expected !== null && Math.abs(f.expected) > 2);
     expect(moving.length, 'exercise actual vehicle motion in each direction').toBeGreaterThan(8);
-    expect(Math.max(...moving.map(f => f.historyErrorPixels!)), 'car history lookup must track the previous physics silhouette within 1.25 pixels').toBeLessThan(1.25);
+    expect(Math.max(...moving.map(f => f.historyErrorPixels!)), 'car history lookup must track the previous rendered silhouette within 1.25 pixels').toBeLessThan(1.25);
   }
   expect(errors).toEqual([]);
 });
