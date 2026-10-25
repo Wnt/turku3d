@@ -12,6 +12,7 @@ import time
 from collections import deque
 from pathlib import Path
 
+import coordination as coord
 import sandbox as s
 
 
@@ -82,6 +83,8 @@ def launch(name, brief=None, ref="main", effort="high", force=False, followup=No
                 "The exported TURKU3D_* variables define your sandbox. Do not land or merge main.\n\n"
                 + common
                 + "\n\n"
+                + coord.PROMPT
+                + "\n"
                 + prompt_brief
             )
             (path / "prompt.md").write_text(prompt)
@@ -100,7 +103,7 @@ def launch(name, brief=None, ref="main", effort="high", force=False, followup=No
             if not sessions:
                 raise ValueError("no session ID in task events")
             meta["session_id"] = sessions[-1]
-            prompt = followup
+            prompt = coord.PROMPT + "\n" + followup
             (path / f"resume-{time.time_ns()}.md").write_text(prompt)
         home = s.sandbox(name)
         env = {**os.environ, **s.read_env(home / "sandbox.env")}
@@ -178,8 +181,28 @@ def status(name):
         else meta.get("last_commit", "?")
     )
     print(
-        f"{name}: {state}, {elapsed:.1f}s, last event={last[-1].get('type') if last else 'none'}, commit={commit}"
+        f"{name}: {state}, {elapsed:.1f}s, last event={last[-1].get('type') if last else 'none'}, "
+        f"commit={commit}, {unread_status(name, state)}"
     )
+
+
+def unread_status(name, state):
+    count = len(coord.inbox(name, unread=True))
+    flag = " UNACKNOWLEDGED" if count and state not in ("starting", "running") else ""
+    return f"unread={count}{flag}"
+
+
+def list_tasks():
+    paths = {
+        p.parent
+        for pattern in ("*/meta.json", "*/inbox.jsonl")
+        for p in s.tasks_root().glob(pattern)
+    }
+    for path in sorted(paths):
+        if (path / "meta.json").exists():
+            status(path.name)
+        else:
+            print(f"{path.name}: inbox only, {unread_status(path.name, 'inbox only')}")
 
 
 def stop(name):
@@ -218,12 +241,14 @@ def main_checkout(repo):
     return None
 
 
-def land(name):
+def land(name, force=False):
     path = task(name)
     with s.lock(s.root() / ".registry/land.lock"), s.lock(path / "lock"):
         meta = s.read_json(path / "meta.json")
         if running(meta) or meta.get("state") != "done" or meta.get("exit_code") != 0:
             raise ValueError("task must have completed successfully before landing")
+        with coord.landing_guard(name, force):
+            pass
         if not (path / "last.md").exists() or [
             line
             for line in (path / "last.md").read_text().splitlines()
@@ -262,12 +287,13 @@ def land(name):
             raise ValueError("gate changed sandbox files or HEAD; main unchanged")
         if s.git("rev-parse", "main", cwd=repo) != before:
             raise ValueError("main changed during gate; retry landing")
-        if main:
-            if s.git("status", "--porcelain", cwd=main):
-                raise ValueError("main became dirty during gate; main unchanged")
-            s.git("merge", "--ff-only", head, cwd=main)
-        else:
-            s.git("update-ref", "refs/heads/main", head, before, cwd=repo)
+        with coord.landing_guard(name, force):
+            if main:
+                if s.git("status", "--porcelain", cwd=main):
+                    raise ValueError("main became dirty during gate; main unchanged")
+                s.git("merge", "--ff-only", head, cwd=main)
+            else:
+                s.git("update-ref", "refs/heads/main", head, before, cwd=repo)
         record = {
             "name": name,
             "before": before,
@@ -285,6 +311,7 @@ def land(name):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     subs = ap.add_subparsers(dest="cmd", required=True)
+    coord.add_commands(subs)
     p = subs.add_parser("run")
     p.add_argument("name")
     p.add_argument("--brief", required=True)
@@ -301,21 +328,23 @@ def main():
             p.add_argument("n", type=int, default=20, nargs="?")
         if cmd == "resume":
             p.add_argument("text")
+        if cmd in ("resume", "land"):
             p.add_argument("--force", action="store_true")
     a = ap.parse_args()
+    if coord.dispatch(a):
+        return
     if a.cmd == "run":
         launch(a.name, a.brief, a.ref, a.effort, a.force)
     elif a.cmd == "resume":
         launch(a.name, force=a.force, followup=a.text)
     elif a.cmd == "ls":
-        for f in sorted(s.tasks_root().glob("*/meta.json")):
-            status(f.parent.name)
+        list_tasks()
     elif a.cmd == "status":
         status(a.name)
     elif a.cmd == "stop":
         stop(a.name)
     elif a.cmd == "land":
-        land(a.name)
+        land(a.name, a.force)
     elif a.cmd == "_worker":
         worker(a.name)
     elif a.cmd == "result":

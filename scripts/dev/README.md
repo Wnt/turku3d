@@ -77,6 +77,60 @@ Do not update main outside this orchestrator while landing. A missing gate fails
 legacy Make fallback. The landing record goes to
 `wt/.registry/landed.jsonl`. A red gate leaves main unchanged; inspect `gate.log`, fix and resume the task.
 
+### Coordination (agents and orchestrator)
+
+```bash
+# In a sandbox, the sender and default inbox come from TURKU3D_SANDBOX.
+scripts/dev/codex-task inbox --unread
+scripts/dev/codex-task inbox stairs --json
+scripts/dev/codex-task msg stairs --kind request --subject "Stair layer API" \
+  --ref docs/briefs/COMMON.md 'Please preserve world-local metres in the layer output.'
+scripts/dev/codex-task ack <message-id> --note 'Updated the exporter and verified its output.'
+scripts/dev/codex-task msg all --kind interface --subject "Layer API ready" \
+  --ref <commit> --ref docs/briefs/COMMON.md 'The layer output contract is ready to use.'
+scripts/dev/codex-task board
+scripts/dev/codex-task board --since 1792886400 --json
+scripts/dev/codex-task ls
+scripts/dev/codex-task status stairs
+```
+
+Check the inbox and board after major steps/commits and before finishing; acknowledge what you
+act on. `run` and `resume` inject these commands into the prompt. This is a polling channel:
+messages do not interrupt a running `codex exec`. Before changing another area's interface,
+send its running owner a `request`, or post to `all` when no owner is running. Announce schemas,
+file layouts and module APIs that others depend on with an `interface` message and commit ref.
+
+`msg` accepts `note`, `request`, `interface`, or `warning`; it prints the new message ID. `--ref`
+is repeatable. The sender defaults to `$TURKU3D_SANDBOX`, or `orchestrator` when unset. Recipients
+must be existing tasks/sandboxes, or the `orchestrator`/`main` mailboxes. `all` is the board.
+Messages can arrive before a sandbox's first task run; `ls` includes these inbox-only entries.
+The orchestrator can read any task's inbox, including acknowledgement notes, without switching
+sandboxes. A worker can acknowledge its own inbox; `orchestrator`/`main` can acknowledge any inbox.
+Board acknowledgements are per sender, so acknowledging an announcement does not clear it for
+other agents. Repeating an acknowledgement is a no-op. Reading never marks a message as read.
+
+Storage is append-only `~/turku3d/tasks/<name>/inbox.jsonl` and `~/turku3d/coord/board.jsonl`.
+Messages have `{id, time, from, to, kind, subject, body, refs, ack: null}`. IDs are UUID hex strings;
+`time` is Unix seconds. Acknowledgements use the same shape with `kind: "ack"`, `ack: <message-id>`,
+and the optional note in `body`; the original message is never rewritten. Advisory sibling
+`.lock` files serialize reads, writes and acknowledgements; appends are flushed to disk. A
+malformed or incomplete log fails closed, rather than hiding unread messages or appending after
+a partial record. Preserve the log and diagnose the reported path/line before retrying.
+
+`inbox --json` and `board --json` return arrays of messages with `ack` resolved to the applicable
+acknowledgement record (or null); raw JSONL retains every reader's acknowledgement for audit.
+`--unread` filters the inbox to messages without an acknowledgement. `board --since N` returns
+messages with `time > N` (non-negative Unix seconds, fractions allowed). `TURKU3D_COORD_ROOT`
+overrides the board directory. By default it is `coord` beside `TURKU3D_TASKS_ROOT`, so overriding
+the tasks root also isolates the board. No board records are copied into individual inboxes.
+
+`ls` and `status` show inbox unread counts; finished/interrupted tasks with unread messages have
+an `UNACKNOWLEDGED` marker. `land` refuses unacknowledged direct `request`/`warning` messages,
+both before running the gate and under the inbox lock immediately before updating main.
+Board messages and direct `note`/`interface` messages do not block landing. The orchestrator may
+use `scripts/dev/codex-task land <name> --force` to override only this message check; it neither
+acknowledges messages nor bypasses the result, clean-tree or green-gate requirements.
+
 ## Verification
 
 ```bash
@@ -87,6 +141,9 @@ make game-e2e
 
 `tooling-test` runs four independent synthetic-repository tests at a time and covers concurrent port claims, adoption, shell-safe environment generation, fake run/resume,
 quota refusal/override, process-group stop, landing success/refusals, removal and orientation from both checkouts.
+Coordination coverage includes two sandbox environments exchanging requests and acknowledgements,
+board announcements, concurrent CLI readers/writers, append-only/idempotent acknowledgements,
+unread counts, landing refusal/override (including arrivals during the gate), and run/resume prompts.
 `game-dev-tools-test` starts two dist servers simultaneously with distinct environment ports and output roots.
 To check complete game stacks, create two worktrees from the tooling commit, source each environment in separate
 shells, and run `make game-e2e` concurrently. Each installs its own npm dependencies on first use.

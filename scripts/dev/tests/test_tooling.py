@@ -59,6 +59,8 @@ class ToolingTests(unittest.TestCase):
             "TURKU3D_DATA": str(self.base / "data"),
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
             "GATE_PYTHON": sys.executable,
+            "TURKU3D_SANDBOX": "orchestrator",
+            "TURKU3D_COORD_ROOT": str(self.base / "coord"),
         }
         self.env.pop("TURKUTEX_USAGE_CMD", None)
         # Synthetic registries must still avoid the caller's real, concurrently running stacks.
@@ -159,10 +161,19 @@ class ToolingTests(unittest.TestCase):
 
     def test_run_resume_and_logs(self):
         self.start()
+        prompt = (self.base / "tasks/demo/prompt.md").read_text()
+        self.assertIn("## Coordination", prompt)
+        self.assertIn("scripts/dev/codex-task inbox --unread", prompt)
+        self.assertIn("scripts/dev/codex-task board", prompt)
+        self.assertIn("Tiny fake test brief.", prompt)
         self.assertIn("## Result: DONE", self.cli("codex-task", "result", "demo").stdout)
         self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
         self.cli("codex-task", "resume", "demo", "Follow-up with $literal and `text`.")
         self.wait_done("demo")
+        resume = next((self.base / "tasks/demo").glob("resume-*.md")).read_text()
+        self.assertIn("## Coordination", resume)
+        self.assertIn("scripts/dev/codex-task ack <id>", resume)
+        self.assertTrue(resume.endswith("Follow-up with $literal and `text`."))
         self.assertIn("Follow-up", self.cli("codex-task", "result", "demo").stdout)
         self.assertIn("turn.completed", self.cli("codex-task", "log", "demo", "1").stdout)
         self.cli("codex-task", "run", "demo", "--brief", "brief.md", ok=False)
@@ -221,6 +232,17 @@ class ToolingTests(unittest.TestCase):
         repo = self.start()
         self.commit(repo)
         expected = self.git("rev-parse", "HEAD", cwd=repo)
+        message_id = self.cli(
+            "codex-task", "msg", "demo", "--kind", "request", "--subject", "Review", "Check API"
+        ).stdout.strip()
+        before = self.git("rev-parse", "main")
+        self.assertIn(message_id, self.cli("codex-task", "land", "demo", ok=False).stderr)
+        self.assertEqual(self.git("rev-parse", "main"), before)
+        self.assertFalse((self.base / "tasks/demo/gate.log").exists())
+        self.assertIn("unread=1 UNACKNOWLEDGED", self.cli("codex-task", "ls").stdout)
+        self.assertIn("unread=1", self.cli("codex-task", "status", "demo").stdout)
+        self.cli("codex-task", "ack", message_id, env={**self.env, "TURKU3D_SANDBOX": "demo"})
+        self.assertIn("unread=0", self.cli("codex-task", "status", "demo").stdout)
         self.cli("codex-task", "land", "demo")
         self.assertEqual(self.git("rev-parse", "main"), expected)
         self.assertTrue((self.repo / "change.md").exists())
@@ -233,6 +255,202 @@ class ToolingTests(unittest.TestCase):
         meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
         self.assertEqual(meta["landed"]["commit"], expected)
         self.assertGreater(meta["landed"]["gate_seconds"], 0)
+
+    def test_coordination_exchange_between_two_sandboxes(self):
+        for name in ("alpha", "beta"):
+            self.cli("wt", "new", name)
+
+        def sandbox_env(name):
+            lines = (self.base / "wt" / name / "sandbox.env").read_text().splitlines()
+            return {**self.env, **dict(shlex.split(line)[1].split("=", 1) for line in lines)}
+
+        alpha, beta = sandbox_env("alpha"), sandbox_env("beta")
+        message_id = self.cli(
+            "codex-task",
+            "msg",
+            "beta",
+            "--kind",
+            "request",
+            "--subject",
+            "Layer API",
+            "--ref",
+            "abc123",
+            "--ref",
+            "docs/specs/tiles.md",
+            "Please review.\nThanks!",
+            env=alpha,
+            cwd=self.base / "wt/alpha/repo",
+        ).stdout.strip()
+        path = self.base / "tasks/beta/inbox.jsonl"
+        original = path.read_bytes()
+        row = json.loads(original)
+        self.assertEqual(row["from"], "alpha")
+        self.assertEqual(row["to"], "beta")
+        self.assertEqual(row["refs"], ["abc123", "docs/specs/tiles.md"])
+        self.assertIsNone(row["ack"])
+        self.assertEqual(
+            json.loads(self.cli("codex-task", "inbox", "--unread", "--json", env=beta).stdout),
+            [row],
+        )
+        self.assertIn("beta: inbox only, unread=1", self.cli("codex-task", "ls").stdout)
+        self.cli("codex-task", "ack", message_id, env=alpha, ok=False)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(
+                pool.map(
+                    lambda _: self.cli(
+                        "codex-task", "ack", message_id, "--note", "Reviewed.", env=beta
+                    ),
+                    range(4),
+                )
+            )
+        self.assertTrue(path.read_bytes().startswith(original))
+        records = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[1]["kind"], "ack")
+        self.assertEqual(records[1]["ack"], message_id)
+        self.assertEqual(records[1]["from"], "beta")
+        self.assertEqual(records[1]["body"], "Reviewed.")
+        self.assertEqual(
+            json.loads(self.cli("codex-task", "inbox", "--unread", "--json", env=beta).stdout), []
+        )
+        resolved = json.loads(self.cli("codex-task", "inbox", "beta", "--json").stdout)
+        self.assertEqual(resolved[0]["ack"], records[1])
+        reply = self.cli(
+            "codex-task",
+            "msg",
+            "alpha",
+            "--kind",
+            "note",
+            "--subject",
+            "Reviewed",
+            "Ready to use.",
+            env=beta,
+        ).stdout.strip()
+        self.cli("codex-task", "ack", reply, env=alpha)
+        board_id = self.cli(
+            "codex-task",
+            "msg",
+            "all",
+            "--kind",
+            "interface",
+            "--subject",
+            "API ready",
+            "--ref",
+            "abc123",
+            "Layer API is ready.",
+            env=beta,
+        ).stdout.strip()
+        board = json.loads(self.cli("codex-task", "board", "--json", env=alpha).stdout)
+        self.assertEqual(board[0]["id"], board_id)
+        self.assertEqual(board[0]["to"], "all")
+        self.cli("codex-task", "ack", board_id, env=alpha)
+        self.assertIsNotNone(
+            json.loads(self.cli("codex-task", "board", "--json", env=alpha).stdout)[0]["ack"]
+        )
+        self.assertIsNone(
+            json.loads(self.cli("codex-task", "board", "--json", env=beta).stdout)[0]["ack"]
+        )
+        self.assertEqual(
+            json.loads(
+                self.cli("codex-task", "board", "--since", str(board[0]["time"]), "--json").stdout
+            ),
+            [],
+        )
+        self.cli("codex-task", "ack", board_id, env=beta)
+        self.assertEqual(len((self.base / "coord/board.jsonl").read_text().splitlines()), 3)
+
+    def test_coordination_concurrent_writers_and_readers(self):
+        body = "ä Unicode and literal $text `data`\n" * 512
+
+        def write(index):
+            recipient = "all" if index % 2 else "orchestrator"
+            result = self.cli(
+                "codex-task", "msg", recipient, "--kind", "note", "--subject", str(index), body
+            )
+            command = ["board"] if recipient == "all" else ["inbox", recipient]
+            rows = json.loads(self.cli("codex-task", *command, "--json").stdout)
+            self.assertTrue(all(row["body"] == body for row in rows))
+            return result.stdout.strip()
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            ids = set(pool.map(write, range(24)))
+        rows = []
+        for path in (self.base / "tasks/orchestrator/inbox.jsonl", self.base / "coord/board.jsonl"):
+            log = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual(len(log), 12)
+            rows.extend(log)
+        self.assertEqual({row["id"] for row in rows}, ids)
+        self.assertEqual(len(ids), 24)
+        self.assertEqual({row["subject"] for row in rows}, {str(i) for i in range(24)})
+        self.assertTrue(all(row["body"] == body for row in rows))
+
+    def test_coordination_defaults_validation_and_corruption(self):
+        env = dict(self.env)
+        env.pop("TURKU3D_SANDBOX")
+        env.pop("TURKU3D_COORD_ROOT")
+        message_id = self.cli(
+            "codex-task",
+            "msg",
+            "orchestrator",
+            "--kind",
+            "note",
+            "--subject",
+            "Default",
+            "Defaults work.",
+            env=env,
+        ).stdout.strip()
+        rows = json.loads(self.cli("codex-task", "inbox", "--json", env=env).stdout)
+        self.assertEqual(rows[0]["from"], "orchestrator")
+        self.cli("codex-task", "ack", message_id, env=env)
+        self.cli("codex-task", "msg", "all", "--kind", "note", "--subject", "Board", "OK", env=env)
+        self.assertTrue((self.base / "coord/board.jsonl").exists())
+        self.cli("codex-task", "inbox", "../../escape", ok=False)
+        self.cli("codex-task", "ack", "unknown", ok=False)
+        self.cli("codex-task", "board", "--since", "nan", ok=False)
+        self.cli("codex-task", "msg", "typo", "--kind", "note", "--subject", "No", "No", ok=False)
+        self.cli("codex-task", "msg", "all", "--kind", "ack", "--subject", "No", "No", ok=False)
+        log = self.base / "tasks/orchestrator/inbox.jsonl"
+        with log.open("a") as stream:
+            stream.write('{"kind":')
+        self.assertIn("invalid coordination log", self.cli("codex-task", "inbox", ok=False).stderr)
+        before = log.read_bytes()
+        self.cli(
+            "codex-task", "msg", "orchestrator", "--kind", "note", "--subject", "No", "No", ok=False
+        )
+        self.assertEqual(log.read_bytes(), before)
+
+    def test_land_force_only_overrides_open_messages(self):
+        repo = self.start()
+        self.commit(repo)
+        for kind in ("note", "interface"):
+            self.cli("codex-task", "msg", "demo", "--kind", kind, "--subject", "FYI", "FYI")
+        self.cli("codex-task", "msg", "all", "--kind", "request", "--subject", "Board", "FYI")
+        self.cli("codex-task", "land", "demo")  # Informational and board messages do not block.
+        self.commit(repo, "second.md")
+        self.cli("codex-task", "msg", "demo", "--kind", "warning", "--subject", "Check", "Check")
+        self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo", ok=False).stderr)
+        (repo / "dirty.md").write_text("dirty")
+        self.assertIn("dirty", self.cli("codex-task", "land", "demo", "--force", ok=False).stderr)
+        (repo / "dirty.md").unlink()
+        self.cli("codex-task", "land", "demo", "--force")
+        self.assertEqual(self.git("rev-parse", "main"), self.git("rev-parse", "HEAD", cwd=repo))
+        self.assertEqual(
+            len(json.loads(self.cli("codex-task", "inbox", "demo", "--unread", "--json").stdout)), 3
+        )
+
+    def test_land_refuses_request_arriving_during_gate(self):
+        repo = self.start()
+        gate = repo / "scripts/dev/gate"
+        gate.write_text(
+            "#!/bin/sh\nexec scripts/dev/codex-task msg demo --kind request "
+            "--subject 'Arrived during gate' 'Review before landing'\n"
+        )
+        self.git("add", ".", cwd=repo)
+        self.git("commit", "-qm", "Gate message fixture", cwd=repo)
+        before = self.git("rev-parse", "main")
+        self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo", ok=False).stderr)
+        self.assertEqual(self.git("rev-parse", "main"), before)
+        self.assertTrue((self.base / "tasks/demo/gate.log").exists())
 
     def test_land_refuses_result_dirty_and_red_gate(self):
         repo = self.start()

@@ -61,6 +61,15 @@ progress updates and final reports. This overrides personal default language set
   `--force` explicitly discards dirty or unmerged work; it never kills processes. `wt gc` only prunes missing entries.
 - Exact commands and troubleshooting: `scripts/dev/README.md`. No new API keys or paid services.
 
+## Coordination
+
+- Check `scripts/dev/codex-task inbox --unread` and `scripts/dev/codex-task board` after each major
+  step (each commit) and before finishing. Acknowledge what you act on with `codex-task ack <id>`.
+- Announce interface changes others depend on (schemas, file layouts, module APIs) with
+  `scripts/dev/codex-task msg all --kind interface --subject "..." --ref <commit> "body"`.
+- Before changing another area's interface, post a `request` to its owner when that task is running,
+  or to the board. Never edit another sandbox's files; reading other worktrees is allowed.
+
 ## Run result
 
 End with these headings: `## Result: DONE` or `## Result: BLOCKED`, `## What changed`, `## How to verify`
