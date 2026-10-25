@@ -86,7 +86,7 @@ validator regression. The validator CLI returns 1; Make propagates failure.
 
 ## Wave 0 / W1-07 integration
 
-Rebased onto main `b3e34d8`, preserving Wave 0 policy, native pipeline, input,
+Rebased onto main `04037fc`, preserving Wave 0 policy, coordination tooling, native pipeline, rendering, input,
 vehicle and visual QA changes. The earlier `GameVehicle` extraction was removed;
 the validator imports W1-07's `Vehicle` and shares the game's `tileCurbs.ts`
 registration adapter. The validator context and orchestration were split to meet
@@ -103,3 +103,33 @@ adapter used by `PhysicsWorld`.
 
 The W1-07 follow-up from the original run is resolved. Complete real-layer inputs
 and investigation of the recorded ground ray miss remain the layer-owner follow-ups.
+
+Two existing tooling performance failures were fixed without changing tests or
+limits: `wt rm` now rejects dirty/unmerged work before scanning host processes,
+and `here` obtains repository/branch in one Git call and imports the task runner
+only when task records exist. The live-process removal guard remains mandatory.
+
+## Rebased AOI rerun
+
+The shared W1-07 validator rerun took **43,520 ms wall time** and
+**28,606.650 ms summed thread CPU time**, four workers / 64 collision tiles.
+It reproduced exactly the recorded results: 112 seams pass, 1 miss among 495,616
+rays at the same `c_2_0` coordinates, and 9,187 drops pass. Required building,
+curb, stair and car coverage correctly fails on the available ground-only build.
+The validator exits 1 and `make tile-validate` exits 2; no data failures are waived.
+
+The JSON and embedded-ortho HTML are in
+`$TURKU3D_WORK/reports/rebased/validate-aoi.{json,html}`. Reproduce with:
+
+```sh
+make tile-validate T="t0_0_0 t0_0_1 t0_1_0 t0_1_1" \
+  PIPELINE_PY="$HOME/turku3d/envs/pipeline/bin/python" \
+  TILE_REPORTS="$TURKU3D_WORK/reports/rebased" \
+  VALIDATOR_ARGS="--ortho $TURKU3D_WORK/reports/ortho.png --ortho-bounds 0,0,500,500"
+```
+
+The first complete post-integration `scripts/dev/gate` run passed all **19/19
+stages in 164.836 s**, including validator tests (51.910 s), vehicle Node tests
+(7.741 s), tooling tests (41.751 s), and game end-to-end tests (130.502 s).
+Editing the routing table selects the full repository gate. Shared-host load
+was high; no timeouts, assertions or physics thresholds were loosened.

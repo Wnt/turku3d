@@ -23,10 +23,10 @@ try:
     for line in dirty[:8]:
         print("  " + line)
     print("Running tasks:")
-    from task_runner import running
-
     active = []
     for f in sorted(s.tasks_root().glob("*/meta.json")):
+        from task_runner import running
+
         meta = s.read_json(f)
         if running(meta):
             active.append(f"  {meta['name']} pid={meta['pid']}")
