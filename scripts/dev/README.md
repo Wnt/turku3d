@@ -253,7 +253,7 @@ Initial dependency setup (network allowed here only):
 ```sh
 make pipeline-bootstrap       # native GDAL/osmium CLI tools; setup only
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar]' -e 'textures[post,dev]' -r scripts/dev/requirements.txt
+uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar,buildings]' -e 'textures[post,dev]' -r scripts/dev/requirements.txt
 npm ci --no-audit --no-fund
 (cd game && npm ci --no-audit --no-fund)
 (cd tools/validator && npm ci --no-audit --no-fund)

@@ -59,3 +59,15 @@ Phase 1 visual envelope. WMS blank results expire after one hour instead of pers
 
 Rapier 0.21 trimesh ray hits still need `game/src/physics/triLocator.ts` for triangle material
 lookup. The reference camera poses have medium confidence and are not lidar-registered.
+
+## Buildings layer (W1-03)
+
+The buildings layer and [facade contract](specs/facades.md) cover all 81 source footprints
+with validated closed shells, including 19 explicit footprint fallbacks. Exact shell-distance
+scoring fixes three of the five former residual failures; 63/81 now meet the unchanged
+10 cm / 25 cm limits. Two retained roofer parts and 16 extrusions remain accuracy-degraded.
+All 137 exported seam comparisons pass, and the maximum clipped shell is 1,800 triangles.
+Per-building collision provenance allows nested parts to be tested independently.
+See [the measured report](reports/buildings.md) for scope, fallback evidence and verification.
+The 19-stage gate passed in 261.019 s; the final coverage-policy gate passed in 5.394 s.
+This layer is not yet assembled into the game.

@@ -13,6 +13,7 @@ dependencies = [
 lidar = ["laspy[lazrs]>=2.5", "scipy>=1.13", "shapely>=2.0", "triangle>=20230923", "lxml>=5.0"]
 # fetchers (turku3d.fetch); these come from conda-forge in the native environment (pipeline/env/environment.yml)
 fetch = ["shapely>=2.0", "geopandas>=1.0", "pyarrow>=16", "rasterio>=1.4", "pillow>=10", "laspy[lazrs]>=2.5"]
+buildings = ["scipy>=1.13", "mapbox-earcut>=1.0", "trimesh>=4.0", "shapely>=2.0", "geopandas>=1.0", "pyarrow>=16", "laspy[lazrs]>=2.5", "rasterio>=1.4"]
 dev = ["pytest>=8.0"]
 
 [build-system]
