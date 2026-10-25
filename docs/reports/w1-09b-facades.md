@@ -182,3 +182,35 @@ node qa/render/render.mjs --views qa/views/views.jsonl --ids sv_01,sv_02,sv_03 \
 PYTEST_XDIST_AUTO_NUM_WORKERS=3 GATE_PYTHON="$PWD/textures/.venv/bin/python" \
   bash pipeline/env/run.sh scripts/dev/gate --base dfb9204
 ```
+
+## Rebase verification, 2026-10-26
+
+Rebased onto main `e43067e`. Git dropped the duplicate batching commit because its
+implementation was already upstream. The README conflict retains main's detailed
+per-batch rendering and QA index-range explanation together with this round's source
+identity wording. All facade evidence and the 30 validated bindings are unchanged;
+this follow-up starts no image jobs and performs no export or deployment.
+
+The `w1-09c-p1` through `w1-09c-p3` agents own further facade batches. Their shared
+export lock contract does not change the historical sandbox-only export commands above.
+The only pipeline code difference from main is removal of an unused `getBounds`
+binding found by the package lint check. Rendering and assembly behavior are unchanged.
+
+Run the following gates sequentially; this base's gate uses two pytest workers per stage,
+below the requested maximum of three. Logs are retained under `$TURKU3D_WORK/reports`.
+
+```sh
+source ../sandbox.env
+export TURKU3D_JOBS=3 PYTEST_XDIST_AUTO_NUM_WORKERS=3
+export GATE_PYTHON="$PWD/textures/.venv/bin/python"
+bash pipeline/env/run.sh scripts/dev/gate --paths \
+  textures/turkutex/facade_batch.py textures/turkutex/export.py \
+  textures/README.md docs/reports/w1-09b-facades.md
+bash pipeline/env/run.sh scripts/dev/gate --base e43067e
+```
+
+The [texture gate](w1-09b-facades/rebase-texture-gate.txt) passed in 64.423 s.
+The [final affected gate](w1-09b-facades/rebase-final-gate.txt) passed in 23.197 s,
+including the 24 assembly/layer/package tests, ESLint, Knip, policy and generated materials.
+The first package run found the unused import and a cache assertion while that import
+was being edited; the complete affected gate passed after the source tree was stable.
