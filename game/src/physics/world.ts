@@ -242,6 +242,7 @@ export class PhysicsWorld {
     if (this.cc && this.charEnabled) this.stepCharacter(character);
     this.vehicle?.step(DT, vehicle);
     this.world.step();
+    this.vehicle?.afterStep(DT);
   }
 
   // ------------------------------------------------------------------ queries

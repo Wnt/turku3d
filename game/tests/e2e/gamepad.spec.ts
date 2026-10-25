@@ -70,11 +70,11 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   await expect.poll(async () => (await state(page)).feet[1]).toBeGreaterThan(2.6);
   await button(page, 2, 0);
   await page.waitForFunction(() => (window as any).__game.state().grounded);
-  await button(page, 9, 1); await button(page, 9, 0);
+  await button(page, 8, 1); await button(page, 8, 0);
   const paused = await state(page); expect(paused.paused).toBe(true);
   await axes(page, 0, -1); await page.waitForTimeout(200);
   expect((await state(page)).feet).toEqual(paused.feet);
-  await axes(page, 0, 0); await button(page, 9, 1); await button(page, 9, 0);
+  await axes(page, 0, 0); await button(page, 8, 1); await button(page, 8, 0);
   await page.evaluate(() => { (window as any).__virtualPad.connected = false; });
   await expect.poll(async () => (await state(page)).inputSource).toBe('keyboard');
   await page.evaluate(() => { (window as any).__virtualPad.connected = true; });

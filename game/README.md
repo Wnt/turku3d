@@ -22,6 +22,13 @@ npm run probe -- "http://localhost:${TURKU3D_PORT_BASE:-5170}/?backend=webgl" ou
 ```
 The same commands are available from the repo root through `mk/game.mk`: `make game-dev`, `make game-build`, `make game-test`, `make game-e2e`, `make game-dev-tiles`, `make game-preview`, `make game-serve-dist` and `make game-test-all`.
 
+## Audio
+
+Game audio v1 adds material footsteps, positional car/impact/door effects, city/river/gull/traffic/wind ambience,
+and a connection blip. The Audio panel controls master and channel volumes. Menu/M mutes; View/Escape pauses.
+Audio unlocks on first input; if Chrome keeps it suspended after gamepad input, click once or press a key.
+See [audio setup and tests](src/audio/README.md) and [CC0 sources](public/assets/audio/LICENSES.md).
+
 ## Controls
 
 Chrome on macOS exposes Xbox Elite Series 2 as **Xbox Wireless Controller**, standard mapping. Press a controller button once after connecting it. Hot-plug and disconnects are polled every render frame; nonstandard mappings are ignored. HUD prompts switch between Xbox glyphs and keyboard labels with the active input source.
@@ -39,7 +46,8 @@ Chrome on macOS exposes Xbox Elite Series 2 as **Xbox Wireless Controller**, sta
 | Look | Right stick | Right stick | Click canvas for mouse lock, move mouse |
 | Reset camera | R3 | R3 | C |
 | Zoom | — | — | Mouse wheel |
-| Pause / resume | Menu | Menu | Escape |
+| Pause / resume | View | View | Escape |
+| Mute / unmute | Menu | Menu | M |
 | Reset car upright | — | — | R |
 | Toggle debug HUD | — | — | H |
 
@@ -115,6 +123,7 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 src/main.ts                 entry: QA mode or play mode (spawn, loop, enter/exit car)
 src/core/origin.ts          origin O, EN <-> engine, tile ids (mirror of pipeline/turku3d/config.py)
 src/core/params.ts          URL parameters
+src/audio/                  centralized Web Audio events, positional mix and CC0 sound bank (see its README)
 src/input/                  named actions, Gamepad API, keyboard/mouse, bindings and Xbox glyphs
 src/core/sun.ts             solar position
 src/render/renderer.ts      WebGPURenderer(forceWebGL), AgX, PCF shadows

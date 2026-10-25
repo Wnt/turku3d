@@ -105,3 +105,22 @@ test('full steering at road speed keeps the chassis upright', () => {
   expect(minUp).toBeGreaterThan(Math.cos(Math.PI / 4));
   world.free();
 });
+
+
+test('solver collision impulses produce one bounded-rate impact event, with quiet resting contact', () => {
+  const { world, vehicle } = vehicleFixture(R, 8, MAT.building, false, 0.03);
+  for (let i = 0; i < 30; i++) { vehicle.step(1 / 60, coast); world.step(); vehicle.afterStep(1 / 60); }
+  expect(vehicle.state().impact).toBeNull();
+  vehicle.body.setLinvel({ x: 15, y: 0, z: 0 }, true);
+  let maxImpulse = 0;
+  const ids = new Set<number>();
+  for (let i = 0; i < 60; i++) {
+    vehicle.step(1 / 60, coast); world.step(); vehicle.afterStep(1 / 60);
+    const impact = vehicle.state().impact;
+    if (impact) { maxImpulse = Math.max(maxImpulse, impact.impulse); ids.add(impact.id); }
+  }
+  expect(maxImpulse).toBeGreaterThan(600);
+  expect(ids.size).toBeGreaterThan(0); expect(ids.size).toBeLessThanOrEqual(7);
+  vehicle.reset({ x: -5, y: 0.8, z: 0 }, 0); expect(vehicle.state().impact).toBeNull();
+  world.free();
+});

@@ -65,3 +65,10 @@ entry, analog driving, curb events, wheel motion, rumble, speed-dependent FOV, o
 Input comes directly from W1-06's landed `src/input/` module. `main.ts` passes the named
 `{throttle, brake, steer, handbrake}` actions unchanged to the vehicle; its brake/reverse and steering conventions
 belong to `handling.ts`. Character interpolation and foot IK remain supplied by W1-06.
+
+## Audio collision telemetry
+
+Call `vehicle.afterStep(dt)` after `world.step()` to collect solver contact impulses (the physics worker
+already does so). `state().impact` is null until a collision exceeds 600 N·s, then retains the latest
+`{id, impulse}` for consumers to deduplicate. Reports are limited to one per 150 ms and reset clears
+the retained event. The audio adapter uses this value for positional impact loudness.

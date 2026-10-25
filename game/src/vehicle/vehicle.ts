@@ -18,6 +18,9 @@ export class Vehicle {
   private strikeId = 0;
   private lastStrike: VehicleState['curbStrike'] = null;
   private steering = 0;
+  private impactId = 0;
+  private impact: VehicleState['impact'] = null;
+  private impactCooldown = 0;
 
   private R: typeof Rapier;
   private world: Rapier.World;
@@ -51,7 +54,7 @@ export class Vehicle {
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.contacts.clear(); this.lastStrike = null; this.steering = 0;
+    this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.impact = null; this.impactCooldown = 0;
   }
 
   step(dt: number, input: VehicleInput | null) {
@@ -117,12 +120,28 @@ export class Vehicle {
     }
   }
 
+  /** Read solver impulses after each fixed world step; resting contacts stay below the threshold. */
+  afterStep(dt: number) {
+    this.impactCooldown = Math.max(0, this.impactCooldown - dt);
+    const chassis = this.body.collider(0);
+    let impulse = 0;
+    this.world.contactPairsWith(chassis, other => {
+      this.world.contactPair(chassis, other, manifold => {
+        for (let i = 0; i < manifold.numContacts(); i++) impulse += manifold.contactImpulse(i);
+      });
+    });
+    if (impulse > 600 && this.impactCooldown === 0) {
+      this.impact = { id: ++this.impactId, impulse };
+      this.impactCooldown = 0.15;
+    }
+  }
+
   state(): VehicleState {
     const b = this.body, v = this.controller, lv = b.linvel();
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
     return { pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
-      curbStrike: this.lastStrike,
+      curbStrike: this.lastStrike, impact: this.impact,
       wheels: CAR.wheels.map((cp, i) => {
         const suspension = v.wheelSuspensionLength(i) ?? CAR.rest;
         return { pos: { x: cp.x, y: cp.y - suspension, z: cp.z }, steer: v.wheelSteering(i) ?? 0,

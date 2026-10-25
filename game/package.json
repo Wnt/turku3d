@@ -18,7 +18,8 @@
     "test:vehicle-node": "node --test tests/headless/vehicle.test.ts",
     "prepare-car": "node scripts/prepare-car.mjs",
     "render-fixture": "node scripts/make-render-fixture.mjs",
-    "render-qa": "node scripts/render-qa-views.mjs"
+    "render-qa": "node scripts/render-qa-views.mjs",
+    "prepare-audio": "node scripts/prepare-audio.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d": "0.21.0",

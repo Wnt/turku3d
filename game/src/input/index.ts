@@ -16,22 +16,24 @@ export class Input {
   private mouseY = 0;
   private wheel = 0;
   private pad: Gamepad | null = null;
+  private padActive = false;
   private focused = true;
   private listeners = new AbortController();
   private sprintUntil = 0;
   private time = 0;
 
-  constructor(el: HTMLElement) {
+  constructor(el: HTMLElement, private readonly activate: () => void = () => {}) {
     const options = { signal: this.listeners.signal };
     addEventListener('keydown', e => {
       if (['AltLeft', 'AltRight', 'Space'].includes(e.code)) e.preventDefault();
-      if (!e.repeat) this.tapped.add(e.code);
+      if (!e.repeat) { this.tapped.add(e.code); this.activate(); }
       this.keys.add(e.code); this.source = 'keyboard';
     }, options);
     addEventListener('keyup', e => this.keys.delete(e.code), options);
     addEventListener('blur', () => { this.focused = false; this.clear(); void this.pad?.vibrationActuator?.reset?.(); }, options);
     addEventListener('focus', () => { this.focused = true; }, options);
     addEventListener('gamepaddisconnected', e => { if (this.pad?.index === e.gamepad.index) { this.pad = null; this.clear(); } }, options);
+    addEventListener('pointerdown', () => this.activate(), options);
     el.addEventListener('click', () => { if (document.pointerLockElement !== el) void el.requestPointerLock?.()?.catch(() => {}); }, options);
     addEventListener('mousemove', e => {
       if (document.pointerLockElement === el || e.buttons & 1) {
@@ -50,7 +52,8 @@ export class Input {
       return ACTIONS.some(k => Math.abs(a[k]) > 0.01);
     });
     this.pad = active ?? pads.find(p => p.index === this.pad?.index) ?? pads[0] ?? null;
-    if (active) this.source = 'gamepad';
+    if (active) { this.source = 'gamepad'; if (!this.padActive) this.activate(); }
+    this.padActive = !!active;
     if (!this.pad) this.source = 'keyboard';
     const next = mapActions(this.pad, this.keys, this.bindings);
     const taps = mapActions(null, this.tapped, this.bindings);
@@ -66,6 +69,7 @@ export class Input {
     this.zoom = this.wheel;
     this.mouseX = this.mouseY = this.wheel = 0;
   }
+  get connected() { return this.pad !== null; }
   get sprinting() { return this.actions.sprint > 0.5 || this.time < this.sprintUntil; }
   consume(action: Action) { const pressed = this.edges.has(action); this.edges.delete(action); return pressed; }
   rebind(action: Action, bindings: Binding[]) { this.bindings[action] = structuredClone(bindings); }

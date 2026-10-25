@@ -6,6 +6,8 @@ import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
 import { enToEngine, engineToEN, collisionTileAt, headingToYaw, yawToHeading } from './core/origin';
 import { Input } from './input';
+import { GameAudio } from './audio';
+import { GameplayAudio } from './audio/gameplay';
 import { createRenderer } from './render/renderer';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
@@ -175,7 +177,11 @@ async function runQa() {
 
 // ------------------------------------------------------------------------------------------- play mode
 async function runPlay() {
-  const input = new Input(renderer.domElement);
+  const audio = new GameAudio();
+  const audioGameplay = new GameplayAudio(event => audio.emit(event));
+  const input = new Input(renderer.domElement, () => { void audio.unlock(); });
+  audio.mount(document.body);
+  addEventListener('pagehide', () => audio.dispose(), { once: true });
   const hud = new Hud(hudEl);
   const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
   if (!params.hud) hud.toggle();
@@ -234,6 +240,7 @@ async function runPlay() {
   let camRayBusy = false;
   const tmp = new THREE.Vector3();
   const carQuat = new THREE.Quaternion();
+  const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
 
   const state = () => {
     const en = engineToEN(feet.x, feet.y, feet.z);
@@ -242,7 +249,7 @@ async function runPlay() {
       vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: car.loaded } : null, camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, ready: true });
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, ready: true });
 
   renderer.setAnimationLoop(() => {
     perf.begin();
@@ -254,6 +261,7 @@ async function runPlay() {
     input.update(dt);
     if (input.consume('hud')) { hud.toggle(); clockControl.hidden = !hud.visible; }
     if (input.consume('pause')) paused = !paused;
+    if (input.consume('mute')) audio.emit({ type: 'mute' });
     const resetCamera = !paused && input.consume('cameraReset');
     if (mode === 'foot' && !paused) {
       orbit.input(input.lookX, input.lookY, input.zoom);
@@ -335,6 +343,10 @@ async function runPlay() {
         orbit.clampDist = h ? Math.max(0.8, h.toi - 0.3) : Infinity; camRayBusy = false;
       });
     }
+    audioGameplay.update({ tick: st?.tick ?? 0, time: now / 1000, paused, mode, connected: input.connected,
+      character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,
+      position: camera.position, forward: camera.getWorldDirection(audioForward),
+      up: audioUp.set(0, 1, 0).applyQuaternion(camera.quaternion) });
     streamer.update(feet.x, feet.z);
     env.follow(feet);
     tiles.update(camera);

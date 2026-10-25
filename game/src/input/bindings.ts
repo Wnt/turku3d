@@ -4,7 +4,7 @@ export type Binding =
   | { kind: 'button'; index: number }
   | { kind: 'key'; code: string; scale?: number };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact',
-  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'vehicleReset', 'hud'] as const;
+  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'vehicleReset', 'hud'] as const;
 export type Action = typeof ACTIONS[number];
 export type Actions = Record<Action, number>;
 export type Bindings = Record<Action, Binding[]>;
@@ -20,7 +20,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   throttle: [button(7), key('KeyW'), key('ArrowUp')], brake: [button(6), key('KeyS'), key('ArrowDown')],
   steer: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
-  pause: [button(9), key('Escape')], vehicleReset: [key('KeyR')], hud: [key('KeyH')],
+  pause: [button(8), key('Escape')], mute: [button(9), key('KeyM')], vehicleReset: [key('KeyR')], hud: [key('KeyH')],
 };
 export const emptyActions = (): Actions => Object.fromEntries(ACTIONS.map(a => [a, 0])) as Actions;
 interface Curve { deadZone: number; exponent: number }
