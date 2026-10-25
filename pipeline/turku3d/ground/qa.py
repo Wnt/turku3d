@@ -293,6 +293,7 @@ def evaluate(
         "seams": not seam,
         "materials": metrics["mesh"]["all_triangles_material"],
     }
+    checks = {name: bool(passed) for name, passed in checks.items()}
     return {
         "passed": all(checks.values()),
         "checks": checks,
