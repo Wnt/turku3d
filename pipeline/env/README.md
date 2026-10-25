@@ -5,7 +5,7 @@ Run from any worktree, including a clean shell:
 ```sh
 make pipeline-bootstrap
 make pipeline-versions
-bash pipeline/env/run.sh python -m pytest -q -n 4 pipeline/tests
+bash pipeline/env/run.sh python -m pytest -q -n "${TURKU3D_JOBS:-3}" pipeline/tests
 ```
 
 Everything installs under `~/turku3d/`, without sudo or shell profile edits:

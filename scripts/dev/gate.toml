@@ -1,11 +1,9 @@
 # The only path -> stage routing table. Globs use fnmatch: * includes slashes.
 # A trigger selects a stage; sources bounds the files linted by that stage.
 [gate]
-full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py"]
+full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py", "scripts/dev/gate_cache.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py"]
 prose = ["*.md"]
-workers = 6
 python = ".venv/bin/python"
-python_workers = 2
 tool_dirs = ["~/turku3d/envs/pipeline/bin", "~/turku3d/tools/bin"]
 
 [budgets]
@@ -29,6 +27,7 @@ always = true
 
 [[stages]]
 name = "generated"
+inputs = ["pipeline/turku3d/col/*", "docs/specs/materials.md", "game/src/shared/col/materials.ts"]
 kind = "command"
 always = true
 commands = [["{python}", "-m", "turku3d.col.materials"]]
@@ -119,14 +118,16 @@ tests = ["tests/test_streetview_geometry.py"]
 
 [[stages]]
 name = "gate-tests"
+inputs = ["pipeline/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
 triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "docs/flags.toml"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py"]]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py", "test_gate_state.py"]]
 
 [[stages]]
 name = "tooling-tests"
+inputs = ["pipeline/turku3d/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
-triggers = ["scripts/dev/task_runner.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
+triggers = ["scripts/dev/task_runner.py", "scripts/dev/landing.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
 commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_environment.py", "test_stop.py"]]
 
 [[stages]]
@@ -165,7 +166,7 @@ name = "validator-tests"
 kind = "command"
 env = { FIXTURE_WALKERS = "32" }
 triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*"]
-commands = [["node", "--test", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/buildings.test.ts"]]
+commands = [["node", "--test", "--test-concurrency=1", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/buildings.test.ts"]]
 
 [[stages]]
 name = "dev-server-tests"
@@ -188,6 +189,7 @@ commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
 
 [[stages]]
 name = "game-e2e"
+inputs = ["game/*", "pipeline/*", "tools/validator/*", "qa/tests/golden_projection.json"]
 kind = "e2e"
 tile_tags = ["@walk", "@pipeline", "@render", "@qa"]
 triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json"]
@@ -212,3 +214,10 @@ name = "vehicle-node-tests"
 kind = "command"
 triggers = ["game/src/vehicle/*", "game/src/physics/constants.ts", "game/src/physics/protocol.ts", "game/src/shared/col/*", "game/tests/fixtures/*", "game/tests/headless/*", "game/package*.json"]
 commands = [["node", "--test", "game/tests/headless/vehicle.test.ts"]]
+
+[[stages]]
+name = "dependency-imports"
+kind = "command"
+triggers = ["*/pyproject.toml", "*requirements*.txt", "scripts/dev/check_imports.py"]
+inputs = ["pipeline/*.py", "textures/*.py"]
+commands = [["{python}", "scripts/dev/check_imports.py"]]

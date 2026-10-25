@@ -307,30 +307,40 @@ def land(name, force=False):
         main = main_checkout(repo)
         if main and s.git("status", "--porcelain", cwd=main):
             raise ValueError("main worktree is dirty")
-        before = s.git("rev-parse", "main", cwd=repo)
-        try:
-            s.git("rebase", "main", cwd=repo)
-        except subprocess.CalledProcessError:
-            s.git("rebase", "--abort", cwd=repo, check=False)
-            raise
-        head = s.git("rev-parse", "HEAD", cwd=repo)
-        env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
-        gate = repo / "scripts/dev/gate"
-        if not gate.is_file():
+        if not (repo / "scripts/dev/gate").is_file():
             raise ValueError("missing scripts/dev/gate; main unchanged")
-        commands = [[str(gate), "--base", before]]
+        before = s.git("rev-parse", "main", cwd=repo)
         start = time.monotonic()
-        with (path / "gate.log").open("w") as log:
-            for command in commands:
-                rc = subprocess.call(
-                    command, cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT
-                )
-                if rc:
-                    raise ValueError(f"gate failed ({rc}): {path / 'gate.log'}; main unchanged")
-        if s.git("status", "--porcelain", cwd=repo) or s.git("rev-parse", "HEAD", cwd=repo) != head:
-            raise ValueError("gate changed sandbox files or HEAD; main unchanged")
-        if s.git("rev-parse", "main", cwd=repo) != before:
-            raise ValueError("main changed during gate; retry landing")
+        for _attempt in range(3):
+            base = s.git("rev-parse", "main", cwd=repo)
+            try:
+                s.git("rebase", "main", cwd=repo)
+            except subprocess.CalledProcessError:
+                s.git("rebase", "--abort", cwd=repo, check=False)
+                raise
+            head = s.git("rev-parse", "HEAD", cwd=repo)
+            env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
+            gate = repo / "scripts/dev/gate"
+            if not gate.is_file():
+                raise ValueError("missing scripts/dev/gate; main unchanged")
+            commands = [[str(gate), "--base", before]]
+            with (path / "gate.log").open("w") as log:
+                for command in commands:
+                    rc = subprocess.call(
+                        command, cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT
+                    )
+                    if rc:
+                        raise ValueError(f"gate failed ({rc}): {path / 'gate.log'}; main unchanged")
+            if (
+                s.git("status", "--porcelain", cwd=repo)
+                or s.git("rev-parse", "HEAD", cwd=repo) != head
+            ):
+                raise ValueError("gate changed sandbox files or HEAD; main unchanged")
+            if s.git("rev-parse", "main", cwd=repo) == base:
+                before = base
+                break
+        else:
+            raise ValueError("main changed during gate three times; retry landing")
         with coord.landing_guard(name, force):
             if main:
                 if s.git("status", "--porcelain", cwd=main):
@@ -367,7 +377,9 @@ def main():
     subs.add_parser("ls")
     for cmd in ("status", "log", "result", "resume", "stop", "land", "_worker"):
         p = subs.add_parser(cmd)
-        p.add_argument("name")
+        p.add_argument("name", nargs="?" if cmd == "land" else None)
+        if cmd == "land":
+            p.add_argument("--batch", nargs="+")
         if cmd == "log":
             p.add_argument("n", type=int, default=20, nargs="?")
         if cmd == "resume":
@@ -388,7 +400,16 @@ def main():
     elif a.cmd == "stop":
         stop(a.name)
     elif a.cmd == "land":
-        land(a.name, a.force)
+        if a.batch:
+            if a.name:
+                ap.error("choose name or --batch")
+            from landing import batch
+
+            batch(a.batch, a.force)
+        elif a.name:
+            land(a.name, a.force)
+        else:
+            ap.error("land requires a name or --batch")
     elif a.cmd == "_worker":
         worker(a.name)
     elif a.cmd == "result":

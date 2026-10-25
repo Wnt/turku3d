@@ -1,3 +1,4 @@
+import { jobs } from '../tools/dev/environment.mjs';
 import { defineConfig } from 'vitest/config';
 import wasm from 'vite-plugin-wasm';
 import { fileURLToPath } from 'node:url';
@@ -7,5 +8,5 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   plugins: [wasm()],
   resolve: { alias: { '@dimforge/rapier3d': fileURLToPath(new URL('./node_modules/@dimforge/rapier3d/rapier.js', import.meta.url)) } },
-  test: { include: ['tests/unit/**/*.test.ts'], environment: 'node', testTimeout: 30000, server: { deps: { inline: [/rapier3d/] } } },
+  test: { maxWorkers: jobs, include: ['tests/unit/**/*.test.ts'], environment: 'node', testTimeout: 30000, server: { deps: { inline: [/rapier3d/] } } },
 });

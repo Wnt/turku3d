@@ -205,16 +205,17 @@ def test_usage_takes_highest_window(tmp_path):
 
 def test_usage_hanging_app_server_times_out(tmp_path, monkeypatch):
     """app-server that never answers: used_percent() must return None (fail closed), not block forever."""
-    import time
+    import queue
+    from unittest.mock import patch
 
     from turkutex.codex import usage
 
     b = _fake_bin(tmp_path, "codexhang", "#!/bin/sh\nexec sleep 60\n")
     orig = usage._rpc
     monkeypatch.setattr(usage, "_rpc", lambda m, c="codex", timeout=25.0: orig(m, c, timeout=1.0))
-    t0 = time.time()
-    assert usage.used_percent(b) is None
-    assert time.time() - t0 < 10
+    with patch.object(queue.Queue, "get", side_effect=queue.Empty) as wait:
+        assert usage.used_percent(b) is None
+        assert 0 <= wait.call_args.kwargs["timeout"] <= 1.0
 
 
 def test_usage_cmd_missing_is_unknown(monkeypatch):

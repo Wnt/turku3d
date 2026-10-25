@@ -1,3 +1,4 @@
+import { frames, settled } from './waits';
 import { expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
@@ -27,7 +28,7 @@ async function axes(page: Page, x: number, y: number, rx = 0, ry = 0) {
 }
 async function button(page: Page, index: number, value: number) {
   await page.evaluate(([i, v]) => { (window as any).__virtualPad.buttons[i] = v; }, [index, value]);
-  await page.waitForTimeout(80);
+  await frames(page);
 }
 const state = (page: Page) => page.evaluate(() => (window as any).__game.state());
 
@@ -52,7 +53,7 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   await page.waitForFunction(() => (window as any).__game.state().feet[2] < 236.8);
   expect(Math.hypot((await state(page)).vel[0], (await state(page)).vel[2])).toBeGreaterThan(4);
   await axes(page, 0, 0); await button(page, 0, 0);
-  await page.waitForTimeout(300);
+  await settled(page);
   const curb = await state(page);
   expect(curb.feet[1]).toBeCloseTo(2.12, 1); expect(curb.feet[2]).toBeLessThan(initial.feet[2] - 3);
   expect(curb.visualFeet[1]).toBeCloseTo(curb.feet[1], 1);
@@ -61,7 +62,7 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   for (const c of curb.contacts) expect(Math.abs(c.ankle[1] - c.target[1])).toBeLessThan(0.045);
   await expect(page.locator('#help')).toContainText('ⓧ');
   const yaw = curb.cameraYaw;
-  await axes(page, 0, 0, 0.8); await page.waitForTimeout(250); await axes(page, 0, 0);
+  await axes(page, 0, 0, 0.8); await page.waitForFunction(yaw => Math.abs((window as any).__game.state().cameraYaw - yaw) > 0.15, yaw); await axes(page, 0, 0);
   expect(Math.abs((await state(page)).cameraYaw - yaw)).toBeGreaterThan(0.15);
   await button(page, 11, 1); await button(page, 11, 0);
   expect(Math.abs(Math.sin((await state(page)).cameraYaw))).toBeLessThan(0.05);
@@ -72,13 +73,13 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   await page.waitForFunction(() => (window as any).__game.state().grounded);
   await button(page, 8, 1); await button(page, 8, 0);
   const paused = await state(page); expect(paused.paused).toBe(true);
-  await axes(page, 0, -1); await page.waitForTimeout(200);
+  await axes(page, 0, -1); await frames(page, 12);
   expect((await state(page)).feet).toEqual(paused.feet);
   await axes(page, 0, 0); await button(page, 8, 1); await button(page, 8, 0);
   await page.evaluate(() => { (window as any).__virtualPad.connected = false; });
   await expect.poll(async () => (await state(page)).inputSource).toBe('keyboard');
   await page.evaluate(() => { (window as any).__virtualPad.connected = true; });
-  await axes(page, 0.5, 0); await page.waitForTimeout(150); await axes(page, 0, 0);
+  await axes(page, 0.5, 0); await page.waitForFunction(() => (window as any).__game.state().inputSource === 'gamepad'); await axes(page, 0, 0);
   expect((await state(page)).inputSource).toBe('gamepad');
   expect((await state(page)).errors).toEqual([]);
 });
@@ -100,7 +101,7 @@ test('virtual Xbox: ascend and descend slope stairs with feet on query treads', 
   });
   await axes(page, 0, -0.5);
   await page.waitForFunction(() => { const s = (window as any).__game.state(); return s.feet[2] < 219.25 && s.locomotion === 'stairUp'; });
-  await axes(page, 0, 0); await page.waitForTimeout(500);
+  await axes(page, 0, 0); await settled(page);
   const middle = await state(page);
   expect(middle.groundMaterial).toBe(16);
   expect(middle.feet[1]).toBeGreaterThan(2.3);
@@ -113,12 +114,12 @@ test('virtual Xbox: ascend and descend slope stairs with feet on query treads', 
   await page.screenshot({ path: path.join(reportsRoot, 'screenshots', `${info.project.name}-stair-ik.png`) });
   await axes(page, 0, -0.65);
   await page.waitForFunction(() => (window as any).__game.state().feet[2] < 217.5);
-  await axes(page, 0, 0); await page.waitForTimeout(200);
+  await axes(page, 0, 0); await settled(page);
   expect((await state(page)).feet[1]).toBeCloseTo(2.96, 1);
   await axes(page, 0, 0.6);
   await page.waitForFunction(() => (window as any).__game.state().locomotion === 'stairDown');
   await page.waitForFunction(() => (window as any).__game.state().feet[2] > 220.8);
-  await axes(page, 0, 0); await page.waitForTimeout(200);
+  await axes(page, 0, 0); await settled(page);
   expect((await state(page)).feet[1]).toBeCloseTo(2, 1);
   const samples = await page.evaluate(() => (window as any).__footSamples as { state: string; error: number }[]);
   expect(samples.filter(s => s.state === 'stairUp').length).toBeGreaterThan(5);
@@ -138,7 +139,7 @@ test('virtual Xbox: Y enters/exits, RT drives, LT reverses and RB brakes', { tag
   await button(page, 7, 0.8);
   await page.waitForFunction(z => (window as any).__game.state().vehicle.pos[2] < z - 2, z);
   await button(page, 7, 0); await button(page, 5, 1);
-  await page.waitForTimeout(300); await button(page, 5, 0);
+  await page.waitForFunction(() => Math.abs((window as any).__game.physics.latest.vehicle.forwardSpeed) < 0.1); await button(page, 5, 0);
   await button(page, 6, 1);
   await page.waitForFunction(() => (window as any).__game.physics.latest.vehicle.forwardSpeed < -0.5);
   await button(page, 6, 0); await button(page, 3, 1); await button(page, 3, 0);

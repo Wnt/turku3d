@@ -8,4 +8,11 @@ render-e2e: game-install ## All render tiers, river/ID contract and 1440p perf o
 	cd $(GAME_DIR) && npm run test:render
 
 render-perf: game-build ## Fixed-path 1440p CPU/GPU/frame budgets, per-commit JSON (PERF_TILES, PERF_QUALITY, E2E_PORT)
-	cd $(GAME_DIR) && npx playwright test -c playwright.render.config.ts performance.spec.ts
+	cd $(GAME_DIR) && npx playwright test -c playwright.render.config.ts performance.spec.ts functional-budgets.spec.ts
+
+.PHONY: streaming-perf tooling-perf
+streaming-perf: game-install ## Explicit unloaded-host collision streaming budget
+	cd $(GAME_DIR) && npx vitest run --config vitest.perf.config.ts
+
+tooling-perf: ## Explicit unloaded-host orientation budget
+	python3 $(REPO)/scripts/dev/tests/run.py perf_tooling.py

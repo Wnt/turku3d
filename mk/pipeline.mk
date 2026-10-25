@@ -11,7 +11,7 @@ pipeline-versions: ## Check native pipeline tools and Python libraries
 	bash $(REPO)/pipeline/env/versions.sh
 pipeline-venv: pipeline-bootstrap ## Install the complete local pipeline environment
 pipeline-test: ## Offline pipeline tests in the complete native environment
-	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n 4
+	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n $(TURKU3D_JOBS)
 pipeline-sources: ## Regenerate the data source manifest
 	$(PIPELINE_RUN) python -m turku3d.fetch.sources > $(REPO)/data-manifests/sources.yaml
 fetch-laz fetch-wfs fetch-wms fetch-osm: ## Fetch the named input kind locally for AREA

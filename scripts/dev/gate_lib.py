@@ -13,6 +13,10 @@ import tomllib
 from pathlib import Path
 
 from checks import check_policy
+from env_sync import sync
+from gate_cache import cached_execute, stage_key, versions
+from resources import jobs
+from sandbox import lock
 
 
 def git(root, *args):
@@ -64,17 +68,20 @@ def environment(root, config):
     if not python.is_absolute():
         python = root / python
     env["PIPELINE_PY"] = str(python)
+    work = Path(env.get("TURKU3D_WORK", root / ".cache/work"))
+    env["UV_CACHE_DIR"] = str(work / "cache/uv")
+    env["npm_config_cache"] = str(work / "cache/npm")
     # Native CLI dependencies are prepared by make pipeline-bootstrap, never by this gate.
     env["PATH"] = os.pathsep.join(
         [
-            env.get("PATH", ""),
             *(str(Path(path).expanduser()) for path in config["gate"].get("tool_dirs", [])),
+            env.get("PATH", ""),
         ]
     )
     env["PYTHONPATH"] = os.pathsep.join(
         str(root / p) for p in ("pipeline", "textures", "qa", "qa/tests")
     )
-    env["PYTEST_XDIST_AUTO_NUM_WORKERS"] = str(config["gate"]["python_workers"])
+    env["TURKU3D_JOBS"] = str(jobs())
     env["RUFF_CACHE_DIR"] = str(root / ".cache/ruff")
     env["TMPDIR"] = str(root / ".cache/tmp")
     Path(env["TMPDIR"]).mkdir(parents=True, exist_ok=True)
@@ -216,7 +223,7 @@ def execute(root, stage, changed, files, full, env, config):
                         "-q",
                         "--durations=5",
                         "-n",
-                        "auto",
+                        env["TURKU3D_JOBS"],
                         *tests,
                     ]
                 ]
@@ -232,7 +239,9 @@ def execute(root, stage, changed, files, full, env, config):
                     if matches(p, stage["triggers"])
                 )
                 args = ["run"] if run_all else ["related", "--run", "--passWithNoTests", *paths]
-                commands = [["game/node_modules/.bin/vitest", *args, "--maxWorkers=2"]]
+                commands = [
+                    ["game/node_modules/.bin/vitest", *args, f"--maxWorkers={env['TURKU3D_JOBS']}"]
+                ]
             else:
                 commands = stage["commands"]
             code, output = run_commands(root, commands, {**env, **stage.get("env", {})}, cwd)
@@ -247,6 +256,14 @@ def execute(root, stage, changed, files, full, env, config):
 
 
 def run_gate(root, config, changed, *, full=False, listing=False, as_json=False, fast=False):
+    # One checkout has one browser port/output tree. Distinct sandboxes still run in parallel.
+    with lock(root / ".cache/gate.lock"):
+        return _run_gate(
+            root, config, changed, full=full, listing=listing, as_json=as_json, fast=fast
+        )
+
+
+def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False, fast=False):
     start = time.monotonic()
     files = inventory(root)
     full = full or (
@@ -279,22 +296,54 @@ def run_gate(root, config, changed, *, full=False, listing=False, as_json=False,
             )
     if chosen:
         env = environment(root, config)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=config["gate"]["workers"]) as pool:
-            jobs = [
-                pool.submit(execute, root, s, changed, files, full, env, config) for s in chosen
-            ]
-            for job in concurrent.futures.as_completed(jobs):
+        if not fast:
+            synced = sync(root, env)
+            results.append(synced)
+            if not as_json:
+                print(f"{synced['status']:6} env-sync {synced['seconds']:.3f}s", flush=True)
+                if synced["status"] == "FAIL":
+                    print(synced["output"], flush=True)
+            if synced["status"] == "FAIL":
+                chosen = []
+        tools = versions(env) if chosen and not fast else {}
+
+        def run_stage(stage):
+            def action():
+                return execute(root, stage, changed, files, full, env, config)
+
+            # Policy depends on current main's merge count and is already inexpensive.
+            if fast or stage["kind"] == "policy":
+                return action()
+            kind = stage["kind"]
+            if kind in ("python-lint", "js-lint", "shell"):
+                scope = lint_commands(root, stage, changed, files, full, env)
+            elif kind in ("pytest", "e2e"):
+                scope = (
+                    None
+                    if full
+                    else related(stage, changed, "tests" if kind == "pytest" else "tags")
+                )
+            elif kind == "vitest":
+                scope = "full" if full else [p for p in changed if matches(p, stage["triggers"])]
+            else:
+                scope = None
+            key = stage_key(root, stage, files, scope, env, tools)
+            return cached_execute(root, stage, key, action)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=jobs()) as pool:
+            futures = [pool.submit(run_stage, s) for s in chosen]
+            for job in concurrent.futures.as_completed(futures):
                 result = job.result()
                 results.append(result)
                 if not as_json:
                     print(
-                        f"{result['status']:6} {result['name']:24} {result['seconds']:7.3f}s",
+                        f"{'cached ' if result.get('cached') else ''}{result['status']:6} {result['name']:24} {result['seconds']:7.3f}s",
                         flush=True,
                     )
                     if result["status"] == "FAIL":
                         print(result["output"], flush=True)
     order = {s["name"]: i for i, s in enumerate(config["stages"])}
-    results.sort(key=lambda r: order[r["name"]])
+    results.sort(key=lambda r: order.get(r["name"], -1))
     report = {
         "changed": changed,
         "stages": results,
@@ -306,7 +355,9 @@ def run_gate(root, config, changed, *, full=False, listing=False, as_json=False,
     else:
         for result in results:
             if result["status"] in ("SKIP", "SELECT"):
-                print(f"{result['status']:6} {result['name']:24} {result['reason']}")
+                print(
+                    f"{'cached ' if result.get('cached') else ''}{result['status']:6} {result['name']:24} {result['reason']}"
+                )
         print(f"TOTAL  {'GREEN' if report['ok'] else 'RED'} {report['seconds']:.3f}s")
     return 0 if report["ok"] else 1
 

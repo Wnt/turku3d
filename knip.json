@@ -36,6 +36,13 @@
           "vite.config.ts",
           "vite.ground.config.ts"
         ]
+      },
+      "vitest": {
+        "config": [
+          "vitest*.config.ts"
+        ]
+      }
+        ]
       }
     },
     "tools/validator": {

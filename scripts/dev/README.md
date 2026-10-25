@@ -139,7 +139,7 @@ make -j 4 foundation-test game-test qa-test textures-test
 make game-e2e
 ```
 
-`tooling-test` runs four independent synthetic-repository tests at a time and covers concurrent port claims, adoption, shell-safe environment generation, fake run/resume,
+`tooling-test` runs up to TURKU3D_JOBS independent synthetic-repository tests at a time and covers concurrent port claims, adoption, shell-safe environment generation, fake run/resume,
 quota refusal/override, process-group stop, landing success/refusals, removal and orientation from both checkouts.
 Coordination coverage includes two sandbox environments exchanging requests and acknowledgements,
 board announcements, concurrent CLI readers/writers, append-only/idempotent acknowledgements,
@@ -246,9 +246,8 @@ Main remains at `ea0509d`; this branch has not been merged into main.
 
 ## Quality gate (W0-B)
 
-Run from the repository root. The gate never installs packages, fetches Git refs, downloads
-assets or calls paid/model services. Python 3.12+, Node 24+, shfmt and ShellCheck must be installed.
-Initial dependency setup (network allowed here only):
+Run from the repository root. The gate synchronizes changed Python/Node dependency manifests before stages run; it never fetches Git refs, downloads assets or calls paid/model services. Python 3.12+, Node 24+, shfmt and ShellCheck must be installed.
+Initial native dependency setup:
 
 ```sh
 make pipeline-bootstrap       # native GDAL/osmium CLI tools; setup only
@@ -298,11 +297,9 @@ profiles use `$TURKU3D_BROWSER_DIR/tmp`. The game build uses `$TURKU3D_WORK/buil
 `TURKU3D_PORT_BASE` selects e2e port `base+1` (the two browser suites run sequentially);
 QA HTTP tests use `base+2`, dev-server tests use `base+3` and `base+6` / `base+7`, and the two
 Python fetch test workers use `base+4` / `base+5`. The main default base is 5170; parallel
-sandboxes must set their allocated base. The gate bounds pytest `-n auto` to two workers per
-package and runs up to six stages concurrently, with numeric-library threads limited to one.
+sandboxes must set their allocated base. One positive integer `TURKU3D_JOBS` bounds pytest, Playwright, Vitest, validator fixture workers, Make and concurrent gate stages. The default is max(2, floor(logical cores / 3)); new sandbox.env files persist it. Numeric-library threads remain limited to one.
 `GATE_PYTHON` can select a prepared Python environment instead of `.venv/bin/python`.
-The table's `tool_dirs` adds the prepared native pipeline CLI directories to PATH, preserving
-the caller's existing tools first. Missing native dependencies fail; the gate never installs them.
+The table's `tool_dirs` adds the prepared native pipeline CLI directories to PATH, before the caller PATH, matching pipeline/env/run.sh. Missing native dependencies fail; only Python/Node dependencies are synchronized.
 
 ### Git hooks
 
@@ -417,7 +414,7 @@ walk/drive browser tags; rendering selects render/QA; input and vehicle specs se
 QA report edits run report generation, concurrent history, and the loop's failure/report integration.
 The lidar, region and benchmark producer paths are reserved for their incoming branches.
 
-Browser suites share one Vite build per gate and use four workers. Gameplay pages emulate focus
+Browser suites share one Vite build per gate and use TURKU3D_JOBS workers. Gameplay pages emulate focus
 through Chrome's protocol so another window cannot suppress controller/keyboard input. Synthetic
 browser tiles are reused only when producer sources, codec lockfile and numeric-library versions
 match and all manifest hashes verify. The full tile acceptance command remains `make tile-validate`.
@@ -434,3 +431,48 @@ remains, and escalates by verified individual PID rather than a possibly recycle
 Real permission failures remain errors. `wt rm` checks cheap Git refusals first, scans cwd entries
 separately, and inspects sockets only when IPv4/IPv6 wildcard port probes detect occupancy.
 See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limitations and timings.
+
+## Load-robust gates and environment sync
+
+```sh
+source ../sandbox.env
+export TURKU3D_JOBS=3
+scripts/dev/wt sync-env                 # current checkout
+scripts/dev/wt sync-env example         # named sandbox (or --all)
+scripts/dev/gate --all
+scripts/dev/gate --paths game/src/core/origin.ts --json
+# Orchestrator only:
+scripts/dev/codex-task land example
+scripts/dev/codex-task land --batch a b c
+# Explicit budgets, on an unloaded machine:
+TURKU3D_JOBS=1 make streaming-perf
+TURKU3D_JOBS=1 make tooling-perf
+TURKU3D_JOBS=1 make render-perf
+```
+
+`env-sync` hashes pyproject/requirements files and each npm package/lock pair into
+`.cache/env-sync/stamp.json`. It serializes installs, writes stamps only after success,
+and detects missing environments. Python uses editable packages with declared extras;
+Node uses npm ci. It does not mutate linked hook dependencies: sync the source checkout
+first. A fresh-environment import stage checks dependency declarations when manifests change.
+Native test tools resolve from the same prepared directories as pipeline/env/run.sh.
+
+Successful stages are stored by content hash under `.cache/gate-results`. The key includes
+routed source/dependency domains, inventory (including deletions), selected test/lint scope,
+configuration, tools and installed Python versions, and sandbox settings. Only GREEN stages
+can report `cached PASS`; failures are never cached. Policy runs every time because flag expiry
+depends on main's merge count. Remove `.cache/gate-results` to force re-execution.
+
+Landing checks completion, messages, branch, cleanliness and the gate before verification.
+A concurrent main advance triggers at most three rebase/gate attempts; unchanged stages reuse
+GREEN results. Batches replay member commits in order in a new isolated integration worktree,
+run one combined gate, and fast-forward main only after all members pass final checks. A red
+batch checks the base, then bisects prefixes and reports a bisected failing prefix (including
+interactions with preceding members). No member is landed on red. Every successful member
+gets its own landed.jsonl record with original and integrated commits. Integration logs remain
+under the task root; member worktrees are unchanged. Conflicts and repeated main advances fail
+without updating main.
+
+Functional browser checks wait for movement, input, grounding, camera or physics state;
+button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA
+response budgets are explicit perf tests outside the functional gate.

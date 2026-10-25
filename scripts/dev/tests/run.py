@@ -8,6 +8,9 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from resources import jobs  # noqa: E402
+
 
 def cases(suite):
     for item in suite:
@@ -32,7 +35,7 @@ if __name__ == "__main__":
         for case in cases(unittest.defaultTestLoader.discover(str(Path(__file__).parent), pattern))
     ]
     failed = 0
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=jobs()) as pool:
         for future in as_completed([pool.submit(run, case) for case in tests]):
             name, ok, elapsed, output = future.result()
             print(f"{'PASS' if ok else 'FAIL'} {name} ({elapsed:.2f}s)", flush=True)

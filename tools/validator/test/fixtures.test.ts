@@ -1,6 +1,7 @@
 // Synthetic fixtures (python -m turku3d.col.fixtures) must pass/fail exactly as fixtures/expected.json says:
 // 12 cm and 25 cm steps are climbed, 40 cm blocks, buildings are impenetrable, and each negative
 // fixture fails the check it was built to break.
+import { jobs } from '../../dev/environment.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -34,7 +35,7 @@ async function fill() {
     await result;
   }
 }
-await Promise.all([fill(), fill()]);
+await Promise.all(Array.from({ length: jobs }, () => fill()));
 async function run(name: string) {
   return reports[name];
 }

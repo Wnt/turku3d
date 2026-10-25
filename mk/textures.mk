@@ -24,7 +24,7 @@ textures-deepbump: $(TEX_PY) ## Clone DeepBump (GPL-3, ONNX) to <data>/tools/Dee
 textures-setup: textures-venv textures-deepbump textures-ktx ## venv + native KTX tools + DeepBump in sandbox
 
 textures-test: $(TEX_PY) ## Run textures tests (fake codex; no network, no quota)
-	cd $(TEX_DIR) && $(PIPELINE_RUN) $(TEX_PY) -m pytest -q -n 3
+	cd $(TEX_DIR) && $(PIPELINE_RUN) $(TEX_PY) -m pytest -q -n $(TURKU3D_JOBS)
 
 textures-usage: $(TEX_PY) ## Codex weekly quota snapshot (free, no model call)
 	$(TEX_PY) -m turkutex codex usage

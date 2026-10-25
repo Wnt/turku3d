@@ -1,0 +1,154 @@
+"""Batch integration with one gate and failing-prefix bisection; main stays atomic."""
+
+import contextlib
+import json
+import os
+import subprocess
+import time
+import uuid
+
+import coordination as coord
+import sandbox as s
+
+
+def batch(names, force=False):
+    from task_runner import main_checkout, running, task
+
+    if len(set(names)) != len(names):
+        raise ValueError("batch members must be unique")
+    with s.lock(s.root() / ".registry/land.lock"), contextlib.ExitStack() as locks:
+        members = []
+        for name in names:
+            path = task(name)
+            locks.enter_context(s.lock(path / "lock"))
+            meta = s.read_json(path / "meta.json")
+            if running(meta) or meta.get("state") != "done" or meta.get("exit_code") != 0:
+                raise ValueError(f"{name}: task must have completed successfully")
+            result = path / "last.md"
+            if not result.exists() or [
+                line for line in result.read_text().splitlines() if line.startswith("## Result:")
+            ] != ["## Result: DONE"]:
+                raise ValueError(f"{name}: result must contain an exact ## Result: DONE heading")
+            repo = s.sandbox(name) / "repo"
+            if s.git("branch", "--show-current", cwd=repo) != f"wt/{name}" or s.git(
+                "status", "--porcelain", cwd=repo
+            ):
+                raise ValueError(f"{name}: sandbox is dirty or on an unexpected branch")
+            if not (repo / "scripts/dev/gate").is_file():
+                raise ValueError(f"{name}: missing scripts/dev/gate")
+            with coord.landing_guard(name, force):
+                pass
+            members.append((name, path, meta, s.git("rev-parse", "HEAD", cwd=repo)))
+        main = main_checkout(repo)
+        if main and s.git("status", "--porcelain", cwd=main):
+            raise ValueError("main worktree is dirty")
+        before = s.git("rev-parse", "main", cwd=repo)
+        gate_base = before
+        integration = s.new("land-batch-" + uuid.uuid4().hex[:10], before)
+        env = {**os.environ, **s.read_env(integration.parent / "sandbox.env")}
+        log_path = s.tasks_root() / ("batch-" + integration.parent.name + ".log")
+        started = time.monotonic()
+        commits = []
+
+        def assemble(count):
+            s.git("reset", "--hard", before, cwd=integration)
+            commits.clear()
+            for name, _, _, head in members[:count]:
+                revisions = s.git(
+                    "rev-list",
+                    "--reverse",
+                    "--cherry-pick",
+                    "--right-only",
+                    "--no-merges",
+                    f"HEAD...{head}",
+                    cwd=integration,
+                ).splitlines()
+                if revisions:
+                    try:
+                        s.git("cherry-pick", *revisions, cwd=integration)
+                    except subprocess.CalledProcessError:
+                        s.git("cherry-pick", "--abort", cwd=integration, check=False)
+                        raise ValueError(f"{name}: integration conflict; main unchanged") from None
+                commits.append(s.git("rev-parse", "HEAD", cwd=integration))
+
+        def gate(log):
+            head = s.git("rev-parse", "HEAD", cwd=integration)
+            code = subprocess.call(
+                [str(integration / "scripts/dev/gate"), "--base", gate_base],
+                cwd=integration,
+                env=env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            if (
+                s.git("status", "--porcelain", cwd=integration)
+                or s.git("rev-parse", "HEAD", cwd=integration) != head
+            ):
+                raise ValueError("gate changed integration files or HEAD; main unchanged")
+            return code == 0
+
+        try:
+            for _attempt in range(3):
+                before = s.git("rev-parse", "main", cwd=integration)
+                assemble(len(members))
+                with log_path.open("w") as log:
+                    if not gate(log):
+                        low, high = 0, len(members)
+                        # Locate the bisected failing prefix, retaining interactions with predecessors.
+                        assemble(0)
+                        if not gate(log):
+                            raise ValueError(f"base gate fails; main unchanged; {log_path}")
+                        while high - low > 1:
+                            middle = (low + high) // 2
+                            assemble(middle)
+                            if gate(log):
+                                low = middle
+                            else:
+                                high = middle
+                        raise ValueError(
+                            f"batch bisected failing prefix ends at {names[high - 1]}; main unchanged; {log_path}"
+                        )
+                if s.git("rev-parse", "main", cwd=integration) == before:
+                    break
+            else:
+                raise ValueError("main changed during batch gate three times; retry batch")
+            with contextlib.ExitStack() as guards:
+                for name, _path, _, head in members:
+                    guards.enter_context(coord.landing_guard(name, force))
+                    member_repo = s.sandbox(name) / "repo"
+                    if (
+                        s.git("status", "--porcelain", cwd=member_repo)
+                        or s.git("rev-parse", "HEAD", cwd=member_repo) != head
+                    ):
+                        raise ValueError(f"{name}: member changed during gate")
+                if s.git("rev-parse", "main", cwd=integration) != before:
+                    raise ValueError("main changed during batch gate; retry batch")
+                if main:
+                    if s.git("status", "--porcelain", cwd=main):
+                        raise ValueError("main became dirty during gate")
+                    s.git("merge", "--ff-only", commits[-1], cwd=main)
+                else:
+                    s.git("update-ref", "refs/heads/main", commits[-1], before, cwd=integration)
+                with (s.root() / ".registry/landed.jsonl").open("a") as ledger:
+                    for (name, path, meta, source), commit in zip(members, commits, strict=True):
+                        record = {
+                            "name": name,
+                            "before": before,
+                            "commit": commit,
+                            "source": source,
+                            "batch": names,
+                            "time": time.time(),
+                            "gate_seconds": round(time.monotonic() - started, 3),
+                        }
+                        meta["landed"] = record
+                        s.write_json(path / "meta.json", meta)
+                        ledger.write(json.dumps(record) + "\n")
+                print(f"batch landed: {', '.join(names)}; {log_path}")
+        finally:
+            # This process created the integration checkout; member worktrees are untouched.
+            s.git("worktree", "remove", "--force", str(integration), check=False)
+            s.git("branch", "-D", f"wt/{integration.parent.name}", cwd=repo, check=False)
+            with s.lock(s.root() / ".registry/lock"):
+                records = s.registry()
+                records.pop(integration.parent.name, None)
+                s.save_registry(records)

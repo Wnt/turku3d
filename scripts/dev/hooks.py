@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -59,6 +60,11 @@ def snapshot(root, revision, staged=False):
                 if source.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.symlink_to(source, target_is_directory=True)
+            stamp = root / ".cache/env-sync/stamp.json"
+            if stamp.exists():
+                destination = target / ".cache/env-sync/stamp.json"
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(stamp, destination)
             yield target
         finally:
             git(root, "worktree", "remove", "--force", str(target))

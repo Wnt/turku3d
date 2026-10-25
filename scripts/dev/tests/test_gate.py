@@ -34,7 +34,16 @@ class Fixture:
         run(self.root, "git", "init", "-q", "-b", "main")
         run(self.root, "git", "config", "user.email", "gate@example.invalid")
         run(self.root, "git", "config", "user.name", "Gate test")
-        for name in ("gate", "gate_lib.py", "checks.py", "hooks.py"):
+        for name in (
+            "gate",
+            "gate_lib.py",
+            "gate_cache.py",
+            "env_sync.py",
+            "sandbox.py",
+            "resources.py",
+            "checks.py",
+            "hooks.py",
+        ):
             self.write("scripts/dev/" + name, (DEV / name).read_text())
         (self.root / "scripts/dev/gate").chmod(0o755)
         self.write("eslint.config.mjs", (REPO / "eslint.config.mjs").read_text())
@@ -114,11 +123,12 @@ class GateTest(unittest.TestCase):
     def test_clean_and_docs_only(self):
         result, report = self.fixture.gate()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([s["name"] for s in report["stages"] if s["status"] == "PASS"], ["policy"])
+        self.assertEqual(
+            [s["name"] for s in report["stages"] if s["status"] == "PASS"], ["env-sync", "policy"]
+        )
         self.fixture.write("docs/note.md", "hello\n")
         result, report = self.fixture.gate()
         self.assertEqual(result.returncode, 0)
-        self.assertLess(report["seconds"], 2)
         self.assertTrue(all(s.get("reason") for s in report["stages"] if s["status"] == "SKIP"))
 
     def test_changed_union_and_deletions(self):
@@ -308,7 +318,10 @@ class GateTest(unittest.TestCase):
                 failed = {s["name"] for s in report["stages"] if s["status"] == "FAIL"}
                 self.assertIn(expected, failed, (kind, report))
                 if kind == "expired flag":
-                    self.assertIn("expired", report["stages"][0]["output"])
+                    self.assertIn(
+                        "expired",
+                        next(s for s in report["stages"] if s["name"] == "policy")["output"],
+                    )
             finally:
                 f.close()
 

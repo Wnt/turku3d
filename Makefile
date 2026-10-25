@@ -5,6 +5,11 @@
 .DEFAULT_GOAL := help
 REPO := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 export REPO
+TURKU3D_JOBS ?= $(shell python3 $(REPO)/scripts/dev/resources.py)
+export TURKU3D_JOBS
+ifeq ($(MAKELEVEL),0)
+MAKEFLAGS += -j$(TURKU3D_JOBS)
+endif
 
 # Shared inputs; sandbox-specific outputs and services (source sandbox.env in a worktree).
 TURKU3D_DATA ?= $(HOME)/turku3d/data

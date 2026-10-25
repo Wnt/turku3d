@@ -1,3 +1,4 @@
+import { jobs } from '../tools/dev/environment.mjs';
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
 import { port, reportsRoot, isolateBrowser, gameDist, tileDist } from '../tools/dev/environment.mjs';
@@ -11,7 +12,8 @@ const TILE_DIST = tileDist;
 export default defineConfig({
   testDir: 'tests/e2e-tile',
   timeout: 120_000,
-  workers: Number(process.env.TURKU3D_JOBS ?? 3),
+  workers: jobs,
+  expect: { timeout: 60_000 },
   fullyParallel: true,
   reporter: [['list']],
   outputDir: path.join(reportsRoot, 'playwright-tile'),

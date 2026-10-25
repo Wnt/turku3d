@@ -2,10 +2,12 @@
 """Create and inspect isolated agent worktrees."""
 
 import argparse
+import os
 import subprocess
 import sys
 
 import sandbox as s
+from env_sync import sync
 
 
 def main():
@@ -18,6 +20,9 @@ def main():
             p.add_argument("--from", dest="ref", default="main")
         if cmd == "rm":
             p.add_argument("--force", action="store_true")
+    p = subs.add_parser("sync-env")
+    p.add_argument("name", nargs="?")
+    p.add_argument("--all", action="store_true")
     subs.add_parser("ls")
     subs.add_parser("gc")
     a = ap.parse_args()
@@ -29,6 +34,18 @@ def main():
         print((s.sandbox(a.name) / "sandbox.env").read_text(), end="")
     elif a.cmd == "rm":
         s.remove(a.name, a.force)
+    elif a.cmd == "sync-env":
+        if a.all and a.name:
+            ap.error("choose a name or --all")
+        names = sorted(s.registry()) if a.all else [a.name] if a.name else []
+        targets = [s.sandbox(name) / "repo" for name in names] if names else [s.REPO]
+        for repo in targets:
+            env_file = repo.parent / "sandbox.env"
+            env = {**os.environ, **(s.read_env(env_file) if env_file.exists() else {})}
+            result = sync(repo, env)
+            print(f"{repo}: env-sync {result['status']} ({result['seconds']}s)\n{result['output']}")
+            if result["status"] == "FAIL":
+                raise ValueError("environment sync failed")
     elif a.cmd == "ls":
         s.list_sandboxes()
     else:

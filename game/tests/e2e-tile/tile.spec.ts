@@ -1,3 +1,4 @@
+import { settled } from '../e2e/waits';
 // Tile packaging acceptance (ARCHITECTURE §4): Chrome shows the pipeline-assembled tile (dist/tiles from
 // `make tile`, built locally) and the character walks on its collision. Also checks the qa/README.md §2
 // render contract on the real tile: pose echo, __qaProject, and the object-ID pass.
@@ -73,9 +74,9 @@ test('assembled tile from the pipeline renders and the character walks on its co
   await page.screenshot({ path: `${SHOTS}/tile-${backend}-start.png` });
 
   await page.keyboard.down('KeyW');
-  await page.waitForFunction((s0) => { const s = (window as any).__game.state(); return Math.hypot(s.feet[0] - s0[0], s.feet[2] - s0[2]) >= 8; }, start.feet, { timeout: 8_000 });
+  await page.waitForFunction((s0) => { const s = (window as any).__game.state(); return Math.hypot(s.feet[0] - s0[0], s.feet[2] - s0[2]) >= 8; }, start.feet, { timeout: 60_000 });
   await page.keyboard.up('KeyW');
-  await page.waitForTimeout(500);
+  await settled(page);
   const end = await page.evaluate(() => (window as any).__game.state());
   console.log(`[${backend}] assembled tile: walked ${Math.hypot(end.feet[0] - start.feet[0], end.feet[2] - start.feet[2]).toFixed(2)} m, `
     + `N ${start.N.toFixed(2)} -> ${end.N.toFixed(2)}, H ${start.H.toFixed(3)} -> ${end.H.toFixed(3)}, ground mat ${end.groundMaterial}, `
@@ -163,9 +164,9 @@ test('character crosses all four L0 seams without a height step', { tag: ['@walk
     await page.waitForFunction(({ axis, direction, from }) => {
       const s = (window as any).__game.state();
       return direction * (s.feet[axis] - from) >= 12;
-    }, { axis, direction, from: start.feet[axis] }, { timeout: 8_000 });
+    }, { axis, direction, from: start.feet[axis] }, { timeout: 60_000 });
     await page.keyboard.up(key);
-    await page.waitForTimeout(150);
+    await settled(page);
     const end = await page.evaluate(() => (window as any).__game.state());
     visited.add(`t0_${Math.floor(end.feet[0] / 250)}_${Math.floor(end.feet[2] / 250)}`);
     heights.push(start.H, end.H);

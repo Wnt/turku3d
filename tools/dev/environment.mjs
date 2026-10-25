@@ -22,3 +22,6 @@ export function isolateBrowser() {
   process.env.TMP = temp;
   process.env.TEMP = temp;
 }
+
+export const jobs = Number(process.env.TURKU3D_JOBS ?? Math.max(2, Math.floor(os.cpus().length / 3)));
+if (!Number.isSafeInteger(jobs) || jobs < 1) throw new Error('TURKU3D_JOBS must be a positive integer');

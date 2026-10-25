@@ -3,7 +3,6 @@
 import importlib
 import json
 import threading
-import time
 from pathlib import Path
 
 import numpy as np
@@ -65,13 +64,18 @@ def test_parallel_bounded_and_quota_stop(tmp_path):
     lock = threading.Lock()
     active = 0
     peak = 0
+    calls = 0
+    first_wave = threading.Barrier(3)
 
     def fake(*args, **kw):
-        nonlocal active, peak
+        nonlocal active, peak, calls
         with lock:
             active += 1
+            calls += 1
+            wait = calls <= 3
             peak = max(peak, active)
-        time.sleep(0.03)
+        if wait:
+            first_wave.wait(timeout=60)
         with lock:
             active -= 1
         return {"ok": True, "result": {"similarity": 5}}

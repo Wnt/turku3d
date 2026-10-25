@@ -14,6 +14,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from resources import jobs
+
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -85,6 +87,7 @@ def environment(name, port):
         "TURKU3D_DATA": os.environ.get("TURKU3D_DATA", str(Path.home() / "turku3d/data")),
         "TURKU3D_WORK": str(home / "work"),
         "TURKU3D_SANDBOX": name,
+        "TURKU3D_JOBS": str(jobs()),
         "TURKU3D_PORT_BASE": str(port),
         "TURKU3D_BROWSER_DIR": str(home / "browser"),
     }

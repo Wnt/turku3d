@@ -9,9 +9,11 @@ dependencies = [
   "pyproj>=3.6",
   "jsonschema>=4.23",
   "turku3d",
+  "requests>=2.31",
 ]
 
 [project.optional-dependencies]
+streetview = ["aiohttp>=3.9", "protobuf>4", "pycryptodome>=3.20", "bd09convertor>=0.0.3", "coordinatesconverter", "pillow-heif>=0.18"]
 post = ["onnxruntime>=1.18", "scipy>=1.13", "imageio>=2.30"]
 
 ground = ["rasterio>=1.4", "shapely>=2.1", "geopandas>=1.0", "pyarrow>=18"]

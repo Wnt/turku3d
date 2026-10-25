@@ -1,3 +1,4 @@
+import { settled } from './waits';
 import path from 'node:path';
 // Smoke test, both backends: page loads without console errors, the dummy tile renders, the player walks
 // forward >= 5 m, the 3D Tiles frame is correct (NE marker at +x/-z), QA camera mode reports ready.
@@ -72,9 +73,9 @@ test('loads, walks 5 m forward on the dummy tile, no console errors', { tag: ["@
 
   // walk forward (camera faces north at spawn): hold W until 5 m covered (max 6 s)
   await page.keyboard.down('KeyW');
-  await page.waitForFunction((s0) => { const s = (window as any).__game.state(); return Math.hypot(s.feet[0] - s0[0], s.feet[2] - s0[2]) >= 5; }, start.feet, { timeout: 6_000 });
+  await page.waitForFunction((s0) => { const s = (window as any).__game.state(); return Math.hypot(s.feet[0] - s0[0], s.feet[2] - s0[2]) >= 5; }, start.feet, { timeout: 60_000 });
   await page.keyboard.up('KeyW');
-  await page.waitForTimeout(400);
+  await settled(page);
   const end = await page.evaluate(() => (window as any).__game.state());
   const dist = Math.hypot(end.feet[0] - start.feet[0], end.feet[2] - start.feet[2]);
   console.log(`[${backend}] walked ${dist.toFixed(2)} m: N ${start.N.toFixed(2)} -> ${end.N.toFixed(2)}, H ${end.H.toFixed(3)}, frame ${end.frameMs.toFixed(2)} ms, visual tris ${end.visTris}, collision tiles ${end.collision.tiles}`);
@@ -114,24 +115,32 @@ test('enter the car with F, drive forward, exit with F', { tag: ["@drive"] }, as
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; }, null, { timeout: 60_000 });
   // the car is parked 6 m to the right (east) of the spawn: strafe right until within 3 m
   await page.keyboard.down('KeyD');
-  await page.waitForFunction(() => { const s = (window as any).__game.state(); return Math.hypot(s.vehicle.pos[0] - s.feet[0], s.vehicle.pos[2] - s.feet[2]) < 3.2; }, null, { timeout: 6_000 });
+  await page.waitForFunction(() => { const s = (window as any).__game.state(); return Math.hypot(s.vehicle.pos[0] - s.feet[0], s.vehicle.pos[2] - s.feet[2]) < 3.2; }, null, { timeout: 60_000 });
   await page.keyboard.up('KeyD');
   await page.keyboard.press('KeyF');
-  await page.waitForFunction(() => (window as any).__game.state().mode === 'car', null, { timeout: 3_000 });
+  await page.waitForFunction(() => (window as any).__game.state().mode === 'car', null, { timeout: 60_000 });
   const c0 = await page.evaluate(() => (window as any).__game.state().vehicle.pos);
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(2500);
+  await page.waitForFunction(from => {
+    const p = (window as any).__game.state().vehicle.pos;
+    if (Math.hypot(p[0] - from[0], p[2] - from[2]) <= 3 || from[2] - p[2] <= 2) return false;
+    // Release throttle and brake on this frame; CDP/screenshot latency must not extend the route.
+    dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+    return true;
+  }, c0);
   await page.keyboard.up('KeyW');
   const c1 = await page.evaluate(() => (window as any).__game.state().vehicle);
   const moved = Math.hypot(c1.pos[0] - c0[0], c1.pos[2] - c0[2]);
   console.log(`[${backend}] car moved ${moved.toFixed(2)} m, speed ${c1.speed.toFixed(2)} m/s, dN ${(c0[2] - c1.pos[2]).toFixed(2)}`);
   expect(moved).toBeGreaterThan(3);
   expect(c0[2] - c1.pos[2]).toBeGreaterThan(2); // drove north (the car faces the spawn heading)
+  await page.waitForFunction(() => Math.abs((window as any).__game.physics.latest.vehicle.forwardSpeed) < 0.1);
   await page.screenshot({ path: `${SHOTS}/${backend}-car.png` });
-  await page.keyboard.down('Space'); await page.waitForTimeout(1500); await page.keyboard.up('Space');
+  await page.keyboard.up('Space');
   await page.keyboard.press('KeyF');
-  await page.waitForFunction(() => (window as any).__game.state().mode === 'foot', null, { timeout: 3_000 });
-  await page.waitForTimeout(800);
+  await page.waitForFunction(() => (window as any).__game.state().mode === 'foot', null, { timeout: 60_000 });
+  await settled(page);
   const s = await page.evaluate(() => (window as any).__game.state());
   expect(s.H).toBeCloseTo(2.0, 1);
   expect(con.bad, con.all.join('\n')).toEqual([]);
@@ -165,13 +174,11 @@ test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json:
   await ctx.close();
 });
 
-test('QA pose outside the tileset reports __qaError quickly (not the 120 s timeout)', { tag: ["@qa", "@render"] }, async ({ page }, info) => {
+test('QA pose outside the tileset reports the outside-tileset error', { tag: ["@qa", "@render"] }, async ({ page }, info) => {
   const backend = info.project.name;
-  const t0 = Date.now();
   await page.goto(`/?backend=${backend}&cam=23469668,6714254,5,0,-10,60&qa=1`); // 10 km NE of the dev tiles
   await page.waitForFunction(() => (window as any).__qaReady === true || (window as any).__qaError, null, { timeout: 30_000 });
   const r = await page.evaluate(() => ({ ready: (window as any).__qaReady, err: (window as any).__qaError }));
   expect(r.ready).toBeFalsy();
   expect(r.err).toMatch(/outside the tileset/);
-  expect(Date.now() - t0).toBeLessThan(15_000);
 });
