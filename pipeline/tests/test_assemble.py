@@ -1,6 +1,11 @@
+import hashlib
 import io
 import json
 import struct
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -178,17 +183,181 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     (out / m["visual"]["t0_0_0"]["url"]).write_bytes(b"broken")
     assert assemble(["t0_0_0"], layers=layers, out=out, library=library)["changed"]
     assert verify_tree(out) == []
-    # A newly supplied facade invalidates the content cache, then gets bound to this building only.
-    img = glb["images"][0]
-    view = glb["bufferViews"][img["bufferView"]]
-    facades = tmp_path / "facades"
+    # Raw staging cannot authorize unique textures, even with a matching filename.
+    facades = tmp_path / "assembly/facades"
     (facades / "b1").mkdir(parents=True)
-    (facades / "b1/0.ktx2").write_bytes(
-        blob[view.get("byteOffset", 0) : view.get("byteOffset", 0) + view["byteLength"]]
+    with pytest.raises(ValueError, match="filtered texture assembly export"):
+        assemble(["t0_0_0"], layers=layers, out=out, library=library, facades=facades)
+    inventory = buildings / "facades.geojson"
+    inventory.write_text('{"type":"FeatureCollection","features":[]}')
+    export = dict(
+        inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(), bound=["b1_0"]
     )
-    assert assemble(["t0_0_0"], layers=layers, out=out, library=library, facades=facades)["changed"]
+    (facades.parent / "MANIFEST.json").write_text(json.dumps(export))
+    files, hashes = {}, {}
+    for slot, info in [
+        ("albedo", mat["pbrMetallicRoughness"]["baseColorTexture"]),
+        ("normal", mat["normalTexture"]),
+        ("orm", mat["occlusionTexture"]),
+    ]:
+        tex = glb["textures"][info["index"]]
+        img = glb["images"][tex["extensions"]["KHR_texture_basisu"]["source"]]
+        view = glb["bufferViews"][img["bufferView"]]
+        data = blob[view.get("byteOffset", 0) : view.get("byteOffset", 0) + view["byteLength"]]
+        name = "0.ktx2" if slot == "albedo" else f"0.{slot}.ktx2"
+        (facades / "b1" / name).write_bytes(data)
+        files[slot], hashes[name] = name, hashlib.sha256(data).hexdigest()
+    sidecar = dict(
+        building_id="b1",
+        facade_index=0,
+        files=files,
+        hashes=hashes,
+        qa=dict(gltf_basisu_valid=True),
+        uv=dict(units="metres", scale=[-0.05, -0.1], offset=[1, 1]),
+    )
+    (facades / "b1/0.json").write_text(json.dumps(sidecar))
+    kwargs = dict(layers=layers, out=out, library=library, facades=facades)
+    assert assemble(["t0_0_0"], **kwargs)["changed"]
     js, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
-    assert any(im.get("name") == "0.ktx2" for im in js["images"])
+    node = next(n for n in js["nodes"] if n.get("extras", {}).get("object_id") == "facade")
+    material = js["materials"][js["meshes"][node["mesh"]]["primitives"][0]["material"]]
+    for info in (
+        material["pbrMetallicRoughness"]["baseColorTexture"],
+        material["normalTexture"],
+        material["occlusionTexture"],
+        material["pbrMetallicRoughness"]["metallicRoughnessTexture"],
+    ):
+        assert info["extensions"]["KHR_texture_transform"] == {
+            "scale": [-0.05, -0.1],
+            "offset": [1, 1],
+        }
+        tex = js["textures"][info["index"]]
+        assert js["samplers"][tex["sampler"]]["wrapS"] == 33071
+    assert {im.get("name") for im in js["images"]} >= set(files.values())
+    assert assemble(["t0_0_0"], **kwargs)["changed"] == []
+    normal_path = facades / "b1" / files["normal"]
+    original = normal_path.read_bytes()
+    normal_path.write_bytes(b"changed after QA")
+    with pytest.raises(ValueError, match="Facade map changed after export"):
+        assemble(["t0_0_0"], **kwargs)
+    normal_path.write_bytes(original)
+    # An unlisted index or changed authoritative geometry must revert to the library.
+    for change in ("unlisted", "geometry"):
+        export["bound"] = [] if change == "unlisted" else ["b1_0"]
+        (facades.parent / "MANIFEST.json").write_text(json.dumps(export))
+        if change == "geometry":
+            inventory.write_text("changed geometry inventory")
+        assemble(["t0_0_0"], **kwargs)
+        js, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
+        assert not any(im.get("name") == "0.ktx2" for im in js["images"])
+
+
+def test_region_batch_cli_and_manifest(tmp_path):
+    layers, out = tmp_path / "layers", tmp_path / "dist"
+    fixture(layers, ids=("t0_0_0", "t0_1_0"))
+    cmd = [
+        sys.executable,
+        "-m",
+        "turku3d.package.assemble",
+        "--layers",
+        str(layers),
+        "--out",
+        str(out),
+        "--tile",
+        "t0_0_0",
+        "t0_1_0",
+    ]
+    result = json.loads(subprocess.check_output(cmd, text=True))
+    assert result["manifest"] == str(out / "manifest.json")
+    manifest = json.loads(Path(result["manifest"]).read_text())
+    assert {k for k, v in manifest["visual"].items() if v["level"] == 0} == {"t0_0_0", "t0_1_0"}
+    assert len(manifest["collision"]) == 32
+    assert {Path(v["url"]).parent.name for v in manifest["collision"].values()} == {
+        "t0_0_0",
+        "t0_1_0",
+    }
+    assert verify_tree(out) == verify_seams(out) == []
+    cached = json.loads(subprocess.check_output(cmd, text=True))
+    assert cached["changed"] == [] and cached["manifest"] == result["manifest"]
+    # Consume the published manifest exactly as the region runner does: independent jobs
+    # only after assembly succeeds. Format checks keep this small fixture fast.
+    directories = sorted({(out / v["url"]).parent for v in manifest["collision"].values()})
+
+    def validate(directory):
+        report = tmp_path / f"validate-{directory.name}.json"
+        subprocess.run(
+            [
+                "node",
+                str(C.REPO_ROOT / "tools/validator/src/cli.ts"),
+                "--checks",
+                "format",
+                "--out",
+                str(report),
+                str(directory),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(report.read_text())["pass"]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert all(pool.map(validate, directories))
+
+
+def test_building_library_fallbacks_and_metre_uvs(tmp_path):
+    library = tmp_path / "work/textures/assembly/library"
+    for key in ("render_smooth", "roof_standing_seam_metal"):
+        directory = library / key
+        directory.mkdir(parents=True)
+        (directory / "material.json").write_text(json.dumps({"uv_scale": [0.5, 0.25]}))
+        for slot, color in (
+            ("albedo", (100, 130, 90)),
+            ("normal", (128, 128, 255)),
+            ("orm", (255, 180, 0)),
+        ):
+            Image.new("RGB", (8, 8), color).save(directory / f"{slot}.png")
+    keys = [
+        "facade_brick",
+        "facade_wood",
+        "facade_concrete",
+        "facade_plaster",
+        "roof_tile_red",
+        "roof_metal_green",
+        "roof_metal_dark",
+        "roof_metal_gray",
+    ]
+    meshes = [
+        GlbMesh(
+            key,
+            np.array([[0.0, 0, 0], [2, 0, 0], [0, 0, 4]]),
+            np.array([[0, 2, 1]], np.uint32),
+            uvs=np.array([[0, 0], [2, 0], [0, 4]], np.float32),
+            extras=dict(layer="buildings", object_id=key, material_key=key, surface="roof"),
+        )
+        for key in keys
+    ]
+    directory = tmp_path / "layers/buildings"
+    write_visual(directory / "t0_0_0.vis.glb", meshes)
+    write_manifest(directory, inputs={}, params={}, code="test", tiles=["t0_0_0.vis.glb"])
+    out = tmp_path / "dist"
+    assemble(["t0_0_0"], layers=directory.parent, out=out)
+    js, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
+    assert len(js["materials"]) == len(keys)
+    for mat in js["materials"]:
+        key = mat["extras"]["material_key"]
+        assert mat["extras"]["library_material_key"] == (
+            "render_smooth" if key.startswith("facade_") else "roof_standing_seam_metal"
+        )
+        for info in (
+            mat["pbrMetallicRoughness"]["baseColorTexture"],
+            mat["normalTexture"],
+            mat["occlusionTexture"],
+            mat["pbrMetallicRoughness"]["metallicRoughnessTexture"],
+        ):
+            assert info["extensions"]["KHR_texture_transform"] == {"scale": [0.5, 0.25]}
+            tex = js["textures"][info["index"]]
+            assert js["samplers"][tex["sampler"]]["wrapS"] == 10497
 
 
 def test_seam_rejected_before_publishing(tmp_path):

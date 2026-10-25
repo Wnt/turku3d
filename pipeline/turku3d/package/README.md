@@ -8,20 +8,21 @@ maanpinta ground points and 2022 ortho to fill their complete footprint.
 
 ```sh
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
-make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1" TURKU3D_PORT_BASE=5290
+make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-test
 make game-test
 ```
 
 `make tile` assembles, validates with Rapier, then runs Chrome WebGPU/WebGL2 tests.
 Output is `$TURKU3D_WORK/dist/tiles`; reports are `$TURKU3D_WORK/reports`.
-The test browser uses `$TURKU3D_BROWSER_DIR`, on port base + 1 (5291 above).
+The test browser uses `$TURKU3D_BROWSER_DIR`, on the sandbox port base + 1.
 To use an explicit layer inventory or texture library:
 
 ```sh
 bash pipeline/env/run.sh python -m turku3d.package.assemble \
   --layers "$TURKU3D_WORK/build/layers" --out "$TURKU3D_WORK/dist/tiles" \
-  --library textures/library --facades "$TURKU3D_WORK/textures/facades" \
+  --library "$TURKU3D_WORK/textures/assembly/library" \
+  --facades "$TURKU3D_WORK/textures/assembly/facades" \
   --tile t0_0_0 t0_0_1 t0_1_0 t0_1_1
 ```
 
@@ -34,6 +35,25 @@ inventory, and changes on existing neighbours when new tiles are added.
 
 Visuals preserve L0 topology and object IDs. The assembler binds library albedo/normal/ORM
 maps and unique building facades, falling back to the library material when a facade is absent.
+Both texture defaults are under `$TURKU3D_WORK/textures/assembly`. Until W1-09's assets are
+promoted, pass `--library /Users/wnt/turku3d/wt/w1-09-facades/work/textures/assembly/library`
+and `--facades /Users/wnt/turku3d/wt/w1-09-facades/work/textures/assembly/facades`.
+Only W1-09's filtered export may supply unique facades: its parent `MANIFEST.json` must
+have `bound` facade IDs (`<building_id>_<facade_index>`) and an `inventory_sha256` matching the current
+`layers/buildings/facades.geojson`. Missing or changed geometry keeps the library fallback.
+Raw staging is rejected. Unlisted indices are ignored even when matching files exist.
+Sidecars must identify the building/index, declare metre UVs, pass `qa.gltf_basisu_valid`,
+and supply all three `files` and matching SHA-256 `hashes`. Changed exported maps fail assembly.
+`uv.scale`/`uv.offset` apply through `KHR_texture_transform` to albedo, normal, occlusion
+and metallic/roughness, with clamped sampling. Library `material.json` `uv_scale` applies
+to all library maps with repeating sampling; its default is `[1,1]`. Embedded source maps
+retain their own UVs and transforms when no replacement map exists.
+
+The single fallback table is `materials.mjs`: W1-03's four `facade_*` classes use
+`render_smooth`; its four `roof_*` classes use `roof_standing_seam_metal`.
+`plinth_granite`, `ground_asphalt`, and `ground_granite` use their namesake library assets.
+Brick, wood and roof tile remain explicit generic approximations. Original `material_key`
+is retained in node/material extras; `library_material_key` records the chosen library key.
 Untextured inputs retain their source colors. PNG/JPEG maps become ETC1S albedo or UASTC +
 Zstandard linear maps through KTX-Software 4.4.2 **before** lossless meshopt compression.
 It never invokes `optimize`, joins L0 meshes, simplifies L0 geometry, or quantizes positions.
@@ -60,6 +80,40 @@ under the output's sibling `.texture-cache`, so parents reuse encoded images. Ma
 published last, after staging and validation. Only one assembler may publish to a dist tree
 at a time, and producers must finish their layer manifests before assembly.
 
+## Region batch handoff (W2-02)
+
+After all layer producers finish, invoke assembly once with the complete tile list:
+
+```sh
+source ../sandbox.env
+bash pipeline/env/run.sh python -m turku3d.package.assemble \
+  --area office-block --layers "$TURKU3D_WORK/build/layers" \
+  --out "$TURKU3D_WORK/dist/tiles" --tile t0_0_0 t0_0_1 t0_1_0 t0_1_1
+```
+
+Exit 0 means publication and geometry/hash/budget/seam checks succeeded. Stdout is a JSON
+object with `manifest` (absolute path) and `changed`; these fields also exist on a cache hit.
+`manifest.json` is the existing `turku3d-manifest` v1 contract: `visual` is keyed by tile ID
+(filter `level == 0` for L0); `collision` is keyed by collision ID with relative `url`,
+`sha256`, `bytes`, `tris`, `prims`, `h`, and `flags`. Resolve URLs against the manifest's
+directory. Entries from previous batches remain present. A collision URL's parent is its
+L0 validation job directory (`collision/t0_i_j`). Do not launch concurrent assemblers.
+
+Run independent Rapier jobs **after** that command succeeds, for example in Bash:
+
+```bash
+mkdir -p "$TURKU3D_WORK/reports"
+printf '%s\n' t0_0_0 t0_0_1 t0_1_0 t0_1_1 | xargs -n 1 -P 4 bash -c '
+  node tools/validator/src/cli.ts --walkers 2000 \
+    --out "$TURKU3D_WORK/reports/validate-$1.json" \
+    "$TURKU3D_WORK/dist/tiles/collision/$1"
+' _
+```
+
+`xargs` returns nonzero when any validator fails. W2-02 can instead schedule these same jobs
+from manifest URLs; preserve each validator's exit status and report, and never treat a failed
+assembly as a validation-ready batch. Visual-only tiles have no collision validation job.
+
 ## Synthetic integration fixture
 
 This is an explicit test-data operation; use an empty fixture directory. It contains flat
@@ -72,7 +126,7 @@ bash pipeline/env/run.sh python -m turku3d.package.assemble \
   --layers "$TURKU3D_WORK/build/fixture-layers" --out "$TURKU3D_WORK/dist/fixture-tiles" \
   --tile t0_0_0 t0_0_1 t0_1_0 t0_1_1
 make game-build
-cd game && E2E_TILE_PORT=5291 TILE_DIST="$TURKU3D_WORK/dist/fixture-tiles" \
+cd game && E2E_TILE_PORT=$((TURKU3D_PORT_BASE + 1)) TILE_DIST="$TURKU3D_WORK/dist/fixture-tiles" \
   npx playwright test -c playwright.tile.config.ts
 ```
 

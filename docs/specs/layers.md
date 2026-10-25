@@ -39,9 +39,18 @@ Use `write_visual(path, list[GlbMesh], root_translation=...)` / `read_visual(pat
 Other GLB producers may use the same contract. Embedded images are allowed.
 
 Optional node extras: `surface` = `roof` (retained in coarse LODs), `building_id` and
-`facade_index` select `textures/facades/<building_id>/<facade_index>.ktx2` under `$TURKU3D_WORK`;
-`material_key` remains the building spec's library fallback. Optional facade JSON is provenance,
-not required to render. Library paths are `textures/library/<material_key>/{albedo,normal,orm}.ktx2`.
+`facade_index` select a unique facade only from W1-09's filtered export under
+`$TURKU3D_WORK/textures/assembly/facades/<building_id>/<facade_index>.json`.
+The export's `MANIFEST.json` must list `<building_id>_<facade_index>` in `bound` and its
+`inventory_sha256` must match the current buildings `facades.geojson`; otherwise keep the
+`material_key` library fallback. Raw staging/provisional indices must never be bound.
+The required sidecar identifies `building_id`/`facade_index`, provides `files` and SHA-256
+`hashes` for albedo/normal/ORM, and declares `qa.gltf_basisu_valid: true`. Its metre-UV
+`uv.scale`/`uv.offset` become `KHR_texture_transform` on all four PBR slots, with clamp wrap.
+Library paths default to `textures/assembly/library/<material_key>/{albedo,normal,orm}.ktx2`
+under `$TURKU3D_WORK`; `material.json` `uv_scale` controls repeating library UVs.
+Explicit `--library`/`--facades` paths can select another filtered export.
+Assembler `materials.mjs` owns the deliberate W1-03 fallback table; original keys remain in extras.
 PNG/JPEG source maps may be encoded by the assembler. Missing library maps preserve the source
 material color/image. Ground/roof UVs are planar E/N metres; facade U runs along the facade,
 V runs up from its base. Unique ortho/facade images use normalized UVs and must be identified

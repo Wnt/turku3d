@@ -1,5 +1,6 @@
 // Explicit GLB assembly: bind/encode textures first, then lossless meshopt. No L0 simplify/join/quantize.
 import fs from 'node:fs';
+import { createMaterialBinder } from './materials.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
@@ -11,7 +12,7 @@ import { createHash } from 'node:crypto';
 const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.join(os.homedir(), 'turku3d/tools/npm'), 'package.json'));
 const dep = (name) => import(pathToFileURL(require.resolve(name)).href);
 const { Document, NodeIO } = await dep('@gltf-transform/core');
-const { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu } = await dep('@gltf-transform/extensions');
+const { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu, KHRTextureTransform } = await dep('@gltf-transform/extensions');
 const { mergeDocuments, unpartition, prune, simplifyPrimitive, getBounds, listTextureSlots } = await dep('@gltf-transform/functions');
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
@@ -30,28 +31,7 @@ async function assembleVisual(request) {
   }
   doc.getRoot().setDefaultScene(scene);
 
-  const safe = (s) => {
-    s = String(s);
-    if (!/^[a-zA-Z0-9_.-]+$/.test(s) || s === '.' || s === '..') throw new Error(`Unsafe texture key: ${s}`);
-    return s;
-  };
-  const textures = new Map();
-  function texture(filename) {
-    if (!textures.has(filename)) {
-      const ext = path.extname(filename);
-      const mime = ext === '.ktx2' ? 'image/ktx2' : ext === '.png' ? 'image/png' : 'image/jpeg';
-      textures.set(filename, doc.createTexture(path.basename(filename)).setImage(fs.readFileSync(filename)).setMimeType(mime));
-      if (ext === '.ktx2') doc.createExtension(KHRTextureBasisu).setRequired(true);
-    }
-    return textures.get(filename);
-  }
-  function library(key, slot) {
-    for (const ext of ['ktx2', 'png', 'jpg', 'jpeg']) {
-      const f = path.join(request.library, safe(key), `${slot}.${ext}`);
-      if (fs.existsSync(f)) return f;
-    }
-    return null;
-  }
+  const bindMaterial = createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextureTransform });
   for (const node of doc.getRoot().listNodes()) {
     const mesh = node.getMesh();
     if (!mesh) continue;
@@ -90,23 +70,7 @@ async function assembleVisual(request) {
       }
       const material = prim.getMaterial()?.clone() ?? doc.createMaterial();
       prim.setMaterial(material);
-      let albedo = library(e.material_key, 'albedo');
-      let unique = false;
-      if (e.building_id !== undefined && e.facade_index !== undefined) {
-        const f = path.join(request.facades, safe(e.building_id), `${safe(e.facade_index)}.ktx2`);
-        if (fs.existsSync(f)) { albedo = f; unique = true; }
-      }
-      const normal = library(e.material_key, 'normal'), orm = library(e.material_key, 'orm');
-      if ((albedo || normal || orm) && !prim.getAttribute('TEXCOORD_0')) throw new Error(`Missing UVs: ${e.object_id}`);
-      if (albedo) material.setBaseColorTexture(texture(albedo)).setBaseColorFactor([1,1,1,1]);
-      if (normal) material.setNormalTexture(texture(normal));
-      if (orm) material.setOcclusionTexture(texture(orm)).setMetallicRoughnessTexture(texture(orm))
-        .setMetallicFactor(1).setRoughnessFactor(1);
-      for (const slot of ['BaseColor', 'Normal', 'Occlusion', 'MetallicRoughness']) {
-        const info = material[`get${slot}TextureInfo`]();
-        if (info) info.setWrapS(unique || e.texture_uv === 'normalized' ? 33071 : 10497)
-          .setWrapT(unique || e.texture_uv === 'normalized' ? 33071 : 10497);
-      }
+      bindMaterial(material, prim, e);
     }
     if (!mesh.listPrimitives().length) node.setMesh(null);
   }

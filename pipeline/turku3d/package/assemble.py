@@ -139,7 +139,26 @@ def collision_tile(tile, layers, manifests, available):
     )
 
 
-def visual_tiles(tiles, stage, library, facades, texture_cache, coarse_ids):
+def facade_bindings(facades, layers):
+    """Only a filtered export tied to this geometry inventory can authorize unique maps."""
+    manifest = facades.parent / "MANIFEST.json"
+    if not manifest.exists():
+        if facades.exists():
+            raise ValueError(f"{facades}: use the filtered texture assembly export, not staging")
+        return []
+    export = json.loads(manifest.read_text())
+    if not isinstance(export.get("bound"), list) or "inventory_sha256" not in export:
+        raise ValueError(f"{manifest}: not a filtered texture assembly export")
+    inventory = layers / "buildings/facades.geojson"
+    if (
+        not inventory.exists()
+        or hashlib.sha256(inventory.read_bytes()).hexdigest() != export["inventory_sha256"]
+    ):
+        return []  # Geometry changed since export: preserve library fallbacks.
+    return export["bound"]
+
+
+def visual_tiles(tiles, stage, library, facades, texture_cache, coarse_ids, bindings):
     requests = []
     for tile, inputs in tiles.items():
         work = stage / tile.id
@@ -153,6 +172,7 @@ def visual_tiles(tiles, stage, library, facades, texture_cache, coarse_ids):
                 stats=str(work / "stats.json"),
                 library=str(library),
                 facades=str(facades),
+                facadeBindings=bindings,
                 textureCache=str(texture_cache),
                 coarseTerrain=tile.id in coarse_ids,
             )
@@ -184,8 +204,10 @@ def assemble(
 ) -> dict:
     root = (layers or layer_root()).resolve()
     out = (out or C.dist_dir() / "tiles").resolve()
-    library = (library or C.REPO_ROOT / "textures/library").resolve()
-    facades = (facades or C.work_root() / "textures/facades").resolve()
+    export = C.work_root() / "textures/assembly"
+    library = (library or export / "library").resolve()
+    facades = (facades or export / "facades").resolve()
+    bindings = facade_bindings(facades, root)
     requested = {C.VisualTile.parse(tid) for tid in tile_ids}
     if any(t.level != 0 for t in requested):
         raise ValueError("request L0 tiles; 500 m and 1 km parents are built automatically")
@@ -216,7 +238,7 @@ def assemble(
     code_files = (
         list(Path(__file__).parent.glob("*.py"))
         + [
-            BRIDGE,
+            *Path(__file__).parent.glob("*.mjs"),
             Path(__file__).parents[1] / "layers.py",
             C.REPO_ROOT / "pipeline/env/package-lock.json",
             Path(C.__file__),
@@ -255,7 +277,7 @@ def assemble(
             files = inputs + [root / name / "MANIFEST.json" for name in manifests]
             if terrain:
                 files += terrain["files"]
-            key = digest(files, [code, texture_hash, tile.id, sorted(available), area])
+            key = digest(files, [code, texture_hash, bindings, tile.id, sorted(available), area])
             keys[tile.id] = key
             if (
                 cache.get(tile.id) == key
@@ -275,9 +297,19 @@ def assemble(
                     if c.id in available:
                         pending_collision[c] = collision_tile(c, collision, manifests, available)
         if not changed:
-            return {"changed": [], "cached": sorted(t.id for t in build)}
+            return {
+                "changed": [],
+                "cached": sorted(t.id for t in build),
+                "manifest": str(out / "manifest.json"),
+            }
         pending_visual = visual_tiles(
-            pending_inputs, stage, library, facades, out.parent / ".texture-cache", coarse_ids
+            pending_inputs,
+            stage,
+            library,
+            facades,
+            out.parent / ".texture-cache",
+            coarse_ids,
+            bindings,
         )
         shipped = {
             cid: read_col(out / entry["url"])
@@ -333,6 +365,7 @@ def assemble(
         "changed": [tid for tid in changed if tid in tree.visual],
         "visual": len(tree.visual),
         "collision": len(tree.collision),
+        "manifest": str(out / "manifest.json"),
     }
 
 
