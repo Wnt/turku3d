@@ -1,6 +1,6 @@
 """Discover, download and cache Google Street View and Apple Look Around panoramas (streetlevel 0.12.13).
 
-Cache layout (default $TURKU3D_WORK/cache/streetview; $TURKUTEX_STREETVIEW overrides):
+Cache layout (default $TURKU3D_DATA/cache/streetlevel; $TURKUTEX_STREETVIEW overrides):
   coverage/google_z17_<x>_<y>.json        coverage-tile pano list (id, lat, lon, date)
   coverage/lookaround_z17_<x>_<y>.json    Look Around coverage tile (incl. camera metadata)
   google/<id>/meta.json                   metadata incl. historical layers, EN position, has_depth
@@ -22,17 +22,15 @@ from __future__ import annotations
 import json
 import math
 import os
-import tempfile
-import threading
 import time
 import warnings
 from dataclasses import dataclass
-from functools import wraps
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from turku3d import config
+from turku3d.region.cache import atomic_target, synchronized
 
 from ..paths import streetview_dir
 
@@ -148,47 +146,23 @@ class PanoMeta:
         )
 
 
-def cached_call(method):
-    """Avoid duplicate downloads when facade workers share a cache instance."""
-
-    @wraps(method)
-    def wrapped(self, *args, **kwargs):
-        identity = (
-            z17_tile(*args)
-            if method.__name__ in ("google_coverage", "lookaround_coverage", "mapillary_coverage")
-            else args
-        )
-        key = (method.__name__, repr(identity), repr(sorted(kwargs.items())))
-        with self._locks_guard:
-            lock = self._locks.setdefault(key, threading.RLock())
-        with lock:
-            return method(self, *args, **kwargs)
-
-    return wrapped
-
-
 def atomic_json(path: Path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w", dir=path.parent, suffix=".tmp", delete=False
-    ) as stream:
-        json.dump(value, stream, ensure_ascii=False)
-        temporary = Path(stream.name)
-    temporary.replace(path)
+    with atomic_target(path) as temporary:
+        temporary.write_text(json.dumps(value, ensure_ascii=False))
 
 
 class PanoCache:
     def __init__(self, root: Path | None = None, sleep: float = 0.2):
         self.root = Path(root) if root else streetview_dir()
-        self.read_roots = [config.raw_dir("streetview")]
+        self.read_roots = [config.cache_dir("streetview"), config.raw_dir("streetview")]
         self.read_roots += [
-            Path(p) for p in os.environ.get("TURKUTEX_READ_CACHE", "").split(os.pathsep) if p
+            Path(p).expanduser()
+            for p in os.environ.get("TURKUTEX_READ_CACHE", "").split(os.pathsep)
+            if p
         ]
         self.sleep = sleep
         (self.root / "coverage").mkdir(parents=True, exist_ok=True)
         self._auth = None
-        self._locks = {}
-        self._locks_guard = threading.Lock()
 
     def read_path(self, relative: str | Path) -> Path:
         """Read through shared caches; all new data is written under self.root."""
@@ -210,7 +184,7 @@ class PanoCache:
         return None
 
     # ------------------------------ Google ------------------------------
-    @cached_call
+    @synchronized
     def google_coverage(self, lat: float, lon: float) -> list[dict]:
         from .sl import streetview
 
@@ -225,7 +199,7 @@ class PanoCache:
         time.sleep(self.sleep)
         return res
 
-    @cached_call
+    @synchronized
     def photosphere_coverage(self, lat: float, lon: float) -> list[PanoMeta]:
         """Same third-party discovery RPC as tools/refs/gmaps_photospheres.py, cached by grid cell."""
         from .sl import streetview
@@ -242,7 +216,7 @@ class PanoCache:
             atomic_json(path, ids)
         return [m for pid in ids if (m := self.google_meta(pid)) is not None]
 
-    @cached_call
+    @synchronized
     def google_meta(self, pid: str) -> PanoMeta | None:
         d = self.root / "google" / pid
         f = d / "meta.json"
@@ -266,7 +240,8 @@ class PanoCache:
             and getattr(pano.depth, "data", None) is not None
         )
         if has_depth:
-            np.save(d / "depth.npy", np.asarray(pano.depth.data, dtype=np.float32))
+            with atomic_target(d / "depth.npy") as temp:
+                np.save(temp, np.asarray(pano.depth.data, dtype=np.float32))
         E, N = config.wgs84_to_en(pano.lat, pano.lon)
         hist = [{"id": h.id, "date": _date_str(h.date)} for h in (pano.historical or [])]
         m = PanoMeta(
@@ -295,7 +270,7 @@ class PanoCache:
         atomic_json(f, m.to_dict())
         return m
 
-    @cached_call
+    @synchronized
     def google_newest(self, pid: str) -> PanoMeta | None:
         """Newest time layer at the spot of `pid` (Verification #5)."""
         m = self.google_meta(pid)
@@ -311,7 +286,7 @@ class PanoCache:
         f = self.read_path(Path("google") / pid / "depth.npy")
         return np.fliplr(np.load(f)) if f.exists() else None
 
-    @cached_call
+    @synchronized
     def google_image(self, pid: str, zoom: int = 5) -> Path:
         f = self.root / "google" / pid / f"pano_z{zoom}.jpg"
         cached = self.read_path(f.relative_to(self.root))
@@ -322,24 +297,25 @@ class PanoCache:
         pano = streetview.find_panorama_by_id(pid, download_depth=False)
         img = streetview.get_panorama(pano, zoom=zoom)
         f.parent.mkdir(parents=True, exist_ok=True)
-        img.save(f, quality=93)
+        with atomic_target(f) as temp:
+            img.save(temp, quality=93)
         time.sleep(self.sleep)
         return f
 
-    @cached_call
+    @synchronized
     def mapillary_coverage(self, lat, lon):
         from . import mapillary
 
         return mapillary.coverage(self, lat, lon)
 
-    @cached_call
+    @synchronized
     def mapillary_image(self, meta):
         from . import mapillary
 
         return mapillary.image(self, meta)
 
     # ------------------------------ Look Around ------------------------------
-    @cached_call
+    @synchronized
     def lookaround_coverage(self, lat: float, lon: float) -> list[PanoMeta]:
         from .sl import lookaround
 
@@ -389,7 +365,7 @@ class PanoCache:
         time.sleep(self.sleep)
         return res
 
-    @cached_call
+    @synchronized
     def lookaround_faces(self, m: PanoMeta, zoom: int = 1) -> list[Path]:
         from .sl import lookaround
 
@@ -399,19 +375,21 @@ class PanoCache:
         out = []
         for k in range(4):  # side faces only; top/bottom are not needed for facades
             f = d / f"face{k}_z{zoom}.heic"
-            if not f.exists():
+            cached = self.read_path(f.relative_to(self.root))
+            if not cached.exists():
                 if self._auth is None:
                     self._auth = lookaround.Authenticator()
-                f.write_bytes(
-                    lookaround.get_panorama_face(
-                        (int(m.id), int(m.extra["build_id"])), k, zoom, self._auth
+                with atomic_target(f) as temp:
+                    temp.write_bytes(
+                        lookaround.get_panorama_face(
+                            (int(m.id), int(m.extra["build_id"])), k, zoom, self._auth
+                        )
                     )
-                )
                 time.sleep(self.sleep)
-            out.append(f)
+            out.append(cached)
         return out
 
-    @cached_call
+    @synchronized
     def lookaround_equirect(self, m: PanoMeta, zoom: int = 1) -> Path:
         """Side faces pasted into an equirect, same layout as streetlevel.lookaround.reproject
         (no torch needed: side faces are already equirect segments). Top/bottom stay black."""
@@ -439,5 +417,6 @@ class PanoCache:
             st.paste(sc, (math.ceil(x), math.ceil(y)))
             if x + sc.width > full_w:
                 st.paste(sc, (math.ceil(x - full_w), math.ceil(y)))
-        st.save(f, quality=93)
+        with atomic_target(f) as temp:
+            st.save(temp, quality=93)
         return f

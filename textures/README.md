@@ -4,9 +4,10 @@
 facade, deterministic PBR processing, and an offline coverage/contact sheet. The assembler binds
 these textures; this package does not write shipped geometry or tilesets.
 
-All writes use `$TURKU3D_WORK`: `textures/` for artifacts, `cache/streetview/` and `cache/wfs/` for
-new source downloads, and `tools/` for dependencies. Shared `$TURKU3D_DATA/raw/streetview` is a
-read-through cache and is never modified. `TURKUTEX_READ_CACHE` can add read-only caches (colon
+Artifacts use `$TURKU3D_WORK/textures/`, WFS downloads use WORK/cache/wfs, and dependencies
+use WORK/tools. New panorama/image downloads use the shared atomic cache
+`$TURKU3D_DATA/cache/streetlevel`. Legacy WORK/cache/streetview and shared
+`$TURKU3D_DATA/raw/streetview` are read-through caches and are never modified. `TURKUTEX_READ_CACHE` can add read-only caches (colon
 separated). Without a sandbox, outputs use `turku3d.config.data_root()`. Raw panos are never shipped.
 
 ## Setup and fast tests
@@ -223,3 +224,10 @@ For focused offline checks, source the sandbox environment and run
 `scripts/dev/gate --paths textures/turkutex/post/pipeline.py`. Post-processing encodes albedo,
 ORM and normal maps concurrently with unchanged codec settings. The KTX2 header/mipmap test
 uses a 128×128 two-colour fixture; noisy seam and normal-quality tests remain separate.
+
+## Shared download cache
+
+New panorama downloads use `$TURKU3D_DATA/cache/streetlevel` with locking and atomic writes.
+`TURKUTEX_STREETVIEW` overrides that root. Existing caches are not migrated. `make cache-gc`
+reports sizes; `make cache-gc APPLY=1` removes only old partial downloads.
+See [region cache details](../pipeline/turku3d/region/README.md).

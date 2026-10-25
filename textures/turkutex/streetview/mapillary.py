@@ -15,6 +15,7 @@ import urllib.request
 from pathlib import Path
 
 from turku3d import config
+from turku3d.region.cache import atomic_target
 
 from .panos import PanoMeta, atomic_json
 
@@ -118,6 +119,9 @@ def coverage(cache, lat: float, lon: float) -> list[PanoMeta]:
 
 def image(cache, meta: PanoMeta) -> Path:
     path = cache.root / "mapillary" / meta.id / "pano.jpg"
+    cached = cache.read_path(path.relative_to(cache.root))
+    if cached.exists():
+        return cached
     if not path.exists():
         # Refresh expiring image URLs only on a cache miss.
         row = request(meta.id, {"fields": "thumb_original_url"})
@@ -125,5 +129,6 @@ def image(cache, meta: PanoMeta) -> Path:
         with urllib.request.urlopen(req, timeout=120) as response:
             body = response.read()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(body)
+        with atomic_target(path) as temporary:
+            temporary.write_bytes(body)
     return path

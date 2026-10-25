@@ -1,7 +1,7 @@
 """Where texture data lives. Images never go into git.
 
 Writable outputs use $TURKU3D_WORK (default $TURKU3D_DATA or ~/turku3d/data).
-Street View downloads use the sandbox cache; shared raw inputs remain read-only.
+Street View downloads use the shared immutable cache; shared raw inputs remain read-only.
 - cache/streetview/google/<panoid>/    pano_z<zoom>.jpg, depth.npy (as returned, NOT flipped), meta.json
 - cache/streetview/lookaround/<id>/    face<k>_z<zoom>.heic, meta.json
 - cache/streetview/coverage/           cached coverage-tile queries
@@ -25,7 +25,7 @@ STYLE_DIR = TEXTURES_DIR / "style"
 
 
 def streetview_dir() -> Path:
-    return Path(os.environ.get("TURKUTEX_STREETVIEW", config.cache_dir("streetview")))
+    return Path(os.environ.get("TURKUTEX_STREETVIEW", config.data_root() / "cache/streetlevel"))
 
 
 def work_root() -> Path:
