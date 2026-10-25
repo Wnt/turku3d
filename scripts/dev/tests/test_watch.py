@@ -386,6 +386,28 @@ class Identity(unittest.TestCase):
         module.os = SimpleNamespace(environ={"LANG": "fi_FI.UTF-8", "LC_ALL": "C.UTF-8"})
         return module
 
+    def test_group_snapshots_and_legacy_stop_use_the_same_identity(self):
+        canonical = "Sun Oct 25 12:00:00 2026"
+        legacy = "su 25 lokakuuta 12:00:00 2026"
+
+        def fake_run(*args, **kwargs):
+            locale = kwargs["env"]["LC_ALL"]
+            if "-axo" in args:
+                self.assertEqual(locale, "C")
+                output = f"123 123 S {canonical}\n"
+            else:
+                output = f"{canonical if locale == 'C' else legacy} S"
+            return subprocess.CompletedProcess(args, 0, output)
+
+        runner = self.runner(fake_run)
+        signals = []
+        runner.os.killpg = lambda pid, sig: signals.append(pid)
+        self.assertEqual(runner.signal_group({"pid": 123, "identity": legacy}), {123: canonical})
+        self.assertEqual(signals, [123])
+        signals.clear()
+        self.assertEqual(runner.signal_group({"pid": 123, "identity": "old birth"}), {})
+        self.assertEqual(signals, [])
+
     def test_stable_locale_legacy_fallback_and_missing_identity(self):
         calls = []
 

@@ -323,7 +323,13 @@ def list_tasks():
 
 def group_members(pgid):
     """Live members and start identities; zombies cannot receive signals on macOS."""
-    out = s.run("ps", "-axo", "pid=,pgid=,stat=,lstart=", check=True).stdout
+    out = s.run(
+        "ps",
+        "-axo",
+        "pid=,pgid=,stat=,lstart=",
+        check=True,
+        env={**os.environ, "LC_ALL": "C"},
+    ).stdout
     members = {}
     for line in out.splitlines():
         fields = line.split()
@@ -335,8 +341,13 @@ def group_members(pgid):
 def signal_group(meta):
     pid = meta["pid"]
     members = group_members(pid)
-    if not meta.get("identity") or members.get(pid) != meta["identity"]:
+    if not meta.get("identity") or pid not in members:
         return {}
+    if members[pid] != meta["identity"]:
+        # A legacy localized identity must match both the persisted record and
+        # this canonical snapshot. Recheck birth time to reject a recycled PID.
+        if not running(meta) or identity(pid) != members[pid]:
+            return {}
     try:
         os.killpg(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
