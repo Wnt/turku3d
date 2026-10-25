@@ -24,28 +24,7 @@ async function safety(page: Page, maxSpeed: number) {
     'Every sampled position must remain above and near the terrain').toEqual([]);
 }
 
-test('start screen discovers, disconnects and reconnects an Xbox controller', { tag: ['@input', '@launch', '@aoi'] }, async ({ page }, info) => {
-  await installPad(page);
-  await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled();
-  await expect(page.locator('#gamepad-status')).toHaveText('Xbox Wireless Controller connected');
-  await expect(page.locator('#start-bindings')).toContainText('Ⓨ');
-  await expect(page.locator('#start-bindings')).toContainText('RT');
-  await page.evaluate(() => { window.__virtualPad.connected = false; });
-  await expect(page.locator('#gamepad-status')).toContainText('No controller detected');
-  await page.evaluate(() => { window.__virtualPad.connected = true; });
-  await expect(page.locator('#gamepad-status')).toHaveText('Xbox Wireless Controller connected');
-  await info.attach('start-screen', { body: await page.screenshot(), contentType: 'image/png' });
-  await padButton(page, 0, 1);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await padButton(page, 0, 0);
-  await page.waitForFunction(() => (window.__game!.state as () => any)().grounded);
-  const state = await gameState(page);
-  expect(state.E).toBeCloseTo(OFFICE_EN.E, 1); expect(state.N).toBeCloseTo(OFFICE_EN.N, 1);
-  expect(Math.hypot(state.vehicle!.pos[0] - state.feet[0], state.vehicle!.pos[2] - state.feet[2])).toBeCloseTo(6, 0);
-});
-
-test('AOI terrain: virtual Xbox walks a loop across the four visual tile seams', { tag: ['@ground', '@streaming', '@character', '@aoi'] }, async ({ page }, info) => {
+test('AOI terrain: virtual Xbox walks a loop across the four visual tile seams', { tag: ['@walk', '@ground', '@streaming', '@character', '@aoi'] }, async ({ page }, info) => {
   // The four-tile junction is an explicitly limited terrain route, not a surveyed street/block route.
   const en = engineToEN(VISUAL_L0 + 6, 0, VISUAL_L0 - 6);
   await start(page, info.project.name, en.E, en.N);
@@ -69,7 +48,7 @@ test('AOI terrain: virtual Xbox walks a loop across the four visual tile seams',
   await safety(page, 4);
 });
 
-test('AOI office: Xbox enters the parked car, drives, brakes and exits', { tag: ['@vehicle', '@ground', '@input', '@aoi'] }, async ({ page }, info) => {
+test('AOI office: Xbox enters the parked car, drives, brakes and exits', { tag: ['@drive', '@vehicle', '@ground', '@input', '@aoi'] }, async ({ page }, info) => {
   await start(page, info.project.name);
   await padAxes(page, 1, 0);
   await page.waitForFunction(() => {

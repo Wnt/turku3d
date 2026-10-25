@@ -6,7 +6,9 @@
         "tools/dev/serve-dist.mjs",
         "tools/dev/serve-dist.test.mjs",
         "pipeline/turku3d/col/meshopt_bridge.mjs",
-        "pipeline/turku3d/package/visual.mjs"
+        "pipeline/turku3d/package/visual.mjs",
+        "tools/dev/play.mjs",
+        "tools/dev/play.test.mjs"
       ],
       "project": [
         "tools/dev/*.mjs",
@@ -24,7 +26,8 @@
         "src/**/*.ts",
         "tests/**/*.ts",
         "scripts/*.mjs",
-        "*.config.ts"
+        "*.config.ts",
+        "tools/*.mjs"
       ],
       "playwright": {
         "config": [

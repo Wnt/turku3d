@@ -14,22 +14,22 @@ From the repository root:
 # In a worktree, source its sandbox.env first (this sandbox: source ../sandbox.env).
 make play                    # first run builds the four AOI tiles and game; cached startup <5 s
 make playtest                # both backends, virtual Xbox, videos, screenshots, HTML report
-open "${TURKU3D_WORK:-$HOME/turku3d/data/build/main}/reports/playtest/index.html"
+open "${TURKU3D_WORK:-$HOME/turku3d/data}/reports/playtest/index.html"
 make playtest-test game-test  # fast offline checks
 ```
 
 `make play` prints the playable URL on `TURKU3D_PORT_BASE` (main default 5170).
 It uses read-only cached raw inputs, builds missing tiles through `make tile-build`, verifies
-artifact hashes, and caches the production game under `$TURKU3D_WORK/dist/game`. Game cache
+artifact hashes, and caches the production game under `$TURKU3D_WORK/build/game`. Game cache
 keys include source, public assets, lockfiles and build configuration, including uncommitted
-changes. The default main work directory is `~/turku3d/data/build/main`. `TILE_DIST` can select
+changes. The default main work directory is `~/turku3d/data`. `TILE_DIST` can select
 an already assembled complete AOI; explicit tile directories are never rebuilt automatically.
 Use `make play-prepare` to prepare everything without starting a server. Ctrl-C stops only
 the server launched by this command. A busy port fails without selecting another port.
 
 The start screen shows live controller status and Xbox bindings. Press Ⓐ or select **Start
 playing**. The existing office spawn has a car six metres to the right. `make playtest` uses
-ports base+2 and base+3, separate isolated Chrome contexts, and two concurrent workers.
+ports base+8 and base+9, separate isolated Chrome contexts, and two concurrent workers.
 Select subsystems with `make playtest PLAYTEST_ARGS='--grep @vehicle'`.
 
 **Current limitation:** the AOI is the Phase 0 coarse real-data heightfield. Full street-loop,

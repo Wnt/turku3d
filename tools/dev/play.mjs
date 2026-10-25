@@ -1,19 +1,16 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
+import { workRoot, gameDist, tileDist, reportsRoot, port } from './environment.mjs';
 import { createHash } from 'node:crypto';
 import { spawnSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const aoi = ['t0_0_0', 't0_0_1', 't0_1_0', 't0_1_1'];
-export function settings(env = process.env) {
-  const work = path.resolve(env.TURKU3D_WORK ?? path.join(os.homedir(), 'turku3d/data/build/main'));
-  const port = Number(env.TURKU3D_PORT_BASE ?? 5170);
-  if (!Number.isInteger(port) || port < 1024 || port > 65526) throw new Error('TURKU3D_PORT_BASE must be an integer in 1024..65526');
-  return { work, port, browser: path.resolve(env.TURKU3D_BROWSER_DIR ?? path.join(work, 'browser')), game: path.join(work, 'dist/game'), tiles: path.resolve(env.TILE_DIST ?? path.join(work, 'dist/tiles')),
-    report: path.join(work, 'reports/playtest'), cache: path.join(work, 'cache/play') };
+export function settings() {
+  return { work: workRoot, port: port(), game: gameDist, tiles: path.resolve(tileDist),
+    report: path.join(reportsRoot, 'playtest'), cache: path.join(workRoot, 'cache/play') };
 }
 
 /** Include content, names, additions and removals, including uncommitted edits. */
@@ -53,7 +50,7 @@ function run(command, args, options = {}) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed (${result.status ?? result.signal})`);
 }
-export function prepare(s) {
+function prepare(s) {
   fs.mkdirSync(s.cache, { recursive: true });
   const env = { ...process.env, TURKU3D_WORK: s.work, TURKU3D_PORT_BASE: String(s.port), npm_config_cache: path.join(s.work, 'cache/npm') };
   const tiles = inspectTiles(s.tiles);
@@ -70,7 +67,7 @@ export function prepare(s) {
     run('npm', ['ci', '--no-audit', '--no-fund'], { cwd: game, env });
     fs.writeFileSync(depsStamp, depsHash);
   }
-  const sourceHash = fingerprint(game, ['src', 'public', 'index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts']);
+  const sourceHash = fingerprint(repo, ['tools/dev/environment.mjs']) + fingerprint(game, ['src', 'public', 'index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts']);
   const stamp = path.join(s.cache, 'game.json');
   let cached;
   try { cached = JSON.parse(fs.readFileSync(stamp, 'utf8')); } catch { /* First build. */ }

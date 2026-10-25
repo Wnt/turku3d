@@ -1,7 +1,7 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import type { PhysicsClient } from '../../src/physics/client';
 
-export interface GameState {
+interface GameState {
   mode: 'foot' | 'car'; paused: boolean; feet: number[]; vel: number[]; grounded: boolean;
   H: number; E: number; N: number; cameraYaw: number; groundMaterial: number; inputSource: string;
   vehicle: { pos: number[]; speed: number } | null;

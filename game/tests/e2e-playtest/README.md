@@ -12,7 +12,7 @@ silently skipped or counted as passing.
 
 | Spec | Data | Assertions | Tags |
 |---|---|---|---|
-| Start screen | Real-data AOI | Xbox connected/disconnected/reconnected, glyphs, A to start, office spawn and nearby car | `@launch @input @aoi` |
+| Start screen | Synthetic dev tiles | Xbox connected/disconnected/reconnected, glyphs, A to start, office spawn and nearby car | `@launch @input @synthetic` |
 | Four-seam loop | Real-data AOI | 48 m loop, four distinct L0 tiles, final position, speed bounds, continuous finite positions, sampled ground clearance | `@ground @streaming @character @aoi` |
 | Office drive | Real-data AOI | Y enter, RT drives 15 m north, speed/lateral bounds, RB stops, Y exit, ground clearance | `@vehicle @ground @input @aoi` |
 | Existing Xbox controls | Synthetic dev tiles | Analog walk, sprint, 12 cm curb, jump, camera, pause, hot-plug | `@input @character @ground @synthetic` |
@@ -38,16 +38,19 @@ make playtest PLAYTEST_ARGS='--grep @aoi'
 make playtest                              # all available routes and videos
 ```
 
-`scripts/dev/gate` is not present in this checkout. When W0-B lands, map changes to input/UI
-→ `@launch|@input`, character → `@character`, vehicle → `@vehicle`, collision/ground →
-`@ground|@streaming`, structures → `@structures`. The full GPU/video run is separate from
-the fast offline gate. Two workers share the GPU; backend servers use `PORT_BASE + 2`
-and `PORT_BASE + 3`, with no server reuse and isolated Playwright browser profiles under `TURKU3D_BROWSER_DIR` (or `$TURKU3D_WORK/browser`). Videos are 640×360 at 12 fps to limit encoding cost; screenshots remain 1280×720.
+`scripts/dev/gate.toml` connects input/UI to `@launch|@input`, actors/physics to
+`@walk|@drive|@character|@ground|@structures`, vehicle to `@drive|@vehicle`,
+and tile streaming to `@streaming`. Unmapped browser changes run the full synthetic suite.
+The gate runs the start-screen and controller routes on synthetic tiles and the cache/report
+unit tests. The full AOI video run remains `make playtest`. Two workers share the GPU;
+backend servers use `PORT_BASE + 8` and `PORT_BASE + 9`, with no server reuse and isolated
+Playwright profiles under `TURKU3D_BROWSER_DIR`. Videos are 640×360 at 12 fps; screenshots
+remain 1280×720.
 Never overlap two invocations that use the same ports/report directory.
 
 ## Remaining acceptance work
 
-After W1-01/02/03/04/07 land, survey and commit routes on the assembled geometry:
+After W1-01/02/03/04 land, survey and commit routes on the assembled geometry:
 
 - Walk the street loop around the office and cross its measured curbs.
 - Ascend and descend a real stair flight, with measured bottom/top heights.
@@ -57,7 +60,7 @@ After W1-01/02/03/04/07 land, survey and commit routes on the assembled geometry
 
 The Phase 0 AOI is an orthophoto over a coarse terrain mesh, including interpolated water;
 its textures are not building colliders. The synthetic stair route cannot certify the AOI.
-Do not remove the report's blocked-acceptance notice until these routes pass on both backends.
+Do not remove the report's real-AOI follow-up notice until these routes pass on both backends.
 
 The report captures `window.__perf` when available (value or zero-argument snapshot function).
 Until W1-08 lands it reports the game's frame-time EMA distribution, marked diagnostic.

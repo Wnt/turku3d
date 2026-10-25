@@ -174,7 +174,8 @@ class GateTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("SKIP pipeline browser suite", output)
             self.assertEqual(run.call_count, 1)
-            self.assertIn("@drive", run.call_args.args[1][1])
+            self.assertIn("@drive", run.call_args.args[1][1][-1].split("|"))
+            self.assertIn("@vehicle", run.call_args.args[1][1][-1].split("|"))
         with patch("gate_lib.run_commands", return_value=(0, "browser suite passed")) as run:
             code, output = e2e(REPO, stage, ["game/src/render/idPass.ts"], False, env)
             self.assertEqual(code, 0)
@@ -223,6 +224,23 @@ class GateTest(unittest.TestCase):
                 "tests/test_regression.py::test_loop_rejects_missing_render_and_keeps_report",
             },
         )
+
+    def test_playtest_subsystem_tags_select_the_browser_routes(self):
+        config = tomllib.loads((DEV / "gate.toml").read_text())
+        stage = next(s for s in config["stages"] if s["kind"] == "e2e")
+        for path, expected in [
+            ("game/src/ui/startScreen.ts", {"@launch"}),
+            ("game/src/input/index.ts", {"@input", "@launch"}),
+            ("game/src/world/tiles.ts", {"@streaming"}),
+            (
+                "game/src/actors/player.ts",
+                {"@walk", "@drive", "@character", "@ground", "@structures"},
+            ),
+            ("game/src/vehicle/vehicle.ts", {"@drive", "@vehicle"}),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(set(related(stage, [path], "tags")), expected)
+        self.assertIn("@streaming", stage["tile_tags"])
 
     def test_index_snapshot_excludes_unstaged_and_untracked(self):
         f = self.fixture

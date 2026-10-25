@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { settings, fingerprint, inspectTiles, aoi } from './play.mjs';
+import { fingerprint, inspectTiles, aoi } from './play.mjs';
 import { renderReport, summarize } from '../../game/tools/playtest-report.mjs';
 
 function fixture(t) {
@@ -13,8 +14,11 @@ function fixture(t) {
   return root;
 }
 test('ports and outputs stay in the assigned sandbox', () => {
+  const settings = env => JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e',
+    `import { settings } from './tools/dev/play.mjs'; console.log(JSON.stringify(settings()));`],
+  { encoding: 'utf8', env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] }));
   const s = settings({ TURKU3D_WORK: '/tmp/my sandbox', TURKU3D_PORT_BASE: '5320' });
-  assert.equal(s.port, 5320); assert.equal(s.game, '/tmp/my sandbox/dist/game');
+  assert.equal(s.port, 5320); assert.equal(s.game, '/tmp/my sandbox/build/game');
   assert.equal(s.report, '/tmp/my sandbox/reports/playtest');
   for (const value of ['garbage', '0', '65535', '1.5']) assert.throws(() => settings({ TURKU3D_PORT_BASE: value }));
 });
@@ -47,7 +51,7 @@ test('standalone report embeds status, failures and relative video links without
     gaps: ['Missing quay'], rows: [{ title: '<script>bad</script>', backend: 'webgpu', tags: ['@ground'], status: 'failed', duration: 100,
       errors: ['x < 1'], evidence: null, attachments: [{ type: 'video/webm', name: 'video', url: 'media/a.webm' }] }] };
   const html = renderReport(report);
-  assert.match(html, /Phase 1 acceptance: BLOCKED/); assert.match(html, /Missing quay/);
+  assert.match(html, /Real-AOI follow-up/); assert.match(html, /Missing quay/);
   assert.match(html, /video controls preload="metadata" src="media\/a.webm"/);
   assert.match(html, /&lt;script&gt;/); assert.ok(!html.includes('<script>bad'));
   assert.match(html, /x &lt; 1/); assert.match(html, /Suite: <strong>FAILED/);

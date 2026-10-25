@@ -39,7 +39,7 @@ all four L0 tiles. Screenshots are in `$TURKU3D_WORK/reports/screenshots/tile-*`
 ```sh
 make play                      # cached AOI + game; prints the sandbox URL
 make playtest                  # virtual Xbox on WebGPU and WebGL2
-open "${TURKU3D_WORK:-$HOME/turku3d/data/build/main}/reports/playtest/index.html"
+open "${TURKU3D_WORK:-$HOME/turku3d/data}/reports/playtest/index.html"
 make playtest-test              # typecheck + cache/report tests
 ```
 
@@ -47,7 +47,7 @@ The launcher verifies/reuses the four AOI tiles and the production game. The sta
 shows controller status and Xbox bindings. The baseline covers real-AOI terrain seams and
 a short office drive, plus synthetic curb/stair/controller routes. Videos, screenshots and
 measurements are retained in the report, with earlier runs archived by commit and timestamp.
-**Full W1-12 acceptance remains blocked:** the real street loop, stairs, five building shells,
+**Real-AOI follow-up after the layers land:** the real street loop, stairs, five building shells,
 curb strike and quay-wall routes require Wave 1 geometry and subsequent route calibration.
 See [playtest coverage](../game/tests/e2e-playtest/README.md).
 
