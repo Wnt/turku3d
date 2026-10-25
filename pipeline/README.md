@@ -34,3 +34,9 @@ The Phase 0 builder still produces coarse heightfield ground with orthophoto tex
 curbs, structures and building shells belong to the Wave 1 layers. It caches one canonical
 area heightfield keyed by source file identities and interpolation code. Independent L0 builds
 slice that same grid, avoiding repeated LAZ decompression/TIN construction and seam steps.
+
+## Selective quality checks
+
+From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
+`scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)
+for dependency setup, path selection, caches, sandbox ports and Git hooks.

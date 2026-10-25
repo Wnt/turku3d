@@ -5,8 +5,18 @@ import re
 from turku3d import config as C
 
 REQUIRED = {
-    "unknown", "road", "sidewalk", "curb", "grass", "quay", "stair_slope",
-    "stair_tread_helper", "wall", "building", "fence", "water",
+    "unknown",
+    "road",
+    "sidewalk",
+    "curb",
+    "grass",
+    "quay",
+    "stair_slope",
+    "stair_tread_helper",
+    "wall",
+    "building",
+    "fence",
+    "water",
 }
 
 
@@ -33,14 +43,26 @@ def test_material_table():
 
 def test_col_header_table_is_96_bytes():
     text = (C.SPECS_DIR / "col-format.md").read_text()
-    sizes = {"char[4]": 4, "u16": 2, "u32": 4, "i32": 4, "f64": 8, "f32[3]": 12, "f32[4]": 16, "u8": 1}
+    sizes = {
+        "char[4]": 4,
+        "u16": 2,
+        "u32": 4,
+        "i32": 4,
+        "f64": 8,
+        "f32[3]": 12,
+        "f32[4]": 16,
+        "u8": 1,
+    }
 
     def table(title):
         sect = text.split(title, 1)[1].split("\n### ", 1)[0].split("\n## ", 1)[0]
         return re.findall(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|", sect, re.M)
 
-    for title, total in (("### 2.1 Header", 96), ("### 2.2 Section table entry", 24),
-                         ("## 4. Compound primitives", 48)):
+    for title, total in (
+        ("### 2.1 Header", 96),
+        ("### 2.2 Section table entry", 24),
+        ("## 4. Compound primitives", 48),
+    ):
         off = 0
         for o, t in table(title):
             assert int(o) == off, (title, o, t)

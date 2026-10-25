@@ -13,22 +13,37 @@ Usage: codex-usage [--json] [--percent] [--days N]
   --days N  show the last N daily token buckets (default 7)
 Exit codes: 0 ok, 1 could not talk to codex, 2 codex not logged in / no data.
 """
+
 import argparse
 import json
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def rpc(methods, timeout=25):
-    p = subprocess.Popen(['codex', 'app-server'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    p = subprocess.Popen(
+        ["codex", "app-server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+    )
     try:
+
         def send(i, method, params):
-            p.stdin.write(json.dumps({'jsonrpc': '2.0', 'id': i, 'method': method, 'params': params}) + '\n')
+            p.stdin.write(
+                json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n"
+            )
             p.stdin.flush()
-        send(0, 'initialize', {'clientInfo': {'name': 'codex-usage', 'title': 'codex-usage', 'version': '0.1'}})
+
+        send(
+            0,
+            "initialize",
+            {"clientInfo": {"name": "codex-usage", "title": "codex-usage", "version": "0.1"}},
+        )
         for i, m in enumerate(methods, 1):
             send(i, m, {})
         out, t0 = {}, time.time()
@@ -40,8 +55,8 @@ def rpc(methods, timeout=25):
                 msg = json.loads(line)
             except ValueError:
                 continue
-            if 'id' in msg:
-                out[msg['id']] = msg
+            if "id" in msg:
+                out[msg["id"]] = msg
         return {m: out.get(i) for i, m in enumerate(methods, 1)}
     finally:
         p.kill()
@@ -49,73 +64,97 @@ def rpc(methods, timeout=25):
 
 def fmt_reset(ts):
     if not ts:
-        return ''
-    dt = datetime.fromtimestamp(ts, timezone.utc).astimezone()
+        return ""
+    dt = datetime.fromtimestamp(ts, UTC).astimezone()
     left = ts - time.time()
     d, h, m = int(left // 86400), int(left % 86400 // 3600), int(left % 3600 // 60)
-    rel = (f'{d}d {h}h' if d else f'{h}h {m}min') if left > 0 else 'now'
+    rel = (f"{d}d {h}h" if d else f"{h}h {m}min") if left > 0 else "now"
     return f"resets {dt.strftime('%a %Y-%m-%d %H:%M')} (in {rel})"
 
 
 def window_name(mins):
-    return {300: '5-hour', 10080: 'weekly', 1440: 'daily'}.get(mins, f'{mins}-min')
+    return {300: "5-hour", 10080: "weekly", 1440: "daily"}.get(mins, f"{mins}-min")
 
 
 def bar(pct, width=20):
     n = max(0, min(width, round(width * pct / 100)))
-    return '[' + '#' * n + '.' * (width - n) + ']'
+    return "[" + "#" * n + "." * (width - n) + "]"
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--json', action='store_true')
-    ap.add_argument('--percent', action='store_true', help='print only the weekly used percent (for scripts)')
-    ap.add_argument('--days', type=int, default=7)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument(
+        "--percent", action="store_true", help="print only the weekly used percent (for scripts)"
+    )
+    ap.add_argument("--days", type=int, default=7)
     a = ap.parse_args()
     try:
-        res = rpc(['account/rateLimits/read', 'account/usage/read'])
+        res = rpc(["account/rateLimits/read", "account/usage/read"])
     except FileNotFoundError:
-        print('codex CLI not found on PATH', file=sys.stderr); return 1
+        print("codex CLI not found on PATH", file=sys.stderr)
+        return 1
     if a.json:
-        print(json.dumps(res, indent=1)); return 0
+        print(json.dumps(res, indent=1))
+        return 0
     if a.percent:
-        lim = ((res.get('account/rateLimits/read') or {}).get('result') or {}).get('rateLimits') or {}
+        lim = ((res.get("account/rateLimits/read") or {}).get("result") or {}).get(
+            "rateLimits"
+        ) or {}
         # highest window (primary is the 5 h one when a plan has two; secondary is then the weekly one)
-        vals = [w.get('usedPercent') for w in (lim.get('primary'), lim.get('secondary')) if w]
+        vals = [w.get("usedPercent") for w in (lim.get("primary"), lim.get("secondary")) if w]
         vals = [v for v in vals if v is not None]
         if not vals:
-            print('unknown'); return 2
-        print(int(max(vals))); return 0
-    rl = (res.get('account/rateLimits/read') or {}).get('result')
+            print("unknown")
+            return 2
+        print(int(max(vals)))
+        return 0
+    rl = (res.get("account/rateLimits/read") or {}).get("result")
     if not rl:
-        err = (res.get('account/rateLimits/read') or {}).get('error')
-        print('no rate-limit data from codex' + (f": {err.get('message')}" if err else ' (not logged in?)'), file=sys.stderr)
+        err = (res.get("account/rateLimits/read") or {}).get("error")
+        print(
+            "no rate-limit data from codex"
+            + (f": {err.get('message')}" if err else " (not logged in?)"),
+            file=sys.stderr,
+        )
         return 2
-    lim = rl.get('rateLimits') or {}
-    print(f"Codex plan: {lim.get('planType') or '?'}"
-          + ('   [rate limit reached: ' + str(lim['rateLimitReachedType']) + ']' if lim.get('rateLimitReachedType') else '')
-          + ('   [spend control reached]' if lim.get('spendControlReached') else ''))
-    for key in ('primary', 'secondary'):
+    lim = rl.get("rateLimits") or {}
+    print(
+        f"Codex plan: {lim.get('planType') or '?'}"
+        + (
+            "   [rate limit reached: " + str(lim["rateLimitReachedType"]) + "]"
+            if lim.get("rateLimitReachedType")
+            else ""
+        )
+        + ("   [spend control reached]" if lim.get("spendControlReached") else "")
+    )
+    for key in ("primary", "secondary"):
         w = lim.get(key)
         if w:
-            pct = w.get('usedPercent') or 0
-            print(f"  {window_name(w.get('windowDurationMins')):8} {bar(pct)} {pct:3d}% used   {fmt_reset(w.get('resetsAt'))}")
-    if lim.get('secondary') is None:
-        print('  (this plan has a single window)')
-    cred = lim.get('credits') or {}
-    rc = rl.get('rateLimitResetCredits') or {}
-    print(f"  credits: {'unlimited' if cred.get('unlimited') else cred.get('balance', '0')}; rate-limit reset credits available: {rc.get('availableCount', 0)}")
-    us = (res.get('account/usage/read') or {}).get('result') or {}
-    buckets = sorted(us.get('dailyUsageBuckets') or [], key=lambda b: b['startDate'])[-a.days:]
+            pct = w.get("usedPercent") or 0
+            print(
+                f"  {window_name(w.get('windowDurationMins')):8} {bar(pct)} {pct:3d}% used   {fmt_reset(w.get('resetsAt'))}"
+            )
+    if lim.get("secondary") is None:
+        print("  (this plan has a single window)")
+    cred = lim.get("credits") or {}
+    rc = rl.get("rateLimitResetCredits") or {}
+    print(
+        f"  credits: {'unlimited' if cred.get('unlimited') else cred.get('balance', '0')}; rate-limit reset credits available: {rc.get('availableCount', 0)}"
+    )
+    us = (res.get("account/usage/read") or {}).get("result") or {}
+    buckets = sorted(us.get("dailyUsageBuckets") or [], key=lambda b: b["startDate"])[-a.days :]
     if buckets:
         print(f"  tokens per day (last {len(buckets)} active days):")
         for b in buckets:
             print(f"    {b['startDate']}  {b['tokens'] / 1e6:8.1f} M")
-    s = us.get('summary') or {}
+    s = us.get("summary") or {}
     if s:
-        print(f"  lifetime {s.get('lifetimeTokens', 0) / 1e9:.2f} G tokens, peak day {s.get('peakDailyTokens', 0) / 1e6:.0f} M, streak {s.get('currentStreakDays')} days")
+        print(
+            f"  lifetime {s.get('lifetimeTokens', 0) / 1e9:.2f} G tokens, peak day {s.get('peakDailyTokens', 0) / 1e6:.0f} M, streak {s.get('currentStreakDays')} days"
+        )
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

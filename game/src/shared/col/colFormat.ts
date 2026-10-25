@@ -11,15 +11,14 @@
 import { isShippableMaterial, materialClass } from './materials.ts';
 import type { CollisionClass } from './materials.ts';
 
-export const COL_MAGIC = 0x4c4f4354; // "TCOL" little-endian
-export const COL_VERSION_MAJOR = 1;
-export const COL_VERSION_MINOR = 0;
-export const COL_HEADER_BYTES = 96;
-export const COL_SECTION_BYTES = 24;
-export const COL_PRIM_BYTES = 48;
+const COL_MAGIC = 0x4c4f4354; // "TCOL" little-endian
+const COL_VERSION_MAJOR = 1;
+const COL_HEADER_BYTES = 96;
+const COL_SECTION_BYTES = 24;
+const COL_PRIM_BYTES = 48;
 
 export const COL_FLAG = { FIX_INTERNAL_EDGES: 1, AOI_BORDER: 2 } as const;
-export const COL_ENC = { RAW: 0, MESHOPT_VERTEX: 1, MESHOPT_INDEX: 2 } as const;
+const COL_ENC = { RAW: 0, MESHOPT_VERTEX: 1, MESHOPT_INDEX: 2 } as const;
 export const PRIM_KIND = { BOX: 1, CAPSULE: 2, CYLINDER: 3 } as const;
 
 const ALLOWED: Record<string, readonly number[]> = {
@@ -32,7 +31,7 @@ const ALLOWED: Record<string, readonly number[]> = {
 const STRIDE: Record<string, number> = { POSN: 12, INDX: 4, MATL: 1, PRIM: 48, META: 1 };
 
 /** Minimal interface of npm `meshoptimizer`'s MeshoptDecoder (after `await MeshoptDecoder.ready`). */
-export interface MeshoptDecoderLike {
+interface MeshoptDecoderLike {
   decodeVertexBuffer(target: Uint8Array, count: number, size: number, source: Uint8Array, filter?: string): void;
   decodeIndexBuffer(target: Uint8Array, count: number, size: number, source: Uint8Array): void;
 }
@@ -92,14 +91,14 @@ export interface ColTile {
   skippedPrimitives: number;
 }
 
-export interface ReadColOptions {
+interface ReadColOptions {
   decoder?: MeshoptDecoderLike;
   /** Verify the CRC-32 (spec: optional in release, required in tests). Default true. */
   verifyCrc?: boolean;
   onWarning?: (msg: string) => void;
 }
 
-export class ColFormatError extends Error {}
+class ColFormatError extends Error {}
 
 let crcTable: Uint32Array | null = null;
 export function crc32(bytes: Uint8Array, skipFrom = -1, skipTo = -1): number {
@@ -124,7 +123,7 @@ function u8view(buf: ArrayBuffer | ArrayBufferView): Uint8Array {
   return buf instanceof ArrayBuffer ? new Uint8Array(buf) : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
 
-export function readColHeader(buf: ArrayBuffer | ArrayBufferView): ColHeader {
+function readColHeader(buf: ArrayBuffer | ArrayBufferView): ColHeader {
   const u8 = u8view(buf);
   if (u8.byteLength < COL_HEADER_BYTES) throw new ColFormatError('file shorter than the 96-byte header');
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
@@ -234,7 +233,7 @@ export function readCol(buf: ArrayBuffer | ArrayBufferView, opts: ReadColOptions
   return { header: h, id: `c_${h.tileI}_${h.tileJ}`, sections, positions, indices, materials, primitives, meta, skippedPrimitives: skipped };
 }
 
-export interface ClassMesh {
+interface ClassMesh {
   cls: CollisionClass;
   /** Compacted tile-local vertices used by this class. */
   positions: Float32Array;

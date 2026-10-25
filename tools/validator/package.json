@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "description": "Node + Rapier WASM validator for .col collision tiles",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "validate": "node src/cli.ts",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

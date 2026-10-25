@@ -13,24 +13,34 @@ Outputs:
 
   qa/.venv/bin/python qa/report/report.py data/qa/runs/<run_id>
 """
+
 from __future__ import annotations
 
-import html
 import fcntl
-import tempfile
+import html
 import json
 import os
 import sys
-from datetime import datetime, timezone
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qalib.paths import data_dir, resolve  # noqa: E402
+
 from report.backmap import annotate  # noqa: E402
 
-CAT_COLOURS = {"geometry": "#e5484d", "texture": "#f5a524", "material": "#a855f7", "lighting": "#eab308",
-               "missing_object": "#06b6d4", "scale": "#3b82f6", "vegetation": "#22c55e", "other": "#94a3b8"}
+CAT_COLOURS = {
+    "geometry": "#e5484d",
+    "texture": "#f5a524",
+    "material": "#a855f7",
+    "lighting": "#eab308",
+    "missing_object": "#06b6d4",
+    "scale": "#3b82f6",
+    "vegetation": "#22c55e",
+    "other": "#94a3b8",
+}
 
 
 def _rewrite_jsonl(path: Path, rows: list[dict], drop_run: str):
@@ -38,7 +48,11 @@ def _rewrite_jsonl(path: Path, rows: list[dict], drop_run: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_suffix(path.suffix + ".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        keep = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+        keep = (
+            [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            if path.exists()
+            else []
+        )
         merged = [row for row in keep if row.get("run_id") != drop_run] + rows
         with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False) as tmp:
             tmp.write("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in merged))
@@ -58,9 +72,19 @@ def collect(rd: Path):
             idtab = resolve(p["id_table"]) if p.get("id_table") else None
             annotate(res["issues"], idimg, idtab)
             for k, it in enumerate(res["issues"]):
-                tickets.append({"run_id": run["run_id"], "pair_id": p["pair_id"], "view_id": p.get("view_id"),
-                                "n": k, **it, "status": "open", "ref": p["ref"], "render": p["render"],
-                                "thread_id": ((j.get("attempts") or [{}])[-1]).get("thread_id")})
+                tickets.append(
+                    {
+                        "run_id": run["run_id"],
+                        "pair_id": p["pair_id"],
+                        "view_id": p.get("view_id"),
+                        "n": k,
+                        **it,
+                        "status": "open",
+                        "ref": p["ref"],
+                        "render": p["render"],
+                        "thread_id": ((j.get("attempts") or [{}])[-1]).get("thread_id"),
+                    }
+                )
         pairs.append({**p, "judge": j, "result": res})
     return run, pairs, tickets
 
@@ -71,15 +95,28 @@ def history_row(run, pairs):
     for p in pairs:
         if p["result"]:
             by_label.setdefault(p.get("label") or "render", []).append(p["result"]["similarity"])
-    return {"run_id": run["run_id"], "kind": run.get("kind", "render"), "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "commit": run.get("commit"), "dirty": run.get("dirty"), "complete": run.get("complete", False),
-            "comparison_key": run.get("comparison_key"), "manifest_sha256": run.get("manifest_sha256"),
-            "scores": scores, "mean_by_label": {k: round(sum(v) / len(v), 2) for k, v in by_label.items()},
-            "n_issues": sum(len(p["result"]["issues"]) for p in pairs if p["result"])}
+    return {
+        "run_id": run["run_id"],
+        "kind": run.get("kind", "render"),
+        "ts": datetime.now(UTC).isoformat(timespec="seconds"),
+        "commit": run.get("commit"),
+        "dirty": run.get("dirty"),
+        "complete": run.get("complete", False),
+        "comparison_key": run.get("comparison_key"),
+        "manifest_sha256": run.get("manifest_sha256"),
+        "scores": scores,
+        "mean_by_label": {k: round(sum(v) / len(v), 2) for k, v in by_label.items()},
+        "n_issues": sum(len(p["result"]["issues"]) for p in pairs if p["result"]),
+    }
 
 
 def trend_svg(history: list[dict], kind: str, comparison_key=None) -> str:
-    rows = [h for h in history if h.get("kind") == kind and (comparison_key is None or h.get("comparison_key") == comparison_key)]
+    rows = [
+        h
+        for h in history
+        if h.get("kind") == kind
+        and (comparison_key is None or h.get("comparison_key") == comparison_key)
+    ]
     if not rows:
         return ""
     labels = sorted({k for h in rows for k in h["mean_by_label"]})
@@ -88,19 +125,35 @@ def trend_svg(history: list[dict], kind: str, comparison_key=None) -> str:
     xs = [L + (W - L - 12) * (i / max(1, n - 1)) for i in range(n)] if n > 1 else [L + (W - L) / 2]
     y = lambda s: 8 + (H - B - 8) * (1 - s / 10)  # noqa: E731
     palette = ["#3b82f6", "#f5a524", "#e5484d", "#22c55e", "#a855f7"]
-    parts = [f'<svg viewBox="0 0 {W} {H}" class="trend" role="img" aria-label="mean similarity per run">']
+    parts = [
+        f'<svg viewBox="0 0 {W} {H}" class="trend" role="img" aria-label="mean similarity per run">'
+    ]
     for s in (0, 5, 10):
-        parts.append(f'<line x1="{L}" x2="{W - 8}" y1="{y(s):.1f}" y2="{y(s):.1f}" class="grid"/>'
-                     f'<text x="{L - 6}" y="{y(s) + 4:.1f}" text-anchor="end">{s}</text>')
+        parts.append(
+            f'<line x1="{L}" x2="{W - 8}" y1="{y(s):.1f}" y2="{y(s):.1f}" class="grid"/>'
+            f'<text x="{L - 6}" y="{y(s) + 4:.1f}" text-anchor="end">{s}</text>'
+        )
     for li, lab in enumerate(labels):
-        pts = [(xs[i], y(h["mean_by_label"][lab])) for i, h in enumerate(rows) if lab in h["mean_by_label"]]
+        pts = [
+            (xs[i], y(h["mean_by_label"][lab]))
+            for i, h in enumerate(rows)
+            if lab in h["mean_by_label"]
+        ]
         c = palette[li % len(palette)]
         if len(pts) > 1:
-            parts.append(f'<polyline fill="none" stroke="{c}" stroke-width="2" points="{" ".join(f"{a:.1f},{b:.1f}" for a, b in pts)}"/>')
-        for (a, b), row in zip(pts, [h for h in rows if lab in h["mean_by_label"]]):
-            title = html.escape(f"{row['run_id']} ({str(row.get('commit', ''))[:8]}): {row['mean_by_label'][lab]}")
-            parts.append(f'<circle cx="{a:.1f}" cy="{b:.1f}" r="4" fill="{c}"><title>{title}</title></circle>')
-        parts.append(f'<text x="{L + 8 + li * 120}" y="{H - 6}" style="fill:{c}">&#9679; {html.escape(lab)}</text>')
+            parts.append(
+                f'<polyline fill="none" stroke="{c}" stroke-width="2" points="{" ".join(f"{a:.1f},{b:.1f}" for a, b in pts)}"/>'
+            )
+        for (a, b), row in zip(pts, [h for h in rows if lab in h["mean_by_label"]], strict=True):
+            title = html.escape(
+                f"{row['run_id']} ({str(row.get('commit', ''))[:8]}): {row['mean_by_label'][lab]}"
+            )
+            parts.append(
+                f'<circle cx="{a:.1f}" cy="{b:.1f}" r="4" fill="{c}"><title>{title}</title></circle>'
+            )
+        parts.append(
+            f'<text x="{L + 8 + li * 120}" y="{H - 6}" style="fill:{c}">&#9679; {html.escape(lab)}</text>'
+        )
     parts.append("</svg>")
     return "".join(parts)
 
@@ -119,27 +172,39 @@ def render_html(rd: Path, run, pairs, history, ev=None) -> str:
             for k, it in enumerate(res["issues"], 1):
                 x0, y0, x1, y1 = it["bbox"]
                 c = CAT_COLOURS.get(it["category"], "#94a3b8")
-                boxes.append(f'<div class="box" style="left:{x0*100:.2f}%;top:{y0*100:.2f}%;width:{(x1-x0)*100:.2f}%;'
-                             f'height:{(y1-y0)*100:.2f}%;border-color:{c}"><span style="background:{c}">{k}</span></div>')
+                boxes.append(
+                    f'<div class="box" style="left:{x0 * 100:.2f}%;top:{y0 * 100:.2f}%;width:{(x1 - x0) * 100:.2f}%;'
+                    f'height:{(y1 - y0) * 100:.2f}%;border-color:{c}"><span style="background:{c}">{k}</span></div>'
+                )
         for pl in p.get("planted") or []:
             if pl["bbox"] != [0, 0, 1, 1]:
                 x0, y0, x1, y1 = pl["bbox"]
-                boxes.append(f'<div class="box planted" style="left:{x0*100:.2f}%;top:{y0*100:.2f}%;'
-                             f'width:{(x1-x0)*100:.2f}%;height:{(y1-y0)*100:.2f}%"></div>')
-        score = f'{res["similarity"]:g}' if res else "n/a"
+                boxes.append(
+                    f'<div class="box planted" style="left:{x0 * 100:.2f}%;top:{y0 * 100:.2f}%;'
+                    f'width:{(x1 - x0) * 100:.2f}%;height:{(y1 - y0) * 100:.2f}%"></div>'
+                )
+        score = f"{res['similarity']:g}" if res else "n/a"
         same = res["same_place"] if res else ("judge failed" if j else "not judged")
         rows = ""
         if res:
             for k, it in enumerate(res["issues"], 1):
                 objs = ", ".join(
-                    f'{o.get("kind")}:{o.get("id", o["oid"])} '
-                    + " ".join(f"{key}={o[key]}" for key in ("building", "tile", "facade", "material") if o.get(key) is not None)
-                    + f' ({o["frac"]:.0%})' for o in it.get("objects", []))
+                    f"{o.get('kind')}:{o.get('id', o['oid'])} "
+                    + " ".join(
+                        f"{key}={o[key]}"
+                        for key in ("building", "tile", "facade", "material")
+                        if o.get(key) is not None
+                    )
+                    + f" ({o['frac']:.0%})"
+                    for o in it.get("objects", [])
+                )
                 if not objs:
                     objs = it.get("mapping_status", "no visible asset")
-                rows += (f'<tr><td>{k}</td><td><span class="sev s{it["severity"]}">{it["severity"]}</span></td>'
-                         f'<td><span class="cat" style="--c:{CAT_COLOURS.get(it["category"], "#94a3b8")}">{it["category"]}</span></td>'
-                         f'<td>{html.escape(it["what"])}</td><td>{html.escape(it["fix_hint"])}</td><td>{html.escape(objs)}</td></tr>')
+                rows += (
+                    f'<tr><td>{k}</td><td><span class="sev s{it["severity"]}">{it["severity"]}</span></td>'
+                    f'<td><span class="cat" style="--c:{CAT_COLOURS.get(it["category"], "#94a3b8")}">{it["category"]}</span></td>'
+                    f"<td>{html.escape(it['what'])}</td><td>{html.escape(it['fix_hint'])}</td><td>{html.escape(objs)}</td></tr>"
+                )
         evr = evrows.get(p["pair_id"])
         evtxt = ""
         if evr and evr["planted_total"]:
@@ -164,21 +229,27 @@ def render_html(rd: Path, run, pairs, history, ev=None) -> str:
 </section>''')
     summary_rows = "".join(
         f'<tr><td><a href="#{html.escape(p["pair_id"])}">{html.escape(p["pair_id"])}</a></td><td>{html.escape(str(p.get("label") or ""))}</td>'
-        f'<td>{p["result"]["similarity"] if p["result"] else "n/a"}</td><td>{p["result"]["same_place"] if p["result"] else ""}</td>'
-        f'<td>{len(p["result"]["issues"]) if p["result"] else ""}</td></tr>' for p in pairs)
+        f"<td>{p['result']['similarity'] if p['result'] else 'n/a'}</td><td>{p['result']['same_place'] if p['result'] else ''}</td>"
+        f"<td>{len(p['result']['issues']) if p['result'] else ''}</td></tr>"
+        for p in pairs
+    )
     evblock = ""
     if ev:
         rc = ev.get("planted_recall")
-        evblock = (f'<p>Self-test: planted recall <b>{rc[0]}/{rc[1]}</b>, strict score separation '
-                   f'identical &gt; degraded &gt; other: <b>{ev.get("strict_separation")}</b></p>')
+        evblock = (
+            f"<p>Self-test: planted recall <b>{rc[0]}/{rc[1]}</b>, strict score separation "
+            f"identical &gt; degraded &gt; other: <b>{ev.get('strict_separation')}</b></p>"
+        )
     calibration_path = rd / "calibration.json"
     if calibration_path.exists():
         calibration = json.loads(calibration_path.read_text())
-        evblock += (f'<p>Judge consistency (n=3): scores {html.escape(str(calibration["scores"]))}; '
-                    f'sample variance {calibration["sample_variance"]:.4f}; '
-                    f'standard deviation {calibration["sample_stddev"]:.4f}. '
-                    'Three repeats on one pair do not establish whole-range reliability.</p>')
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+        evblock += (
+            f"<p>Judge consistency (n=3): scores {html.escape(str(calibration['scores']))}; "
+            f"sample variance {calibration['sample_variance']:.4f}; "
+            f"standard deviation {calibration['sample_stddev']:.4f}. "
+            "Three repeats on one pair do not establish whole-range reliability.</p>"
+        )
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>QA Run Report</title>
 <style>
 :root{{--bg:#f7f7f8;--fg:#18181b;--muted:#6b7280;--card:#fff;--line:#e4e4e7}}
@@ -208,13 +279,15 @@ table{{border-collapse:collapse;width:100%;margin-top:8px}} td,th{{border-top:1p
 <h2>Mean similarity per run ({html.escape(run.get("kind", "render"))})</h2>{trend_svg(history, run.get("kind", "render"), run.get("comparison_key"))}
 <table><thead><tr><th>pair</th><th>label</th><th>score</th><th>same place</th><th>issues</th></tr></thead><tbody>{summary_rows}</tbody></table>
 {"".join(cards)}
-</main></body></html>'''
+</main></body></html>"""
 
 
 def build_report(rd: str | Path) -> Path:
     rd = Path(rd).resolve()
     run, pairs, tickets = collect(rd)
-    (rd / "issues.jsonl").write_text("".join(json.dumps(t, ensure_ascii=False) + "\n" for t in tickets))
+    (rd / "issues.jsonl").write_text(
+        "".join(json.dumps(t, ensure_ascii=False) + "\n" for t in tickets)
+    )
     _rewrite_jsonl(data_dir() / "issues.jsonl", tickets, run["run_id"])
     history = _rewrite_jsonl(data_dir() / "history.jsonl", [history_row(run, pairs)], run["run_id"])
     ev = json.loads((rd / "eval.json").read_text()) if (rd / "eval.json").exists() else None

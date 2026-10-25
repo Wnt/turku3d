@@ -1,7 +1,7 @@
 // Solar position (NOAA simplified algorithm, ~0.5 deg) for the Turku origin.
 import { TRUE_NORTH_GRID_BEARING_DEG } from './origin';
-export const TURKU_LAT = 60.448;
-export const TURKU_LON = 22.267;
+const TURKU_LAT = 60.448;
+const TURKU_LON = 22.267;
 
 /** Returns azimuth (deg, clockwise from north) and elevation (deg) of the sun. */
 export function sunPosition(date: Date, lat = TURKU_LAT, lon = TURKU_LON): { azimuth: number; elevation: number } {

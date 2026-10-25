@@ -65,25 +65,31 @@ class Primitive:
     flags: int = 0
 
     @staticmethod
-    def box(material: int, center, half_extents, rotation=(0, 0, 0, 1)) -> "Primitive":
+    def box(material: int, center, half_extents, rotation=(0, 0, 0, 1)) -> Primitive:
         hx, hy, hz = half_extents
         return Primitive(PRIM_BOX, material, tuple(center), tuple(rotation), (hx, hy, hz, 0.0))
 
     @staticmethod
-    def capsule(material: int, center, half_height, radius, rotation=(0, 0, 0, 1)) -> "Primitive":
-        return Primitive(PRIM_CAPSULE, material, tuple(center), tuple(rotation), (half_height, radius, 0.0, 0.0))
+    def capsule(material: int, center, half_height, radius, rotation=(0, 0, 0, 1)) -> Primitive:
+        return Primitive(
+            PRIM_CAPSULE, material, tuple(center), tuple(rotation), (half_height, radius, 0.0, 0.0)
+        )
 
     @staticmethod
-    def cylinder(material: int, center, half_height, radius, rotation=(0, 0, 0, 1)) -> "Primitive":
-        return Primitive(PRIM_CYLINDER, material, tuple(center), tuple(rotation), (half_height, radius, 0.0, 0.0))
+    def cylinder(material: int, center, half_height, radius, rotation=(0, 0, 0, 1)) -> Primitive:
+        return Primitive(
+            PRIM_CYLINDER, material, tuple(center), tuple(rotation), (half_height, radius, 0.0, 0.0)
+        )
 
     def aabb(self) -> tuple[np.ndarray, np.ndarray]:
         x, y, z, w = self.rotation
-        R = np.array([
-            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-        ])
+        R = np.array(
+            [
+                [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+            ]
+        )
         c = np.asarray(self.center, np.float64)
         if self.kind == PRIM_BOX:
             ext = np.abs(R) @ np.asarray(self.params[:3], np.float64)
@@ -131,12 +137,16 @@ class ColTile:
         return f"c_{self.tile_i}_{self.tile_j}"
 
     @classmethod
-    def for_tile(cls, tile_i: int, tile_j: int, world_positions, indices, materials, **kw) -> "ColTile":
+    def for_tile(
+        cls, tile_i: int, tile_j: int, world_positions, indices, materials, **kw
+    ) -> ColTile:
         """Build from world-local (engine) float64 positions: subtracts the tile origin in float64."""
         s = C.COLLISION_TILE_SIZE
         origin = (tile_i * s, 0.0, tile_j * s)
         local = np.asarray(world_positions, np.float64).reshape(-1, 3) - np.asarray(origin)
-        return cls(tile_i, tile_j, local.astype(np.float32), indices, materials, origin=origin, **kw)
+        return cls(
+            tile_i, tile_j, local.astype(np.float32), indices, materials, origin=origin, **kw
+        )
 
     def world_positions(self) -> np.ndarray:
         return self.positions.astype(np.float64) + np.asarray(self.origin)
@@ -188,7 +198,9 @@ def check_tile(tile: ColTile, *, shippable: bool = True) -> list[str]:
         area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
         bad = np.nonzero(area < MIN_TRI_AREA)[0]
         if len(bad):
-            errs.append(f"{len(bad)} degenerate triangles (area < 1e-6 m²), first {bad[:5].tolist()}")
+            errs.append(
+                f"{len(bad)} degenerate triangles (area < 1e-6 m²), first {bad[:5].tolist()}"
+            )
         key = np.sort(tile.indices, axis=1)
         if len(np.unique(key, axis=0)) != m:
             errs.append("duplicate triangles")
@@ -196,7 +208,9 @@ def check_tile(tile: ColTile, *, shippable: bool = True) -> list[str]:
         mats = set(np.unique(tile.materials).tolist()) | {p.material for p in tile.primitives}
         bad = sorted(x for x in mats if not M.is_shippable(x))
         if bad:
-            errs.append(f"unshippable material ids {bad} (0 = unknown, unassigned and 200-255 are not allowed)")
+            errs.append(
+                f"unshippable material ids {bad} (0 = unknown, unassigned and 200-255 are not allowed)"
+            )
         if m > MAX_TRIANGLES:
             errs.append(f"{m} triangles > budget {MAX_TRIANGLES}")
     for k, p in enumerate(tile.primitives):
@@ -217,8 +231,15 @@ def _pad8(n: int) -> int:
     return (n + 7) & ~7
 
 
-def write_col(tile: ColTile, path: str | Path | None = None, *, encoding: str = "auto",
-              optimize: bool = True, strict: bool = True, vertex_version: int = 0) -> bytes:
+def write_col(
+    tile: ColTile,
+    path: str | Path | None = None,
+    *,
+    encoding: str = "auto",
+    optimize: bool = True,
+    strict: bool = True,
+    vertex_version: int = 0,
+) -> bytes:
     """Serialise ``tile``. encoding: 'meshopt', 'raw' or 'auto' (meshopt if the encoder is available).
 
     ``optimize`` reorders vertices/triangles (meshopt reorderMesh) before meshopt encoding, permuting
@@ -238,16 +259,19 @@ def write_col(tile: ColTile, path: str | Path | None = None, *, encoding: str = 
     pos, idx, mat = tile.positions, tile.indices, tile.materials
     posn_enc, indx_enc = ENC_RAW, ENC_RAW
     if encoding == "meshopt" and len(idx):
-        pos, idx, order, posn_b, indx_b = meshopt.encode_mesh(pos, idx, optimize=optimize,
-                                                              vertex_version=vertex_version)
+        pos, idx, order, posn_b, indx_b = meshopt.encode_mesh(
+            pos, idx, optimize=optimize, vertex_version=vertex_version
+        )
         mat = mat[order]
         posn_enc, indx_enc = ENC_MESHOPT_VERTEX, ENC_MESHOPT_INDEX
         tile.positions, tile.indices, tile.materials = pos, idx, mat
     else:
         posn_b, indx_b = pos.tobytes(), idx.tobytes()
 
-    prim_b = b"".join(_PRIM.pack(p.kind, p.material, p.flags, *p.center, *p.rotation, *p.params)
-                      for p in tile.primitives)
+    prim_b = b"".join(
+        _PRIM.pack(p.kind, p.material, p.flags, *p.center, *p.rotation, *p.params)
+        for p in tile.primitives
+    )
     sections = [
         (b"POSN", posn_enc, posn_b, len(pos), 12),
         (b"INDX", indx_enc, indx_b, idx.size, 4),
@@ -271,10 +295,25 @@ def write_col(tile: ColTile, path: str | Path | None = None, *, encoding: str = 
 
     lo, hi = tile.compute_bbox()
     flags = tile.computed_flags()
-    header = _HEADER.pack(MAGIC, VERSION_MAJOR, VERSION_MINOR, HEADER_BYTES, flags, *tile.origin,
-                          tile.tile_i, tile.tile_j, *lo.astype(np.float32), *hi.astype(np.float32),
-                          len(pos), len(idx), len(tile.primitives), len(sections),
-                          M.MATERIAL_TABLE_VERSION, file_bytes, 0)
+    header = _HEADER.pack(
+        MAGIC,
+        VERSION_MAJOR,
+        VERSION_MINOR,
+        HEADER_BYTES,
+        flags,
+        *tile.origin,
+        tile.tile_i,
+        tile.tile_j,
+        *lo.astype(np.float32),
+        *hi.astype(np.float32),
+        len(pos),
+        len(idx),
+        len(tile.primitives),
+        len(sections),
+        M.MATERIAL_TABLE_VERSION,
+        file_bytes,
+        0,
+    )
     head = header + b"".join(table)
     buf = bytearray(head + b"\0" * (_pad8(len(head)) - len(head)) + payload)
     assert len(buf) == file_bytes
@@ -304,11 +343,32 @@ def read_header(buf: bytes) -> dict:
     if len(buf) < HEADER_BYTES:
         raise ColFormatError("file shorter than the 96-byte header")
     v = _HEADER.unpack_from(buf, 0)
-    keys = ("magic", "version_major", "version_minor", "header_bytes", "flags", "ox", "oy", "oz",
-            "tile_i", "tile_j", "bx0", "by0", "bz0", "bx1", "by1", "bz1", "vertex_count",
-            "triangle_count", "primitive_count", "section_count", "material_table_version",
-            "file_bytes", "crc32")
-    return dict(zip(keys, v))
+    keys = (
+        "magic",
+        "version_major",
+        "version_minor",
+        "header_bytes",
+        "flags",
+        "ox",
+        "oy",
+        "oz",
+        "tile_i",
+        "tile_j",
+        "bx0",
+        "by0",
+        "bz0",
+        "bx1",
+        "by1",
+        "bz1",
+        "vertex_count",
+        "triangle_count",
+        "primitive_count",
+        "section_count",
+        "material_table_version",
+        "file_bytes",
+        "crc32",
+    )
+    return dict(zip(keys, v, strict=True))
 
 
 def read_col(data: bytes | str | Path, *, verify_crc: bool = True) -> ColTile:
@@ -330,8 +390,16 @@ def read_col(data: bytes | str | Path, *, verify_crc: bool = True) -> ColTile:
         if o + SECTION_BYTES > len(buf):
             raise ColFormatError("section table runs past the end of the file")
         tag, enc, sflags, off, blen, count, stride = _SECTION.unpack_from(buf, o)
-        sections.append(dict(tag=tag.decode("latin1"), encoding=enc, offset=off, byte_length=blen,
-                             element_count=count, element_stride=stride))
+        sections.append(
+            dict(
+                tag=tag.decode("latin1"),
+                encoding=enc,
+                offset=off,
+                byte_length=blen,
+                element_count=count,
+                element_stride=stride,
+            )
+        )
         if tag not in ALLOWED_ENCODINGS:
             continue  # unknown tag: skip (forward compatibility)
         if tag in got:
@@ -342,7 +410,7 @@ def read_col(data: bytes | str | Path, *, verify_crc: bool = True) -> ColTile:
             raise ColFormatError(f"section {tag!r}: bad offset/length")
         if stride != STRIDE[tag]:
             raise ColFormatError(f"section {tag!r}: stride {stride} != {STRIDE[tag]}")
-        raw = buf[off:off + blen]
+        raw = buf[off : off + blen]
         if enc == ENC_RAW:
             if blen != count * stride:
                 raise ColFormatError(f"section {tag!r}: byte_length != count*stride")
@@ -372,20 +440,31 @@ def read_col(data: bytes | str | Path, *, verify_crc: bool = True) -> ColTile:
             continue
         prims.append(Primitive(v[0], v[1], v[3:6], v[6:10], v[10:14], v[2]))
     meta = json.loads(got[b"META"].decode()) if b"META" in got else None
-    return ColTile(h["tile_i"], h["tile_j"], pos, idx, mat, prims, origin=(h["ox"], h["oy"], h["oz"]),
-                   aoi_border=bool(h["flags"] & FLAG_AOI_BORDER),
-                   fix_internal_edges=bool(h["flags"] & FLAG_FIX_INTERNAL_EDGES), meta=meta,
-                   flags=h["flags"], version_minor=h["version_minor"],
-                   material_table_version=h["material_table_version"],
-                   bbox_min=(h["bx0"], h["by0"], h["bz0"]), bbox_max=(h["bx1"], h["by1"], h["bz1"]),
-                   sections=sections)
+    return ColTile(
+        h["tile_i"],
+        h["tile_j"],
+        pos,
+        idx,
+        mat,
+        prims,
+        origin=(h["ox"], h["oy"], h["oz"]),
+        aoi_border=bool(h["flags"] & FLAG_AOI_BORDER),
+        fix_internal_edges=bool(h["flags"] & FLAG_FIX_INTERNAL_EDGES),
+        meta=meta,
+        flags=h["flags"],
+        version_minor=h["version_minor"],
+        material_table_version=h["material_table_version"],
+        bbox_min=(h["bx0"], h["by0"], h["bz0"]),
+        bbox_max=(h["bx1"], h["by1"], h["bz1"]),
+        sections=sections,
+    )
 
 
 def canonical_triangles(tile: ColTile) -> list[tuple]:
     """Order- and rotation-independent triangle list: (corner bits rotated to min first, material)."""
     raw = tile.positions.view(np.uint32)[tile.indices].tolist()
     out = []
-    for t, m in zip(raw, tile.materials.tolist()):
+    for t, m in zip(raw, tile.materials.tolist(), strict=True):
         t = [tuple(v) for v in t]
         k = t.index(min(t))
         out.append((tuple(t[k:] + t[:k]), m))

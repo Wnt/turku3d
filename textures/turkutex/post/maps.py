@@ -5,6 +5,7 @@ to <data>/tools/DeepBump and we run its own cli.py in a subprocess (verified: 12
 in ~5 s on the M1 Max, ai-textures.md Verification 6). Normal maps are OpenGL convention (+Y up, as
 glTF expects); DeepBump outputs that convention.
 """
+
 from __future__ import annotations
 
 import os
@@ -46,8 +47,13 @@ def deepbump_available() -> bool:
 
 def _deepbump(inp: Path, out: Path, module: str, *extra: str):
     d = deepbump_dir()
-    subprocess.run([sys.executable, str(d / "cli.py"), str(inp), str(out), module, *extra],
-                   cwd=d, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [sys.executable, str(d / "cli.py"), str(inp), str(out), module, *extra],
+        cwd=d,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def normals_deepbump(albedo: np.ndarray, overlap: str = "LARGE") -> np.ndarray:
@@ -62,7 +68,13 @@ def height_deepbump(normals: np.ndarray, seamless: bool = True) -> np.ndarray:
     with tempfile.TemporaryDirectory() as t:
         a, h = Path(t) / "n.png", Path(t) / "h.png"
         Image.fromarray(normals).save(a)
-        _deepbump(a, h, "normals_to_height", "--normals_to_height-seamless", "TRUE" if seamless else "FALSE")
+        _deepbump(
+            a,
+            h,
+            "normals_to_height",
+            "--normals_to_height-seamless",
+            "TRUE" if seamless else "FALSE",
+        )
         return np.asarray(Image.open(h).convert("L"))
 
 
@@ -84,7 +96,9 @@ def height_from_luminance(albedo: np.ndarray) -> np.ndarray:
     return (L * 255 + 0.5).astype(np.uint8)
 
 
-def orm(albedo: np.ndarray, height: np.ndarray, material: str = "facade_mixed", ao_strength: float = 0.6) -> np.ndarray:
+def orm(
+    albedo: np.ndarray, height: np.ndarray, material: str = "facade_mixed", ao_strength: float = 0.6
+) -> np.ndarray:
     """R = ambient occlusion from height cavities, G = roughness, B = metallic (glTF ORM packing)."""
     base, spread, metal = ORM_PRESETS.get(material, ORM_PRESETS["facade_mixed"])
     h = height.astype(np.float32) / 255.0
@@ -95,7 +109,11 @@ def orm(albedo: np.ndarray, height: np.ndarray, material: str = "facade_mixed", 
     detail = L - ndimage.gaussian_filter(L, 4.0, mode="wrap")
     rough = np.clip(base - spread * detail * 4 + 0.1 * (1 - ao), 0.04, 1.0)
     # dark glass-like regions (very dark, low saturation) get lower roughness on facades
-    if material.startswith("facade") or material.startswith("wood") or material in ("render", "stone", "brick"):
+    if (
+        material.startswith("facade")
+        or material.startswith("wood")
+        or material in ("render", "stone", "brick")
+    ):
         rgb = albedo[..., :3].astype(np.float32) / 255
         sat = rgb.max(-1) - rgb.min(-1)
         glass = (L < 0.18) & (sat < 0.08)

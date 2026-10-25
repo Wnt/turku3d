@@ -1,4 +1,5 @@
 """Unit tests for qa/ (no network, no Codex, no browser). Run: make qa-test"""
+
 import importlib
 import json
 import math
@@ -16,7 +17,15 @@ sys.path.insert(0, str(QA))
 from qalib import camera, degrade, registry  # noqa: E402
 from qalib.pano import equirect_pixel, perspective  # noqa: E402
 
-POSE = {"E": 23459676.0, "N": 6704242.7, "H": 5.6, "yaw": 324.8, "pitch": 12.0, "roll": 0.0, "fov": 60.0}
+POSE = {
+    "E": 23459676.0,
+    "N": 6704242.7,
+    "H": 5.6,
+    "yaw": 324.8,
+    "pitch": 12.0,
+    "roll": 0.0,
+    "fov": 60.0,
+}
 
 
 @pytest.fixture
@@ -61,8 +70,10 @@ def test_fov_conversions():
 
 def test_golden_projection_is_current():
     import golden  # qa/tests/golden.py
-    assert json.loads(golden.GOLDEN.read_text()) == json.loads(json.dumps(golden.build())), \
+
+    assert json.loads(golden.GOLDEN.read_text()) == json.loads(json.dumps(golden.build())), (
         "regenerate with: qa/.venv/bin/python qa/tests/golden.py"
+    )
 
 
 # ---------------------------------------------------------------- pano -> perspective
@@ -71,8 +82,12 @@ def test_perspective_hits_marker():
     eq = np.full((H, W, 3), 40, np.uint8)
     heading, az, el = 64.7, 324.8, 12.0
     u, v = equirect_pixel(heading, W, H, az, el)
-    eq[int(v) - 3:int(v) + 4, int(u) - 3:int(u) + 4] = (255, 0, 0)
-    out = np.asarray(perspective(Image.fromarray(eq), heading, {**POSE, "yaw": az, "pitch": el, "fov": 20}, 200, 150))
+    eq[int(v) - 3 : int(v) + 4, int(u) - 3 : int(u) + 4] = (255, 0, 0)
+    out = np.asarray(
+        perspective(
+            Image.fromarray(eq), heading, {**POSE, "yaw": az, "pitch": el, "fov": 20}, 200, 150
+        )
+    )
     ys, xs = np.where((out[..., 0] > 150) & (out[..., 1] < 100))
     assert len(xs) > 0
     assert abs(xs.mean() - 100) < 2 and abs(ys.mean() - 75) < 2
@@ -83,15 +98,25 @@ def test_perspective_wraps_seam():
     eq = np.zeros((H, W, 3), np.uint8)
     eq[:, :8] = 255
     eq[:, -8:] = 255  # a vertical white line on the seam (azimuth heading+180)
-    out = np.asarray(perspective(Image.fromarray(eq), 0.0, {**POSE, "yaw": 180, "pitch": 0, "fov": 30}, 64, 48))
+    out = np.asarray(
+        perspective(Image.fromarray(eq), 0.0, {**POSE, "yaw": 180, "pitch": 0, "fov": 30}, 64, 48)
+    )
     assert out[:, 30:34].mean() > 200 and out[:, :10].mean() < 10
 
 
 # ---------------------------------------------------------------- registry
 def _view(i="v1", **kw):
-    v = {"id": i, "image": "data/qa/refs/x.jpg", "width": 1280, "height": 960, "pose": dict(POSE), "time": None,
-         "source": {"kind": "google_streetview", "pano_id": "abc"}, "capture_date": "2019-06",
-         "pose_confidence": {"level": "medium"}}
+    v = {
+        "id": i,
+        "image": "data/qa/refs/x.jpg",
+        "width": 1280,
+        "height": 960,
+        "pose": dict(POSE),
+        "time": None,
+        "source": {"kind": "google_streetview", "pano_id": "abc"},
+        "capture_date": "2019-06",
+        "pose_confidence": {"level": "medium"},
+    }
     v.update(kw)
     return v
 
@@ -133,8 +158,21 @@ def test_judge_schema_valid_and_strict():
     s = json.loads((QA / "judge" / "qa.schema.json").read_text())
     jsonschema.Draft202012Validator.check_schema(s)
     _strict_ok(s)
-    good = {"same_place": "yes", "similarity": 7.5, "summary": "x", "ignored_differences": ["cars"],
-            "issues": [{"what": "w", "bbox": [0.1, 0.2, 0.3, 0.4], "category": "texture", "severity": 3, "fix_hint": "f"}]}
+    good = {
+        "same_place": "yes",
+        "similarity": 7.5,
+        "summary": "x",
+        "ignored_differences": ["cars"],
+        "issues": [
+            {
+                "what": "w",
+                "bbox": [0.1, 0.2, 0.3, 0.4],
+                "category": "texture",
+                "severity": 3,
+                "fix_hint": "f",
+            }
+        ],
+    }
     jsonschema.validate(good, s)
     bad = json.loads(json.dumps(good))
     bad["issues"][0]["category"] = "colour"
@@ -158,40 +196,67 @@ def test_judge_prompt_and_quota_guard(monkeypatch, tmp_path):
     assert called == []  # codex never invoked
     d = j.judge(a, a, dry_run=True)
     cmd = d["cmd"]
-    assert cmd[:4] == ["codex", "exec", "-m", "gpt-6-astra"] and "read-only" in cmd and "--output-schema" in cmd
+    assert (
+        cmd[:4] == ["codex", "exec", "-m", "gpt-6-astra"]
+        and "read-only" in cmd
+        and "--output-schema" in cmd
+    )
     assert cmd.index("-") < cmd.index("-i")  # prompt marker before the greedy -i list
     imgs = [cmd[i + 1] for i, x in enumerate(cmd) if x == "-i"]
-    assert Path(imgs[0]).name.startswith("1_reference") and Path(imgs[1]).name.startswith("2_render")
+    assert Path(imgs[0]).name.startswith("1_reference") and Path(imgs[1]).name.startswith(
+        "2_render"
+    )
 
 
 def test_judge_clean_clamps_and_sorts():
     j = importlib.import_module("judge.judge")
-    r = j._clean({"issues": [{"bbox": [0.5, 1.2, -0.1, 0.3], "severity": 2}, {"bbox": [0, 0, 1, 1], "severity": 5}]})
+    r = j._clean(
+        {
+            "issues": [
+                {"bbox": [0.5, 1.2, -0.1, 0.3], "severity": 2},
+                {"bbox": [0, 0, 1, 1], "severity": 5},
+            ]
+        }
+    )
     assert r["issues"][0]["severity"] == 5
     assert r["issues"][1]["bbox"] == [0.0, 0.3, 0.5, 1.0]
 
 
 # ---------------------------------------------------------------- degrade + planted matching
 def test_degrade_ops_are_local():
-    img = Image.fromarray(np.tile(np.linspace(0, 255, 100, dtype=np.uint8)[None, :, None], (80, 1, 3)) // 2 + 60)
-    img = Image.fromarray(np.stack([np.asarray(img)[..., 0], np.asarray(img)[..., 1] // 2, np.asarray(img)[..., 2] // 3], -1))
+    img = Image.fromarray(
+        np.tile(np.linspace(0, 255, 100, dtype=np.uint8)[None, :, None], (80, 1, 3)) // 2 + 60
+    )
+    img = Image.fromarray(
+        np.stack(
+            [np.asarray(img)[..., 0], np.asarray(img)[..., 1] // 2, np.asarray(img)[..., 2] // 3],
+            -1,
+        )
+    )
     out, pl = degrade.recolour(img, [0.5, 0.5, 1.0, 1.0])
     a, b = np.asarray(img).astype(int), np.asarray(out).astype(int)
     assert np.abs(a[:38, :] - b[:38, :]).max() <= 1 and np.abs(a[:, :48] - b[:, :48]).max() <= 1
     assert np.abs(a[45:, 55:] - b[45:, 55:]).mean() > 10
     out, pl = degrade.grey_mask(img, [0, 0, 0.5, 0.5])
     assert (np.asarray(out)[:40, :50] == 128).all() and pl[0]["category"] == "texture"
-    assert degrade.iou([0, 0, 1, 1], [0, 0, 1, 1]) == 1 and degrade.overlap_frac([0, 0, 0.5, 1], [0, 0, 1, 1]) == 0.5
+    assert (
+        degrade.iou([0, 0, 1, 1], [0, 0, 1, 1]) == 1
+        and degrade.overlap_frac([0, 0, 0.5, 1], [0, 0, 1, 1]) == 0.5
+    )
 
 
 def test_match_planted():
     sys.path.insert(0, str(QA / "selftest"))
     planted = importlib.import_module("planted")
-    pl = [{"what": "a", "bbox": [0, 0, 0.5, 0.5], "category": "material"},
-          {"what": "b", "bbox": [0, 0, 1, 1], "category": "texture"},
-          {"what": "c", "bbox": [0.8, 0.8, 1, 1], "category": "texture"}]
-    issues = [{"what": "facade wrong colour", "bbox": [0.05, 0.05, 0.45, 0.5], "fix_hint": ""},
-              {"what": "everything is blurry", "bbox": [0, 0, 1, 1], "fix_hint": ""}]
+    pl = [
+        {"what": "a", "bbox": [0, 0, 0.5, 0.5], "category": "material"},
+        {"what": "b", "bbox": [0, 0, 1, 1], "category": "texture"},
+        {"what": "c", "bbox": [0.8, 0.8, 1, 1], "category": "texture"},
+    ]
+    issues = [
+        {"what": "facade wrong colour", "bbox": [0.05, 0.05, 0.45, 0.5], "fix_hint": ""},
+        {"what": "everything is blurry", "bbox": [0, 0, 1, 1], "fix_hint": ""},
+    ]
     hits = planted.match_planted(pl, issues)
     assert [h["caught_by"] for h in hits] == [0, 1, None]
 
@@ -199,6 +264,7 @@ def test_match_planted():
 # ---------------------------------------------------------------- back-mapping + report
 def test_backmap_objects_in_bbox(tmp_path):
     from report.backmap import load_ids, objects_in_bbox
+
     a = np.zeros((100, 100, 3), np.uint8)
     a[:, 50:] = (0, 0, 1)
     a[60:, 50:] = (0, 1, 0)  # id 256
@@ -212,6 +278,7 @@ def test_backmap_objects_in_bbox(tmp_path):
 
 def test_build_report(qa_data):
     from report.report import build_report
+
     rd = qa_data / "runs" / "r1"
     (rd / "judge").mkdir(parents=True)
     img = rd / "a.png"
@@ -219,16 +286,59 @@ def test_build_report(qa_data):
     ida = np.zeros((30, 40, 3), np.uint8)
     ida[:, 20:] = (0, 0, 7)
     Image.fromarray(ida).save(rd / "a.id.png")
-    (rd / "a.id.json").write_text(json.dumps({"7": {"kind": "building", "id": "B7", "tile": "t0_0_0"}}))
-    run = {"run_id": "r1", "kind": "render", "pairs": [
-        {"pair_id": "v1", "view_id": "v1", "label": "render", "ref": str(img), "render": str(img),
-         "id_image": str(rd / "a.id.png"), "id_table": str(rd / "a.id.json")},
-        {"pair_id": "v2", "view_id": "v2", "label": "render", "ref": str(img), "render": str(img)}]}
+    (rd / "a.id.json").write_text(
+        json.dumps({"7": {"kind": "building", "id": "B7", "tile": "t0_0_0"}})
+    )
+    run = {
+        "run_id": "r1",
+        "kind": "render",
+        "pairs": [
+            {
+                "pair_id": "v1",
+                "view_id": "v1",
+                "label": "render",
+                "ref": str(img),
+                "render": str(img),
+                "id_image": str(rd / "a.id.png"),
+                "id_table": str(rd / "a.id.json"),
+            },
+            {
+                "pair_id": "v2",
+                "view_id": "v2",
+                "label": "render",
+                "ref": str(img),
+                "render": str(img),
+            },
+        ],
+    }
     (rd / "run.json").write_text(json.dumps(run))
-    res = {"same_place": "yes", "similarity": 6, "summary": "s", "ignored_differences": [],
-           "issues": [{"what": "flat wall", "bbox": [0.6, 0.1, 0.9, 0.8], "category": "texture", "severity": 4, "fix_hint": "h"}]}
-    (rd / "judge" / "v1.json").write_text(json.dumps({"ok": True, "result": res, "attempts": [{"thread_id": "t"}], "secs": 1,
-                                                      "usage_before_pct": 0, "usage_after_pct": 0}))
+    res = {
+        "same_place": "yes",
+        "similarity": 6,
+        "summary": "s",
+        "ignored_differences": [],
+        "issues": [
+            {
+                "what": "flat wall",
+                "bbox": [0.6, 0.1, 0.9, 0.8],
+                "category": "texture",
+                "severity": 4,
+                "fix_hint": "h",
+            }
+        ],
+    }
+    (rd / "judge" / "v1.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "result": res,
+                "attempts": [{"thread_id": "t"}],
+                "secs": 1,
+                "usage_before_pct": 0,
+                "usage_after_pct": 0,
+            }
+        )
+    )
     out = build_report(rd)
     html = out.read_text()
     assert "flat wall" in html and 'class="box"' in html and "not judged" in html and "<svg" in html
@@ -245,14 +355,29 @@ def test_tour360_adapter(qa_data, tmp_path):
     root = tmp_path / "360tour"
     d = root / "panorama_ABC_1"
     d.mkdir(parents=True)
-    (d / "meta.json").write_text(json.dumps({"id": "panorama_ABC_1", "label": "Test pano", "lat": 60.4472217,
-                                             "lon": 22.2677783, "gps_alt_m": 70.5, "date": "2016:05:12 20:16:32", "kind": "aerial"}))
+    (d / "meta.json").write_text(
+        json.dumps(
+            {
+                "id": "panorama_ABC_1",
+                "label": "Test pano",
+                "lat": 60.4472217,
+                "lon": 22.2677783,
+                "gps_alt_m": 70.5,
+                "date": "2016:05:12 20:16:32",
+                "kind": "aerial",
+            }
+        )
+    )
     Image.new("RGB", (256, 128), (10, 200, 10)).save(d / "equirect_256.jpg")
     reg = tmp_path / "v.jsonl"
     with pytest.raises(SystemExit, match="heading offset"):
         t.make("ABC", 0, 0, 60, (64, 48), None, None, None, root, reg)
     v = t.make("ABC", -12, -25, 60, (64, 48), "tv", 5.0, None, root, reg)
-    assert v["pose"]["yaw"] == 353.0 and v["pose"]["H"] == 70.5 and v["time"] == "2016-05-12T20:16:32+03:00"
+    assert (
+        v["pose"]["yaw"] == 353.0
+        and v["pose"]["H"] == 70.5
+        and v["time"] == "2016-05-12T20:16:32+03:00"
+    )
     assert abs(camera.hfov(v["pose"]["fov"], 64, 48) - 60) < 1e-3
     assert registry.load(reg)[0]["source"]["kind"] == "360tour"
     assert t.find_panos(tmp_path / "missing") == []
@@ -260,6 +385,7 @@ def test_tour360_adapter(qa_data, tmp_path):
 
 def test_geo_reuses_pipeline_origin():
     from qalib import geo
+
     assert (geo.ORIGIN_E, geo.ORIGIN_N) == (23459500.0, 6704500.0)
     assert geo.en_to_engine(23459668, 6704254, 7) == (168, 7, 246)
     lat, lon = geo.en_to_wgs84(geo.OFFICE_E, geo.OFFICE_N)

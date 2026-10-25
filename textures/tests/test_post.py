@@ -4,7 +4,6 @@ import shutil
 import numpy as np
 import pytest
 from PIL import Image
-
 from turkutex.post import maps, qa
 from turkutex.post.pipeline import ktx2_header, pow2_floor, process, target_size
 from turkutex.post.tileable import flatten_lowfreq, make_tileable
@@ -86,18 +85,26 @@ def test_process_sobel_no_ktx2(tmp_path):
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_ktx2_encode(tmp_path):
     from turkutex.paths import NODE_DIR
+
     if not (NODE_DIR / "node_modules" / "ktx2-encoder").exists():
         pytest.skip("run `make textures-setup` (npm install in textures/node)")
     src = tmp_path / "in.png"
     Image.fromarray(textured(128, 128)).save(src)
     r = process(src, tmp_path / "out", tile="xy", flatten="xy", ktx2=True, sobel=True)
     a, n = r["ktx2"]["albedo"]["header"], r["ktx2"]["normal"]["header"]
-    assert a["valid"] and a["width"] == 128 and a["levels"] == 8 and a["supercompression"] == "BasisLZ(ETC1S)"
+    assert (
+        a["valid"]
+        and a["width"] == 128
+        and a["levels"] == 8
+        and a["supercompression"] == "BasisLZ(ETC1S)"
+    )
     assert n["valid"] and n["supercompression"] == "zstd"
     assert ktx2_header(tmp_path / "out" / "orm.ktx2")["valid"]
 
 
-@pytest.mark.skipif(not maps.deepbump_available(), reason="DeepBump not installed (make textures-deepbump)")
+@pytest.mark.skipif(
+    not maps.deepbump_available(), reason="DeepBump not installed (make textures-deepbump)"
+)
 def test_deepbump_normals():
     img = textured(256, 256)
     n = maps.normals_deepbump(img, "SMALL")
@@ -108,6 +115,7 @@ def test_deepbump_normals():
 
 def test_period_crop_and_feather():
     from turkutex.post.tileable import crop_to_period, detect_period_x, feather_wrap_x
+
     H, W, p = 64, 700, 100
     x = np.arange(W)
     row = np.where((x % p) < 30, 40.0, 180.0)  # a dark "window" every 100 px
@@ -118,7 +126,7 @@ def test_period_crop_and_feather():
     assert c.shape[1] % 100 == 0 and info["repeats"] >= 2
     # the cut avoids vertical edges (window jambs): the columns around both cut positions are uniform
     for x0 in (info["crop"][0], info["crop"][1]):
-        seg = img[20, max(0, x0 - 2):x0 + 3, 0].astype(int)
+        seg = img[20, max(0, x0 - 2) : x0 + 3, 0].astype(int)
         assert seg.max() - seg.min() == 0
     f = feather_wrap_x(c, 4)
     assert qa.seam_ratio(f, "x") < 1.5

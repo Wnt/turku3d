@@ -6,7 +6,10 @@ ROOT="$HOME/turku3d"
 ENV="$ROOT/envs/pipeline"
 MM="$ROOT/tools/bin/micromamba"
 export MAMBA_ROOT_PREFIX="$ROOT/tools/mamba" PYTHONNOUSERSITE=1
-[[ $(uname -sm) == 'Darwin arm64' ]] || { echo 'This bootstrap requires macOS arm64' >&2; exit 1; }
+[[ $(uname -sm) == 'Darwin arm64' ]] || {
+  echo 'This bootstrap requires macOS arm64' >&2
+  exit 1
+}
 mkdir -p "$ROOT/tools/bin" "$ROOT/envs"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -25,11 +28,11 @@ elif [[ ${1:-} == --update ]]; then
   "$MM" install -y -p "$ENV" -f "$REPO/pipeline/env/environment.yml"
 fi
 "$ENV/bin/python" -m pip install --disable-pip-version-check -q triangle==20250106
-"$MM" env export -p "$ENV" --explicit > "$ROOT/envs/pipeline.lock.txt"
+"$MM" env export -p "$ENV" --explicit >"$ROOT/envs/pipeline.lock.txt"
 NPMDIR="$ROOT/tools/npm"
 mkdir -p "$NPMDIR"
-if [[ ! -f $NPMDIR/package-lock.json ]] || ! cmp -s "$REPO/pipeline/env/package-lock.json" "$NPMDIR/package-lock.json" \
-    || [[ ! -x $NPMDIR/node_modules/.bin/gltf-transform ]]; then
+if [[ ! -f $NPMDIR/package-lock.json ]] || ! cmp -s "$REPO/pipeline/env/package-lock.json" "$NPMDIR/package-lock.json" ||
+  [[ ! -x $NPMDIR/node_modules/.bin/gltf-transform ]]; then
   cp "$REPO/pipeline/env/package.json" "$REPO/pipeline/env/package-lock.json" "$NPMDIR/"
   (cd "$NPMDIR" && npm ci --no-audit --no-fund)
 fi
@@ -41,7 +44,7 @@ if [[ ! -x $RD/bin/roofer ]]; then
   tar xzf "$tmp/roofer.tgz" -C "$RD"
   chmod +x "$RD/bin/roofer"
 fi
-cat > "$ROOT/tools/bin/roofer" <<WRAP
+cat >"$ROOT/tools/bin/roofer" <<WRAP
 #!/usr/bin/env bash
 export GDAL_DATA="$RD/share/gdal" PROJ_DATA="$RD/share/proj"
 exec "$RD/bin/roofer" "\$@"
@@ -55,7 +58,7 @@ if [[ ! -x $KD/usr/local/bin/toktx ]]; then
   while IFS= read -r payload; do cp -R "$payload"/. "$KD/"; done < <(find "$tmp/ktx" -type d -name Payload)
 fi
 for tool in toktx ktx; do ln -sf "$KD/usr/local/bin/$tool" "$ROOT/tools/bin/$tool"; done
-cat > "$ROOT/envs/pipeline.env" <<ENVSH
+cat >"$ROOT/envs/pipeline.env" <<ENVSH
 export PATH="$ENV/bin:$ROOT/tools/bin:\$PATH"
 export PROJ_DATA="$ENV/share/proj" GDAL_DATA="$ENV/share/gdal" PYTHONNOUSERSITE=1
 export TURKU3D_MESHOPT_DIR="$NPMDIR/node_modules/meshoptimizer"

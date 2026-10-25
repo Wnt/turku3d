@@ -12,7 +12,7 @@ export function groups(membership: number, filter: number): number {
   return ((membership & 0xffff) << 16) | (filter & 0xffff);
 }
 
-export const STATIC_GROUPS: Record<CollisionClass, number> = {
+const STATIC_GROUPS: Record<CollisionClass, number> = {
   solid: groups(GROUP.STATIC_SOLID, 0xffff),
   query: groups(GROUP.STATIC_QUERY, 0xffff),
   sensor: groups(GROUP.STATIC_SENSOR, 0xffff),
@@ -21,8 +21,6 @@ export const STATIC_GROUPS: Record<CollisionClass, number> = {
 export const CHARACTER_FILTER = groups(GROUP.CHARACTER, GROUP.STATIC_SOLID);
 /** Scene ray queries that should only hit solids. */
 export const SOLID_QUERY_FILTER = groups(0xffff, GROUP.STATIC_SOLID);
-/** Foot-IK rays: solids plus query helpers (stair treads). */
-export const QUERY_HELPERS_FILTER = groups(0xffff, GROUP.STATIC_SOLID | GROUP.STATIC_QUERY);
 
 export interface BuiltCollider {
   collider: any; // RAPIER.Collider
@@ -38,8 +36,6 @@ export interface BuiltTile {
   tileId: string;
   colliders: BuiltCollider[];
   buildMs: number;
-  /** Map from collider handle to BuiltCollider, for material lookup after queries. */
-  byHandle: Map<number, BuiltCollider>;
 }
 
 /**
@@ -83,9 +79,7 @@ export function buildTileColliders(RAPIER: any, world: any, tile: ColTile): Buil
     if (cls === 'sensor') desc.setSensor(true);
     out.push({ collider: world.createCollider(desc), cls, kind, materials: Uint8Array.of(p.material) });
   }
-  const byHandle = new Map<number, BuiltCollider>();
-  for (const c of out) byHandle.set(c.collider.handle, c);
-  return { tileId: tile.id, colliders: out, buildMs: performance.now() - t0, byHandle };
+  return { tileId: tile.id, colliders: out, buildMs: performance.now() - t0 };
 }
 
 function averageFriction(mats: Uint8Array): number {
@@ -96,12 +90,4 @@ function averageFriction(mats: Uint8Array): number {
   let best = 0, bestN = -1;
   for (const [m, n] of counts) if (n > bestN) { best = m; bestN = n; }
   return MATERIALS[best]?.friction ?? 0.8;
-}
-
-/** Material id of a ray/shape hit (`featureId` = triangle index for trimeshes). */
-export function hitMaterial(tile: BuiltTile, colliderHandle: number, featureId: number | undefined): number | undefined {
-  const c = tile.byHandle.get(colliderHandle);
-  if (!c) return undefined;
-  if (c.kind !== 'trimesh') return c.materials[0];
-  return featureId === undefined ? undefined : c.materials[featureId];
 }

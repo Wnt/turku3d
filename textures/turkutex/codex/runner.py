@@ -26,6 +26,7 @@ Quota: before EVERY call the weekly usedPercent is read (usage.py, free). If it 
 100) or unknown, no new call starts; running ones finish; exit code 3. Rerunning the same command
 resumes: jobs with an ok record (same key) in out.jsonl are skipped.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -79,8 +80,15 @@ class Job:
 
     def key(self) -> str:
         h = hashlib.sha256()
-        parts = [CACHE_VERSION, self.model, self.sandbox, self.prompt_version, self.prompt,
-                 self.schema.read_text() if self.schema else "", str(self.expect_images)]
+        parts = [
+            CACHE_VERSION,
+            self.model,
+            self.sandbox,
+            self.prompt_version,
+            self.prompt,
+            self.schema.read_text() if self.schema else "",
+            str(self.expect_images),
+        ]
         for p in parts:
             h.update(p.encode())
             h.update(b"\0")
@@ -108,15 +116,24 @@ def load_jobs(path: Path) -> list[Job]:
         if d.get("vars"):
             text = string.Template(text).safe_substitute({k: str(v) for k, v in d["vars"].items()})
         rp = lambda s: (base / s).resolve()  # noqa: E731
-        j = Job(id=jid, prompt=text, images=[rp(s) for s in d.get("images", [])],
-                files=[rp(s) for s in d.get("files", [])],
-                schema=rp(d["schema"]) if d.get("schema") else None,
-                model=d.get("model", DEFAULT_MODEL), sandbox=d.get("sandbox", "read-only"),
-                timeout=float(d.get("timeout", 900)), expect_images=int(d.get("expect_images", 0)),
-                prompt_version=str(d.get("prompt_version", "v1")), meta=d.get("meta", {}))
+        j = Job(
+            id=jid,
+            prompt=text,
+            images=[rp(s) for s in d.get("images", [])],
+            files=[rp(s) for s in d.get("files", [])],
+            schema=rp(d["schema"]) if d.get("schema") else None,
+            model=d.get("model", DEFAULT_MODEL),
+            sandbox=d.get("sandbox", "read-only"),
+            timeout=float(d.get("timeout", 900)),
+            expect_images=int(d.get("expect_images", 0)),
+            prompt_version=str(d.get("prompt_version", "v1")),
+            meta=d.get("meta", {}),
+        )
         names = [p.name for p in j.images + j.files]
         if len(set(names)) != len(names):
-            raise ValueError(f"{path}:{n}: input file names must be unique within a job (copied flat)")
+            raise ValueError(
+                f"{path}:{n}: input file names must be unique within a job (copied flat)"
+            )
         for p in j.images + j.files + ([j.schema] if j.schema else []):
             if not p.is_file():
                 raise FileNotFoundError(f"{path}:{n}: {p}")
@@ -150,9 +167,18 @@ class QuotaStop(Exception):
 
 
 class Runner:
-    def __init__(self, out_dir: Path, parallel: int = 4, max_pct: float = 100, cache_dir: Path | None = None,
-                 codex_bin: str | None = None, retries: int = 1, allow_unknown_usage: bool = False,
-                 extra_args: list[str] | None = None, use_cache: bool = True):
+    def __init__(
+        self,
+        out_dir: Path,
+        parallel: int = 4,
+        max_pct: float = 100,
+        cache_dir: Path | None = None,
+        codex_bin: str | None = None,
+        retries: int = 1,
+        allow_unknown_usage: bool = False,
+        extra_args: list[str] | None = None,
+        use_cache: bool = True,
+    ):
         self.out = Path(out_dir)
         self.parallel = max(1, parallel)
         self.max_pct = max_pct
@@ -225,8 +251,13 @@ class Runner:
             dst.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst / src.name)
             imgs.append({**im, "path": str(dst / src.name)})
-        rec.update(images=imgs, id=job.id, cached=True, meta=job.meta,
-                   primary=next((i["path"] for i in imgs if i.get("primary")), None))
+        rec.update(
+            images=imgs,
+            id=job.id,
+            cached=True,
+            meta=job.meta,
+            primary=next((i["path"] for i in imgs if i.get("primary")), None),
+        )
         return rec
 
     def _cache_put(self, key: str, rec: dict):
@@ -248,8 +279,21 @@ class Runner:
                 shutil.copy2(p, tmp / p.name)
             last = logs / f"{job.id}.last.txt"
             last.unlink(missing_ok=True)
-            cmd = [self.codex, "exec", "-m", job.model, "-C", str(tmp), "--skip-git-repo-check",
-                   "--sandbox", job.sandbox, "--json", "-o", str(last), *self.extra]
+            cmd = [
+                self.codex,
+                "exec",
+                "-m",
+                job.model,
+                "-C",
+                str(tmp),
+                "--skip-git-repo-check",
+                "--sandbox",
+                job.sandbox,
+                "--json",
+                "-o",
+                str(last),
+                *self.extra,
+            ]
             if job.schema:
                 cmd += ["--output-schema", str(job.schema)]
             cmd.append("-")
@@ -257,10 +301,14 @@ class Runner:
                 cmd += ["-i", str(tmp / p.name)]
             t0 = time.time()
             self.log(f"START {job.id} attempt={attempt} usage={pct_before}% key={key[:12]}")
-            with open(logs / f"{job.id}.events.jsonl", "w") as ev, open(logs / f"{job.id}.err", "w") as er:
+            with (
+                open(logs / f"{job.id}.events.jsonl", "w") as ev,
+                open(logs / f"{job.id}.err", "w") as er,
+            ):
                 try:
-                    pr = subprocess.run(cmd, input=job.prompt, stdout=ev, stderr=er, text=True,
-                                        timeout=job.timeout)
+                    pr = subprocess.run(
+                        cmd, input=job.prompt, stdout=ev, stderr=er, text=True, timeout=job.timeout
+                    )
                     rc = pr.returncode
                 except subprocess.TimeoutExpired:
                     rc = -9
@@ -281,13 +329,31 @@ class Runner:
             elif e.get("type") in ("error", "turn.failed"):
                 err_ev = e.get("message") or json.dumps(e.get("error"))
         last_msg = last.read_text() if last.exists() else None
-        rec = {"id": job.id, "key": key, "ok": False, "cached": False, "rc": rc, "seconds": secs,
-               "attempt": attempt, "model": job.model, "thread_id": thread_id, "meta": job.meta,
-               "prompt_version": job.prompt_version, "prompt_sha256": hashlib.sha256(job.prompt.encode()).hexdigest(),
-               "inputs": [{"name": p.name, "sha256": sha256_file(p)} for p in job.images + job.files],
-               "usage_before": pct_before, "tokens": usage_ev, "last_message": last_msg,
-               "answer": None, "images": [], "primary": None, "imagegen_calls": [], "rollout": None,
-               "error": None, "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        rec = {
+            "id": job.id,
+            "key": key,
+            "ok": False,
+            "cached": False,
+            "rc": rc,
+            "seconds": secs,
+            "attempt": attempt,
+            "model": job.model,
+            "thread_id": thread_id,
+            "meta": job.meta,
+            "prompt_version": job.prompt_version,
+            "prompt_sha256": hashlib.sha256(job.prompt.encode()).hexdigest(),
+            "inputs": [{"name": p.name, "sha256": sha256_file(p)} for p in job.images + job.files],
+            "usage_before": pct_before,
+            "tokens": usage_ev,
+            "last_message": last_msg,
+            "answer": None,
+            "images": [],
+            "primary": None,
+            "imagegen_calls": [],
+            "rollout": None,
+            "error": None,
+            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
         rollout = None
         if thread_id:
             rp = ro.find_rollout(thread_id)
@@ -295,9 +361,15 @@ class Runner:
                 rollout = ro.parse_rollout(rp)
                 rec["rollout"] = str(rp)
                 rec["usage_after_rollout"] = rollout.used_percent
-                rec["imagegen_calls"] = [{"call_id": c.call_id, "prompt": c.prompt,
-                                          "referenced_images": c.referenced_images, "outputs": c.outputs}
-                                         for c in rollout.calls]
+                rec["imagegen_calls"] = [
+                    {
+                        "call_id": c.call_id,
+                        "prompt": c.prompt,
+                        "referenced_images": c.referenced_images,
+                        "outputs": c.outputs,
+                    }
+                    for c in rollout.calls
+                ]
                 if rollout.tokens:
                     rec["tokens"] = rollout.tokens
             imgs = ro.collect_images(thread_id, rollout=rollout)
@@ -309,11 +381,20 @@ class Runner:
                 dst.mkdir(parents=True, exist_ok=True)
                 f = dst / f"{n:02d}.png"
                 shutil.copy2(im["path"], f)
-                with Image.open(f) as I:
-                    w, h = I.size
-                rec["images"].append({"path": str(f), "src": im["path"], "sha256": sha256_file(f), "w": w, "h": h,
-                                      "referenced": im["referenced"], "prompt": im["prompt"],
-                                      "primary": im is prim})
+                with Image.open(f) as image:
+                    w, h = image.size
+                rec["images"].append(
+                    {
+                        "path": str(f),
+                        "src": im["path"],
+                        "sha256": sha256_file(f),
+                        "w": w,
+                        "h": h,
+                        "referenced": im["referenced"],
+                        "prompt": im["prompt"],
+                        "primary": im is prim,
+                    }
+                )
                 if im is prim:
                     rec["primary"] = str(f)
         rec["answer"] = parse_json_answer(last_msg)
@@ -327,18 +408,32 @@ class Runner:
             rec["error"] = f"expected {job.expect_images} image(s), thread produced none"
         rec["ok"] = rec["error"] is None
         if job.expect_images and len(rec["images"]) > job.expect_images:
-            rec["note"] = f"{len(rec['images'])} PNGs for {job.expect_images} expected (hidden retries/variants)"
+            rec["note"] = (
+                f"{len(rec['images'])} PNGs for {job.expect_images} expected (hidden retries/variants)"
+            )
         u_after = None
         try:
             u_after = usage.used_percent()
         except Exception:  # noqa: BLE001
             pass
         rec["usage_after"] = u_after
-        self._append("usage.jsonl", {"id": job.id, "t": time.time(), "before": pct_before, "after": u_after,
-                                     "after_rollout_float": rec.get("usage_after_rollout"),
-                                     "tokens": rec["tokens"], "seconds": secs, "ok": rec["ok"]})
-        self.log(f"{'OK  ' if rec['ok'] else 'FAIL'} {job.id} {secs}s rc={rc} thread={thread_id} "
-                 f"images={len(rec['images'])} usage {pct_before}->{u_after}% {rec['error'] or ''}")
+        self._append(
+            "usage.jsonl",
+            {
+                "id": job.id,
+                "t": time.time(),
+                "before": pct_before,
+                "after": u_after,
+                "after_rollout_float": rec.get("usage_after_rollout"),
+                "tokens": rec["tokens"],
+                "seconds": secs,
+                "ok": rec["ok"],
+            },
+        )
+        self.log(
+            f"{'OK  ' if rec['ok'] else 'FAIL'} {job.id} {secs}s rc={rc} thread={thread_id} "
+            f"images={len(rec['images'])} usage {pct_before}->{u_after}% {rec['error'] or ''}"
+        )
         return rec
 
     def run_job(self, job: Job) -> dict:
@@ -366,8 +461,10 @@ class Runner:
             if not force and r and r.get("ok") and r.get("key") == j.key():
                 continue
             todo.append(j)
-        self.log(f"RUN {len(jobs)} jobs, {len(jobs) - len(todo)} already done, {len(todo)} to do, "
-                 f"parallel={self.parallel} max_pct={self.max_pct}")
+        self.log(
+            f"RUN {len(jobs)} jobs, {len(jobs) - len(todo)} already done, {len(todo)} to do, "
+            f"parallel={self.parallel} max_pct={self.max_pct}"
+        )
         failed, quota_stopped = [], []
         with cf.ThreadPoolExecutor(self.parallel) as ex:
             futs = {ex.submit(self.run_job, j): j for j in todo}
@@ -376,19 +473,35 @@ class Runner:
                 try:
                     r = fu.result()
                     if not r["ok"]:
-                        failed.append({"id": j.id, "error": r["error"], "thread_id": r.get("thread_id"),
-                                       "rc": r.get("rc")})
+                        failed.append(
+                            {
+                                "id": j.id,
+                                "error": r["error"],
+                                "thread_id": r.get("thread_id"),
+                                "rc": r.get("rc"),
+                            }
+                        )
                 except QuotaStop as e:
                     quota_stopped.append(j.id)
                     self.log(f"SKIP {j.id}: {e}")
                 except Exception as e:  # noqa: BLE001
                     failed.append({"id": j.id, "error": f"{type(e).__name__}: {e}"})
                     self.log(f"ERROR {j.id}: {type(e).__name__}: {e}")
-        (self.out / "failed.json").write_text(json.dumps(
-            {"failed": failed, "not_started_quota": quota_stopped, "stop_reason": self.stop_reason,
-             "t": time.strftime("%Y-%m-%dT%H:%M:%S")}, indent=1))
+        (self.out / "failed.json").write_text(
+            json.dumps(
+                {
+                    "failed": failed,
+                    "not_started_quota": quota_stopped,
+                    "stop_reason": self.stop_reason,
+                    "t": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                },
+                indent=1,
+            )
+        )
         if self.stop.is_set():
-            self.log(f"STOP: {self.stop_reason}; {len(quota_stopped)} jobs not started. Rerun the same command to resume.")
+            self.log(
+                f"STOP: {self.stop_reason}; {len(quota_stopped)} jobs not started. Rerun the same command to resume."
+            )
             return EXIT_QUOTA
         self.log(f"DONE {len(todo) - len(failed)} ok, {len(failed)} failed")
         return 1 if failed else 0
@@ -396,8 +509,12 @@ class Runner:
 
 def main(argv: list[str] | None = None) -> int:
     from ..paths import textures_data_dir
-    ap = argparse.ArgumentParser(prog="turkutex codex run", description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    ap = argparse.ArgumentParser(
+        prog="turkutex codex run",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("jobs", type=Path)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("-j", "--parallel", type=int, default=4)
@@ -405,9 +522,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cache", type=Path, default=textures_data_dir("codex-cache"))
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--retries", type=int, default=1)
-    ap.add_argument("--force", action="store_true", help="rerun jobs even if done (cache still applies)")
+    ap.add_argument(
+        "--force", action="store_true", help="rerun jobs even if done (cache still applies)"
+    )
     ap.add_argument("--allow-unknown-usage", action="store_true")
     a = ap.parse_args(argv)
-    r = Runner(a.out, a.parallel, a.max_pct, a.cache, retries=a.retries,
-               allow_unknown_usage=a.allow_unknown_usage, use_cache=not a.no_cache)
+    r = Runner(
+        a.out,
+        a.parallel,
+        a.max_pct,
+        a.cache,
+        retries=a.retries,
+        allow_unknown_usage=a.allow_unknown_usage,
+        use_cache=not a.no_cache,
+    )
     return r.run(load_jobs(a.jobs), force=a.force)

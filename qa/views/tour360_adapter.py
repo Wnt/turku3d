@@ -17,18 +17,17 @@ adapter default to confidence "low" unless meta.json says otherwise.
   qa/.venv/bin/python qa/views/tour360_adapter.py make --pano B5D39CE1 --heading-offset 0 \
       --tour-yaw -12 --pitch -25 --hfov 60 --size 1600x1200 --id tour_river_aura_pilot
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PIL import Image  # noqa: E402
-
 from qalib import camera, geo, registry  # noqa: E402
 from qalib.pano import perspective  # noqa: E402
 from qalib.paths import REPO, data_dir, rel  # noqa: E402
@@ -62,9 +61,23 @@ def _date(meta) -> tuple[str | None, str | None]:
     return ymd, (f"{ymd}T{hms}{off}" if hms else None)
 
 
-def make(pano_sel: str, tour_yaw: float, pitch: float, hfov: float, size, view_id: str | None,
-         heading_offset: float | None, cam_h: float | None, root: Path = DEFAULT_ROOT, registry_path=None):
-    cand = [p for p in find_panos(root) if pano_sel.lower() in p["id"].lower() or pano_sel.lower() in p.get("label", "").lower()]
+def make(
+    pano_sel: str,
+    tour_yaw: float,
+    pitch: float,
+    hfov: float,
+    size,
+    view_id: str | None,
+    heading_offset: float | None,
+    cam_h: float | None,
+    root: Path = DEFAULT_ROOT,
+    registry_path=None,
+):
+    cand = [
+        p
+        for p in find_panos(root)
+        if pano_sel.lower() in p["id"].lower() or pano_sel.lower() in p.get("label", "").lower()
+    ]
     if len(cand) != 1:
         raise SystemExit(f"--pano matched {len(cand)} downloaded panoramas under {root}")
     meta = cand[0]
@@ -72,7 +85,9 @@ def make(pano_sel: str, tour_yaw: float, pitch: float, hfov: float, size, view_i
         raise SystemExit(f"{meta['id']}: no equirect_*.jpg; run tdv360.py fetch --equirect first")
     off = meta.get("heading_offset", heading_offset)
     if off is None:
-        raise SystemExit("heading offset unknown: pass --heading-offset (compass bearing of tour yaw 0)")
+        raise SystemExit(
+            "heading offset unknown: pass --heading-offset (compass bearing of tour yaw 0)"
+        )
     if "camera_E" in meta:
         e, n = meta["camera_E"], meta["camera_N"]
     elif meta.get("lat") is not None:
@@ -83,35 +98,68 @@ def make(pano_sel: str, tour_yaw: float, pitch: float, hfov: float, size, view_i
     if h is None:
         raise SystemExit("camera height unknown: pass --h")
     w, hh = size
-    pose = {"E": round(e, 3), "N": round(n, 3), "H": round(float(h), 3), "yaw": round((off + tour_yaw) % 360, 3),
-            "pitch": pitch, "roll": 0.0, "fov": round(camera.vfov(hfov, w, hh), 4)}
+    pose = {
+        "E": round(e, 3),
+        "N": round(n, 3),
+        "H": round(float(h), 3),
+        "yaw": round((off + tour_yaw) % 360, 3),
+        "pitch": pitch,
+        "roll": 0.0,
+        "fov": round(camera.vfov(hfov, w, hh), 4),
+    }
     eq = Image.open(meta["_equirect"])
     view_id = view_id or f"tour_{meta['id'].split('_')[1]}_y{int(round(pose['yaw'])) % 360:03d}"
     out = data_dir() / "refs" / f"{view_id}.jpg"
     out.parent.mkdir(parents=True, exist_ok=True)
     perspective(eq, off, pose, w, hh).save(out, quality=93)
     date, t = _date(meta)
-    conf = meta.get("pose_confidence") or {"level": "low", "xy_m": 10.0, "h_m": 20.0, "angle_deg": 3.0,
-                                           "note": "EXIF GPS of the thumbnail; drone altitude unreliable; heading offset hand-solved"}
-    view = {"id": view_id, "image": rel(out), "width": w, "height": hh, "pose": pose, "time": t,
-            "source": {"kind": "360tour", "pano_id": meta["id"], "pano_heading": off,
-                       "url": "https://turku.360tour.fi/", "note": f"{meta.get('label')} ({meta.get('kind')}); (c) A1 Media Oy, internal QA only"},
-            "capture_date": date, "pose_confidence": conf, "area": "office-block", "tags": ["360tour", meta.get("kind", "")]}
+    conf = meta.get("pose_confidence") or {
+        "level": "low",
+        "xy_m": 10.0,
+        "h_m": 20.0,
+        "angle_deg": 3.0,
+        "note": "EXIF GPS of the thumbnail; drone altitude unreliable; heading offset hand-solved",
+    }
+    view = {
+        "id": view_id,
+        "image": rel(out),
+        "width": w,
+        "height": hh,
+        "pose": pose,
+        "time": t,
+        "source": {
+            "kind": "360tour",
+            "pano_id": meta["id"],
+            "pano_heading": off,
+            "url": "https://turku.360tour.fi/",
+            "note": f"{meta.get('label')} ({meta.get('kind')}); (c) A1 Media Oy, internal QA only",
+        },
+        "capture_date": date,
+        "pose_confidence": conf,
+        "area": "office-block",
+        "tags": ["360tour", meta.get("kind", "")],
+    }
     registry.upsert(view, registry_path)
     return view
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--root", default=str(DEFAULT_ROOT))
     ap.add_argument("--registry", default=None)
     sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("list")
     m = sp.add_parser("make")
     m.add_argument("--pano", required=True)
-    m.add_argument("--tour-yaw", type=float, required=True, help="yaw in the tour's own frame (deg)")
+    m.add_argument(
+        "--tour-yaw", type=float, required=True, help="yaw in the tour's own frame (deg)"
+    )
     m.add_argument("--pitch", type=float, default=0.0)
-    m.add_argument("--hfov", type=float, default=60.0, help="horizontal fov (tdv360 --view convention)")
+    m.add_argument(
+        "--hfov", type=float, default=60.0, help="horizontal fov (tdv360 --view convention)"
+    )
     m.add_argument("--size", default="1600x1200")
     m.add_argument("--heading-offset", type=float, help="compass bearing of tour yaw 0")
     m.add_argument("--h", type=float, help="camera height N2000 (default: meta gps_alt_m)")
@@ -121,13 +169,19 @@ def main(argv=None):
     if a.cmd == "list":
         panos = find_panos(root)
         if not panos:
-            print(f"no 360tour downloads under {root} (run tools/refs/tdv360.py fetch ... --equirect)")
+            print(
+                f"no 360tour downloads under {root} (run tools/refs/tdv360.py fetch ... --equirect)"
+            )
         for p in panos:
-            print(f"{p['id']}  {p.get('label')!r}  {p.get('kind')}  lat/lon={p.get('lat')},{p.get('lon')}  "
-                  f"equirect={'yes' if p['_equirect'] else 'no'}  heading_offset={p.get('heading_offset', '?')}")
+            print(
+                f"{p['id']}  {p.get('label')!r}  {p.get('kind')}  lat/lon={p.get('lat')},{p.get('lon')}  "
+                f"equirect={'yes' if p['_equirect'] else 'no'}  heading_offset={p.get('heading_offset', '?')}"
+            )
         return 0
     w, h = map(int, a.size.lower().split("x"))
-    v = make(a.pano, a.tour_yaw, a.pitch, a.hfov, (w, h), a.id, a.heading_offset, a.h, root, a.registry)
+    v = make(
+        a.pano, a.tour_yaw, a.pitch, a.hfov, (w, h), a.id, a.heading_offset, a.h, root, a.registry
+    )
     print(f"{v['id']}: {v['image']} pose={v['pose']}")
     return 0
 

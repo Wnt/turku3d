@@ -1,0 +1,2 @@
+# Check sourced files when ShellCheck can resolve them. No globally disabled rules.
+external-sources=true

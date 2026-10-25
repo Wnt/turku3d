@@ -8,15 +8,32 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from turku3d import config as C
-from turku3d.col import (ColFormatError, ColTile, Primitive, canonical_triangles, check_tile, read_col,
-                         write_col)
-from turku3d.col import fixtures, materials as M, meshopt
-from turku3d.col.format import FLAG_AOI_BORDER, FLAG_FIX_INTERNAL_EDGES, crc_of, _HEADER, _PRIM, _SECTION
+from turku3d.col import (
+    ColFormatError,
+    ColTile,
+    Primitive,
+    canonical_triangles,
+    check_tile,
+    fixtures,
+    meshopt,
+    read_col,
+    write_col,
+)
+from turku3d.col import materials as M
+from turku3d.col.format import (
+    _HEADER,
+    _PRIM,
+    _SECTION,
+    FLAG_AOI_BORDER,
+    FLAG_FIX_INTERNAL_EDGES,
+    crc_of,
+)
 
-needs_encoder = pytest.mark.skipif(not meshopt.encoder_available(),
-                                   reason="meshopt encoder needs node + tools/validator/node_modules (make col-deps)")
+needs_encoder = pytest.mark.skipif(
+    not meshopt.encoder_available(),
+    reason="meshopt encoder needs node + tools/validator/node_modules (make col-deps)",
+)
 
 
 def grid(n=12, size=62.5, seed=0, mat=None):
@@ -42,8 +59,15 @@ def test_struct_sizes_match_spec():
 
 def test_raw_round_trip_is_bit_exact():
     pos, tri, mat = grid()
-    t = ColTile(1, 2, pos, tri, mat, [Primitive.box(M.mat_id("fence"), (1, 2, 3), (0.5, 0.6, 0.05))],
-                meta={"tile": "c_1_2"})
+    t = ColTile(
+        1,
+        2,
+        pos,
+        tri,
+        mat,
+        [Primitive.box(M.mat_id("fence"), (1, 2, 3), (0.5, 0.6, 0.05))],
+        meta={"tile": "c_1_2"},
+    )
     data = write_col(t, encoding="raw")
     assert len(data) % 8 == 0
     r = read_col(data)
@@ -51,7 +75,9 @@ def test_raw_round_trip_is_bit_exact():
     assert np.array_equal(r.indices, t.indices) and np.array_equal(r.materials, t.materials)
     assert r.origin == (62.5, 0.0, 125.0) and r.id == "c_1_2"
     assert r.meta == {"tile": "c_1_2"}
-    assert r.primitives[0].kind == 1 and r.primitives[0].params[:3] == pytest.approx((0.5, 0.6, 0.05))
+    assert r.primitives[0].kind == 1 and r.primitives[0].params[:3] == pytest.approx(
+        (0.5, 0.6, 0.05)
+    )
     h = struct.unpack_from("<I", data, 88)[0]
     assert h == len(data)
     for s in r.sections:
@@ -69,7 +95,9 @@ def test_meshopt_round_trip(vv, optimize):
     data = write_col(t, encoding="meshopt", optimize=optimize, vertex_version=vv)
     r = read_col(data)
     assert [s["encoding"] for s in r.sections[:2]] == [1, 2]
-    assert canonical_triangles(r) == canon  # same float32 bits, same materials, modulo order/rotation
+    assert (
+        canonical_triangles(r) == canon
+    )  # same float32 bits, same materials, modulo order/rotation
     if not optimize:
         assert r.positions.tobytes() == pos.astype(np.float32).tobytes()
     assert len(data) < len(write_col(ColTile(0, 0, pos, tri, mat), encoding="raw"))
@@ -118,7 +146,7 @@ def test_reader_rejections():
     b = bytearray(good)
     for k in range(4):
         o = 96 + 24 * k
-        if b[o:o + 4] == b"MATL":
+        if b[o : o + 4] == b"MATL":
             struct.pack_into("<H", b, o + 4, 1)
     with pytest.raises(ColFormatError, match="encoding"):
         read_col(fix(b))
@@ -126,21 +154,23 @@ def test_reader_rejections():
     b = bytearray(good)
     for k in range(4):
         o = 96 + 24 * k
-        if b[o:o + 4] == b"PRIM":
-            b[o:o + 4] = b"ZZZZ"
+        if b[o : o + 4] == b"PRIM":
+            b[o : o + 4] = b"ZZZZ"
     with pytest.raises(ColFormatError, match="missing required section"):
         read_col(fix(b))
 
 
 def test_unknown_tag_and_primitive_kind_are_skipped():
     pos, tri, mat = grid()
-    t = ColTile(0, 0, pos, tri, mat, [Primitive.box(M.mat_id("fence"), (1, 1, 1), (1, 1, 1))], meta={"a": 1})
+    t = ColTile(
+        0, 0, pos, tri, mat, [Primitive.box(M.mat_id("fence"), (1, 1, 1), (1, 1, 1))], meta={"a": 1}
+    )
     b = bytearray(write_col(t, encoding="raw"))
     for k in range(5):
         o = 96 + 24 * k
-        if b[o:o + 4] == b"META":
-            b[o:o + 4] = b"FUTR"
-        if b[o:o + 4] == b"PRIM":
+        if b[o : o + 4] == b"META":
+            b[o : o + 4] = b"FUTR"
+        if b[o : o + 4] == b"PRIM":
             prim_off = struct.unpack_from("<I", b, o + 8)[0]
     b[prim_off] = 9  # unknown primitive kind
     struct.pack_into("<I", b, 92, crc_of(bytes(b)))
@@ -177,8 +207,14 @@ def test_bbox_covers_primitives_and_rotation():
     p = Primitive.box(M.mat_id("fence"), (0, 1, 0), (1, 1, 0.1), q)
     lo, hi = p.aabb()
     assert hi[0] == pytest.approx((1 + 0.1) / np.sqrt(2), abs=1e-6)
-    t = ColTile(0, 0, np.zeros((0, 3)), np.zeros((0, 3)), np.zeros(0),
-                [Primitive.capsule(M.mat_id("tree_trunk"), (5, 3, 5), 2, 0.3)])
+    t = ColTile(
+        0,
+        0,
+        np.zeros((0, 3)),
+        np.zeros((0, 3)),
+        np.zeros(0),
+        [Primitive.capsule(M.mat_id("tree_trunk"), (5, 3, 5), 2, 0.3)],
+    )
     r = read_col(write_col(t, encoding="raw"))
     assert r.bbox_min == pytest.approx((4.7, 0.7, 4.7), abs=1e-6)
     assert r.bbox_max == pytest.approx((5.3, 5.3, 5.3), abs=1e-6)
@@ -196,8 +232,12 @@ def test_for_tile_subtracts_origin_in_float64():
 
 def test_materials_copies_are_current():
     mats = M.parse_spec()
-    assert M.JSON_PATH.read_text() == M.render_json(mats), "run: python -m turku3d.col.materials --write"
-    assert M.TS_PATH.read_text() == M.render_ts(mats), "run: python -m turku3d.col.materials --write"
+    assert M.JSON_PATH.read_text() == M.render_json(mats), (
+        "run: python -m turku3d.col.materials --write"
+    )
+    assert M.TS_PATH.read_text() == M.render_ts(mats), (
+        "run: python -m turku3d.col.materials --write"
+    )
     assert M.material_class(M.mat_id("water")) == "sensor"
     assert M.material_class(M.mat_id("stair_tread_helper")) == "query"
     assert M.material_class(250) == "solid" and not M.is_shippable(250) and not M.is_shippable(0)
@@ -211,7 +251,9 @@ def test_fixtures_are_current_and_deterministic():
         written = fixtures.write_all(Path(td))
         for p in written:
             rel = p.relative_to(td)
-            assert (committed / rel).read_bytes() == p.read_bytes(), f"stale fixture {rel}: make col-fixtures"
+            assert (committed / rel).read_bytes() == p.read_bytes(), (
+                f"stale fixture {rel}: make col-fixtures"
+            )
 
 
 def test_fixture_tiles_read_back():
@@ -229,7 +271,7 @@ def test_fixture_tiles_read_back():
 def test_encoder_reuses_worker_after_failed_request(tmp_path):
     worker = meshopt._encoder(meshopt.meshopt_dir())
     pid = worker.process.pid
-    with pytest.raises(meshopt.MeshoptError, match='bridge failed'):
+    with pytest.raises(meshopt.MeshoptError, match="bridge failed"):
         worker.encode(dir=str(tmp_path), vc=3, ic=3, optimize=False, version=0)
     pos = np.array([[0, 0, 0], [1, 0, 0], [0, 0, 1]], np.float32)
     idx = np.array([[0, 2, 1]], np.uint32)

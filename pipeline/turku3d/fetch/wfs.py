@@ -26,7 +26,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .. import config
-from .common import Registry, atomic_write_bytes, atomic_write_text, http_get, kind_dir, sha256_bytes
+from .common import (
+    Registry,
+    atomic_write_bytes,
+    atomic_write_text,
+    http_get,
+    kind_dir,
+    sha256_bytes,
+)
 from .sources import WFS_FEATURE_CAP, WFS_LAYERS, WFS_URL, WfsLayer
 
 GML_NS = "http://www.opengis.net/gml"
@@ -56,11 +63,20 @@ def _ns(tag: str) -> str:
 def request_params(layer: WfsLayer, bbox: tuple[float, float, float, float]) -> dict:
     x0, y0, x1, y1 = bbox
     if layer.version == "1.1.0":
-        return dict(service="WFS", version="1.1.0", request="GetFeature", typeName=layer.name,
-                    bbox=f"{x0:.3f},{y0:.3f},{x1:.3f},{y1:.3f}")
-    flt = ('<Filter><BBOX><PropertyName>Geometry</PropertyName><gml:Box xmlns:gml="http://www.opengis.net/gml">'
-           f"<gml:coordinates>{x0:.3f},{y0:.3f} {x1:.3f},{y1:.3f}</gml:coordinates></gml:Box></BBOX></Filter>")
-    return dict(service="WFS", version="1.0.0", request="GetFeature", typeName=layer.name, filter=flt)
+        return dict(
+            service="WFS",
+            version="1.1.0",
+            request="GetFeature",
+            typeName=layer.name,
+            bbox=f"{x0:.3f},{y0:.3f},{x1:.3f},{y1:.3f}",
+        )
+    flt = (
+        '<Filter><BBOX><PropertyName>Geometry</PropertyName><gml:Box xmlns:gml="http://www.opengis.net/gml">'
+        f"<gml:coordinates>{x0:.3f},{y0:.3f} {x1:.3f},{y1:.3f}</gml:coordinates></gml:Box></BBOX></Filter>"
+    )
+    return dict(
+        service="WFS", version="1.0.0", request="GetFeature", typeName=layer.name, filter=flt
+    )
 
 
 def page_key(bbox) -> str:
@@ -97,11 +113,14 @@ def check_body(body: bytes, layer: str) -> None:
     try:
         ET.fromstring(body)
     except ET.ParseError as e:
-        raise RuntimeError(f"WFS: malformed/truncated GML for {layer} ({len(body)} bytes): {e}") from e
+        raise RuntimeError(
+            f"WFS: malformed/truncated GML for {layer} ({len(body)} bytes): {e}"
+        ) from e
 
 
-def fetch_pages(layer: WfsLayer, bbox, pages_dir: Path, reg: Registry, log=print,
-                get=http_get) -> list[Path]:
+def fetch_pages(
+    layer: WfsLayer, bbox, pages_dir: Path, reg: Registry, log=print, get=http_get
+) -> list[Path]:
     """Quadtree-paged fetch. Returns leaf page paths (each < cap features, or at MIN_PAGE_M)."""
     leaves: list[Path] = []
     stack = [tuple(bbox)]
@@ -119,13 +138,17 @@ def fetch_pages(layer: WfsLayer, bbox, pages_dir: Path, reg: Registry, log=print
                 raise
             check_body(body, layer.name)
             atomic_write_bytes(p, body)
-            reg.record(p, url=WFS_URL, layer=layer.name, bbox=list(bb), features=count_features(body))
+            reg.record(
+                p, url=WFS_URL, layer=layer.name, bbox=list(bb), features=count_features(body)
+            )
         n = count_features(body)
         if n >= WFS_FEATURE_CAP and (bb[2] - bb[0]) > MIN_PAGE_M:
             stack.extend(split4(bb))
         else:
             if n >= WFS_FEATURE_CAP:
-                log(f"wfs  {layer.name}: WARNING page {page_key(bb)} still at cap ({n}) at min size")
+                log(
+                    f"wfs  {layer.name}: WARNING page {page_key(bb)} still at cap ({n}) at min size"
+                )
             leaves.append(p)
     return sorted(leaves)
 
@@ -142,7 +165,7 @@ def _parse_coord_text(txt: str) -> list[tuple[float, ...]]:
 
 def _parse_poslist(txt: str, dim: int) -> list[tuple[float, ...]]:
     v = [float(a) for a in txt.split()]
-    return [tuple(v[i:i + dim]) for i in range(0, len(v) - dim + 1, dim)]
+    return [tuple(v[i : i + dim]) for i in range(0, len(v) - dim + 1, dim)]
 
 
 def _coords(el: ET.Element, default_dim: int = 3) -> list[tuple[float, ...]]:
@@ -245,9 +268,16 @@ def parse_features(body: bytes, layer: str, default_dim: int | None = None):
             g = _shape(el, default_dim)
             if g is None or g.is_empty:
                 continue
-            rows.append({"geometry": g, "geom_type": _ln(el.tag), "geom_role": role,
-                         "surface_type": surface, "part_id": part,
-                         "surface_id": el.get(f"{{{GML_NS}}}id") or ""})
+            rows.append(
+                {
+                    "geometry": g,
+                    "geom_type": _ln(el.tag),
+                    "geom_role": role,
+                    "surface_type": surface,
+                    "part_id": part,
+                    "surface_id": el.get(f"{{{GML_NS}}}id") or "",
+                }
+            )
         yield key, gid, _attrs(feat), rows
 
 
@@ -261,19 +291,32 @@ def to_local(geoms):
     hz = shapely.has_z(geoms)
     for mask, inc in ((hz, True), (~hz, False)):
         if mask.any():
-            def f(c):
+
+            def f(c, include_z=inc):
                 c = c.copy()
                 c[:, 0] = c[:, 0] - config.ORIGIN_E
                 c[:, 1] = -(c[:, 1] - config.ORIGIN_N)
-                if inc:
+                if include_z:
                     c[:, 2] = c[:, 2] - config.ORIGIN_H
                 return np.round(c, 4)  # inputs are mm; drop float subtraction noise
+
             out[mask] = shapely.transform(geoms[mask], f, include_z=inc)
     return out
 
 
-RESERVED = {"geometry", "geometry_local", "layer", "feature_key", "gml_id", "geom_index", "geom_type",
-            "geom_role", "surface_type", "part_id", "surface_id"}
+RESERVED = {
+    "geometry",
+    "geometry_local",
+    "layer",
+    "feature_key",
+    "gml_id",
+    "geom_index",
+    "geom_type",
+    "geom_role",
+    "surface_type",
+    "part_id",
+    "surface_id",
+}
 
 
 def pages_to_frame(pages: list[Path], layer: str):
@@ -288,9 +331,20 @@ def pages_to_frame(pages: list[Path], layer: str):
             seen.add(key)
             attrs = {(f"attr_{k}" if k in RESERVED else k): v for k, v in attrs.items()}
             for gi, r in enumerate(rows):
-                recs.append({"layer": layer, "feature_key": key, "gml_id": gid, "geom_index": gi, **r, **attrs})
+                recs.append(
+                    {
+                        "layer": layer,
+                        "feature_key": key,
+                        "gml_id": gid,
+                        "geom_index": gi,
+                        **r,
+                        **attrs,
+                    }
+                )
     if not recs:
-        gdf = gpd.GeoDataFrame({"layer": [], "feature_key": []}, geometry=[], crs=config.CRS_HORIZONTAL)
+        gdf = gpd.GeoDataFrame(
+            {"layer": [], "feature_key": []}, geometry=[], crs=config.CRS_HORIZONTAL
+        )
         gdf["geometry_local"] = gpd.GeoSeries([], crs=None)
         return gdf, 0
     gdf = gpd.GeoDataFrame(recs, geometry="geometry", crs=config.CRS_HORIZONTAL)
@@ -317,7 +371,10 @@ def fetch_layer(layer: WfsLayer, area: config.Area, log=print, force_parquet: bo
     except WfsUnauthorized:
         s = {"layer": layer.name, "status": "unauthorized", "expected": layer.expect_401}
         atomic_write_text(summary_path, json.dumps(s, indent=1))
-        log(f"wfs  {layer.name}: 401 unauthorized" + (" (expected)" if layer.expect_401 else " (UNEXPECTED)"))
+        log(
+            f"wfs  {layer.name}: 401 unauthorized"
+            + (" (expected)" if layer.expect_401 else " (UNEXPECTED)")
+        )
         return s
     pages_sig = sha256_bytes("\n".join(reg.get(p)["sha256"] for p in leaves).encode())
     out = adir / f"{layer.slug}.parquet"
@@ -333,19 +390,34 @@ def fetch_layer(layer: WfsLayer, area: config.Area, log=print, force_parquet: bo
     reg.record(out, url=None, layer=layer.name, derived_from=len(leaves), features=nfeat)
     all_pages = sorted((adir / "gml" / layer.slug).glob("*.gml"))
     s = {
-        "layer": layer.name, "status": "ok", "area": area.name, "bbox_en": list(bbox),
-        "features": nfeat, "rows": int(len(gdf)), "leaf_pages": len(leaves), "requests": len(all_pages),
-        "gml_bytes": sum(p.stat().st_size for p in all_pages), "parquet_bytes": out.stat().st_size,
-        "geom_types": {k: int(v) for k, v in gdf["geom_type"].value_counts().items()} if len(gdf) else {},
+        "layer": layer.name,
+        "status": "ok",
+        "area": area.name,
+        "bbox_en": list(bbox),
+        "features": nfeat,
+        "rows": int(len(gdf)),
+        "leaf_pages": len(leaves),
+        "requests": len(all_pages),
+        "gml_bytes": sum(p.stat().st_size for p in all_pages),
+        "parquet_bytes": out.stat().st_size,
+        "geom_types": {k: int(v) for k, v in gdf["geom_type"].value_counts().items()}
+        if len(gdf)
+        else {},
         "has_z": bool(gdf.geometry.has_z.any()) if len(gdf) else False,
         "pages_sig": pages_sig,
     }
     for col in ("kplkoodi", "Katuosalaji", "Pintamateriaali", "surface_type"):
         if col in gdf.columns:
-            vc = gdf.drop_duplicates("feature_key")[col].value_counts() if col != "surface_type" else gdf[col].value_counts()
+            vc = (
+                gdf.drop_duplicates("feature_key")[col].value_counts()
+                if col != "surface_type"
+                else gdf[col].value_counts()
+            )
             s[f"by_{col}"] = {str(k): int(v) for k, v in vc.head(25).items()}
     atomic_write_text(summary_path, json.dumps(s, indent=1, ensure_ascii=False))
-    log(f"wfs  {layer.name}: {nfeat} features, {len(gdf)} rows, {len(all_pages)} requests ({len(leaves)} leaf pages)")
+    log(
+        f"wfs  {layer.name}: {nfeat} features, {len(gdf)} rows, {len(all_pages)} requests ({len(leaves)} leaf pages)"
+    )
     return s
 
 

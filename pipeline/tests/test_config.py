@@ -4,7 +4,6 @@ import math
 
 import numpy as np
 import pytest
-
 from turku3d import config as C
 from turku3d.config import BBoxEN, BBoxLocal, CollisionTile, LazTile, VisualTile
 
@@ -101,9 +100,7 @@ def test_laz_tiles_in_manifest():
     assert len(rows) == 2564
     for r in rows:
         t = LazTile.parse(r["tile"])
-        assert t.bbox_en.as_tuple() == tuple(
-            float(r[k]) for k in ("xmin", "ymin", "xmax", "ymax")
-        )
+        assert t.bbox_en.as_tuple() == tuple(float(r[k]) for k in ("xmin", "ymin", "xmax", "ymax"))
     names = {r["tile"] for r in rows if r["dataset"] == "pistepilvi"}
     assert len(names) == 1282
     assert all(t.name in names for t in C.OFFICE_BLOCK.laz_tiles)
@@ -141,9 +138,7 @@ def test_office_aoi():
 
 def test_area_yaml_is_committed_and_current():
     path = C.DATA_MANIFESTS / "areas" / "office-block.yaml"
-    assert path.read_text() == C.area_yaml(C.OFFICE_BLOCK), (
-        "regenerate: make foundation-areas"
-    )
+    assert path.read_text() == C.area_yaml(C.OFFICE_BLOCK), "regenerate: make foundation-areas"
 
 
 def test_paths(monkeypatch, tmp_path):
@@ -194,13 +189,19 @@ def test_game_origin_ts_mirrors_config():
     ts = path.read_text()
 
     def num(name):
-        return float(re.search(rf"export const {name} = ([-0-9.]+);", ts)[1])
+        return float(re.search(rf"(?:export )?const {name} = ([-0-9.]+);", ts)[1])
 
     assert (num("E0"), num("N0"), num("H0")) == C.ORIGIN
     assert num("VISUAL_L0") == C.VISUAL_TILE_SIZE and num("COLLISION_TILE") == C.COLLISION_TILE_SIZE
     m = re.search(r"OFFICE_EN = \{ E: ([0-9.]+), N: ([0-9.]+) \}", ts)
     assert (float(m[1]), float(m[2])) == (C.OFFICE_E, C.OFFICE_N)
-    assert abs(num("TRUE_NORTH_GRID_BEARING_DEG") - C.grid_bearing_of_true_north(C.ORIGIN_E, C.ORIGIN_N)) < 0.01
+    assert (
+        abs(
+            num("TRUE_NORTH_GRID_BEARING_DEG")
+            - C.grid_bearing_of_true_north(C.ORIGIN_E, C.ORIGIN_N)
+        )
+        < 0.01
+    )
 
 
 def test_work_area():

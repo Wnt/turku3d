@@ -11,6 +11,7 @@ Google depth from streetlevel 0.12.13 must be np.fliplr-ed to match the image (V
 Pano pitch/roll (small, ~1 deg) are not applied: crops are references for Codex, not projection
 bakes, so a degree of tilt does not matter (ARCHITECTURE D6 use 3).
 """
+
 from __future__ import annotations
 
 import math
@@ -21,8 +22,8 @@ import numpy as np
 
 @dataclass
 class EquirectModel:
-    heading_rad: float          # azimuth of the image centre column
-    sign: float = 1.0           # +1: azimuth grows to the right (Google)
+    heading_rad: float  # azimuth of the image centre column
+    sign: float = 1.0  # +1: azimuth grows to the right (Google)
 
     def uv_from_dir(self, d: np.ndarray, W: int, H: int):
         az = np.arctan2(d[..., 0], d[..., 1])
@@ -39,9 +40,9 @@ class EquirectModel:
 
 @dataclass
 class PerspectiveCam:
-    pos: np.ndarray        # (E, N, H)
-    yaw_deg: float         # clockwise from north
-    pitch_deg: float       # up positive
+    pos: np.ndarray  # (E, N, H)
+    yaw_deg: float  # clockwise from north
+    pitch_deg: float  # up positive
     hfov_deg: float
     width: int
     height: int
@@ -87,10 +88,16 @@ class PerspectiveCam:
         return out
 
     def to_dict(self) -> dict:
-        return {"pos_EN_H": [round(float(v), 3) for v in self.pos], "yaw_deg": round(self.yaw_deg, 3),
-                "pitch_deg": round(self.pitch_deg, 3), "hfov_deg": round(self.hfov_deg, 3),
-                "vfov_deg": round(self.vfov_deg, 3), "width": self.width, "height": self.height,
-                "convention": "yaw clockwise from north, pitch up positive, pinhole, no roll"}
+        return {
+            "pos_EN_H": [round(float(v), 3) for v in self.pos],
+            "yaw_deg": round(self.yaw_deg, 3),
+            "pitch_deg": round(self.pitch_deg, 3),
+            "hfov_deg": round(self.hfov_deg, 3),
+            "vfov_deg": round(self.vfov_deg, 3),
+            "width": self.width,
+            "height": self.height,
+            "convention": "yaw clockwise from north, pitch up positive, pinhole, no roll",
+        }
 
 
 def look_at(pos: np.ndarray, target: np.ndarray) -> tuple[float, float]:
@@ -100,8 +107,15 @@ def look_at(pos: np.ndarray, target: np.ndarray) -> tuple[float, float]:
     return yaw, pitch
 
 
-def fit_camera(pos: np.ndarray, corners: np.ndarray, long_side: int = 1536, margin: float = 1.12,
-               min_hfov: float = 25.0, max_hfov: float = 110.0, max_aspect: float = 3.0) -> PerspectiveCam:
+def fit_camera(
+    pos: np.ndarray,
+    corners: np.ndarray,
+    long_side: int = 1536,
+    margin: float = 1.12,
+    min_hfov: float = 25.0,
+    max_hfov: float = 110.0,
+    max_aspect: float = 3.0,
+) -> PerspectiveCam:
     """Aim at the facade centre and choose FOV/aspect so all 4 corners fit with a margin."""
     target = corners.mean(0)
     yaw, pitch = look_at(pos, target)

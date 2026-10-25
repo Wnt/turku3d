@@ -16,6 +16,7 @@ Examples (from the repo root):
       --look-at 23459668,6704254 --pitch 10 --fov 60 --size 1280x960 --id office_front
   qa/.venv/bin/python qa/views/sv_views.py refetch
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,17 +27,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PIL import Image  # noqa: E402
-
 from qalib import geo, registry  # noqa: E402
 from qalib.pano import perspective  # noqa: E402
 from qalib.paths import data_dir, rel, resolve  # noqa: E402
-
 
 LA_CENTRE_OFFSET = 180.0  # equirect centre is inverse travel; Apple heading is CCW
 
 
 def _sv():
     from streetlevel import streetview
+
     return streetview
 
 
@@ -72,16 +72,24 @@ def fetch_lookaround(lat: float, lon: float, zoom: int = 2):
     crop (de5igFTgjff1c9FgktKFXQ) on 2026-10-25; remaining pose uncertainty is retained."""
     from streetlevel import lookaround
     from streetlevel.lookaround.reproject import to_equirectangular  # imports torch
+
     try:
         from pillow_heif import register_heif_opener
+
         register_heif_opener()
     except ImportError as e:  # pragma: no cover
         raise SystemExit("pip install pillow-heif for Look Around faces") from e
     import io
+
     tile = lookaround.get_coverage_tile_by_latlon(lat, lon)
-    best = min(tile.panos, key=lambda p: (p.lat - lat) ** 2 + ((p.lon - lon) * math.cos(math.radians(lat))) ** 2)
+    best = min(
+        tile.panos,
+        key=lambda p: (p.lat - lat) ** 2 + ((p.lon - lon) * math.cos(math.radians(lat))) ** 2,
+    )
     auth = lookaround.Authenticator()
-    faces = [Image.open(io.BytesIO(lookaround.get_panorama_face(best, f, zoom, auth))) for f in range(6)]
+    faces = [
+        Image.open(io.BytesIO(lookaround.get_panorama_face(best, f, zoom, auth))) for f in range(6)
+    ]
     eq = to_equirectangular(faces, best.camera_metadata)
     return best, eq, (-math.degrees(best.heading) + LA_CENTRE_OFFSET) % 360.0
 
@@ -103,13 +111,31 @@ def cmd_search(a):
         e, n = geo.wgs84_to_en(p.lat, p.lon)
         rows.append((geo.distance(e, n, te, tn), p, e, n))
     for d, p, e, n in sorted(rows, key=lambda r: r[0]):
-        print(f"{p.id}  {p.date}  dist={d:6.1f} m  bearing_to_target={geo.bearing(e, n, te, tn):6.1f}  "
-              f"E={e:.1f} N={n:.1f} elev={p.elevation:.2f}")
+        print(
+            f"{p.id}  {p.date}  dist={d:6.1f} m  bearing_to_target={geo.bearing(e, n, te, tn):6.1f}  "
+            f"E={e:.1f} N={n:.1f} elev={p.elevation:.2f}"
+        )
 
 
-def make_view(*, pano_id=None, near=None, provider="google", look_at=None, yaw=None, pitch=0.0, roll=0.0,
-              fov=60.0, size=(1280, 960), view_id=None, zoom=4, time=None, tags=(), registry_path=None,
-              out_dir=None, area="office-block"):
+def make_view(
+    *,
+    pano_id=None,
+    near=None,
+    provider="google",
+    look_at=None,
+    yaw=None,
+    pitch=0.0,
+    roll=0.0,
+    fov=60.0,
+    size=(1280, 960),
+    view_id=None,
+    zoom=4,
+    time=None,
+    tags=(),
+    registry_path=None,
+    out_dir=None,
+    area="office-block",
+):
     w, h = size
     if provider == "google":
         if pano_id is None:
@@ -123,11 +149,20 @@ def make_view(*, pano_id=None, near=None, provider="google", look_at=None, yaw=N
         e, n = geo.wgs84_to_en(meta.lat, meta.lon)
         cam_h = float(meta.elevation)
         date = str(meta.date) if meta.date else None
-        src = {"kind": "google_streetview", "pano_id": meta.id, "pano_heading": round(heading, 3),
-               "url": f"https://www.google.com/maps/@?api=1&map_action=pano&pano={meta.id}",
-               "note": f"pano tilt pitch={_sdeg(meta.pitch):.2f} roll={_sdeg(meta.roll):.2f} deg ignored; zoom {zoom}"}
-        conf = {"level": "medium", "xy_m": 1.5, "h_m": 0.7, "angle_deg": 2.0,
-                "note": "Google lat/lon/heading; H = Google elevation (camera N2000, 1-sample evidence); not lidar-registered"}
+        src = {
+            "kind": "google_streetview",
+            "pano_id": meta.id,
+            "pano_heading": round(heading, 3),
+            "url": f"https://www.google.com/maps/@?api=1&map_action=pano&pano={meta.id}",
+            "note": f"pano tilt pitch={_sdeg(meta.pitch):.2f} roll={_sdeg(meta.roll):.2f} deg ignored; zoom {zoom}",
+        }
+        conf = {
+            "level": "medium",
+            "xy_m": 1.5,
+            "h_m": 0.7,
+            "angle_deg": 2.0,
+            "note": "Google lat/lon/heading; H = Google elevation (camera N2000, 1-sample evidence); not lidar-registered",
+        }
     elif provider == "lookaround":
         lat, lon = geo.en_to_wgs84(*near)
         meta, eq, heading = fetch_lookaround(lat, lon)
@@ -135,29 +170,61 @@ def make_view(*, pano_id=None, near=None, provider="google", look_at=None, yaw=N
         e, n = geo.wgs84_to_en(meta.lat, meta.lon)
         cam_h = float(meta.elevation)
         date = meta.date.strftime("%Y-%m-%d") if meta.date else None
-        src = {"kind": "apple_lookaround", "pano_id": str(meta.id), "pano_heading": round(heading, 3),
-               "note": f"EXPERIMENTAL: equirect centre yaw = -heading{LA_CENTRE_OFFSET:+.0f}; visual cross-check against Street View"}
-        conf = {"level": "low", "xy_m": 2.0, "h_m": 1.0, "angle_deg": 15.0,
-                "note": "Look Around orientation cross-checked; pose not lidar-registered"}
+        src = {
+            "kind": "apple_lookaround",
+            "pano_id": str(meta.id),
+            "pano_heading": round(heading, 3),
+            "note": f"EXPERIMENTAL: equirect centre yaw = -heading{LA_CENTRE_OFFSET:+.0f}; visual cross-check against Street View",
+        }
+        conf = {
+            "level": "low",
+            "xy_m": 2.0,
+            "h_m": 1.0,
+            "angle_deg": 15.0,
+            "note": "Look Around orientation cross-checked; pose not lidar-registered",
+        }
     else:
         raise SystemExit(f"unknown provider {provider}")
 
     if look_at is not None:
         yaw = geo.bearing(e, n, look_at[0], look_at[1])
         if len(look_at) > 2 and look_at[2] is not None:
-            pitch = math.degrees(math.atan2(look_at[2] - cam_h, geo.distance(e, n, look_at[0], look_at[1])))
+            pitch = math.degrees(
+                math.atan2(look_at[2] - cam_h, geo.distance(e, n, look_at[0], look_at[1]))
+            )
     if yaw is None:
         raise SystemExit("give --yaw or --look-at")
-    pose = {"E": round(e, 3), "N": round(n, 3), "H": round(cam_h, 3), "yaw": round(yaw % 360.0, 3),
-            "pitch": round(pitch, 3), "roll": round(roll, 3), "fov": round(fov, 3)}
-    view_id = view_id or f"{'gsv' if provider == 'google' else 'la'}_{pano_id[:10]}_y{int(round(yaw)) % 360:03d}"
+    pose = {
+        "E": round(e, 3),
+        "N": round(n, 3),
+        "H": round(cam_h, 3),
+        "yaw": round(yaw % 360.0, 3),
+        "pitch": round(pitch, 3),
+        "roll": round(roll, 3),
+        "fov": round(fov, 3),
+    }
+    view_id = (
+        view_id
+        or f"{'gsv' if provider == 'google' else 'la'}_{pano_id[:10]}_y{int(round(yaw)) % 360:03d}"
+    )
     out_dir = Path(out_dir or data_dir() / "refs")
     out_dir.mkdir(parents=True, exist_ok=True)
     img_path = out_dir / f"{view_id}.jpg"
     # pano headings are TRUE azimuths; pose yaw and pixel_rays are grid bearings (qalib/geo.py)
     perspective(eq, geo.true_to_grid_bearing(e, n, heading), pose, w, h).save(img_path, quality=93)
-    view = {"id": view_id, "image": rel(img_path), "width": w, "height": h, "pose": pose, "time": time,
-            "source": src, "capture_date": date, "pose_confidence": conf, "area": area, "tags": list(tags)}
+    view = {
+        "id": view_id,
+        "image": rel(img_path),
+        "width": w,
+        "height": h,
+        "pose": pose,
+        "time": time,
+        "source": src,
+        "capture_date": date,
+        "pose_confidence": conf,
+        "area": area,
+        "tags": list(tags),
+    }
     if registry_path is not False:
         registry.upsert(view, registry_path)
     return view
@@ -170,9 +237,22 @@ def cmd_make(a):
         look = (parts[0], parts[1], parts[2] if len(parts) > 2 else None)
     w, h = map(int, a.size.lower().split("x"))
     near = tuple(map(float, a.near.split(","))) if a.near else None
-    v = make_view(pano_id=a.pano, near=near, provider=a.provider, look_at=look, yaw=a.yaw, pitch=a.pitch,
-                  roll=a.roll, fov=a.fov, size=(w, h), view_id=a.id, zoom=a.zoom, time=a.time,
-                  tags=a.tag or [], registry_path=a.registry)
+    v = make_view(
+        pano_id=a.pano,
+        near=near,
+        provider=a.provider,
+        look_at=look,
+        yaw=a.yaw,
+        pitch=a.pitch,
+        roll=a.roll,
+        fov=a.fov,
+        size=(w, h),
+        view_id=a.id,
+        zoom=a.zoom,
+        time=a.time,
+        tags=a.tag or [],
+        registry_path=a.registry,
+    )
     print(f"{v['id']}: {v['image']}  pose={v['pose']}  date={v['capture_date']}")
 
 
@@ -187,13 +267,17 @@ def cmd_refetch(a):
         meta, eq = fetch_google(s["pano_id"], a.zoom)
         out = resolve(v["image"])
         out.parent.mkdir(parents=True, exist_ok=True)
-        heading = geo.true_to_grid_bearing(v["pose"]["E"], v["pose"]["N"], s.get("pano_heading", math.degrees(meta.heading)))
+        heading = geo.true_to_grid_bearing(
+            v["pose"]["E"], v["pose"]["N"], s.get("pano_heading", math.degrees(meta.heading))
+        )
         perspective(eq, heading, v["pose"], v["width"], v["height"]).save(out, quality=93)
         print(f"refetched {v['id']} -> {v['image']}")
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--registry", default=None, help="views.jsonl (default qa/views/views.jsonl)")
     sp = ap.add_subparsers(dest="cmd", required=True)
     s = sp.add_parser("search")

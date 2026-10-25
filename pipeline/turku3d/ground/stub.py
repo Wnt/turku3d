@@ -17,8 +17,16 @@ from turku3d import config as C
 STEP = 1.25  # m; 62.5 / 1.25 = 50 cells per collision tile
 
 
-def heightfield(points_xzh: np.ndarray, x0: float, z0: float, nx: int, nz: int, step: float = STEP,
-                *, method: str = "auto") -> np.ndarray:
+def heightfield(
+    points_xzh: np.ndarray,
+    x0: float,
+    z0: float,
+    nx: int,
+    nz: int,
+    step: float = STEP,
+    *,
+    method: str = "auto",
+) -> np.ndarray:
     """Heights (nz+1, nx+1) at grid nodes x0 + i*step, z0 + j*step (engine x/z, float64).
 
     points_xzh: (N,3) engine x, z and height H (N2000).
@@ -49,8 +57,10 @@ def _binned(pts: np.ndarray, x0: float, z0: float, nx: int, nz: int, step: float
     ii = np.rint((pts[:, 0] - x0) / step).astype(np.int64)
     jj = np.rint((pts[:, 1] - z0) / step).astype(np.int64)
     ok = (ii >= 0) & (ii <= nx) & (jj >= 0) & (jj <= nz)
-    s = np.zeros((nz + 1, nx + 1)); c = np.zeros_like(s)
-    np.add.at(s, (jj[ok], ii[ok]), pts[ok, 2]); np.add.at(c, (jj[ok], ii[ok]), 1)
+    s = np.zeros((nz + 1, nx + 1))
+    c = np.zeros_like(s)
+    np.add.at(s, (jj[ok], ii[ok]), pts[ok, 2])
+    np.add.at(c, (jj[ok], ii[ok]), 1)
     if not c.any():  # all points outside: flat at their median
         return np.full_like(s, float(np.median(pts[:, 2])))
     H = np.where(c > 0, s / np.maximum(c, 1), np.nan)
@@ -59,7 +69,8 @@ def _binned(pts: np.ndarray, x0: float, z0: float, nx: int, nz: int, step: float
     for _ in range(4 * max(nx, nz)):
         if known.all():
             break
-        P = np.pad(np.where(known, H, 0.0), 1); K = np.pad(known.astype(float), 1)
+        P = np.pad(np.where(known, H, 0.0), 1)
+        K = np.pad(known.astype(float), 1)
         ssum = P[:-2, 1:-1] + P[2:, 1:-1] + P[1:-1, :-2] + P[1:-1, 2:]
         ksum = K[:-2, 1:-1] + K[2:, 1:-1] + K[1:-1, :-2] + K[1:-1, 2:]
         new = (~known) & (ksum > 0)
@@ -77,9 +88,13 @@ def grid_mesh(H: np.ndarray, x0: float, z0: float, step: float = STEP):
     gz = z0 + np.arange(nz1) * step
     X, Z = np.meshgrid(gx, gz)
     pos = np.stack([X.ravel(), H.ravel(), Z.ravel()], axis=1)
-    i = np.arange(nx1 - 1); j = np.arange(nz1 - 1)
-    I, J = np.meshgrid(i, j)
-    a = (J * nx1 + I).ravel(); b = a + 1; c = a + nx1; d = c + 1
+    i = np.arange(nx1 - 1)
+    j = np.arange(nz1 - 1)
+    cols, rows = np.meshgrid(i, j)
+    a = (rows * nx1 + cols).ravel()
+    b = a + 1
+    c = a + nx1
+    d = c + 1
     # (x,z) a=(0,0) b=(1,0) c=(0,1) d=(1,1); up = +y needs (c - a) x (b - a) ordering: a, c, b
     tris = np.concatenate([np.stack([a, c, b], 1), np.stack([b, c, d], 1)]).astype(np.uint32)
     return pos, tris
@@ -92,9 +107,9 @@ def load_ground_points(bbox: C.BBoxLocal, margin: float = 60.0) -> np.ndarray:
     built from the same LAZ tiles interpolate from the identical point set (same TIN, same hull, same
     nearest fill) and their shared seam rows come out bitwise identical. Cropping per tile made the hull
     and the nearest fill differ near the data edge (seen: up to 2.76 m steps across L0 seams)."""
-    import laspy
-
     import sys
+
+    import laspy
 
     bb = bbox.buffered(margin)
     out, missing = [], []
@@ -104,14 +119,20 @@ def load_ground_points(bbox: C.BBoxLocal, margin: float = 60.0) -> np.ndarray:
             missing.append(f)
             continue
         las = laspy.read(f)
-        e = np.asarray(las.x, np.float64); n = np.asarray(las.y, np.float64); h = np.asarray(las.z, np.float64)
-        x = e - C.ORIGIN_E; z = -(n - C.ORIGIN_N)
+        e = np.asarray(las.x, np.float64)
+        n = np.asarray(las.y, np.float64)
+        h = np.asarray(las.z, np.float64)
+        x = e - C.ORIGIN_E
+        z = -(n - C.ORIGIN_N)
         out.append(np.stack([x, z, h], 1))
     core = {lt.name for lt in C.laz_tiles_for_bbox(bbox)}
     if any(f.stem in core for f in missing):
         raise FileNotFoundError(f"{[str(f) for f in missing]} missing: run `make fetch-laz` first")
     if missing:
-        print(f"stub ground: margin LAZ not fetched (ok, nearest fill): {[f.name for f in missing]}", file=sys.stderr)
+        print(
+            f"stub ground: margin LAZ not fetched (ok, nearest fill): {[f.name for f in missing]}",
+            file=sys.stderr,
+        )
     pts = np.concatenate(out) if out else np.zeros((0, 3))
     if len(pts) < 3:
         raise ValueError(f"no ground key points around {bbox}")
@@ -128,24 +149,41 @@ def area_heightfield(area: C.Area) -> tuple[np.ndarray, C.BBoxLocal, int]:
     import io
     import json
     from pathlib import Path
+
     from turku3d.fetch.common import atomic_write_bytes
 
     tiles = area.visual_tiles
-    bb = C.BBoxLocal(min(t.bbox.xmin for t in tiles), min(t.bbox.zmin for t in tiles),
-                     max(t.bbox.xmax for t in tiles), max(t.bbox.zmax for t in tiles))
-    sources = [C.raw_dir("laz") / "maanpinta" / f"{t.name}.laz"
-               for t in C.laz_tiles_for_bbox(bb.buffered(C.MESH_MARGIN))]
-    identities = [(str(p), p.stat().st_size, p.stat().st_mtime_ns) if p.exists() else (str(p), None)
-                  for p in sources]
-    key = hashlib.sha256(Path(__file__).read_bytes() + json.dumps(
-        [identities, bb.as_tuple(), STEP, C.MESH_MARGIN]).encode()).hexdigest()
+    bb = C.BBoxLocal(
+        min(t.bbox.xmin for t in tiles),
+        min(t.bbox.zmin for t in tiles),
+        max(t.bbox.xmax for t in tiles),
+        max(t.bbox.zmax for t in tiles),
+    )
+    sources = [
+        C.raw_dir("laz") / "maanpinta" / f"{t.name}.laz"
+        for t in C.laz_tiles_for_bbox(bb.buffered(C.MESH_MARGIN))
+    ]
+    identities = [
+        (str(p), p.stat().st_size, p.stat().st_mtime_ns) if p.exists() else (str(p), None)
+        for p in sources
+    ]
+    key = hashlib.sha256(
+        Path(__file__).read_bytes()
+        + json.dumps([identities, bb.as_tuple(), STEP, C.MESH_MARGIN]).encode()
+    ).hexdigest()
     path = C.cache_dir("stub-ground") / f"{key}.npz"
     if path.exists():
         with np.load(path, allow_pickle=False) as data:
             return data["height"], bb, int(data["point_count"])
     pts = load_ground_points(bb, margin=C.MESH_MARGIN)
-    H = heightfield(pts, bb.xmin, bb.zmin, round((bb.xmax - bb.xmin) / STEP),
-                    round((bb.zmax - bb.zmin) / STEP), method="scipy")
+    H = heightfield(
+        pts,
+        bb.xmin,
+        bb.zmin,
+        round((bb.xmax - bb.xmin) / STEP),
+        round((bb.zmax - bb.zmin) / STEP),
+        method="scipy",
+    )
     buffer = io.BytesIO()
     np.savez(buffer, height=H, point_count=len(pts))
     atomic_write_bytes(path, buffer.getvalue())

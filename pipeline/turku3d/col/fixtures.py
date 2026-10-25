@@ -89,12 +89,19 @@ class Mesh:
         cz = sum(p[1] for p in base) / n
         cy = (y_bottom + sum(height_top) / n) / 2
         inside = (cx, cy, cz)
-        tops = [(x, h, z) for (x, z), h in zip(base, height_top)]
+        tops = [(x, h, z) for (x, z), h in zip(base, height_top, strict=True)]
         for k in range(1, n - 1):
             self.tri(tops[0], tops[k], tops[k + 1], top, outward=(0, 1, 0))
         for k in range(n):
             (xa, za), (xb, zb) = base[k], base[(k + 1) % n]
-            self.quad((xa, y_bottom, za), (xb, y_bottom, zb), tops[(k + 1) % n], tops[k], side, inside=inside)
+            self.quad(
+                (xa, y_bottom, za),
+                (xb, y_bottom, zb),
+                tops[(k + 1) % n],
+                tops[k],
+                side,
+                inside=inside,
+            )
 
     def ground(self, cell=2.5, mat_fn=lambda x, z: MAT["road"], holes=()):
         n = int(round(S / cell))
@@ -104,12 +111,25 @@ class Mesh:
                 if any(hx0 <= x0 < hx1 and hz0 <= z0 < hz1 for hx0, hx1, hz0, hz1 in holes):
                     continue
                 mid = mat_fn(x0 + cell / 2, z0 + cell / 2)
-                self.quad((x0, Y0, z0), (x0 + cell, Y0, z0), (x0 + cell, Y0, z0 + cell), (x0, Y0, z0 + cell),
-                          mid, outward=(0, 1, 0))
+                self.quad(
+                    (x0, Y0, z0),
+                    (x0 + cell, Y0, z0),
+                    (x0 + cell, Y0, z0 + cell),
+                    (x0, Y0, z0 + cell),
+                    mid,
+                    outward=(0, 1, 0),
+                )
 
     def tile(self, i, j, prims=(), meta=None) -> ColTile:
-        return ColTile(i, j, np.array(self.v, np.float32), np.array(self.t, np.uint32),
-                       np.array(self.m, np.uint8), list(prims), meta=meta)
+        return ColTile(
+            i,
+            j,
+            np.array(self.v, np.float32),
+            np.array(self.t, np.uint32),
+            np.array(self.m, np.uint8),
+            list(prims),
+            meta=meta,
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -140,7 +160,10 @@ def rotated_rect(center, size, angle_deg):
     hx, hz = size[0] / 2, size[1] / 2
     a = math.radians(angle_deg)
     ca, sa = math.cos(a), math.sin(a)
-    return [(cx + ca * x - sa * z, cz + sa * x + ca * z) for x, z in ((-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz))]
+    return [
+        (cx + ca * x - sa * z, cz + sa * x + ca * z)
+        for x, z in ((-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz))
+    ]
 
 
 def build_stair(m: Mesh, run: float, rise: float, treads=True):
@@ -148,7 +171,14 @@ def build_stair(m: Mesh, run: float, rise: float, treads=True):
     z1 = z0 + run
     ytop = Y0 + rise
     # single inclined plane (stair_slope), normal up
-    m.quad((x0, Y0, z0), (x1, Y0, z0), (x1, ytop, z1), (x0, ytop, z1), MAT["stair_slope"], outward=(0, 1, 0))
+    m.quad(
+        (x0, Y0, z0),
+        (x1, Y0, z0),
+        (x1, ytop, z1),
+        (x0, ytop, z1),
+        MAT["stair_slope"],
+        outward=(0, 1, 0),
+    )
     # query-only tread helpers (visual treads), riser count = round(rise / 0.16)
     if treads:
         nr = max(1, round(rise / 0.16))
@@ -156,14 +186,31 @@ def build_stair(m: Mesh, run: float, rise: float, treads=True):
         for k in range(nr):
             y = Y0 + (k + 1) * dr
             za, zb = z0 + k * dz, z0 + (k + 1) * dz
-            m.quad((x0 + 0.01, y, za), (x1 - 0.01, y, za), (x1 - 0.01, y, zb), (x0 + 0.01, y, zb),
-                   MAT["stair_tread_helper"], outward=(0, 1, 0))
-            m.quad((x0 + 0.01, y - dr, za), (x1 - 0.01, y - dr, za), (x1 - 0.01, y, za), (x0 + 0.01, y, za),
-                   MAT["stair_tread_helper"], outward=(0, 0, -1))
+            m.quad(
+                (x0 + 0.01, y, za),
+                (x1 - 0.01, y, za),
+                (x1 - 0.01, y, zb),
+                (x0 + 0.01, y, zb),
+                MAT["stair_tread_helper"],
+                outward=(0, 1, 0),
+            )
+            m.quad(
+                (x0 + 0.01, y - dr, za),
+                (x1 - 0.01, y - dr, za),
+                (x1 - 0.01, y, za),
+                (x0 + 0.01, y, za),
+                MAT["stair_tread_helper"],
+                outward=(0, 0, -1),
+            )
     # side walls: thin prisms whose top follows the slope + 0.9 m
     for wx0, wx1 in ((x0 - 0.15, x0), (x1, x1 + 0.15)):
-        m.prism([(wx0, z0), (wx1, z0), (wx1, z1), (wx0, z1)], [Y0 + 0.9, Y0 + 0.9, ytop + 0.9, ytop + 0.9],
-                Y0, MAT["wall"], MAT["wall"])
+        m.prism(
+            [(wx0, z0), (wx1, z0), (wx1, z1), (wx0, z1)],
+            [Y0 + 0.9, Y0 + 0.9, ytop + 0.9, ytop + 0.9],
+            Y0,
+            MAT["wall"],
+            MAT["wall"],
+        )
     # landing (top paving, wall sides); the front face under the slope's top edge is omitted
     m.box(x0 - 1.0, x1 + 1.0, Y0, ytop, z1, z1 + 6.0, MAT["wall"], MAT["paving_slab"], skip=("-z",))
 
@@ -181,13 +228,28 @@ def scene_c_1_2(variant: str = "good") -> ColTile:
     else:
         build_stair(m, run=STAIR["run"], rise=STAIR["rise"])
     bx0, bx1, bz0, bz1, bh = BUILDING_A
-    m.box(bx0, bx1, Y0, Y0 + bh, bz0, bz1, MAT["building"], MAT["roof"],
-          skip=("-z",) if variant == "neg_open_building" else ())
+    m.box(
+        bx0,
+        bx1,
+        Y0,
+        Y0 + bh,
+        bz0,
+        bz1,
+        MAT["building"],
+        MAT["roof"],
+        skip=("-z",) if variant == "neg_open_building" else (),
+    )
     rb = rotated_rect(BUILDING_B["center"], BUILDING_B["size"], BUILDING_B["angle_deg"])
     m.prism(rb, [Y0 + BUILDING_B["height"]] * 4, Y0, MAT["building"], MAT["roof"])
     # water sensor surface (not solid): walkers pass through, holes check ignores it
-    m.quad((52.0, Y0 + 0.3, 30.0), (60.0, Y0 + 0.3, 30.0), (60.0, Y0 + 0.3, 40.0), (52.0, Y0 + 0.3, 40.0),
-           MAT["water"], outward=(0, 1, 0))
+    m.quad(
+        (52.0, Y0 + 0.3, 30.0),
+        (60.0, Y0 + 0.3, 30.0),
+        (60.0, Y0 + 0.3, 40.0),
+        (52.0, Y0 + 0.3, 40.0),
+        MAT["water"],
+        outward=(0, 1, 0),
+    )
     prims = [
         Primitive.cylinder(MAT["pole"], (30.0, Y0 + 2.0, 24.0), 2.0, 0.08),
         Primitive.capsule(MAT["tree_trunk"], (5.0, Y0 + 2.5, 52.0), 2.0, 0.25),
@@ -210,7 +272,10 @@ def footprints_geojson() -> dict:
     o22 = np.array([2 * S, 2 * S])
 
     def rect(x0, x1, z0, z1, o):
-        return [[float(x + o[0]), float(z + o[1])] for x, z in ((x0, z0), (x1, z0), (x1, z1), (x0, z1), (x0, z0))]
+        return [
+            [float(x + o[0]), float(z + o[1])]
+            for x, z in ((x0, z0), (x1, z0), (x1, z1), (x0, z1), (x0, z0))
+        ]
 
     bx0, bx1, bz0, bz1, _ = BUILDING_A
     rb = rotated_rect(BUILDING_B["center"], BUILDING_B["size"], BUILDING_B["angle_deg"])
@@ -224,8 +289,14 @@ def footprints_geojson() -> dict:
     return {
         "type": "FeatureCollection",
         "turku3d_coords": "engine-xz",
-        "features": [{"type": "Feature", "properties": {"id": n},
-                      "geometry": {"type": "Polygon", "coordinates": [ring]}} for n, ring in feats],
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"id": n},
+                "geometry": {"type": "Polygon", "coordinates": [ring]},
+            }
+            for n, ring in feats
+        ],
     }
 
 
@@ -234,17 +305,36 @@ def curbs_geojson() -> dict:
     feats = []
     for name, x0, x1, z0, z1, h in PLATFORMS:
         ring = [(x0, z0), (x1, z0), (x1, z1), (x0, z1), (x0, z0)]
-        feats.append({"type": "Feature", "properties": {"id": name, "step": h},
-                      "geometry": {"type": "LineString",
-                                   "coordinates": [[float(x + o[0]), float(z + o[1])] for x, z in ring]}})
+        feats.append(
+            {
+                "type": "Feature",
+                "properties": {"id": name, "step": h},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[float(x + o[0]), float(z + o[1])] for x, z in ring],
+                },
+            }
+        )
     return {"type": "FeatureCollection", "turku3d_coords": "engine-xz", "features": feats}
 
 
 EXPECTED = {
-    "good": {"pass": True, "checks": {"format": "pass", "holes": "pass", "buildings": "pass",
-                                      "curbs": "pass", "stairs": "pass", "belowGround": "pass"},
-             "curb_steps": {"curb_12cm": "climb", "curb_25cm": "climb", "step_40cm": "block"}},
-    "neg_hole": {"pass": False, "checks": {"holes": "fail", "belowGround": "fail", "buildings": "pass"}},
+    "good": {
+        "pass": True,
+        "checks": {
+            "format": "pass",
+            "holes": "pass",
+            "buildings": "pass",
+            "curbs": "pass",
+            "stairs": "pass",
+            "belowGround": "pass",
+        },
+        "curb_steps": {"curb_12cm": "climb", "curb_25cm": "climb", "step_40cm": "block"},
+    },
+    "neg_hole": {
+        "pass": False,
+        "checks": {"holes": "fail", "belowGround": "fail", "buildings": "pass"},
+    },
     "neg_open_building": {"pass": False, "checks": {"buildings": "fail", "holes": "pass"}},
     "neg_steep_stair": {"pass": False, "checks": {"stairs": "fail", "holes": "pass"}},
     "neg_material0": {"pass": False, "checks": {"format": "fail"}},

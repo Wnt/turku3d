@@ -3,8 +3,8 @@ import { OFFICE_EN } from './origin';
 
 /** QA camera pose, qa/README.md §2 + qa/qalib/camera.py: yaw = compass bearing, pitch + up, roll + = camera turned
  *  clockwise seen from behind, fov = VERTICAL degrees (three.js camera.fov), H = absolute camera height N2000. */
-export interface QaCam { E: number; N: number; H: number; yawDeg: number; pitchDeg: number; fovDeg: number; rollDeg: number }
-export interface Params {
+interface QaCam { E: number; N: number; H: number; yawDeg: number; pitchDeg: number; fovDeg: number; rollDeg: number }
+interface Params {
   backend: 'webgpu' | 'webgl';
   tileset: string;
   manifest: string;
@@ -20,7 +20,7 @@ export interface Params {
 }
 
 /** Default sun time when ?time= is absent: a fixed summer afternoon in Turku (deterministic screenshots). */
-export const DEFAULT_TIME = '2026-06-21T14:00:00+03:00';
+const DEFAULT_TIME = '2026-06-21T14:00:00+03:00';
 
 /** manifest.json next to the tileset. Same-origin paths stay page-relative (as before); an absolute tileset URL on
  *  another host (e.g. `make game-serve-dist` on the sandbox dist port) keeps its origin, otherwise the manifest would be fetched from

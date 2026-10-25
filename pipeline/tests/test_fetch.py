@@ -11,11 +11,13 @@ import threading
 from pathlib import Path
 
 import pytest
-
 from turku3d import config
 from turku3d.fetch import common, sources
 
 AREA = config.OFFICE_BLOCK
+# Two xdist workers have distinct ports within the sandbox allocation.
+WORKER = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+TEST_PORT = int(os.environ.get("TURKU3D_PORT_BASE", "5190")) + 4 + int(WORKER.removeprefix("gw"))
 
 
 @pytest.fixture()
@@ -65,7 +67,7 @@ def http_dir(tmp_path):
     root = tmp_path / "srv"
     root.mkdir()
     handler = lambda *a, **kw: RangeHandler(*a, directory=str(root), **kw)  # noqa: E731
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", TEST_PORT), handler)
     srv.hits = []
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
@@ -188,7 +190,7 @@ CITYGML = b"""<?xml version="1.0" encoding="utf-8"?>
 def test_wfs_request_params():
     from turku3d.fetch import wfs
 
-    L = {l.name: l for l in sources.WFS_LAYERS}
+    L = {layer.name: layer for layer in sources.WFS_LAYERS}
     p = wfs.request_params(L["kanta:Rakenne"], (1, 2, 3, 4))
     assert p["version"] == "1.0.0" and "<gml:coordinates>1.000,2.000 3.000,4.000" in p["filter"]
     p = wfs.request_params(L["bldg:Building_LOD2"], (1, 2, 3, 4))
@@ -217,22 +219,30 @@ def test_wfs_parse_citygml():
     pytest.importorskip("shapely")
     from turku3d.fetch import wfs
 
-    (key, gid, attrs, rows), = wfs.parse_features(CITYGML, "bldg:Building_LOD2")
+    ((key, gid, attrs, rows),) = wfs.parse_features(CITYGML, "bldg:Building_LOD2")
     assert key == gid == "Building_1"
     assert attrs["kerrosluku"] == "3" and attrs["measuredHeight"] == "12.3"
     assert "target" not in attrs  # appearance skipped
     assert [r["surface_type"] for r in rows] == ["RoofSurface", "WallSurface"]
     assert [r["surface_id"] for r in rows] == ["P1", "P2"]
-    assert rows[0]["geometry"].has_z and list(rows[0]["geometry"].exterior.coords)[2] == (23459610, 6704210, 22)
+    assert rows[0]["geometry"].has_z and list(rows[0]["geometry"].exterior.coords)[2] == (
+        23459610,
+        6704210,
+        22,
+    )
 
 
 def test_wfs_to_local():
     pytest.importorskip("shapely")
     from shapely.geometry import LineString, Point
-
     from turku3d.fetch import wfs
 
-    out = wfs.to_local([Point(config.OFFICE_E, config.OFFICE_N), LineString([(23459500, 6704500, 5), (23459501, 6704499, 6)])])
+    out = wfs.to_local(
+        [
+            Point(config.OFFICE_E, config.OFFICE_N),
+            LineString([(23459500, 6704500, 5), (23459501, 6704499, 6)]),
+        ]
+    )
     assert out[0].coords[0] == (168.0, 246.0)
     assert list(out[1].coords) == [(0.0, 0.0, 5.0), (1.0, 1.0, 6.0)]
 
@@ -248,12 +258,18 @@ def _fake_wfs_server(cap: int, points):
         else:
             x0, y0, x1, y1 = map(float, params["bbox"].split(","))
         calls.append((x0, y0, x1, y1))
-        inside = [(i, p) for i, p in enumerate(points) if x0 <= p[0] <= x1 and y0 <= p[1] <= y1][:cap]
+        inside = [(i, p) for i, p in enumerate(points) if x0 <= p[0] <= x1 and y0 <= p[1] <= y1][
+            :cap
+        ]
         members = "".join(
             f'<gml:featureMember><k:P xmlns:k="urn:k"><k:id>{i}</k:id><gml:Point><gml:coordinates>{x},{y}</gml:coordinates></gml:Point></k:P></gml:featureMember>'
-            for i, (x, y) in inside)  # stable ids -> identical XML across pages
-        body = ('<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs" xmlns:gml="http://www.opengis.net/gml">'
-                + members + "</wfs:FeatureCollection>").encode()
+            for i, (x, y) in inside
+        )  # stable ids -> identical XML across pages
+        body = (
+            '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs" xmlns:gml="http://www.opengis.net/gml">'
+            + members
+            + "</wfs:FeatureCollection>"
+        ).encode()
         return body, {"content-type": "text/xml"}
 
     return get, calls
@@ -306,9 +322,11 @@ def test_wms_chunk_grid_aligned_and_covering():
     bb = AREA.with_margin.to_en().as_tuple()
     ch = wms.chunk_grid(bb, 0.05)
     s = 100.0
-    for key, (e0, n0, e1, n1) in ch:
+    for _key, (e0, n0, e1, n1) in ch:
         assert e1 - e0 == pytest.approx(s) and n1 - n0 == pytest.approx(s)
-        assert (e0 - config.ORIGIN_E) % s == pytest.approx(0) and (config.ORIGIN_N - n1) % s == pytest.approx(0)
+        assert (e0 - config.ORIGIN_E) % s == pytest.approx(0) and (
+            config.ORIGIN_N - n1
+        ) % s == pytest.approx(0)
     assert min(c[1][0] for c in ch) <= bb[0] and max(c[1][2] for c in ch) >= bb[2]
     assert min(c[1][1] for c in ch) <= bb[1] and max(c[1][3] for c in ch) >= bb[3]
     assert len(ch) == 20  # 350 m margin box: E 12.5..362.5 -> 4 columns, N offset 75..425 -> 5 rows
@@ -319,7 +337,6 @@ def test_wms_fetch_layer_fake(data_root, monkeypatch):
     np = pytest.importorskip("numpy")
     rasterio = pytest.importorskip("rasterio")
     from PIL import Image
-
     from turku3d.fetch import wms
 
     if shutil.which("gdalbuildvrt") is None:
@@ -358,7 +375,6 @@ def test_wms_fetch_layer_fake(data_root, monkeypatch):
 def test_decode_png_white_as_nodata():
     np = pytest.importorskip("numpy")
     from PIL import Image
-
     from turku3d.fetch import wms
 
     a = np.full((4, 4, 3), 255, np.uint8)
@@ -414,12 +430,15 @@ def test_osm_to_parquet_roundtrip(data_root, tmp_path):
     assert s["counts"]["barrier=kerb"] == 1 and s["counts"]["highway=steps"] == 1
     kerb = g[g.barrier == "kerb"].iloc[0]
     x, z = config.wgs84_to_local(lat, lon)  # ~ (168, 246): the office lat/lon is rounded to ~1 m
-    assert kerb.geometry_local.x == pytest.approx(x, abs=0.01) and kerb.geometry_local.y == pytest.approx(z, abs=0.01)
+    assert kerb.geometry_local.x == pytest.approx(
+        x, abs=0.01
+    ) and kerb.geometry_local.y == pytest.approx(z, abs=0.01)
     assert json.loads(kerb.tags) == {"barrier": "kerb"}
 
 
 class NoRangeHandler(http.server.BaseHTTPRequestHandler):
     """Ignores Range and sends no Content-Length (streams until close), like some proxies/CDNs."""
+
     payload = b""
 
     def log_message(self, *a):
@@ -443,13 +462,15 @@ def test_curl_download_no_range_support_restarts(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "CURL_RETRY_DELAY", 1)
     payload = os.urandom(120_000)
     NoRangeHandler.payload = payload
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), NoRangeHandler)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", TEST_PORT), NoRangeHandler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         reg = common.Registry(tmp_path / "raw")
         dest = tmp_path / "raw" / "c.bin"
         dest.with_name("c.bin.part").write_bytes(payload[:30_000])
-        rec, now = common.curl_download(f"http://127.0.0.1:{srv.server_address[1]}/c.bin", dest, reg)
+        rec, now = common.curl_download(
+            f"http://127.0.0.1:{srv.server_address[1]}/c.bin", dest, reg
+        )
         assert now and dest.read_bytes() == payload and rec["bytes"] == len(payload)
     finally:
         srv.shutdown()
@@ -494,7 +515,7 @@ def test_http_get_retries_incomplete_read(monkeypatch):
             else:
                 self.wfile.write(b"y" * 1000)
 
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", TEST_PORT), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         body, _ = common.http_get(f"http://127.0.0.1:{srv.server_address[1]}/", retries=4)
@@ -508,31 +529,45 @@ def test_wms_expired_and_legacy_blanks_are_retried(data_root, monkeypatch):
     from PIL import Image
     from turku3d.fetch import wms
 
-    monkeypatch.setattr(wms, 'CHUNK_PX', 8)
-    monkeypatch.setattr(wms.time, 'time', lambda: 10000)
-    area = config.Area('blank-test', 'test', config.BBoxLocal(0, 0, 8, 8), margin=0)
-    layer = sources.WmsLayer('Test', 'test', 1, 100, 'test', 'DEFLATE', '')
-    state = config.raw_dir('ortho') / 'test/blank-test.chunks.json'
+    monkeypatch.setattr(wms, "CHUNK_PX", 8)
+    monkeypatch.setattr(wms.time, "time", lambda: 10000)
+    area = config.Area("blank-test", "test", config.BBoxLocal(0, 0, 8, 8), margin=0)
+    layer = sources.WmsLayer("Test", "test", 1, 100, "test", "DEFLATE", "")
+    state = config.raw_dir("ortho") / "test/blank-test.chunks.json"
     state.parent.mkdir(parents=True)
-    state.write_text(json.dumps({'0_0': {'status': 'empty', 'bbox': list(area.core.to_en().as_tuple())}}))
+    state.write_text(
+        json.dumps({"0_0": {"status": "empty", "bbox": list(area.core.to_en().as_tuple())}})
+    )
     calls = []
 
     def get(*args, **kwargs):
         calls.append(1)
         buf = io.BytesIO()
-        Image.fromarray(np.full((8, 8, 4), 255, np.uint8)).save(buf, 'PNG')
-        return buf.getvalue(), {'content-type': 'image/png'}
+        Image.fromarray(np.full((8, 8, 4), 255, np.uint8)).save(buf, "PNG")
+        return buf.getvalue(), {"content-type": "image/png"}
 
     s = wms.fetch_layer(layer, area, get=get)
-    assert len(calls) == 1 and s['chunks_ok'] == 1  # old permanent blank recovers
-    state.write_text(json.dumps({'0_0': {'status': 'empty', 'bbox': list(area.core.to_en().as_tuple()),
-                                       'checked_at': 1}}))
+    assert len(calls) == 1 and s["chunks_ok"] == 1  # old permanent blank recovers
+    state.write_text(
+        json.dumps(
+            {
+                "0_0": {
+                    "status": "empty",
+                    "bbox": list(area.core.to_en().as_tuple()),
+                    "checked_at": 1,
+                }
+            }
+        )
+    )
     wms.fetch_layer(layer, area, get=get)
     assert len(calls) == 2  # expired negative cache is retried as well
 
 
 def test_cached_check_missing_inputs_is_read_only(data_root, monkeypatch):
     from turku3d.fetch import cached
-    monkeypatch.setattr(common, 'http_get', lambda *a, **kw: pytest.fail('network during cached check'))
+
+    monkeypatch.setattr(
+        common, "http_get", lambda *a, **kw: pytest.fail("network during cached check")
+    )
     assert cached.check(config.WORK_3X3)
     assert not data_root.exists()

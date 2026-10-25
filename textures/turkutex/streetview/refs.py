@@ -15,6 +15,7 @@ For each facade:
 Camera Z = pano elevation (orthometric camera height for Google). Facade base height = facade.base_h,
 else the median ground estimate (elevation - campaign camera height) of the Google candidates.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,7 +26,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
-
 from turku3d import config
 
 from . import camera as C
@@ -47,7 +47,7 @@ class SelectParams:
     long_side: int = 1536
     zoom: int = 5
     la_zoom: int = 0
-    max_occluded: float = 0.5   # reject views whose facade is mostly behind a nearer depth plane
+    max_occluded: float = 0.5  # reject views whose facade is mostly behind a nearer depth plane
 
 
 def coverage_points(centre_en: np.ndarray, radius: float) -> list[tuple[float, float]]:
@@ -101,18 +101,28 @@ def base_height(f: Facade, cands: list[PanoMeta]) -> tuple[float, str]:
         return float(np.median(g)), f"median(pano elevation - campaign camera height), n={len(g)}"
     la = [m.ground_h for m in cands if m.ground_h is not None]
     if la:
-        return float(np.median(la)), f"median(lookaround elevation - {cands[0].cam_height} m), n={len(la)}"
+        return float(
+            np.median(la)
+        ), f"median(lookaround elevation - {cands[0].cam_height} m), n={len(la)}"
     return 3.0, "default 3.0 m (no pano elevation)"
 
 
-def occlusion_fraction(cache: PanoCache, m: PanoMeta, cam: C.PerspectiveCam, corners: np.ndarray) -> float | None:
+def occlusion_fraction(
+    cache: PanoCache, m: PanoMeta, cam: C.PerspectiveCam, corners: np.ndarray
+) -> float | None:
     if m.source != "google":
         return None
     depth = cache.load_depth(m.id)
     if depth is None:
         return None
-    small = C.PerspectiveCam(cam.pos, cam.yaw_deg, cam.pitch_deg, cam.hfov_deg, 96,
-                             max(8, int(96 * cam.height / cam.width)))
+    small = C.PerspectiveCam(
+        cam.pos,
+        cam.yaw_deg,
+        cam.pitch_deg,
+        cam.hfov_deg,
+        96,
+        max(8, int(96 * cam.height / cam.width)),
+    )
     t, inside = C.facade_hits(small, corners)
     u, v = equirect_model(m).uv_from_dir(small.rays(), depth.shape[1], depth.shape[0])
     dd = C.sample_nearest(depth, u, v)
@@ -135,7 +145,9 @@ def _sub_facade(f: Facade, cam_en: np.ndarray, front: float) -> Facade | None:
     return Facade(f.id, q0, q1, f.height_m, f.base_h, f.props, f.normal_side)
 
 
-def evaluate(cache: PanoCache, f: Facade, m: PanoMeta, base_h: float, P: SelectParams) -> list[dict]:
+def evaluate(
+    cache: PanoCache, f: Facade, m: PanoMeta, base_h: float, P: SelectParams
+) -> list[dict]:
     """0-2 evaluations per pano: a full-facade view and/or a partial (detail) view."""
     cam_en = np.array([m.E, m.N])
     res = []
@@ -153,7 +165,9 @@ def evaluate(cache: PanoCache, f: Facade, m: PanoMeta, base_h: float, P: SelectP
             continue
         signed = theta * (1 if float(v @ g.tangent) >= 0 else -1)
         corners = g.corners(base_h)
-        pos = np.array([m.E, m.N, m.elevation if m.elevation is not None else base_h + m.cam_height])
+        pos = np.array(
+            [m.E, m.N, m.elevation if m.elevation is not None else base_h + m.cam_height]
+        )
         try:
             cam = C.fit_camera(pos, corners, P.long_side, max_hfov=180)
         except ValueError:
@@ -169,15 +183,28 @@ def evaluate(cache: PanoCache, f: Facade, m: PanoMeta, base_h: float, P: SelectP
         year = int(str(m.date or "2000")[:4])
         d_opt = P.d_opt if part == "full" else 10.0
         d_sig = P.d_sigma if part == "full" else 10.0
-        s = (math.cos(math.radians(theta)) ** 0.8 * math.exp(-((d - d_opt) / d_sig) ** 2)
-             * (1 - 0.8 * (occ or 0.0)) * min(1.0, ppm / 40) * (1.0 if part == "full" else 0.7)
-             + 0.002 * (year - 2009))
-        res.append({"meta": m, "cam": cam, "corners": corners, "part": part,
-                    "section_m": [round(float((g.p0 - f.p0) @ f.tangent), 2), round(float((g.p1 - f.p0) @ f.tangent), 2)],
-                    "distance_m": round(d, 2), "front_m": round(front, 2),
-                    "view_angle_deg": round(theta, 1), "signed_angle_deg": round(signed, 1),
-                    "occluded_frac": None if occ is None else round(occ, 3), "px_per_m": round(ppm, 1),
-                    "score": round(s, 4)})
+        s = math.cos(math.radians(theta)) ** 0.8 * math.exp(-(((d - d_opt) / d_sig) ** 2)) * (
+            1 - 0.8 * (occ or 0.0)
+        ) * min(1.0, ppm / 40) * (1.0 if part == "full" else 0.7) + 0.002 * (year - 2009)
+        res.append(
+            {
+                "meta": m,
+                "cam": cam,
+                "corners": corners,
+                "part": part,
+                "section_m": [
+                    round(float((g.p0 - f.p0) @ f.tangent), 2),
+                    round(float((g.p1 - f.p0) @ f.tangent), 2),
+                ],
+                "distance_m": round(d, 2),
+                "front_m": round(front, 2),
+                "view_angle_deg": round(theta, 1),
+                "signed_angle_deg": round(signed, 1),
+                "occluded_frac": None if occ is None else round(occ, 3),
+                "px_per_m": round(ppm, 1),
+                "score": round(s, 4),
+            }
+        )
     return res
 
 
@@ -198,9 +225,16 @@ def select(evals: list[dict], P: SelectParams) -> list[dict]:
             same_spot = math.hypot(e["meta"].E - c["meta"].E, e["meta"].N - c["meta"].N) < 6.0
             same_part = e["part"] == c["part"]
             close_angle = abs(e["signed_angle_deg"] - c["signed_angle_deg"]) < P.min_sep_deg
-            overlap = (e["part"] == "partial" and c["part"] == "partial"
-                       and abs(e["section_m"][0] - c["section_m"][0]) < 4.0)
-            if (same_spot and same_part) or (same_part and close_angle and e["part"] == "full") or overlap:
+            overlap = (
+                e["part"] == "partial"
+                and c["part"] == "partial"
+                and abs(e["section_m"][0] - c["section_m"][0]) < 4.0
+            )
+            if (
+                (same_spot and same_part)
+                or (same_part and close_angle and e["part"] == "full")
+                or overlap
+            ):
                 ok = False
                 break
         if ok:
@@ -238,20 +272,59 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
     ol = Image.fromarray(img).copy()
     dr = ImageDraw.Draw(ol)
     if not np.isnan(px).any():
-        dr.line([tuple(p) for p in px] + [tuple(px[0])], fill=(255, 0, 0), width=max(3, cam.width // 300))
+        dr.line(
+            [tuple(p) for p in px] + [tuple(px[0])],
+            fill=(255, 0, 0),
+            width=max(3, cam.width // 300),
+        )
     ol.save(out_dir / f"{view_id}_outline.jpg", quality=90)
-    rec = {"view_id": view_id, "source": m.source, "pano_id": m.id, "date": m.date,
-           "pano": {k: m.to_dict()[k] for k in ("lat", "lon", "E", "N", "elevation", "heading_rad", "pitch_rad",
-                                                 "roll_rad", "cam_height", "ground_h")},
-           "pano_file": str(src), "camera": cam.to_dict(),
-           "facade_corners_EN_H": [[round(float(v), 3) for v in c] for c in e["corners"]],
-           "facade_corners_px": [[round(float(v), 1) for v in p] for p in px],
-           "facade_visible_frac": round(float((mask == 255).sum() / max(1, (mask > 0).sum())), 3),
-           **{k: e[k] for k in ("part", "section_m", "distance_m", "front_m", "view_angle_deg", "signed_angle_deg",
-                                "occluded_frac", "px_per_m", "score")},
-           "files": {"crop": f"{view_id}.jpg", "outline": f"{view_id}_outline.jpg", "mask": f"{view_id}_mask.png"},
-           "notes": "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; "
-                    "attribution: imagery (c) Google / Apple, reference use only, never shipped"}
+    rec = {
+        "view_id": view_id,
+        "source": m.source,
+        "pano_id": m.id,
+        "date": m.date,
+        "pano": {
+            k: m.to_dict()[k]
+            for k in (
+                "lat",
+                "lon",
+                "E",
+                "N",
+                "elevation",
+                "heading_rad",
+                "pitch_rad",
+                "roll_rad",
+                "cam_height",
+                "ground_h",
+            )
+        },
+        "pano_file": str(src),
+        "camera": cam.to_dict(),
+        "facade_corners_EN_H": [[round(float(v), 3) for v in c] for c in e["corners"]],
+        "facade_corners_px": [[round(float(v), 1) for v in p] for p in px],
+        "facade_visible_frac": round(float((mask == 255).sum() / max(1, (mask > 0).sum())), 3),
+        **{
+            k: e[k]
+            for k in (
+                "part",
+                "section_m",
+                "distance_m",
+                "front_m",
+                "view_angle_deg",
+                "signed_angle_deg",
+                "occluded_frac",
+                "px_per_m",
+                "score",
+            )
+        },
+        "files": {
+            "crop": f"{view_id}.jpg",
+            "outline": f"{view_id}_outline.jpg",
+            "mask": f"{view_id}_mask.png",
+        },
+        "notes": "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; "
+        "attribution: imagery (c) Google / Apple, reference use only, never shipped",
+    }
     (out_dir / f"{view_id}.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False))
     return rec
 
@@ -259,13 +332,21 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
 def scaled_params(f: Facade, P: SelectParams) -> SelectParams:
     """Long facades are best seen frontally from further away (e.g. across a street or river)."""
     import dataclasses
+
     d_opt = max(P.d_opt, 1.5 * f.length)
     max_dist = max(P.max_dist, 2.2 * f.length)
-    return dataclasses.replace(P, d_opt=d_opt, d_sigma=max(P.d_sigma, 0.8 * d_opt), max_dist=max_dist,
-                               radius=max(P.radius, max_dist + 5))
+    return dataclasses.replace(
+        P,
+        d_opt=d_opt,
+        d_sigma=max(P.d_sigma, 0.8 * d_opt),
+        max_dist=max_dist,
+        radius=max(P.radius, max_dist + 5),
+    )
 
 
-def facade_refs(cache: PanoCache, f: Facade, out_root: Path, P: SelectParams, sources=("google",)) -> dict:
+def facade_refs(
+    cache: PanoCache, f: Facade, out_root: Path, P: SelectParams, sources=("google",)
+) -> dict:
     P = scaled_params(f, P)
     cands = candidates(cache, f, P, sources)
     bh, bh_src = base_height(f, cands)
@@ -274,14 +355,43 @@ def facade_refs(cache: PanoCache, f: Facade, out_root: Path, P: SelectParams, so
     out = out_root / f.id
     views = []
     for k, e in enumerate(chosen):
-        views.append(render_view(cache, e, out, f"v{k}_{e['part'][0]}_{e['meta'].source[0]}_{e['meta'].id[:12]}", P))
-    summary = {"facade": f.to_feature(), "base_h": round(bh, 3), "base_h_source": bh_src,
-               "n_candidates": len(cands), "n_valid": len(evals),
-               "candidates": sorted([{"pano_id": e["meta"].id, "source": e["meta"].source, "date": e["meta"].date,
-                                      **{k: e[k] for k in ("part", "section_m", "distance_m", "view_angle_deg",
-                                                           "signed_angle_deg", "occluded_frac", "score")}} for e in evals],
-                                    key=lambda r: -r["score"]),
-               "views": [v["view_id"] for v in views], "params": P.__dict__}
+        views.append(
+            render_view(
+                cache, e, out, f"v{k}_{e['part'][0]}_{e['meta'].source[0]}_{e['meta'].id[:12]}", P
+            )
+        )
+    summary = {
+        "facade": f.to_feature(),
+        "base_h": round(bh, 3),
+        "base_h_source": bh_src,
+        "n_candidates": len(cands),
+        "n_valid": len(evals),
+        "candidates": sorted(
+            [
+                {
+                    "pano_id": e["meta"].id,
+                    "source": e["meta"].source,
+                    "date": e["meta"].date,
+                    **{
+                        k: e[k]
+                        for k in (
+                            "part",
+                            "section_m",
+                            "distance_m",
+                            "view_angle_deg",
+                            "signed_angle_deg",
+                            "occluded_frac",
+                            "score",
+                        )
+                    },
+                }
+                for e in evals
+            ],
+            key=lambda r: -r["score"],
+        ),
+        "views": [v["view_id"] for v in views],
+        "params": P.__dict__,
+    }
     out.mkdir(parents=True, exist_ok=True)
     (out / "refs.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
     return summary
@@ -289,15 +399,21 @@ def facade_refs(cache: PanoCache, f: Facade, out_root: Path, P: SelectParams, so
 
 def main(argv=None) -> int:
     from ..paths import textures_data_dir
-    ap = argparse.ArgumentParser(prog="turkutex refs", description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    ap = argparse.ArgumentParser(
+        prog="turkutex refs",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("facades", type=Path, help="GeoJSON of facade LineStrings (EPSG:3877)")
     ap.add_argument("--out", type=Path, default=textures_data_dir("refs"))
     ap.add_argument("--only", nargs="*", help="facade ids")
     ap.add_argument("--sources", default="google", help="google,lookaround")
     ap.add_argument("--max-views", type=int, default=4)
     ap.add_argument("--zoom", type=int, default=5)
-    ap.add_argument("--cache", type=Path, default=None, help="pano cache root (default raw/streetview)")
+    ap.add_argument(
+        "--cache", type=Path, default=None, help="pano cache root (default raw/streetview)"
+    )
     a = ap.parse_args(argv)
     P = SelectParams(max_views=a.max_views, zoom=a.zoom)
     cache = PanoCache(a.cache)
@@ -305,5 +421,7 @@ def main(argv=None) -> int:
         if a.only and f.id not in a.only:
             continue
         s = facade_refs(cache, f, a.out, P, tuple(a.sources.split(",")))
-        print(f"{f.id}: {s['n_candidates']} candidates, {s['n_valid']} valid, views {s['views']} -> {a.out / f.id}")
+        print(
+            f"{f.id}: {s['n_candidates']} candidates, {s['n_valid']} valid, views {s['views']} -> {a.out / f.id}"
+        )
     return 0

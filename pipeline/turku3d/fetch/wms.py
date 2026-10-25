@@ -46,8 +46,19 @@ def chunk_grid(bbox_en: tuple[float, float, float, float], px_m: float, chunk_px
 
 
 def getmap_params(layer: str, bb, w: int, h: int) -> dict:
-    return dict(SERVICE="WMS", VERSION="1.1.1", REQUEST="GetMap", LAYERS=layer, STYLES="", SRS="EPSG:3877",
-                BBOX=",".join(f"{v:.4f}" for v in bb), WIDTH=w, HEIGHT=h, FORMAT="image/png", TRANSPARENT="TRUE")
+    return dict(
+        SERVICE="WMS",
+        VERSION="1.1.1",
+        REQUEST="GetMap",
+        LAYERS=layer,
+        STYLES="",
+        SRS="EPSG:3877",
+        BBOX=",".join(f"{v:.4f}" for v in bb),
+        WIDTH=w,
+        HEIGHT=h,
+        FORMAT="image/png",
+        TRANSPARENT="TRUE",
+    )
 
 
 def decode_png(body: bytes):
@@ -71,9 +82,20 @@ def write_geotiff(path: Path, rgb, valid, bb, px_m: float, compress: str) -> Non
     from rasterio.transform import from_origin
 
     h, w = valid.shape
-    prof = dict(driver="GTiff", width=w, height=h, count=3, dtype="uint8", crs=config.CRS_HORIZONTAL,
-                transform=from_origin(bb[0], bb[3], px_m, px_m), tiled=True, blockxsize=512, blockysize=512,
-                compress=compress, BIGTIFF="IF_SAFER")
+    prof = dict(
+        driver="GTiff",
+        width=w,
+        height=h,
+        count=3,
+        dtype="uint8",
+        crs=config.CRS_HORIZONTAL,
+        transform=from_origin(bb[0], bb[3], px_m, px_m),
+        tiled=True,
+        blockxsize=512,
+        blockysize=512,
+        compress=compress,
+        BIGTIFF="IF_SAFER",
+    )
     if compress == "JPEG":
         prof.update(photometric="YCBCR", jpeg_quality=92)
     elif compress == "DEFLATE":
@@ -100,7 +122,14 @@ def native_resolution_cm(rgb, valid, px_m: float) -> float | None:
     return px_m * 100 / max(1e-6, 1 - p)
 
 
-def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print, get=http_get, chunk_px: int | None = None) -> dict:
+def fetch_layer(
+    layer: WmsLayer,
+    area: config.Area,
+    workers: int = 4,
+    log=print,
+    get=http_get,
+    chunk_px: int | None = None,
+) -> dict:
     root = kind_dir("ortho")
     reg = Registry(root)
     adir = root / layer.slug / area.name
@@ -117,8 +146,11 @@ def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print,
         st = state.get(key)
         if st and st.get("bbox") != list(bb):
             st = None
-        if (st and st.get("status") == "empty"
-                and time.time() - st.get("checked_at", 0) < EMPTY_TTL_SECONDS):
+        if (
+            st
+            and st.get("status") == "empty"
+            and time.time() - st.get("checked_at", 0) < EMPTY_TTL_SECONDS
+        ):
             return key, st
         if st and st.get("status") == "ok" and reg.is_complete(dest):
             return key, st
@@ -130,9 +162,20 @@ def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print,
         if cov == 0.0:
             return key, {"status": "empty", "bbox": list(bb), "checked_at": time.time()}
         write_geotiff(dest, rgb, valid, bb, layer.px_m, layer.compress)
-        reg.record(dest, url=WMS_URL, layer=layer.name, bbox=list(bb), px_m=layer.px_m, coverage=round(cov, 4))
-        return key, {"status": "ok", "bbox": list(bb), "coverage": round(cov, 4),
-                     "native_cm": native_resolution_cm(rgb, valid, layer.px_m)}
+        reg.record(
+            dest,
+            url=WMS_URL,
+            layer=layer.name,
+            bbox=list(bb),
+            px_m=layer.px_m,
+            coverage=round(cov, 4),
+        )
+        return key, {
+            "status": "ok",
+            "bbox": list(bb),
+            "coverage": round(cov, 4),
+            "native_cm": native_resolution_cm(rgb, valid, layer.px_m),
+        }
 
     errors = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -156,18 +199,29 @@ def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print,
     natives = [state[k].get("native_cm") for k in ok if state[k].get("native_cm")]
     area_px = (chunk_px * chunk_px) * len(chunks)
     s = {
-        "layer": layer.name, "slug": layer.slug, "area": area.name, "px_m": layer.px_m,
-        "chunk_m": chunk_px * layer.px_m, "chunks": len(chunks), "chunks_ok": len(ok),
+        "layer": layer.name,
+        "slug": layer.slug,
+        "area": area.name,
+        "px_m": layer.px_m,
+        "chunk_m": chunk_px * layer.px_m,
+        "chunks": len(chunks),
+        "chunks_ok": len(ok),
         "chunks_empty": sum(1 for k, _ in chunks if state.get(k, {}).get("status") == "empty"),
         "errors": errors,
-        "coverage_of_bbox": round(sum(c * chunk_px * chunk_px for c in covs) / area_px, 4) if area_px else 0,
+        "coverage_of_bbox": round(sum(c * chunk_px * chunk_px for c in covs) / area_px, 4)
+        if area_px
+        else 0,
         "native_cm_median": round(sorted(natives)[len(natives) // 2], 2) if natives else None,
         "bytes": sum((adir / f"{k}.tif").stat().st_size for k in ok),
         "vrt": str(vrt) if ok else None,
     }
-    atomic_write_text(adir.parent / f"{area.name}.summary.json", json.dumps(s, indent=1, ensure_ascii=False))
-    log(f"wms  {layer.slug}: {s['chunks_ok']}/{s['chunks']} chunks ok, {s['chunks_empty']} empty, "
-        f"coverage {s['coverage_of_bbox']:.1%}, native ~{s['native_cm_median']} cm, {len(errors)} errors")
+    atomic_write_text(
+        adir.parent / f"{area.name}.summary.json", json.dumps(s, indent=1, ensure_ascii=False)
+    )
+    log(
+        f"wms  {layer.slug}: {s['chunks_ok']}/{s['chunks']} chunks ok, {s['chunks_empty']} empty, "
+        f"coverage {s['coverage_of_bbox']:.1%}, native ~{s['native_cm_median']} cm, {len(errors)} errors"
+    )
     return s
 
 
@@ -176,6 +230,13 @@ def fetch_area(area: config.Area, layers=None, workers: int = 4, log=print) -> l
     for L in WMS_LAYERS:
         if layers and L.slug not in layers and L.name not in layers:
             continue
-        out.append(fetch_layer(L, area, workers=workers, log=log,
-                               chunk_px=4000 if area.name == "work-3x3" else CHUNK_PX))
+        out.append(
+            fetch_layer(
+                L,
+                area,
+                workers=workers,
+                log=log,
+                chunk_px=4000 if area.name == "work-3x3" else CHUNK_PX,
+            )
+        )
     return out

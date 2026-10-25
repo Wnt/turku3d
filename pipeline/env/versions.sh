@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 # Print tool + library versions of the local pipeline toolchain; exit 1 if anything is missing.
 set -uo pipefail
+# Generated outside the repository by bootstrap-remote.sh; unavailable to static analysis.
+# shellcheck source=/dev/null
 source ~/turku3d/envs/pipeline.env
 export PYTHONPATH="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}/pipeline"
 fail=0
-v() { local name=$1; shift; local out; if out=$("$@" 2>&1 | head -1); then printf '%-16s %s\n' "$name" "$out"; else printf '%-16s MISSING (%s)\n' "$name" "$out"; fail=1; fi; }
-v python      python --version
-v pdal        bash -c 'pdal --version 2>&1 | grep -m1 "^pdal "'
-v osmium      osmium --version
-v gdal        gdalinfo --version
-v node        node --version
+v() {
+  local name=$1
+  shift
+  local out
+  if out=$("$@" 2>&1 | head -1); then printf '%-16s %s\n' "$name" "$out"; else
+    printf '%-16s MISSING (%s)\n' "$name" "$out"
+    fail=1
+  fi
+}
+v python python --version
+v pdal bash -c 'pdal --version 2>&1 | grep -m1 "^pdal "'
+v osmium osmium --version
+v gdal gdalinfo --version
+v node node --version
 v gltf-transform gltf-transform --version
-v gltfpack    bash -c 'gltfpack -h 2>&1 | head -1 | grep -i gltfpack'
-v toktx       toktx --version
+v gltfpack bash -c 'gltfpack -h 2>&1 | head -1 | grep -i gltfpack'
+v toktx toktx --version
 roofer_version() (
   scratch=$(mktemp -d)
   trap 'rm -rf "$scratch"' EXIT
@@ -20,7 +30,7 @@ roofer_version() (
   roofer --version
 )
 v roofer roofer_version
-v curl        curl --version
+v curl curl --version
 python - <<'PY' || fail=1
 import importlib
 mods = ["numpy", "scipy", "shapely", "pyproj", "geopandas", "pyarrow", "laspy", "lazrs", "pdal",

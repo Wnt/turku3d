@@ -7,6 +7,7 @@ Port of the historical codex-usage.py helper (read-only source, not modified): i
 events carry a float `used_percent` too; see rollout.py. Override with $TURKUTEX_USAGE_CMD (a command
 that prints a number) for tests or other machines.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,20 +20,36 @@ import time
 
 
 def _rpc(methods: list[str], codex_bin: str = "codex", timeout: float = 25.0) -> dict:
-    p = subprocess.Popen([codex_bin, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    p = subprocess.Popen(
+        [codex_bin, "app-server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+    )
     try:
+
         def send(i, method, params):
-            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n")
+            p.stdin.write(
+                json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n"
+            )
             p.stdin.flush()
-        send(0, "initialize", {"clientInfo": {"name": "turkutex", "title": "turkutex", "version": "0.1"}})
+
+        send(
+            0,
+            "initialize",
+            {"clientInfo": {"name": "turkutex", "title": "turkutex", "version": "0.1"}},
+        )
         for i, m in enumerate(methods, 1):
             send(i, m, {})
         # Read stdout in a thread: a bare readline() blocks forever when app-server hangs without output,
         # which used to freeze the runner (check_quota holds its lock) instead of failing closed.
         lines: queue.Queue = queue.Queue()
-        threading.Thread(target=lambda: [lines.put(x) for x in iter(p.stdout.readline, "")] + [lines.put(None)],
-                         daemon=True).start()
+        threading.Thread(
+            target=lambda: [lines.put(x) for x in iter(p.stdout.readline, "")] + [lines.put(None)],
+            daemon=True,
+        ).start()
         out, deadline = {}, time.time() + timeout
         while len(out) < len(methods) + 1:
             try:
@@ -63,9 +80,18 @@ def used_percent(codex_bin: str = "codex") -> int | None:
     cmd = os.environ.get("TURKUTEX_USAGE_CMD")
     if cmd:
         try:
-            return int(float(subprocess.run(shlex.split(cmd), capture_output=True, text=True,
-                                            timeout=60).stdout.strip()))
-        except (ValueError, OSError, subprocess.TimeoutExpired):  # missing/broken command -> unknown (fail closed)
+            return int(
+                float(
+                    subprocess.run(
+                        shlex.split(cmd), capture_output=True, text=True, timeout=60
+                    ).stdout.strip()
+                )
+            )
+        except (
+            ValueError,
+            OSError,
+            subprocess.TimeoutExpired,
+        ):  # missing/broken command -> unknown (fail closed)
             return None
     try:
         lim = rate_limits(codex_bin) or {}
@@ -85,6 +111,11 @@ def snapshot(codex_bin: str = "codex") -> dict:
     except (FileNotFoundError, OSError):
         lim = {}
     w = lim.get("primary") or lim.get("secondary") or {}
-    return {"used_percent": w.get("usedPercent"), "resets_at": w.get("resetsAt"),
-            "window_mins": w.get("windowDurationMins"), "plan": lim.get("planType"),
-            "limit_reached": lim.get("rateLimitReachedType"), "t": time.time()}
+    return {
+        "used_percent": w.get("usedPercent"),
+        "resets_at": w.get("resetsAt"),
+        "window_mins": w.get("windowDurationMins"),
+        "plan": lim.get("planType"),
+        "limit_reached": lim.get("rateLimitReachedType"),
+        "t": time.time(),
+    }

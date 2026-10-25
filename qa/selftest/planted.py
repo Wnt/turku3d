@@ -14,6 +14,7 @@ For each office reference view R (qa/views/views.jsonl, tag 'office') three "ren
   qa/.venv/bin/python qa/selftest/planted.py judge
   qa/.venv/bin/python qa/selftest/planted.py eval
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,7 +25,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PIL import Image  # noqa: E402
-
 from qalib import degrade, registry  # noqa: E402
 from qalib.paths import data_dir, rel, resolve  # noqa: E402
 
@@ -42,11 +42,16 @@ PLANS = {
     },
     "office_oblique_ne": {
         "recolour": {"bbox": [0.85, 0.15, 1.0, 0.84], "label": "red wooden building on the right"},
-        "grey": {"bbox": [0.5, 0.3, 0.84, 0.72], "label": "yellow wooden building row in the middle"},
+        "grey": {
+            "bbox": [0.5, 0.3, 0.84, 0.72],
+            "label": "yellow wooden building row in the middle",
+        },
         "other": "other_eerikinkatu_y150",
     },
 }
-OTHER_REGISTRY = Path(__file__).resolve().parent / "other_views.jsonl"  # committed; images: sv_views.py refetch
+OTHER_REGISTRY = (
+    Path(__file__).resolve().parent / "other_views.jsonl"
+)  # committed; images: sv_views.py refetch
 
 
 def run_dir(name: str) -> Path:
@@ -65,19 +70,51 @@ def cmd_prepare(a):
         v = registry.get(vid)
         ref = resolve(v["image"])
         img = Image.open(ref).convert("RGB")
-        deg, planted = degrade.chain(img, [
-            (degrade.recolour, {"bbox": plan["recolour"]["bbox"], "label": plan["recolour"]["label"]}),
-            (degrade.grey_mask, {"bbox": plan["grey"]["bbox"], "label": plan["grey"]["label"]}),
-            (degrade.blur, {"radius": 4.0}),
-        ])
+        deg, planted = degrade.chain(
+            img,
+            [
+                (
+                    degrade.recolour,
+                    {"bbox": plan["recolour"]["bbox"], "label": plan["recolour"]["label"]},
+                ),
+                (degrade.grey_mask, {"bbox": plan["grey"]["bbox"], "label": plan["grey"]["label"]}),
+                (degrade.blur, {"radius": 4.0}),
+            ],
+        )
         dpath = rd / "renders" / f"{vid}__degraded.png"
         deg.save(dpath)
         o = others[plan["other"]]
         pairs += [
-            {"pair_id": f"{vid}__identical", "view_id": vid, "label": "identical", "ref": v["image"], "render": v["image"], "planted": []},
-            {"pair_id": f"{vid}__degraded", "view_id": vid, "label": "degraded", "ref": v["image"], "render": rel(dpath), "planted": planted},
-            {"pair_id": f"{vid}__other", "view_id": vid, "label": "other_street", "ref": v["image"], "render": o["image"],
-             "planted": [{"what": f"different place: {o['id']}", "bbox": [0, 0, 1, 1], "category": "geometry"}]},
+            {
+                "pair_id": f"{vid}__identical",
+                "view_id": vid,
+                "label": "identical",
+                "ref": v["image"],
+                "render": v["image"],
+                "planted": [],
+            },
+            {
+                "pair_id": f"{vid}__degraded",
+                "view_id": vid,
+                "label": "degraded",
+                "ref": v["image"],
+                "render": rel(dpath),
+                "planted": planted,
+            },
+            {
+                "pair_id": f"{vid}__other",
+                "view_id": vid,
+                "label": "other_street",
+                "ref": v["image"],
+                "render": o["image"],
+                "planted": [
+                    {
+                        "what": f"different place: {o['id']}",
+                        "bbox": [0, 0, 1, 1],
+                        "category": "geometry",
+                    }
+                ],
+            },
         ]
     run = {"run_id": a.run, "kind": "selftest-planted", "pairs": pairs}
     (rd / "run.json").write_text(json.dumps(run, indent=1))
@@ -86,6 +123,7 @@ def cmd_prepare(a):
 
 def cmd_judge(a):
     from judge.judge import QuotaError, judge
+
     rd = run_dir(a.run)
     run = json.loads((rd / "run.json").read_text())
     (rd / "judge").mkdir(exist_ok=True)
@@ -102,8 +140,10 @@ def cmd_judge(a):
             return 3
         out.write_text(json.dumps(r, indent=1, ensure_ascii=False))
         res = r["result"] or {}
-        print(f"{p['pair_id']:32s} ok={r['ok']} score={res.get('similarity')} same={res.get('same_place')} "
-              f"issues={len(res.get('issues', []))} secs={r['secs']} usage {r['usage_before_pct']}->{r['usage_after_pct']}")
+        print(
+            f"{p['pair_id']:32s} ok={r['ok']} score={res.get('similarity')} same={res.get('same_place')} "
+            f"issues={len(res.get('issues', []))} secs={r['secs']} usage {r['usage_before_pct']}->{r['usage_after_pct']}"
+        )
     return 0
 
 
@@ -120,10 +160,25 @@ def match_planted(planted, issues, min_cover=0.3):
         for i, it in enumerate(issues):
             if pl["bbox"] == [0, 0, 1, 1]:
                 txt = (it["what"] + " " + it["fix_hint"]).lower()
-                if any(k in txt for k in ("blur", "soft", "sharp", "low-res", "low res", "resolution", "detail", "smear")):
+                if any(
+                    k in txt
+                    for k in (
+                        "blur",
+                        "soft",
+                        "sharp",
+                        "low-res",
+                        "low res",
+                        "resolution",
+                        "detail",
+                        "smear",
+                    )
+                ):
                     ok = i
                     break
-            elif _area(it["bbox"]) < 0.8 and (degrade.overlap_frac(it["bbox"], pl["bbox"]) >= min_cover or degrade.overlap_frac(pl["bbox"], it["bbox"]) >= min_cover):
+            elif _area(it["bbox"]) < 0.8 and (
+                degrade.overlap_frac(it["bbox"], pl["bbox"]) >= min_cover
+                or degrade.overlap_frac(pl["bbox"], it["bbox"]) >= min_cover
+            ):
                 ok = i
                 break
         hits.append({"planted": pl, "caught_by": ok})
@@ -132,6 +187,7 @@ def match_planted(planted, issues, min_cover=0.3):
 
 def cmd_eval(a):
     from report.report import build_report
+
     rd = run_dir(a.run)
     run = json.loads((rd / "run.json").read_text())
     rows, by_label = [], {}
@@ -141,20 +197,42 @@ def cmd_eval(a):
             continue
         r = json.loads(f.read_text())
         res = r.get("result") or {}
-        hits = match_planted(p["planted"], res.get("issues", [])) if p["label"] == "degraded" else []
-        row = {"pair_id": p["pair_id"], "label": p["label"], "similarity": res.get("similarity"),
-               "same_place": res.get("same_place"), "n_issues": len(res.get("issues", [])),
-               "planted_caught": sum(h["caught_by"] is not None for h in hits), "planted_total": len(hits),
-               "missed": [h["planted"]["what"] for h in hits if h["caught_by"] is None]}
+        hits = (
+            match_planted(p["planted"], res.get("issues", [])) if p["label"] == "degraded" else []
+        )
+        row = {
+            "pair_id": p["pair_id"],
+            "label": p["label"],
+            "similarity": res.get("similarity"),
+            "same_place": res.get("same_place"),
+            "n_issues": len(res.get("issues", [])),
+            "planted_caught": sum(h["caught_by"] is not None for h in hits),
+            "planted_total": len(hits),
+            "missed": [h["planted"]["what"] for h in hits if h["caught_by"] is None],
+        }
         rows.append(row)
         by_label.setdefault(p["label"], []).append(res.get("similarity"))
-    summ = {k: {"scores": v, "min": min(v), "max": max(v)} for k, v in by_label.items() if all(x is not None for x in v)}
+    summ = {
+        k: {"scores": v, "min": min(v), "max": max(v)}
+        for k, v in by_label.items()
+        if all(x is not None for x in v)
+    }
     sep = None
     if {"identical", "degraded", "other_street"} <= summ.keys():
-        sep = summ["identical"]["min"] > summ["degraded"]["max"] and summ["degraded"]["min"] > summ["other_street"]["max"]
+        sep = (
+            summ["identical"]["min"] > summ["degraded"]["max"]
+            and summ["degraded"]["min"] > summ["other_street"]["max"]
+        )
     deg = [r for r in rows if r["label"] == "degraded"]
-    ev = {"rows": rows, "scores": summ, "strict_separation": sep,
-          "planted_recall": (sum(r["planted_caught"] for r in deg), sum(r["planted_total"] for r in deg))}
+    ev = {
+        "rows": rows,
+        "scores": summ,
+        "strict_separation": sep,
+        "planted_recall": (
+            sum(r["planted_caught"] for r in deg),
+            sum(r["planted_total"] for r in deg),
+        ),
+    }
     (rd / "eval.json").write_text(json.dumps(ev, indent=1))
     html = build_report(rd)
     print(json.dumps(ev, indent=1))
@@ -162,7 +240,9 @@ def cmd_eval(a):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("cmd", choices=["prepare", "judge", "eval"])
     ap.add_argument("--run", default="selftest-planted")
     ap.add_argument("--cap", type=float, default=None)

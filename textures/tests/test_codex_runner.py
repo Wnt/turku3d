@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from turkutex.codex import rollout as ro
 from turkutex.codex.runner import EXIT_QUOTA, Runner, load_jobs, parse_json_answer
 
@@ -16,7 +15,7 @@ HERE = Path(__file__).parent
 def env(tmp_path, monkeypatch):
     fake = tmp_path / "bin" / "codex"
     fake.parent.mkdir()
-    fake.write_text(f"#!/bin/sh\nexec {sys.executable} {HERE / 'fake_codex.py'} \"$@\"\n")
+    fake.write_text(f'#!/bin/sh\nexec {sys.executable} {HERE / "fake_codex.py"} "$@"\n')
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex_home"))
@@ -27,7 +26,13 @@ def env(tmp_path, monkeypatch):
     (tmp_path / "a.jpg").write_bytes(b"img-a")
     (tmp_path / "schema.json").write_text('{"type":"object"}')
     jobs = [
-        {"id": "lab", "prompt": "label $what", "vars": {"what": "facade"}, "images": ["a.jpg"], "schema": "schema.json"},
+        {
+            "id": "lab",
+            "prompt": "label $what",
+            "vars": {"what": "facade"},
+            "images": ["a.jpg"],
+            "schema": "schema.json",
+        },
         {"id": "gen", "prompt": "GENERATE TWICE", "images": ["a.jpg"], "expect_images": 1},
         {"id": "bad", "prompt": "FAIL please"},
     ]
@@ -79,7 +84,9 @@ def test_full_run_cache_and_resume(env):
     out2 = tmp / "run2"
     Runner(out2, parallel=2, cache_dir=tmp / "cache", retries=0).run(load_jobs(jf))
     assert len(calls(tmp)) == n1 + 2  # only 'bad' again
-    recs2 = {json.loads(x)["id"]: json.loads(x) for x in (out2 / "out.jsonl").read_text().splitlines()}
+    recs2 = {
+        json.loads(x)["id"]: json.loads(x) for x in (out2 / "out.jsonl").read_text().splitlines()
+    }
     assert recs2["gen"]["cached"] and len(recs2["gen"]["images"]) == 2
     assert Path(recs2["gen"]["primary"]).exists()
 
@@ -131,7 +138,9 @@ def test_key_changes_with_inputs(tmp_path):
     k1 = load_jobs(jf)[0].key()
     (tmp_path / "a.png").write_bytes(b"2")
     assert load_jobs(jf)[0].key() != k1
-    jf.write_text(json.dumps({"id": "a", "prompt": "x", "images": ["a.png"], "prompt_version": "v2"}) + "\n")
+    jf.write_text(
+        json.dumps({"id": "a", "prompt": "x", "images": ["a.png"], "prompt_version": "v2"}) + "\n"
+    )
     assert load_jobs(jf)[0].key() != k1
 
 
@@ -144,10 +153,25 @@ def test_parse_json_answer():
 
 def test_rollout_old_style_direct_call(tmp_path):
     p = tmp_path / "rollout-2026-01-01T00-00-00-11111111-2222-3333-4444-555555555555.jsonl"
-    rows = [{"type": "response_item", "payload": {"type": "custom_tool_call", "name": "image_gen.imagegen", "call_id": "c",
-                                                   "input": json.dumps({"prompt": "p1", "referenced_image_paths": ["/x.png"]})}},
-            {"type": "response_item", "payload": {"type": "custom_tool_call_output", "call_id": "c",
-                                                   "output": "Generated images are saved to /g as /g/exec-1.png by default."}}]
+    rows = [
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "custom_tool_call",
+                "name": "image_gen.imagegen",
+                "call_id": "c",
+                "input": json.dumps({"prompt": "p1", "referenced_image_paths": ["/x.png"]}),
+            },
+        },
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "custom_tool_call_output",
+                "call_id": "c",
+                "output": "Generated images are saved to /g as /g/exec-1.png by default.",
+            },
+        },
+    ]
     p.write_text("".join(json.dumps(r) + "\n" for r in rows))
     r = ro.parse_rollout(p)
     assert r.thread_id == "11111111-2222-3333-4444-555555555555"
@@ -173,7 +197,8 @@ def test_usage_takes_highest_window(tmp_path):
         "    m = json.loads(line)\n"
         "    r = {'rateLimits': {'primary': {'usedPercent': 3, 'windowDurationMins': 300},\n"
         "                        'secondary': {'usedPercent': 100, 'windowDurationMins': 10080}}}\n"
-        "    print(json.dumps({'id': m['id'], 'result': r if m.get('method') == 'account/rateLimits/read' else {}}), flush=True)\n")
+        "    print(json.dumps({'id': m['id'], 'result': r if m.get('method') == 'account/rateLimits/read' else {}}), flush=True)\n"
+    )
     b = _fake_bin(tmp_path, "codex2", f"#!/bin/sh\nexec {sys.executable} {srv}\n")
     assert usage.used_percent(b) == 100
 

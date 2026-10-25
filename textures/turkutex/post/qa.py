@@ -8,6 +8,7 @@ accepts ratio < 1.5 OR rank < 95 (a seam on a natural tile joint is invisible).
 lowfreq_x / lowfreq_y = |mean luminance of the first quarter - last quarter| / 255 along the axis:
 large values mean banding when the texture repeats (ai-textures.md Verification 4a).
 """
+
 from __future__ import annotations
 
 import json
@@ -56,20 +57,32 @@ def lowfreq(img: np.ndarray, axis: str = "x") -> float:
 
 def metrics(img: np.ndarray, axes: str = "xy") -> dict:
     H, W = img.shape[:2]
-    m = {"width": W, "height": H,
-         "seam_x": round(seam_ratio(img, "x"), 3), "seam_y": round(seam_ratio(img, "y"), 3),
-         "seam_rank_x": round(seam_rank(img, "x"), 1), "seam_rank_y": round(seam_rank(img, "y"), 1),
-         "lowfreq_x": round(lowfreq(img, "x"), 4), "lowfreq_y": round(lowfreq(img, "y"), 4),
-         "mean_rgb": [round(float(v), 1) for v in img[..., :3].reshape(-1, 3).mean(0)] if img.ndim == 3 else None,
-         "std_lum": round(float(_lum(img).std()), 2)}
+    m = {
+        "width": W,
+        "height": H,
+        "seam_x": round(seam_ratio(img, "x"), 3),
+        "seam_y": round(seam_ratio(img, "y"), 3),
+        "seam_rank_x": round(seam_rank(img, "x"), 1),
+        "seam_rank_y": round(seam_rank(img, "y"), 1),
+        "lowfreq_x": round(lowfreq(img, "x"), 4),
+        "lowfreq_y": round(lowfreq(img, "y"), 4),
+        "mean_rgb": [round(float(v), 1) for v in img[..., :3].reshape(-1, 3).mean(0)]
+        if img.ndim == 3
+        else None,
+        "std_lum": round(float(_lum(img).std()), 2),
+    }
     m["axes"] = axes
-    m["pass_seam"] = all(m[f"seam_{a}"] < SEAM_PASS or m[f"seam_rank_{a}"] < SEAM_RANK_PASS for a in axes)
+    m["pass_seam"] = all(
+        m[f"seam_{a}"] < SEAM_PASS or m[f"seam_rank_{a}"] < SEAM_RANK_PASS for a in axes
+    )
     m["pass_lowfreq"] = all(m[f"lowfreq_{a}"] < 0.03 for a in axes)
     return m
 
 
 def tile_preview(img: np.ndarray, axes: str = "xy", n: int = 2) -> np.ndarray:
-    return np.tile(img, (n if "y" in axes else 1, n if "x" in axes else 1) + ((1,) if img.ndim == 3 else ()))
+    return np.tile(
+        img, (n if "y" in axes else 1, n if "x" in axes else 1) + ((1,) if img.ndim == 3 else ())
+    )
 
 
 def main(argv=None) -> int:

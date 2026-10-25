@@ -33,7 +33,7 @@ Status labels: **VERIFIED** = observed in this session; **UNVERIFIED** = from do
 | Codex CLI on osgallery-dev | `/usr/bin/codex` **0.144.4** (HANDOVER said 0.158). `codex exec -m gpt-6-astra` → HTTP 400 "The 'gpt-6-astra' model requires a newer version of Codex". Upgrade it (root-owned npm global) or install a user-prefix copy before running a batch there | VERIFIED |
 | Image input | `-i file` (repeatable); all models in `models_cache.json` list `input_modalities: [text, image]` | VERIFIED |
 | Image generation and editing | Built-in tool `image_gen.imagegen(prompt, referenced_image_paths?, num_last_images_to_include?, transparent_background?)`, from the tool declaration in a session log. It has **no size, quality, seed or n parameter**. The skill (`~/.codex/skills/.system/imagegen/SKILL.md`) says the built-in mode "Does not require OPENAI_API_KEY" | VERIFIED |
-| Works in `codex exec` without interaction | Yes. `codex exec -m gpt-6-astra -C <tmpdir> --skip-git-repo-check --sandbox workspace-write --json - -i img < prompt.md` (wrapper `ai-textures/call.sh`). `read-only` is fine for labelling, but generation needs `workspace-write` so the file can be copied into the cwd | VERIFIED |
+| Works in `codex exec` without interaction | Yes. `codex exec -m gpt-6-astra -C <tmpdir> --skip-git-repo-check --sandbox workspace-write --json - -i img < prompt.md` (retired research wrapper `ai-textures/call.sh`; maintained runner: `textures/turkutex/codex/runner.py`). `read-only` is fine for labelling, but generation needs `workspace-write` so the file can be copied into the cwd | VERIFIED |
 | Where outputs go | `~/.codex/generated_images/<thread_id>/exec-<uuid>.png`. `thread_id` is the first JSONL event (`thread.started`). The image_gen call itself does **not** appear as an item in the `--json` stream; only messages and shell commands do. A batch runner should therefore collect results from that folder by thread id and not rely on the model's copy | VERIFIED |
 | Output sizes seen | Square requests → 1254×1254. Portrait 1024×1536 matched the request. Landscape → ~2172×724 (3:1; 4:1 was asked) | VERIFIED |
 | Latency | 64–98 s for one image, 169–193 s for two. Five calls in parallel finished in 193 s wall time without errors | VERIFIED |
@@ -171,7 +171,7 @@ Cost and time:
   Commons CC0/CC BY photos, and your own photos. Generated "inspired by" textures sidestep most of this.
   Not legal advice.
 - Remote CLI version mismatch: the batch must run on the Mac or after a CLI upgrade.
-- The quota cost per image under ChatGPT Pro is unmeasured. The 70 % cap guard is in place in `call.sh`.
+- The quota cost per image under ChatGPT Pro is unmeasured. The research wrapper used a 70 % cap guard; it was retired in Wave 0 in favor of the maintained textures runner.
 
 ## Verification
 

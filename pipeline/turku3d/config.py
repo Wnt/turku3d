@@ -26,7 +26,7 @@ import math
 import os
 import re
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 # --------------------------------------------------------------------------------------
@@ -88,7 +88,7 @@ def local_to_en(x, y, z):
 # --------------------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=None)
+@cache
 def _transformer(src: str, dst: str):
     from pyproj import Transformer  # imported lazily so pure-grid users need no pyproj
 
@@ -147,12 +147,12 @@ class BBoxEN:
     emax: float
     nmax: float
 
-    def to_local(self) -> "BBoxLocal":
+    def to_local(self) -> BBoxLocal:
         return BBoxLocal(
             self.emin - ORIGIN_E, ORIGIN_N - self.nmax, self.emax - ORIGIN_E, ORIGIN_N - self.nmin
         )
 
-    def buffered(self, m: float) -> "BBoxEN":
+    def buffered(self, m: float) -> BBoxEN:
         return BBoxEN(self.emin - m, self.nmin - m, self.emax + m, self.nmax + m)
 
     def as_tuple(self):
@@ -173,7 +173,7 @@ class BBoxLocal:
             ORIGIN_E + self.xmin, ORIGIN_N - self.zmax, ORIGIN_E + self.xmax, ORIGIN_N - self.zmin
         )
 
-    def buffered(self, m: float) -> "BBoxLocal":
+    def buffered(self, m: float) -> BBoxLocal:
         return BBoxLocal(self.xmin - m, self.zmin - m, self.xmax + m, self.zmax + m)
 
     def contains(self, x: float, z: float) -> bool:
@@ -235,25 +235,25 @@ class VisualTile:
         """Engine-space translation of the tile-local frame (min-x, min-z corner, y = 0)."""
         return (self.i * self.size, 0.0, self.j * self.size)
 
-    def parent(self) -> "VisualTile | None":
+    def parent(self) -> VisualTile | None:
         if self.level >= VISUAL_MAX_LEVEL:
             return None
         return VisualTile(self.level + 1, self.i // 2, self.j // 2)
 
-    def children(self) -> list["VisualTile"]:
+    def children(self) -> list[VisualTile]:
         if self.level == 0:
             return []
         lv = self.level - 1
         return [VisualTile(lv, 2 * self.i + di, 2 * self.j + dj) for dj in (0, 1) for di in (0, 1)]
 
-    def collision_tiles(self) -> list["CollisionTile"]:
+    def collision_tiles(self) -> list[CollisionTile]:
         n = COLLISION_PER_VISUAL * (2**self.level)
         return [
             CollisionTile(self.i * n + di, self.j * n + dj) for dj in range(n) for di in range(n)
         ]
 
     @staticmethod
-    def parse(tile_id: str) -> "VisualTile":
+    def parse(tile_id: str) -> VisualTile:
         m = _VISUAL_RE.match(tile_id)
         if not m:
             raise ValueError(f"not a visual tile id: {tile_id!r}")
@@ -262,7 +262,7 @@ class VisualTile:
         return t
 
     @staticmethod
-    def at(x: float, z: float, level: int = 0) -> "VisualTile":
+    def at(x: float, z: float, level: int = 0) -> VisualTile:
         return VisualTile(level, *grid_index(x, z, visual_tile_size(level)))
 
 
@@ -292,14 +292,14 @@ class CollisionTile:
         return VisualTile(0, self.i // COLLISION_PER_VISUAL, self.j // COLLISION_PER_VISUAL)
 
     @staticmethod
-    def parse(tile_id: str) -> "CollisionTile":
+    def parse(tile_id: str) -> CollisionTile:
         m = _COLLISION_RE.match(tile_id)
         if not m:
             raise ValueError(f"not a collision tile id: {tile_id!r}")
         return CollisionTile(int(m[1]), int(m[2]))
 
     @staticmethod
-    def at(x: float, z: float) -> "CollisionTile":
+    def at(x: float, z: float) -> CollisionTile:
         return CollisionTile(*grid_index(x, z, COLLISION_TILE_SIZE))
 
 
@@ -331,7 +331,7 @@ class LazTile:
         return LAZ_URL.format(dataset=dataset, name=self.name)
 
     @staticmethod
-    def parse(name: str) -> "LazTile":
+    def parse(name: str) -> LazTile:
         m = _LAZ_RE.match(name)
         if not m:
             raise ValueError(f"not a LAZ tile name: {name!r}")
@@ -341,7 +341,7 @@ class LazTile:
         return t
 
     @staticmethod
-    def at_en(e: float, n: float) -> "LazTile":
+    def at_en(e: float, n: float) -> LazTile:
         """LAZ tile using the same half-open rule as the engine grid (N = ymax belongs to it)."""
         x, _, z = en_to_local(e, n)
         i, j = grid_index(x, z, LAZ_TILE_SIZE)
@@ -418,8 +418,10 @@ OFFICE_BLOCK = area_centred_on(
 )
 
 WORK_3X3 = Area(
-    "work-3x3", "Nine 500 m LAZ tiles around the office; shared input working area",
-    BBoxEN(23459000, 6703500, 23460500, 6705000).to_local(), margin=0,
+    "work-3x3",
+    "Nine 500 m LAZ tiles around the office; shared input working area",
+    BBoxEN(23459000, 6703500, 23460500, 6705000).to_local(),
+    margin=0,
 )
 AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, WORK_3X3)}
 
@@ -433,7 +435,9 @@ def area_yaml(area: Area) -> str:
         return repr(float(v))
 
     def bb(b, keys) -> str:
-        return "{ " + ", ".join(f"{k}: {f(v)}" for k, v in zip(keys, b.as_tuple())) + " }"
+        return (
+            "{ " + ", ".join(f"{k}: {f(v)}" for k, v in zip(keys, b.as_tuple(), strict=True)) + " }"
+        )
 
     lines = [
         "# GENERATED by `python -m turku3d.config --area-yaml "
@@ -469,6 +473,7 @@ DATA_MANIFESTS = REPO_ROOT / "data-manifests"
 LAZ_TILES_CSV = DATA_MANIFESTS / "laz-tiles.csv"
 SPECS_DIR = REPO_ROOT / "docs" / "specs"
 
+
 def data_root() -> Path:
     """Shared input root on every OS; workers treat raw/ as immutable."""
     return Path(os.environ.get("TURKU3D_DATA", "~/turku3d/data")).expanduser()
@@ -501,16 +506,23 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(prog="python -m turku3d.config")
     ap.add_argument("--area-yaml", metavar="NAME", help="print the area manifest YAML")
-    ap.add_argument("--where", nargs=2, type=float, metavar=("E", "N"),
-                    help="print local coords and tile ids for an EPSG:3877 point")
+    ap.add_argument(
+        "--where",
+        nargs=2,
+        type=float,
+        metavar=("E", "N"),
+        help="print local coords and tile ids for an EPSG:3877 point",
+    )
     a = ap.parse_args(argv)
     if a.area_yaml:
         print(area_yaml(AREAS[a.area_yaml]), end="")
     elif a.where:
         e, n = a.where
         x, _, z = en_to_local(e, n)
-        print(f"local x={x:.3f} z={z:.3f}  visual={VisualTile.at(x, z).id}  "
-              f"collision={CollisionTile.at(x, z).id}  laz={LazTile.at_en(e, n).name}")
+        print(
+            f"local x={x:.3f} z={z:.3f}  visual={VisualTile.at(x, z).id}  "
+            f"collision={CollisionTile.at(x, z).id}  laz={LazTile.at_en(e, n).name}"
+        )
     else:
         print(f"origin {ORIGIN}  crs {CRS_COMPOUND}  data_root {data_root()}")
     return 0

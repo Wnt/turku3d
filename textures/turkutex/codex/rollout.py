@@ -13,6 +13,7 @@ Facts (docs/research/ai-textures.md, Verification 1b/1c, re-checked on CLI 0.160
   by an output hint as `referenced`.
 - `event_msg` / `token_count` events carry token totals and `rate_limits.primary.used_percent` (float).
 """
+
 from __future__ import annotations
 
 import json
@@ -37,7 +38,9 @@ def generated_dir(thread_id: str, home: Path | None = None) -> Path:
 
 
 _SAVED_RE = re.compile(r"saved to \S+ as (\S+?\.png)")
-_PROMPT_RE = re.compile(r"""prompt\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)""", re.S)
+_PROMPT_RE = re.compile(
+    r"""prompt\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)""", re.S
+)
 _REFS_RE = re.compile(r"referenced_image_paths\s*:\s*\[([^\]]*)\]", re.S)
 
 
@@ -110,7 +113,10 @@ def parse_rollout(path: Path) -> Rollout:
                     prompt = _js_string(m.group(1)) if m else None
                     m2 = _REFS_RE.search(inp)
                     if m2:
-                        refs = [_js_string(s) for s in re.findall(r"""("(?:[^"\\]|\\.)*"|'[^']*')""", m2.group(1))]
+                        refs = [
+                            _js_string(s)
+                            for s in re.findall(r"""("(?:[^"\\]|\\.)*"|'[^']*')""", m2.group(1))
+                        ]
                 cid = p.get("call_id") or str(len(order))
                 calls[cid] = ImageGenCall(cid, prompt, refs, timestamp=r.get("timestamp"))
                 order.append(cid)
@@ -136,12 +142,16 @@ def parse_rollout(path: Path) -> Rollout:
         elif t == "event_msg" and pt == "task_complete":
             last_msg = p.get("last_agent_message") or last_msg
     if not thread_id:
-        m = re.search(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$", path.name)
+        m = re.search(
+            r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$", path.name
+        )
         thread_id = m.group(1) if m else ""
     return Rollout(path, thread_id, [calls[c] for c in order], tokens, used, last_msg, model)
 
 
-def collect_images(thread_id: str, home: Path | None = None, rollout: Rollout | None = None) -> list[dict]:
+def collect_images(
+    thread_id: str, home: Path | None = None, rollout: Rollout | None = None
+) -> list[dict]:
     """All PNGs for a thread, oldest first: [{path, bytes, mtime, referenced, call_id, prompt}]."""
     d = generated_dir(thread_id, home)
     if not d.is_dir():
@@ -155,9 +165,16 @@ def collect_images(thread_id: str, home: Path | None = None, rollout: Rollout | 
     res = []
     for f in files:
         c = ref.get(f.name)
-        res.append({"path": str(f), "bytes": f.stat().st_size, "mtime": f.stat().st_mtime,
-                    "referenced": c is not None, "call_id": c.call_id if c else None,
-                    "prompt": c.prompt if c else None})
+        res.append(
+            {
+                "path": str(f),
+                "bytes": f.stat().st_size,
+                "mtime": f.stat().st_mtime,
+                "referenced": c is not None,
+                "call_id": c.call_id if c else None,
+                "prompt": c.prompt if c else None,
+            }
+        )
     return res
 
 

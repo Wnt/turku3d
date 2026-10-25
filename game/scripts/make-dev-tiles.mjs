@@ -18,7 +18,7 @@ import { encodeToKTX2 } from 'ktx2-encoder';
 
 const OUT = path.resolve(process.argv[2] ?? 'public/dev-tiles');
 const L0 = 250, COL = 62.5, G = 2.0; // tile sizes (m), ground height N2000 (m)
-export const MAT = { road: 1, sidewalk: 2, curb: 3, paving_slab: 8, grass: 10, stair_slope: 16, stair_tread_helper: 17, wall: 19, building: 22, roof: 23, pole: 25 };
+const MAT = { road: 1, sidewalk: 2, curb: 3, paving_slab: 8, grass: 10, stair_slope: 16, stair_tread_helper: 17, wall: 19, building: 22, roof: 23, pole: 25 };
 const COLOR = { 1: [0.32, 0.32, 0.34], 2: [0.62, 0.6, 0.57], 3: [0.72, 0.72, 0.7], 8: [0.6, 0.55, 0.5], 10: [0.3, 0.5, 0.25], 16: [0.65, 0.62, 0.6], 19: [0.6, 0.58, 0.55], 22: [0.78, 0.7, 0.58], 23: [0.45, 0.25, 0.2], 25: [0.2, 0.2, 0.22] };
 
 // ---------------------------------------------------------------- geometry (engine coords, world-local)

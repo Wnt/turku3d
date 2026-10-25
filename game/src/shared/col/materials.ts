@@ -1,8 +1,6 @@
 // GENERATED from docs/specs/materials.md by `python -m turku3d.col.materials --write`.
 // Do not edit by hand; tests fail when this file is stale.
 
-export const MATERIAL_TABLE_VERSION = 1;
-
 export type CollisionClass = 'solid' | 'query' | 'sensor';
 
 export const MAT_FLAG = {
@@ -22,7 +20,7 @@ export const GROUP = {
   DYNAMIC: 64,
 } as const;
 
-export interface MaterialInfo {
+interface MaterialInfo {
   id: number;
   name: string;
   cls: CollisionClass;

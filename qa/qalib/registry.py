@@ -1,8 +1,9 @@
 """views.jsonl: the reference view registry (one JSON object per line, see views/view.schema.json)."""
+
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import jsonschema
@@ -51,7 +52,7 @@ def load(path: str | Path | None = None, check_images: bool = False) -> list[dic
 
 def upsert(view: dict, path: str | Path | None = None) -> Path:
     """Insert or replace (by id) one view, keeping file order."""
-    view.setdefault("created", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    view.setdefault("created", datetime.now(UTC).isoformat(timespec="seconds"))
     validate(view)
     path = Path(path or default_registry())
     path.parent.mkdir(parents=True, exist_ok=True)

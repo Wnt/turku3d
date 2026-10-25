@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Offline selective quality gate. See README.md and gate.toml."""
+
+from gate_lib import main
+
+raise SystemExit(main())

@@ -3,6 +3,7 @@
 Each op returns the new image and a list of planted differences:
   {"what": str, "bbox": [x0, y0, x1, y1] (normalised, image-wide if global), "category": str}
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -15,11 +16,18 @@ def _px(b, w, h):
 
 def blur(img: Image.Image, radius: float = 4.0):
     out = img.filter(ImageFilter.GaussianBlur(radius))
-    return out, [{"what": f"whole image blurred (Gaussian r={radius}px): textures lack detail",
-                  "bbox": [0, 0, 1, 1], "category": "texture"}]
+    return out, [
+        {
+            "what": f"whole image blurred (Gaussian r={radius}px): textures lack detail",
+            "bbox": [0, 0, 1, 1],
+            "category": "texture",
+        }
+    ]
 
 
-def recolour(img: Image.Image, bbox, hue_shift: float = 0.5, sat_gain: float = 1.8, label: str = "facade"):
+def recolour(
+    img: Image.Image, bbox, hue_shift: float = 0.5, sat_gain: float = 1.8, label: str = "facade"
+):
     """Rotate the hue (fraction of the circle) and boost saturation inside bbox."""
     w, h = img.size
     x0, y0, x1, y1 = _px(bbox, w, h)
@@ -35,8 +43,13 @@ def recolour(img: Image.Image, bbox, hue_shift: float = 0.5, sat_gain: float = 1
     region = Image.fromarray(hsv.astype(np.uint8), "HSV").convert("RGB").crop((x0, y0, x1, y1))
     out = img.convert("RGB").copy()
     out.paste(region, (x0, y0))  # pixels outside bbox stay bit-exact (no HSV round trip)
-    return out, [{"what": f"{label} recoloured (hue rotated {int(hue_shift * 360)} deg, saturated)",
-                  "bbox": list(bbox), "category": "material"}]
+    return out, [
+        {
+            "what": f"{label} recoloured (hue rotated {int(hue_shift * 360)} deg, saturated)",
+            "bbox": list(bbox),
+            "category": "material",
+        }
+    ]
 
 
 def grey_mask(img: Image.Image, bbox, grey: int = 128, label: str = "building"):
@@ -44,8 +57,13 @@ def grey_mask(img: Image.Image, bbox, grey: int = 128, label: str = "building"):
     out = img.copy()
     w, h = img.size
     out.paste((grey, grey, grey), _px(bbox, w, h))
-    return out, [{"what": f"{label} replaced by a flat grey block (no texture/detail)",
-                  "bbox": list(bbox), "category": "texture"}]
+    return out, [
+        {
+            "what": f"{label} replaced by a flat grey block (no texture/detail)",
+            "bbox": list(bbox),
+            "category": "texture",
+        }
+    ]
 
 
 def chain(img: Image.Image, ops):

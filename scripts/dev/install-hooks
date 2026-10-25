@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Install this worktree's hooks without changing sibling worktrees' hooksPath."""
+
+import subprocess
+
+subprocess.run(["git", "config", "extensions.worktreeConfig", "true"], check=True)
+subprocess.run(["git", "config", "--worktree", "core.hooksPath", ".githooks"], check=True)
+print("Installed .githooks for this worktree (pre-commit and pre-push).")

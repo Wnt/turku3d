@@ -4,7 +4,7 @@
 // get kind 'other' and their node name.
 import * as THREE from 'three/webgpu';
 
-export interface IdEntry { kind: string; id: string; tile: string | null; material?: string; facade?: string; building?: string; layer?: string }
+interface IdEntry { kind: string; id: string; tile: string | null; material?: string; facade?: string; building?: string; layer?: string }
 
 const KINDS = new Set(['building', 'ground', 'prop', 'vegetation', 'water', 'other']);
 

@@ -13,6 +13,7 @@ Usage:
       --render data/qa/runs/X/renders/office_front.png --out /tmp/j.json
   ... --dry-run   # print the prompt and command, no Codex call
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,7 +42,9 @@ class QuotaError(RuntimeError):
 
 def usage_percent() -> int | None:
     try:
-        r = subprocess.run([sys.executable, str(USAGE), "--percent"], capture_output=True, text=True, timeout=60)
+        r = subprocess.run(
+            [sys.executable, str(USAGE), "--percent"], capture_output=True, text=True, timeout=60
+        )
         return int(r.stdout.strip())
     except (ValueError, subprocess.TimeoutExpired, OSError):
         return None
@@ -52,7 +55,9 @@ def check_quota(cap: float) -> int:
         raise ValueError("quota cap must be finite and in (0, 100]")
     pct = usage_percent()
     if pct is None:
-        raise QuotaError("could not read Codex usage; refusing to call (fix codex login or codex_usage.py)")
+        raise QuotaError(
+            "could not read Codex usage; refusing to call (fix codex login or codex_usage.py)"
+        )
     if pct >= cap:
         raise QuotaError(f"Codex weekly usage {pct}% >= cap {cap}%")
     return pct
@@ -60,9 +65,12 @@ def check_quota(cap: float) -> int:
 
 def build_prompt(context: str = "", with_id: bool = False) -> str:
     p = PROMPT.read_text()
-    idn = ("3. **Image 3 = OBJECT-ID PASS** of the render: flat colours, one colour per game object "
-           "(building, tile, prop). Use it only to understand object boundaries; do not judge its colours."
-           if with_id else "")
+    idn = (
+        "3. **Image 3 = OBJECT-ID PASS** of the render: flat colours, one colour per game object "
+        "(building, tile, prop). Use it only to understand object boundaries; do not judge its colours."
+        if with_id
+        else ""
+    )
     ctx = f"Context for this view: {context.strip()}" if context.strip() else ""
     return p.replace("{{ID_IMAGE_NOTE}}", idn).replace("{{CONTEXT}}", ctx)
 
@@ -77,24 +85,64 @@ def _clean(result: dict) -> dict:
     return result
 
 
-def judge(ref, render, id_image=None, context="", model=DEFAULT_MODEL, cap=None, timeout=900,
-          dry_run=False, retries=1) -> dict:
+def judge(
+    ref,
+    render,
+    id_image=None,
+    context="",
+    model=DEFAULT_MODEL,
+    cap=None,
+    timeout=900,
+    dry_run=False,
+    retries=1,
+) -> dict:
     cap = float(cap if cap is not None else os.environ.get("QA_CODEX_CAP", 100))
     prompt = build_prompt(context, id_image is not None)
     with tempfile.TemporaryDirectory(prefix="qa-judge-") as directory:
-        return _judge_in_dir(Path(directory), ref, render, id_image, context, model, cap, timeout, dry_run, retries, prompt)
+        return _judge_in_dir(
+            Path(directory),
+            ref,
+            render,
+            id_image,
+            context,
+            model,
+            cap,
+            timeout,
+            dry_run,
+            retries,
+            prompt,
+        )
 
 
-def _judge_in_dir(tmp, ref, render, id_image, context, model, cap, timeout, dry_run, retries, prompt):
-    imgs = [("1_reference", ref), ("2_render", render)] + ([("3_object_ids", id_image)] if id_image else [])
+def _judge_in_dir(
+    tmp, ref, render, id_image, context, model, cap, timeout, dry_run, retries, prompt
+):
+    imgs = [("1_reference", ref), ("2_render", render)] + (
+        [("3_object_ids", id_image)] if id_image else []
+    )
     args = []
     for name, src in imgs:
         dst = tmp / f"{name}{Path(src).suffix.lower()}"
         shutil.copy(src, dst)
         args += ["-i", str(dst)]
     last = tmp / "last.json"
-    cmd = ["codex", "exec", "-m", model, "--sandbox", "read-only", "--skip-git-repo-check", "-C", str(tmp),
-           "--output-schema", str(SCHEMA), "--json", "-o", str(last), "-"] + args
+    cmd = [
+        "codex",
+        "exec",
+        "-m",
+        model,
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "-C",
+        str(tmp),
+        "--output-schema",
+        str(SCHEMA),
+        "--json",
+        "-o",
+        str(last),
+        "-",
+    ] + args
     if dry_run:
         return {"dry_run": True, "cmd": cmd, "prompt": prompt}
     schema = json.loads(SCHEMA.read_text())
@@ -110,7 +158,9 @@ def _judge_in_dir(tmp, ref, render, id_image, context, model, cap, timeout, dry_
         try:
             p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
-            attempts.append({"rc": -1, "error": "judge timeout", "secs": round(time.time() - ta, 1)})
+            attempts.append(
+                {"rc": -1, "error": "judge timeout", "secs": round(time.time() - ta, 1)}
+            )
             continue
         thread_id, tokens = None, None
         for line in p.stdout.splitlines():
@@ -122,7 +172,12 @@ def _judge_in_dir(tmp, ref, render, id_image, context, model, cap, timeout, dry_
                 thread_id = ev.get("thread_id")
             elif ev.get("type") == "turn.completed":
                 tokens = ev.get("usage")
-        rec = {"rc": p.returncode, "thread_id": thread_id, "tokens": tokens, "secs": round(time.time() - ta, 1)}
+        rec = {
+            "rc": p.returncode,
+            "thread_id": thread_id,
+            "tokens": tokens,
+            "secs": round(time.time() - ta, 1),
+        }
         try:
             if p.returncode:
                 raise ValueError(f"codex exited {p.returncode}")
@@ -136,19 +191,33 @@ def _judge_in_dir(tmp, ref, render, id_image, context, model, cap, timeout, dry_
             rec["stderr_tail"] = p.stderr[-800:]
             attempts.append(rec)
     after = usage_percent()
-    return {"model": model, "ref": str(ref), "render": str(render), "id_image": str(id_image) if id_image else None,
-            "context": context, "result": result, "ok": result is not None, "attempts": attempts,
-            "secs": round(time.time() - t0, 1), "usage_before_pct": before, "usage_after_pct": after}
+    return {
+        "model": model,
+        "ref": str(ref),
+        "render": str(render),
+        "id_image": str(id_image) if id_image else None,
+        "context": context,
+        "result": result,
+        "ok": result is not None,
+        "attempts": attempts,
+        "secs": round(time.time() - t0, 1),
+        "usage_before_pct": before,
+        "usage_after_pct": after,
+    }
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--ref", required=True)
     ap.add_argument("--render", required=True)
     ap.add_argument("--id-image")
     ap.add_argument("--context", default="")
     ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--cap", type=float, default=None, help="refuse at >= this weekly usage %% (default 100)")
+    ap.add_argument(
+        "--cap", type=float, default=None, help="refuse at >= this weekly usage %% (default 100)"
+    )
     ap.add_argument("--out")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)

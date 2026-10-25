@@ -176,7 +176,9 @@ qa/.venv/bin/python qa/export.py "$TURKU3D_WORK/qa/runs/office-current/report.ht
   "$TURKU3D_WORK/qa/office-current.html"
 ```
 
-## Sandbox execution
 
-The stub defaults to `TURKU3D_PORT_BASE + 2`; `--port` can override it explicitly.
-Browser profiles are created under `$TURKU3D_BROWSER_DIR/tmp`. `make qa-loop` defaults to the sandbox dev URL.
+## Selective quality checks
+
+From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
+`scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)
+for dependency setup, path selection, caches, sandbox ports and Git hooks.

@@ -1,5 +1,5 @@
 // Debug HUD: backend, fps / frame ms, resident visual tris, collision MB, player E/N/H (EPSG:3877 + N2000).
-export interface HudData {
+interface HudData {
   backend: string; fps: number; frameMs: number; physMs: number;
   visTris: number; visModels: number;
   colTiles: number; colTris: number; colMB: number; colWasmMB: number;

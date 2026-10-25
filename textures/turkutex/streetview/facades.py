@@ -11,6 +11,7 @@ Facade GeoJSON (input of the reference tool), FeatureCollection of LineStrings w
                 ring (E right, N up) the outward normal is on the right.
     building_id, address, floors, material, street: free metadata
 """
+
 from __future__ import annotations
 
 import json
@@ -69,12 +70,25 @@ class Facade:
         return np.array([[*a, h0], [*b, h0], [*b, h1], [*a, h1]], dtype=float)
 
     def to_feature(self) -> dict:
-        props = {"id": self.id, "height_m": round(self.height_m, 2), "normal": self.normal_side, **self.props}
+        props = {
+            "id": self.id,
+            "height_m": round(self.height_m, 2),
+            "normal": self.normal_side,
+            **self.props,
+        }
         if self.base_h is not None:
             props["base_h"] = round(self.base_h, 3)
-        return {"type": "Feature", "properties": props,
-                "geometry": {"type": "LineString",
-                             "coordinates": [[round(float(v), 3) for v in self.p0], [round(float(v), 3) for v in self.p1]]}}
+        return {
+            "type": "Feature",
+            "properties": props,
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [round(float(v), 3) for v in self.p0],
+                    [round(float(v), 3) for v in self.p1],
+                ],
+            },
+        }
 
 
 def load_facades(path: Path) -> list[Facade]:
@@ -88,22 +102,37 @@ def load_facades(path: Path) -> list[Facade]:
         fid = pr.pop("id")
         if not re.match(r"^[A-Za-z0-9_.-]+$", fid):
             raise ValueError(f"bad facade id {fid!r}")
-        out.append(Facade(fid, np.array(c[0][:2], float), np.array(c[1][:2], float),
-                          float(pr.pop("height_m")), pr.pop("base_h", None), pr, pr.pop("normal", "right")))
+        out.append(
+            Facade(
+                fid,
+                np.array(c[0][:2], float),
+                np.array(c[1][:2], float),
+                float(pr.pop("height_m")),
+                pr.pop("base_h", None),
+                pr,
+                pr.pop("normal", "right"),
+            )
+        )
     return out
 
 
 def save_facades(facades: list[Facade], path: Path, crs: str = "EPSG:3877"):
-    fc = {"type": "FeatureCollection", "crs": {"type": "name", "properties": {"name": crs}},
-          "features": [f.to_feature() for f in facades]}
+    fc = {
+        "type": "FeatureCollection",
+        "crs": {"type": "name", "properties": {"name": crs}},
+        "features": [f.to_feature() for f in facades],
+    }
     Path(path).write_text(json.dumps(fc, indent=1, ensure_ascii=False))
 
 
 # ---------------------------------------------------------------------------------------------
 # Extraction from Turku kantakartta WFS (kanta:Rakennus 66000 footprints, GIS:Keskilinjat streets)
 # ---------------------------------------------------------------------------------------------
-NS = {"gml": "http://www.opengis.net/gml", "kanta": "http://www.kuntatietopalvelu.fi/gml/kantakartta",
-      "yht": "http://www.kuntatietopalvelu.fi/gml/yhteiset"}
+NS = {
+    "gml": "http://www.opengis.net/gml",
+    "kanta": "http://www.kuntatietopalvelu.fi/gml/kantakartta",
+    "yht": "http://www.kuntatietopalvelu.fi/gml/yhteiset",
+}
 
 
 def _coords(text: str) -> np.ndarray:
@@ -129,11 +158,16 @@ def read_footprints(gml: Path) -> list[dict]:
         name = f.findtext(".//yht:osoitenimi/yht:teksti", namespaces=NS)
         no = f.findtext(".//yht:osoitenumero", namespaces=NS)
         fl = f.findtext("kanta:kerrosluku", namespaces=NS)
-        res.append({"id": f.findtext("kanta:rakennustunnus", namespaces=NS) or f"b{len(res)}", "ring": ring,
-                    "floors": int(fl) if fl and fl.isdigit() else None,
-                    "address": f"{name} {no}" if name else None,
-                    "material": f.findtext("kanta:julkisivumateriaali", namespaces=NS),
-                    "year": (f.findtext("kanta:kottovuosi", namespaces=NS) or "")[:4] or None})
+        res.append(
+            {
+                "id": f.findtext("kanta:rakennustunnus", namespaces=NS) or f"b{len(res)}",
+                "ring": ring,
+                "floors": int(fl) if fl and fl.isdigit() else None,
+                "address": f"{name} {no}" if name else None,
+                "material": f.findtext("kanta:julkisivumateriaali", namespaces=NS),
+                "year": (f.findtext("kanta:kottovuosi", namespaces=NS) or "")[:4] or None,
+            }
+        )
     return res
 
 
@@ -175,7 +209,9 @@ def _ray_seg(o, d, a, b):
     return t if t >= 0 and 0 <= s <= 1 else None
 
 
-def merge_edges(ring: np.ndarray, max_turn_deg: float = 12.0, max_dev: float = 0.6) -> list[tuple[int, int]]:
+def merge_edges(
+    ring: np.ndarray, max_turn_deg: float = 12.0, max_dev: float = 0.6
+) -> list[tuple[int, int]]:
     """Group consecutive ring edges into straight runs; returns (start_idx, end_idx) vertex pairs.
 
     A run continues while each edge turns < max_turn_deg from the run's chord and every vertex stays
@@ -218,9 +254,15 @@ def merge_edges(ring: np.ndarray, max_turn_deg: float = 12.0, max_dev: float = 0
     return runs
 
 
-def street_facades(footprints: list[dict], streets: list[dict], min_len: float = 6.0,
-                   max_street_dist: float = 30.0, storey_h: float = 3.2, plinth_h: float = 0.8,
-                   only_ids: set[str] | None = None) -> list[Facade]:
+def street_facades(
+    footprints: list[dict],
+    streets: list[dict],
+    min_len: float = 6.0,
+    max_street_dist: float = 30.0,
+    storey_h: float = 3.2,
+    plinth_h: float = 0.8,
+    only_ids: set[str] | None = None,
+) -> list[Facade]:
     """Footprint runs that face a street: a ray along the outward normal from the run centre must hit a
     street centreline within max_street_dist before it hits any other footprint."""
     out = []
@@ -237,14 +279,27 @@ def street_facades(footprints: list[dict], streets: list[dict], min_len: float =
             o = f.centre + f.normal * 0.05
             d = f.normal
             # other buildings only: the run chord may cut through its own small jogs (max_dev)
-            hit_b = min((t for ob in footprints if ob is not b for k in range(len(ob["ring"]))
-                         if (t := _ray_seg(o, d, ob["ring"][k - 1], ob["ring"][k])) is not None), default=1e9)
+            hit_b = min(
+                (
+                    t
+                    for ob in footprints
+                    if ob is not b
+                    for k in range(len(ob["ring"]))
+                    if (t := _ray_seg(o, d, ob["ring"][k - 1], ob["ring"][k])) is not None
+                ),
+                default=1e9,
+            )
             best = None
             for s in streets:
                 ln = s["line"]
                 for k in range(1, len(ln)):
                     t = _ray_seg(o, d, ln[k - 1], ln[k])
-                    if t is not None and t < max_street_dist and t < hit_b and (best is None or t < best[0]):
+                    if (
+                        t is not None
+                        and t < max_street_dist
+                        and t < hit_b
+                        and (best is None or t < best[0])
+                    ):
                         best = (t, s["name"])
             if not best:
                 continue
@@ -254,10 +309,17 @@ def street_facades(footprints: list[dict], streets: list[dict], min_len: float =
             fid = fid if n_same == 0 else f"{fid}_{n_same}"
             f.id = fid
             f.height_m = round(plinth_h + floors * storey_h, 2)
-            f.props = {"building_id": b["id"], "address": b["address"], "floors": b["floors"],
-                       "material": b["material"], "year": b["year"], "street": best[1],
-                       "street_dist_m": round(best[0], 1), "length_m": round(L, 2),
-                       "height_source": f"floors*{storey_h}+{plinth_h}"}
+            f.props = {
+                "building_id": b["id"],
+                "address": b["address"],
+                "floors": b["floors"],
+                "material": b["material"],
+                "year": b["year"],
+                "street": best[1],
+                "street_dist_m": round(best[0], 1),
+                "length_m": round(L, 2),
+                "height_source": f"floors*{storey_h}+{plinth_h}",
+            }
             out.append(f)
     return out
 
@@ -270,14 +332,19 @@ def fetch_wfs(layer: str, bbox_en: tuple[float, float, float, float], out: Path)
     tools/research/wfs_probe.py). Cached: an existing file is reused."""
     import urllib.parse
     import urllib.request
+
     out = Path(out)
     if out.exists() and out.stat().st_size > 0:
         return out
     x0, y0, x1, y1 = bbox_en
-    flt = (f'<Filter><BBOX><PropertyName>Geometry</PropertyName><gml:Box xmlns:gml="http://www.opengis.net/gml">'
-           f'<gml:coordinates>{x0},{y0} {x1},{y1}</gml:coordinates></gml:Box></BBOX></Filter>')
+    flt = (
+        f'<Filter><BBOX><PropertyName>Geometry</PropertyName><gml:Box xmlns:gml="http://www.opengis.net/gml">'
+        f"<gml:coordinates>{x0},{y0} {x1},{y1}</gml:coordinates></gml:Box></BBOX></Filter>"
+    )
     q = dict(service="WFS", version="1.0.0", request="GetFeature", typeName=layer, filter=flt)
-    req = urllib.request.Request(WFS_URL + "?" + urllib.parse.urlencode(q), headers={"User-Agent": "turku3d/0.1"})
+    req = urllib.request.Request(
+        WFS_URL + "?" + urllib.parse.urlencode(q), headers={"User-Agent": "turku3d/0.1"}
+    )
     body = urllib.request.urlopen(req, timeout=300).read()
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(body)
@@ -286,9 +353,13 @@ def fetch_wfs(layer: str, bbox_en: tuple[float, float, float, float], out: Path)
 
 def main(argv=None) -> int:
     import argparse
+
     from turku3d import config
-    ap = argparse.ArgumentParser(prog="turkutex facades",
-                                 description="Street-facing facade lines from kantakartta footprints")
+
+    ap = argparse.ArgumentParser(
+        prog="turkutex facades",
+        description="Street-facing facade lines from kantakartta footprints",
+    )
     ap.add_argument("--near", nargs=2, type=float, metavar=("E", "N"), required=True)
     ap.add_argument("--radius", type=float, default=60.0, help="bbox half-size for the WFS query")
     ap.add_argument("--buildings", nargs="*", help="only these rakennustunnus ids")
@@ -308,6 +379,12 @@ def main(argv=None) -> int:
     fs = street_facades(fp, st, min_len=a.min_len, only_ids=ids)
     save_facades(fs, a.out)
     for f in fs:
-        print(f.id, f.props.get("address"), f.props.get("street"), f"len {f.length:.1f} m",
-              f"faces {f.normal_azimuth_deg:.0f} deg", f"h {f.height_m} m")
+        print(
+            f.id,
+            f.props.get("address"),
+            f.props.get("street"),
+            f"len {f.length:.1f} m",
+            f"faces {f.normal_azimuth_deg:.0f} deg",
+            f"h {f.height_m} m",
+        )
     return 0

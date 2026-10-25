@@ -11,6 +11,7 @@ flatten_lowfreq: divide out large-scale illumination/colour gradients (reflect-p
                                                               as plinth/wall/cornice, remove left-right
                                                               lighting falloff)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,16 +45,16 @@ def _tile_x(img: np.ndarray, band_frac: float, feather: int) -> np.ndarray:
     # The new wrap seam is the original column pair (s-1, s): pick s near the centre where adjacent
     # columns differ least, so the seam does not land on a strong vertical feature (tile joint).
     lum = f.mean(-1) if f.ndim == 3 else f
-    cd = np.abs(np.diff(lum, axis=1)).mean(0)          # cd[k] = |col k+1 - col k|
+    cd = np.abs(np.diff(lum, axis=1)).mean(0)  # cd[k] = |col k+1 - col k|
     lo, hi = int(W * 0.4), int(W * 0.6)
     s = lo + 1 + int(np.argmin(cd[lo:hi]))
     r = np.roll(f, s, axis=1)  # r wraps perfectly at x = 0 / W (its own seam sits at x = s)
-    c0 = s - B // 2            # band around r's internal seam, where we switch to the original
+    c0 = s - B // 2  # band around r's internal seam, where we switch to the original
     # left of the cut: r (continuous with the right edge via wrap); right of the cut: f ... and the
     # mirror at the other side would need a second cut, so instead: inside the band choose per row
     # between r (outside) and f (inside); the original f is continuous inside, r is continuous at edges.
-    a = r[:, c0:c0 + B]
-    b = f[:, c0:c0 + B]
+    a = r[:, c0 : c0 + B]
+    b = f[:, c0 : c0 + B]
     err = np.sum((a - b) ** 2, axis=-1) if f.ndim == 3 else (a - b) ** 2
     # two cuts: left cut in the left half of the band, right cut in the right half
     half = B // 2
@@ -68,12 +69,14 @@ def _tile_x(img: np.ndarray, band_frac: float, feather: int) -> np.ndarray:
     mm = m[..., None] if f.ndim == 3 else m
     # outside the band: r everywhere; but r has its seam at W//2, which lies inside the band and is
     # replaced by f there (inside the cut). Outside the band r is just the original content shifted.
-    out[:, c0:c0 + B] = a * (1 - mm) + b * mm
+    out[:, c0 : c0 + B] = a * (1 - mm) + b * mm
     # roll back so the content sits where it was originally (seam now at the borders is continuous)
     return np.roll(out, -s, axis=1)
 
 
-def make_tileable(img: np.ndarray, axes: str = "xy", band_frac: float = 0.2, feather: int = 3) -> np.ndarray:
+def make_tileable(
+    img: np.ndarray, axes: str = "xy", band_frac: float = 0.2, feather: int = 3
+) -> np.ndarray:
     out = img.astype(np.float32)
     if "x" in axes:
         out = _tile_x(out, band_frac, feather)
@@ -83,7 +86,9 @@ def make_tileable(img: np.ndarray, axes: str = "xy", band_frac: float = 0.2, fea
     return np.clip(out + 0.5, 0, 255).astype(np.uint8) if img.dtype == np.uint8 else out
 
 
-def flatten_lowfreq(img: np.ndarray, mode: str = "xy", sigma_frac: float = 0.125, strength: float = 1.0) -> np.ndarray:
+def flatten_lowfreq(
+    img: np.ndarray, mode: str = "xy", sigma_frac: float = 0.125, strength: float = 1.0
+) -> np.ndarray:
     f = img.astype(np.float32) + 1.0
     H, W = f.shape[:2]
     sig = sigma_frac * max(H, W)
@@ -109,7 +114,7 @@ def detect_period_x(img: np.ndarray, min_frac: float = 1 / 12, max_frac: float =
     prof = np.abs(np.diff(lum, axis=1)).mean(0)
     prof = prof - prof.mean()
     n = len(prof)
-    ac = np.correlate(prof, prof, mode="full")[n - 1:]
+    ac = np.correlate(prof, prof, mode="full")[n - 1 :]
     ac /= np.arange(n, 0, -1)  # unbiased
     ac /= max(ac[0], 1e-9)
     lo, hi = max(2, int(n * min_frac)), int(n * max_frac)
@@ -141,10 +146,12 @@ def crop_to_period(img: np.ndarray, period: int | None = None) -> tuple[np.ndarr
         if e >= W:
             return float("inf")
         mismatch = float(np.abs(f[:, s0] - f[:, e]).mean()) / 255 * 10
-        return mismatch + energy[max(0, s0 - 2):s0 + 3].max() + energy[max(0, e - 2):e + 3].max()
+        return (
+            mismatch + energy[max(0, s0 - 2) : s0 + 3].max() + energy[max(0, e - 2) : e + 3].max()
+        )
 
     best = min(range(0, W - w), key=cost)
-    return img[:, best:best + w], {"period_px": p, "repeats": k, "crop": [best, best + w]}
+    return img[:, best : best + w], {"period_px": p, "repeats": k, "crop": [best, best + w]}
 
 
 def feather_wrap_x(img: np.ndarray, k: int = 12) -> np.ndarray:

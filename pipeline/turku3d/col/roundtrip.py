@@ -41,30 +41,71 @@ def cases():
 
     pos, tri = grid_mesh(rng, 40)
     mats = rng.choice(shippable, len(tri))
-    prims = [Primitive.box(M.mat_id("fence"), (3, 2.6, 4), (1.5, 0.6, 0.05), (0, 0.3826834, 0, 0.9238795)),
-             Primitive.capsule(M.mat_id("tree_trunk"), (10, 4, 12), 2.0, 0.3),
-             Primitive.cylinder(M.mat_id("pole"), (20, 5, 30), 3.0, 0.08)]
+    prims = [
+        Primitive.box(
+            M.mat_id("fence"), (3, 2.6, 4), (1.5, 0.6, 0.05), (0, 0.3826834, 0, 0.9238795)
+        ),
+        Primitive.capsule(M.mat_id("tree_trunk"), (10, 4, 12), 2.0, 0.3),
+        Primitive.cylinder(M.mat_id("pole"), (20, 5, 30), 3.0, 0.08),
+    ]
     meta = {"tile": "c_1_2", "built": "2026-10-25T12:00:00Z", "notes": "round-trip ä ö"}
-    out.append(("grid_meshopt_v0", ColTile(1, 2, pos, tri, mats, prims, meta=meta), dict(encoding="meshopt")))
-    out.append(("grid_meshopt_v1", ColTile(1, 2, pos, tri, mats, prims), dict(encoding="meshopt", vertex_version=1)))
+    out.append(
+        (
+            "grid_meshopt_v0",
+            ColTile(1, 2, pos, tri, mats, prims, meta=meta),
+            dict(encoding="meshopt"),
+        )
+    )
+    out.append(
+        (
+            "grid_meshopt_v1",
+            ColTile(1, 2, pos, tri, mats, prims),
+            dict(encoding="meshopt", vertex_version=1),
+        )
+    )
     out.append(("grid_raw", ColTile(1, 2, pos, tri, mats, prims, meta=meta), dict(encoding="raw")))
-    out.append(("grid_meshopt_noopt", ColTile(1, 2, pos, tri, mats), dict(encoding="meshopt", optimize=False)))
+    out.append(
+        (
+            "grid_meshopt_noopt",
+            ColTile(1, 2, pos, tri, mats),
+            dict(encoding="meshopt", optimize=False),
+        )
+    )
 
     # negative tile indices, world-local positions with sub-mm detail, curb material -> FIX flag
     pos2, tri2 = grid_mesh(rng, 25, amp=0.003)
     world = pos2 + np.array([-3 * 62.5, 0, -1 * 62.5])
     mats2 = np.full(len(tri2), M.mat_id("curb"), np.uint8)
-    out.append(("negative_tile", ColTile.for_tile(-3, -1, world, tri2, mats2, aoi_border=True), dict(encoding="meshopt")))
+    out.append(
+        (
+            "negative_tile",
+            ColTile.for_tile(-3, -1, world, tri2, mats2, aoi_border=True),
+            dict(encoding="meshopt"),
+        )
+    )
 
     # large tile (~150k triangle budget scale)
     pos3, tri3 = grid_mesh(rng, 250, amp=1.0)
-    mats3 = rng.choice([M.mat_id("road"), M.mat_id("sidewalk"), M.mat_id("grass"), M.mat_id("curb")], len(tri3))
+    mats3 = rng.choice(
+        [M.mat_id("road"), M.mat_id("sidewalk"), M.mat_id("grass"), M.mat_id("curb")], len(tri3)
+    )
     out.append(("large", ColTile(4, 5, pos3, tri3, mats3), dict(encoding="meshopt")))
 
     # empty mesh, primitives only
-    out.append(("prims_only", ColTile(0, 0, np.zeros((0, 3)), np.zeros((0, 3)), np.zeros(0),
-                                      [Primitive.box(M.mat_id("street_furniture"), (1, 1, 1), (0.5, 0.4, 0.2))]),
-                dict(encoding="meshopt")))
+    out.append(
+        (
+            "prims_only",
+            ColTile(
+                0,
+                0,
+                np.zeros((0, 3)),
+                np.zeros((0, 3)),
+                np.zeros(0),
+                [Primitive.box(M.mat_id("street_furniture"), (1, 1, 1), (0.5, 0.4, 0.2))],
+            ),
+            dict(encoding="meshopt"),
+        )
+    )
     return out
 
 
@@ -89,9 +130,16 @@ def describe(t: ColTile) -> dict:
         "triangles_bits": tri_bits,
         "triangles_world": tri_world,
         "triangles_material": tri_mat,
-        "primitives": [{"kind": p.kind, "material": p.material, "center": [float(np.float32(v)) for v in p.center],
-                        "rotation": [float(np.float32(v)) for v in p.rotation],
-                        "params": [float(np.float32(v)) for v in p.params]} for p in t.primitives],
+        "primitives": [
+            {
+                "kind": p.kind,
+                "material": p.material,
+                "center": [float(np.float32(v)) for v in p.center],
+                "rotation": [float(np.float32(v)) for v in p.rotation],
+                "params": [float(np.float32(v)) for v in p.params],
+            }
+            for p in t.primitives
+        ],
         "meta": t.meta,
         "encodings": {s["tag"]: s["encoding"] for s in t.sections},
     }
@@ -116,7 +164,9 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     exp = write_cases(Path(a.out))
     for k, v in exp.items():
-        print(f"{k}: {v['triangle_count']} tris, {len(v['primitives'])} prims, encodings {v['encodings']}")
+        print(
+            f"{k}: {v['triangle_count']} tris, {len(v['primitives'])} prims, encodings {v['encodings']}"
+        )
     return 0
 
 

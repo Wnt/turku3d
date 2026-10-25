@@ -17,7 +17,6 @@ export interface ColTile {
   meta: unknown;
 }
 export const COL_FLAG_FIX_INTERNAL_EDGES = COL_FLAG.FIX_INTERNAL_EDGES;
-export const COL_FLAG_AOI_BORDER = COL_FLAG.AOI_BORDER;
 export { crc32 };
 export const colReaderName = 'src/shared/col/colFormat.ts#readCol';
 

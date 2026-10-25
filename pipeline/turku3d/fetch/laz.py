@@ -20,7 +20,9 @@ def known_tiles() -> set[tuple[str, str]]:
     return out
 
 
-def fetch_area(area: config.Area, datasets=config.LAZ_DATASETS, verify: bool = False, log=print) -> list[dict]:
+def fetch_area(
+    area: config.Area, datasets=config.LAZ_DATASETS, verify: bool = False, log=print
+) -> list[dict]:
     root = kind_dir("laz")
     reg = Registry(root)
     listed = known_tiles()
@@ -41,8 +43,11 @@ def fetch_area(area: config.Area, datasets=config.LAZ_DATASETS, verify: bool = F
             supplied = config.raw_dir("laz-3x3") / dest.name
             sums = supplied.parent / "SHA256SUMS"
             if ds == "pistepilvi" and supplied.exists() and sums.exists():
-                expected = {line.split()[1].lstrip("*").removeprefix("./"): line.split()[0]
-                            for line in sums.read_text().splitlines() if line.strip()}
+                expected = {
+                    line.split()[1].lstrip("*").removeprefix("./"): line.split()[0]
+                    for line in sums.read_text().splitlines()
+                    if line.strip()
+                }
                 digest = sha256_file(supplied)
                 if expected.get(supplied.name) != digest:
                     raise ValueError(f"supplied LAZ checksum mismatch: {supplied.name}")
@@ -51,16 +56,35 @@ def fetch_area(area: config.Area, datasets=config.LAZ_DATASETS, verify: bool = F
                     os.link(supplied, dest)
                 elif sha256_file(dest) != digest:
                     raise ValueError(f"existing LAZ differs from supplied tile: {dest.name}")
-                recs.append(reg.record(dest, url=url, sha256=digest, dataset=ds, tile=t.name,
-                                       imported_from="raw/laz-3x3"))
+                recs.append(
+                    reg.record(
+                        dest,
+                        url=url,
+                        sha256=digest,
+                        dataset=ds,
+                        tile=t.name,
+                        imported_from="raw/laz-3x3",
+                    )
+                )
                 log(f"laz  {ds}/{t.name}: registered supplied file ({human(dest.stat().st_size)})")
                 continue
             head = curl_head(url)
             if head["status"] != 200:
                 raise RuntimeError(f"HEAD {url} -> {head['status']}")
-            r, now = curl_download(url, dest, reg, expected_bytes=head["content_length"], verify=verify,
-                                   dataset=ds, tile=t.name, last_modified=head["last_modified"],
-                                   etag=head["etag"], final_url=head["url"])
-            log(f"laz  {ds}/{t.name}: {'downloaded' if now else 'cached'} {human(r['bytes'])} sha256 {r['sha256'][:12]}")
+            r, now = curl_download(
+                url,
+                dest,
+                reg,
+                expected_bytes=head["content_length"],
+                verify=verify,
+                dataset=ds,
+                tile=t.name,
+                last_modified=head["last_modified"],
+                etag=head["etag"],
+                final_url=head["url"],
+            )
+            log(
+                f"laz  {ds}/{t.name}: {'downloaded' if now else 'cached'} {human(r['bytes'])} sha256 {r['sha256'][:12]}"
+            )
             recs.append(r)
     return recs

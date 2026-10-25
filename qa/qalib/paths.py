@@ -5,6 +5,7 @@ Images (references, renders, judge outputs) are data and live outside git:
 Paths under the QA data directory use the portable data/qa/ registry prefix.
 Other paths are repo-relative when possible, otherwise absolute.
 """
+
 from __future__ import annotations
 
 import os
@@ -18,7 +19,9 @@ PIPELINE = REPO / "pipeline"
 
 def data_dir() -> Path:
     work = os.environ.get("TURKU3D_WORK", os.environ.get("TURKU3D_DATA", "~/turku3d/data"))
-    return Path(os.environ.get("QA_DATA", str(Path(work).expanduser() / "qa"))).expanduser().resolve()
+    return (
+        Path(os.environ.get("QA_DATA", str(Path(work).expanduser() / "qa"))).expanduser().resolve()
+    )
 
 
 def rel(p: str | Path) -> str:

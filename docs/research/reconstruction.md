@@ -115,7 +115,7 @@ Retaining walls (42 stations, median 26 cm step): B3 gives a 0.07 m width and an
 
 **Conclusion (VERIFIED for this patch).** Height accuracy is about 2 cm for every method. Only the breakline CDT produces collision geometry
 in which a curb *is* a step: the grid turns it into a 10° ramp. B3 costs no more than the naive 0.5 m heightmap. The renders
-`reconstruction-assets/curb_A_grid_0.5m.png` and `curb_B3_cdt_snapped_base0.5.png` show the same 12 cm curb in each: the grid gives a smooth
+`~/turku3d/research/w0-gate/docs/research/reconstruction-assets/curb_A_grid_0.5m.png` and `curb_B3_cdt_snapped_base0.5.png` show the same 12 cm curb in each: the grid gives a smooth
 undulation, B3 a clean vertical step.
 
 Why 45 % of curb stations are still wider than 0.15 m: the snap fails where the lidar gradient is weak (parked cars, low curbs), and line
@@ -463,3 +463,5 @@ Neither codec destroys the curbs. meshopt is slightly more faithful.
   fit.
 - The opaskartta redirect is a 301.
 - The vectors are newer (2022–24) than the lidar.
+
+The one-off `tools/reconstruction/verify/` probes above were retired in Wave 0; the maintained collision checks live in `tools/validator/`. Archived binary evidence is listed in [ARCHIVED-ASSETS.md](ARCHIVED-ASSETS.md).

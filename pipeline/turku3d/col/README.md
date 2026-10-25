@@ -16,11 +16,19 @@ cd pipeline && .venv/bin/python -m turku3d.col.roundtrip --out /tmp/rt   # round
 ```python
 from turku3d.col import ColTile, Primitive, write_col, read_col
 from turku3d.col.materials import mat_id
-tile = ColTile.for_tile(i, j, world_local_xyz_f64, tri_indices, tri_materials,
-                        primitives=[Primitive.cylinder(mat_id("pole"), (x, y, z), 2.0, 0.08)],
-                        aoi_border=False, meta={"tile": f"c_{i}_{j}"})
-write_col(tile, f"c_{i}_{j}.col")          # encoding="auto": meshopt if the encoder is available, else RAW
-t = read_col("c_1_2.col")                    # checks magic, major, file_bytes, CRC, encodings, counts
+
+tile = ColTile.for_tile(
+    i,
+    j,
+    world_local_xyz_f64,
+    tri_indices,
+    tri_materials,
+    primitives=[Primitive.cylinder(mat_id("pole"), (x, y, z), 2.0, 0.08)],
+    aoi_border=False,
+    meta={"tile": f"c_{i}_{j}"},
+)
+write_col(tile, f"c_{i}_{j}.col")  # encoding="auto": meshopt if the encoder is available, else RAW
+t = read_col("c_1_2.col")  # checks magic, major, file_bytes, CRC, encodings, counts
 ```
 
 Files

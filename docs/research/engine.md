@@ -33,7 +33,7 @@ Legend: **[VERIFIED]** means I ran it in this session and the numbers come from 
 
 ## 2. Hands-on probe: what was built and run
 
-Location: `/Users/wnt/Documents/game-test/tools/engine-probe/` (see its README.md).
+The retired `tools/engine-probe/` code was removed in Wave 0 after its runtime behavior moved into `game/` and `tools/validator/`. Findings remain here; binaries are listed in [ARCHIVED-ASSETS.md](ARCHIVED-ASSETS.md).
 
 ```
 src/level.js   one merged trimesh: road | 12 cm curb | sidewalk | 8 steps (17 cm rise / 30 cm run) | platform,

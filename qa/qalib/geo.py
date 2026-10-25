@@ -3,6 +3,7 @@ re-defining the origin. Heights are N2000 metres throughout; yaw is a compass be
 (clockwise from grid north of EPSG:3877). Grid north is NOT true north: the meridian convergence is
 +0.64 deg at O (true north has grid bearing 0.64), so true headings (Street View, Look Around, sun) go through
 true_to_grid_bearing() before they are compared with grid bearings."""
+
 from __future__ import annotations
 
 import math

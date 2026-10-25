@@ -28,7 +28,7 @@ function watchConsole(page: Page) {
   return { bad, all };
 }
 
-test('loads, walks 5 m forward on the dummy tile, no console errors', async ({ page }, info) => {
+test('loads, walks 5 m forward on the dummy tile, no console errors', { tag: ["@walk"] }, async ({ page }, info) => {
   const backend = info.project.name; // 'webgpu' | 'webgl'
   const con = watchConsole(page);
   await page.goto(`/?backend=${backend}`);
@@ -86,7 +86,7 @@ test('loads, walks 5 m forward on the dummy tile, no console errors', async ({ p
   expect(errs).toEqual([]);
 });
 
-test('QA camera mode renders the requested view and sets __qaReady', async ({ page }, info) => {
+test('QA camera mode renders the requested view and sets __qaReady', { tag: ["@qa", "@render"] }, async ({ page }, info) => {
   const backend = info.project.name;
   const con = watchConsole(page);
   // looking north-east from the SW part of the tile towards the NE marker, 1.7 m eye height above the 2 m ground
@@ -101,7 +101,7 @@ test('QA camera mode renders the requested view and sets __qaReady', async ({ pa
   expect(con.bad, con.all.join('\n')).toEqual([]);
 });
 
-test('enter the car with F, drive forward, exit with F', async ({ page }, info) => {
+test('enter the car with F, drive forward, exit with F', { tag: ["@drive"] }, async ({ page }, info) => {
   const backend = info.project.name;
   const con = watchConsole(page);
   await page.goto(`/?backend=${backend}`);
@@ -131,7 +131,7 @@ test('enter the car with F, drive forward, exit with F', async ({ page }, info) 
   expect(con.bad, con.all.join('\n')).toEqual([]);
 });
 
-test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json: vertical fov, roll, aspect)', async ({ browser }, info) => {
+test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json: vertical fov, roll, aspect)', { tag: ["@qa", "@render"] }, async ({ browser }, info) => {
   const backend = info.project.name;
   const golden = JSON.parse(fs.readFileSync(new URL('../../../qa/tests/golden_projection.json', import.meta.url), 'utf8'));
   const ctx = await browser.newContext({ viewport: { width: golden.width, height: golden.height }, deviceScaleFactor: 1 });
@@ -159,7 +159,7 @@ test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json:
   await ctx.close();
 });
 
-test('QA pose outside the tileset reports __qaError quickly (not the 120 s timeout)', async ({ page }, info) => {
+test('QA pose outside the tileset reports __qaError quickly (not the 120 s timeout)', { tag: ["@qa", "@render"] }, async ({ page }, info) => {
   const backend = info.project.name;
   const t0 = Date.now();
   await page.goto(`/?backend=${backend}&cam=23469668,6714254,5,0,-10,60&qa=1`); // 10 km NE of the dev tiles

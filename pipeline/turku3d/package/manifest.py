@@ -28,8 +28,15 @@ def sha256_bytes(b: bytes) -> str:
 
 def git_sha() -> str:
     try:
-        return subprocess.run(["git", "-C", str(C.REPO_ROOT), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, timeout=5).stdout.strip() or "nogit"
+        return (
+            subprocess.run(
+                ["git", "-C", str(C.REPO_ROOT), "rev-parse", "--short", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout.strip()
+            or "nogit"
+        )
     except Exception:
         return "nogit"
 
@@ -46,7 +53,20 @@ def tile_box(tile: C.VisualTile, h: tuple[float, float]) -> list[float]:
     s = tile.size
     hmin, hmax = float(h[0]), float(h[1])
     hz = max(1.0, (hmax - hmin) / 2)
-    return [(tile.i + 0.5) * s, -(tile.j + 0.5) * s, (hmin + hmax) / 2, s / 2, 0, 0, 0, s / 2, 0, 0, 0, hz]
+    return [
+        (tile.i + 0.5) * s,
+        -(tile.j + 0.5) * s,
+        (hmin + hmax) / 2,
+        s / 2,
+        0,
+        0,
+        0,
+        s / 2,
+        0,
+        0,
+        0,
+        hz,
+    ]
 
 
 def build_tileset(visual: dict, generator: str) -> dict:
@@ -57,23 +77,57 @@ def build_tileset(visual: dict, generator: str) -> dict:
         t = C.VisualTile.parse(tid)
         box = tile_box(t, e["h"])
         boxes.append((t, e["h"]))
-        children.append({"boundingVolume": {"box": box}, "geometricError": GEOMETRIC_ERROR[t.level],
-                         "content": {"uri": e["url"]}, "extras": {"id": tid}})
+        children.append(
+            {
+                "boundingVolume": {"box": box},
+                "geometricError": GEOMETRIC_ERROR[t.level],
+                "content": {"uri": e["url"]},
+                "extras": {"id": tid},
+            }
+        )
     if boxes:
-        x0 = min(t.i * t.size for t, _ in boxes); x1 = max((t.i + 1) * t.size for t, _ in boxes)
-        z0 = min(t.j * t.size for t, _ in boxes); z1 = max((t.j + 1) * t.size for t, _ in boxes)
-        h0 = min(h[0] for _, h in boxes); h1 = max(h[1] for _, h in boxes)
+        x0 = min(t.i * t.size for t, _ in boxes)
+        x1 = max((t.i + 1) * t.size for t, _ in boxes)
+        z0 = min(t.j * t.size for t, _ in boxes)
+        z1 = max((t.j + 1) * t.size for t, _ in boxes)
+        h0 = min(h[0] for _, h in boxes)
+        h1 = max(h[1] for _, h in boxes)
     else:
-        x0 = z0 = h0 = 0.0; x1 = z1 = C.VISUAL_TILE_SIZE; h1 = 1.0
+        x0 = z0 = h0 = 0.0
+        x1 = z1 = C.VISUAL_TILE_SIZE
+        h1 = 1.0
     hz = max(1.0, (h1 - h0) / 2)
-    root_box = [(x0 + x1) / 2, -(z0 + z1) / 2, (h0 + h1) / 2, (x1 - x0) / 2, 0, 0, 0, (z1 - z0) / 2, 0, 0, 0, hz]
+    root_box = [
+        (x0 + x1) / 2,
+        -(z0 + z1) / 2,
+        (h0 + h1) / 2,
+        (x1 - x0) / 2,
+        0,
+        0,
+        0,
+        (z1 - z0) / 2,
+        0,
+        0,
+        0,
+        hz,
+    ]
     return {
-        "asset": {"version": "1.0", "generator": generator,
-                  "extras": {"frame": "turku3d-local-zup", "origin_en": [C.ORIGIN_E, C.ORIGIN_N, C.ORIGIN_H],
-                             "crs": C.CRS_COMPOUND}},
+        "asset": {
+            "version": "1.0",
+            "generator": generator,
+            "extras": {
+                "frame": "turku3d-local-zup",
+                "origin_en": [C.ORIGIN_E, C.ORIGIN_N, C.ORIGIN_H],
+                "crs": C.CRS_COMPOUND,
+            },
+        },
         "geometricError": ROOT_ERROR,
-        "root": {"boundingVolume": {"box": root_box}, "geometricError": ROOT_ERROR, "refine": "REPLACE",
-                 "children": children},
+        "root": {
+            "boundingVolume": {"box": root_box},
+            "geometricError": ROOT_ERROR,
+            "refine": "REPLACE",
+            "children": children,
+        },
     }
 
 
@@ -95,16 +149,25 @@ class DistTree:
         _atomic_write(self.root / rel, data)
         return {"url": rel, "sha256": sha256_bytes(data), "bytes": len(data)}
 
-    def add_visual(self, tile: C.VisualTile, glb: bytes, *, tris: int, h: tuple[float, float]) -> dict:
+    def add_visual(
+        self, tile: C.VisualTile, glb: bytes, *, tris: int, h: tuple[float, float]
+    ) -> dict:
         e = self._put(f"visual/{tile.level}/{tile.id}.glb", glb)
         e.update(level=tile.level, tris=int(tris), h=[round(float(h[0]), 3), round(float(h[1]), 3)])
         self.visual[tile.id] = e
         return e
 
-    def add_collision(self, tile: C.CollisionTile, col: bytes, *, tris: int, prims: int, h, flags: int) -> dict:
+    def add_collision(
+        self, tile: C.CollisionTile, col: bytes, *, tris: int, prims: int, h, flags: int
+    ) -> dict:
         parent = tile.visual_parent().id
         e = self._put(f"collision/{parent}/{tile.id}.col", col)
-        e.update(tris=int(tris), prims=int(prims), h=[round(float(h[0]), 3), round(float(h[1]), 3)], flags=int(flags))
+        e.update(
+            tris=int(tris),
+            prims=int(prims),
+            h=[round(float(h[0]), 3), round(float(h[1]), 3)],
+            flags=int(flags),
+        )
         self.collision[tile.id] = e
         return e
 
@@ -114,12 +177,20 @@ class DistTree:
         ts_bytes = (json.dumps(ts, indent=1) + "\n").encode()
         ts_entry = self._put("tileset.json", ts_bytes)
         m = {
-            "format": MANIFEST_FORMAT, "version": MANIFEST_VERSION,
-            "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "code": code,
-            "origin_en": [C.ORIGIN_E, C.ORIGIN_N, C.ORIGIN_H], "crs": C.CRS_COMPOUND,
-            "grid": {"visual_l0": C.VISUAL_TILE_SIZE, "collision": C.COLLISION_TILE_SIZE,
-                     "levels": C.VISUAL_MAX_LEVEL + 1},
-            "materials_version": 1, "col_version": [1, 0], "areas": self.areas,
+            "format": MANIFEST_FORMAT,
+            "version": MANIFEST_VERSION,
+            "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "code": code,
+            "origin_en": [C.ORIGIN_E, C.ORIGIN_N, C.ORIGIN_H],
+            "crs": C.CRS_COMPOUND,
+            "grid": {
+                "visual_l0": C.VISUAL_TILE_SIZE,
+                "collision": C.COLLISION_TILE_SIZE,
+                "levels": C.VISUAL_MAX_LEVEL + 1,
+            },
+            "materials_version": 1,
+            "col_version": [1, 0],
+            "areas": self.areas,
             "tileset": ts_entry,
             "visual": {k: self.visual[k] for k in sorted(self.visual)},
             "collision": {k: self.collision[k] for k in sorted(self.collision)},

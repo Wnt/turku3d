@@ -213,7 +213,6 @@ Pipeline principles:
 │   ├── public/basis/                    transcoder
 │   └── tests/ (node physics sims, playwright e2e)
 ├── tools/
-│   ├── engine-probe/                    existing probe (kept as reference)
 │   ├── reconstruction/  research/       existing research scripts
 │   ├── validator/                       Node Rapier tile validator (walkers; cars TBD), reads .col via game/src/shared/col
 │   └── dev/ (serve-dist.mjs with COOP/COEP + brotli, environment helpers)

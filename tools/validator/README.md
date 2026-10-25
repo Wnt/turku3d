@@ -57,4 +57,9 @@ water sensor and query-only treads present); `neg_hole`, `neg_open_building`, `n
 must fail holes+belowGround, buildings, stairs and format respectively. `expected.json` is the contract read by
 `test/fixtures.test.ts`.
 
-Codec round-trip fixtures from `make col-test` use `$TURKU3D_WORK/build/col-roundtrip` (override `COL_RT_DIR` explicitly if needed).
+
+## Selective quality checks
+
+From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
+`scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../../scripts/dev/README.md)
+for dependency setup, path selection, caches, sandbox ports and Git hooks.

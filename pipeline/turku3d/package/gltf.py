@@ -57,11 +57,25 @@ def _mime(img: bytes) -> str:
     raise ValueError("image must be JPEG or PNG")
 
 
-def build_glb(meshes: list[GlbMesh], *, root_translation=(0.0, 0.0, 0.0), root_name: str = "tile",
-              root_extras: dict | None = None, generator: str = "turku3d.package.gltf") -> bytes:
-    gltf: dict = {"asset": {"version": "2.0", "generator": generator}, "scene": 0,
-                  "scenes": [{"nodes": [0]}], "nodes": [], "meshes": [], "materials": [], "accessors": [],
-                  "bufferViews": [], "buffers": []}
+def build_glb(
+    meshes: list[GlbMesh],
+    *,
+    root_translation=(0.0, 0.0, 0.0),
+    root_name: str = "tile",
+    root_extras: dict | None = None,
+    generator: str = "turku3d.package.gltf",
+) -> bytes:
+    gltf: dict = {
+        "asset": {"version": "2.0", "generator": generator},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [],
+        "meshes": [],
+        "materials": [],
+        "accessors": [],
+        "bufferViews": [],
+        "buffers": [],
+    }
     blob = bytearray()
 
     def view(data: bytes, target: int | None) -> int:
@@ -75,7 +89,12 @@ def build_glb(meshes: list[GlbMesh], *, root_translation=(0.0, 0.0, 0.0), root_n
         return len(gltf["bufferViews"]) - 1
 
     def accessor(arr: np.ndarray, ctype: int, typ: str, target: int, minmax: bool = False) -> int:
-        acc = {"bufferView": view(arr.tobytes(), target), "componentType": ctype, "count": int(arr.shape[0]), "type": typ}
+        acc = {
+            "bufferView": view(arr.tobytes(), target),
+            "componentType": ctype,
+            "count": int(arr.shape[0]),
+            "type": typ,
+        }
         if minmax:
             acc["min"] = [float(v) for v in arr.min(0)]
             acc["max"] = [float(v) for v in arr.max(0)]
@@ -92,22 +111,40 @@ def build_glb(meshes: list[GlbMesh], *, root_translation=(0.0, 0.0, 0.0), root_n
         if idx.size and int(idx.max()) >= len(pos):
             raise ValueError(f"{m.name}: index out of range")
         nrm = m.normals if m.normals is not None else vertex_normals(pos, idx.reshape(-1, 3))
-        attrs = {"POSITION": accessor(pos, FLOAT, "VEC3", ARRAY_BUFFER, minmax=True),
-                 "NORMAL": accessor(np.ascontiguousarray(nrm, np.float32), FLOAT, "VEC3", ARRAY_BUFFER)}
-        pbr: dict = {"baseColorFactor": list(m.color), "metallicFactor": 0.0, "roughnessFactor": m.roughness}
+        attrs = {
+            "POSITION": accessor(pos, FLOAT, "VEC3", ARRAY_BUFFER, minmax=True),
+            "NORMAL": accessor(np.ascontiguousarray(nrm, np.float32), FLOAT, "VEC3", ARRAY_BUFFER),
+        }
+        pbr: dict = {
+            "baseColorFactor": list(m.color),
+            "metallicFactor": 0.0,
+            "roughnessFactor": m.roughness,
+        }
         if m.uvs is not None:
-            attrs["TEXCOORD_0"] = accessor(np.ascontiguousarray(m.uvs, np.float32), FLOAT, "VEC2", ARRAY_BUFFER)
+            attrs["TEXCOORD_0"] = accessor(
+                np.ascontiguousarray(m.uvs, np.float32), FLOAT, "VEC2", ARRAY_BUFFER
+            )
         if m.image is not None:
             if m.uvs is None:
                 raise ValueError(f"{m.name}: texture without uvs")
-            gltf.setdefault("images", []).append({"bufferView": view(m.image, None), "mimeType": _mime(m.image)})
-            gltf.setdefault("samplers", [{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}])
-            gltf.setdefault("textures", []).append({"sampler": 0, "source": len(gltf["images"]) - 1})
+            gltf.setdefault("images", []).append(
+                {"bufferView": view(m.image, None), "mimeType": _mime(m.image)}
+            )
+            gltf.setdefault(
+                "samplers", [{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}]
+            )
+            gltf.setdefault("textures", []).append(
+                {"sampler": 0, "source": len(gltf["images"]) - 1}
+            )
             pbr["baseColorTexture"] = {"index": len(gltf["textures"]) - 1}
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
         gltf["materials"].append({"name": f"{m.name}_mat", "pbrMetallicRoughness": pbr})
-        prim = {"attributes": attrs, "indices": accessor(idx, UINT32, "SCALAR", ELEMENT_ARRAY_BUFFER),
-                "material": len(gltf["materials"]) - 1, "mode": 4}
+        prim = {
+            "attributes": attrs,
+            "indices": accessor(idx, UINT32, "SCALAR", ELEMENT_ARRAY_BUFFER),
+            "material": len(gltf["materials"]) - 1,
+            "mode": 4,
+        }
         gltf["meshes"].append({"name": m.name, "primitives": [prim]})
         node = {"name": m.name, "mesh": len(gltf["meshes"]) - 1}
         if m.extras:
@@ -141,10 +178,10 @@ def read_glb(data: bytes) -> tuple[dict, bytes]:
     if magic != 0x46546C67 or version != 2 or length != len(data):
         raise ValueError("not a GLB v2")
     jl, jt = struct.unpack_from("<II", data, 12)
-    js = json.loads(data[20:20 + jl])
+    js = json.loads(data[20 : 20 + jl])
     off = 20 + jl
     bl, bt = struct.unpack_from("<II", data, off)
-    return js, data[off + 8: off + 8 + bl]
+    return js, data[off + 8 : off + 8 + bl]
 
 
 def accessor_array(js: dict, binc: bytes, i: int) -> np.ndarray:

@@ -26,7 +26,7 @@ const MOUNTS = []; // [prefix, dir]
 args.forEach((a, i) => { if (a === '--mount') { const [pre, dir] = args[i + 1].split('='); MOUNTS.push([pre.replace(/\/$/, ''), expand(dir)]); } });
 MOUNTS.sort((a, b) => b[0].length - a[0].length);
 
-export const MIME = {
+const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.wasm': 'application/wasm',
   '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.ktx2': 'image/ktx2',
@@ -74,7 +74,7 @@ async function brotli(file, stat) {
   return out;
 }
 
-export async function handler(req, res) {
+async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range, If-None-Match', 'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS' });
     return res.end();

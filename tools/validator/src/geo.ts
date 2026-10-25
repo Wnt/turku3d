@@ -68,7 +68,7 @@ export function loadFootprints(fc: any): Footprint[] {
   return out;
 }
 
-export interface CurbLine { id: string; points: [number, number][]; }
+interface CurbLine { id: string; points: [number, number][]; }
 
 export function loadLines(fc: any): CurbLine[] {
   const cv = convertor(fc);
@@ -105,7 +105,7 @@ function distToRing(r: Ring, x: number, z: number): number {
 }
 
 /** Signed depth inside the footprint (> 0 inside, < 0 outside), in metres. */
-export function footprintDepth(f: Footprint, x: number, z: number): number {
+function footprintDepth(f: Footprint, x: number, z: number): number {
   const [x0, z0, x1, z1] = f.bbox;
   const d = Math.min(...f.rings.map((r) => distToRing(r, x, z)));
   if (x < x0 || x > x1 || z < z0 || z > z1) return -d;

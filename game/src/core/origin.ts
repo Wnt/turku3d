@@ -2,8 +2,7 @@
 // Engine frame: Y-up metres, x = E - E0, y = H (N2000), z = -(N - N0).
 export const E0 = 23459500;
 export const N0 = 6704500;
-export const H0 = 0;
-export const CRS = 'EPSG:3877+3900';
+const H0 = 0;
 export const VISUAL_L0 = 250;
 export const COLLISION_TILE = 62.5;
 
@@ -14,7 +13,7 @@ export const TRUE_NORTH_GRID_BEARING_DEG = 0.64;
 /** Office, Läntinen Rantakatu 15 (Phase 1 spawn). */
 export const OFFICE_EN = { E: 23459668, N: 6704254 } as const;
 
-export interface EN { E: number; N: number; H: number }
+interface EN { E: number; N: number; H: number }
 export interface V3 { x: number; y: number; z: number }
 
 export function enToEngine(E: number, N: number, H = 0): V3 {

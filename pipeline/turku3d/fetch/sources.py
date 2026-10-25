@@ -42,7 +42,10 @@ WFS_LAYERS: tuple[WfsLayer, ...] = (
     # kantakartta (base map)
     _k("kanta:Liikennevayla", "62520 curb / carriageway edge lines (also quay edges)"),
     _k("kanta:Kevyenliikenteenvayla", "62522/62523 sidewalk and cycleway edges"),
-    _k("kanta:Rakenne", "stairs 66626, step edges 66618, retaining-wall top 66634, fences, ramps 62540"),
+    _k(
+        "kanta:Rakenne",
+        "stairs 66626, step edges 66618, retaining-wall top 66634, fences, ramps 62540",
+    ),
     _k("kanta:Rakennus", "building footprints 66000/66001 + storeys, facade material"),
     _k("kanta:Erityisrakenne", "special structures"),
     _k("kanta:Korkeuspiste", "spot heights (digitised; not an independent accuracy check)"),
@@ -62,7 +65,11 @@ WFS_LAYERS: tuple[WfsLayer, ...] = (
     _k("kanta:Porttaali", "portals / gantries"),
     _k("kanta:Polku", "paths"),
     _k("kanta:LuokittelematonViiva", "unclassified lines (401 on 2026-10-25)", expect_401=True),
-    _k("kanta:Sahkoverkonosa", "electricity network incl. lamp posts (401 on 2026-10-25)", expect_401=True),
+    _k(
+        "kanta:Sahkoverkonosa",
+        "electricity network incl. lamp posts (401 on 2026-10-25)",
+        expect_401=True,
+    ),
     # street registers
     _k("GIS:Katualueet", "street-part polygons: Katuosalaji (incl. Portaat), Pintamateriaali"),
     _k("GIS:Keskilinjat", "street centrelines per street part (road graph)"),
@@ -97,11 +104,25 @@ class WmsLayer:
 
 
 WMS_LAYERS: tuple[WmsLayer, ...] = (
-    WmsLayer("Ilmakuva 2022 True ortho", "ortho2022to", 0.05, 5.5, "2022", "DEFLATE",
-             "true ortho, no building lean: primary roof/ground texture"),
+    WmsLayer(
+        "Ilmakuva 2022 True ortho",
+        "ortho2022to",
+        0.05,
+        5.5,
+        "2022",
+        "DEFLATE",
+        "true ortho, no building lean: primary roof/ground texture",
+    ),
     WmsLayer("Ilmakuva 2025", "ortho2025", 0.05, 5.2, "2025", "DEFLATE", "most recent"),
-    WmsLayer("Turun lennokkikuvaukset", "drone", 0.0125, 1.2, "mixed", "JPEG",
-             "drone mosaic, patchy coverage, mixed dates (some winter)"),
+    WmsLayer(
+        "Turun lennokkikuvaukset",
+        "drone",
+        0.0125,
+        1.2,
+        "mixed",
+        "JPEG",
+        "drone mosaic, patchy coverage, mixed dates (some winter)",
+    ),
 )
 
 
@@ -118,7 +139,7 @@ def sources_yaml() -> str:
         "  index: data-manifests/laz-tiles.csv",
         "  epoch: 2021-04-17",
         '  notes: "use curl -L (opaskartta host 301-redirects); no CRS VLR, EPSG:3877 assumed; 130-150 MB/tile"',
-        "  licence: \"Turku open data (CC BY 4.0, Turun kaupunki) [U]\"",
+        '  licence: "Turku open data (CC BY 4.0, Turun kaupunki) [U]"',
         "wfs:",
         f"  url: {q(WFS_URL)}",
         "  format: GML only (no JSON)",
@@ -127,8 +148,11 @@ def sources_yaml() -> str:
         "  layers:",
     ]
     for L in WFS_LAYERS:
-        out.append(f"    - {{name: {q(L.name)}, version: {q(L.version)}, role: {q(L.role)}"
-                   + (", expect_401: true" if L.expect_401 else "") + "}")
+        out.append(
+            f"    - {{name: {q(L.name)}, version: {q(L.version)}, role: {q(L.role)}"
+            + (", expect_401: true" if L.expect_401 else "")
+            + "}"
+        )
     out += [
         "wms:",
         f"  url: {q(WMS_URL)}",
@@ -136,8 +160,10 @@ def sources_yaml() -> str:
         "  layers:",
     ]
     for W in WMS_LAYERS:
-        out.append(f"    - {{name: {q(W.name)}, slug: {W.slug}, request_px_m: {W.px_m}, native_cm: {W.native_cm}, "
-                   f"year: {q(W.year)}, compress: {W.compress}, note: {q(W.note)}}}")
+        out.append(
+            f"    - {{name: {q(W.name)}, slug: {W.slug}, request_px_m: {W.px_m}, native_cm: {W.native_cm}, "
+            f"year: {q(W.year)}, compress: {W.compress}, note: {q(W.note)}}}"
+        )
     out += [
         "osm:",
         f"  url: {q(GEOFABRIK_FINLAND)}",

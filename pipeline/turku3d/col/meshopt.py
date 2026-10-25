@@ -15,14 +15,14 @@
 
 from __future__ import annotations
 
-import os
 import atexit
 import json
+import os
 import select
-import threading
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -62,8 +62,8 @@ def decode_vertex_buffer(source: bytes | memoryview, count: int, stride: int) ->
     if len(src) < 1 + tail_pad:
         raise MeshoptError("vertex codec: truncated")
     tail = len(src) - tail_size
-    temp = np.frombuffer(src[tail:tail + stride], np.uint8).astype(np.int64).copy()
-    channels = None if version == 0 else src[tail + stride:tail + tail_size]
+    temp = np.frombuffer(src[tail : tail + stride], np.uint8).astype(np.int64).copy()
+    channels = None if version == 0 else src[tail + stride : tail + tail_size]
     out = np.empty(count * stride, np.uint8)
     out2 = out.reshape(count, stride) if count else out.reshape(0, stride)
     off = 1
@@ -94,7 +94,7 @@ def decode_vertex_buffer(source: bytes | memoryview, count: int, stride: int) ->
                 if bits == 0:
                     continue
                 if bits == 8:
-                    row[d0:d0 + 16] = np.frombuffer(src, np.uint8, 16, off)
+                    row[d0 : d0 + 16] = np.frombuffer(src, np.uint8, 16, off)
                     off += 16
                     continue
                 sb = off
@@ -114,9 +114,9 @@ def decode_vertex_buffer(source: bytes | memoryview, count: int, stride: int) ->
                     if vals[m] == sentinel:
                         vals[m] = src[off]
                         off += 1
-                row[d0:d0 + 16] = vals
+                row[d0 : d0 + 16] = vals
         d = deltas[:, :n].astype(np.int64)  # (stride, n)
-        blk = out2[base:base + n]
+        blk = out2[base : base + n]
         for bg in range(0, stride, 4):
             ch = 0 if version == 0 else channels[bg >> 2]
             cm = ch & 3
@@ -134,11 +134,19 @@ def decode_vertex_buffer(source: bytes | memoryview, count: int, stride: int) ->
                     temp[b], temp[b + 1] = v[-1] & 0xFF, v[-1] >> 8
             elif cm == 2:
                 rot = ch >> 4
-                delta = (d[bg] | (d[bg + 1] << 8) | (d[bg + 2] << 16) | (d[bg + 3] << 24)).astype(np.uint64)
+                delta = (d[bg] | (d[bg + 1] << 8) | (d[bg + 2] << 16) | (d[bg + 3] << 24)).astype(
+                    np.uint64
+                )
                 if rot:
-                    delta = ((delta >> np.uint64(rot)) | (delta << np.uint64(32 - rot))) & np.uint64(0xFFFFFFFF)
-                t32 = np.uint64(int(temp[bg]) | (int(temp[bg + 1]) << 8) | (int(temp[bg + 2]) << 16)
-                                | (int(temp[bg + 3]) << 24))
+                    delta = (
+                        (delta >> np.uint64(rot)) | (delta << np.uint64(32 - rot))
+                    ) & np.uint64(0xFFFFFFFF)
+                t32 = np.uint64(
+                    int(temp[bg])
+                    | (int(temp[bg + 1]) << 8)
+                    | (int(temp[bg + 2]) << 16)
+                    | (int(temp[bg + 3]) << 24)
+                )
                 v = np.bitwise_xor.accumulate(np.concatenate([[t32], delta]))[1:]
                 for k in range(4):
                     blk[:, bg + k] = (v >> np.uint64(8 * k)) & np.uint64(0xFF)
@@ -299,8 +307,13 @@ class _Encoder:
     """One WASM instance per Python process, reused across tiles; requests are serialized."""
 
     def __init__(self, mdir: Path):
-        self.process = subprocess.Popen(["node", str(BRIDGE), str(mdir)], stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.process = subprocess.Popen(
+            ["node", str(BRIDGE), str(mdir)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         self.lock = threading.Lock()
         atexit.register(self.close)
 
@@ -346,8 +359,9 @@ def _encoder(mdir: Path) -> _Encoder:
     return _encoders[key]
 
 
-def encode_mesh(positions: np.ndarray, indices: np.ndarray, *, optimize: bool = True,
-                vertex_version: int = 0):
+def encode_mesh(
+    positions: np.ndarray, indices: np.ndarray, *, optimize: bool = True, vertex_version: int = 0
+):
     """Encode a mesh with the official meshopt encoder.
 
     positions: (N,3) float32, indices: (M,3) uint32.
@@ -358,15 +372,19 @@ def encode_mesh(positions: np.ndarray, indices: np.ndarray, *, optimize: bool = 
     """
     mdir = meshopt_dir()
     if shutil.which("node") is None or mdir is None:
-        raise MeshoptError("meshopt encoder unavailable: need `node` and npm meshoptimizer "
-                           "(run `make col-deps` or set TURKU3D_MESHOPT_DIR)")
+        raise MeshoptError(
+            "meshopt encoder unavailable: need `node` and npm meshoptimizer "
+            "(run `make col-deps` or set TURKU3D_MESHOPT_DIR)"
+        )
     pos = np.ascontiguousarray(positions, np.float32).reshape(-1, 3)
     idx = np.ascontiguousarray(indices, np.uint32).reshape(-1, 3)
     with tempfile.TemporaryDirectory(prefix="colenc") as td:
         t = Path(td)
         (t / "pos.bin").write_bytes(pos.tobytes())
         (t / "idx.bin").write_bytes(idx.tobytes())
-        _encoder(mdir).encode(dir=td, vc=len(pos), ic=idx.size, optimize=optimize, version=vertex_version)
+        _encoder(mdir).encode(
+            dir=td, vc=len(pos), ic=idx.size, optimize=optimize, version=vertex_version
+        )
         pos_o = np.frombuffer((t / "pos_out.bin").read_bytes(), np.float32).reshape(-1, 3).copy()
         idx_o = np.frombuffer((t / "idx_out.bin").read_bytes(), np.uint32).reshape(-1, 3).copy()
         posn = (t / "posn.enc").read_bytes()
@@ -380,11 +398,13 @@ def encode_mesh(positions: np.ndarray, indices: np.ndarray, *, optimize: bool = 
 
 def _match_triangles(pos, idx, pos_o, idx_o) -> np.ndarray:
     """Recover the triangle permutation after reorderMesh (keys = sorted original vertex ids)."""
+
     # Match on the position bits of the three corners, sorted per triangle: independent of the
     # vertex remap and of index rotation.
     def keys(p, ix):
         raw = p.view(np.uint32)[ix]  # (M,3,3)
         return [tuple(sorted(map(tuple, t))) for t in raw.tolist()]
+
     kin = keys(pos, idx)
     lut: dict[tuple, int] = {}
     for t, k in enumerate(kin):

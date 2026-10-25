@@ -42,3 +42,8 @@ screenshots/
 .idea/
 .vscode/
 *.swp
+
+# Local quality gate caches (never shared between worktrees)
+.cache/
+*.tsbuildinfo
+.eslintcache

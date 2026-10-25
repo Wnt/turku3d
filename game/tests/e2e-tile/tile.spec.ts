@@ -52,7 +52,7 @@ async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: numbe
   return { w: r.w, h: r.h, px: new Uint8Array(Buffer.from(r.b64, 'base64')) };
 }
 
-test('stub tile from the pipeline renders and the character walks on its collision', async ({ page }, info) => {
+test('stub tile from the pipeline renders and the character walks on its collision', { tag: ["@walk", "@pipeline"] }, async ({ page }, info) => {
   const backend = info.project.name;
   const bad = watchConsole(page);
   expect(Object.keys(manifest.visual).length).toBeGreaterThan(0);
@@ -88,7 +88,7 @@ test('stub tile from the pipeline renders and the character walks on its collisi
   expect(await page.evaluate(() => (window as any).__game.errors)).toEqual([]);
 });
 
-test('QA render contract on the stub tile: pose echo, projection, ID pass', async ({ browser }, info) => {
+test('QA render contract on the stub tile: pose echo, projection, ID pass', { tag: ["@qa", "@render"] }, async ({ browser }, info) => {
   const backend = info.project.name;
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();

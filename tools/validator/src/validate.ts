@@ -2,60 +2,23 @@
 // Checks: format, holes (rays), buildings (random walkers vs footprints), curbs (step climb/block),
 // stairs (sloped colliders up/down), belowGround (drops + every walker trajectory).
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { collectColFiles, tileConsistency } from './tileChecks.ts';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { MeshoptDecoder } from 'meshoptimizer';
 import {
-  COL_FLAG, MAT, MATERIALS, MAT_FLAG, SOLID_QUERY_FILTER, buildTileColliders, checkShippable,
-  materialHasFlag, readCol,
+  MAT, MATERIALS, SOLID_QUERY_FILTER, buildTileColliders, checkShippable,
+  readCol,
 } from '../../../game/src/shared/col/index.ts';
 import type { BuiltTile, ColTile } from '../../../game/src/shared/col/index.ts';
-import { DEFAULT_KCC, Walker } from './kcc.ts';
-import type { KccConfig } from './kcc.ts';
+import { Walker } from './kcc.ts';
+import { CHECKS, type CheckName, type Options } from './options.ts';
+export { CHECKS, DEFAULT_OPTIONS, type CheckName, type Options } from './options.ts';
 import { FootprintIndex, loadFootprints, loadLines, mulberry32, ringOrientation } from './geo.ts';
 import type { Footprint } from './geo.ts';
 
-export const TILE = 62.5;
-export type Status = 'pass' | 'fail' | 'skipped';
-export const CHECKS = ['format', 'holes', 'buildings', 'curbs', 'stairs', 'belowGround'] as const;
-export type CheckName = (typeof CHECKS)[number];
-
-export interface Options {
-  inputs: string[];
-  footprints?: string;
-  curbs?: string;
-  checks?: CheckName[];
-  seed: number;
-  walkers: number;
-  walkSeconds: number;
-  rayDensity: number; // rays per m² (spec: 1 ray per 0.5 m² = 2)
-  dropSpacing: number;
-  curbSpacing: number;
-  curbSpeeds: number[];
-  climbRequired: number; // steps <= this must be climbed (Task 1.11c: 0.25)
-  blockRequired: number; // steps >= this must block (Task 1.6/1.13: 0.35)
-  stairMaxSlopeDeg: number;
-  kcc: KccConfig;
-  aoi?: [number, number, number, number];
-  maxSamples: number;
-}
-
-export const DEFAULT_OPTIONS: Omit<Options, 'inputs'> = {
-  seed: 1,
-  walkers: 2000,
-  walkSeconds: 10,
-  rayDensity: 2,
-  dropSpacing: 5,
-  curbSpacing: 2,
-  curbSpeeds: [1.5, 4.0],
-  climbRequired: 0.25,
-  blockRequired: 0.35,
-  stairMaxSlopeDeg: 40,
-  kcc: DEFAULT_KCC,
-  maxSamples: 20,
-};
-
+const TILE = 62.5;
+type Status = 'pass' | 'fail' | 'skipped';
 interface Loaded {
   file: string;
   bytes: number;
@@ -64,17 +27,6 @@ interface Loaded {
 }
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
-
-export function collectColFiles(inputs: string[]): string[] {
-  const out: string[] = [];
-  const walk = (p: string) => {
-    const st = statSync(p);
-    if (st.isDirectory()) for (const e of readdirSync(p).sort()) walk(join(p, e));
-    else if (p.endsWith('.col')) out.push(resolve(p));
-  };
-  for (const i of inputs) walk(i);
-  return out;
-}
 
 export async function validate(opts: Options): Promise<any> {
   const t0 = performance.now();
@@ -145,39 +97,6 @@ export async function validate(opts: Options): Promise<any> {
   report.summary = Object.fromEntries(Object.entries(report.checks).map(([k, v]: [string, any]) => [k, v.status]));
   report.elapsedMs = Math.round(performance.now() - t0);
   return report;
-}
-
-function tileConsistency(tile: ColTile): string[] {
-  const h = tile.header;
-  const errs: string[] = [];
-  const [ox, oy, oz] = h.origin;
-  if (ox !== h.tileI * TILE || oy !== 0 || oz !== h.tileJ * TILE) errs.push(`origin (${ox},${oy},${oz}) != (i*62.5, 0, j*62.5)`);
-  const p = tile.positions;
-  const eps = 1e-3;
-  for (let t = 0; t < tile.indices.length; t++) {
-    const v = tile.indices[t];
-    for (let c = 0; c < 3; c++) {
-      const x = p[v * 3 + c];
-      if (x < h.bboxMin[c] - eps || x > h.bboxMax[c] + eps) {
-        errs.push('bbox does not contain all vertices');
-        t = tile.indices.length;
-        break;
-      }
-    }
-  }
-  let needFix = false;
-  for (const m of tile.materials) if (materialHasFlag(m, MAT_FLAG.FIX_EDGES)) { needFix = true; break; }
-  if (needFix && !(h.flags & COL_FLAG.FIX_INTERNAL_EDGES)) errs.push('FIX_EDGES material present but FIX_INTERNAL_EDGES flag not set');
-  let degenerate = 0;
-  for (let t = 0; t < h.triangleCount; t++) {
-    const a = tile.indices[t * 3], b = tile.indices[t * 3 + 1], c = tile.indices[t * 3 + 2];
-    const ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2];
-    const vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2];
-    const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
-    if (area < 1e-6) degenerate++;
-  }
-  if (degenerate) errs.push(`${degenerate} degenerate triangles`);
-  return errs;
 }
 
 interface Station {

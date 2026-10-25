@@ -11,19 +11,49 @@ The clip bbox is the area core + margin + OSM_EXTRA_M (context for the road grap
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 
 from .. import config
-from .common import Registry, atomic_write_text, curl_download, curl_head, http_get, kind_dir, sha256_file
+from .common import (
+    Registry,
+    atomic_write_text,
+    curl_download,
+    curl_head,
+    http_get,
+    kind_dir,
+)
 from .sources import GEOFABRIK_FINLAND
 
 OSM_EXTRA_M = 100.0
-TAG_COLUMNS = ("highway", "building", "building:levels", "roof:shape", "height", "name", "surface", "barrier",
-               "kerb", "amenity", "shop", "natural", "landuse", "leisure", "railway", "lanes", "oneway",
-               "maxspeed", "crossing", "entrance", "addr:street", "addr:housenumber", "step_count", "layer")
+TAG_COLUMNS = (
+    "highway",
+    "building",
+    "building:levels",
+    "roof:shape",
+    "height",
+    "name",
+    "surface",
+    "barrier",
+    "kerb",
+    "amenity",
+    "shop",
+    "natural",
+    "landuse",
+    "leisure",
+    "railway",
+    "lanes",
+    "oneway",
+    "maxspeed",
+    "crossing",
+    "entrance",
+    "addr:street",
+    "addr:housenumber",
+    "step_count",
+    "layer",
+)
 
 
 def resolve_dated_url(url: str = GEOFABRIK_FINLAND) -> dict:
@@ -58,8 +88,14 @@ def fetch_finland(log=print) -> Path:
         return dest
     md5_body, _ = http_get(h["url"] + ".md5")
     md5 = md5_body.decode().split()[0]
-    rec, now = curl_download(h["url"], dest, reg, expected_bytes=h["content_length"],
-                             last_modified=h["last_modified"], md5=md5)
+    rec, now = curl_download(
+        h["url"],
+        dest,
+        reg,
+        expected_bytes=h["content_length"],
+        last_modified=h["last_modified"],
+        md5=md5,
+    )
     with dest.open("rb") as stream:
         got = hashlib.file_digest(stream, "md5").hexdigest()
     if got != md5:
@@ -80,10 +116,25 @@ def clip(area: config.Area, src: Path, log=print) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     bb = wgs84_bbox(area)
     tmp = out.with_name(out.name + ".tmp.osm.pbf")
-    subprocess.run(["osmium", "extract", "--strategy", "smart", "-b", ",".join(f"{v:.6f}" for v in bb),
-                    "--overwrite", "-o", str(tmp), str(src)], check=True)
+    subprocess.run(
+        [
+            "osmium",
+            "extract",
+            "--strategy",
+            "smart",
+            "-b",
+            ",".join(f"{v:.6f}" for v in bb),
+            "--overwrite",
+            "-o",
+            str(tmp),
+            str(src),
+        ],
+        check=True,
+    )
     tmp.replace(out)
-    reg.record(out, url=None, source=src.name, bbox_wgs84=list(bb), source_sha256=reg.get(src)["sha256"])
+    reg.record(
+        out, url=None, source=src.name, bbox_wgs84=list(bb), source_sha256=reg.get(src)["sha256"]
+    )
     log(f"osm  clip {out.name}: {out.stat().st_size / 1e3:.0f} kB")
     return out
 
@@ -101,8 +152,22 @@ def to_parquet(clip_pbf: Path, log=print) -> tuple[Path, dict]:
     if reg.is_complete(out) and summ_path.exists():
         log(f"osm  {out.name}: cached")
         return out, json.loads(summ_path.read_text())
-    seq = subprocess.run(["osmium", "export", "-f", "geojsonseq", "-a", "type,id", "--overwrite",
-                          "-o", "-", str(clip_pbf)], check=True, capture_output=True).stdout
+    seq = subprocess.run(
+        [
+            "osmium",
+            "export",
+            "-f",
+            "geojsonseq",
+            "-a",
+            "type,id",
+            "--overwrite",
+            "-o",
+            "-",
+            str(clip_pbf),
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
     recs = []
     for line in seq.split(b"\n"):
         line = line.strip().lstrip(b"\x1e")
@@ -111,20 +176,33 @@ def to_parquet(clip_pbf: Path, log=print) -> tuple[Path, dict]:
         f = json.loads(line)
         props = dict(f.get("properties") or {})
         typ, oid = props.pop("@type", ""), props.pop("@id", "")
-        recs.append({"osm_type": typ, "osm_id": int(oid) if str(oid).isdigit() else oid,
-                     "tags": json.dumps(props, ensure_ascii=False, sort_keys=True),
-                     **{k: props.get(k) for k in TAG_COLUMNS}, "geometry": shape(f["geometry"])})
-    gdf = gpd.GeoDataFrame(recs, geometry="geometry", crs=config.CRS_WGS84).to_crs(config.CRS_HORIZONTAL)
+        recs.append(
+            {
+                "osm_type": typ,
+                "osm_id": int(oid) if str(oid).isdigit() else oid,
+                "tags": json.dumps(props, ensure_ascii=False, sort_keys=True),
+                **{k: props.get(k) for k in TAG_COLUMNS},
+                "geometry": shape(f["geometry"]),
+            }
+        )
+    gdf = gpd.GeoDataFrame(recs, geometry="geometry", crs=config.CRS_WGS84).to_crs(
+        config.CRS_HORIZONTAL
+    )
     gdf["geometry_local"] = gpd.GeoSeries(to_local(gdf.geometry.values), crs=None)
     tmp = out.with_name(out.name + ".tmp")
     gdf.to_parquet(tmp, index=False)
     tmp.replace(out)
     reg.record(out, url=None, source=clip_pbf.name)
-    info = subprocess.run(["osmium", "fileinfo", "-e", "-j", str(clip_pbf)], check=True, capture_output=True,
-                          text=True).stdout
+    info = subprocess.run(
+        ["osmium", "fileinfo", "-e", "-j", str(clip_pbf)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
     fi = json.loads(info)
     s = {
-        "clip": clip_pbf.name, "rows": int(len(gdf)),
+        "clip": clip_pbf.name,
+        "rows": int(len(gdf)),
         "by_geom_type": {k: int(v) for k, v in gdf.geom_type.value_counts().items()},
         "objects": fi.get("data", {}).get("count", {}),
         "timestamp_last": fi.get("data", {}).get("timestamp", {}).get("last"),

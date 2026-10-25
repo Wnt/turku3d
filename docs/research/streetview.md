@@ -225,7 +225,7 @@ Tested [VERIFIED]: `depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf` vi
 
 ### 3.5 Pano pose refinement against lidar [VERIFIED, 1 pano]
 First attempt (`scripts/pose.py`): render the airborne lidar into an equirect range map and compare it with Google depth. **It does not work well.**
-- Airborne lidar has very few facade points, so roofs are seen "through" walls (`streetview/lidar_vs_pano_overlay.jpg`).
+- Airborne lidar has very few facade points, so roofs are seen "through" walls (`~/turku3d/research/w0-gate/docs/research/streetview/lidar_vs_pano_overlay.jpg`).
 - Google depth is only planes.
 - The optimum hit the search border.
 

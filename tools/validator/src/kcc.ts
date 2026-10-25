@@ -13,8 +13,8 @@
 
 import { CHARACTER_FILTER, GROUP, groups } from '../../../game/src/shared/col/index.ts';
 
-export const DT = 1 / 60;
-export const GRAVITY = 9.81;
+const DT = 1 / 60;
+const GRAVITY = 9.81;
 
 export interface KccConfig {
   radius: number;

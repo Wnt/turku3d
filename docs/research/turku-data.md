@@ -197,7 +197,7 @@ Contact sheet: `img/sheet.jpg`.
   - I cloned `https://github.com/retroplasma/earth-reverse-engineering` (exporter, Node) to `~/turku3d/research/turku-data/google/ere/`.
   - `node lat_long_to_octant.js 60.4512 22.2690` finds octants down to level 18 (`306061717372725073`).
   - `node dump_obj.js 30606171737272507 20` exported **143 octants at level 20**: 527 k vertices, 310 k faces, 197 texture atlases (256–512 px), 66 MB.
-- **Blender render** (`img/gmesh_render.png`, script `scratchpad/render_obj.py`) shows a real textured photogrammetry mesh with facades, trees and parked cars. **Kauppatori is a construction site in it**, which fits ~2022 capture. The atlases (`img/gtex.jpg`) contain oblique facade fragments, as expected for photogrammetry.
+- **Blender render** (`~/turku3d/research/w0-gate/docs/research/img/gmesh_render.png`, script `scratchpad/render_obj.py`) shows a real textured photogrammetry mesh with facades, trees and parked cars. **Kauppatori is a construction site in it**, which fits ~2022 capture. The atlases (`img/gtex.jpg`) contain oblique facade fragments, as expected for photogrammetry.
 - **Official API:** Photorealistic 3D Tiles (`https://tile.googleapis.com/v1/3dtiles/root.json?key=…`) serves the same Google Earth mesh in glTF/3D Tiles. It needs a Map Tiles API key with billing. [UNVERIFIED: no key available; the coverage list did not name Finland in the search results]
 - **Browser fit:** this is the only ready-made photoreal mesh for Turku. Streaming it at runtime works with `3d-tiles-renderer` (NASA-AMMOS) in three.js, or with CesiumJS. [UNVERIFIED in this run]
 - **Limits:**

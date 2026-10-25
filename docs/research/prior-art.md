@@ -75,7 +75,7 @@ bin/roofer --srs EPSG:3877 --lod12 --lod22 -j 10 data/23459500_6705000.laz data/
 - **Converted with `scripts/cjseq2glb.py`:**
   - LoD2.2: 10,038 polygons and 31,670 triangles, 579 KB glb.
   - LoD1.2: 6.6k triangles, 123 KB.
-- **In Chrome:** three.js `GLTFLoader` loads the LoD2.2 glb in 11 ms. See `prior-art-assets/roofer_lod22.png`: ridges, dormers, inner courtyards and the church dome are all recognisable.
+- **In Chrome:** three.js `GLTFLoader` loads the LoD2.2 glb in 11 ms. See `~/turku3d/research/w0-gate/docs/research/prior-art-assets/roofer_lod22.png`: ridges, dormers, inner courtyards and the church dome are all recognisable.
 - **Caveat:** my converter uses fan triangulation, which produces wrong wedges on concave faces (visible in the screenshot). Use earcut or CGAL, or `cjio export glb`, in the real pipeline.
 - **Verdict:** this is the strongest reusable component. It is GPL-3.0, which is fine for private use. It builds buildings only: no facades, textures, terrain or curbs.
 
@@ -93,7 +93,7 @@ npx gltf-transform optimize block.glb block_opt.glb --compress meshopt --texture
   - Buildings with roof shapes, levels and 3D window geometry at LOD4.
   - Roads with markings, sidewalks and crossings.
   - Trees, street lamps, fences, parked cars and bollards.
-- **In Chrome:** it loads in about 0.3 s from localhost and uses 154 MB of JS heap. Screenshots: `prior-art-assets/osm2world_block.png` (aerial) and `osm2world_street.png` (street level).
+- **In Chrome:** it loads in about 0.3 s from localhost and uses 154 MB of JS heap. Screenshots: `~/turku3d/research/w0-gate/docs/research/prior-art-assets/osm2world_block.png` (aerial) and `osm2world_street.png` (street level).
   - The world is **flat**: terrain is optional through SRTM, which is far too coarse for us.
   - Facades are generic and kerbs are not visibly stepped.
 - **Also VERIFIED:**

@@ -16,6 +16,7 @@ Research gotchas applied (docs/research/streetview.md, Verification):
   - Google `elevation` is orthometric camera height (N2000-like); ground = elevation - camera height
     of the capture campaign (CAMERA_HEIGHT_BY_YEAR, n = 168 panos).
 """
+
 from __future__ import annotations
 
 import json
@@ -26,7 +27,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-
 from turku3d import config
 
 from ..paths import streetview_dir
@@ -52,7 +52,7 @@ def camera_height(source: str, date: str | None) -> float:
 
 
 def z17_tile(lat: float, lon: float) -> tuple[int, int]:
-    n = 2 ** 17
+    n = 2**17
     x = int((lon + 180) / 360 * n)
     y = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n)
     return x, y
@@ -63,20 +63,22 @@ def _date_str(d) -> str | None:
         return None
     if hasattr(d, "year") and hasattr(d, "month"):
         day = getattr(d, "day", None)
-        return f"{d.year:04d}-{d.month:02d}" + (f"-{day:02d}" if isinstance(day, int) and hasattr(d, "hour") else "")
+        return f"{d.year:04d}-{d.month:02d}" + (
+            f"-{day:02d}" if isinstance(day, int) and hasattr(d, "hour") else ""
+        )
     return str(d)
 
 
 @dataclass
 class PanoMeta:
-    source: str           # google | lookaround
+    source: str  # google | lookaround
     id: str
     lat: float
     lon: float
     E: float
     N: float
     elevation: float | None
-    heading_rad: float    # see camera.EquirectModel for how each source maps to columns
+    heading_rad: float  # see camera.EquirectModel for how each source maps to columns
     pitch_rad: float
     roll_rad: float
     date: str | None
@@ -91,18 +93,54 @@ class PanoMeta:
         return None if self.elevation is None else self.elevation - self.cam_height
 
     def to_dict(self):
-        return {"source": self.source, "id": self.id, "lat": self.lat, "lon": self.lon, "E": self.E, "N": self.N,
-                "elevation": self.elevation, "heading_rad": self.heading_rad, "pitch_rad": self.pitch_rad,
-                "roll_rad": self.roll_rad, "date": self.date, "cam_height": self.cam_height,
-                "ground_h": self.ground_h, **self.extra}
+        return {
+            "source": self.source,
+            "id": self.id,
+            "lat": self.lat,
+            "lon": self.lon,
+            "E": self.E,
+            "N": self.N,
+            "elevation": self.elevation,
+            "heading_rad": self.heading_rad,
+            "pitch_rad": self.pitch_rad,
+            "roll_rad": self.roll_rad,
+            "date": self.date,
+            "cam_height": self.cam_height,
+            "ground_h": self.ground_h,
+            **self.extra,
+        }
 
     @staticmethod
-    def from_dict(d: dict) -> "PanoMeta":
-        known = {"source", "id", "lat", "lon", "E", "N", "elevation", "heading_rad", "pitch_rad", "roll_rad", "date",
-                 "cam_height", "ground_h"}
-        return PanoMeta(d["source"], d["id"], d["lat"], d["lon"], d["E"], d["N"], d.get("elevation"),
-                        d["heading_rad"], d.get("pitch_rad", 0.0), d.get("roll_rad", 0.0), d.get("date"),
-                        {k: v for k, v in d.items() if k not in known})
+    def from_dict(d: dict) -> PanoMeta:
+        known = {
+            "source",
+            "id",
+            "lat",
+            "lon",
+            "E",
+            "N",
+            "elevation",
+            "heading_rad",
+            "pitch_rad",
+            "roll_rad",
+            "date",
+            "cam_height",
+            "ground_h",
+        }
+        return PanoMeta(
+            d["source"],
+            d["id"],
+            d["lat"],
+            d["lon"],
+            d["E"],
+            d["N"],
+            d.get("elevation"),
+            d["heading_rad"],
+            d.get("pitch_rad", 0.0),
+            d.get("roll_rad", 0.0),
+            d.get("date"),
+            {k: v for k, v in d.items() if k not in known},
+        )
 
 
 class PanoCache:
@@ -115,6 +153,7 @@ class PanoCache:
     # ------------------------------ Google ------------------------------
     def google_coverage(self, lat: float, lon: float) -> list[dict]:
         from .sl import streetview
+
         x, y = z17_tile(lat, lon)
         f = self.root / "coverage" / f"google_z17_{x}_{y}.json"
         if f.exists():
@@ -131,6 +170,7 @@ class PanoCache:
         if f.exists():
             return PanoMeta.from_dict(json.loads(f.read_text()))
         from .sl import streetview
+
         d.mkdir(parents=True, exist_ok=True)
         pano, depth_err = None, None
         try:
@@ -141,21 +181,37 @@ class PanoCache:
         time.sleep(self.sleep)
         if pano is None:
             return None
-        has_depth = getattr(pano, "depth", None) is not None and getattr(pano.depth, "data", None) is not None
+        has_depth = (
+            getattr(pano, "depth", None) is not None
+            and getattr(pano.depth, "data", None) is not None
+        )
         if has_depth:
             np.save(d / "depth.npy", np.asarray(pano.depth.data, dtype=np.float32))
         E, N = config.wgs84_to_en(pano.lat, pano.lon)
         hist = [{"id": h.id, "date": _date_str(h.date)} for h in (pano.historical or [])]
-        m = PanoMeta("google", pano.id, pano.lat, pano.lon, float(E), float(N),
-                     None if pano.elevation is None else float(pano.elevation),
-                     float(pano.heading or 0.0), float(pano.pitch or 0.0), float(pano.roll or 0.0),
-                     _date_str(pano.date),
-                     {"historical": hist, "has_depth": has_depth, "depth_error": depth_err,
-                      "depth_orientation": "raw streetlevel; apply np.fliplr to match the image",
-                      "image_sizes": [[s.x, s.y] for s in (pano.image_sizes or [])],
-                      "address": [str(a.value) for a in (pano.address or [])] if pano.address else None,
-                      "source_kind": str(pano.source) if pano.source else None,
-                      "copyright": pano.copyright_message})
+        m = PanoMeta(
+            "google",
+            pano.id,
+            pano.lat,
+            pano.lon,
+            float(E),
+            float(N),
+            None if pano.elevation is None else float(pano.elevation),
+            float(pano.heading or 0.0),
+            float(pano.pitch or 0.0),
+            float(pano.roll or 0.0),
+            _date_str(pano.date),
+            {
+                "historical": hist,
+                "has_depth": has_depth,
+                "depth_error": depth_err,
+                "depth_orientation": "raw streetlevel; apply np.fliplr to match the image",
+                "image_sizes": [[s.x, s.y] for s in (pano.image_sizes or [])],
+                "address": [str(a.value) for a in (pano.address or [])] if pano.address else None,
+                "source_kind": str(pano.source) if pano.source else None,
+                "copyright": pano.copyright_message,
+            },
+        )
         f.write_text(json.dumps(m.to_dict(), indent=1, ensure_ascii=False))
         return m
 
@@ -164,7 +220,9 @@ class PanoCache:
         m = self.google_meta(pid)
         if m is None:
             return None
-        cands = [(m.date or "", m.id)] + [(h["date"] or "", h["id"]) for h in m.extra.get("historical", [])]
+        cands = [(m.date or "", m.id)] + [
+            (h["date"] or "", h["id"]) for h in m.extra.get("historical", [])
+        ]
         date, nid = max(cands)
         return m if nid == m.id else (self.google_meta(nid) or m)
 
@@ -177,6 +235,7 @@ class PanoCache:
         if f.exists():
             return f
         from .sl import streetview
+
         pano = streetview.find_panorama_by_id(pid, download_depth=False)
         img = streetview.get_panorama(pano, zoom=zoom)
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -187,6 +246,7 @@ class PanoCache:
     # ------------------------------ Look Around ------------------------------
     def lookaround_coverage(self, lat: float, lon: float) -> list[PanoMeta]:
         from .sl import lookaround
+
         x, y = z17_tile(lat, lon)
         f = self.root / "coverage" / f"lookaround_z17_{x}_{y}.json"
         if f.exists():
@@ -195,20 +255,46 @@ class PanoCache:
         res = []
         for p in tile.panos:
             E, N = config.wgs84_to_en(p.lat, p.lon)
-            cams = [{"fov_s": c.lens_projection.fov_s, "fov_h": c.lens_projection.fov_h,
-                     "cx": c.lens_projection.cx, "cy": c.lens_projection.cy,
-                     "yaw": c.position.yaw, "pitch": c.position.pitch, "roll": c.position.roll}
-                    for c in (p.camera_metadata or [])]
-            res.append(PanoMeta("lookaround", str(p.id), p.lat, p.lon, float(E), float(N), float(p.elevation),
-                                float(p.heading), float(p.pitch), float(p.roll), _date_str(p.date),
-                                {"build_id": p.build_id, "coverage_type": str(p.coverage_type), "cameras": cams,
-                                 "heading_convention": "streetlevel: 0 = north, 90 deg = west (CCW)"}))
+            cams = [
+                {
+                    "fov_s": c.lens_projection.fov_s,
+                    "fov_h": c.lens_projection.fov_h,
+                    "cx": c.lens_projection.cx,
+                    "cy": c.lens_projection.cy,
+                    "yaw": c.position.yaw,
+                    "pitch": c.position.pitch,
+                    "roll": c.position.roll,
+                }
+                for c in (p.camera_metadata or [])
+            ]
+            res.append(
+                PanoMeta(
+                    "lookaround",
+                    str(p.id),
+                    p.lat,
+                    p.lon,
+                    float(E),
+                    float(N),
+                    float(p.elevation),
+                    float(p.heading),
+                    float(p.pitch),
+                    float(p.roll),
+                    _date_str(p.date),
+                    {
+                        "build_id": p.build_id,
+                        "coverage_type": str(p.coverage_type),
+                        "cameras": cams,
+                        "heading_convention": "streetlevel: 0 = north, 90 deg = west (CCW)",
+                    },
+                )
+            )
         f.write_text(json.dumps([m.to_dict() for m in res], indent=0))
         time.sleep(self.sleep)
         return res
 
     def lookaround_faces(self, m: PanoMeta, zoom: int = 1) -> list[Path]:
         from .sl import lookaround
+
         d = self.root / "lookaround" / m.id
         d.mkdir(parents=True, exist_ok=True)
         (d / "meta.json").write_text(json.dumps(m.to_dict(), indent=1))
@@ -218,7 +304,11 @@ class PanoCache:
             if not f.exists():
                 if self._auth is None:
                     self._auth = lookaround.Authenticator()
-                f.write_bytes(lookaround.get_panorama_face((int(m.id), int(m.extra["build_id"])), k, zoom, self._auth))
+                f.write_bytes(
+                    lookaround.get_panorama_face(
+                        (int(m.id), int(m.extra["build_id"])), k, zoom, self._auth
+                    )
+                )
                 time.sleep(self.sleep)
             out.append(f)
         return out
@@ -230,6 +320,7 @@ class PanoCache:
         if f.exists():
             return f
         from pillow_heif import register_heif_opener
+
         register_heif_opener()
         faces = [Image.open(p).convert("RGB") for p in self.lookaround_faces(m, zoom)]
         cams = m.extra["cameras"]

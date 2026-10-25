@@ -1,7 +1,6 @@
 import math
 
 import numpy as np
-
 from turkutex.streetview import camera as C
 from turkutex.streetview.facades import Facade, merge_edges, point_in_ring, street_facades
 from turkutex.streetview.panos import PanoMeta, camera_height, z17_tile
@@ -11,11 +10,15 @@ from turkutex.streetview.refs import SelectParams, _sub_facade, select
 def synthetic_equirect(W=2048, H=1024, heading=1.0, marker_az=30.0, marker_el=10.0):
     img = np.zeros((H, W, 3), np.uint8)
     m = C.EquirectModel(heading)
-    d = np.array([math.sin(math.radians(marker_az)) * math.cos(math.radians(marker_el)),
-                  math.cos(math.radians(marker_az)) * math.cos(math.radians(marker_el)),
-                  math.sin(math.radians(marker_el))])
+    d = np.array(
+        [
+            math.sin(math.radians(marker_az)) * math.cos(math.radians(marker_el)),
+            math.cos(math.radians(marker_az)) * math.cos(math.radians(marker_el)),
+            math.sin(math.radians(marker_el)),
+        ]
+    )
     u, v = m.uv_from_dir(d, W, H)
-    img[int(v) - 6:int(v) + 7, int(u) - 6:int(u) + 7] = (255, 0, 0)
+    img[int(v) - 6 : int(v) + 7, int(u) - 6 : int(u) + 7] = (255, 0, 0)
     return img, m, float(u), float(v)
 
 
@@ -44,7 +47,7 @@ def test_render_centres_target():
 def test_project_matches_rays():
     cam = C.PerspectiveCam(np.array([10.0, 20.0, 2.0]), 123.0, -5.0, 70.0, 320, 200)
     rays = cam.rays()
-    for (r, c) in [(0, 0), (199, 319), (100, 160), (37, 250)]:
+    for r, c in [(0, 0), (199, 319), (100, 160), (37, 250)]:
         p = cam.pos + rays[r, c] * 17.0
         px = cam.project(p[None])[0]
         assert abs(px[0] - (c + 0.5)) < 1e-6 and abs(px[1] - (r + 0.5)) < 1e-6
@@ -80,8 +83,17 @@ def test_merge_edges_and_street_facades():
     runs = merge_edges(ring)
     lens = sorted(round(float(np.linalg.norm(ring[b] - ring[a])), 1) for a, b in runs)
     assert lens == [10.0, 10.0, 16.0, 16.0]
-    fps = [{"id": "A", "ring": ring, "floors": 2, "address": "X 1", "material": None, "year": None},
-           {"id": "B", "ring": square(-30, 0), "floors": 1, "address": "Y", "material": None, "year": None}]
+    fps = [
+        {"id": "A", "ring": ring, "floors": 2, "address": "X 1", "material": None, "year": None},
+        {
+            "id": "B",
+            "ring": square(-30, 0),
+            "floors": 1,
+            "address": "Y",
+            "material": None,
+            "year": None,
+        },
+    ]
     streets = [{"name": "Main", "kind": "x", "line": np.array([[-50.0, -6.0], [50.0, -6.0]])}]
     fs = street_facades(fps, streets)
     a = [f for f in fs if f.props["building_id"] == "A"]
@@ -91,11 +103,29 @@ def test_merge_edges_and_street_facades():
 
 
 def test_blocked_facade_is_not_street_facing():
-    fps = [{"id": "A", "ring": square(0, 0), "floors": 1, "address": None, "material": None, "year": None},
-           {"id": "B", "ring": square(0, -14), "floors": 1, "address": None, "material": None, "year": None}]
+    fps = [
+        {
+            "id": "A",
+            "ring": square(0, 0),
+            "floors": 1,
+            "address": None,
+            "material": None,
+            "year": None,
+        },
+        {
+            "id": "B",
+            "ring": square(0, -14),
+            "floors": 1,
+            "address": None,
+            "material": None,
+            "year": None,
+        },
+    ]
     streets = [{"name": "S", "kind": "x", "line": np.array([[-50.0, -20.0], [50.0, -20.0]])}]
     fs = street_facades(fps, streets)
-    assert not any(f.props["building_id"] == "A" and abs(f.normal_azimuth_deg - 180) < 5 for f in fs)
+    assert not any(
+        f.props["building_id"] == "A" and abs(f.normal_azimuth_deg - 180) < 5 for f in fs
+    )
     assert any(f.props["building_id"] == "B" and abs(f.normal_azimuth_deg - 180) < 5 for f in fs)
 
 
@@ -109,16 +139,26 @@ def test_camera_height_by_campaign():
 
 def _ev(pid, E, N, part, ang, score, sec=(0, 10)):
     m = PanoMeta("google", pid, 0, 0, E, N, 7.0, 0, 0, 0, "2026-07", {})
-    return {"meta": m, "part": part, "signed_angle_deg": ang, "score": score, "section_m": list(sec)}
+    return {
+        "meta": m,
+        "part": part,
+        "signed_angle_deg": ang,
+        "score": score,
+        "section_m": list(sec),
+    }
 
 
 def test_select_diversity_and_full_view():
     P = SelectParams(max_views=3)
-    evs = [_ev("a", 0, -10, "partial", 0, 0.9, (0, 8)), _ev("b", 1, -10, "partial", 2, 0.85, (1, 9)),
-           _ev("c", 20, -10, "partial", 30, 0.6, (12, 20)), _ev("d", 0, -40, "full", 5, 0.3, (0, 30)),
-           _ev("e", 2, -41, "full", 6, 0.29, (0, 30))]
+    evs = [
+        _ev("a", 0, -10, "partial", 0, 0.9, (0, 8)),
+        _ev("b", 1, -10, "partial", 2, 0.85, (1, 9)),
+        _ev("c", 20, -10, "partial", 30, 0.6, (12, 20)),
+        _ev("d", 0, -40, "full", 5, 0.3, (0, 30)),
+        _ev("e", 2, -41, "full", 6, 0.29, (0, 30)),
+    ]
     ch = [e["meta"].id for e in select(evs, P)]
-    assert ch[0] == "d"           # a full view is always included when one exists
+    assert ch[0] == "d"  # a full view is always included when one exists
     assert "a" in ch and "c" in ch and "b" not in ch and "e" not in ch
 
 

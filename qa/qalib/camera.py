@@ -13,6 +13,7 @@ three.js equivalent (engine x = E-E0, y = H, z = -(N-N0)):
   camera.position.set(E-E0, H, -(N-N0)); camera.rotation.order = 'YXZ';
   camera.rotation.set(rad(pitch), -rad(yaw), -rad(roll)); camera.fov = fov; camera.aspect = W/H
 """
+
 from __future__ import annotations
 
 import math

@@ -7,12 +7,13 @@ $CODEX_HOME/generated_images/<thread_id>/, the image_gen call as a JS `exec` cus
 Prompt keywords: GENERATE (1 image), TWICE (2 images), FAIL (exit 1), NOJSON (non-JSON answer).
 Every invocation is appended to $FAKE_CODEX_LOG.
 """
+
 import json
 import os
+import struct
 import sys
 import uuid
 import zlib
-import struct
 from pathlib import Path
 
 
@@ -21,8 +22,13 @@ def png(path: Path, w=8, h=4, rgb=(200, 100, 50)):
 
     def chunk(t, d):
         return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-                     + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
 
 
 def main():
@@ -33,7 +39,24 @@ def main():
             m = json.loads(line)
             if m.get("method") == "account/rateLimits/read":
                 pct = int(os.environ.get("FAKE_USAGE", "5"))
-                print(json.dumps({"id": m["id"], "result": {"rateLimits": {"primary": {"usedPercent": pct, "windowDurationMins": 10080, "resetsAt": 0}, "planType": "pro"}}}), flush=True)
+                print(
+                    json.dumps(
+                        {
+                            "id": m["id"],
+                            "result": {
+                                "rateLimits": {
+                                    "primary": {
+                                        "usedPercent": pct,
+                                        "windowDurationMins": 10080,
+                                        "resetsAt": 0,
+                                    },
+                                    "planType": "pro",
+                                }
+                            },
+                        }
+                    ),
+                    flush=True,
+                )
             elif "id" in m:
                 print(json.dumps({"id": m["id"], "result": {}}), flush=True)
         return 0
@@ -55,30 +78,77 @@ def main():
     ses = home / "sessions" / "2026" / "10" / "25"
     ses.mkdir(parents=True, exist_ok=True)
     gen = home / "generated_images" / tid
-    rows = [{"type": "session_meta", "payload": {"id": tid, "cwd": cwd}},
-            {"type": "turn_context", "payload": {"model": a[a.index("-m") + 1]}}]
+    rows = [
+        {"type": "session_meta", "payload": {"id": tid, "cwd": cwd}},
+        {"type": "turn_context", "payload": {"model": a[a.index("-m") + 1]}},
+    ]
     n = 2 if "TWICE" in prompt else (1 if "GENERATE" in prompt else 0)
     for k in range(n):
         gen.mkdir(parents=True, exist_ok=True)
         f = gen / f"exec-{uuid.uuid4()}.png"
         png(f, rgb=(10 * k, 100, 50))
         os.utime(f, (1000 + k, 1000 + k))
-        js = ('// @exec: {"yield_time_ms": 120000}\nconst r = await tools.image_gen__imagegen({referenced_image_paths:'
-              + json.dumps(imgs) + ',prompt:' + json.dumps(f"fake prompt {k}: {prompt[:40]}") + '});')
-        rows.append({"type": "response_item", "payload": {"type": "custom_tool_call", "call_id": f"c{k}", "name": "exec", "input": js}})
+        js = (
+            '// @exec: {"yield_time_ms": 120000}\nconst r = await tools.image_gen__imagegen({referenced_image_paths:'
+            + json.dumps(imgs)
+            + ",prompt:"
+            + json.dumps(f"fake prompt {k}: {prompt[:40]}")
+            + "});"
+        )
+        rows.append(
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "custom_tool_call",
+                    "call_id": f"c{k}",
+                    "name": "exec",
+                    "input": js,
+                },
+            }
+        )
         if k == n - 1 or "TWICE" not in prompt:
-            rows.append({"type": "response_item", "payload": {"type": "custom_tool_call_output", "call_id": f"c{k}", "output": [
-                {"type": "input_text", "text": "Script completed"},
-                {"type": "input_text", "text": f"Generated images are saved to {gen} as {f} by default."}]}})
+            rows.append(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "custom_tool_call_output",
+                        "call_id": f"c{k}",
+                        "output": [
+                            {"type": "input_text", "text": "Script completed"},
+                            {
+                                "type": "input_text",
+                                "text": f"Generated images are saved to {gen} as {f} by default.",
+                            },
+                        ],
+                    },
+                }
+            )
     ans = {"facade_id": "x", "bays": 5} if schema else {"notes": "ok"}
     msg = "this is not json" if "NOJSON" in prompt else json.dumps(ans)
-    rows.append({"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 1000, "output_tokens": 10}},
-                                                  "rate_limits": {"primary": {"used_percent": 1.5}}}})
-    rows.append({"type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": msg}})
-    (ses / f"rollout-2026-10-25T00-00-00-{tid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    rows.append(
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {"total_token_usage": {"input_tokens": 1000, "output_tokens": 10}},
+                "rate_limits": {"primary": {"used_percent": 1.5}},
+            },
+        }
+    )
+    rows.append(
+        {"type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": msg}}
+    )
+    (ses / f"rollout-2026-10-25T00-00-00-{tid}.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows)
+    )
     if out_last:
         Path(out_last).write_text(msg)
-    print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1000, "output_tokens": 10}}), flush=True)
+    print(
+        json.dumps(
+            {"type": "turn.completed", "usage": {"input_tokens": 1000, "output_tokens": 10}}
+        ),
+        flush=True,
+    )
     return 0
 
 

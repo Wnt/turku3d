@@ -34,7 +34,7 @@ CURL_RETRY, CURL_RETRY_DELAY = 8, 5  # curl --retry / --retry-delay (tests lower
 
 
 def now_iso() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
+    return _dt.datetime.now(_dt.UTC).replace(microsecond=0).isoformat()
 
 
 def sha256_file(path: Path, bufsize: int = 1 << 22) -> str:
@@ -159,8 +159,13 @@ class Registry:
 # --------------------------------------------------------------------------------------
 
 
-def http_get(url: str, params: dict | None = None, headers: dict | None = None,
-             timeout: int = HTTP_TIMEOUT, retries: int = RETRIES) -> tuple[bytes, dict]:
+def http_get(
+    url: str,
+    params: dict | None = None,
+    headers: dict | None = None,
+    timeout: int = HTTP_TIMEOUT,
+    retries: int = RETRIES,
+) -> tuple[bytes, dict]:
     """GET with retries/backoff. Returns (body, lower-cased headers). Raises on final failure."""
     if params:
         url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
@@ -169,25 +174,45 @@ def http_get(url: str, params: dict | None = None, headers: dict | None = None,
     last: Exception | None = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+            with urllib.request.urlopen(
+                urllib.request.Request(url, headers=h), timeout=timeout
+            ) as r:
                 body = r.read()
                 return body, {k.lower(): v for k, v in r.headers.items()}
         # http.client.HTTPException covers IncompleteRead (connection dropped mid-body), which is not an
         # OSError and used to escape the retry loop on the first truncated response.
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, http.client.HTTPException) as e:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionError,
+            OSError,
+            http.client.HTTPException,
+        ) as e:
             last = e
             if isinstance(e, urllib.error.HTTPError) and e.code in (400, 401, 403, 404):
                 raise
             if attempt + 1 < retries:
-                time.sleep(min(60, 2 ** attempt))
+                time.sleep(min(60, 2**attempt))
     raise RuntimeError(f"GET failed after {retries} attempts: {url}: {last}")
 
 
 def curl_head(url: str) -> dict:
     """HEAD following redirects; returns final status, url, content-length, last-modified, etag."""
     out = subprocess.run(
-        ["curl", "-sSIL", "--retry", "3", "-A", USER_AGENT, "-w", "\n__FINAL__ %{http_code} %{url_effective}\n", url],
-        check=True, capture_output=True, text=True,
+        [
+            "curl",
+            "-sSIL",
+            "--retry",
+            "3",
+            "-A",
+            USER_AGENT,
+            "-w",
+            "\n__FINAL__ %{http_code} %{url_effective}\n",
+            url,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     # headers of the last response only
     blocks = [b for b in out.split("\r\n\r\n") if b.strip()]
@@ -209,8 +234,14 @@ def curl_head(url: str) -> dict:
     }
 
 
-def curl_download(url: str, dest: Path, reg: Registry, expected_bytes: int | None = None,
-                  verify: bool = False, **meta) -> tuple[dict, bool]:
+def curl_download(
+    url: str,
+    dest: Path,
+    reg: Registry,
+    expected_bytes: int | None = None,
+    verify: bool = False,
+    **meta,
+) -> tuple[dict, bool]:
     """Resumable `curl -L -C -` download into dest (via dest.part), then sha256 + registry record.
 
     Returns (record, downloaded_now). Skips if already complete. If the server reports a size and the
@@ -231,8 +262,21 @@ def curl_download(url: str, dest: Path, reg: Registry, expected_bytes: int | Non
     if part.exists() and expected_bytes is not None and part.stat().st_size > expected_bytes:
         part.unlink()
     if not (part.exists() and expected_bytes is not None and part.stat().st_size == expected_bytes):
-        base = ["curl", "-fL", "-sS", "--retry", str(CURL_RETRY), "--retry-delay", str(CURL_RETRY_DELAY),
-                "--retry-all-errors", "-A", USER_AGENT, "-o", str(part), url]
+        base = [
+            "curl",
+            "-fL",
+            "-sS",
+            "--retry",
+            str(CURL_RETRY),
+            "--retry-delay",
+            str(CURL_RETRY_DELAY),
+            "--retry-all-errors",
+            "-A",
+            USER_AGENT,
+            "-o",
+            str(part),
+            url,
+        ]
         # Resume only when there is something to resume. curl exit 33 means the server ignored the Range
         # request: the .part cannot be trusted as a prefix, so restart from zero instead of accepting it
         # (with no Content-Length the truncated .part used to be recorded as complete).

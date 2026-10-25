@@ -9,6 +9,7 @@ Street View downloads use the sandbox cache; shared raw inputs remain read-only.
 - textures/refs/<facade_id>/         reference crops + pose JSON
 - textures/post/<asset>/             post-processed maps + KTX2
 """
+
 from __future__ import annotations
 
 import os

@@ -81,8 +81,10 @@ def table() -> tuple[Material, ...]:
     """Materials v1 from the generated JSON (falls back to parsing the spec)."""
     if JSON_PATH.exists():
         d = json.loads(JSON_PATH.read_text())
-        return tuple(Material(m["id"], m["name"], m["cls"], m["friction"], m["audio"], tuple(m["flags"]))
-                     for m in d["materials"])
+        return tuple(
+            Material(m["id"], m["name"], m["cls"], m["friction"], m["audio"], tuple(m["flags"]))
+            for m in d["materials"]
+        )
     return tuple(parse_spec())
 
 
@@ -125,8 +127,6 @@ def render_ts(mats: list[Material]) -> str:
         "// GENERATED from docs/specs/materials.md by `python -m turku3d.col.materials --write`.",
         "// Do not edit by hand; tests fail when this file is stale.",
         "",
-        f"export const MATERIAL_TABLE_VERSION = {MATERIAL_TABLE_VERSION};",
-        "",
         "export type CollisionClass = 'solid' | 'query' | 'sensor';",
         "",
         "export const MAT_FLAG = {",
@@ -138,7 +138,7 @@ def render_ts(mats: list[Material]) -> str:
         *[f"  {n}: {b}," for n, b in GROUPS.items()],
         "} as const;",
         "",
-        "export interface MaterialInfo {",
+        "interface MaterialInfo {",
         "  id: number;",
         "  name: string;",
         "  cls: CollisionClass;",
@@ -152,8 +152,10 @@ def render_ts(mats: list[Material]) -> str:
     ]
     for m in mats:
         fl = " | ".join(f"MAT_FLAG.{f}" for f in m.flags) or "0"
-        lines.append(f"  {{ id: {m.id}, name: '{m.name}', cls: '{m.cls}', friction: {m.friction}, "
-                     f"audio: '{m.audio}', flags: {fl} }},")
+        lines.append(
+            f"  {{ id: {m.id}, name: '{m.name}', cls: '{m.cls}', friction: {m.friction}, "
+            f"audio: '{m.audio}', flags: {fl} }},"
+        )
     lines += [
         "];",
         "",
