@@ -90,3 +90,23 @@ quota refusal/override, process-group stop, landing success/refusals, removal an
 `game-dev-tools-test` starts two dist servers simultaneously with distinct environment ports and output roots.
 To check complete game stacks, create two worktrees from the tooling commit, source each environment in separate
 shells, and run `make game-e2e` concurrently. Each installs its own npm dependencies on first use.
+
+## Wave 0 integration
+
+W0-C changes the local pipeline defaults and replaces `mk/tile.mk`. Keep its local pipeline commands, retain
+`config.work_root()` / `build_dir()` from this branch, and serve `$(GAME_DIST)` (`work/build/game`) in its
+`tile-show` and `tile-qa` targets. Both branches agree that `raw_dir()` is shared and cache/dist are writable
+sandbox paths. W0-B should map `scripts/dev/` to `make tooling-test` and include `tools/dev/environment.mjs`
+in the game/QA configuration dependency scope. Its gate CLI is already used as `gate --base <main-sha>`.
+
+Acceptance checked on macOS, 2026-10-25: two new worktrees from implementation commit `1f9b1d9`, ports
+5260–5269 and 5270–5279, ran `make game-e2e` concurrently: **10/10 each**, 83.01 s and 84.09 s including
+first npm installs and builds. The real `gpt-6-astra` runner smoke call finished in 13.2 s with the correct
+sandbox environment and `## Result: DONE`. Synthetic tests verified a trivial fast-forward to their own
+main branch, red-gate/result/dirty-tree refusals, and a concurrent-main-change refusal; the project main
+branch was not landed. Temporary acceptance worktrees were removed after retaining logs in
+`~/turku3d/wt/w0-tooling/work/reports/` and the real task record in `~/turku3d/tasks/w0-verify-a/`.
+
+Final area checks: 119 passed, 2 optional texture tests skipped (KTX2 npm dependencies and DeepBump are not
+installed in this sandbox). Tooling tests: 9.87 s; foundation: 0.57 s; game units: 1.77 s; dist server: 0.39 s;
+QA Python: 0.97 s; QA render: 12.56 s; texture tests: 5.28 s. `here`: 0.16 s in main, 0.33 s in the sandbox.
