@@ -16,6 +16,8 @@ Outputs:
 from __future__ import annotations
 
 import html
+import fcntl
+import tempfile
 import json
 import os
 import sys
@@ -32,16 +34,16 @@ CAT_COLOURS = {"geometry": "#e5484d", "texture": "#f5a524", "material": "#a855f7
 
 
 def _rewrite_jsonl(path: Path, rows: list[dict], drop_run: str):
-    keep = []
-    if path.exists():
-        for line in path.read_text().splitlines():
-            if line.strip():
-                r = json.loads(line)
-                if r.get("run_id") != drop_run:
-                    keep.append(r)
+    # Separate runs/calibration may finish together; keep the read/merge/replace atomic.
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in keep + rows))
-    return keep + rows
+    with path.with_suffix(path.suffix + ".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        keep = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+        merged = [row for row in keep if row.get("run_id") != drop_run] + rows
+        with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False) as tmp:
+            tmp.write("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in merged))
+        os.replace(tmp.name, path)
+    return merged
 
 
 def collect(rd: Path):
@@ -95,8 +97,9 @@ def trend_svg(history: list[dict], kind: str, comparison_key=None) -> str:
         c = palette[li % len(palette)]
         if len(pts) > 1:
             parts.append(f'<polyline fill="none" stroke="{c}" stroke-width="2" points="{" ".join(f"{a:.1f},{b:.1f}" for a, b in pts)}"/>')
-        for a, b in pts:
-            parts.append(f'<circle cx="{a:.1f}" cy="{b:.1f}" r="4" fill="{c}"/>')
+        for (a, b), row in zip(pts, [h for h in rows if lab in h["mean_by_label"]]):
+            title = html.escape(f"{row['run_id']} ({str(row.get('commit', ''))[:8]}): {row['mean_by_label'][lab]}")
+            parts.append(f'<circle cx="{a:.1f}" cy="{b:.1f}" r="4" fill="{c}"><title>{title}</title></circle>')
         parts.append(f'<text x="{L + 8 + li * 120}" y="{H - 6}" style="fill:{c}">&#9679; {html.escape(lab)}</text>')
     parts.append("</svg>")
     return "".join(parts)
@@ -128,7 +131,12 @@ def render_html(rd: Path, run, pairs, history, ev=None) -> str:
         rows = ""
         if res:
             for k, it in enumerate(res["issues"], 1):
-                objs = ", ".join(f'{o.get("kind")}:{o.get("id", o["oid"])} tile={o.get("tile")} facade={o.get("facade")} material={o.get("material")} ({o["frac"]:.0%})' for o in it.get("objects", []))
+                objs = ", ".join(
+                    f'{o.get("kind")}:{o.get("id", o["oid"])} '
+                    + " ".join(f"{key}={o[key]}" for key in ("building", "tile", "facade", "material") if o.get(key) is not None)
+                    + f' ({o["frac"]:.0%})' for o in it.get("objects", []))
+                if not objs:
+                    objs = it.get("mapping_status", "no visible asset")
                 rows += (f'<tr><td>{k}</td><td><span class="sev s{it["severity"]}">{it["severity"]}</span></td>'
                          f'<td><span class="cat" style="--c:{CAT_COLOURS.get(it["category"], "#94a3b8")}">{it["category"]}</span></td>'
                          f'<td>{html.escape(it["what"])}</td><td>{html.escape(it["fix_hint"])}</td><td>{html.escape(objs)}</td></tr>')

@@ -130,3 +130,26 @@ def test_loop_rejects_missing_render_and_keeps_report(tmp_path,monkeypatch):
     run=json.loads((tmp_path/'runs/missing/run.json').read_text())
     assert not run['complete'] and run['errors']
     assert (tmp_path/'runs/missing/report.html').is_file()
+
+
+def test_concurrent_history_updates_preserve_runs(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from report.report import _rewrite_jsonl
+    path=tmp_path/'history.jsonl'
+    def write(i):
+        _rewrite_jsonl(path,[{'run_id':str(i),'scores':{'v':i}}],str(i))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(write,range(20)))
+    assert {json.loads(line)['run_id'] for line in path.read_text().splitlines()}=={str(i) for i in range(20)}
+
+
+def test_render_backend_and_unknown_id_colours_rejected(tmp_path):
+    from loop import validate_render
+    v=dict(registry.load()[0],width=16,height=16)
+    passes={name:{'ready':True,'error':None,'pose':v['pose'],'info':{'backend':'WebGPU'}} for name in ['color','id']}
+    (tmp_path/f"{v['id']}.meta.json").write_text(json.dumps(dict(pose=v['pose'],width=16,height=16,time=v.get('time'),passes=passes)))
+    for suffix in ['.png','.id.png']:
+        Image.new('RGB',(16,16),(0,0,2)).save(tmp_path/f"{v['id']}{suffix}")
+    (tmp_path/f"{v['id']}.id.json").write_text(json.dumps({'1':{'kind':'ground','id':'g'}}))
+    with pytest.raises(ValueError,match='backend mismatch'):validate_render(v,tmp_path,'webgl')
+    with pytest.raises(ValueError,match='unregistered colours'):validate_render(v,tmp_path,'webgpu')

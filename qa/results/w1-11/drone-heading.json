@@ -1,0 +1,26 @@
+{
+  "heading_offset_grid_deg": -1.002081876192278,
+  "landmark_offsets_deg": [
+    -1.0408450571025014,
+    -0.9633186952820552
+  ],
+  "rms_deg": 0.03876318091022313,
+  "landmarks": [
+    {
+      "name": "Cathedral spire",
+      "E": 23460269.75739388,
+      "N": 6704695.216354179,
+      "tour_yaw": 46.23046875,
+      "source": "https://en.wikipedia.org/wiki/Turku_Cathedral",
+      "measurement": "manually identified spire column on 2048-wide equirect preview; about 2 px uncertainty"
+    },
+    {
+      "name": "Michael church spire",
+      "E": 23458606.911783963,
+      "N": 6704304.878806681,
+      "tour_yaw": -79.62890625,
+      "source": "https://mapcarta.com/37542244",
+      "measurement": "manually identified spire column on 2048-wide equirect preview; about 2 px uncertainty"
+    }
+  ]
+}

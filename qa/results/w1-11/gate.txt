@@ -1,0 +1,38 @@
+cd /Users/wnt/turku3d/wt/w1-11-visualqa/repo/qa && /Users/wnt/turku3d/wt/w1-11-visualqa/repo/qa/.venv/bin/python -m pytest -q
+cd /Users/wnt/turku3d/wt/w1-11-visualqa/repo/qa/render && npm test --silent
+...............✔ contractUrl encodes the pose and escapes + in time (190.886333ms)
+......stub_front [color] ok 150 ms 
+..stub_front [id] ok 70 ms 
+✔ render.mjs against the stub: colour + id pass, sizes, id table (412.821917ms)
+.....✔ stub __qaProject matches the Python camera (golden_projection.json) (472.85675ms)
+.bad [color] FAIL page reported __qaError: bad or missing ?cam=E,N,H,yaw,pitch,fov 
+✔ bad cam reports __qaError and render.mjs fails the view (107.252833ms)
+✔ pose echo rejects missing, NaN and wrong roll; stale URL state is cleared (0.342959ms)
+✔ unknown requested views cannot pass as an empty successful run (0.78875ms)
+.                                           [100%]
+30 passed in 1.71s
+cd /Users/wnt/turku3d/wt/w1-11-visualqa/repo/game && npm test
+
+> turku3d-game@0.0.1 test
+> vitest run
+
+
+ RUN  v5.0.5 /Users/wnt/turku3d/wt/w1-11-visualqa/repo/game
+
+
+ Test Files  5 passed (5)
+      Tests  30 passed (30)
+   Start at  21:21:13
+   Duration  1.18s (transform 40%, tests 38%, import 21%, worker 1%)
+
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11602.878292
+real 11.96
+user 5.44
+sys 1.30

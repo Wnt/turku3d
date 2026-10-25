@@ -1,0 +1,29 @@
+[
+  {
+    "view_id": "sv_01",
+    "method": "SIFT intensity + ratio 0.7 + PnP RANSAC + held-out validation",
+    "photo_features": 1233,
+    "lidar_features": 1471,
+    "accepted": false,
+    "matches_with_depth": 0,
+    "reason": "fewer than 16 distinct depth-backed matches"
+  },
+  {
+    "view_id": "sv_02",
+    "method": "SIFT intensity + ratio 0.7 + PnP RANSAC + held-out validation",
+    "photo_features": 1556,
+    "lidar_features": 1444,
+    "accepted": false,
+    "matches_with_depth": 1,
+    "reason": "fewer than 16 distinct depth-backed matches"
+  },
+  {
+    "view_id": "la_02",
+    "method": "SIFT intensity + ratio 0.7 + PnP RANSAC + held-out validation",
+    "photo_features": 2068,
+    "lidar_features": 2056,
+    "accepted": false,
+    "matches_with_depth": 2,
+    "reason": "fewer than 16 distinct depth-backed matches"
+  }
+]

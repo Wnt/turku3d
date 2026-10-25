@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 import shutil
 from PIL import Image
+import numpy as np
+from report.backmap import load_ids
 from judge.batch import judge_pairs
 from judge.judge import DEFAULT_MODEL, PROMPT, SCHEMA
 from qalib import registry
@@ -20,7 +22,7 @@ def default_run_id():
     return datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + git_state()['commit'][:8]
 
 
-def validate_render(view, rdir):
+def validate_render(view, rdir, backend=None):
     """Never accept stale screenshots left behind by a failed pose/ID pass."""
     meta = json.loads((rdir / f"{view['id']}.meta.json").read_text())
     if meta['pose'] != view['pose'] or meta['width'] != view['width'] or meta['height'] != view['height'] or meta.get('time') != view.get('time'):
@@ -29,6 +31,9 @@ def validate_render(view, rdir):
         p = meta['passes'][name]
         if p.get('error') or not p.get('ready'):
             raise ValueError(f"{name} pass failed: {p.get('error')}")
+        actual_backend = str((p.get('info') or {}).get('backend', '')).lower().replace('webgl2', 'webgl')
+        if backend and actual_backend != backend:
+            raise ValueError(f'{name} backend mismatch: {actual_backend} != {backend}')
         for key, value in view['pose'].items():
             echoed = p.get('pose', {}).get(key)
             if not isinstance(echoed, (int, float)) or abs(echoed - value) > 0.001:
@@ -39,6 +44,10 @@ def validate_render(view, rdir):
     table = json.loads((rdir / f"{view['id']}.id.json").read_text())
     if not isinstance(table, dict) or not table:
         raise ValueError('missing object ID table')
+    pixel_ids = set(np.unique(load_ids(rdir / f"{view['id']}.id.png")).tolist())
+    unknown = pixel_ids - {0} - {int(key) for key in table}
+    if unknown:
+        raise ValueError(f'ID pass contains unregistered colours: {sorted(unknown)[:10]}')
     return meta
 
 
@@ -109,7 +118,7 @@ def main(argv=None):
             run['errors'].append('render driver failed')
     for v in views:
         try:
-            validate_render(v, rdir)
+            validate_render(v, rdir, a.backend if not a.serve else None)
         except (OSError, ValueError, KeyError) as e:
             run['errors'].append(f"{v['id']}: {e}")
             continue
