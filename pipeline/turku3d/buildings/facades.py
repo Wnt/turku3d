@@ -37,6 +37,7 @@ def facade_material(building):
 def placeholder_image(building):
     osm = building.properties.get("osm", {})
     address = " ".join(filter(None, [osm.get("addr:street"), osm.get("addr:housenumber")]))
+    address = address or building.properties.get("address", "")
     image = Image.new("RGB", (1024, 512), "#26150b")
     draw = ImageDraw.Draw(image)
     try:

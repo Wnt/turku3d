@@ -78,7 +78,8 @@ def audit(layer, tiles, source):
                             b.properties.get("osm", {}).get("addr:housenumber"),
                         ],
                     )
-                ),
+                )
+                or b.properties.get("address", ""),
                 "footprint": b.footprint,
             }
         )

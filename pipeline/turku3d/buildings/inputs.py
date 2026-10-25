@@ -39,6 +39,11 @@ def local_polygon(poly):
     )
 
 
+def _property(row, name):
+    value = str(getattr(row, name, ""))
+    return "" if value in ("<NA>", "nan", "None") else value
+
+
 def read_footprints(path: Path, bounds_local=None) -> list[Building]:
     df = gpd.read_parquet(path)
     df = df[df.geom_type.isin(["Polygon", "MultiPolygon"]) & df.kplkoodi.isin(["66000", "66001"])]
@@ -71,6 +76,15 @@ def read_footprints(path: Path, bounds_local=None) -> list[Building]:
                         "registry_id": bid,
                         "facade_material": str(row.julkisivumateriaali),
                         "levels": str(row.kerrosluku),
+                        "address": " ".join(
+                            filter(
+                                None,
+                                [
+                                    _property(row, "teksti"),
+                                    _property(row, "osoitenumero") + _property(row, "jakokirjain"),
+                                ],
+                            )
+                        ),
                     },
                 )
             )

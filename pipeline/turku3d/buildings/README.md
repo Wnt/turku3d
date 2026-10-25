@@ -75,7 +75,7 @@ gable, hip or two-level roof from height profiles. Other roofs use the measured 
 extrusion. If no usable model
 or lidar shell exists, the fallback publishes a closed footprint placeholder using
 building levels or 10 m above lidar ground. Its walls carry amber `WORK IN PROGRESS`
-artwork with building ID and OSM street address where available. Placeholder facades
+artwork with building ID and an OSM or kantakartta street address where available. Placeholder facades
 are excluded from photo binding.
 
 `python -m turku3d.buildings.coverage` audits delivered visual GLBs against source
