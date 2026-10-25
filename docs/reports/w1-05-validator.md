@@ -262,3 +262,17 @@ worker and `TURKU3D_JOBS=2` (maximum three concurrent test/physics workers):
 **50/50 passed, zero skipped, 14.76 s wall**. The log is
 `$TURKU3D_WORK/reports/batch5-validator-tests.log`. The orchestrator runs the
 full landing gate.
+
+## Batch-6 integration gate
+
+Rebased onto main `58965ff`, which includes facade binding, cost routing, task
+watch, and L0 texture budget updates. The `scripts/dev/here` overlap was only a
+local variable name; root discovery and main's behavior are preserved. All 22
+main gate stages and six tags remain in `gate.toml`.
+
+The first full gate run found an unused `runJobs` export in the validator worker
+pool. Since it has only an internal call site, the export was removed. Main
+advanced during that first run, so the branch was rebased again and the full gate
+was run on the final base. It passed all stages in **226.607 s**. The run used
+`TURKU3D_JOBS=3 scripts/dev/gate`; unchanged stage results came from the gate's
+PASS-only cache. No tests or checks were weakened.
