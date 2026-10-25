@@ -1,0 +1,77 @@
+import { describe, expect, test, vi, afterEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { ACTIONS, DEFAULT_BINDINGS, MOVE_CURVE, glyph, mapActions, radial, Input } from '../../src/input';
+const bindings = () => structuredClone(DEFAULT_BINDINGS);
+function pad(axes = [0, 0, 0, 0], buttons: Record<number, number> = {}): Gamepad {
+  return { id: 'Xbox Wireless Controller', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes,
+    buttons: Array.from({ length: 17 }, (_, i) => ({ value: buttons[i] ?? 0, pressed: (buttons[i] ?? 0) > 0.5, touched: false })),
+  } as unknown as Gamepad;
+}
+afterEach(() => vi.unstubAllGlobals());
+describe('action mapping', () => {
+  test('radial dead zone is continuous, symmetric and preserves diagonal direction', () => {
+    expect(radial(0.1, 0.1)).toEqual([0, 0]);
+    expect(radial(MOVE_CURVE.deadZone, 0)).toEqual([0, 0]);
+    expect(radial(MOVE_CURVE.deadZone + 0.00001, 0)[0]).toBeLessThan(0.00001);
+    expect(radial(1, 0)).toEqual([1, 0]);
+    const [x, y] = radial(1, -1);
+    expect(Math.hypot(x, y)).toBeCloseTo(1); expect(x).toBeCloseTo(-y);
+    expect(radial(0.5, 0)[0]).toBeGreaterThan(0); expect(radial(0.5, 0)[0]).toBeLessThan(0.5);
+    expect(radial(NaN, Infinity)).toEqual([0, 0]);
+  });
+  test('fake Xbox covers every standard action and analog triggers', () => {
+    const a = mapActions(pad([1, -1, 0.8, -0.7], { 0: 1, 2: 1, 3: 1, 5: 1, 6: 0.25, 7: 0.8, 9: 1, 11: 1 }), new Set(), bindings());
+    expect(a.moveX).toBeCloseTo(Math.SQRT1_2); expect(a.moveY).toBeCloseTo(Math.SQRT1_2);
+    expect(a.lookX).toBeGreaterThan(0); expect(a.lookY).toBeLessThan(0);
+    for (const action of ['sprint', 'jump', 'interact', 'handbrake', 'cameraReset', 'pause'] as const) expect(a[action]).toBe(1);
+    expect(a.throttle).toBe(0.8); expect(a.brake).toBe(0.25); expect(a.steer).toBe(a.moveX);
+  });
+  test('keyboard shares actions, normalizes diagonals, cancels opposites and ignores nonstandard pads', () => {
+    const a = mapActions({ ...pad(), mapping: '' } as Gamepad, new Set(['KeyW', 'KeyD', 'ShiftLeft', 'Space', 'KeyF']), bindings());
+    expect(a.moveX).toBeCloseTo(Math.SQRT1_2); expect(a.moveY).toBeCloseTo(Math.SQRT1_2);
+    expect(a.sprint).toBe(1); expect(a.jump).toBe(1); expect(a.interact).toBe(1);
+    expect(mapActions(null, new Set(['KeyA', 'KeyD']), bindings()).moveX).toBe(0);
+  });
+  test('rebinding survives JSON serialization and glyphs track the binding', () => {
+    const b = bindings(); b.jump = [{ kind: 'button', index: 1 }, { kind: 'key', code: 'KeyJ' }];
+    const restored = JSON.parse(JSON.stringify(b));
+    expect(mapActions(pad([], { 1: 1 }), new Set(), restored).jump).toBe(1);
+    expect(mapActions(null, new Set(['Space']), restored).jump).toBe(0);
+    expect(glyph('jump', restored, true)).toBe('Ⓑ'); expect(glyph('jump', restored, false)).toBe('J');
+    expect(ACTIONS.every(a => a in restored)).toBe(true);
+  });
+});
+
+test('hot plug, edge actions, tap/hold sprint, focus clearing and unsupported rumble', async () => {
+  const events = new EventTarget(), el = new EventTarget();
+  let pads: (Gamepad | null)[] = [];
+  vi.stubGlobal('addEventListener', events.addEventListener.bind(events));
+  vi.stubGlobal('navigator', { getGamepads: () => pads });
+  const input = new Input(el as HTMLElement);
+  input.update(1 / 60); expect(input.actions.moveX).toBe(0);
+  pads = [null, pad([0, -1, 0, 0], { 0: 1, 2: 1 })];
+  input.update(1 / 60); expect(input.source).toBe('gamepad'); expect(input.consume('jump')).toBe(true);
+  expect(input.consume('jump')).toBe(false); expect(input.sprinting).toBe(true);
+  input.update(1 / 60); expect(input.consume('jump')).toBe(false);
+  pads = [pad([0, -1, 0, 0])]; input.update(0.1); expect(input.sprinting).toBe(true);
+  input.update(0.5); expect(input.sprinting).toBe(false);
+  expect(await input.rumble()).toBe(false);
+  const playEffect = vi.fn().mockResolvedValue('complete');
+  pads = [{ ...pad(), vibrationActuator: { playEffect } } as unknown as Gamepad];
+  input.update(0.01); expect(await input.rumble(90, 0.2, 0.1)).toBe(true);
+  expect(playEffect).toHaveBeenCalledWith('dual-rumble', expect.objectContaining({ duration: 90, strongMagnitude: 0.2 }));
+  playEffect.mockRejectedValue(new Error('unsupported')); expect(await input.rumble()).toBe(false);
+  pads = []; input.update(0.01); expect(input.source).toBe('keyboard'); expect(input.actions.moveY).toBe(0);
+  const key = (type: string) => { const e = new Event(type); Object.assign(e, { code: 'KeyF', repeat: false }); events.dispatchEvent(e); };
+  key('keydown'); key('keyup'); input.update(0.01); expect(input.consume('interact')).toBe(true);
+  key('keydown'); events.dispatchEvent(new Event('blur')); input.update(0.01); expect(input.consume('interact')).toBe(false);
+  input.dispose();
+});
+
+test('gameplay cannot read browser input outside src/input', () => {
+  const root = path.resolve(__dirname, '../../src');
+  const offenders = fs.readdirSync(root, { recursive: true }).map(String).filter(f => f.endsWith('.ts') && !f.startsWith('input/'))
+    .filter(f => /getGamepads|KeyboardEvent|MouseEvent|GamepadEvent|addEventListener\(['"](?:keydown|keyup|mousemove|pointermove|gamepadconnected|gamepaddisconnected)/.test(fs.readFileSync(path.join(root, f), 'utf8')));
+  expect(offenders).toEqual([]);
+});

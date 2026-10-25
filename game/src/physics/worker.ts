@@ -40,7 +40,7 @@ async function handle(msg: ToWorker) {
     case 'step': {
       const t0 = performance.now();
       const substeps = pw.step(msg.dt, msg.character, msg.vehicle);
-      post({ type: 'state', seq: msg.seq, substeps, stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState() });
+      post({ type: 'state', seq: msg.seq, substeps, tick: pw.tick, remainder: pw.remainder, previousCharacter: pw.previousCharacter, stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState() });
       break;
     }
     case 'raycast':

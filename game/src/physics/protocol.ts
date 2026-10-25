@@ -11,7 +11,7 @@ export interface CharacterInput {
 }
 export interface VehicleInput { throttle: number; steer: number; brake: number; handbrake: boolean }
 
-export type RayFilter = 'solid' | 'query' | 'all';
+export type RayFilter = 'solid' | 'query' | 'all' | 'foot';
 export interface RayHit { toi: number; point: V3; normal: V3; material: number; tile: string | null }
 
 export interface CharacterState { pos: V3; vel: V3; grounded: boolean; enabled: boolean; groundMaterial: number }
@@ -39,7 +39,7 @@ export type FromWorker =
   | { type: 'tileLoaded'; stats: TileStats }
   | { type: 'tileError'; id: string; error: string }
   | { type: 'tileUnloaded'; id: string }
-  | { type: 'state'; seq: number; substeps: number; stepMs: number; character: CharacterState | null; vehicle: VehicleState | null }
+  | { type: 'state'; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; vehicle: VehicleState | null }
   | { type: 'raycastResult'; id: number; hit: RayHit | null }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }
   | { type: 'error'; error: string };

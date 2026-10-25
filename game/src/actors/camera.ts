@@ -15,8 +15,8 @@ export class OrbitCamera {
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
   input(dx: number, dy: number, wheel: number) {
-    this.yaw -= dx * 0.0025;
-    this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0025, -1.2, 0.6);
+    this.yaw -= dx;
+    this.pitch = THREE.MathUtils.clamp(this.pitch - dy, -1.2, 0.6);
     this.distance = THREE.MathUtils.clamp(this.distance * (1 + wheel * 0.1), this.minDist, this.maxDist);
   }
 

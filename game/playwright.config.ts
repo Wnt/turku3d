@@ -5,7 +5,7 @@ const PORT = Number(process.env.E2E_PORT ?? 4174);
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 120_000,
-  workers: 1,
+  workers: 2,
   reporter: [['list']],
   outputDir: 'test-results/pw',
   use: {

@@ -18,7 +18,7 @@ import { encodeToKTX2 } from 'ktx2-encoder';
 
 const OUT = path.resolve(process.argv[2] ?? 'public/dev-tiles');
 const L0 = 250, COL = 62.5, G = 2.0; // tile sizes (m), ground height N2000 (m)
-export const MAT = { road: 1, sidewalk: 2, curb: 3, paving_slab: 8, grass: 10, stair_slope: 16, wall: 19, building: 22, roof: 23, pole: 25 };
+export const MAT = { road: 1, sidewalk: 2, curb: 3, paving_slab: 8, grass: 10, stair_slope: 16, stair_tread_helper: 17, wall: 19, building: 22, roof: 23, pole: 25 };
 const COLOR = { 1: [0.32, 0.32, 0.34], 2: [0.62, 0.6, 0.57], 3: [0.72, 0.72, 0.7], 8: [0.6, 0.55, 0.5], 10: [0.3, 0.5, 0.25], 16: [0.65, 0.62, 0.6], 19: [0.6, 0.58, 0.55], 22: [0.78, 0.7, 0.58], 23: [0.45, 0.25, 0.2], 25: [0.2, 0.2, 0.22] };
 
 // ---------------------------------------------------------------- geometry (engine coords, world-local)
@@ -43,7 +43,18 @@ box(MAT.sidewalk, 150, 186, G, G + 0.12, 226, 238, { onGround: true, name: 'side
 // separate curb strip along the south edge so the curb face carries the curb material
 parts.at(-1).curbFaceSouth = true;
 // 6-step stair (16 cm rise, 30 cm run) climbing north, then a platform at +0.96 m
-for (let k = 0; k < 6; k++) box(MAT.paving_slab, 128, 134, G, G + 0.16 * (k + 1), 220 - 0.3 * (k + 1), 220 - 0.3 * k, { onGround: true, name: 'stairs' });
+for (let k = 0; k < 6; k++) {
+  const top = G + 0.16 * (k + 1), north = 220 - 0.3 * (k + 1), south = 220 - 0.3 * k;
+  box(MAT.paving_slab, 128, 134, G, top, north, south, { onGround: true, visualOnly: true, name: 'stairs' });
+  const tread = { mat: MAT.stair_tread_helper, pos: [], idx: [], collisionOnly: true, name: 'tread' };
+  quad(tread, [128, top, south], [134, top, south], [134, top, north], [128, top, north]);
+  parts.push(tread);
+}
+const slope = { mat: MAT.stair_slope, pos: [], idx: [], collisionOnly: true, name: 'stair_slope' };
+quad(slope, [128, G, 220], [134, G, 220], [134, G + 0.96, 218.2], [128, G + 0.96, 218.2]);
+parts.push(slope);
+// Acceptance boundary: autostep must not climb this 35 cm wall.
+box(MAT.wall, 136, 140, G, G + 0.35, 222, 223, { onGround: true, name: 'low_wall' });
 box(MAT.paving_slab, 128, 134, G, G + 0.96, 208, 218.2, { onGround: true, name: 'platform' });
 // building block (east of the office, centroid in c_3_3) with a roof
 box(MAT.building, 192, 212, G, G + 12, 200, 216, { onGround: true, name: 'building' });
@@ -230,7 +241,7 @@ for (const m of [MAT.road, MAT.grass]) {
   }
   addMesh(m === MAT.road ? 'ground_road' : 'ground_grass', pos, idx, m, COLOR[m], true);
 }
-for (const p of parts) addMesh(p.name, p.pos, p.idx, p.mat, p.color ?? COLOR[p.mat], false);
+for (const p of parts.filter(p => !p.collisionOnly)) addMesh(p.name, p.pos, p.idx, p.mat, p.color ?? COLOR[p.mat], false);
 void meshopt; void basisu;
 const io = new NodeIO().registerExtensions([EXTMeshoptCompression, KHRTextureBasisu]).registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
 const glb = Buffer.from(await io.writeBinary(doc));

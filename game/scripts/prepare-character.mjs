@@ -4,7 +4,7 @@
 import { NodeIO } from '@gltf-transform/core';
 import { prune, dedup, resample } from '@gltf-transform/functions';
 
-const KEEP = new Set(['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Driving_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land']);
+const KEEP = new Set(['Idle_Loop', 'Walk_Loop', 'Walk_Formal_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Driving_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land']);
 const [src, dst] = process.argv.slice(2);
 if (!src || !dst) { console.error('usage: prepare-character.mjs <in.glb> <out.glb>'); process.exit(2); }
 const io = new NodeIO();

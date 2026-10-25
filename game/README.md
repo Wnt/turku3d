@@ -5,21 +5,63 @@ Game skeleton (ARCHITECTURE.md Phase 0 step 7). It uses Vite 8, TypeScript, thre
 ## Commands
 
 ```bash
-cd /Users/wnt/Documents/game-test/game
+cd game
 npm install
-npm run dev            # http://localhost:5173/  (COOP/COEP on; ?backend=webgl for WebGL2)
+npm run dev -- --port 5210 --strictPort # http://localhost:5210/  (COOP/COEP on; ?backend=webgl for WebGL2)
 npm run build          # tsc --noEmit + vite build -> dist/
 npm test               # vitest (Node): .col reader, Rapier character/car on the dev tiles, origin, URL params, sun
-npm run test:e2e       # build + Playwright, Chrome channel (real Metal GPU), both backends; screenshots in test-results/screenshots/
+E2E_PORT=5210 npm run test:e2e # build + Playwright, Chrome channel (real Metal GPU), both backends; screenshots in test-results/screenshots/
 npm run dev-tiles      # regenerate public/dev-tiles/ (dummy tileset)
 TILE_DIST=~/turku3d-data/dist/tiles npx playwright test -c playwright.tile.config.ts   # after npm run build: pipeline stub tiles (make tile)
-npm run probe -- "http://localhost:5173/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
+npm run probe -- "http://localhost:5210/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
 ```
 The same commands are available from the repo root through `mk/game.mk`: `make game-dev`, `make game-build`, `make game-test`, `make game-e2e`, `make game-dev-tiles`, `make game-preview`, `make game-sync`, `make game-serve-dist` and `make game-test-all`.
 
 ## Controls
 
-Click the canvas for mouse look (pointer lock); the mouse wheel zooms. **WASD** or the arrow keys move. **Shift** sprints (6 m/s), **Alt** walks (1.5 m/s), and the default is a run at 3.6 m/s. **Space** jumps, or applies the handbrake in the car. **F** enters or exits the car (within 4 m of it). **R** resets the car upright. **H** toggles the HUD.
+Chrome on macOS exposes Xbox Elite Series 2 as **Xbox Wireless Controller**, standard mapping. Press a controller button once after connecting it. Hot-plug and disconnects are polled every render frame; nonstandard mappings are ignored. HUD prompts switch between Xbox glyphs and keyboard labels with the active input source.
+
+| Action | Xbox (on foot) | Xbox (car) | Keyboard / mouse |
+|---|---|---|---|
+| Move / steer | Left stick, analog walk → jog | Left stick | WASD / arrows |
+| Sprint | A: hold, or tap for a 0.45 s burst while moving | — | Shift |
+| Slow walk | Partial left stick | — | Alt |
+| Jump | X | — | Space |
+| Enter / exit car | Y (within 4 m) | Y | F |
+| Throttle | — | RT | W / Up |
+| Brake / reverse | — | LT, brakes forward motion before reversing | S / Down |
+| Handbrake | — | RB | Space |
+| Look | Right stick | Right stick | Click canvas for mouse lock, move mouse |
+| Reset camera | R3 | R3 | C |
+| Zoom | — | — | Mouse wheel |
+| Pause / resume | Menu | Menu | Escape |
+| Reset car upright | — | — | R |
+| Toggle debug HUD | — | — | H |
+
+Full stick = 3.6 m/s jog; sprint = 6 m/s; keyboard slow walk = 1.5 m/s. Input magnitude is preserved after a radial dead zone (left 0.16, right 0.12) and power response curves (1.35 / 1.6). Acceleration and deceleration are smoothed. Jump is a press edge, retained across worker latency and frames without a physics tick. Holding jump does not auto-jump on landing. Blur clears held input. Dual-rumble is feature-detected and used on landing; unsupported actuators fail silently. Trigger rumble is not required.
+
+`src/input/` is the sole owner of browser input. Gameplay reads named actions (`moveX/Y`, `lookX/Y`, `sprint`, `jump`, `interact`, `throttle`, `brake`, `steer`, `handbrake`, `cameraReset`, `pause`, plus keyboard utilities). `Input.rebind(action, bindings)` replaces one action's serializable descriptors; `Input.bindings` can be saved as JSON by a settings client. No settings UI/storage is added. For example, `input.rebind('jump', [{kind:'button', index:1}, {kind:'key', code:'KeyJ'}])` binds B/J and updates the HUD glyph. Mouse look is accumulated as radians; right-stick look is frame-rate independent. The unit gate scans gameplay sources for direct browser input reads outside this directory.
+
+## Character locomotion and verification
+
+The KCC moves on `stair_slope` (material 16), while `foot` worker queries prefer `stair_tread_helper` (17, query-only) over solid ground. Helpers can lie below the slope. The visual rig uses analytic thigh/shin IK, separate ankle targets, surface-normal foot orientation and a smoothed pelvis offset. Jumping disables IK. Asynchronous results are bounded to one outstanding request per foot and rejected after large movement. The capsule remains physical; only the rendered vertical position is smoothed across autosteps. Camera focus follows that rendered position.
+
+Each worker state includes the previous fixed-step character pose, tick and accumulator remainder. Rendering interpolates with one 60 Hz tick of latency; duplicate packets at 120/240 Hz do not reset interpolation. Teleports and enter/exit transitions snap. This character interpolation does not yet interpolate the car.
+
+CC0 Quaternius UAL Standard is extended with `Walk_Formal_Loop` for the slower stair gait. The inspected Standard archive contains no stair up/down clips; stair direction states use procedural swing clearance plus IK. Walk/jog/sprint gait phases stay synchronized while blending. Source, archive hash and retained clips are recorded in `public/assets/LICENSES.md`.
+
+```bash
+# From the repository root; no real tiles, controller, network or API keys needed.
+make game-test                         # synthetic unit tests, normally <2 s
+make game-build                        # typecheck + production bundle
+E2E_PORT=5210 make game-e2e             # full Chrome suite, WebGPU + WebGL2, two workers
+# Focused virtual-controller routes after building:
+cd game
+E2E_PORT=5210 npx playwright test tests/e2e/gamepad.spec.ts
+npm run dev -- --port 5210 --strictPort
+```
+
+Ports 5210–5219 belong to the w1-06 sandbox; select your assigned port in another sandbox. Playwright launches isolated temporary Chrome profiles and does not reuse an existing server. Unit tests cover radial curves, standard mappings, bindings/glyphs, focus/hot-plug/rumble, 120/240 Hz interpolation, two-bone IK, pelvis adjustment, 7/12/15 cm curbs, query treads, jump buffering and the 35 cm blocking boundary. The virtual controller is injected by overriding `navigator.getGamepads` in Playwright; routes cover curb traversal, stair ascent/descent with measured ankle targets, camera, jumping, pause, disconnect/reconnect and enter/drive/reverse/exit. Stair screenshots are in `test-results/screenshots/*-stair-ik.png`. Physical Elite vibration and subjective feel still need a hardware play session.
 
 ## URL parameters
 
@@ -55,8 +97,8 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 `window.__game` holds the following:
 - `backend` and `three`
 - `ready` (true after spawn)
-- `state()`, which returns `{mode, feet[x,y,z], vel, grounded, groundMaterial, E, N, H, vehicle{pos,speed}, collision{tiles,tris,colBytes,estWasmBytes}, visTris, visModels, tilesSettled, frameMs, errors}`
-- `input` (`input.forced.add('KeyW')` holds a key without real events)
+- `state()`, which returns `{mode, feet[x,y,z], vel, grounded, groundMaterial, locomotion, contacts, visualFeet, cameraYaw, inputSource, paused, E, N, H, vehicle{pos,speed}, collision{tiles,tris,colBytes,estWasmBytes}, visTris, visModels, tilesSettled, frameMs, errors}`
+- `input` (named actions, `rebind`, `bindings`, `rumble`; e2e tests inject a virtual Gamepad or send real keyboard events)
 - `physics` (the `PhysicsClient`)
 - `tiles`
 
@@ -66,7 +108,7 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 src/main.ts                 entry: QA mode or play mode (spawn, loop, enter/exit car)
 src/core/origin.ts          origin O, EN <-> engine, tile ids (mirror of pipeline/turku3d/config.py)
 src/core/params.ts          URL parameters
-src/core/input.ts           keyboard / mouse
+src/input/                  named actions, Gamepad API, keyboard/mouse, bindings and Xbox glyphs
 src/core/sun.ts             solar position
 src/render/renderer.ts      WebGPURenderer(forceWebGL), AgX, PCF shadows
 src/render/environment.ts   SkyMesh, sun light following the player, hemisphere light
@@ -79,7 +121,7 @@ src/physics/world.ts        Rapier world: tile colliders per collision class, KC
 src/physics/colTile.ts      adapter over the shared reader src/shared/col (owned by the col-format workstream)
 src/physics/triLocator.ts   hit point -> triangle -> material (Rapier featureId workaround, see below)
 src/physics/constants.ts    character and car tuning
-src/actors/                 player (animated mannequin), car visual, orbit camera
+src/actors/                 player, foot IK, fixed-state interpolation, car visual, orbit camera
 src/ui/hud.ts               debug HUD
 scripts/make-dev-tiles.mjs  dummy tileset generator (also a minimal .col v1.0 RAW writer)
 scripts/prepare-character.mjs   trims the Quaternius UAL GLB
@@ -100,8 +142,8 @@ All coordinates are engine world-local metres: `x = E − 23459500`, `y = H`, `z
 - `loadTile {id, buffer}` (the buffer is transferred) → `tileLoaded {stats}` or `tileError`. Triangles are split by collision class (solid, query, sensor) into one trimesh each. FIX_INTERNAL_EDGES is applied when the header flag says so. Primitives become cuboid, capsule or cylinder colliders.
 - `unloadTile {id}` → `tileUnloaded`.
 - `spawnCharacter`, `setCharacterEnabled`, `spawnVehicle`, `resetVehicle`.
-- `step {seq, dt, character{vx,vz,jump}, vehicle{throttle,steer,brake,handbrake}|null}` → `state {character, vehicle, substeps, stepMs}`. The worker runs fixed 60 Hz substeps (at most 5), and the client keeps a single step in flight.
-- `raycast {id, origin, dir, maxToi, filter: solid|query|all}` → `raycastResult {hit{toi, point, normal, material, tile}}`.
+- `step {seq, dt, character{vx,vz,jump}, vehicle{throttle,steer,brake,handbrake}|null}` → `state {character, previousCharacter, tick, remainder, vehicle, substeps, stepMs}`. The worker runs fixed 60 Hz substeps (at most 5), and the client keeps a single step in flight.
+- `raycast {id, origin, dir, maxToi, filter: solid|query|all|foot}` → `raycastResult {hit{toi, point, normal, material, tile}}`.
 - `stats {id}` → `statsResult {tiles[], tris, colBytes, estWasmBytes}`.
 
 Character (KCC):
@@ -118,6 +160,6 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 - The HUD shows backend, fps and ms/frame, physics ms per step message, and resident visual tris (counted on `load-model`/`dispose-model`, because `renderer.info` reads 0 on WebGPU). It also shows collision tiles, tris and MB, where the WASM figure is an estimate at 135 B/tri from engine.md. Player E/N/H is in EPSG:3877 + N2000.
 - Verified with the dev tileset in the e2e test: the 3D Tiles Z-up ↔ engine Y-up handling is correct. The NE marker at tile-local (240, ·, 10) ends up at engine x 240, z 10, so `tiles.group.rotation.x = -PI/2` together with the renderer's default glTF Y-up → Z-up rotation is right. This resolves the [U] in docs/specs/tiles.md §1.
 - **Rapier 0.21 bug:** `castRayAndGetNormal(...).featureId` is always 0 for trimesh faces. A canary test covers this. Material lookup therefore uses `triLocator.ts`. `src/shared/col/rapierBuild.ts#hitMaterial` relies on `featureId`, so it returns the material of triangle 0.
-- No interpolation between 60 Hz physics states, so there can be judder on 120 Hz displays. Camera collision uses an async worker raycast whose result applies one frame late.
-- There is no curb-strike module yet (Task 1.14), no stair animation or foot IK, no CSM, GTAO or TRAA, and no floating origin.
+- Character rendering interpolates 60 Hz physics states; car rendering still uses the latest state. Camera collision uses an async worker raycast whose result applies one frame late.
+- There is no curb-strike module yet (Task 1.14), no CSM, GTAO or TRAA, and no floating origin.
 - The character's walk, jog and sprint clip speeds (1.5, 3.6, 6.0 m/s) were tuned by eye.

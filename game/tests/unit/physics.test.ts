@@ -90,6 +90,27 @@ describe('physics world on dev tiles', () => {
     expect(s.pos.z).toBeLessThan(216);
     expect(s.pos.y).toBeCloseTo(G + 0.96, 1);
   });
+  test('feet query sees discrete treads while the KCC sees a smooth stair slope', () => {
+    const origin = { x: 131, y: 4, z: 219.55 }, down = { x: 0, y: -1, z: 0 };
+    const foot = pw.raycast(origin, down, 3, 'foot')!;
+    const solid = pw.raycast(origin, down, 3, 'solid')!;
+    expect(foot.material).toBe(MAT.stair_tread_helper);
+    expect(foot.point.y).toBeCloseTo(2.32, 4);
+    expect(solid.material).toBe(MAT.stair_slope);
+    expect(solid.point.y).toBeCloseTo(2.24, 4);
+  });
+  test('character cannot autostep a 35 cm wall', () => {
+    pw.spawnCharacter({ x: 138, y: G, z: 225 });
+    const s = walk(pw, 0, -3.6, 2);
+    expect(s.pos.z).toBeGreaterThan(223.25);
+    expect(s.pos.y).toBeLessThan(2.1);
+  });
+  test('jump edge survives frames without a 60 Hz physics step', () => {
+    pw.spawnCharacter({ x: 100, y: G, z: 100 }); walk(pw, 0, 0, 0.3);
+    pw.step(DT / 4, { vx: 0, vz: 0, jump: true }, null);
+    for (let k = 0; k < 40; k++) pw.step(DT / 4, { vx: 0, vz: 0, jump: false }, null);
+    expect(pw.characterState()!.pos.y).toBeGreaterThan(G + 0.4);
+  });
   test('character is blocked by the building wall', () => {
     pw.spawnCharacter({ x: 186, y: G, z: 208 });
     const s = walk(pw, 3, 0, 4);
@@ -153,4 +174,20 @@ test('TriLocator finds triangles for hits just outside a tile edge / a 2 m cell 
   expect(loc.locate(62.5 + 0.5, 1, 125 - 1e-5)).toBe(0); // z a hair north of the tile edge
   expect(loc.locate(62.5 + 1.995, 1, 125 + 0.001)).toBe(0); // 5 mm past the triangle, across the 2 m cell line
   expect(loc.locate(62.5 + 0.5, 1, 125 - 0.5)).toBe(-1); // genuinely off the triangle
+});
+
+for (const height of [0.07, 0.15]) test(`autostep climbs ${height * 100} cm curb at walk and sprint speeds`, () => {
+  for (const speed of [1.5, 6]) {
+    const pw = new PhysicsWorld(RAPIER);
+    // Shipped curbs are triangle breaklines, with horizontal top and a vertical face (D5).
+    pw.world.createCollider(RAPIER.ColliderDesc.trimesh(new Float32Array([
+      -10, 0, 10, 10, 0, 10, 10, 0, -10, -10, 0, -10,
+      -2, height, 0, 2, height, 0, 2, height, -4, -2, height, -4,
+      -2, 0, 0, 2, 0, 0,
+    ]), new Uint32Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 5, 8, 5, 4])));
+    pw.world.step(); pw.spawnCharacter({ x: 0, y: 0.02, z: 1 }); walk(pw, 0, 0, 0.3);
+    const s = walk(pw, 0, -speed, 2.5 / speed);
+    expect(s.pos.z).toBeLessThan(-1.2); expect(s.pos.y).toBeCloseTo(height, 1);
+    pw.world.free();
+  }
 });

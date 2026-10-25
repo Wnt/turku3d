@@ -1,7 +1,7 @@
 {
   "format": "turku3d-manifest",
   "version": 1,
-  "built": "2026-10-25T17:31:57Z",
+  "built": "2026-10-25T19:07:09Z",
   "code": "dev-tiles",
   "origin_en": [
     23459500,
@@ -30,10 +30,10 @@
   "visual": {
     "t0_0_0": {
       "url": "visual/0/t0_0_0.glb",
-      "sha256": "db9810dd98e08daffe6fff28c3ca54cb458bd8176f7d5438ce15afdb7b44f2ac",
-      "bytes": 51480,
+      "sha256": "ec9189a3cc30a90a31f706702ad5750cda7fdbaeb7a5a81e8ef588592393cc9d",
+      "bytes": 52736,
       "level": 0,
-      "tris": 2182,
+      "tris": 2192,
       "h": [
         2,
         22
@@ -43,7 +43,7 @@
   "collision": {
     "c_0_0": {
       "url": "collision/t0_0_0/c_0_0.col",
-      "sha256": "38d43c9d4eedbb8d5559651ae2b2ddaf56fcdeeb58de06bbc31ae7c8554786fe",
+      "sha256": "3661cd733d4ade788511ae3e62a067fa14d93397ed85a77943fd97b9ae4311ad",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -55,7 +55,7 @@
     },
     "c_0_1": {
       "url": "collision/t0_0_0/c_0_1.col",
-      "sha256": "02235b2a7192e3079fdafabe9e30ff6b83fd00e6dc8f6d4db717f0e46e5721b5",
+      "sha256": "7d458467781af0cb71240c727148ac48680bc9ddff6432d4885fa41cf6f14154",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -67,7 +67,7 @@
     },
     "c_0_2": {
       "url": "collision/t0_0_0/c_0_2.col",
-      "sha256": "7d7634f3cfd343eb66cfa54437f204bf67d34f9ecd1c14ba3a8b2001003257d9",
+      "sha256": "ca6884a0b21f1d46fd8f7557ed7e2ffb55930332fd9281074a613b64c3b24501",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -79,7 +79,7 @@
     },
     "c_0_3": {
       "url": "collision/t0_0_0/c_0_3.col",
-      "sha256": "45f4b3c8d66762bab34e35e4f1dcf2117d07ff18cd87bb323a9717d35f2885e6",
+      "sha256": "79411fcdd6250605cbe15e8c2fef29d045c41d837e879918e2cf9a9610496d9b",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -91,7 +91,7 @@
     },
     "c_1_0": {
       "url": "collision/t0_0_0/c_1_0.col",
-      "sha256": "2c6bdca3a64ef7c38960fcaa2e05d855ae975e27e6e6ec61aef5e934978aae9d",
+      "sha256": "68532afe6dd0eb89f756a495b9b07cb0a8115dcb30f727766ec38467f139e55b",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -103,7 +103,7 @@
     },
     "c_1_1": {
       "url": "collision/t0_0_0/c_1_1.col",
-      "sha256": "42098a599d77463d25012ae5450e308a54bf1898fe4907cc0a59eed0c303ef52",
+      "sha256": "389ea5f5e66fbaab98586454de0e6133a2c7e6b7d4907f0272eda61f20aadf5b",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -115,7 +115,7 @@
     },
     "c_1_2": {
       "url": "collision/t0_0_0/c_1_2.col",
-      "sha256": "2cc46058db57a42c4dbd71ca40e348352995256eac9547f0df2ec1b01095c2b9",
+      "sha256": "76ea43c21847ef90ec4fdd4a9f901e1064bf5fa27ce57e073c74c63ad0065bd5",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -127,7 +127,7 @@
     },
     "c_1_3": {
       "url": "collision/t0_0_0/c_1_3.col",
-      "sha256": "e2335f51c5b5fbe653221db9abb64daf3342e9212d4027d703328d88b6f04b60",
+      "sha256": "26949f2c934c8d52af6767e1c007fcef8af8a1bd7e2b75d35923d065cb9b66ff",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -139,7 +139,7 @@
     },
     "c_2_0": {
       "url": "collision/t0_0_0/c_2_0.col",
-      "sha256": "8edf6cc130e3599b61da99d75f2c9fb7b8ebbfadfedd792ad5333356b5f9641e",
+      "sha256": "d480ca858c9f0be66710cc346e4b75dca0c0a81388030ebf0c8948c8110ed13d",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -151,7 +151,7 @@
     },
     "c_2_1": {
       "url": "collision/t0_0_0/c_2_1.col",
-      "sha256": "ac944c9e0bd17e25f81a715d400f4f68ec77af910a7bf99279992acae7cd87a7",
+      "sha256": "e3a1ce339d1c52dcd65c2e3e0750ab4af150246312425f165ac80f42982a45e6",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -163,7 +163,7 @@
     },
     "c_2_2": {
       "url": "collision/t0_0_0/c_2_2.col",
-      "sha256": "7706c576b95eee2ea94c2e871bb1f2665fe18454ac69f27d971edba2bf450c27",
+      "sha256": "ebbf310db4ccb0951879dfbff0bf0c0fc72c80c10a9a5f17f7fb7ad13c20bc14",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -175,9 +175,9 @@
     },
     "c_2_3": {
       "url": "collision/t0_0_0/c_2_3.col",
-      "sha256": "a97705ad422dd075d64acbd4b919b115b4e3e60e8a48816630305297388f5248",
-      "bytes": 6000,
-      "tris": 208,
+      "sha256": "96679fb06ea0b5dd47b2b36a60b4f5b58bca61ac41a4f68bc4c4f890d4364b21",
+      "bytes": 4672,
+      "tris": 172,
       "prims": 1,
       "h": [
         2,
@@ -187,7 +187,7 @@
     },
     "c_3_0": {
       "url": "collision/t0_0_0/c_3_0.col",
-      "sha256": "e1b94a351a7c841ffa082b8b7701ca3bb94ae07796d58f872b6ff764655c8f18",
+      "sha256": "49c2ea976f746414f083f186559d1597c3a0170ef5cb4b4a2a0709bb215ec9fb",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -199,7 +199,7 @@
     },
     "c_3_1": {
       "url": "collision/t0_0_0/c_3_1.col",
-      "sha256": "5d83df3d25977d56b2b524186cfca1c6e65731e2b6653a0af7488a726b37277c",
+      "sha256": "f26b2c5c5e6851cd0dde99579070afc4442c3e0fdcf97bc740ab78ea8e7642c1",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -211,7 +211,7 @@
     },
     "c_3_2": {
       "url": "collision/t0_0_0/c_3_2.col",
-      "sha256": "3dff46e6b2811e92e641776424c34898d32676d4c77ccd18ccf2dccb1fbb3cf3",
+      "sha256": "93e1525828cc79fbdd1350b226813f4130ee115efed6b8101984a1ca4276f9fe",
       "bytes": 2992,
       "tris": 128,
       "prims": 0,
@@ -223,7 +223,7 @@
     },
     "c_3_3": {
       "url": "collision/t0_0_0/c_3_3.col",
-      "sha256": "6fed015fd69934d850c4ce70cc34a1383b74b68ad635d4bf11101d9e2941e78e",
+      "sha256": "19b11dc3373bf3073414058308a159b02bf7881efdf59364198316c5ff99610f",
       "bytes": 3368,
       "tris": 138,
       "prims": 0,

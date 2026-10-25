@@ -2,7 +2,7 @@
 // Everything is in engine world-local coordinates; each .col tile's float64 origin becomes its collider translation.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
 import type { V3 } from '../core/origin';
-import { GROUP, materialClass, MATERIALS } from '../shared/col/materials';
+import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
 import { CHARACTER, CAR } from './constants';
@@ -24,6 +24,10 @@ export class PhysicsWorld {
   private tiles = new Map<string, LoadedTile>();
   private colliderInfo = new Map<number, ColliderInfo>();
   private acc = 0;
+  tick = 0;
+  previousCharacter: CharacterState | null = null;
+  private jumpPending = false;
+  get remainder() { return this.acc; }
 
   // character
   private cc: RAPIER_NS.KinematicCharacterController | null = null;
@@ -246,10 +250,12 @@ export class PhysicsWorld {
   // ------------------------------------------------------------------ stepping
   /** Advances real time dt with fixed 60 Hz substeps. Returns the number of substeps run. */
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null): number {
+    this.jumpPending ||= character.jump;
     this.acc = Math.min(this.acc + Math.max(0, dt), MAX_SUBSTEPS * DT);
     let n = 0;
     while (this.acc >= DT - 1e-9 && n < MAX_SUBSTEPS) {
-      this.fixedStep(character, vehicle);
+      this.fixedStep({ ...character, jump: this.jumpPending }, vehicle);
+      this.jumpPending = false;
       this.acc -= DT;
       n++;
     }
@@ -257,6 +263,8 @@ export class PhysicsWorld {
   }
 
   fixedStep(character: CharacterInput, vehicle: VehicleInput | null) {
+    this.previousCharacter = this.characterState();
+    this.tick++;
     if (this.cc && this.charEnabled) this.stepCharacter(character);
     if (this.vehicle) {
       this.applyVehicleInput(vehicle);
@@ -267,6 +275,12 @@ export class PhysicsWorld {
 
   // ------------------------------------------------------------------ queries
   raycast(origin: V3, dir: V3, maxToi: number, filter: RayFilter = 'solid'): RayHit | null {
+    // Treads are query-only and can be below the KCC slope: prefer them over the solid ramp.
+    if (filter === 'foot') {
+      const tread = this.raycast(origin, dir, maxToi, 'query');
+      if (tread?.material === MAT.stair_tread_helper) return tread;
+      return this.raycast(origin, dir, maxToi, 'solid');
+    }
     const R = this.R;
     const l = Math.hypot(dir.x, dir.y, dir.z) || 1;
     const d = { x: dir.x / l, y: dir.y / l, z: dir.z / l };

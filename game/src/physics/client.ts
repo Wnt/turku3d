@@ -1,4 +1,5 @@
 // Main-thread side of the physics worker.
+import { CharacterInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
 import type { CharacterInput, FromWorker, RayFilter, RayHit, TileStats, ToWorker, VehicleInput } from './protocol';
 
@@ -12,6 +13,8 @@ export class PhysicsClient {
   private inFlight = false;
   private seq = 0;
   private pendingDt = 0;
+  private jumpPending = false;
+  readonly characterRender = new CharacterInterpolation();
   latest: StateMsg | null = null;
   readonly loaded = new Map<string, TileStats>();
   onError: (e: string) => void = (e) => console.error('[physics]', e);
@@ -28,7 +31,10 @@ export class PhysicsClient {
       const m = ev.data;
       switch (m.type) {
         case 'ready': this.colReader = m.colReader; this.isReady = true; for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
-        case 'state': this.latest = m; this.inFlight = false; break;
+        case 'state':
+          this.latest = m; this.inFlight = false;
+          this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, performance.now() / 1000);
+          break;
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
         case 'tileError': this.tileWaiters.get(m.id)?.reject(new Error(m.error)); this.tileWaiters.delete(m.id); this.onError(`tile ${m.id}: ${m.error}`); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
@@ -59,10 +65,12 @@ export class PhysicsClient {
   /** Queues dt; sends one step at a time (single in flight) so the worker never falls behind. */
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null) {
     this.pendingDt += dt;
+    this.jumpPending ||= character.jump;
     if (this.inFlight) return;
     this.inFlight = true;
-    this.send({ type: 'step', seq: ++this.seq, dt: this.pendingDt, character, vehicle });
+    this.send({ type: 'step', seq: ++this.seq, dt: this.pendingDt, character: { ...character, jump: this.jumpPending }, vehicle });
     this.pendingDt = 0;
+    this.jumpPending = false;
   }
 
   raycast(origin: V3, dir: V3, maxToi: number, filter: RayFilter = 'solid'): Promise<RayHit | null> {
