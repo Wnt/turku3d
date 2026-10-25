@@ -7,10 +7,12 @@ export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, tra
   const origin = [Number(i) * 250 * 2 ** Number(level), 0, Number(j) * 250 * 2 ** Number(level)];
   for (const node of doc.getRoot().listNodes()) {
     const mesh = node.getMesh();
-    if (!mesh) continue;
+    // Instanced meshes already batch their repeated geometry; preserve their transforms.
+    if (!mesh || node.getExtension('EXT_mesh_gpu_instancing')) continue;
     const matrix = node.getWorldMatrix();
     matrix[12] -= origin[0]; matrix[14] -= origin[2];
-    for (const prim of mesh.listPrimitives()) {
+    for (const source of mesh.listPrimitives()) {
+      const prim = source.clone();
       // Source accessors may be shared. Each baked primitive owns its mutable attributes.
       for (const semantic of prim.listSemantics()) prim.setAttribute(semantic, prim.getAttribute(semantic).clone());
       if (prim.getIndices()) prim.setIndices(prim.getIndices().clone());

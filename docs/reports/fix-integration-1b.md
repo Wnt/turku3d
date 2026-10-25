@@ -95,3 +95,12 @@ Visual inspection confirms L0 walls, roofs, river and detailed ground geometry. 
 inventory still uses generic facade library materials and plain ground materials. Detailed
 facade imagery and ground texture products belong to the concurrent W1-09/W1-10 delivery;
 the screenshot evidence must not be described as completed photorealistic facade work.
+
+The dedicated office e2e passed **2/2 in 2.2 minutes**, with one worker: WebGPU 28.8 s,
+WebGL2 approximately 1.3 minutes. Both verified the facade pixel budget, car entry and zero
+console errors, and captured all requested views. The branch was rebased onto main after
+the orchestrator landed the two functional commits. The incoming vegetation integration
+required preserving `EXT_mesh_gpu_instancing` nodes in the batcher; ordinary shared mesh
+primitives are cloned before baking transforms. The existing instancing/world-bounds
+regression passed (1 test, 3.46 s). These are packaging compatibility changes; the measured
+input inventory contains ground and buildings only.
