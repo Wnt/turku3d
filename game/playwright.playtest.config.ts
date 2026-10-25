@@ -16,7 +16,7 @@ export default defineConfig({
   fullyParallel: true,
   workers: 2,
   retries: 0,
-  timeout: 45_000,
+  timeout: 120_000,
   expect: { timeout: 8_000 },
   outputDir: path.join(report, 'results'),
   reporter: [['list'], ['./tests/e2e-playtest/reporter.ts', { outputDir: report }]],

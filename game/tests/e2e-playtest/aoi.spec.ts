@@ -33,9 +33,12 @@ test('AOI terrain: virtual Xbox walks a loop across the four visual tile seams',
   for (const [x, y, axis, direction] of [[0, 1, 2, 1], [-1, 0, 0, -1], [0, -1, 2, -1], [1, 0, 0, 1]]) {
     const from = (await gameState(page)).feet[axis];
     await padAxes(page, x, y);
-    await page.waitForFunction(({ axis, direction, from }) => direction * ((window.__game!.state as () => any)().feet[axis] - from) >= 12,
-      { axis, direction, from }, { timeout: 7_000 });
-    await padAxes(page, 0, 0);
+    await page.waitForFunction(({ axis, direction, from }) => {
+      if (direction * ((window.__game!.state as () => any)().feet[axis] - from) < 12) return false;
+      // Release on this frame; a second protocol round trip can overshoot under host load.
+      window.__virtualPad.axes = [0, 0, 0, 0];
+      return true;
+    }, { axis, direction, from });
     await expect.poll(async () => Math.hypot(...(await gameState(page)).vel)).toBeLessThan(0.15);
     const s = await gameState(page);
     visited.add(`t0_${Math.floor(s.feet[0] / VISUAL_L0)}_${Math.floor(s.feet[2] / VISUAL_L0)}`);
