@@ -34,12 +34,7 @@ export class RiverMaterial {
 
   constructor(mesh: THREE.Mesh, env: Environment, tier: QualityTier, deterministic: boolean) {
     this.reflection.reflector.resolutionScale = QUALITY[tier].reflectionScale;
-    const target = this.reflection.target;
-    const p = mesh.geometry.getAttribute('position'), n = mesh.geometry.getAttribute('normal');
-    target.position.fromBufferAttribute(p, 0);
-    target.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1),
-      n ? new THREE.Vector3().fromBufferAttribute(n, 0).normalize() : new THREE.Vector3(0, 1, 0));
-    mesh.add(target);
+    this.attach(mesh);
     const clock = deterministic ? float(0) : time;
     const uv = positionWorld.xz.mul(0.12);
     const n1 = texture(this.normals, uv.add(vec2(clock.mul(0.018), clock.mul(0.011)))).xyz.mul(2).sub(1);
@@ -54,6 +49,16 @@ export class RiverMaterial {
     // Opaque colour, but exclude the river from the opaque normal/velocity prepass and its recursive reflection.
     this.material.transparent = true;
     this.material.name = 'river-planar';
+  }
+
+  /** Transfer the shared reflection plane when its original tile unloads. */
+  attach(mesh: THREE.Mesh) {
+    const target = this.reflection.target;
+    const p = mesh.geometry.getAttribute('position'), n = mesh.geometry.getAttribute('normal');
+    target.position.fromBufferAttribute(p, 0);
+    target.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1),
+      n ? new THREE.Vector3().fromBufferAttribute(n, 0).normalize() : new THREE.Vector3(0, 1, 0));
+    mesh.add(target);
   }
 
   dispose() {

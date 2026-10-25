@@ -15,6 +15,7 @@ interface Params {
   pass: 'color' | 'id';
   time: Date;
   timeGiven: boolean;
+  spawnGiven: boolean;
   spawn: { E: number; N: number; headingDeg: number };
   hud: boolean;
   test: boolean;
@@ -66,6 +67,7 @@ export function parseParams(search: string): Params {
     pass: passStr,
     time,
     timeGiven: timeStr !== null,
+    spawnGiven: sp !== null,
     spawn: { E: sp?.[0] ?? OFFICE_EN.E, N: sp?.[1] ?? OFFICE_EN.N, headingDeg: sp?.[2] ?? 0 },
     hud: p.get('hud') !== '0',
     test: p.has('test'),

@@ -176,6 +176,7 @@ class DistTree:
         old = json.loads(mpath.read_text()) if mpath.exists() else {}
         if old and (old.get("format") != MANIFEST_FORMAT or old.get("version") != MANIFEST_VERSION):
             raise ValueError(f"{mpath}: not a {MANIFEST_FORMAT} v{MANIFEST_VERSION}")
+        self.spawn = old.get("spawn")
         self.visual: dict = dict(old.get("visual", {}))
         self.collision: dict = dict(old.get("collision", {}))
         self.areas = sorted(set(old.get("areas", [])) | set(areas or []))
@@ -223,6 +224,7 @@ class DistTree:
                 "collision": C.COLLISION_TILE_SIZE,
                 "levels": C.VISUAL_MAX_LEVEL + 1,
             },
+            **({"spawn": self.spawn} if self.spawn else {}),
             "materials_version": 1,
             "col_version": [1, 0],
             "areas": self.areas,

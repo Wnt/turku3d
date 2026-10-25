@@ -8,6 +8,7 @@ export interface Manifest {
   grid: { visual_l0: number; collision: number; levels: number };
   materials_version: number; col_version: [number, number];
   visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+  spawn?: { position: [number, number, number]; headingDeg: number; vehicle: { position: [number, number, number]; yaw: number } };
   baseUrl: string;
 }
 

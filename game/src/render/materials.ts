@@ -44,12 +44,14 @@ function detailTexture() {
 
 export class MaterialStyler {
   private detail = detailTexture();
-  private owned = new Map<THREE.Object3D, { materials: THREE.Material[]; rivers: RiverMaterial[] }>();
+  private owned = new Map<THREE.Object3D, { materials: THREE.Material[]; rivers: THREE.Mesh[] }>();
+  private rivers = new Map<string, { river: RiverMaterial; meshes: Set<THREE.Mesh> }>();
+  private riverKeys = new Map<THREE.Mesh, string>();
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
     private tier: QualityTier, private deterministic: boolean) {}
 
   apply(model: THREE.Object3D) {
-    const materials: THREE.Material[] = [], rivers: RiverMaterial[] = [];
+    const materials: THREE.Material[] = [], rivers: THREE.Mesh[] = [];
     const cache = new Map<string, THREE.Material>();
     model.traverse(object => {
       const mesh = object as THREE.Mesh;
@@ -59,10 +61,23 @@ export class MaterialStyler {
         if (!key) return source;
         const kind = surfaceStyle(key);
         if (kind === 'water') {
-          const river = new RiverMaterial(mesh, this.env, this.tier, this.deterministic);
-          rivers.push(river);
+          mesh.updateWorldMatrix(true, false);
+          const normal = new THREE.Vector3(0, 1, 0);
+          const attribute = mesh.geometry.getAttribute('normal');
+          if (attribute) normal.fromBufferAttribute(attribute, 0);
+          normal.transformDirection(mesh.matrixWorld);
+          const point = new THREE.Vector3().fromBufferAttribute(mesh.geometry.getAttribute('position'), 0).applyMatrix4(mesh.matrixWorld);
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point);
+          const key = [...normal.toArray(), plane.constant].map(v => v.toFixed(4)).join(',');
+          let shared = this.rivers.get(key);
+          if (!shared) {
+            shared = { river: new RiverMaterial(mesh, this.env, this.tier, this.deterministic), meshes: new Set() };
+            this.rivers.set(key, shared);
+          }
+          shared.meshes.add(mesh); this.riverKeys.set(mesh, key);
+          rivers.push(mesh);
           mesh.castShadow = false;
-          return river.material;
+          return shared.river.material;
         }
         if (kind === 'standard' || !(source as THREE.MeshStandardMaterial).isMeshStandardMaterial) return source;
         const cacheKey = `${source.uuid}:${kind}`;
@@ -93,7 +108,13 @@ export class MaterialStyler {
   release(model: THREE.Object3D) {
     const owned = this.owned.get(model);
     if (!owned) return;
-    for (const river of owned.rivers) river.dispose();
+    for (const mesh of owned.rivers) {
+      const key = this.riverKeys.get(mesh)!;
+      const shared = this.rivers.get(key)!;
+      shared.meshes.delete(mesh); this.riverKeys.delete(mesh);
+      if (shared.meshes.size) shared.river.attach(shared.meshes.values().next().value!);
+      else { shared.river.dispose(); this.rivers.delete(key); }
+    }
     for (const material of owned.materials) material.dispose();
     // The tile renderer owns and disposes the original GLB textures, geometries and source materials.
     this.owned.delete(model);

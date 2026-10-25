@@ -192,11 +192,17 @@ async function runPlay() {
   const playerLoad = player.load(`${import.meta.env.BASE_URL}assets/character/mannequin.glb`);
 
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
-  const spawn = enToEngine(params.spawn.E, params.spawn.N, 0);
+  const selected = params.spawnGiven ? undefined : manifest.spawn;
+  const spawn = selected ? { x: selected.position[0], y: selected.position[1], z: selected.position[2] } : enToEngine(params.spawn.E, params.spawn.N, 0);
   const spawnId = (() => { const t = collisionTileAt(spawn.x, spawn.z); return `c_${t.i}_${t.j}`; })();
+  const required = [spawnId];
+  if (selected) {
+    const t = collisionTileAt(selected.vehicle.position[0], selected.vehicle.position[2]);
+    required.push(`c_${t.i}_${t.j}`);
+  }
   streamer.update(spawn.x, spawn.z, true);
   const tWait = performance.now();
-  while (!physics.loaded.has(spawnId) && manifest.collision[spawnId]) {
+  while (required.some(id => !physics.loaded.has(id) && manifest.collision[id])) {
     if (performance.now() - tWait > 30000) throw new Error(`spawn collision tile ${spawnId} did not load`);
     await new Promise((r) => setTimeout(r, 20));
     streamer.update(spawn.x, spawn.z);
@@ -206,12 +212,12 @@ async function runPlay() {
   const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? manifest.collision[spawnId]?.h[1] ?? 0;
   spawn.y = await groundAt(spawn.x, spawn.z);
   physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
-  const yaw0 = headingToYaw(params.spawn.headingDeg);
+  const yaw0 = headingToYaw(selected?.headingDeg ?? params.spawn.headingDeg);
   orbit.yaw = yaw0;
-  // car parked 6 m to the right of the spawn, facing the spawn heading (chassis +X forward -> yaw + 90 deg)
-  const carPos = { x: spawn.x + 6 * Math.cos(yaw0), z: spawn.z - 6 * Math.sin(yaw0) };
+  // Published starts use mapped parking. Explicit/debug spawns retain a nearby car.
+  const carPos = selected ? { x: selected.vehicle.position[0], z: selected.vehicle.position[2] } : { x: spawn.x + 6 * Math.cos(yaw0), z: spawn.z - 6 * Math.sin(yaw0) };
   const carGround = await groundAt(carPos.x, carPos.z);
-  const carYaw = yaw0 + Math.PI / 2;
+  const carYaw = selected?.vehicle.yaw ?? yaw0 + Math.PI / 2;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   await Promise.all([playerLoad, carLoad]);
 

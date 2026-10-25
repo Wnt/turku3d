@@ -18,6 +18,7 @@ from turku3d.layers import layer_root, read_collision, read_manifest, read_visua
 from turku3d.package import coarse
 from turku3d.package.manifest import DistTree, _atomic_write, git_sha, verify_tree
 from turku3d.package.seams import edge_equal, verify_tile_seams
+from turku3d.package.spawn import derive_spawn, parking_sources
 
 BRIDGE = Path(__file__).with_name("visual.mjs")
 
@@ -232,6 +233,7 @@ def assemble(
     }
     build = requested | parents
     tree = DistTree(out, areas=[area])
+    tree.spawn = derive_spawn(root, collision)
     cache_file = out / ".assemble-cache.json"
     cache = json.loads(cache_file.read_text()) if cache_file.exists() else {}
     # Include implementation and tool lock, not git HEAD: an unrelated commit is not an input change.
@@ -274,7 +276,9 @@ def assemble(
                 ):
                     inputs.extend(paths)
             terrain = coarse.discover(tile) if tile.level > 0 else None
-            files = inputs + [root / name / "MANIFEST.json" for name in manifests]
+            files = (
+                inputs + [root / name / "MANIFEST.json" for name in manifests] + parking_sources()
+            )
             if terrain:
                 files += terrain["files"]
             key = digest(files, [code, texture_hash, bindings, tile.id, sorted(available), area])

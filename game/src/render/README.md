@@ -159,3 +159,9 @@ captures to isolate object motion from asynchronous chase-camera collision queri
 the normal play path. PNG sequences and motion JSON are saved under `$TURKU3D_WORK/reports/car-ghost/after/`.
 `GHOST_CAPTURE=before` selects a separate evidence directory for a baseline run. The test asserts actual motion and
 10–20 m/s speed, so a stationary car or missing velocity cannot pass. The `@drive`/`@render` tags include it in the gate.
+
+Coplanar river meshes share one reflection material and target across visual tiles. The
+material styler counts tile references and transfers the target when its original tile
+unloads, then disposes it after the last user. This prevents each tile from rendering the
+same river reflection and shadow cascades again. Assembler material batches retain source
+object index ranges; the ID pass restores those ranges for per-facade QA colors.

@@ -33,7 +33,11 @@ checked bitwise before and after conversion, including neighbouring previously s
 Complete objects are not clipped or duplicated. `AOI_BORDER` follows the available collision
 inventory, and changes on existing neighbours when new tiles are added.
 
-Visuals preserve L0 topology and object IDs. The assembler binds library albedo/normal/ORM
+Visuals preserve L0 topology and object IDs. Compatible primitives are batched per tile, layer and material.
+Batches carry `extras.objects` with source metadata and index `start`/`count` ranges; the QA ID
+pass expands these ranges into draw groups only while capturing IDs. Normal rendering uses one
+draw per batch. Texture and material deduplication prevents repeated glTF texture transforms
+from exhausting the streaming cache before L0 can load. The assembler binds library albedo/normal/ORM
 maps and unique building facades, falling back to the library material when a facade is absent.
 Both texture defaults are under `$TURKU3D_WORK/textures/assembly`. Until W1-09's assets are
 promoted, pass `--library /Users/wnt/turku3d/wt/w1-09-facades/work/textures/assembly/library`
@@ -56,7 +60,7 @@ Brick, wood and roof tile remain explicit generic approximations. Original `mate
 is retained in node/material extras; `library_material_key` records the chosen library key.
 Untextured inputs retain their source colors. PNG/JPEG maps become ETC1S albedo or UASTC +
 Zstandard linear maps through KTX-Software 4.4.2 **before** lossless meshopt compression.
-It never invokes `optimize`, joins L0 meshes, simplifies L0 geometry, or quantizes positions.
+It never invokes `optimize`, simplifies L0 geometry, or quantizes positions.
 The packaged GLB is decoded and compared, and L0 brotli size is limited to 8 MB at quality 5, matching the local server.
 
 500 m and 1 km parents combine roofs from every published building layer in their footprint
@@ -132,3 +136,27 @@ cd game && E2E_TILE_PORT=$((TURKU3D_PORT_BASE + 1)) TILE_DIST="$TURKU3D_WORK/dis
 
 Native dependencies are installed by `make pipeline-bootstrap`. The Node bridge uses the
 shared pinned `~/turku3d/tools/npm`; `TURKU3D_GLTF_TOOLS` can select another installed copy.
+
+## Office start and integration regression
+
+When the buildings footprint/facade inventory covers LR15, assembly publishes optional
+`manifest.spawn`: engine-local `position`, compass `headingDeg`, `vehicle.position` and
+`vehicle.yaw` (radians, chassis +X forward). The player uses the nearest eligible walkable
+ground triangle centroid outside all footprints on the outward side of a street-facing
+facade. The car uses mapped public OSM parking with a full 5 × 2.2 m footprint clear of
+buildings; private/customer-only parking is excluded. OSM input hashes participate in the
+assembly cache. Missing public parking fails assembly instead of parking on the sidewalk.
+`spawn.footprints`, `building_id`, `facade_id`, and vehicle OSM metadata retain QA provenance.
+Explicit `?spawn=E,N,heading` continues to override the published start.
+
+```sh
+source ../sandbox.env
+make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
+make game-build
+(cd game && npx playwright test -c playwright.tile.config.ts integration.spec.ts --workers=1)
+```
+
+The office test verifies the footprint exclusion, L0 triangle count, draw-call budget,
+wall pixels in the ID pass, car entry and console errors. It writes street, facade, car
+and aerial screenshots under `$TURKU3D_WORK/reports/screenshots/integration-*`. The synthetic
+ground-only suite skips this real-office test; synthetic unit tests cover spawn and batching.

@@ -91,3 +91,24 @@ describe('glTF material preservation and streamed ownership', () => {
     styler.dispose(); env.dispose(); mesh.geometry.dispose(); source.dispose();
   });
 });
+
+test('coplanar river tiles share a reflection and transfer ownership on unload', () => {
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const env = new Environment(new THREE.Scene(), renderer, 'medium');
+  const styler = new MaterialStyler(renderer, env, 'medium', true);
+  const models = [0, 250].map(x => {
+    const model = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(250, 250).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
+    mesh.position.x = x; mesh.userData.material_key = 'water'; model.add(mesh); styler.apply(model);
+    return { model, mesh };
+  });
+  expect(models[0].mesh.material).toBe(models[1].mesh.material);
+  let disposed = 0;
+  models[0].mesh.material.addEventListener('dispose', () => disposed++);
+  styler.release(models[0].model);
+  expect(disposed).toBe(0);
+  expect(models[1].mesh.children).toHaveLength(1);
+  styler.release(models[1].model);
+  expect(disposed).toBe(1);
+  styler.dispose(); env.dispose();
+});

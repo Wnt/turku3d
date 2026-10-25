@@ -483,3 +483,101 @@ def test_coarse_dtm_uses_complete_cached_coverage(tmp_path):
     assert all(v["coarse_dtm"] for v in manifest["visual"].values() if v["level"] > 0)
     tileset = json.loads((out / "tileset.json").read_text())
     assert {c["extras"]["id"] for c in tileset["root"]["children"][0]["children"]} == expected
+
+
+def test_batch_preserves_object_ranges_and_uses_one_material(tmp_path):
+    layers, out = tmp_path / "layers", tmp_path / "dist"
+    fixture(layers)
+    buildings = layers / "buildings"
+    meshes = [
+        GlbMesh(
+            f"wall-{i}",
+            np.array([[i, 0, 10], [i + 1, 0, 10], [i, 3, 10]], dtype=float),
+            np.array([[0, 1, 2]], np.uint32),
+            uvs=np.zeros((3, 2), np.float32),
+            extras=dict(
+                layer="buildings", object_id=f"wall-{i}", material_key="facade_wood", facade_index=i
+            ),
+        )
+        for i in range(100)
+    ]
+    write_visual(buildings / "t0_0_0.vis.glb", meshes)
+    write_manifest(buildings, inputs={}, params={}, code="test", tiles=["t0_0_0.vis.glb"])
+    assemble(["t0_0_0"], layers=layers, out=out)
+    doc, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
+    batches = [n for n in doc["nodes"] if n.get("extras", {}).get("layer") == "buildings"]
+    assert len(batches) == 1
+    objects = batches[0]["extras"]["objects"]
+    assert {o["object_id"] for o in objects} == {f"wall-{i}" for i in range(100)}
+    assert [(o["start"], o["count"]) for o in objects] == [(i * 3, 3) for i in range(100)]
+    assert len(doc["materials"]) == 2  # ground + the shared facade material
+
+
+def test_office_spawn_uses_ground_outside_footprints_and_public_parking(tmp_path, monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import Point, box, mapping
+    from turku3d.package import spawn
+
+    root = tmp_path / "layers"
+    buildings = root / "buildings"
+    buildings.mkdir(parents=True)
+    x, z = C.OFFICE_E - C.ORIGIN_E, C.ORIGIN_N - C.OFFICE_N
+    footprint = box(x - 4, z - 4, x + 4, z + 4)
+    (buildings / "footprints.geojson").write_text(
+        json.dumps(
+            dict(
+                turku3d_coords="engine-xz",
+                features=[dict(geometry=mapping(footprint), properties=dict(building_id="office"))],
+            )
+        )
+    )
+    (buildings / "facades.geojson").write_text(
+        json.dumps(
+            dict(
+                features=[
+                    dict(
+                        geometry=dict(
+                            coordinates=[
+                                [C.ORIGIN_E + x - 4, C.ORIGIN_N - z - 4],
+                                [C.ORIGIN_E + x + 4, C.ORIGIN_N - z - 4],
+                            ]
+                        ),
+                        properties=dict(
+                            building_id="office",
+                            object_id="office/facade/0",
+                            street_facing=True,
+                            normal=[0, 0, 1],
+                        ),
+                    )
+                ]
+            )
+        )
+    )
+    positions, indices = [], []
+    for a in range(-10, 30):
+        for b in range(-10, 20):
+            n = len(positions)
+            positions.extend([[x + a, 3, z + b], [x + a + 1, 3, z + b], [x + a, 3, z + b + 1]])
+            indices.append([n, n + 2, n + 1])
+    layer = CollisionLayer(
+        np.array(positions, np.float64),
+        np.array(indices, np.uint32),
+        np.ones(len(indices), np.uint8),
+    )
+    parking = box(x + 12, z + 4, x + 28, z + 15)
+    frame = gpd.GeoDataFrame(
+        dict(
+            amenity=["parking"], tags=['{"access":"yes"}'], osm_id=[123], geometry_local=[parking]
+        ),
+        geometry=[parking],
+        crs="EPSG:3877",
+    )
+    monkeypatch.setattr(spawn, "parking_sources", lambda: [tmp_path / "parking.parquet"])
+    monkeypatch.setattr(gpd, "read_parquet", lambda _: frame)
+    result = spawn.derive_spawn(root, {"ground": {"c_2_3": layer}})
+    assert result["position"][1] == 3
+    assert result["position"][2] > z + 4
+    assert not footprint.covers(Point(np.array(result["position"])[[0, 2]]))
+    assert result["headingDeg"] == 0  # facing the south facade from the street
+    assert result["vehicle"]["osm_id"] == 123
+    assert parking.contains(Point(np.array(result["vehicle"]["position"])[[0, 2]]))
