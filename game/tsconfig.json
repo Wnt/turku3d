@@ -32,6 +32,7 @@
     "playwright.config.ts",
     "playwright.tile.config.ts",
     "tests/e2e",
-    "tests/e2e-tile"
+    "tests/e2e-tile",
+    "tests/headless"
   ]
 }

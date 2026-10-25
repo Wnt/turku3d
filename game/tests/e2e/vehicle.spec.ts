@@ -5,7 +5,7 @@ import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
 const SHOTS = path.join(reportsRoot, 'screenshots');
 
-test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', async ({ page }, info) => {
+test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', { tag: ['@drive', '@input'] }, async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

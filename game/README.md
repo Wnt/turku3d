@@ -170,6 +170,8 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 ```bash
 # From the repository root. The vehicle target installs the validator's Node WASM dependency.
 make game-test game-vehicle-test game-build
+# Re-embed a locally downloaded Kenney sedan asset:
+(cd game && npm run prepare-car -- "path/to/sedan.glb" public/assets/car/sedan.glb)
 cd game
 npx playwright test tests/e2e/vehicle.spec.ts --workers=2
 # Existing keyboard enter/drive/exit regression, also on both backends:

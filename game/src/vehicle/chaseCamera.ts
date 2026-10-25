@@ -3,7 +3,7 @@ import type { VehicleState } from '../physics/protocol.ts';
 import type { PhysicsClient } from '../physics/client.ts';
 import { rotate } from './math.ts';
 
-export function chaseSettings(speed: number) {
+function chaseSettings(speed: number) {
   const s = Math.min(30, Math.max(0, speed));
   return { distance: 6.5 + s * 0.12, fov: 60 + s * 0.45 };
 }

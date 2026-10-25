@@ -117,7 +117,7 @@ commands = [["node_modules/.bin/knip", "--no-progress", "--include-entry-exports
 [[stages]]
 name = "game-unit"
 kind = "vitest"
-triggers = ["game/src/*.ts", "game/tests/unit/*.ts", "game/vitest.config.ts", "game/package*.json", "tools/validator/fixtures/*"]
+triggers = ["game/src/*.ts", "game/tests/unit/*.ts", "game/tests/fixtures/*.ts", "game/vitest.config.ts", "game/package*.json", "tools/validator/fixtures/*"]
 cwd = "game"
 
 [[stages]]
@@ -148,7 +148,7 @@ commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
 [[stages]]
 name = "game-e2e"
 kind = "e2e"
-triggers = ["game/src/main.ts", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/worker.ts", "game/src/physics/client.ts", "game/src/world/tiles.ts", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/package/*"]
+triggers = ["game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/worker.ts", "game/src/physics/client.ts", "game/src/world/tiles.ts", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/package/*"]
 # Subsystem tags are declared on the specs; unmapped e2e triggers select all.
 [[stages.related]]
 paths = ["game/src/render/*", "qa/tests/golden_projection.json"]
@@ -160,3 +160,13 @@ tags = ["@walk", "@drive"]
 [[stages.related]]
 paths = ["game/src/input/*"]
 tags = ["@input"]
+
+[[stages.related]]
+paths = ["game/src/vehicle/*"]
+tags = ["@drive"]
+
+[[stages]]
+name = "vehicle-node-tests"
+kind = "command"
+triggers = ["game/src/vehicle/*", "game/src/physics/constants.ts", "game/src/physics/protocol.ts", "game/src/shared/col/*", "game/tests/fixtures/*", "game/tests/headless/*", "game/package*.json"]
+commands = [["node", "--test", "game/tests/headless/vehicle.test.ts"]]
