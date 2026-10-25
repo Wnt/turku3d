@@ -47,7 +47,7 @@ URLs are relative to `dist/tiles/` and use `/` separators. Ids are case-sensitiv
 - Budget: L0 GLB ≤ 8 MB (brotli on the wire).
 - Node `extras`: `{ "tile": "t0_0_0", "objects": [...] }` is reserved for QA back-mapping (building/material ids).
 - Object nodes carry `extras: {kind, id, tile, material?}` (`kind` ∈ building | ground | prop | vegetation | water | other). The game's QA ID pass (`?pass=id`, qa/README.md §2) turns each distinct `(kind, id, tile)` into one flat ID colour and lists it in `window.__qaIdTable`.
-- Phase 0 stub tiles (`pipeline/turku3d/package/stub_tile.py`, `make tile`) embed a JPEG ortho texture and use no meshopt/KTX2 yet; the game loads plain glTF as well.
+- `make tile` assembles published layers through `turku3d.package.assemble`: KTX2 before lossless meshopt, with no L0 simplification or joining. The Phase 0 stub survives only in `pipeline/tests/fixtures/`.
 
 ## 4. `tileset.json`
 

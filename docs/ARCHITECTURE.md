@@ -194,7 +194,8 @@ Pipeline principles:
 │   │   ├── buildings/                   citygml.py, roofer.py, select.py, shells.py
 │   │   ├── vegetation/                  trees.py (CHM + register)
 │   │   ├── col/                         .col v1.0 writer/reader, meshopt codec, materials table, fixtures
-│   │   ├── package/                     gltf.py, col_format.py (re-export of col/), manifest.py (+ tileset), stub_tile.py
+│   │   ├── layers.py                    shared collision/visual layer interchange
+│   │   ├── package/                     assemble.py, visual.mjs, gltf.py, col_format.py, manifest.py, seams.py
 │   │   └── qa/                          curb_check.py, coverage.py, reports
 │   ├── blender/                         bpy scripts: facades.py, uv_ground.py, preview_render.py
 │   └── tests/                           pytest on fixture patch (100 m around the office)

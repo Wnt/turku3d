@@ -1,4 +1,4 @@
-"""Offline tests for the Phase 0 packaging chain (turku3d.package + turku3d.ground.stub), synthetic inputs only."""
+"""Offline tests for the Phase 0 packaging chain (turku3d.package + fixtures.ground), synthetic inputs only."""
 
 import json
 
@@ -7,10 +7,10 @@ import pytest
 from turku3d import config as C
 from turku3d.col import read_col
 from turku3d.col.materials import mat_id
-from turku3d.ground import stub as G
+from fixtures import ground as G
 from turku3d.package import gltf
 from turku3d.package.manifest import DistTree, build_tileset, verify_tree
-from turku3d.package.stub_tile import build, katualue_material
+from fixtures.stub_tile import build, katualue_material, STEP, CELLS_PER_COL
 
 
 def test_glb_roundtrip_and_root_translation():
@@ -91,7 +91,7 @@ def test_katualue_material_mapping():
 def test_stub_tile_chain_synthetic(tmp_path):
     out = tmp_path / "tiles"
     s = build("t0_0_0", out, synthetic=True, code="test")
-    assert s["collision_tiles"] == 16 and s["visual_tris"] == 2 * 200 * 200
+    assert s["collision_tiles"] == 16 and s["visual_tris"] == 2 * int(C.VISUAL_TILE_SIZE / STEP) ** 2
     assert verify_tree(out) == []
     m = json.loads((out / "manifest.json").read_text())
     assert m["format"] == "turku3d-manifest" and m["origin_en"] == [
@@ -115,7 +115,7 @@ def test_stub_tile_chain_synthetic(tmp_path):
     a, b = tiles["c_1_1"].world_positions(), tiles["c_2_1"].world_positions()
     ea = {tuple(v) for v in a[np.isclose(a[:, 0], 125.0)]}
     eb = {tuple(v) for v in b[np.isclose(b[:, 0], 125.0)]}
-    assert len(ea) == 51 and ea == eb
+    assert len(ea) == CELLS_PER_COL + 1 and ea == eb
 
     # visual GLB: root translation = tile origin, tile-local positions, same heights as collision
     js, binc = gltf.read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
@@ -162,10 +162,10 @@ def test_stub_l0_seams_bitwise_identical(tmp_path):
 
     for j in range(4):  # x = 250: t0_0_0 | t0_1_0
         a, b = edge(f"c_3_{j}", 0, 250.0), edge(f"c_4_{j}", 0, 250.0)
-        assert len(a) == 51 and a == b
+        assert len(a) == CELLS_PER_COL + 1 and a == b
     for i in range(4):  # z = 250: t0_0_0 | t0_0_1
         a, b = edge(f"c_{i}_3", 2, 250.0), edge(f"c_{i}_4", 2, 250.0)
-        assert len(a) == 51 and a == b
+        assert len(a) == CELLS_PER_COL + 1 and a == b
 
 
 def test_tileset_root_box_covers_children():

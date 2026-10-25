@@ -1,4 +1,4 @@
-// Phase 0 exit criterion (ARCHITECTURE §4): Chrome shows the pipeline-built stub tile (dist/tiles from
+// Tile packaging acceptance (ARCHITECTURE §4): Chrome shows the pipeline-assembled tile (dist/tiles from
 // `make tile`, built locally) and the character walks on its collision. Also checks the qa/README.md §2
 // render contract on the real tile: pose echo, __qaProject, and the object-ID pass.
 // Run: npx playwright test -c playwright.tile.config.ts   (after `npm run build`; TILE_DIST=<dir> optional)
@@ -52,7 +52,7 @@ async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: numbe
   return { w: r.w, h: r.h, px: new Uint8Array(Buffer.from(r.b64, 'base64')) };
 }
 
-test('stub tile from the pipeline renders and the character walks on its collision', { tag: ["@walk", "@pipeline"] }, async ({ page }, info) => {
+test('assembled tile from the pipeline renders and the character walks on its collision', { tag: ["@walk", "@pipeline"] }, async ({ page }, info) => {
   const backend = info.project.name;
   const bad = watchConsole(page);
   expect(Object.keys(manifest.visual).length).toBeGreaterThan(0);
@@ -75,20 +75,20 @@ test('stub tile from the pipeline renders and the character walks on its collisi
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(500);
   const end = await page.evaluate(() => (window as any).__game.state());
-  console.log(`[${backend}] stub tile: walked ${Math.hypot(end.feet[0] - start.feet[0], end.feet[2] - start.feet[2]).toFixed(2)} m, `
+  console.log(`[${backend}] assembled tile: walked ${Math.hypot(end.feet[0] - start.feet[0], end.feet[2] - start.feet[2]).toFixed(2)} m, `
     + `N ${start.N.toFixed(2)} -> ${end.N.toFixed(2)}, H ${start.H.toFixed(3)} -> ${end.H.toFixed(3)}, ground mat ${end.groundMaterial}, `
     + `vis tris ${end.visTris}, col tiles ${end.collision.tiles}, frame ${end.frameMs.toFixed(1)} ms`);
   expect(end.N - start.N).toBeGreaterThan(7);
   // every collision tile within the 200 m streaming radius gets loaded (>= 9 around the office)
   await page.waitForFunction(() => (window as any).__game.state().collision.tiles >= 9, null, { timeout: 15_000 });
   expect(end.grounded).toBe(true);
-  expect(Math.abs(end.H - start.H)).toBeLessThan(2); // terrain follows the stub heightfield, no fall-through
+  expect(Math.abs(end.H - start.H)).toBeLessThan(2); // terrain follows the source ground, no fall-through
   await page.screenshot({ path: `${SHOTS}/tile-${backend}-walked.png` });
   expect(bad).toEqual([]);
   expect(await page.evaluate(() => (window as any).__game.errors)).toEqual([]);
 });
 
-test('QA render contract on the stub tile: pose echo, projection, ID pass', { tag: ["@qa", "@render"] }, async ({ browser }, info) => {
+test('QA render contract on the assembled tile: pose echo, projection, ID pass', { tag: ["@qa", "@render"] }, async ({ browser }, info) => {
   const backend = info.project.name;
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();

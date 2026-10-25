@@ -22,6 +22,10 @@ Use `CollisionLayer(positions, indices, material, primitives)` and
 casting or wrapping invalid indices/materials. Empty meshes must retain `(0,3)` shapes.
 
 Cut surfaces (especially ground) have bitwise identical float64 edge coordinates in neighbours.
+Set manifest `params.seams` to `continuous` for clipped surfaces or `objects` for whole objects.
+The default is `continuous` for ground and `objects` for other layers. The assembler compares
+continuous surfaces per layer, before and after float32 conversion. Shipped META carries
+`continuous_vertices: [[start,count], ...]` for the standalone seam validator.
 Complete objects belong to their footprint-centroid tile, as in col-format.md; they are not
 clipped or duplicated merely because their bounds cross an edge. The assembler never welds,
 simplifies, or fixes a broken source seam. Shipped float32 precision must remain within 2 mm.

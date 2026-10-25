@@ -5,8 +5,7 @@ TILE_REPORTS ?= $(TURKU3D_WORK)/reports
 TILE_WALKERS ?= 2000
 
 .PHONY: tile tile-fetch tile-build tile-validate tile-e2e tile-show tile-test tile-qa
-tile: ## Fetch cached inputs, build, verify seams, validate physics and run Chrome e2e locally
-	$(MAKE) tile-fetch
+tile: ## Assemble published layers, validate physics and run Chrome e2e locally
 	$(MAKE) tile-build
 	$(MAKE) tile-validate
 	$(MAKE) tile-e2e
@@ -15,7 +14,7 @@ tile-fetch: ## Check cached work-3x3 inputs without network or writes to shared 
 	$(PIPELINE_RUN) python -m turku3d.fetch.cached --area work-3x3
 
 tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams
-	$(PIPELINE_RUN) python -m turku3d.package.stub_tile --area work-3x3 --tile $(TILE_IDS)
+	$(PIPELINE_RUN) python -m turku3d.package.assemble --area $(AREA) --tile $(TILE_IDS)
 
 tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
 	mkdir -p $(TILE_REPORTS)
@@ -30,7 +29,7 @@ tile-show: game-build ## Serve the local result on the sandbox dist port
 	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIST) --port $(DIST_PORT) --mount /tiles=$(DIST_MIRROR)/tiles
 
 tile-test: ## Offline packaging tests with synthetic inputs
-	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n 4 tests/test_package.py tests/test_layers.py
+	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n 4 tests/test_package.py tests/test_layers.py tests/test_assemble.py
 
 TILE_QA_PORT ?= $(DIST_PORT)
 tile-qa: qa-venv game-build ## Render local tiles (colour+ID); JUDGE=1 enables quota-guarded parallel judging

@@ -24,6 +24,7 @@ include = ["turku3d*"]
 
 [tool.setuptools.package-data]
 "turku3d.col" = ["*.json", "*.mjs"]
+"turku3d.package" = ["*.mjs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,8 +2,8 @@
 
 numpy only, no third-party glTF library. One mesh per node, each node gets its own primitive, positions
 are tile-local float32, the tile origin goes in the root node translation (doubles in JSON).
-Textures are embedded as image/jpeg or image/png buffer views (Phase 0 stub: no KTX2/meshopt yet;
-the game's GLTFExtensionsPlugin also loads plain glTF).
+Layer source textures are embedded as image/jpeg or image/png buffer views. The assembler
+binds library maps, encodes KTX2 and applies meshopt when producing shipped GLBs.
 
     mesh = GlbMesh("ground_t0_0_0", positions, indices, normals=n, uvs=uv, image=jpeg_bytes,
                    extras={"kind": "ground", "id": "ground_t0_0_0", "tile": "t0_0_0"})

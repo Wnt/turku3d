@@ -1,12 +1,4 @@
-"""Phase 0 stub ground: a regular heightfield from the city's ground key points (maanpinta LAZ, class 8).
-
-This is NOT the Phase 1 ground (no curbs, no CDT, no breaklines). It exists so `make tile` can run the
-whole chain on real-but-coarse data: the grid is aligned to the origin O with a step that divides the
-62.5 m collision tile (default 1.25 m), so neighbouring tiles share bitwise-identical seam vertices.
-
-Interpolation: linear TIN (scipy) + nearest fill outside the hull; without scipy a binned mean +
-diffusion fill (numpy only, used by the Mac tests).
-"""
+"""Legacy heightfield interpolation and cache regression fixture, outside production code."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 # Status and how to run everything
 
-Updated 2026-10-25 (W0-C local Mac pipeline). Run from the current worktree.
+Updated 2026-10-25 (W1-04 layer assembler). Run from the current worktree.
 The native osx-arm64 toolchain is shared under `~/turku3d/tools` and `~/turku3d/envs/pipeline`.
 Inputs live under `$TURKU3D_DATA/raw`; build products under `$TURKU3D_WORK`.
 
@@ -8,13 +8,14 @@ Inputs live under `$TURKU3D_DATA/raw`; build products under `$TURKU3D_WORK`.
 make pipeline-bootstrap && make pipeline-versions
 make fetch-aoi AREA=work-3x3              # initial shared input preparation / explicit refresh
 make fetch-checksums AREA=work-3x3
+# Publish the Wave 1 layer manifests under $TURKU3D_WORK/build/layers first.
 make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-show                           # sandbox port base + 1
 make qa-refs                             # regenerate the six heading-corrected references
 ```
 
-`make tile` runs in order even under `make -j`: read-only cached-input check → local build
-→ hash and bitwise seam checks → Rapier validation → Chrome WebGPU/WebGL2 e2e.
+`make tile` runs in order even under `make -j`: published layer manifest/hash checks → local assembly
+→ decoded precision, budget and bitwise seam checks → Rapier validation → Chrome WebGPU/WebGL2 e2e.
 It writes `$TURKU3D_WORK/dist/tiles`; validation reports go to `$TURKU3D_WORK/reports`.
 The e2e suite checks the textured render, walking, QA projection/ID passes, and a route across
 all four L0 tiles. Screenshots are in `$TURKU3D_WORK/reports/screenshots/tile-*`.
@@ -49,7 +50,8 @@ Measurements and the final acceptance run are recorded in [local-pipeline.md](re
 
 ## Remaining Phase 1 work
 
-The shipped ground is still the Phase 0 heightfield, with the river interpolated across.
+Production packaging now consumes Wave 1 layers; the Phase 0 builder is test-fixture-only.
+The previously shipped ground was the Phase 0 heightfield, with the river interpolated across.
 Curbs, structures, building shells and water belong to the Wave 1 layers. Accordingly the
 real-data validator skips buildings/curbs/stairs, while those checks are exercised on fixtures.
 The four-tile seams are bitwise identical; `AOI_BORDER` is set only on the exterior of the
