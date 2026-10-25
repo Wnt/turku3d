@@ -43,3 +43,13 @@ class EnvironmentTests(unittest.TestCase):
                 self.assertIn(f'--mount /tiles={temp}/dist/tiles', result.stdout)
                 self.assertNotIn('sync.sh', result.stdout)
                 self.assertNotIn('ssh ', result.stdout)
+
+    def test_tile_qa_keeps_parallel_judging_and_manifest_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env = {**os.environ, 'TURKU3D_WORK': temp, 'TURKU3D_PORT_BASE': '6000'}
+            for judge in ('0', '1'):
+                result = subprocess.run(['make', '-n', 'tile-qa', f'JUDGE={judge}', 'QA_WORKERS=4'],
+                                        cwd=REPO, env=env, capture_output=True, text=True, check=True)
+                self.assertIn('--workers 4', result.stdout)
+                self.assertIn(f'--manifest "{temp}/dist/tiles/manifest.json"', result.stdout)
+                self.assertEqual('--no-judge' in result.stdout, judge == '0')

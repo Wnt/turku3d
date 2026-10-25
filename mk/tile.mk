@@ -1,12 +1,8 @@
 # Local chain, deliberately ordered even under make -j.
 TILE_IDS = $(or $(T),t0_0_0)
-TURKU3D_DATA ?= $(HOME)/turku3d/data
-TURKU3D_WORK ?= $(TURKU3D_DATA)
-TURKU3D_PORT_BASE ?= 5170
 DIST_MIRROR ?= $(TURKU3D_WORK)/dist
 TILE_REPORTS ?= $(TURKU3D_WORK)/reports
 TILE_WALKERS ?= 2000
-TILE_PORT = $(shell expr $(TURKU3D_PORT_BASE) + 1)
 
 .PHONY: tile tile-fetch tile-build tile-validate tile-e2e tile-show tile-test tile-qa
 tile: ## Fetch cached inputs, build, verify seams, validate physics and run Chrome e2e locally

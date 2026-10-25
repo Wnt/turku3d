@@ -46,8 +46,9 @@ From the repo root:
 
 ```bash
 make game-test game-vehicle-test game-build
+# Source your sandbox.env before running these commands.
 cd game
-E2E_PORT=5220 npx playwright test tests/e2e/vehicle.spec.ts --workers=2
+npx playwright test tests/e2e/vehicle.spec.ts --workers=2
 ```
 
 `game-vehicle-test` runs the same small fixtures on game WASM and native Node/validator WASM. The reusable fixture

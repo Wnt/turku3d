@@ -6,20 +6,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { contractUrl, main } from '../render.mjs';
+import { port } from '../../../tools/dev/environment.mjs';
+import { contractUrl, parseArgs, main } from '../render.mjs';
 
 let browser;
 before(async () => {
-  if (process.env.TURKU3D_BROWSER_DIR) {
-    fs.mkdirSync(process.env.TURKU3D_BROWSER_DIR, { recursive: true });
-    process.env.TMPDIR = process.env.TURKU3D_BROWSER_DIR;
-  }
   browser = await chromium.launch();
 });
 after(async () => { await browser?.close(); });
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(fs.readFileSync(path.join(HERE, '..', '..', 'tests', 'golden_projection.json'), 'utf8'));
+
+test('stub port uses the sandbox QA offset and preserves explicit overrides', () => {
+  const args = ['--views', 'views.jsonl', '--serve', 'stub', '--out', 'renders'];
+  assert.equal(parseArgs(args).port, port(2));
+  assert.equal(parseArgs([...args, '--port', String(port(3))]).port, port(3));
+});
 
 test('contractUrl encodes the pose and escapes + in time', () => {
   const v = { pose: { E: 23459676.5, N: 6704242.25, H: 5.6, yaw: 324.8, pitch: -12, roll: 0, fov: 60 }, time: '2019-06-15T14:00:00+03:00' };

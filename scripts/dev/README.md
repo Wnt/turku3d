@@ -93,10 +93,12 @@ shells, and run `make game-e2e` concurrently. Each installs its own npm dependen
 
 ## Wave 0 integration
 
-The branch includes W0-C's native local pipeline and W1-06's controller/character work. `mk/tile.mk` keeps
+The branch includes W0-C's native local pipeline, W1-06's controller/character work, W1-07's vehicle and W1-11's visual QA. `mk/tile.mk` keeps
 its ordered local build chain and serves `$(GAME_DIST)` (`work/build/game`) for `tile-show` and `tile-qa`.
 `raw_dir()` reads shared inputs; `work_root()` / `build_dir()` / cache/dist helpers use sandbox outputs.
-Remote and sync commands are removed. Controller screenshots use the same sandbox report root as other e2e tests.
+Remote and sync commands are removed. Controller and vehicle screenshots use the sandbox report root.
+QA retains its parallel judge, manifest provenance, immutable runs, calibration and regression checks.
+`QA_DATA` overrides the sandbox QA root; the local stub defaults to port base +2 and keeps `--port` overrides.
 The English-language policy from COMMON now lives in AGENTS.md. W0-B should map `scripts/dev/` to `make tooling-test` and include `tools/dev/environment.mjs`
 in the game/QA configuration dependency scope. Its gate CLI is already used as `gate --base <main-sha>`.
 

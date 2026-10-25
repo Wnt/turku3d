@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
+import path from 'node:path';
+import { reportsRoot } from '../../../tools/dev/environment.mjs';
+
+const SHOTS = path.join(reportsRoot, 'screenshots');
 
 test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', async ({ page }, info) => {
   const errors: string[] = [];
@@ -49,8 +53,8 @@ test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', as
   await page.waitForFunction((speed) => (window as any).__game.state().vehicle.speed < speed * 0.5, beforeBrake, { timeout: 3000 });
   await button(6, 0);
   await button(5, 1);
-  fs.mkdirSync('test-results/screenshots', { recursive: true });
-  await page.screenshot({ path: `test-results/screenshots/${info.project.name}-vehicle-curb.png` });
+  fs.mkdirSync(SHOTS, { recursive: true });
+  await page.screenshot({ path: path.join(SHOTS, `${info.project.name}-vehicle-curb.png`) });
   await button(5, 0);
   await button(3, 1);
   await page.waitForFunction(() => (window as any).__game.state().mode === 'foot');

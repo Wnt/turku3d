@@ -8,8 +8,8 @@
 // and <out>/render-summary.json. Exit code 1 if any view failed.
 //
 // Usage (from qa/render, after `npm install`):
-//   node render.mjs --views ../views/views.jsonl --url http://localhost:$TURKU3D_PORT_BASE/ --out ../../data/qa/runs/R/renders
-//   node render.mjs --views ... --serve stub --out /tmp/x          # test against the contract stub
+//   node render.mjs --views ../views/views.jsonl --url http://localhost:$TURKU3D_PORT_BASE/ --out "$TURKU3D_WORK/qa/runs/R/renders"
+//   node render.mjs --views ... --serve stub --out "$TURKU3D_WORK/qa/stub-renders" # test against the contract stub
 // Options: --ids a,b  --pass color|id|both (default both)  --backend webgpu|webgl  --timeout 120000
 //          --channel chrome|chromium (default chromium)  --headed  --extra "k=v&k2=v2"
 import { chromium } from 'playwright';
