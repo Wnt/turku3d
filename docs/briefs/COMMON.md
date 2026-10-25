@@ -34,8 +34,9 @@ single policy file and this document keeps only the layer contracts (§3–§4).
    did not start, and never use `pkill -f` / `pgrep -f` with a pattern that appears in your own command line.
 8. **No paid services** and no new API keys. Secrets live in `~/.config/turku3d/`, are never copied into the repo and
    are never printed. Codex image calls may use the weekly quota up to 100 %; the runners already check it.
-9. Write code, comments and docs in English, matching the surrounding style. Keep each area's README current with exact
-   commands.
+9. **Language: English for everything in this project**: code, comments, docs, commit messages, progress updates
+   and your final report. This overrides any personal default language setting. Match the surrounding style and keep
+   each area's README current with exact commands.
 
 ## 3. Coordinates and tiles (from `pipeline/turku3d/config.py`, do not redefine)
 
