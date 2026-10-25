@@ -1,0 +1,23 @@
+{
+  "status": "BLOCKED",
+  "issues": [
+    {
+      "object_id": "inputs",
+      "reason": "W1-01 ground layer is required: /Users/wnt/turku3d/wt/w1-02-structures/work/build/layers/ground/MANIFEST.json"
+    }
+  ],
+  "input_counts": {
+    "66636": 147,
+    "62540": 373,
+    "66634": 90,
+    "66632": 130,
+    "66626": 600,
+    "66618": 538,
+    "66630": 3,
+    "steps": 84,
+    "fence": 39,
+    "wall": 14,
+    "retaining_wall": 58
+  },
+  "elapsed_seconds": 2.991
+}

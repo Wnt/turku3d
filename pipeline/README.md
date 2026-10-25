@@ -51,3 +51,7 @@ make -j2 buildings-test                   # synthetic geometry and Rapier regres
 make buildings-build                     # full build; nonzero if shell coverage fails
 make buildings-validate                  # 2,000 walkers against the exported NPZ triangles
 ```
+Wave 1 structures: [turku3d/structures/README.md](turku3d/structures/README.md).
+`make -j2 structures-test` checks synthetic geometry, layer seams and Rapier traversal;
+`make structures-build` consumes the completed ground layer and writes intermediate
+structures plus an explicit acceptance report.
