@@ -233,6 +233,9 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
     monkeypatch.setattr(builder, "write_report", report)
     args = Namespace(tiles=["t0_0_0"], source_area="fixture", water_level=None)
     assert builder.run(args) == 2  # Cache must preserve a failed acceptance result.
+    monkeypatch.setattr(
+        builder, "split_points", lambda *args: pytest.fail("Cache repair resplit raw lidar")
+    )
     output = tmp_path / "build/layers/ground"
     before = {p.name: p.stat().st_mtime_ns for p in output.iterdir()}
     assert builder.run(args) == 2

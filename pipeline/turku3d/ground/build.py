@@ -195,29 +195,34 @@ def run(args):
         + repr(bounds).encode()
     ).hexdigest()
     raw_cache = cache / f"lidar-{raw_key}.npz"
-    if raw_cache.exists():
-        with np.load(raw_cache) as data:
-            points, classes, water_heights = data["points"], data["classes"], data["water_heights"]
-    else:
+    if not raw_cache.exists():
         log("Reading class-2/12 lidar and class-9 water returns (read-only raw inputs)")
         points, classes, water_heights = read_lidar(paths, bounds)
         temporary = raw_cache.with_suffix(".tmp")
         with temporary.open("wb") as stream:
             np.savez(stream, points=points, classes=classes, water_heights=water_heights)
         temporary.replace(raw_cache)
-    log(f"Loaded {len(points):,} class-2/12 points; {len(water_heights):,} class-9 returns")
-    lines, water, buildings, crossings, streets = vectors(paths, bounds)
-    (training, train_cls), (heldout, held_cls) = split_points(points, classes)
+        del points, classes
+    with np.load(raw_cache) as data:
+        water_heights = data["water_heights"]
+    lines, water, buildings, _crossings, streets = vectors(paths, bounds)
+
+    def training_returns():
+        # Cache repair/report changes must not decompress and split all 16M returns.
+        with np.load(raw_cache) as data:
+            return split_points(data["points"], data["classes"])
+
     selection_key = hashlib.sha256(
         (raw_key + Path(__file__).with_name("points.py").read_text() + water.wkb_hex).encode()
     ).hexdigest()
     selection_cache = cache / f"selection-{selection_key}.npz"
     if selection_cache.exists():
         with np.load(selection_cache, allow_pickle=False) as data:
-            accepted, heldout = data["accepted"], data["heldout"]
+            accepted = data["accepted"]
             selection = json.loads(str(data["stats"]))
     else:
         log("Selecting and denoising ground points")
+        (training, train_cls), (heldout, held_cls) = training_returns()
         accepted, selection = select_ground(training, train_cls)
         accepted = accepted[~shapely.contains_xy(water, accepted[:, 0], accepted[:, 2])]
         # Held-out class 2 is never residual-trimmed. Class 12 eligibility uses TRAINING class 2.
@@ -227,7 +232,6 @@ def run(args):
             (held_cls == 2) | ((held_cls == 12) & (np.abs(heldout[:, 1] - h) <= 0.15))
         ]
         np.savez(selection_cache, accepted=accepted, heldout=heldout, stats=json.dumps(selection))
-    surface = Surface(accepted)
     if args.water_level is not None:
         water_level, water_source = args.water_level, "explicit N2000 level override"
     elif water.is_empty:
@@ -235,6 +239,7 @@ def run(args):
     elif len(water_heights) >= 20:
         water_level, water_source = float(np.median(water_heights)), "median class-9 lidar"
     else:
+        (training, _), _ = training_returns()
         wet_points = training[shapely.contains_xy(water.buffer(-3), training[:, 0], training[:, 2])]
         if len(wet_points) < 20:
             raise ValueError(
@@ -277,7 +282,7 @@ def run(args):
     else:
         log("Building canonical adaptive CDT")
         mesh, mesh_info = build_mesh(
-            surface, bounds, tiles, curbs, water, water_level, materials, tolerance=0.02
+            Surface(accepted), bounds, tiles, curbs, water, water_level, materials, tolerance=0.02
         )
         mesh.save(mesh_cache)
         info_cache.write_text(json.dumps(mesh_info))
