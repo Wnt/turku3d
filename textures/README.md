@@ -83,6 +83,9 @@ and facade-section diversity. It retains at least one full view when available a
 Each chosen view has a perspective crop, outlined crop, approximate occlusion mask, **wall-plane
 rectified** crop and rectified mask, with pose/date/panorama provenance and its covered u interval.
 Cached successful reference sets do not refetch or rewrite images.
+Transient provider failures are recorded by provider and exception type, without request URLs.
+Other available providers and replacement views remain usable; a partially failed source search
+is retried on the next reference run.
 
 Google depth is flipped horizontally; camera heights follow the verified campaign table. Apple
 camera height and panorama pitch/roll remain approximate. Masks catch nearer depth planes, not
@@ -143,6 +146,8 @@ records metre extent, pixel density, UV scale, left-normal orientation, source h
 Dimensions are multiples of four with approximately equal pixel density. Whole facades are neither
 period-cropped nor flattened (that would destroy unique architectural bands). Library materials
 always receive low-frequency flattening and a make-tileable pass, with seam and low-frequency QA.
+Paired, flat near-white presentation margins are removed before metric scaling. The original
+image size and exact content box are recorded; isolated light cornice/plinth bands are preserved.
 Production requires DeepBump; the generic `post --sobel` option remains available for diagnostics.
 
 Albedo is ETC1S/sRGB/BT709; ORM is ETC1S/linear/unspecified primaries; normals are RGB XYZ
@@ -152,6 +157,7 @@ intentionally not used because it repacks XY into RGB/A. Every encoded file must
 hashes; rerunning unchanged stages makes no model calls and preserves material output timestamps.
 
 `contact-sheet.html` embeds small reference/result previews and lists every missing facade.
+It opens on street facades and supports address/ID search and complete/missing/courtyard filters.
 `qa.json` reports reference counts, source coverage, calls per facade (a building label is shared),
 scale/asset failures and roof coverage. Unique walls do not wrap, so their wrap-seam check is explicitly
 not applicable. Library materials must pass both seam and low-frequency checks.

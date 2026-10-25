@@ -165,6 +165,26 @@ def test_changed_geometry_cannot_reuse_old_reference(tmp_path):
     assert jobs.label_jobs(path, refs) == []
 
 
+def test_provider_outage_keeps_other_candidates_and_logs_no_request_secrets(monkeypatch):
+    from types import SimpleNamespace
+    from requests.exceptions import SSLError
+    from turkutex.streetview import refs as module
+    monkeypatch.setattr(module, 'coverage_points', lambda *args: [(60., 22.)])
+    facade = Facade('wall', np.array([0., 0.]), np.array([8., 0.]), 4.)
+    apple = SimpleNamespace(id='apple', E=4., N=-8.)
+
+    class Cache:
+        def google_coverage(self, *args):
+            raise SSLError('https://provider.invalid/?secret=never-log-this')
+
+        def lookaround_coverage(self, *args):
+            return [apple]
+
+    errors = []
+    assert module.candidates(Cache(), facade, module.SelectParams(), ('google', 'lookaround'), errors) == [apple]
+    assert errors == [{'source': 'google', 'error': 'SSLError'}]
+
+
 def test_mapillary_authorization_header_not_url(tmp_path, monkeypatch):
     from turkutex.streetview import mapillary
     import io

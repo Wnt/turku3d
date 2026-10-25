@@ -35,7 +35,7 @@ VERSION = "facades-v1"
 def post_code_hash() -> str:
     from .paths import TEXTURES_DIR
     files = [TEXTURES_DIR / "turkutex/post" / name for name in
-             ("pipeline.py", "maps.py", "tileable.py", "qa.py", "deepbump_worker.py")]
+             ("pipeline.py", "maps.py", "tileable.py", "qa.py", "deepbump_worker.py", "frame.py")]
     native = native_encoder()
     if native:
         files.append(native)
@@ -146,7 +146,14 @@ def post_facade(f, record: dict, refs: Path, output: Path, *, ppm=64, max_side=2
     from .post.maps import deepbump_available
     if not deepbump_available():
         raise RuntimeError("Production facades require DeepBump; run make textures-deepbump")
-    post = process(source, post_dir, name=f.id, tile="none", flatten="none",
+    from .post.frame import facade_content_box
+    with Image.open(source) as image:
+        content_box = facade_content_box(image)
+        source_size = image.size
+        post_dir.mkdir(parents=True, exist_ok=True)
+        cropped_source = post_dir / "source.png"
+        image.crop(content_box).convert("RGB").save(cropped_source)
+    post = process(cropped_source, post_dir, name=f.id, tile="none", flatten="none",
                    size=f"{size[0]}x{size[1]}", period_crop=False, material="facade_mixed")
     target.parent.mkdir(parents=True, exist_ok=True)
     files = {"albedo": target.name + ".ktx2", "normal": target.name + ".normal.ktx2",
@@ -156,6 +163,7 @@ def post_facade(f, record: dict, refs: Path, output: Path, *, ppm=64, max_side=2
     rec = {"key": key, "facade_id": f.id, "building_id": f.props.get("building_id", f.id),
            "facade_index": f.props["facade_index"], "width_m": width, "height_m": height, "size": list(size),
            "pixels_per_metre": [size[0] / width, size[1] / height],
+           "source_size": source_size, "content_box": content_box,
            "uv": uv_transform(f),
            "references": params["references"], "job_key": record["key"], "thread_id": record.get("thread_id"),
            "imagegen_calls": len(record.get("imagegen_calls", [])),
@@ -255,8 +263,12 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
             result_preview = f'<a href="#library-{material}">Library material: {material}</a>'
         else:
             result_preview = render_thumbnail(result)
-        cards.append(f'<article><h2>{title}</h2><p>{f.length:.2f} × {f.height_m:.2f} m · {len(views)} references · '
-                     f'{html.escape(status)}</p><div class="pair">{render_thumbnail(ref)}{result_preview}</div></article>')
+        street = f.props.get("street_facing", True)
+        ref_preview = render_thumbnail(ref) if street else '<p>Courtyard: no photo reference required.</p>'
+        cards.append(f'<article class="facade" id="{safe_id(f.id)}" data-street="{int(street)}" '
+                     f'data-complete="{int(not problems)}"><h2>{title}</h2>'
+                     f'<p>{f.length:.2f} × {f.height_m:.2f} m · {len(views)} references · '
+                     f'{html.escape(status)}</p><div class="pair">{ref_preview}{result_preview}</div></article>')
     usage_path = run / "usage_log.jsonl"
     usage = [json.loads(s) for s in usage_path.read_text().splitlines()] if usage_path.exists() else []
     buildings = {}
@@ -285,13 +297,30 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
             '<style>body{font:16px system-ui;background:#182026;color:#eee;margin:2rem}h1{font-size:2rem}'
             'h2{font-size:1rem}article{border-top:1px solid #657078;padding:1rem 0}.pair{display:grid;'
             'grid-template-columns:1fr 1fr;gap:1rem}.pair img{max-width:100%;max-height:240px;object-fit:contain}'
-            '.missing{background:#502b2b;padding:2rem}p{color:#cad4db}</style>'
+            '.missing{background:#502b2b;padding:2rem}p{color:#cad4db}a{color:#8dd8ff}'
+            'input,select{font:inherit;padding:.5rem;margin:0 1rem 1rem 0}nav{position:sticky;top:0;'
+            'background:#182026;padding:1rem 0}article[hidden]{display:none}</style>'
             f'<h1>Facade references / cleaned results</h1><p>{summary["complete"]}/{len(rows)} complete. '
             'Left: rectified reference. Right: processed output. Missing results remain visible. '
             f'{summary["missing_roofs"]} roofs lack library materials. '
-            'Images are offline QA references, never runtime assets. Courtyard rows link to their shared material.</p>' +
+            'Images are offline QA references, never runtime assets. Courtyard rows link to their shared material.</p>'
+            '<nav><label>Show <select id="scope"><option value="street">Street facades</option>'
+            '<option value="all">All facades</option><option value="missing">Missing</option>'
+            '<option value="complete">Complete</option><option value="courtyard">Courtyard</option></select></label>'
+            '<label>Find <input id="query" placeholder="Address or facade ID"></label><span id="count"></span></nav>'
+            '<details><summary>Library preview</summary>' +
             "".join(f'<article id="library-{key}"><h2>Library: {key}</h2>{preview}</article>'
-                    for key, preview in sorted(library_previews.items())) + "".join(cards) + '</html>')
+                    for key, preview in sorted(library_previews.items())) + '</details>' + "".join(cards) +
+            '<script>const scope=document.querySelector("#scope"), query=document.querySelector("#query");'
+            'function filter(){let count=0;for(const card of document.querySelectorAll(".facade")){'
+            'const s=scope.value,d=card.dataset;card.hidden=!(('
+            's==="all"||s==="street"&&d.street==="1"||s==="courtyard"&&d.street==="0"||'
+            's==="missing"&&d.complete==="0"||s==="complete"&&d.complete==="1")&&'
+            'card.querySelector("h2").textContent.toLowerCase().includes(query.value.toLowerCase()));'
+            'if(!card.hidden)count++;}document.querySelector("#count").textContent=count+" shown";}'
+            'scope.addEventListener("change",filter);query.addEventListener("input",filter);filter();'
+            'for(const a of document.querySelectorAll("a[href^=\\"#library-\\"]"))'
+            'a.addEventListener("click",()=>document.querySelector("details").open=true);</script></html>')
     contact = run / "contact-sheet.html"
     if not contact.exists() or contact.read_text() != page:
         contact.parent.mkdir(parents=True, exist_ok=True)

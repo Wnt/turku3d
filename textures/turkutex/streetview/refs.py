@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from requests.exceptions import RequestException
+from urllib.error import URLError
 from PIL import Image, ImageDraw
 from turku3d import config
 
@@ -86,29 +88,40 @@ def equirect_model(m: PanoMeta) -> C.EquirectModel:
     return C.EquirectModel((-m.heading_rad + math.pi) % (2 * math.pi), 1.0)
 
 
-def candidates(cache: PanoCache, f: Facade, P: SelectParams, sources=("google",)) -> list[PanoMeta]:
+def network_result(call, errors: list, source: str, fallback):
+    """One provider outage must not discard usable references from other providers."""
+    try:
+        return call()
+    except (RequestException, URLError, TimeoutError, ConnectionError) as exc:
+        # Exception messages may contain request URLs. Keep credentials out of provenance.
+        errors.append({"source": source, "error": type(exc).__name__})
+        return fallback
+
+
+def candidates(cache: PanoCache, f: Facade, P: SelectParams, sources=("google",), errors=None) -> list[PanoMeta]:
+    errors = errors if errors is not None else []
     res: dict[str, PanoMeta] = {}
     for lat, lon in coverage_points(f.centre, P.radius):
         if "google" in sources:
-            for p in cache.google_coverage(lat, lon):
+            for p in network_result(lambda: cache.google_coverage(lat, lon), errors, "google", []):
                 E, N = config.wgs84_to_en(p["lat"], p["lon"])
                 if math.hypot(E - f.centre[0], N - f.centre[1]) > P.radius:
                     continue
                 if np.dot(np.array([E, N]) - f.centre, f.normal) < P.min_front:
                     continue
-                m = cache.google_newest(p["id"])
+                m = network_result(lambda: cache.google_newest(p["id"]), errors, "google", None)
                 if m:
                     res[f"g:{m.id}"] = m
         if "lookaround" in sources:
-            for m in cache.lookaround_coverage(lat, lon):
+            for m in network_result(lambda: cache.lookaround_coverage(lat, lon), errors, "lookaround", []):
                 if math.hypot(m.E - f.centre[0], m.N - f.centre[1]) <= P.radius:
                     res[f"a:{m.id}"] = m
         if "mapillary" in sources:
-            for m in cache.mapillary_coverage(lat, lon):
+            for m in network_result(lambda: cache.mapillary_coverage(lat, lon), errors, "mapillary", []):
                 if math.hypot(m.E - f.centre[0], m.N - f.centre[1]) <= P.radius:
                     res[f"m:{m.id}"] = m
         if "photospheres" in sources:
-            for m in cache.photosphere_coverage(lat, lon):
+            for m in network_result(lambda: cache.photosphere_coverage(lat, lon), errors, "photospheres", []):
                 if math.hypot(m.E - f.centre[0], m.N - f.centre[1]) <= P.radius:
                     res[f"p:{m.id}"] = m
     return list(res.values())
@@ -357,26 +370,36 @@ def facade_refs(
         # Older rectified caches hashed all properties. An index/material change does not change a crop.
         old_key = hashlib.sha256(json.dumps([REFS_VERSION, old["facade"], old["params"], sources], sort_keys=True).encode()).hexdigest()
         same_geometry = (geometry(old["facade"]) == geometry(f.to_feature()) and old["params"] == P.__dict__)
-        if (old.get("key") == key or (old.get("key") == old_key and same_geometry)) and old.get("views"):
+        if ((old.get("key") == key or (old.get("key") == old_key and same_geometry))
+                and old.get("views") and not old.get("source_errors")):
             records = [summary_path.parent / f"{v}.json" for v in old["views"]]
             if all(p.exists() and all((p.parent / n).is_file() for n in json.loads(p.read_text())["files"].values())
                    for p in records):
                 return old
-    cands = candidates(cache, f, P, sources)
+    errors = []
+    cands = candidates(cache, f, P, sources, errors)
     bh, bh_src = base_height(f, cands)
     evals = [x for m in cands for x in evaluate(cache, f, m, bh, P)]
     chosen = select(evals, P)
     out = out_root / f.id
     views = []
-    for k, e in enumerate(chosen):
-        views.append(render_view(cache, e, out, f"{f.id}_v{k}_{e['part'][0]}_{e['meta'].source[0]}_{e['meta'].id[:12]}", P))
+    alternatives = sorted((e for e in evals if not any(e is c for c in chosen)), key=lambda e: -e["score"])
+    for e in (chosen + alternatives)[:P.max_views + 8]:
+        k = len(views)
+        view = network_result(
+            lambda: render_view(cache, e, out, f"{f.id}_v{k}_{e['part'][0]}_{e['meta'].source[0]}_{e['meta'].id[:12]}", P),
+            errors, e["meta"].source, None)
+        if view is not None:
+            views.append(view)
+        if len(views) == P.max_views or (len(views) == len(chosen) and not errors):
+            break
     summary = {"key": key, "facade": f.to_feature(), "base_h": round(bh, 3), "base_h_source": bh_src,
                "n_candidates": len(cands), "n_valid": len(evals),
                "candidates": sorted([{"pano_id": e["meta"].id, "source": e["meta"].source, "date": e["meta"].date,
                                       **{k: e[k] for k in ("part", "section_m", "distance_m", "view_angle_deg",
                                                            "signed_angle_deg", "occluded_frac", "score")}} for e in evals],
                                     key=lambda r: -r["score"]),
-               "views": [v["view_id"] for v in views], "params": P.__dict__}
+               "views": [v["view_id"] for v in views], "params": P.__dict__, "source_errors": errors}
     out.mkdir(parents=True, exist_ok=True)
     (out / "refs.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
     return summary

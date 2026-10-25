@@ -24,17 +24,12 @@ SCHEMAS_DIR = TEXTURES_DIR / "schemas"
 STYLE_DIR = TEXTURES_DIR / "style"
 
 
-def data_root() -> Path:
-    return config.work_root()
-
-
 def streetview_dir() -> Path:
     return Path(os.environ.get("TURKUTEX_STREETVIEW", config.cache_dir("streetview")))
 
 
 def work_root() -> Path:
     return config.work_root()
-
 
 
 def textures_data_dir(sub: str = "") -> Path:
