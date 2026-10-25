@@ -10,6 +10,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_props.py
 bash pipeline/env/run.sh scripts/dev/gate
 # npm ci --prefix game is needed once for the browser preview.
 bash pipeline/env/run.sh python -m turku3d.props.preview
+bash pipeline/env/run.sh python -m turku3d.props.orientation_report
 ```
 
 The default is the office core, 250×250 m (16 collision tiles), without a margin.
@@ -41,7 +42,14 @@ are intentionally ignored by layer readers. Do not build concurrently with assem
 - Placement uses [the shared validator](../placement/README.md): collision-surface heights,
   whole-base support and semantic/access clearance, deterministic repair within 2 m,
   and explicit missing-bridge-deck omissions. JSON/HTML reports retain every violation.
-- Model +Z faces the nearby walkway (benches) or road (signs) after relocation.
+- Model +Z is the visual front, and yaw is a +Y rotation in engine x/z radians.
+  Signs and bus stops face approaching right-hand traffic, inferred from their side
+  of the nearest carriageway centreline. This is independent of the centreline's
+  digitization direction; explicit lane direction is unavailable in the city input.
+  Benches face away from the kerb toward the walkway, falling back to walkway
+  interior where the road is not nearby. Lamp arms point toward the road. Bins,
+  bollards, posts and racks align with the kerb tangent. Shared placement recomputes
+  these headings after any position repair.
 - Dimensions are representative, not surveyed. A bike station symbol represents a
   register location, not its reported capacity; rack locations use three hoops.
 - Whole objects belong to their placement-centre collision tile; no clipping or
@@ -76,7 +84,10 @@ and the city's descriptive sign-code fields. Drawings are newly generated, not e
 `python -m turku3d.props.preview` reads the completed manifest and loads its GLBs in
 Chrome through local Three.js. It uses sandbox port base +3 and the sandbox browser
 profile, then closes its own browser/server. Outputs in `$TURKU3D_WORK/reports/props`:
-`aoi.png`, `detail.png`, `catalog.png`, `browser.json`. The overview and office bench
-close view retain actual coordinates; the catalogue rearranges prototypes for inspection.
-The previews deliberately show the props layer alone, without ground/building context.
-They are not evidence of integrated game FPS or placement accuracy against photographs.
+`aoi.png`, `detail.png`, `catalog.png`, `street.png`, `sign.png`, `browser.json`.
+The overview, office bench close view and street views retain actual coordinates;
+the catalogue rearranges prototypes for inspection. The two street views include
+published ground and buildings; other views show props alone. These are not evidence
+of integrated game FPS or placement accuracy against photographs.
+`orientation_report` draws +Z arrows on the cached 2025 true ortho for the four L0
+tiles in `orientation-ortho.png`; `orientation.json` records counts and the color legend.

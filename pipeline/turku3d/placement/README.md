@@ -63,8 +63,9 @@ engine x305/z230. Ground/building materials in these previews are unassembled.
   and lane selection still belongs to the parked producer.
 - Complete base footprints clear buildings, mapped crossings/driveways and other
   object bases by 0.15 m. Trees use trunk dimensions, not their overhanging crowns.
-- Signs/posts require nearby roads. Bench/sign +Z orientation points toward the nearest
-  walkway/road where that direction is defined. Direction is checked only within 12 m; missing/coincident directions are listed as
+- Signs/posts require nearby roads. Props use class-specific +Z headings: signs face
+  oncoming right-hand traffic, benches face away from the kerb, lamps reach over the
+  carriageway, and kerb furniture follows its tangent. Direction is checked only within 12 m; missing/coincident directions are listed as
   `orientation_unverified` in the combined audit, without inventing a heading.
 - A deterministic 0.25 m search grid finds the closest sampled valid position within
   2 m, adjusting height and bench/sign orientation on each trial. No valid sampled

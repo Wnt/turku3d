@@ -11,7 +11,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
-from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 from turku3d import config as C
@@ -19,6 +18,7 @@ from turku3d.layers import PRIMITIVE_DTYPE, CollisionLayer, write_collision, wri
 from turku3d.package.gltf import build_glb, read_glb
 from turku3d.package.manifest import _atomic_write
 from turku3d.props.models import SUPPORTED_SIGNS, model
+from turku3d.props.orientation import heading
 
 SOURCES = {
     "GIS_Varusteet": None,
@@ -79,15 +79,7 @@ def classify(row: dict) -> str:
 
 
 def face_road(x: float, z: float, roads: STRtree | None) -> tuple[float, str]:
-    if roads is None or not len(roads.geometries):
-        return 0.0, "no_road_default"
-    point = Point(x, z)
-    road = roads.geometries[roads.nearest(point)]
-    target = road.interpolate(road.project(point))
-    dx, dz = target.x - x, target.y - z
-    if math.hypot(dx, dz) < 1e-6:
-        return 0.0, "on_centerline_default"
-    return math.atan2(dx, dz), "nearest_road"
+    return heading("lamp", x, z, roads)
 
 
 def sha(path: Path) -> str:
@@ -181,7 +173,7 @@ def read_sources(bbox, source_area="work-3x3"):
             continue
         seen.add(p.object_id)
         locations["exact"].append(key)
-        p.yaw, p.orientation = face_road(p.x, p.z, roads)
+        p.yaw, p.orientation = heading(p.kind, p.x, p.z, roads)
         props.append(p)
     return props, inputs, {"missing_sources": missing, "skipped": dict(skipped)}
 

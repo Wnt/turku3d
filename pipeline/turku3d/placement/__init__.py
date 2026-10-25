@@ -6,7 +6,6 @@ from dataclasses import dataclass, replace
 import numpy as np
 from shapely import STRtree, polygons, prepare
 from shapely.geometry import Point
-from shapely.ops import nearest_points
 
 from turku3d.col.materials import mat_id
 from turku3d.parked.placement import footprint
@@ -83,6 +82,12 @@ class Validator:
         self.occupied = list(occupied)
         for zone in self.zones.values():
             prepare(zone)
+        road = self.zones.get("road")
+        self._roads = (
+            STRtree(list(road.geoms) if hasattr(road, "geoms") else [road])
+            if road is not None and not road.is_empty
+            else None
+        )
         self._occupied_count = -1
 
     def intersects(self, name, shape):
@@ -90,15 +95,14 @@ class Validator:
         return g is not None and not g.is_empty and g.intersects(shape)
 
     def facing(self, obj):
-        name = "walkway" if obj.kind == "bench" else "road"
-        g = self.zones.get(name)
-        if g is None or g.is_empty:
+        from turku3d.props.orientation import heading
+
+        if self._roads is None:
             return None
         p = Point(obj.x, obj.z)
-        target = nearest_points(p, g)[1]
-        if p.distance(target) < 0.05 or p.distance(target) > 12:
+        if self._roads.geometries[self._roads.nearest(p)].distance(p) > 12:
             return None
-        return math.atan2(target.x - obj.x, target.y - obj.z)
+        return heading(obj.kind, obj.x, obj.z, self._roads, self.zones.get("walkway"))[0]
 
     def check(self, obj, check_height=True):
         shape = obj.shape
@@ -154,7 +158,17 @@ class Validator:
                 issues.append("floating")
             if max(ys) - obj.y > 0.02 + 1e-8:
                 issues.append("buried")
-        if obj.kind in ("bench", "sign", "bus_stop"):
+        if obj.kind in (
+            "bench",
+            "sign",
+            "bus_stop",
+            "lamp",
+            "bin",
+            "bollard",
+            "post",
+            "bike_rack",
+            "bike_station",
+        ):
             target = self.facing(obj)
             if (
                 target is not None
@@ -174,7 +188,17 @@ class Validator:
         )
         for dx, dz in offsets:
             candidate = replace(obj, x=obj.x + dx, z=obj.z + dz)
-            if obj.kind in ("bench", "sign", "bus_stop"):
+            if obj.kind in (
+                "bench",
+                "sign",
+                "bus_stop",
+                "lamp",
+                "bin",
+                "bollard",
+                "post",
+                "bike_rack",
+                "bike_station",
+            ):
                 yaw = self.facing(candidate)
                 if yaw is not None:
                     candidate.yaw = yaw

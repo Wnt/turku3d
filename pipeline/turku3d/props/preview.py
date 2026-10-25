@@ -26,6 +26,10 @@ def main():
         (p for p in instances if p["kind"] == "bench"),
         key=lambda p: (p["x"] - office[0]) ** 2 + (p["z"] - office[2]) ** 2,
     )
+    focus_sign = min(
+        (p for p in instances if p["kind"] == "sign"),
+        key=lambda p: (p["x"] - 290) ** 2 + (p["z"] - 197) ** 2,
+    )
     out = C.work_root() / "reports/props"
     out.mkdir(parents=True, exist_ok=True)
     catalogue = [
@@ -54,8 +58,18 @@ def main():
         json.dumps(
             {
                 "tiles": [n for n in manifest["tiles"] if n.endswith(".glb")],
+                "context": {
+                    layer: [
+                        n
+                        for n in read_manifest(layer_root() / layer)["tiles"]
+                        if n.endswith(".glb")
+                    ]
+                    for layer in ("ground", "buildings")
+                    if (layer_root() / layer / "MANIFEST.json").exists()
+                },
                 "metrics": manifest["params"]["metrics"],
                 "focus": focus,
+                "focus_sign": focus_sign,
             }
         ).encode(),
     )
@@ -71,6 +85,8 @@ def main():
             if clean.startswith("/layer/"):
                 name = clean.removeprefix("/layer/")
                 return str((out if name == "catalog.glb" else root) / name)
+            if clean.startswith("/context/"):
+                return str(layer_root() / clean.removeprefix("/context/"))
             return super().translate_path(path)
 
         def log_message(self, *args):
@@ -88,7 +104,7 @@ const {chromium}=require(process.argv[1]);
 const context=await chromium.launchPersistentContext(process.argv[2],{channel:'chrome',headless:true,viewport:{width:1600,height:1000},args:['--use-angle=metal','--ignore-gpu-blocklist']});
 try {
  const results=[];
- for(const mode of ['aoi','catalog','detail']){
+ for(const mode of ['aoi','catalog','detail','street','sign']){
   const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(process.argv[3]+(mode==='aoi'?'':'?'+mode));
   await page.waitForFunction(()=>window.__propsReady,{},{timeout:60000});

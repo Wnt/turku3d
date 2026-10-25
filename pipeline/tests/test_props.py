@@ -4,13 +4,14 @@ import math
 
 import numpy as np
 import pytest
-from shapely.geometry import LineString
+from shapely.geometry import LineString, box
 from shapely.strtree import STRtree
 from turku3d import config as C
 from turku3d.layers import read_collision, read_manifest, read_visual
 from turku3d.package.gltf import accessor_array, read_glb
-from turku3d.props import Prop, classify, face_road, primitives, publish
+from turku3d.props import Prop, classify, face_road, primitives, publish, visual_bytes
 from turku3d.props.models import SUPPORTED_SIGNS, atlas, model
+from turku3d.props.orientation import heading
 
 
 @pytest.mark.parametrize(
@@ -36,6 +37,41 @@ def test_road_facing_and_collision_rotation():
     assert collision["kind"].tolist() == ["box", "box"]
     assert collision[1]["center"] == pytest.approx([4.76, 3.73, 5])
     assert collision[0]["yaw"] == pytest.approx(yaw)
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("sign", -math.pi),
+        ("bus_stop", -math.pi),
+        ("bench", -math.pi / 2),
+        ("lamp", math.pi / 2),
+        ("bin", 0),
+        ("bollard", 0),
+        ("bike_rack", 0),
+        ("bike_station", 0),
+        ("post", 0),
+    ],
+)
+def test_class_heading_and_exported_front(kind, expected):
+    roads = STRtree([LineString([(10, 0), (10, 20)])])
+    walkway = box(3, 0, 8, 20)
+    yaw, method = heading(kind, 5, 5, roads, walkway)
+    assert yaw == pytest.approx(expected)
+    assert method != "no_road_default"
+    p = Prop(kind, kind, 5, 0, 5, yaw)
+    js, _ = read_glb(visual_bytes([p], C.VisualTile(0, 0, 0)))
+    rotation = js["nodes"][1]["rotation"]
+    assert 2 * math.atan2(rotation[1], rotation[3]) == pytest.approx(expected)
+
+
+def test_sign_faces_oncoming_traffic_on_both_sides_and_reversed_geometry():
+    for coordinates in ([(10, 0), (10, 20)], [(10, 20), (10, 0)]):
+        road = STRtree([LineString(coordinates)])
+        left = heading("sign", 5, 5, road)[0]
+        right = heading("sign", 15, 5, road)[0]
+        assert math.cos(left) == pytest.approx(-1)
+        assert math.cos(right) == pytest.approx(1)
 
 
 def test_boundary_ownership_and_shared_mesh_roundtrip(tmp_path):
