@@ -10,6 +10,7 @@ sandbox and lands the branches one at a time. Every brief starts from [COMMON.md
 | [W0-A](W0-A-agent-tooling.md) | sandbox isolation (`wt`), `codex-task`, `here`, AGENTS.md | the clean way to launch and land Wave 1 |
 | [W0-B](W0-B-quality-gate.md) | fast selective gate, hooks, flag registry, dead-code cleanup | "green before done" for Wave 1 |
 | [W0-C](W0-C-mac-pipeline.md) | pipeline env on the Mac, `work-3x3` fetch, local `make tile` | W1-01..05, W1-10, W1-12 |
+| [W0-D](W0-D-coordination.md) | inbox, shared board, `codex-task msg` for agent coordination | ad-hoc coordination of running agents |
 
 ## Wave 1: playable office block (Phase 1, as parallel as possible)
 
