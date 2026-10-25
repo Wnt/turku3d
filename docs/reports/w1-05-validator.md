@@ -149,3 +149,45 @@ Curbs are deferred for the current playable-block iteration; the existing
 `--checks format,seams,holes,belowGround --require format,seams,holes,belowGround`
 subset is available to the plain-ground producer. No new checks were added during
 landing closeout.
+
+## Batch-1 landing repair
+
+Rebased onto main `aaf46d1` after buildings, texture binding, facades, plain ground
+and the car ghost fix landed. Conflict resolution retains the buildings-layer
+README and `buildings.test.ts` gate entry alongside W1-05's shared-vehicle
+acceptance suite. Main already includes the worktree removal optimization and
+newer process scanning/stop fixes; those implementations are retained unchanged.
+
+The local Python environment was synced with:
+
+```sh
+uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar]' \
+  -e 'textures[post,dev]' -r scripts/dev/requirements.txt
+```
+
+The only npm lockfile delta was the removal of `textures/node/package-lock.json`
+and its package; no active npm package lock changed or required installation.
+
+Per the orchestrator's explicit scope, **no full gate or browser suite was run**.
+Validator and shared-game TypeScript checks, targeted ESLint, Python Ruff check
+and format check passed. Area tests passed **50/50, zero skipped, 22.68 s wall**:
+
+```sh
+mkdir -p "$TURKU3D_WORK/cache/validator-tests"
+PIPELINE_PY="$PWD/.venv/bin/python" TMPDIR="$TURKU3D_WORK/cache/validator-tests" \
+  OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+  node --test --test-concurrency=1 \
+  tools/validator/test/*.test.ts game/tests/headless/vehicle.test.ts
+```
+
+Node suites now run one at a time, with two physics workers inside fixture tests
+(at most three test workers total). The npm/Make/gate validator commands preserve
+this limit; walker counts and every assertion are unchanged. The test log is
+`$TURKU3D_WORK/reports/batch1-validator-tests.log`. Earlier AOI timings/findings
+above are historical; the new batch-1 layer outputs were not rerun in this closeout.
+The orchestrator runs the full landing gate.
+
+Main advanced to `8c1f9a5` during closeout with building producer fixes. The final
+rebase is clean; validator sources/tests, shared vehicle/physics integration and
+gate routing are byte-for-byte identical to the area-tested tree. No dependency
+lock or Python dependency declaration changed in this last main advance.

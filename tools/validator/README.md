@@ -141,7 +141,7 @@ Closed/open-wall and nested-part masking regressions are included in `make -j2 b
 
 The gate runs all synthetic assertions with `FIXTURE_WALKERS=32`, two concurrent fixture workers,
 and only the explicitly expected checks on each negative fixture. The good fixture still exercises
-all checks. Standalone `node --test tools/validator/test/*.test.ts` retains 150 fixture walkers;
+all checks. Standalone `node --test --test-concurrency=1 tools/validator/test/*.test.ts` retains 150 fixture walkers;
 set `PIPELINE_PY=$PWD/.venv/bin/python` from the repository root for its codec generator.
 `make tile-validate` retains full real-tile sampling and thresholds.
 
@@ -153,3 +153,13 @@ It invokes `node tools/validator/parked.mjs <collision-directory>` to verify eve
 solid box using the shared reader/collider builder, player/vehicle interaction
 groups, downward rays and capsule/chassis sweeps. Details and build commands:
 [`pipeline/turku3d/parked/README.md`](../../pipeline/turku3d/parked/README.md).
+## Memory-bounded area verification
+
+Run suites in one Node test worker; the fixture suite uses two physics workers,
+so at most three test workers run at once. Walker counts and assertions are unchanged.
+
+```sh
+tools/validator/node_modules/.bin/tsc -p tools/validator/tsconfig.json
+PIPELINE_PY="$PWD/.venv/bin/python" node --test --test-concurrency=1 \
+  tools/validator/test/*.test.ts game/tests/headless/vehicle.test.ts
+```
