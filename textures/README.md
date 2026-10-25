@@ -99,6 +99,14 @@ repeatable strip, `--tile x`) and `aurakatu2_se` = Aurakatu 2 (City Hall) facade
 - `~/.codex/AGENTS.md` makes free-text answers Finnish unless the prompt asks for English (prompts now do).
 
 
+## Sandbox paths
+
+Source `../sandbox.env` from a worker repository root before running the Make targets above.
+`textures_data_dir()` and `tools_dir()` use `TURKU3D_WORK`; Street View and facade WFS downloads use
+its `cache/streetview` and `cache/wfs/facades`. These runners never write shared `TURKU3D_DATA/raw`.
+`TURKUTEX_STREETVIEW` remains an explicit cache override. The committed library manifest's `data_dir`
+is relative to `TURKU3D_WORK` so it is portable between workers.
+
 ## Selective quality checks
 
 From the repository root, run `scripts/dev/gate --base HEAD` for local changes or

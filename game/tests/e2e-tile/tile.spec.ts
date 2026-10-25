@@ -142,7 +142,7 @@ test('QA render contract on the stub tile: pose echo, projection, ID pass', { ta
   await ctx.close();
 });
 
-test('character crosses all four L0 seams without a height step', async ({ page }, info) => {
+test('character crosses all four L0 seams without a height step', { tag: ['@walk', '@pipeline'] }, async ({ page }, info) => {
   const required = ['t0_0_0', 't0_1_0', 't0_1_1', 't0_0_1'];
   test.skip(required.some((id) => !manifest.visual[id]), 'Requires the full four-tile Phase 1 build');
   const bad = watchConsole(page);

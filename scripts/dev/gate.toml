@@ -63,7 +63,7 @@ tests = ["turku3d/col/tests", "tests/test_package.py", "tests/test_specs.py"]
 [[stages]]
 name = "qa-python-tests"
 kind = "pytest"
-triggers = ["qa/*.py", "qa/*.json", "qa/*.jsonl", "pipeline/turku3d/config.py"]
+triggers = ["qa/*.py", "qa/*.json", "qa/*.jsonl", "qa/requirements*.txt", "pipeline/turku3d/config.py"]
 cwd = "qa"
 tests = ["tests"]
 
@@ -87,19 +87,25 @@ tests = ["tests/test_streetview_geometry.py"]
 name = "gate-tests"
 kind = "command"
 triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "docs/flags.toml"]
-commands = [["{python}", "-m", "unittest", "discover", "-s", "scripts/dev/tests", "-v"]]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py"]]
+
+[[stages]]
+name = "tooling-tests"
+kind = "command"
+triggers = ["scripts/dev/*", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_environment.py"]]
 
 [[stages]]
 name = "js-lint"
 kind = "js-lint"
 configs = ["eslint.config.mjs", "package*.json", "scripts/dev/gate.toml"]
-triggers = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "tools/dev/*.mjs", "qa/render/*.mjs", "textures/node/*.mjs", "pipeline/*.mjs", "eslint.config.mjs", "package*.json"]
-sources = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "tools/dev/*.mjs", "qa/render/*.mjs", "textures/node/*.mjs", "pipeline/*.mjs", "eslint.config.mjs"]
+triggers = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "tools/dev/*.mjs", "tools/dev/*.mts", "qa/render/*.mjs", "textures/node/*.mjs", "pipeline/*.mjs", "eslint.config.mjs", "package*.json"]
+sources = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "tools/dev/*.mjs", "tools/dev/*.mts", "qa/render/*.mjs", "textures/node/*.mjs", "pipeline/*.mjs", "eslint.config.mjs"]
 
 [[stages]]
 name = "game-types"
 kind = "command"
-triggers = ["game/*.ts", "game/*config*.json", "game/package*.json"]
+triggers = ["game/*.ts", "game/*config*.json", "game/package*.json", "tools/dev/environment.*"]
 commands = [["game/node_modules/.bin/tsc", "-b", "game/tsconfig.json", "--noEmit"]]
 
 [[stages]]
@@ -111,7 +117,7 @@ commands = [["tools/validator/node_modules/.bin/tsc", "-b", "tools/validator/tsc
 [[stages]]
 name = "knip"
 kind = "command"
-triggers = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "qa/render/*.mjs", "textures/node/*.mjs", "tools/dev/*.mjs", "pipeline/*.mjs", "*/package*.json", "package*.json", "knip.json"]
+triggers = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "qa/render/*.mjs", "textures/node/*.mjs", "tools/dev/*.mjs", "tools/dev/*.mts", "pipeline/*.mjs", "*/package*.json", "package*.json", "knip.json"]
 commands = [["node_modules/.bin/knip", "--no-progress", "--include-entry-exports"]]
 
 [[stages]]
@@ -129,7 +135,7 @@ commands = [["node", "--test", "tools/validator/test/roundtrip.test.ts", "tools/
 [[stages]]
 name = "dev-server-tests"
 kind = "command"
-triggers = ["tools/dev/*.mjs"]
+triggers = ["tools/dev/*.mjs", "tools/dev/*.mts"]
 commands = [["node", "--test", "tools/dev/serve-dist.test.mjs"]]
 
 [[stages]]
@@ -142,13 +148,14 @@ sources = ["*.sh", ".githooks/*"]
 [[stages]]
 name = "qa-render-tests"
 kind = "command"
-triggers = ["qa/render/*", "qa/tests/golden_projection.json"]
+triggers = ["qa/render/*", "qa/tests/golden_projection.json", "tools/dev/environment.*"]
 commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
 
 [[stages]]
 name = "game-e2e"
 kind = "e2e"
-triggers = ["game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/worker.ts", "game/src/physics/client.ts", "game/src/world/tiles.ts", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/package/*"]
+tile_tags = ["@walk", "@pipeline", "@render", "@qa"]
+triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/worker.ts", "game/src/physics/client.ts", "game/src/world/tiles.ts", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/package/*"]
 # Subsystem tags are declared on the specs; unmapped e2e triggers select all.
 [[stages.related]]
 paths = ["game/src/render/*", "qa/tests/golden_projection.json"]

@@ -17,7 +17,7 @@ from turku3d.fetch import common, sources
 AREA = config.OFFICE_BLOCK
 # Two xdist workers have distinct ports within the sandbox allocation.
 WORKER = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
-TEST_PORT = int(os.environ.get("TURKU3D_PORT_BASE", "5190")) + 4 + int(WORKER.removeprefix("gw"))
+TEST_PORT = int(os.environ.get("TURKU3D_PORT_BASE", "5170")) + 4 + int(WORKER.removeprefix("gw"))
 
 
 @pytest.fixture()

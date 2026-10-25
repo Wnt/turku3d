@@ -6,13 +6,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 DEV = Path(__file__).resolve().parents[1]
 REPO = DEV.parents[1]
 sys.path.insert(0, str(DEV))
-from gate_lib import changes, related  # noqa: E402
+from gate_lib import changes, e2e, related  # noqa: E402
 from hooks import snapshot  # noqa: E402
 
 
@@ -152,6 +154,22 @@ class GateTest(unittest.TestCase):
         }
         self.assertEqual(related(stage, ["pkg/a.py", "pkg/b.py"], "tests"), ["a", "b", "common"])
         self.assertIsNone(related(stage, ["pkg/new.py"], "tests"))
+
+    def test_vehicle_selection_does_not_run_an_empty_pipeline_browser_suite(self):
+        config = tomllib.loads((DEV / "gate.toml").read_text())
+        stage = next(s for s in config["stages"] if s["kind"] == "e2e")
+        env = {"PIPELINE_PY": sys.executable, "TURKU3D_PORT_BASE": "5190"}
+        with patch("gate_lib.run_commands", return_value=(0, "browser suite passed")) as run:
+            code, output = e2e(REPO, stage, ["game/src/vehicle/vehicle.ts"], False, env)
+            self.assertEqual(code, 0)
+            self.assertIn("SKIP pipeline browser suite", output)
+            self.assertEqual(run.call_count, 1)
+            self.assertIn("@drive", run.call_args.args[1][1])
+        with patch("gate_lib.run_commands", return_value=(0, "browser suite passed")) as run:
+            code, output = e2e(REPO, stage, ["game/src/render/idPass.ts"], False, env)
+            self.assertEqual(code, 0)
+            self.assertNotIn("SKIP", output)
+            self.assertEqual(run.call_count, 3)
 
     def test_index_snapshot_excludes_unstaged_and_untracked(self):
         f = self.fixture

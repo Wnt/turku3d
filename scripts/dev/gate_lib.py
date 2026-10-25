@@ -143,10 +143,10 @@ def lint_commands(root, stage, changed, files, full, env):
 
 
 def e2e(root, stage, changed, full, env):
-    base = int(env.get("TURKU3D_PORT_BASE", "5190"))
+    base = int(env.get("TURKU3D_PORT_BASE", "5170"))
     env = {
         **env,
-        "E2E_PORT": str(base),
+        "E2E_PORT": str(base + 1),
         "E2E_TILE_PORT": str(base + 1),
         "TILE_DIST": str(root / ".cache/gate-tiles"),
     }
@@ -159,6 +159,8 @@ def e2e(root, stage, changed, full, env):
     code, output = run_commands(root, commands, env, "game")
     if code:
         return code, output
+    if tags and not set(tags).intersection(stage["tile_tags"]):
+        return 0, output + "\nSKIP pipeline browser suite: no matching subsystem tag\n"
     code, more = run_commands(
         root,
         [

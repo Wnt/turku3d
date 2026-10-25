@@ -7,7 +7,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.{ts,js,mjs}'],
+    files: ['**/*.{ts,mts,js,mjs}'],
     languageOptions: { globals: { ...globals.browser, ...globals.node, ...globals.worker } },
     rules: {
       // Interop with Rapier/Three and the browser QA bridge is intentionally structural.

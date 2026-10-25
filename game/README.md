@@ -160,7 +160,7 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 
 - The HUD shows backend, fps and ms/frame, physics ms per step message, and resident visual tris (counted on `load-model`/`dispose-model`, because `renderer.info` reads 0 on WebGPU). It also shows collision tiles, tris and MB, where the WASM figure is an estimate at 135 B/tri from engine.md. Player E/N/H is in EPSG:3877 + N2000.
 - Verified with the dev tileset in the e2e test: the 3D Tiles Z-up ↔ engine Y-up handling is correct. The NE marker at tile-local (240, ·, 10) ends up at engine x 240, z 10, so `tiles.group.rotation.x = -PI/2` together with the renderer's default glTF Y-up → Z-up rotation is right. This resolves the [U] in docs/specs/tiles.md §1.
-- **Rapier 0.21 bug:** `castRayAndGetNormal(...).featureId` is always 0 for trimesh faces. A canary test covers this. Material lookup therefore uses `triLocator.ts`. The obsolete `hitMaterial` helper was removed in Wave 0.
+- **Rapier 0.21 bug:** `castRayAndGetNormal(...).featureId` is always 0 for trimesh faces. A canary test covers this. Material lookup therefore uses `triLocator.ts`. `src/shared/col/rapierBuild.ts#hitMaterial` relies on `featureId`, so it returns the material of triangle 0.
 - Character rendering interpolates 60 Hz physics states; car rendering still uses the latest state. On foot, camera collision uses an async worker raycast; driving uses a swept sphere and commits only the checked camera pose.
 - There is no CSM, GTAO or TRAA, and no floating origin.
 - The character's walk, jog and sprint clip speeds (1.5, 3.6, 6.0 m/s) were tuned by eye.
@@ -170,8 +170,6 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 ```bash
 # From the repository root. The vehicle target installs the validator's Node WASM dependency.
 make game-test game-vehicle-test game-build
-# Re-embed a locally downloaded Kenney sedan asset:
-(cd game && npm run prepare-car -- "path/to/sedan.glb" public/assets/car/sedan.glb)
 cd game
 npx playwright test tests/e2e/vehicle.spec.ts --workers=2
 # Existing keyboard enter/drive/exit regression, also on both backends:
@@ -182,10 +180,22 @@ The small fixtures cover 7/12/15 cm curbs at 3/6/10 m/s, 26/30/40 cm blocks at 2
 a single-wheel roll, non-curb negative controls, analog controls, terminal speed, camera clearance and 30 m/s CCD
 against a 3 cm building shell. The same core runs directly under Node 24 using the validator's Rapier compat 0.21;
 Vite unit tests use the game's non-compat WASM. See [vehicle/README](src/vehicle/README.md) for the validator API.
+Screenshots: `$TURKU3D_WORK/reports/screenshots/{webgpu,webgl}-vehicle-curb.png`.
 
+## Sandbox outputs
+
+From the repository root, `source ../sandbox.env` in a worker, then `make game-e2e`.
+Direct `npm` commands use the same environment. Dev uses `TURKU3D_PORT_BASE`, preview/e2e use base +1
+and fail if the port is occupied. The build lives in `$TURKU3D_WORK/build/game`, Vite cache in
+`$TURKU3D_WORK/cache/vite`, screenshots and test results in `$TURKU3D_WORK/reports`.
+Chrome creates unique profiles under `$TURKU3D_BROWSER_DIR/tmp`. See `scripts/dev/README.md`.
+
+Keyboard e2e routes mask physical gamepads in their browser contexts; virtual Xbox routes inject their own controller. This prevents connected host devices from steering concurrent keyboard tests.
 
 ## Selective quality checks
 
 From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
 `scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)
 for dependency setup, path selection, caches, sandbox ports and Git hooks.
+
+Regenerate the CC0 sedan asset with `cd game && npm run prepare-car`.

@@ -73,6 +73,11 @@ def check_snapshot(target, changed, fast=False):
             "lint" if fast else "full",
         ],
         cwd=target,
+        env={
+            **os.environ,
+            "TURKU3D_WORK": str(target / ".cache/work"),
+            "TURKU3D_BROWSER_DIR": str(target / ".cache/browser"),
+        },
         text=True,
         input=json.dumps(changed),
         check=False,

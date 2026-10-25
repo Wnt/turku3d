@@ -80,3 +80,89 @@ def main():
         sheet.save(DOCS / f"{fid}_maps.jpg", quality=80)
         lab = label[fid]
         summary["facades"][fid] = {
+            "facade": refs["facade"],
+            "base_h": refs["base_h"],
+            "views": refs["views"],
+            "label": {
+                "thread_id": lab["thread_id"],
+                "seconds": lab["seconds"],
+                "tokens": lab["tokens"],
+                "answer": lab["answer"],
+            },
+            "improve": {
+                "thread_id": rec["thread_id"],
+                "seconds": rec["seconds"],
+                "tokens": rec["tokens"],
+                "images": [
+                    {k: i[k] for k in ("w", "h", "sha256", "referenced", "primary")}
+                    for i in rec["images"]
+                ],
+                "imagegen_prompt": rec["imagegen_calls"][0]["prompt"]
+                if rec["imagegen_calls"]
+                else None,
+                "answer": rec["answer"],
+                "meta": rec["meta"],
+            },
+            "post": {
+                k: post[k]
+                for k in (
+                    "size",
+                    "tile",
+                    "material",
+                    "maps",
+                    "qa_before",
+                    "qa_after",
+                    "map_seam_ratio",
+                )
+            },
+            "ktx2": {
+                k: {
+                    "bytes": v["bytes"],
+                    "supercompression": v["header"]["supercompression"],
+                    "levels": v["header"]["levels"],
+                }
+                for k, v in post["ktx2"].items()
+            },
+        }
+        manifest_lines.append(
+            {
+                "asset_id": f"facade/{fid}/v1",
+                "kind": "facade_photo_referenced",
+                "facade_id": fid,
+                "status": "pilot",
+                "source_image_sha256": hashlib.sha256(
+                    Path(rec["primary"]).read_bytes()
+                ).hexdigest(),
+                "codex": {
+                    "thread_id": rec["thread_id"],
+                    "job_key": rec["key"],
+                    "prompt_version": rec["prompt_version"],
+                    "label_thread_id": lab["thread_id"],
+                },
+                "post": {
+                    "tile": post["tile"],
+                    "size": post["size"],
+                    "post_version": post["post_version"],
+                },
+                "files": {k: v["sha256"] for k, v in post["files"].items()},
+                "data_dir": str(Path("textures/pilot/post") / fid),
+                "width_m": rec["meta"]["width_m"],
+                "height_m": rec["meta"]["height_m"],
+            }
+        )
+    (DOCS / "pilot.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
+    existing = []
+    if MANIFEST.exists():
+        existing = [json.loads(x) for x in MANIFEST.read_text().splitlines() if x.strip()]
+    ids = {m["asset_id"] for m in manifest_lines}
+    MANIFEST.write_text(
+        "".join(
+            json.dumps(m, ensure_ascii=False) + "\n"
+            for m in [e for e in existing if e["asset_id"] not in ids] + manifest_lines
+        )
+    )
+    print(f"previews -> {DOCS}; manifest -> {MANIFEST}")
+
+
+if __name__ == "__main__":
+    main()
