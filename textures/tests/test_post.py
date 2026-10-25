@@ -126,3 +126,12 @@ def test_period_crop_and_feather():
         assert seg.max() - seg.min() == 0
     f = feather_wrap_x(c, 4)
     assert qa.seam_ratio(f, "x") < 1.5
+
+
+def test_deepbump_worker_disables_network_teardown_and_has_timeout(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(maps.subprocess, 'run', lambda *args, **kwargs: calls.append((args, kwargs)))
+    maps._deepbump(tmp_path / 'in.png', tmp_path / 'out.png', 'color_to_normals')
+    assert calls[0][1]['env']['ORT_DISABLE_TELEMETRY'] == '1'
+    assert calls[0][1]['timeout'] == 600
+    assert 'turkutex.post.deepbump_worker' in calls[0][0][0]

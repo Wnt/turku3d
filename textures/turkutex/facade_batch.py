@@ -11,10 +11,12 @@ import concurrent.futures as cf
 import hashlib
 import html
 import io
+import inspect
 import json
 import math
 import shutil
 import time
+from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image
@@ -32,12 +34,14 @@ VERSION = "facades-v1"
 
 def post_code_hash() -> str:
     from .paths import TEXTURES_DIR
-    files = sorted((TEXTURES_DIR / "turkutex/post").glob("*.py")) + [
-        Path(__file__)]
+    files = [TEXTURES_DIR / "turkutex/post" / name for name in
+             ("pipeline.py", "maps.py", "tileable.py", "qa.py", "deepbump_worker.py")]
     native = native_encoder()
     if native:
         files.append(native)
-    return hashlib.sha256("".join(sha(p) for p in files).encode()).hexdigest()
+    # Contact-sheet/CLI edits do not alter texture pixels or UVs.
+    transforms = "".join(inspect.getsource(f) for f in (post_facade, metric_size, uv_transform))
+    return hashlib.sha256(("".join(sha(p) for p in files) + transforms).encode()).hexdigest()
 
 
 def safe_id(value) -> str:
@@ -183,6 +187,14 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
     improvements = jobs.latest(run / "run_improve/out.jsonl")
     labels = jobs.labels(run / "run_label/out.jsonl")
     rows, cards = [], []
+    from .library_batch import material_valid
+
+    @lru_cache(maxsize=None)
+    def valid_material(key):
+        return material_valid(output / "library" / safe_id(key))
+
+    render_thumbnail = lru_cache(maxsize=None)(thumbnail)
+    library_previews = {}
     calls = {}
     for stage in ("label", "improve"):
         path = run / f"run_{stage}/attempts.jsonl"
@@ -224,9 +236,8 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
                     if not path.is_file() or sha(path) != digest or not ktx2_header(path)["valid"]:
                         problems.append(f"missing/corrupt {name}")
         else:
-            from .library_batch import material_valid
             key = f.props.get("material_key")
-            if not key or not material_valid(output / "library" / safe_id(key)):
+            if not key or not valid_material(key):
                 problems.append("missing library material")
         row = {"facade_id": f.id, "building_id": f.props.get("building_id"), "street_facing": f.props.get("street_facing", True),
                "reference_count": len(views), "sources": sorted({v["source"] for v in views}),
@@ -238,19 +249,23 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
         status = ", ".join(problems) or "PASS"
         title = html.escape(f"{f.id} — {f.props.get('address') or ''}")
         if not f.props.get("street_facing", True):
-            result = output / "library" / safe_id(f.props.get("material_key", "missing")) / "albedo.png"
+            material = safe_id(f.props.get("material_key", "missing"))
+            result = output / "library" / material / "albedo.png"
+            library_previews[material] = render_thumbnail(result)
+            result_preview = f'<a href="#library-{material}">Library material: {material}</a>'
+        else:
+            result_preview = render_thumbnail(result)
         cards.append(f'<article><h2>{title}</h2><p>{f.length:.2f} × {f.height_m:.2f} m · {len(views)} references · '
-                     f'{html.escape(status)}</p><div class="pair">{thumbnail(ref)}{thumbnail(result)}</div></article>')
+                     f'{html.escape(status)}</p><div class="pair">{render_thumbnail(ref)}{result_preview}</div></article>')
     usage_path = run / "usage_log.jsonl"
     usage = [json.loads(s) for s in usage_path.read_text().splitlines()] if usage_path.exists() else []
-    from .library_batch import material_valid
     buildings = {}
     bindings = {}
     for f in facades:
         bid = str(f.props.get("building_id", f.id))
         key = f.props.get("roof_material_key", "roof_standing_seam_metal")
         buildings.setdefault(bid, {"building_id": bid, "roof_material_key": key,
-                                  "roof_complete": material_valid(output / "library" / safe_id(key))})
+                                  "roof_complete": valid_material(key)})
         bindings.setdefault(bid, []).append({"facade_id": f.id, "facade_index": f.props["facade_index"],
              "street_facing": f.props.get("street_facing", True), "material_key": f.props.get("material_key", "render_smooth"),
              "texture": f"{f.props['facade_index']}.ktx2" if asset_path(f, output).with_suffix(".json").exists() else None})
@@ -274,7 +289,9 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
             f'<h1>Facade references / cleaned results</h1><p>{summary["complete"]}/{len(rows)} complete. '
             'Left: rectified reference. Right: processed output. Missing results remain visible. '
             f'{summary["missing_roofs"]} roofs lack library materials. '
-            'Images are offline QA references, never runtime assets.</p>' + "".join(cards) + '</html>')
+            'Images are offline QA references, never runtime assets. Courtyard rows link to their shared material.</p>' +
+            "".join(f'<article id="library-{key}"><h2>Library: {key}</h2>{preview}</article>'
+                    for key, preview in sorted(library_previews.items())) + "".join(cards) + '</html>')
     contact = run / "contact-sheet.html"
     if not contact.exists() or contact.read_text() != page:
         contact.parent.mkdir(parents=True, exist_ok=True)
@@ -297,6 +314,7 @@ def main(argv=None) -> int:
     ap.add_argument("--sources", default="google,lookaround,mapillary,photospheres")
     ap.add_argument("-j", type=int, default=6)
     ap.add_argument("--ref-workers", type=int, default=3)
+    ap.add_argument("--post-workers", type=int, default=2)
     ap.add_argument("--max-pct", type=float, default=100)
     ap.add_argument("--max-side", type=int, default=2048)
     ap.add_argument("--ppm", type=float, default=64)
@@ -345,11 +363,14 @@ def main(argv=None) -> int:
                         write_json(a.output / "facades" / bid / "spec.json", answer)
         elif stage == "post":
             records = jobs.latest(a.run / "run_improve/out.jsonl")
-            for f in facades:
-                record = records.get(f.id + ".improve")
-                if record and record.get("ok"):
+            with cf.ThreadPoolExecutor(max_workers=a.post_workers) as pool:
+                futures = {pool.submit(post_facade, f, records[f.id + ".improve"], a.refs, a.output,
+                                       ppm=a.ppm, max_side=a.max_side): f
+                           for f in facades if records.get(f.id + ".improve", {}).get("ok")}
+                for future in cf.as_completed(futures):
+                    f = futures[future]
                     try:
-                        post_facade(f, record, a.refs, a.output, ppm=a.ppm, max_side=a.max_side)
+                        future.result()
                         print(f"{f.id}: post ready", flush=True)
                     except Exception as exc:
                         errors.append({"facade_id": f.id, "stage": stage, "error": f"{type(exc).__name__}: {exc}"})

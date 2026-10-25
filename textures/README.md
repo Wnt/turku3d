@@ -163,3 +163,10 @@ legacy per-facade label/strip recipes for reproducibility. It is not the AOI pro
 
 From the repository root, run `scripts/dev/gate --base main` for this branch. See the
 [quality gate guide](../scripts/dev/README.md) for dependency setup, caches and sandbox ports.
+
+DeepBump subprocesses set `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime starts and have a
+600-second timeout. A live macOS stack sample found ORT 1DS teardown spinning indefinitely after
+inference; disabling its uploader keeps the offline worker from waiting on network teardown. The dedicated
+worker supplies one ONNX inference thread with spinning disabled, avoiding oversubscription during
+parallel production; the DeepBump algorithm and vendor files remain unchanged.
+See [ONNX Runtime telemetry controls](https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md).

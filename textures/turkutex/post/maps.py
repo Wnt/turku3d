@@ -9,7 +9,6 @@ glTF expects); DeepBump outputs that convention.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -47,13 +46,11 @@ def deepbump_available() -> bool:
 
 def _deepbump(inp: Path, out: Path, module: str, *extra: str):
     d = deepbump_dir()
-    subprocess.run(
-        [sys.executable, str(d / "cli.py"), str(inp), str(out), module, *extra],
-        cwd=d,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    # ONNX Runtime 1DS teardown can hang waiting for telemetry uploads after inference.
+    # This is an offline deterministic worker: disable the uploader before ORT initializes.
+    env = {**os.environ, "ORT_DISABLE_TELEMETRY": "1"}
+    subprocess.run([sys.executable, "-m", "turkutex.post.deepbump_worker", str(d / "cli.py"), str(inp), str(out), module, *extra],
+                   cwd=d, check=True, capture_output=True, text=True, env=env, timeout=600)
 
 
 def normals_deepbump(albedo: np.ndarray, overlap: str = "LARGE") -> np.ndarray:
@@ -127,6 +124,4 @@ def ensure_deepbump(url: str = "https://github.com/HugoTini/DeepBump.git") -> Pa
     if not (d / "cli.py").exists():
         d.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "clone", "--depth", "1", url, str(d)], check=True)
-    if shutil.which("git"):
-        pass
     return d
