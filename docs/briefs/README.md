@@ -28,6 +28,7 @@ sandbox and lands the branches one at a time. Every brief starts from [COMMON.md
 | [W1-05](W1-05-validator.md) | validator: seams, real tiles, car checks | after W0-C | W1-07 car module |
 | [W1-10](W1-10-ground-textures.md) | ortho drape + ground material library | after W0-C | W1-01 material IDs |
 | [W1-12](W1-12-e2e-playtest.md) | `make play`, scripted playtests, report | after W0-C | everything, for the final run |
+| [W1-13](W1-13-lidar-toolkit.md) | lidar toolkit + lidar-first curb and relief detection | immediately | W1-01 breakline interface |
 
 Briefs that start before Wave 0 lands work without `scripts/dev/gate` and AGENTS.md: they use the area `make *-test`
 targets and rebase on `main` when told to.
