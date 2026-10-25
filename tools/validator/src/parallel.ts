@@ -54,7 +54,7 @@ export async function validateParallel(opts: Options, files: string[]) {
 }
 
 /** Bounded persistent pool, also used to run independent regression scenes concurrently. */
-export async function runJobs(jobs: Options[], limit: number): Promise<any[]> {
+async function runJobs(jobs: Options[], limit: number): Promise<any[]> {
   const count = Math.min(limit, availableParallelism(), jobs.length);
   const results: any[] = new Array(jobs.length);
   let next = 0;
