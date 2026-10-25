@@ -1,9 +1,9 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, installPad } from './fixtures';
 
 test('audio unlocks, decodes the CC0 bank and builds spatial graph without errors', { tag: ['@audio', '@input'] }, async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.addInitScript(() => { Object.defineProperty(navigator, 'getGamepads', { value: () => [] }); });
+  await installPad(page);
   await page.goto(`/?backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready);
   expect(await page.evaluate(() => (window as any).__game.audio.snapshot().state)).toBe('locked');
