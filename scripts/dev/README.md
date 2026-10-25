@@ -252,7 +252,7 @@ Initial native dependency setup:
 ```sh
 make pipeline-bootstrap       # native GDAL/osmium CLI tools; setup only
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar,buildings]' -e 'textures[post,dev]' -r scripts/dev/requirements.txt
+uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar,buildings,region]' -e 'textures[post,ground,dev,streetview]' -r scripts/dev/requirements.txt
 uv pip install --python .venv/bin/python --no-deps streetlevel==0.12.13
 uv pip install --python .venv/bin/python -r textures/requirements-streetlevel.txt
 npm ci --no-audit --no-fund

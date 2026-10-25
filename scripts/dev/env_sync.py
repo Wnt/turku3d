@@ -69,7 +69,7 @@ def sync(root, env=None):
                 command = ["uv", "pip", "install", "--python", str(python)]
                 for project, extras in (
                     ("pipeline", "dev,fetch,lidar,buildings,region"),
-                    ("textures", "post,dev,streetview"),
+                    ("textures", "post,ground,dev,streetview"),
                 ):
                     if (root / project / "pyproject.toml").exists():
                         command += ["-e", f"{root / project}[{extras}]"]

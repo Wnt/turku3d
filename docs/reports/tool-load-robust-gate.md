@@ -107,6 +107,26 @@ lint, types, Knip, unit tests and browser checks reran. Logs: `.cache/rebased-ma
 The follow-up exceeded its ten-minute target while awaiting the main integration correction
 and verifying the newly landed audio/player code; no performance benchmark was started.
 
+## Rebase onto ground textures, facades and player (2026-10-26)
+
+Rebased onto main `919b767`. Resolved Playwright worker settings to use the shared
+`TURKU3D_JOBS` value with the 60-second assertion deadline, kept both Vite and Vitest Knip
+config entries, and retained the pipeline tool environment for texture tests while bounding
+its pytest workers. `knip.json` was parsed and checked after resolving the conflict.
+
+Confirmed dependency ownership: pipeline `region` declares PyYAML, pipeline `buildings`
+declares mapbox-earcut and trimesh, and textures core declares requests. The manual sandbox
+setup command now installs all corresponding extras. Env sync and the clean import check also
+install the textures `ground` extra. The dependency-drift test checks both install commands;
+its shared mock is serialized because tooling tests execute in parallel.
+
+With `TURKU3D_JOBS=3`, the selected gate passed **21 steps in 6.542 s**, reusing previously
+passing pipeline, browser, texture, fresh-import and other unchanged stage results. The
+uncached portions included Ruff, gate contracts and policy. The earlier selected run passed
+its browser stage in **179.267 s** and fresh import stage in **60.868 s**; it was red only for
+the malformed Knip JSON discovered immediately after conflict resolution. Logs are in
+`.cache/rebase-affected.log` and `.cache/rebase-affected-green.log`.
+
 ## Remaining measurement
 
 Repeat the typical-change probes during an orchestrator-confirmed eight-active-agent window.

@@ -23,7 +23,7 @@ def main():
                 "-e",
                 f"{ROOT}/pipeline[dev,fetch,lidar,buildings,region]",
                 "-e",
-                f"{ROOT}/textures[post,dev,streetview]",
+                f"{ROOT}/textures[post,ground,dev,streetview]",
             ],
             ["uv", "pip", "install", "--python", python, "--no-deps", "streetlevel==0.12.13"],
             [

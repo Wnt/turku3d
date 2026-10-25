@@ -42,8 +42,6 @@
           "vitest*.config.ts"
         ]
       }
-        ]
-      }
     },
     "tools/validator": {
       "entry": [

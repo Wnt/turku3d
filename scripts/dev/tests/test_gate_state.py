@@ -4,6 +4,7 @@ import fcntl
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,8 @@ from env_sync import sync  # noqa: E402
 from gate_cache import cached_execute, stage_key  # noqa: E402
 from gate_lib import run_gate  # noqa: E402
 from resources import jobs  # noqa: E402
+
+SYNC_PATCH_LOCK = threading.Lock()
 
 
 class GateStateTests(unittest.TestCase):
@@ -62,7 +65,7 @@ class GateStateTests(unittest.TestCase):
             (root / "node_modules/.package-lock.json").write_text("{}")
             good = subprocess.CompletedProcess([], 0, stdout="installed")
             bad = subprocess.CompletedProcess([], 1, stdout="failure")
-            with patch("env_sync.invoke", return_value=good) as run:
+            with SYNC_PATCH_LOCK, patch("env_sync.invoke", return_value=good) as run:
                 self.assertEqual(sync(root, {})["status"], "PASS")
                 self.assertEqual(run.call_count, 1)
                 sync(root, {})
@@ -80,16 +83,20 @@ class GateStateTests(unittest.TestCase):
             (root / "pipeline").mkdir()
             manifest = root / "pipeline/pyproject.toml"
             manifest.write_text("version = 'one'")
+            (root / "textures").mkdir()
+            (root / "textures/pyproject.toml").write_text("version = 'one'")
             python = root / ".venv/bin/python"
             python.parent.mkdir(parents=True)
             python.touch()
             good = subprocess.CompletedProcess([], 0, stdout="installed")
-            with (
-                patch("env_sync.invoke", return_value=good) as run,
-            ):
+            with SYNC_PATCH_LOCK, patch("env_sync.invoke", return_value=good) as run:
                 self.assertEqual(sync(root, {})["status"], "PASS")
                 self.assertIn(
                     f"{root}/pipeline[dev,fetch,lidar,buildings,region]",
+                    run.call_args_list[0].args[0],
+                )
+                self.assertIn(
+                    f"{root}/textures[post,ground,dev,streetview]",
                     run.call_args_list[0].args[0],
                 )
                 self.assertEqual(run.call_count, 2)
