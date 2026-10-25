@@ -25,6 +25,6 @@ body{margin:32px auto;padding:0 24px;max-width:1200px;background:#0f1a20;color:#
 <h1>Turku3D · Playtest</h1><p>Suite: <strong>${h(report.status.toUpperCase())}</strong> · ${(report.duration / 1000).toFixed(2)} s · ${h(report.date)}</p>
 <p>Commit <code>${h(report.commit)}</code>${report.dirty ? ' + uncommitted changes' : ''} · Selection ${h(report.selection.join(', '))}</p>
 ${report.errors?.length ? `<pre>${h(report.errors.join('\n'))}</pre>` : ''}
-<div class="notice"><strong>Real-AOI follow-up</strong><p>AOI checks use the real-data coarse heightfield. Synthetic curb/stair/controller checks are tagged separately. Passing these tests does not certify the missing Wave 1 collision layers.</p><ul>${report.gaps.map(g => `<li>${h(g)}</li>`).join('')}</ul></div>
+<div class="notice"><strong>Real-AOI follow-up</strong><p>AOI checks use the assembled tiles selected for this run. Synthetic curb/stair/controller checks are tagged separately. Passing these tests does not certify routes whose collision layers are still missing.</p><ul>${report.gaps.map(g => `<li>${h(g)}</li>`).join('')}</ul></div>
 <p>Both Chrome backends render at 1280 × 720; videos are saved at 640 × 360 / 12 fps and screenshots at full viewport size. <a href="report.json">Full machine-readable report</a></p>${rows}</html>`;
 }

@@ -13,7 +13,8 @@ const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 export default defineConfig({
   testDir: 'tests',
   testMatch: ['e2e-playtest/**/*.spec.ts', 'e2e/gamepad.spec.ts', 'e2e/start.spec.ts', 'e2e/audio.spec.ts'],
-  fullyParallel: true,
+  // Each backend gets its own worker; serial routes within it avoid two large AOI scenes competing for one GPU.
+  fullyParallel: false,
   workers: 2,
   retries: 0,
   timeout: 120_000,

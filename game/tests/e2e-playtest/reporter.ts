@@ -7,7 +7,7 @@ import type { FullConfig, FullResult, Reporter, TestCase, TestResult, TestError 
 import { renderReport } from '../../tools/playtest-report.mjs';
 
 export default class PlaytestReporter implements Reporter {
-  private rows: object[] = [];
+  private rows: Array<{ title: string; backend: string | undefined; status: string; [key: string]: unknown }> = [];
   private errors: string[] = [];
   private config!: FullConfig;
   constructor(private options: { outputDir: string }) {}
@@ -43,10 +43,14 @@ export default class PlaytestReporter implements Reporter {
       testsSha256: fingerprint(path.join(repo, 'game'), ['tests/e2e', 'tests/e2e-playtest', 'playwright.playtest.config.ts', 'tools/playtest-report.mjs']),
       gameCache: JSON.parse(fs.readFileSync(path.join(s.cache, 'game.json'), 'utf8')),
     };
+    const buildingIds = ['103295893K', '103295888D', '103295899S', '103295889E', '1032958849'];
+    const buildingsCovered = ['webgpu', 'webgl'].every(backend => buildingIds.every(id => this.rows.some(row =>
+      row.backend === backend && row.title.startsWith(`AOI building ${id}:`) && row.status === 'passed')));
     const report = { provenance, date: new Date().toISOString(), status: result.status, duration: result.duration, commit, dirty,
       selection: [this.config.grep].flat().map(String), rows: this.rows, errors: this.errors,
       gaps: ['Real-AOI walk around the office block over curbs', 'Real-AOI stair ascent and descent',
-        'Walk into five distinct real buildings and remain outside', 'Drive the office block, strike a curb, collide with a building and the quay wall'],
+        ...(!buildingsCovered ? ['Walk into five distinct real buildings and remain outside'] : []),
+        'Drive the office block, strike a curb, collide with a building and the quay wall'],
     };
     fs.writeFileSync(path.join(this.options.outputDir, 'report.json'), JSON.stringify(report, null, 2));
     fs.writeFileSync(path.join(this.options.outputDir, 'index.html'), renderReport(report));

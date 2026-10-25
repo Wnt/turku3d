@@ -6,7 +6,7 @@ WebM videos, PNG screenshots, JSON measurements and failure traces. Earlier runs
 `reports/playtest-history/<commit>-<timestamp>/` on the next invocation. Reports identify
 uncommitted changes, selected tags and the actual renderer backend.
 
-The current branch ships a **terrain/controller baseline**, not completed Phase 1
+The suite covers the assembled ground and building shells where available, but not completed Phase 1
 acceptance. The report always calls out that distinction. No missing-layer route is
 silently skipped or counted as passing.
 
@@ -15,7 +15,8 @@ silently skipped or counted as passing.
 | Start screen | Synthetic dev tiles | Xbox connected/disconnected/reconnected, glyphs, A to start, office spawn and nearby car | `@launch @input @synthetic` |
 | Audio startup | Synthetic dev tiles | Start dialog dismissal, audio unlock, bank decode, mute, footsteps and spatial effects | `@audio @input` |
 | Four-seam loop | Real-data AOI | 48 m loop, four distinct L0 tiles, final position, speed bounds, continuous finite positions, sampled ground clearance | `@ground @streaming @character @aoi` |
-| Office drive | Real-data AOI | Y enter, RT drives 15 m north, speed/lateral bounds, RB stops, Y exit, ground clearance | `@vehicle @ground @input @aoi` |
+| Office buildings | Assembled AOI with building shells | Five distinct facades approached with virtual Xbox input, each blocking the character before penetration; grounded and framewise safety | `@walk @character @buildings @aoi` |
+| Office drive | Real-data AOI | Y enter, RT drives 5 m north on mapped ground, speed/lateral bounds, RB stops, Y exit, ground clearance | `@vehicle @ground @input @aoi` |
 | Existing Xbox controls | Synthetic dev tiles | Analog walk, sprint, 12 cm curb, jump, camera, pause, hot-plug | `@input @character @ground @synthetic` |
 | Existing stair route | Synthetic dev tiles | Ascent/descent, measured heights, locomotion and tread IK | `@character @structures @synthetic` |
 | Existing car controls | Synthetic dev tiles | Enter, throttle, brake/reverse, exit | `@input @vehicle @synthetic` |
@@ -38,6 +39,7 @@ make playtest PLAYTEST_ARGS='--grep @vehicle'
 make playtest PLAYTEST_ARGS='--grep @structures'
 make playtest PLAYTEST_ARGS='--grep @aoi'
 make playtest                              # all available routes and videos
+TILE_DIST="$TURKU3D_DATA/dist/tiles" make playtest PLAYTEST_ARGS='--workers=2 --grep @aoi' # use published real AOI from a worker sandbox
 ```
 
 `scripts/dev/gate.toml` connects input/UI to `@launch|@input`, actors/physics to
@@ -52,16 +54,15 @@ Never overlap two invocations that use the same ports/report directory.
 
 ## Remaining acceptance work
 
-After W1-01/02/03/04 land, survey and commit routes on the assembled geometry:
+The published AOI currently has building shells but no structures layer, and its ground
+curb and quay inventories are empty. Once those layers are rebuilt, survey and commit:
 
 - Walk the street loop around the office and cross its measured curbs.
 - Ascend and descend a real stair flight, with measured bottom/top heights.
-- Approach five distinct building shells and assert the character remains outside.
 - Drive the street loop, measure the curb-strike speed/pitch response, and strike a
   building and the quay wall without penetration or falling.
 
-The Phase 0 AOI is an orthophoto over a coarse terrain mesh, including interpolated water;
-its textures are not building colliders. The synthetic stair route cannot certify the AOI.
+The synthetic stair route cannot certify the AOI.
 Do not remove the report's real-AOI follow-up notice until these routes pass on both backends.
 
 The report captures `window.__perf` when available (value or zero-argument snapshot function).

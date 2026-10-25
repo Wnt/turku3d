@@ -208,7 +208,7 @@ paths = ["game/src/render/*", "game/src/world/materials.ts", "qa/tests/golden_pr
 tags = ["@render", "@qa"]
 [[stages.related]]
 paths = ["game/src/actors/*", "game/src/physics/*", "game/src/shared/col/*"]
-tags = ["@walk", "@drive", "@character", "@ground", "@structures"]
+tags = ["@walk", "@drive", "@character", "@ground", "@structures", "@buildings"]
 
 [[stages.related]]
 paths = ["game/src/input/*", "game/tests/e2e/gamepad.spec.ts"]

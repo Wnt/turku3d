@@ -14,6 +14,7 @@ From the repository root:
 # In a worktree, source its sandbox.env first (this sandbox: source ../sandbox.env).
 make play                    # first run builds the four AOI tiles and game; cached startup <5 s
 make playtest                # both backends, virtual Xbox, videos, screenshots, HTML report
+TILE_DIST="$TURKU3D_DATA/dist/tiles" make playtest PLAYTEST_ARGS='--workers=2 --grep @aoi' # published AOI from a worker sandbox
 open "${TURKU3D_WORK:-$HOME/turku3d/data}/reports/playtest/index.html"
 make playtest-test game-test  # fast offline checks
 ```
@@ -31,12 +32,13 @@ the server launched by this command. A busy port fails without selecting another
 
 The start screen shows live controller status and Xbox bindings. Press Ⓐ or select **Start
 playing**. The existing office spawn has a car six metres to the right. `make playtest` uses
-ports base+8 and base+9, separate isolated Chrome contexts, and two concurrent workers.
+ports base+8 and base+9, separate isolated Chrome contexts, and one route at a time per
+backend. The two backend workers still run in parallel.
 Select subsystems with `make playtest PLAYTEST_ARGS='--grep @vehicle'`.
 
-**Current limitation:** the AOI is the Phase 0 coarse real-data heightfield. Full street-loop,
-five-building, real stair, curb-strike and quay-wall acceptance remains blocked by Wave 1
-layers. The HTML report distinguishes real-AOI terrain checks from synthetic controller
+**Current limitation:** the assembled AOI supports ground and five-building routes. Full street-loop,
+real stair, curb-strike and quay-wall acceptance awaits measured curb and structures
+layers. The HTML report distinguishes real-AOI routes from synthetic controller
 checks and lists these gaps even when the baseline suite is green. See
 [playtest coverage and gate tags](tests/e2e-playtest/README.md).
 

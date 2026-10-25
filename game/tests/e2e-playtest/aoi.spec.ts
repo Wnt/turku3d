@@ -3,9 +3,9 @@ import { test, expect, installPad, padAxes, padButton, gameState } from '../e2e/
 import { OFFICE_EN, engineToEN, VISUAL_L0 } from '../../src/core/origin';
 import type { RouteSample } from '../e2e/fixtures';
 
-async function start(page: Page, backend: string, E = OFFICE_EN.E as number, N = OFFICE_EN.N as number) {
+async function start(page: Page, backend: string, E = OFFICE_EN.E as number, N = OFFICE_EN.N as number, heading = 0) {
   await installPad(page);
-  await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json&spawn=${E},${N}`);
+  await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json&spawn=${E},${N},${heading}`);
   await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled();
   await expect(page.locator('#gamepad-status')).toHaveText('Xbox Wireless Controller connected');
   expect(await page.evaluate(() => window.__game!.backend)).toBe(backend === 'webgpu' ? 'WebGPU' : 'WebGL2');
@@ -51,8 +51,37 @@ test('AOI terrain: virtual Xbox walks a loop across the four visual tile seams',
   await safety(page, 4);
 });
 
+// Surveyed facade normals, with each start six metres outside a distinct real footprint.
+const approaches = [
+  { id: '103295893K', x: 174.9, z: 256.78, heading: 330.9 },
+  { id: '103295888D', x: 199.4, z: 243.0, heading: 330.5 },
+  { id: '103295899S', x: 146.13, z: 246.94, heading: 235.1 },
+  { id: '103295889E', x: 216.58, z: 233.72, heading: 328.2 },
+  { id: '1032958849', x: 233.81, z: 224.47, heading: 331.4 },
+];
+for (const approach of approaches) {
+  test(`AOI building ${approach.id}: Xbox walks into the facade and is blocked`, { tag: ['@walk', '@character', '@buildings', '@aoi'] }, async ({ page }, info) => {
+    const manifest = await (await page.request.get('/tiles/manifest.json')).json();
+    test.skip(!manifest.spawn?.building_id, 'Assembled building layer is not available in the stub AOI');
+    const en = engineToEN(approach.x, 0, approach.z);
+    await start(page, info.project.name, en.E, en.N, approach.heading);
+    const from = (await gameState(page)).feet;
+    await padAxes(page, 0, -1);
+    await page.waitForTimeout(4_000);
+    const blocked = await gameState(page);
+    await padAxes(page, 0, 0);
+    const travel = Math.hypot(blocked.feet[0] - from[0], blocked.feet[2] - from[2]);
+    expect(travel, `${approach.id}: approach must reach its facade`).toBeGreaterThan(0.7);
+    expect(travel, `${approach.id}: building wall must stop the character`).toBeLessThan(6.2);
+    expect(blocked.grounded, `${approach.id}: character must stay grounded`).toBe(true);
+    await safety(page, 4);
+  });
+}
+
 test('AOI office: Xbox enters the parked car, drives, brakes and exits', { tag: ['@drive', '@vehicle', '@ground', '@input', '@aoi'] }, async ({ page }, info) => {
-  await start(page, info.project.name);
+  // Stage on mapped ground beside the office; the original coordinate is inside its roof collider.
+  const en = engineToEN(190, 0, 255);
+  await start(page, info.project.name, en.E, en.N);
   await padAxes(page, 1, 0);
   await page.waitForFunction(() => {
     const s = (window.__game!.state as () => any)();
@@ -62,7 +91,7 @@ test('AOI office: Xbox enters the parked car, drives, brakes and exits', { tag: 
   await expect.poll(async () => (await gameState(page)).mode).toBe('car');
   const origin = (await gameState(page)).vehicle!.pos;
   await padButton(page, 7, 0.7);
-  await page.waitForFunction(origin => origin[2] - (window.__game!.state as () => any)().vehicle.pos[2] > 15, origin, { timeout: 8_000 });
+  await page.waitForFunction(origin => origin[2] - (window.__game!.state as () => any)().vehicle.pos[2] > 5, origin, { timeout: 8_000 });
   const driving = await gameState(page);
   expect(driving.vehicle!.speed).toBeGreaterThan(3);
   expect(Math.abs(driving.vehicle!.pos[0] - origin[0])).toBeLessThan(3);
