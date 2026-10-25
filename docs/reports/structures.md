@@ -1,9 +1,12 @@
 # W1-02 structures: integration and real acceptance
 
-Status: **BLOCKED — real acceptance fails**, 2026-10-25.
-Branch: `wt/w1-02-structures`. The branch is rebased onto the Wave 0 integration;
-there is no merge to main. The README conflict preserves both the gate instructions
-and the structures instructions.
+Landing scope: **structures code and synthetic acceptance**, 2026-10-25.
+The user deferred curbs and real AOI acceptance to the next iteration. Earlier
+real acceptance below remains failing; it is not evidence of production readiness.
+Branch: `wt/w1-02-structures`, rebased onto main `04037fc`. Conflicts preserve
+both coordination tooling and the macOS stop-race fix. No merge to main was made.
+The main build has no `build/layers/ground/MANIFEST.json` at this checkpoint,
+so no new real AOI build was run for this scoped landing.
 
 ## Changes
 
@@ -27,18 +30,19 @@ and the structures instructions.
 source ../sandbox.env
 scripts/dev/gate
 make -j2 structures-test
-make structures-build ARGS="--ground-layer $HOME/turku3d/wt/w1-01-ground/work/build/layers/ground"
+# Next iteration, once main publishes its plain ground layer:
+make structures-build ARGS="--ground-layer $TURKU3D_DATA/build/layers/ground"
 npm --prefix tools/validator run structures -- \
   "$TURKU3D_WORK/reports/structures/physics-cases.json" \
   "$TURKU3D_WORK/reports/structures/physics-runtime.json"
 ```
 
-The real build and saved-case replay both exit nonzero because acceptance fails.
+The historical real build and saved-case replay both exit nonzero because acceptance fails.
 To repeat against the exact measured ground generation rather than the advancing
 producer, pass the `ground_input.snapshot` path in the
 [metrics JSON](structures-metrics.json) as `--ground-layer`.
 
-## Ground input
+## Historical ground input
 
 Read-only source: `~/turku3d/wt/w1-01-ground/work/build/layers/ground/`.
 The consistent snapshot contains **64 collision tiles and 868,620 triangles**.
@@ -48,7 +52,7 @@ All copied artifact hashes matched and no source changed during the read. The
 producer's `acceptance_passed` is **false**. That provenance is recorded separately
 from the actual structures checks below.
 
-## Real measurements
+## Historical real measurements
 
 The build took **206.390 s** and emitted an explicitly blocked intermediate layer:
 **49 collision tiles, 4 visual tiles and 18,058 triangles**. There are **223 fences,
@@ -72,7 +76,7 @@ errors above 10 cm, 14 stair contact gaps above 2 cm, sparse lidar and unresolve
 survey grouping. The JSON retains the remaining counts and accepted measurements.
 These are failures to resolve, not excluded samples or relaxed tolerances.
 
-## Real physics
+## Historical real physics
 
 Replaying the saved cases through the runtime's collider builder took **61.51 s**.
 **152 of 248 cases passed; 96 failed.** Three additional fence routes could not be
@@ -105,5 +109,6 @@ No shipped `.col` or tileset was produced.
    mask with W1-01, then preserve those ground triangles with the ramp material.
 3. Diagnose the 91 failed fence probes, the wall probe and four quay stations using
    the saved cases; resolve the eight internal contact holes and margin coverage.
-4. Rerun the complete real acceptance against the final ground generation before
-   reporting DONE or requesting landing.
+4. Rerun complete real acceptance against the final plain ground generation before
+   claiming real AOI coverage. Publish the validator stairs sidecar when integrating
+   the assembled collision; the current landing establishes synthetic acceptance only.
