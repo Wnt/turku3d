@@ -35,14 +35,14 @@ Pipeline steps produce **layers**. The assembler (`turku3d.package`, brief W1-04
 `.col`, GLB and tileset. A layer never writes shipped artifacts itself.
 
 ```
-~/turku3d/data/build/<sandbox-or-main>/layers/<layer>/<collision_tile_id>.col.npz
+$TURKU3D_WORK/build/layers/<layer>/<collision_tile_id>.col.npz
     positions float64 (N,3) world-local (engine axes), indices uint32 (M,3), material uint8 (M,)
     primitives: optional structured array (kind box|capsule|cylinder, center xyz, half-extents/radius/height, yaw, material)
-~/turku3d/data/build/<sandbox-or-main>/layers/<layer>/<visual_tile_id>.vis.glb
+$TURKU3D_WORK/build/layers/<layer>/<visual_tile_id>.vis.glb
     glTF 2.0, world-local metres, one mesh per object, extras: {layer, object_id, material_key}
     UV convention: ground = planar E/N metres; facades = u metres along the facade from its start vertex,
     v metres up from the facade base; roofs = planar E/N metres
-~/turku3d/data/build/<sandbox-or-main>/layers/<layer>/MANIFEST.json   (inputs + params + code-version hash, tiles written)
+$TURKU3D_WORK/build/layers/<layer>/MANIFEST.json   (inputs + params + code-version hash, tiles written)
 ```
 
 Layers in Phase 1: `ground` (W1-01), `structures` (W1-02: stairs, walls, fences, ramps, quays), `buildings` (W1-03),
@@ -52,5 +52,5 @@ neighbouring tiles. Each layer owns that rule and the validator checks it.
 Texture assets are looked up by `material_key`:
 
 - Library materials: `textures/library/<material_key>/{albedo,normal,orm}.ktx2`.
-- Per-building facades: `~/turku3d/data/textures/facades/<building_id>/<facade_index>.{ktx2,json}`.
+- Per-building facades: `$TURKU3D_WORK/textures/facades/<building_id>/<facade_index>.{ktx2,json}`.
 - The assembler binds them. A missing texture falls back to the library material named by the building spec.

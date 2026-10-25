@@ -9,6 +9,14 @@ import { reportsRoot } from '../../../tools/dev/environment.mjs';
 const SHOTS = path.join(reportsRoot, 'screenshots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
+// Keyboard routes must be independent of physical controllers connected to the shared host.
+// Controller routes provide their own virtual gamepad in gamepad.spec.ts.
+test.beforeEach(async ({ context }) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [] });
+  });
+});
+
 function watchConsole(page: Page) {
   const bad: string[] = [];
   const all: string[] = [];
@@ -53,6 +61,7 @@ test('loads, walks 5 m forward on the dummy tile, no console errors', async ({ p
 
   const start = await page.evaluate(() => (window as any).__game.state());
   expect(start.H).toBeCloseTo(2.0, 1);
+  expect(start.inputSource).toBe('keyboard');
   await page.screenshot({ path: `${SHOTS}/${backend}-start.png` });
 
   // walk forward (camera faces north at spawn): hold W until 5 m covered (max 6 s)
@@ -67,6 +76,7 @@ test('loads, walks 5 m forward on the dummy tile, no console errors', async ({ p
   expect(end.N - start.N).toBeGreaterThan(4.5); // went north
   expect(end.H).toBeCloseTo(2.0, 1);               // still on the ground
   expect(end.grounded).toBe(true);
+  expect(end.inputSource).toBe('keyboard');
   await page.screenshot({ path: `${SHOTS}/${backend}-walked.png` });
 
   // (entering the car is covered by the car test below; the car is out of reach from here)

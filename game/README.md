@@ -189,3 +189,5 @@ Direct `npm` commands use the same environment. Dev uses `TURKU3D_PORT_BASE`, pr
 and fail if the port is occupied. The build lives in `$TURKU3D_WORK/build/game`, Vite cache in
 `$TURKU3D_WORK/cache/vite`, screenshots and test results in `$TURKU3D_WORK/reports`.
 Chrome creates unique profiles under `$TURKU3D_BROWSER_DIR/tmp`. See `scripts/dev/README.md`.
+
+Keyboard e2e routes mask physical gamepads in their browser contexts; virtual Xbox routes inject their own controller. This prevents connected host devices from steering concurrent keyboard tests.

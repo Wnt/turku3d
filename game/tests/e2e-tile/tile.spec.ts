@@ -10,6 +10,14 @@ import path from 'node:path';
 const TILE_DIST = tileDist;
 const SHOTS = path.join(reportsRoot, 'screenshots');
 fs.mkdirSync(SHOTS, { recursive: true });
+
+// Keyboard routes must be independent of physical controllers connected to the shared host.
+// Controller routes provide their own virtual gamepad in gamepad.spec.ts.
+test.beforeEach(async ({ context }) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [] });
+  });
+});
 const manifest = JSON.parse(fs.readFileSync(path.join(TILE_DIST, 'manifest.json'), 'utf8'));
 const TILES = '/tiles/tileset.json';
 // office (ARCHITECTURE: Läntinen Rantakatu 15)

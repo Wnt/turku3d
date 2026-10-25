@@ -231,14 +231,15 @@ Pipeline principles:
 **Bulk data lives locally** in `~/turku3d/data/`. Raw inputs are shared and immutable to workers;
 outputs use `$TURKU3D_WORK/{build,cache,dist,reports}`. Bulk data is never committed.
 ```
-~/turku3d/data/raw/{laz,wfs,ortho,osm}/            immutable downloads (+ checksums); Street View panos are cached on the Mac in ~/turku3d/data/raw/streetview
-~/turku3d/data/cache/<step>/<hash>/                 intermediate products
-~/turku3d/data/dist/tiles/{visual,collision}/...    shippable output + tileset.json + manifest.json
+$TURKU3D_DATA/raw/{laz,wfs,ortho,osm}/           immutable downloads (+ checksums)
+$TURKU3D_WORK/cache/streetview/                   sandbox Street View downloads
+$TURKU3D_WORK/cache/<step>/<hash>/                 intermediate products
+$TURKU3D_WORK/dist/tiles/{visual,collision}/...    shippable output + tileset.json + manifest.json
 ~/turku3d/envs/                                     conda/venv envs (pipeline, recon)
 ~/turku3d/research/                                 research scratch (existing)
 ```
 - The old Mac mirror is consolidated into `~/turku3d/data/`; builds need no sync step.
-- The game dev server serves `dist/` with COOP/COEP headers [V].
+- Game previews serve `$TURKU3D_WORK/build/game` with COOP/COEP headers [V].
 - `~/leikkipuistodata` is never written to.
 
 ---
