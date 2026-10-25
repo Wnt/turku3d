@@ -33,7 +33,8 @@
     },
     "tools/validator": {
       "entry": [
-        "test/**/*.ts"
+        "test/**/*.ts",
+        "parked.mjs"
       ],
       "project": [
         "src/**/*.ts",

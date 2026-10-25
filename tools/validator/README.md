@@ -83,3 +83,12 @@ and only the explicitly expected checks on each negative fixture. The good fixtu
 all checks. Standalone `node --test tools/validator/test/*.test.ts` retains 150 fixture walkers;
 set `PIPELINE_PY=$PWD/.venv/bin/python` from the repository root for its codec generator.
 `make tile-validate` retains full real-tile sampling and thresholds.
+
+### Parked-car layer probes
+
+`bash pipeline/env/run.sh python -m turku3d.parked.verify` validates the published
+`traffic_static` placement audit and generates sandbox report `.col` fixtures.
+It invokes `node tools/validator/parked.mjs <collision-directory>` to verify every
+solid box using the shared reader/collider builder, player/vehicle interaction
+groups, downward rays and capsule/chassis sweeps. Details and build commands:
+[`pipeline/turku3d/parked/README.md`](../../pipeline/turku3d/parked/README.md).
