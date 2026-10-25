@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import shlex
 import subprocess
+import threading
 import time
 
 
@@ -26,10 +28,18 @@ def _rpc(methods: list[str], codex_bin: str = "codex", timeout: float = 25.0) ->
         send(0, "initialize", {"clientInfo": {"name": "turkutex", "title": "turkutex", "version": "0.1"}})
         for i, m in enumerate(methods, 1):
             send(i, m, {})
-        out, t0 = {}, time.time()
-        while len(out) < len(methods) + 1 and time.time() - t0 < timeout:
-            line = p.stdout.readline()
-            if not line:
+        # Read stdout in a thread: a bare readline() blocks forever when app-server hangs without output,
+        # which used to freeze the runner (check_quota holds its lock) instead of failing closed.
+        lines: queue.Queue = queue.Queue()
+        threading.Thread(target=lambda: [lines.put(x) for x in iter(p.stdout.readline, "")] + [lines.put(None)],
+                         daemon=True).start()
+        out, deadline = {}, time.time() + timeout
+        while len(out) < len(methods) + 1:
+            try:
+                line = lines.get(timeout=max(0.0, deadline - time.time()))
+            except queue.Empty:
+                break
+            if line is None:
                 break
             try:
                 msg = json.loads(line)
@@ -55,15 +65,17 @@ def used_percent(codex_bin: str = "codex") -> int | None:
         try:
             return int(float(subprocess.run(shlex.split(cmd), capture_output=True, text=True,
                                             timeout=60).stdout.strip()))
-        except (ValueError, subprocess.TimeoutExpired):
+        except (ValueError, OSError, subprocess.TimeoutExpired):  # missing/broken command -> unknown (fail closed)
             return None
     try:
         lim = rate_limits(codex_bin) or {}
     except (FileNotFoundError, OSError):
         return None
-    w = lim.get("primary") or lim.get("secondary") or {}
-    v = w.get("usedPercent")
-    return None if v is None else int(v)
+    # Use the highest window: with two windows `primary` is the short (5 h) one and `secondary` the weekly
+    # one, so taking `primary` alone ignored a weekly 100 %. Today's Pro plan reports only a weekly primary.
+    vals = [w.get("usedPercent") for w in (lim.get("primary"), lim.get("secondary")) if w]
+    vals = [v for v in vals if v is not None]
+    return int(max(vals)) if vals else None
 
 
 def snapshot(codex_bin: str = "codex") -> dict:

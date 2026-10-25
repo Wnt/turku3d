@@ -265,3 +265,11 @@ def test_geo_reuses_pipeline_origin():
     lat, lon = geo.en_to_wgs84(geo.OFFICE_E, geo.OFFICE_N)
     assert abs(lat - 60.44839) < 2e-4 and abs(lon - 22.26726) < 2e-4
     assert abs(geo.bearing(0, 0, 1, 1) - 45) < 1e-9 and math.isclose(geo.bearing(0, 0, -1, 0), 270)
+
+
+def test_true_heading_is_converted_to_grid_bearing():
+    """Street View headings are true azimuths; at Turku true north has grid bearing +0.64 deg (EPSG:3877)."""
+    from qalib import geo
+
+    g = geo.true_to_grid_bearing(geo.OFFICE_E, geo.OFFICE_N, 90.0)
+    assert abs(g - 90.637) < 0.01

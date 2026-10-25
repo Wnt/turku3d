@@ -7,6 +7,10 @@ export const CRS = 'EPSG:3877+3900';
 export const VISUAL_L0 = 250;
 export const COLLISION_TILE = 62.5;
 
+/** Grid bearing (deg) of TRUE north at O, i.e. the EPSG:3877 meridian convergence (pyproj: 0.640 deg at O,
+ *  0.56 deg 7 km south-east). Engine/grid azimuth = true azimuth + this (sun, Street View headings, compass). */
+export const TRUE_NORTH_GRID_BEARING_DEG = 0.64;
+
 /** Office, Läntinen Rantakatu 15 (Phase 1 spawn). */
 export const OFFICE_EN = { E: 23459668, N: 6704254 } as const;
 
@@ -24,7 +28,7 @@ export function collisionTileId(i: number, j: number): string { return `c_${i}_$
 export function collisionTileAt(x: number, z: number): { i: number; j: number } {
   return { i: Math.floor(x / COLLISION_TILE), j: Math.floor(z / COLLISION_TILE) };
 }
-/** Squared distance from (x,z) to the footprint of collision tile (i,j). */
+/** Distance (m) from (x,z) to the footprint of collision tile (i,j). */
 export function distToCollisionTile(x: number, z: number, i: number, j: number): number {
   const x0 = i * COLLISION_TILE, z0 = j * COLLISION_TILE;
   const dx = Math.max(x0 - x, 0, x - (x0 + COLLISION_TILE));

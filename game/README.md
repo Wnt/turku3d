@@ -27,10 +27,10 @@ Click the canvas for mouse look (pointer lock); the mouse wheel zooms. **WASD** 
 |---|---|
 | `backend=webgl` (or `webgl`) | Force the WebGL2 backend of `WebGPURenderer`. The default is WebGPU. |
 | `tiles=<url>` | tileset.json to load. The default is `dev-tiles/tileset.json`. For real tiles use e.g. `tiles=/tiles/tileset.json` with `make game-preview`. |
-| `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles`. |
+| `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles` (an absolute `tiles` URL on another origin, e.g. `make game-serve-dist` on :8081, keeps that origin). |
 | `spawn=E,N[,heading]` | Spawn point in EPSG:3877 (default: the office, E 23459668 N 6704254, heading 0 = north). |
 | `time=<ISO-8601>` | Sun position (NOAA formula, Turku lat/lon). The default is the fixed `2026-06-21T14:00:00+03:00`, so screenshots are deterministic. |
-| `colRadius=<m>` | Collision streaming radius (default 200). Tiles unload beyond radius + 50 m. |
+| `colRadius=<m>` | Collision streaming radius (default 200, must be > 0). Tiles unload beyond radius + 50 m. Candidate tiles come from the i/j grid window around the player, not a scan of the whole manifest. |
 | `hud=0` | Start with the HUD hidden. |
 | `cam=...` | Visual QA camera, see below. |
 
@@ -45,10 +45,10 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 - `fov`: **vertical** field of view in degrees (three.js `camera.fov`). Mapping: `camera.rotation.set(rad(pitch), -rad(yaw), -rad(roll), 'YXZ')`.
 - `time`: ISO-8601 with offset (`+` URL-encoded as `%2B`). Sun azimuth/elevation, frozen clouds. Absent: the fixed default `2026-06-21T14:00+03:00`.
 - QA mode: no HUD, help, player, car or physics worker; pixel ratio 1 so the canvas is 1:1 with the viewport.
-- Globals: `__qaReady` (tileset settled for 10 consecutive frames), `__qaError` (bad params, tile load error, 120 s timeout), `__qaPose` `{E,N,H,yaw,pitch,roll,fov}`, `__qaInfo` `{renderer, backend, pass, time, three, tiles[], tileset}`, `__qaProject(E,N,H)` → `[px,py]` CSS pixels or `null` behind the camera. `window.__game.qa` holds `{loadMs, visTris, models, sunElevation, sunAzimuth}`.
+- Globals: `__qaReady` (tileset settled for 10 consecutive frames), `__qaError` (bad params, tile load error, camera outside the tileset footprint with nothing loaded after ~2 s, 120 s timeout), `__qaPose` `{E,N,H,yaw,pitch,roll,fov}`, `__qaInfo` `{renderer, backend, pass, time, three, tiles[], tileset}`, `__qaProject(E,N,H)` → `[px,py]` CSS pixels or `null` behind the camera. `window.__game.qa` holds `{loadMs, visTris, models, sunElevation, sunAzimuth}`.
 - `pass=id` (`src/render/idPass.ts`): every mesh unlit (`MeshBasicNodeMaterial`), no antialiasing, no tone mapping, linear output (no sRGB encode), no sky/fog/shadows; id = `R<<16|G<<8|B`, 0 = sky. Ids come from glTF node extras `{kind, id, tile, material}` (docs/specs/tiles.md §3.1); `__qaIdTable` maps id → entry.
 - Driver: `node qa/render/render.mjs --views qa/views/views.jsonl --url "http://localhost:8080/?tiles=/tiles/tileset.json" --out DIR`, or `make tile-qa` (serves `dist/` + the synced tiles and runs `qa/loop.py --no-judge`).
-- Tested by `tests/e2e-tile/tile.spec.ts` on the pipeline stub tile (pose echo, canvas size, `__qaProject` centre and behind-camera, ID pass pixels all in the table) and by `tests/e2e/smoke.spec.ts` on the dev tiles.
+- Tested by `tests/e2e-tile/tile.spec.ts` on the pipeline stub tile (pose echo, canvas size, `__qaProject` centre and behind-camera, colour pass not blank, ID pass pixels all in the table) and by `tests/e2e/smoke.spec.ts` on the dev tiles (`__qaProject` against `qa/tests/golden_projection.json` incl. roll and vertical fov; out-of-tileset pose errors fast).
 
 ## Test hooks (play mode)
 

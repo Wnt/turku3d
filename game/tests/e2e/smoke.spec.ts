@@ -67,11 +67,7 @@ test('loads, walks 5 m forward on the dummy tile, no console errors', async ({ p
   expect(end.grounded).toBe(true);
   await page.screenshot({ path: `${SHOTS}/${backend}-walked.png` });
 
-  // enter the car with F, drive forward briefly, exit
-  await page.keyboard.press('KeyF');
-  await page.waitForFunction(() => (window as any).__game.state().mode === 'car', null, { timeout: 5_000 }).catch(() => {});
-  const modeAfterF = await page.evaluate(() => (window as any).__game.state().mode);
-  console.log(`[${backend}] mode after F: ${modeAfterF}`);
+  // (entering the car is covered by the car test below; the car is out of reach from here)
 
   expect(con.bad, con.all.join('\n')).toEqual([]);
   const errs = await page.evaluate(() => (window as any).__game.errors);
@@ -121,4 +117,43 @@ test('enter the car with F, drive forward, exit with F', async ({ page }, info) 
   const s = await page.evaluate(() => (window as any).__game.state());
   expect(s.H).toBeCloseTo(2.0, 1);
   expect(con.bad, con.all.join('\n')).toEqual([]);
+});
+
+test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json: vertical fov, roll, aspect)', async ({ browser }, info) => {
+  const backend = info.project.name;
+  const golden = JSON.parse(fs.readFileSync(new URL('../../../qa/tests/golden_projection.json', import.meta.url), 'utf8'));
+  const ctx = await browser.newContext({ viewport: { width: golden.width, height: golden.height }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  const byPose = new Map<string, { pose: any; cases: any[] }>();
+  for (const c of golden.cases) {
+    const k = JSON.stringify(c.pose);
+    if (!byPose.has(k)) byPose.set(k, { pose: c.pose, cases: [] });
+    byPose.get(k)!.cases.push(c);
+  }
+  let n = 0;
+  for (const { pose, cases } of byPose.values()) {
+    await page.goto(`/?backend=${backend}&cam=${pose.E},${pose.N},${pose.H},${pose.yaw},${pose.pitch},${pose.fov}&roll=${pose.roll}`);
+    await page.waitForFunction(() => typeof (window as any).__qaProject === 'function' || (window as any).__qaError, null, { timeout: 30_000 });
+    for (const c of cases) {
+      const px = await page.evaluate((p) => (window as any).__qaProject(...p), c.point);
+      if (c.px === null) { expect(px, JSON.stringify(c)).toBeNull(); continue; }
+      expect(px, JSON.stringify(c)).not.toBeNull();
+      expect(Math.abs(px[0] - c.px[0]), JSON.stringify({ c, px })).toBeLessThan(0.05);
+      expect(Math.abs(px[1] - c.px[1]), JSON.stringify({ c, px })).toBeLessThan(0.05);
+      n++;
+    }
+  }
+  expect(n).toBeGreaterThan(5);
+  await ctx.close();
+});
+
+test('QA pose outside the tileset reports __qaError quickly (not the 120 s timeout)', async ({ page }, info) => {
+  const backend = info.project.name;
+  const t0 = Date.now();
+  await page.goto(`/?backend=${backend}&cam=23469668,6714254,5,0,-10,60&qa=1`); // 10 km NE of the dev tiles
+  await page.waitForFunction(() => (window as any).__qaReady === true || (window as any).__qaError, null, { timeout: 30_000 });
+  const r = await page.evaluate(() => ({ ready: (window as any).__qaReady, err: (window as any).__qaError }));
+  expect(r.ready).toBeFalsy();
+  expect(r.err).toMatch(/outside the tileset/);
+  expect(Date.now() - t0).toBeLessThan(15_000);
 });

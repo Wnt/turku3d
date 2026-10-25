@@ -112,12 +112,16 @@ def ortho_texture(tile: C.VisualTile, px: int = 2048, layer: str = "ortho2022to"
 
 
 def synthetic_points(tile: C.VisualTile, seed: int = 7) -> np.ndarray:
-    """Gentle slope + a 1.5 m mound, ~1 pt / 4 m²; for tests and --synthetic."""
-    rng = np.random.default_rng(seed)
-    bb = tile.bbox.buffered(20)
+    """Gentle slope + a 1.5 m mound, ~1 pt / 4 m²; for tests and --synthetic.
+
+    The points cover the tile's 500 m L1 parent (like a LAZ tile), so every L0 tile of the same parent
+    interpolates from the identical point set and L0 seams match (see ground.stub.load_ground_points)."""
+    p = tile.parent() if tile.level == 0 else tile
+    rng = np.random.default_rng([seed, p.i % 2**32, p.j % 2**32])
+    bb = p.bbox.buffered(20)
     n = int((bb.xmax - bb.xmin) * (bb.zmax - bb.zmin) / 4)
     x = rng.uniform(bb.xmin, bb.xmax, n); z = rng.uniform(bb.zmin, bb.zmax, n)
-    cx, cz = (tile.bbox.xmin + tile.bbox.xmax) / 2, (tile.bbox.zmin + tile.bbox.zmax) / 2
+    cx, cz = (p.bbox.xmin + p.bbox.xmax) / 2, (p.bbox.zmin + p.bbox.zmax) / 2
     h = 2.0 + 0.01 * (x - bb.xmin) + 1.5 * np.exp(-((x - cx) ** 2 + (z - cz) ** 2) / (2 * 30.0**2))
     return np.stack([x, z, h], 1)
 

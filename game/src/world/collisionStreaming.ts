@@ -1,5 +1,5 @@
 // Streams .col tiles within `radius` metres of the focus point into the physics worker; unloads beyond radius + hysteresis.
-import { distToCollisionTile, parseCollisionId } from '../core/origin';
+import { COLLISION_TILE, collisionTileId, distToCollisionTile, parseCollisionId } from '../core/origin';
 import type { Manifest } from './manifest';
 import type { PhysicsClient } from '../physics/client';
 
@@ -8,6 +8,20 @@ export class CollisionStreamer {
   private failed = new Set<string>();
   private lastCheck = -Infinity;
   readonly maxConcurrent = 4;
+  /** Tile ids within `r` of (x,z), found through the i/j grid window instead of a scan over the whole manifest
+   *  (a city-wide manifest has ~80k collision tiles: a full scan with id parsing costs ~20 ms per call). */
+  private near(x: number, z: number, r: number): { id: string; d: number }[] {
+    const out: { id: string; d: number }[] = [];
+    const i0 = Math.floor((x - r) / COLLISION_TILE), i1 = Math.floor((x + r) / COLLISION_TILE);
+    const j0 = Math.floor((z - r) / COLLISION_TILE), j1 = Math.floor((z + r) / COLLISION_TILE);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const id = collisionTileId(i, j);
+      if (!this.manifest.collision[id]) continue;
+      const d = distToCollisionTile(x, z, i, j);
+      if (d <= r) out.push({ id, d });
+    }
+    return out;
+  }
   constructor(private manifest: Manifest, private physics: PhysicsClient, public radius = 200, public hysteresis = 50) {}
 
   /** Call every frame; checks at most 4x per second unless forced. Returns ids requested this call. */
@@ -15,14 +29,11 @@ export class CollisionStreamer {
     const now = performance.now();
     if (!force && now - this.lastCheck < 250) return [];
     this.lastCheck = now;
-    const want: { id: string; d: number }[] = [];
-    for (const id of Object.keys(this.manifest.collision)) {
+    for (const id of [...this.physics.loaded.keys()]) {
       const ij = parseCollisionId(id);
-      if (!ij) continue;
-      const d = distToCollisionTile(x, z, ij.i, ij.j);
-      if (this.physics.loaded.has(id)) { if (d > this.radius + this.hysteresis) this.physics.unloadTile(id); }
-      else if (d <= this.radius && !this.loading.has(id) && !this.failed.has(id)) want.push({ id, d });
+      if (ij && distToCollisionTile(x, z, ij.i, ij.j) > this.radius + this.hysteresis) this.physics.unloadTile(id);
     }
+    const want = this.near(x, z, this.radius).filter(({ id }) => !this.physics.loaded.has(id) && !this.loading.has(id) && !this.failed.has(id));
     want.sort((a, b) => a.d - b.d);
     const started: string[] = [];
     for (const { id } of want) {
@@ -51,9 +62,6 @@ export class CollisionStreamer {
   get pending(): number { return this.loading.size; }
   /** Ids within radius that are not loaded yet (ignores failed ones). */
   missingNear(x: number, z: number, r: number): string[] {
-    return Object.keys(this.manifest.collision).filter((id) => {
-      const ij = parseCollisionId(id)!;
-      return distToCollisionTile(x, z, ij.i, ij.j) <= r && !this.physics.loaded.has(id) && !this.failed.has(id);
-    });
+    return this.near(x, z, r).map((t) => t.id).filter((id) => !this.physics.loaded.has(id) && !this.failed.has(id));
   }
 }

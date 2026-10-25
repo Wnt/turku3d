@@ -111,6 +111,28 @@ def test_stub_tile_chain_synthetic(tmp_path):
     assert len(json.loads((out / "tileset.json").read_text())["root"]["children"]) == 2
 
 
+def test_stub_l0_seams_bitwise_identical(tmp_path):
+    """Seams between collision tiles of DIFFERENT L0 tiles must match too (review 2026-10-25: per-tile
+    point cropping gave up to 2.76 m steps across L0 seams on the real office-block build)."""
+    pytest.importorskip("scipy")  # the numpy-only binned fallback fills empty nodes per tile
+    out = tmp_path / "tiles"
+    for t in ("t0_0_0", "t0_1_0", "t0_0_1"):
+        build(t, out, synthetic=True, code="test")
+    m = json.loads((out / "manifest.json").read_text())
+    tiles = {cid: read_col(out / e["url"]).world_positions() for cid, e in m["collision"].items()}
+
+    def edge(cid, axis, v):
+        w = tiles[cid]
+        return {tuple(p) for p in w[w[:, axis] == v]}
+
+    for j in range(4):  # x = 250: t0_0_0 | t0_1_0
+        a, b = edge(f"c_3_{j}", 0, 250.0), edge(f"c_4_{j}", 0, 250.0)
+        assert len(a) == 51 and a == b
+    for i in range(4):  # z = 250: t0_0_0 | t0_0_1
+        a, b = edge(f"c_{i}_3", 2, 250.0), edge(f"c_{i}_4", 2, 250.0)
+        assert len(a) == 51 and a == b
+
+
 def test_tileset_root_box_covers_children():
     ts = build_tileset({"t0_0_0": {"url": "a", "h": [0, 10]}, "t0_1_1": {"url": "b", "h": [2, 30]}}, "x")
     box = ts["root"]["boundingVolume"]["box"]

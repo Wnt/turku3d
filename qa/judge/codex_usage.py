@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Vendored copy of osgallery-dev:~/leikkipuistodata/codex-usage.py (read-only source, unchanged logic).
+# Vendored copy of osgallery-dev:~/leikkipuistodata/codex-usage.py (read-only source; --percent changed to report
+# the highest window so a weekly 100 % is not hidden behind a lower 5 h primary).
 # Used by judge.py as the quota guard. No model call; asks `codex app-server` over JSON-RPC.
 """Show Codex (ChatGPT account) usage: the rate-limit windows (weekly / 5 h) as used-percent with
 reset times, reset credits, and recent daily token totals. Asks the local `codex app-server` over
@@ -79,10 +80,12 @@ def main():
         print(json.dumps(res, indent=1)); return 0
     if a.percent:
         lim = ((res.get('account/rateLimits/read') or {}).get('result') or {}).get('rateLimits') or {}
-        w = lim.get('primary') or lim.get('secondary') or {}
-        if w.get('usedPercent') is None:
+        # highest window (primary is the 5 h one when a plan has two; secondary is then the weekly one)
+        vals = [w.get('usedPercent') for w in (lim.get('primary'), lim.get('secondary')) if w]
+        vals = [v for v in vals if v is not None]
+        if not vals:
             print('unknown'); return 2
-        print(int(w['usedPercent'])); return 0
+        print(int(max(vals))); return 0
     rl = (res.get('account/rateLimits/read') or {}).get('result')
     if not rl:
         err = (res.get('account/rateLimits/read') or {}).get('error')

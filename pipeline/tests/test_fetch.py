@@ -416,3 +416,88 @@ def test_osm_to_parquet_roundtrip(data_root, tmp_path):
     x, z = config.wgs84_to_local(lat, lon)  # ~ (168, 246): the office lat/lon is rounded to ~1 m
     assert kerb.geometry_local.x == pytest.approx(x, abs=0.01) and kerb.geometry_local.y == pytest.approx(z, abs=0.01)
     assert json.loads(kerb.tags) == {"barrier": "kerb"}
+
+
+class NoRangeHandler(http.server.BaseHTTPRequestHandler):
+    """Ignores Range and sends no Content-Length (streams until close), like some proxies/CDNs."""
+    payload = b""
+
+    def log_message(self, *a):
+        pass
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(self.payload)
+
+
+@pytest.mark.skipif(shutil.which("curl") is None, reason="curl missing")
+def test_curl_download_no_range_support_restarts(tmp_path, monkeypatch):
+    """A stale .part + a server that ignores Range (curl exit 33) must not be accepted as complete."""
+    monkeypatch.setattr(common, "CURL_RETRY", 1)
+    monkeypatch.setattr(common, "CURL_RETRY_DELAY", 1)
+    payload = os.urandom(120_000)
+    NoRangeHandler.payload = payload
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), NoRangeHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        reg = common.Registry(tmp_path / "raw")
+        dest = tmp_path / "raw" / "c.bin"
+        dest.with_name("c.bin.part").write_bytes(payload[:30_000])
+        rec, now = common.curl_download(f"http://127.0.0.1:{srv.server_address[1]}/c.bin", dest, reg)
+        assert now and dest.read_bytes() == payload and rec["bytes"] == len(payload)
+    finally:
+        srv.shutdown()
+
+
+def test_wfs_truncated_page_not_cached(tmp_path):
+    from turku3d.fetch import wfs
+
+    n = []
+
+    def get(url, params, **kw):
+        n.append(1)
+        return TEKLA_GML[: len(TEKLA_GML) // 2], {}
+
+    layer = sources.WfsLayer("k:P", "1.0.0", "t")
+    reg = common.Registry(tmp_path)
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="truncated"):
+            wfs.fetch_pages(layer, (0, 0, 100, 100), tmp_path / "pages", reg, get=get)
+    assert len(n) == 2 and not list((tmp_path / "pages").glob("*.gml"))
+
+
+def test_http_get_retries_incomplete_read(monkeypatch):
+    import socket
+
+    monkeypatch.setattr(common.time, "sleep", lambda s: None)
+    hits = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            hits.append(1)
+            self.send_response(200)
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            if len(hits) < 3:  # truncated twice, then complete
+                self.wfile.write(b"x" * 500)
+                self.wfile.flush()
+                self.connection.shutdown(socket.SHUT_RDWR)
+            else:
+                self.wfile.write(b"y" * 1000)
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        body, _ = common.http_get(f"http://127.0.0.1:{srv.server_address[1]}/", retries=4)
+        assert body == b"y" * 1000 and len(hits) == 3
+    finally:
+        srv.shutdown()

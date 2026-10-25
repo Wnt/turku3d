@@ -21,6 +21,8 @@ test('url params', () => {
   expect(p.time.toISOString()).toBe('2026-07-01T10:00:00.000Z');
   expect(p.manifest).toBe('dev-tiles/manifest.json');
   expect(parseParams('?tiles=/tiles/tileset.json').manifest).toBe('tiles/manifest.json');
+  expect(parseParams('?tiles=http://localhost:8081/tiles/tileset.json').manifest).toBe('http://localhost:8081/tiles/manifest.json');
+  expect(() => parseParams('?colRadius=abc')).toThrow(/colRadius/);
   expect(() => parseParams('?cam=1,2,3')).toThrow();
   // qa/README.md §2 contract: roll as its own param (or 7th cam value), pass=id, qa=1 accepted
   const q = parseParams('?cam=23459675.963,6704242.703,5.622,324.819,15,70&roll=-2.5&qa=1&pass=id&time=2019-06-15T14:00:00%2B03:00');
@@ -39,4 +41,13 @@ test('sun position in Turku', () => {
   const winter = sunPosition(new Date('2026-12-21T10:30:00Z'));
   expect(winter.elevation).toBeGreaterThan(4); expect(winter.elevation).toBeLessThan(8);
   expect(sunPosition(new Date('2026-12-21T22:00:00Z')).elevation).toBeLessThan(0);
+});
+
+test('sun direction is rotated from true to grid azimuth (meridian convergence)', async () => {
+  const { sunDirection } = await import('../../src/core/sun');
+  const { TRUE_NORTH_GRID_BEARING_DEG } = await import('../../src/core/origin');
+  const d = sunDirection(new Date('2026-06-21T10:30:00Z'));
+  const gridAz = ((Math.atan2(d.x, -d.z) * 180) / Math.PI + 360) % 360; // engine: east +x, north -z
+  expect(gridAz - d.azimuth).toBeCloseTo(TRUE_NORTH_GRID_BEARING_DEG, 6);
+  expect(Math.hypot(d.x, d.y, d.z)).toBeCloseTo(1, 9);
 });

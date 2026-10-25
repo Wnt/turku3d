@@ -22,6 +22,14 @@ export interface Params {
 /** Default sun time when ?time= is absent: a fixed summer afternoon in Turku (deterministic screenshots). */
 export const DEFAULT_TIME = '2026-06-21T14:00:00+03:00';
 
+/** manifest.json next to the tileset. Same-origin paths stay page-relative (as before); an absolute tileset URL on
+ *  another host (e.g. `make game-serve-dist` on :8081) keeps its origin, otherwise the manifest would be fetched from
+ *  the game server. */
+function defaultManifest(tileset: string): string {
+  const u = new URL('manifest.json', new URL(tileset, 'http://x/'));
+  return u.origin === 'http://x' ? u.pathname.replace(/^\//, '') : u.href;
+}
+
 export function parseParams(search: string): Params {
   const p = new URLSearchParams(search);
   const nums = (s: string | null) => (s ? s.split(',').map((v) => Number(v.trim())) : null);
@@ -41,11 +49,13 @@ export function parseParams(search: string): Params {
   if (Number.isNaN(time.getTime())) throw new Error(`bad ?time= (want ISO-8601): ${timeStr}`);
   const sp = nums(p.get('spawn'));
   const tileset = p.get('tiles') ?? 'dev-tiles/tileset.json';
+  const colRadius = Number(p.get('colRadius') ?? 200);
+  if (!(colRadius > 0)) throw new Error(`bad ?colRadius= (metres > 0): ${p.get('colRadius')}`);
   const backend = (p.get('backend') ?? '').toLowerCase() === 'webgl' || p.has('webgl') ? 'webgl' : 'webgpu';
   return {
     backend,
     tileset,
-    manifest: p.get('manifest') ?? new URL('manifest.json', new URL(tileset, 'http://x/')).pathname.replace(/^\//, ''),
+    manifest: p.get('manifest') ?? defaultManifest(tileset),
     qa,
     pass: passStr,
     time,
@@ -53,6 +63,6 @@ export function parseParams(search: string): Params {
     spawn: { E: sp?.[0] ?? OFFICE_EN.E, N: sp?.[1] ?? OFFICE_EN.N, headingDeg: sp?.[2] ?? 0 },
     hud: p.get('hud') !== '0',
     test: p.has('test'),
-    collisionRadius: Number(p.get('colRadius') ?? 200),
+    collisionRadius: colRadius,
   };
 }

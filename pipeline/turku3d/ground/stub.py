@@ -86,7 +86,12 @@ def grid_mesh(H: np.ndarray, x0: float, z0: float, step: float = STEP):
 
 
 def load_ground_points(bbox: C.BBoxLocal, margin: float = 60.0) -> np.ndarray:
-    """Engine (x, z, H) of maanpinta key points (class 8) around bbox from raw/laz/maanpinta/*.laz."""
+    """Engine (x, z, H) of maanpinta key points (class 8) of every LAZ tile touching bbox + margin.
+
+    The points are NOT cropped to bbox + margin: whole LAZ tiles are returned, so neighbouring L0 tiles
+    built from the same LAZ tiles interpolate from the identical point set (same TIN, same hull, same
+    nearest fill) and their shared seam rows come out bitwise identical. Cropping per tile made the hull
+    and the nearest fill differ near the data edge (seen: up to 2.76 m steps across L0 seams)."""
     import laspy
 
     import sys
@@ -101,8 +106,7 @@ def load_ground_points(bbox: C.BBoxLocal, margin: float = 60.0) -> np.ndarray:
         las = laspy.read(f)
         e = np.asarray(las.x, np.float64); n = np.asarray(las.y, np.float64); h = np.asarray(las.z, np.float64)
         x = e - C.ORIGIN_E; z = -(n - C.ORIGIN_N)
-        k = (x >= bb.xmin) & (x <= bb.xmax) & (z >= bb.zmin) & (z <= bb.zmax)
-        out.append(np.stack([x[k], z[k], h[k]], 1))
+        out.append(np.stack([x, z, h], 1))
     core = {lt.name for lt in C.laz_tiles_for_bbox(bbox)}
     if any(f.stem in core for f in missing):
         raise FileNotFoundError(f"{[str(f) for f in missing]} missing: run `make fetch-laz` first")

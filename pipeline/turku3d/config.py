@@ -108,6 +108,20 @@ def wgs84_to_en(lat, lon):
     return _transformer(CRS_WGS84, CRS_HORIZONTAL).transform(lon, lat)
 
 
+def grid_bearing_of_true_north(e, n) -> float:
+    """Grid bearing (deg, clockwise from EPSG:3877 grid north) of TRUE north at (E, N): the meridian
+    convergence, +0.640 deg at O (Turku is west of the GK23 central meridian). A true azimuth (sun, compass,
+    Street View / Look Around heading) becomes a grid/engine bearing by adding this."""
+    from pyproj import Proj
+
+    lat, lon = en_to_wgs84(e, n)
+    return -float(Proj(CRS_HORIZONTAL).get_factors(lon, lat).meridian_convergence)
+
+
+def true_to_grid_bearing(e, n, bearing_true: float) -> float:
+    return (bearing_true + grid_bearing_of_true_north(e, n)) % 360.0
+
+
 def local_to_wgs84(x, z):
     e, n, _ = local_to_en(x, 0.0, z)
     return en_to_wgs84(e, n)

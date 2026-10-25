@@ -26,8 +26,9 @@ function watchConsole(page: Page) {
   return bad;
 }
 
-async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: number; px: number[] }> {
-  return page.evaluate(async (b64) => {
+async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: number; px: Uint8Array }> {
+  // RGBA pixels come back base64-encoded (a JSON number array of 5M entries takes ~7 s per image)
+  const r = await page.evaluate(async (b64) => {
     const img = new Image();
     img.src = `data:image/png;base64,${b64}`;
     await img.decode();
@@ -35,8 +36,12 @@ async function decodePng(page: Page, png: Buffer): Promise<{ w: number; h: numbe
     c.width = img.width; c.height = img.height;
     const g = c.getContext('2d', { colorSpace: 'srgb' })!;
     g.drawImage(img, 0, 0);
-    return { w: img.width, h: img.height, px: Array.from(g.getImageData(0, 0, img.width, img.height).data) };
+    const d = g.getImageData(0, 0, img.width, img.height).data;
+    let bin = '';
+    for (let k = 0; k < d.length; k += 0x8000) bin += String.fromCharCode(...d.subarray(k, k + 0x8000));
+    return { w: img.width, h: img.height, b64: btoa(bin) };
   }, png.toString('base64'));
+  return { w: r.w, h: r.h, px: new Uint8Array(Buffer.from(r.b64, 'base64')) };
 }
 
 test('stub tile from the pipeline renders and the character walks on its collision', async ({ page }, info) => {
@@ -101,6 +106,17 @@ test('QA render contract on the stub tile: pose echo, projection, ID pass', asyn
     expect(st.behind).toBeNull();
     expect(st.info.tiles).toContain('t0_0_0');
     const png = await page.screenshot({ path: `${SHOTS}/tile-${backend}-qa-${pass}.png` });
+    if (pass === 'color') {
+      // not blank: the lower half (ground, ortho-draped) differs from the sky and has real texture detail
+      const { w, h, px } = await decodePng(page, png);
+      const lum = (x: number, y: number) => { const k = 4 * (y * w + x); return (px[k] + px[k + 1] + px[k + 2]) / 3; };
+      const sky = lum(w >> 1, 5), ground = lum(w >> 1, h - 5);
+      const cols = new Set<number>();
+      for (let y = h >> 1; y < h; y += 7) for (let x = 0; x < w; x += 7) { const k = 4 * (y * w + x); cols.add((px[k] >> 3 << 10) | (px[k + 1] >> 3 << 5) | (px[k + 2] >> 3)); }
+      console.log(`[${backend}] color pass: sky lum ${sky.toFixed(0)}, ground lum ${ground.toFixed(0)}, ${cols.size} colours in the lower half`);
+      expect(Math.abs(sky - ground)).toBeGreaterThan(10);
+      expect(cols.size).toBeGreaterThan(50);
+    }
     if (pass === 'id') {
       const { w, h, px } = await decodePng(page, png);
       expect([w, h]).toEqual([VIEW.w, VIEW.h]);

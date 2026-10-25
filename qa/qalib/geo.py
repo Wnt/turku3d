@@ -1,6 +1,8 @@
 """Geo helpers. Reuses pipeline/turku3d/config.py (origin O, EPSG:3877 <-> WGS84) instead of
 re-defining the origin. Heights are N2000 metres throughout; yaw is a compass bearing in degrees
-(clockwise from grid north of EPSG:3877; meridian convergence at Turku is < 0.3 deg and ignored)."""
+(clockwise from grid north of EPSG:3877). Grid north is NOT true north: the meridian convergence is
++0.64 deg at O (true north has grid bearing 0.64), so true headings (Street View, Look Around, sun) go through
+true_to_grid_bearing() before they are compared with grid bearings."""
 from __future__ import annotations
 
 import math
@@ -22,6 +24,11 @@ def en_to_wgs84(e: float, n: float) -> tuple[float, float]:
 def wgs84_to_en(lat: float, lon: float) -> tuple[float, float]:
     e, n = C.wgs84_to_en(lat, lon)
     return float(e), float(n)
+
+
+def true_to_grid_bearing(e: float, n: float, bearing_true: float) -> float:
+    """True azimuth (deg) at EPSG:3877 (e, n) -> grid bearing (deg, 0..360)."""
+    return float(C.true_to_grid_bearing(e, n, bearing_true))
 
 
 def bearing(e0: float, n0: float, e1: float, n1: float) -> float:

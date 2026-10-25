@@ -4,7 +4,7 @@ TEX_DIR      := $(REPO)/textures
 TEX_VENV     ?= $(TEX_DIR)/.venv
 TEX_PY       ?= $(TEX_VENV)/bin/python
 TEX_DATA     ?= $(shell $(TEX_PY) -c 'from turkutex.paths import textures_data_dir; print(textures_data_dir())' 2>/dev/null)
-TEX_PILOT    ?= $(TEX_DATA)pilot
+TEX_PILOT    ?= $(TEX_DATA)/pilot
 TEX_J        ?= 4
 TEX_MAX_PCT  ?= 100
 
@@ -43,11 +43,12 @@ textures-post: $(TEX_PY) ## Post-process: make textures-post IN=x.png OUT=dir [T
 	$(TEX_PY) -m turkutex post $(IN) --out $(OUT) --tile $(or $(TILE),xy) --material $(or $(MAT),facade_mixed)
 
 textures-pilot: $(TEX_PY) ## Office-block pilot end to end (cached/resumable; uses Codex quota once)
+	mkdir -p $(TEX_PILOT)
 	$(TEX_PY) -m turkutex codex usage >> $(TEX_PILOT)/usage_log.jsonl || true
 	$(TEX_PY) -m turkutex refs $(TEX_DIR)/pilot/facades.geojson
-	$(TEX_PY) -m turkutex jobs label $(TEX_DIR)/pilot/facades.geojson --refs $(TEX_DATA)refs --out $(TEX_PILOT)/label_jobs.jsonl
+	$(TEX_PY) -m turkutex jobs label $(TEX_DIR)/pilot/facades.geojson --refs $(TEX_DATA)/refs --out $(TEX_PILOT)/label_jobs.jsonl
 	$(TEX_PY) -m turkutex codex run $(TEX_PILOT)/label_jobs.jsonl --out $(TEX_PILOT)/run_label -j 2 --max-pct $(TEX_MAX_PCT)
-	$(TEX_PY) -m turkutex jobs improve $(TEX_DIR)/pilot/facades.geojson --refs $(TEX_DATA)refs --labels $(TEX_PILOT)/run_label/out.jsonl --out $(TEX_PILOT)/improve_jobs.jsonl
+	$(TEX_PY) -m turkutex jobs improve $(TEX_DIR)/pilot/facades.geojson --refs $(TEX_DATA)/refs --labels $(TEX_PILOT)/run_label/out.jsonl --out $(TEX_PILOT)/improve_jobs.jsonl
 	$(TEX_PY) -m turkutex codex run $(TEX_PILOT)/improve_jobs.jsonl --out $(TEX_PILOT)/run_improve -j 2 --max-pct $(TEX_MAX_PCT)
 	$(TEX_PY) -m turkutex codex usage >> $(TEX_PILOT)/usage_log.jsonl || true
 	$(TEX_PY) -m turkutex post $(TEX_PILOT)/run_improve/images/lr15_se.improve/00.png --out $(TEX_PILOT)/post/lr15_se --name lr15_se --tile x --size 2048x512 --material wood_painted

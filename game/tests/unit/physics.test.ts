@@ -1,4 +1,4 @@
-// Node-side physics tests on the generated dev tiles (npm run dev-tiles must have run; npm test does it via pretest).
+// Node-side physics tests on the generated dev tiles (public/dev-tiles is committed; regenerate with npm run dev-tiles).
 import { describe, test, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -141,4 +141,16 @@ test('rapier trimesh featureId is still unusable (canary)', () => {
   w.step();
   const h = w.castRayAndGetNormal(new RAPIER.Ray({ x: 5.2, y: 1, z: 0.2 }, { x: 0, y: -1, z: 0 }), 20, true)!;
   expect(h.featureId).toBe(0); // the right answer would be 1
+});
+
+test('TriLocator finds triangles for hits just outside a tile edge / a 2 m cell edge (float error)', async () => {
+  const { TriLocator } = await import('../../src/physics/triLocator');
+  // one flat triangle per tile-local quadrant edge: x in [0, 1.99], z in [0, 1.99], tile origin (62.5, 0, 125)
+  const pos = new Float32Array([0, 1, 0, 0, 1, 1.99, 1.99, 1, 0]);
+  const loc = new TriLocator(pos, new Uint32Array([0, 1, 2]), [62.5, 0, 125]);
+  expect(loc.locate(62.5 + 0.5, 1, 125 + 0.5)).toBe(0);
+  expect(loc.locate(62.5 - 1e-5, 1, 125 + 0.5)).toBe(0); // x a hair west of the tile edge (local x < 0)
+  expect(loc.locate(62.5 + 0.5, 1, 125 - 1e-5)).toBe(0); // z a hair north of the tile edge
+  expect(loc.locate(62.5 + 1.995, 1, 125 + 0.001)).toBe(0); // 5 mm past the triangle, across the 2 m cell line
+  expect(loc.locate(62.5 + 0.5, 1, 125 - 0.5)).toBe(-1); // genuinely off the triangle
 });

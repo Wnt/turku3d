@@ -92,6 +92,12 @@ def check_body(body: bytes, layer: str) -> None:
         raise RuntimeError(f"WFS exception for {layer}: {body[:500]!r}")
     if b"FeatureCollection" not in head:
         raise RuntimeError(f"WFS: not a FeatureCollection for {layer}: {body[:300]!r}")
+    # A truncated body (connection dropped, no Content-Length) still starts like a FeatureCollection;
+    # parse it before it is cached, otherwise the broken page is "complete" forever and every re-run fails.
+    try:
+        ET.fromstring(body)
+    except ET.ParseError as e:
+        raise RuntimeError(f"WFS: malformed/truncated GML for {layer} ({len(body)} bytes): {e}") from e
 
 
 def fetch_pages(layer: WfsLayer, bbox, pages_dir: Path, reg: Registry, log=print,

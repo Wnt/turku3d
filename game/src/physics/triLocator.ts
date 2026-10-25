@@ -2,6 +2,10 @@
 // featureId = 0 for every trimesh face hit (verified in tests/unit/physics.test.ts history), so the per-triangle
 // material lookup cannot rely on it. A uniform XZ grid (CELL m) over the tile-local triangles keeps lookups O(1).
 const CELL = 2.0;
+/** Triangles are binned with their XZ bounds padded by PAD, so a hit point that float error puts a hair
+ *  outside the triangle's bounds (e.g. local x = -1e-5 at a tile edge, or across a 2 m cell line) still finds
+ *  it. locate() tolerances above PAD are not guaranteed. */
+const PAD = 0.05;
 
 export class TriLocator {
   private cells = new Map<number, number[]>();
@@ -14,8 +18,8 @@ export class TriLocator {
         x0 = Math.min(x0, pos[3 * v]); x1 = Math.max(x1, pos[3 * v]);
         z0 = Math.min(z0, pos[3 * v + 2]); z1 = Math.max(z1, pos[3 * v + 2]);
       }
-      for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++)
-        for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
+      for (let cz = Math.floor((z0 - PAD) / CELL); cz <= Math.floor((z1 + PAD) / CELL); cz++)
+        for (let cx = Math.floor((x0 - PAD) / CELL); cx <= Math.floor((x1 + PAD) / CELL); cx++) {
           const key = this.key(cx, cz);
           let a = this.cells.get(key); if (!a) this.cells.set(key, (a = [])); a.push(t);
         }

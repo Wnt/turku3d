@@ -155,7 +155,8 @@ def make_view(*, pano_id=None, near=None, provider="google", look_at=None, yaw=N
     out_dir = Path(out_dir or data_dir() / "refs")
     out_dir.mkdir(parents=True, exist_ok=True)
     img_path = out_dir / f"{view_id}.jpg"
-    perspective(eq, heading, pose, w, h).save(img_path, quality=93)
+    # pano headings are TRUE azimuths; pose yaw and pixel_rays are grid bearings (qalib/geo.py)
+    perspective(eq, geo.true_to_grid_bearing(e, n, heading), pose, w, h).save(img_path, quality=93)
     view = {"id": view_id, "image": rel(img_path), "width": w, "height": h, "pose": pose, "time": time,
             "source": src, "capture_date": date, "pose_confidence": conf, "area": area, "tags": list(tags)}
     if registry_path is not False:
@@ -187,7 +188,8 @@ def cmd_refetch(a):
         meta, eq = fetch_google(s["pano_id"], a.zoom)
         out = resolve(v["image"])
         out.parent.mkdir(parents=True, exist_ok=True)
-        perspective(eq, s.get("pano_heading", math.degrees(meta.heading)), v["pose"], v["width"], v["height"]).save(out, quality=93)
+        heading = geo.true_to_grid_bearing(v["pose"]["E"], v["pose"]["N"], s.get("pano_heading", math.degrees(meta.heading)))
+        perspective(eq, heading, v["pose"], v["width"], v["height"]).save(out, quality=93)
         print(f"refetched {v['id']} -> {v['image']}")
 
 

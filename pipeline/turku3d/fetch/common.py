@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 import subprocess
@@ -29,6 +30,7 @@ from .. import config
 USER_AGENT = "turku3d-pipeline/0.1 (+private research; contact wnt) Mozilla/5.0"
 HTTP_TIMEOUT = 300
 RETRIES = 5
+CURL_RETRY, CURL_RETRY_DELAY = 8, 5  # curl --retry / --retry-delay (tests lower them)
 
 
 def now_iso() -> str:
@@ -170,11 +172,14 @@ def http_get(url: str, params: dict | None = None, headers: dict | None = None,
             with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
                 body = r.read()
                 return body, {k.lower(): v for k, v in r.headers.items()}
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+        # http.client.HTTPException covers IncompleteRead (connection dropped mid-body), which is not an
+        # OSError and used to escape the retry loop on the first truncated response.
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, http.client.HTTPException) as e:
             last = e
             if isinstance(e, urllib.error.HTTPError) and e.code in (400, 401, 403, 404):
                 raise
-            time.sleep(min(60, 2 ** attempt))
+            if attempt + 1 < retries:
+                time.sleep(min(60, 2 ** attempt))
     raise RuntimeError(f"GET failed after {retries} attempts: {url}: {last}")
 
 
@@ -226,10 +231,17 @@ def curl_download(url: str, dest: Path, reg: Registry, expected_bytes: int | Non
     if part.exists() and expected_bytes is not None and part.stat().st_size > expected_bytes:
         part.unlink()
     if not (part.exists() and expected_bytes is not None and part.stat().st_size == expected_bytes):
-        cmd = ["curl", "-fL", "-sS", "--retry", "8", "--retry-delay", "5", "--retry-all-errors",
-               "-A", USER_AGENT, "-C", "-", "-o", str(part), url]
-        r = subprocess.run(cmd)
-        if r.returncode not in (0, 33):  # 33 = range not satisfiable (already complete)
+        base = ["curl", "-fL", "-sS", "--retry", str(CURL_RETRY), "--retry-delay", str(CURL_RETRY_DELAY),
+                "--retry-all-errors", "-A", USER_AGENT, "-o", str(part), url]
+        # Resume only when there is something to resume. curl exit 33 means the server ignored the Range
+        # request: the .part cannot be trusted as a prefix, so restart from zero instead of accepting it
+        # (with no Content-Length the truncated .part used to be recorded as complete).
+        resume = part.exists() and part.stat().st_size > 0
+        r = subprocess.run(base[:1] + ["-C", "-"] + base[1:] if resume else base)
+        if r.returncode == 33:
+            part.unlink(missing_ok=True)
+            r = subprocess.run(base)
+        if r.returncode != 0:
             raise RuntimeError(f"curl failed ({r.returncode}) for {url}; partial kept at {part}")
     got = part.stat().st_size
     if expected_bytes is not None and got != expected_bytes:

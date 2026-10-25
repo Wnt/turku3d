@@ -167,3 +167,34 @@ def test_crs_strings_resolve():
     assert "GK23FIN" in CRS(C.CRS_HORIZONTAL).name
     assert "N2000" in CRS(C.CRS_VERTICAL).name
     assert CRS(C.CRS_COMPOUND).is_compound
+
+
+def test_meridian_convergence():
+    """True north is +0.64 deg in grid terms at O: moving due north in WGS84 drifts east in EPSG:3877."""
+    import math
+
+    lat, lon = C.en_to_wgs84(C.ORIGIN_E, C.ORIGIN_N)
+    e1, n1 = C.wgs84_to_en(lat + 0.01, lon)
+    expect = math.degrees(math.atan2(e1 - C.ORIGIN_E, n1 - C.ORIGIN_N))
+    assert abs(C.grid_bearing_of_true_north(C.ORIGIN_E, C.ORIGIN_N) - expect) < 1e-3
+    assert abs(expect - 0.640) < 0.005
+    assert abs(C.true_to_grid_bearing(C.ORIGIN_E, C.ORIGIN_N, 359.9) - 0.540) < 0.005
+
+
+def test_game_origin_ts_mirrors_config():
+    """game/src/core/origin.ts duplicates the origin/grid constants; keep them equal to config.py."""
+    import re
+
+    path = C.REPO_ROOT / "game/src/core/origin.ts"
+    if not path.exists():  # `make pipeline-sync` does not copy game/ to the remote
+        pytest.skip("game/ not present (remote sync copy)")
+    ts = path.read_text()
+
+    def num(name):
+        return float(re.search(rf"export const {name} = ([-0-9.]+);", ts)[1])
+
+    assert (num("E0"), num("N0"), num("H0")) == C.ORIGIN
+    assert num("VISUAL_L0") == C.VISUAL_TILE_SIZE and num("COLLISION_TILE") == C.COLLISION_TILE_SIZE
+    m = re.search(r"OFFICE_EN = \{ E: ([0-9.]+), N: ([0-9.]+) \}", ts)
+    assert (float(m[1]), float(m[2])) == (C.OFFICE_E, C.OFFICE_N)
+    assert abs(num("TRUE_NORTH_GRID_BEARING_DEG") - C.grid_bearing_of_true_north(C.ORIGIN_E, C.ORIGIN_N)) < 0.01

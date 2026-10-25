@@ -153,3 +153,47 @@ def test_rollout_old_style_direct_call(tmp_path):
     assert r.thread_id == "11111111-2222-3333-4444-555555555555"
     assert r.calls[0].prompt == "p1" and r.calls[0].referenced_images == ["/x.png"]
     assert r.calls[0].outputs == ["/g/exec-1.png"]
+
+
+def _fake_bin(tmp_path, name, body):
+    p = tmp_path / name
+    p.write_text(body)
+    p.chmod(p.stat().st_mode | stat.S_IEXEC)
+    return str(p)
+
+
+def test_usage_takes_highest_window(tmp_path):
+    """A plan with a 5 h primary and a weekly secondary: the weekly 100 % must not be hidden."""
+    from turkutex.codex import usage
+
+    srv = tmp_path / "srv.py"
+    srv.write_text(
+        "import sys, json\n"
+        "for line in sys.stdin:\n"
+        "    m = json.loads(line)\n"
+        "    r = {'rateLimits': {'primary': {'usedPercent': 3, 'windowDurationMins': 300},\n"
+        "                        'secondary': {'usedPercent': 100, 'windowDurationMins': 10080}}}\n"
+        "    print(json.dumps({'id': m['id'], 'result': r if m.get('method') == 'account/rateLimits/read' else {}}), flush=True)\n")
+    b = _fake_bin(tmp_path, "codex2", f"#!/bin/sh\nexec {sys.executable} {srv}\n")
+    assert usage.used_percent(b) == 100
+
+
+def test_usage_hanging_app_server_times_out(tmp_path, monkeypatch):
+    """app-server that never answers: used_percent() must return None (fail closed), not block forever."""
+    import time
+
+    from turkutex.codex import usage
+
+    b = _fake_bin(tmp_path, "codexhang", "#!/bin/sh\nexec sleep 60\n")
+    orig = usage._rpc
+    monkeypatch.setattr(usage, "_rpc", lambda m, c="codex", timeout=25.0: orig(m, c, timeout=1.0))
+    t0 = time.time()
+    assert usage.used_percent(b) is None
+    assert time.time() - t0 < 10
+
+
+def test_usage_cmd_missing_is_unknown(monkeypatch):
+    from turkutex.codex import usage
+
+    monkeypatch.setenv("TURKUTEX_USAGE_CMD", "/nonexistent/usage-cmd")
+    assert usage.used_percent() is None

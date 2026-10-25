@@ -1,4 +1,5 @@
 // Solar position (NOAA simplified algorithm, ~0.5 deg) for the Turku origin.
+import { TRUE_NORTH_GRID_BEARING_DEG } from './origin';
 export const TURKU_LAT = 60.448;
 export const TURKU_LON = 22.267;
 
@@ -22,9 +23,10 @@ export function sunPosition(date: Date, lat = TURKU_LAT, lon = TURKU_LON): { azi
   return { azimuth: ((az / rad) % 360 + 360) % 360, elevation: el / rad };
 }
 
-/** Unit vector towards the sun in engine axes (x east, y up, z south). */
+/** Unit vector towards the sun in engine axes (x east = grid east, y up, z grid south). `azimuth` is the TRUE
+ *  azimuth; the vector is rotated by the meridian convergence because engine axes follow the EPSG:3877 grid. */
 export function sunDirection(date: Date): { x: number; y: number; z: number; elevation: number; azimuth: number } {
   const { azimuth, elevation } = sunPosition(date);
-  const a = (azimuth * Math.PI) / 180, e = (elevation * Math.PI) / 180;
+  const a = ((azimuth + TRUE_NORTH_GRID_BEARING_DEG) * Math.PI) / 180, e = (elevation * Math.PI) / 180;
   return { x: Math.sin(a) * Math.cos(e), y: Math.sin(e), z: -Math.cos(a) * Math.cos(e), elevation, azimuth };
 }

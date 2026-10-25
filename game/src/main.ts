@@ -112,7 +112,8 @@ async function runQa() {
   window.__qaInfo = { renderer: `three.js r${THREE.REVISION} WebGPURenderer`, backend, pass: params.pass,
     time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, tileset: params.tileset };
   env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
-  let stable = 0;
+  let stable = 0, idleEmpty = 0;
+  const bounds = new THREE.Box3();
   const t0 = performance.now();
   renderer.setAnimationLoop(() => {
     tiles.update(camera);
@@ -120,6 +121,17 @@ async function runQa() {
     if (window.__qaReady || window.__qaError) return;
     if (tiles.errors.length) { window.__qaError = tiles.errors[0]; return; }
     stable = tiles.settled ? stable + 1 : 0;
+    // contract: a pose outside the loaded data reports __qaError instead of running into the 120 s timeout. Only when
+    // nothing loaded for ~2 s although the tileset is idle, and the camera stands outside the tileset footprint.
+    idleEmpty = tiles.tiles.root && tiles.loadedModels === 0 && tiles.tiles.loadProgress >= 1 ? idleEmpty + 1 : 0;
+    if (idleEmpty >= 120 && tiles.tiles.getBoundingBox(bounds)) {
+      bounds.applyMatrix4(tiles.tiles.group.matrixWorld);
+      const c = camera.position;
+      if (c.x < bounds.min.x || c.x > bounds.max.x || c.z < bounds.min.z || c.z > bounds.max.z) {
+        window.__qaError = `pose outside the tileset: camera E ${q.E} N ${q.N}, nothing in view loaded`;
+        return;
+      }
+    }
     // ready after the tileset settled for 10 consecutive frames (textures transcoded and uploaded; contract: >= 2)
     if (stable >= 10) {
       window.__qaReady = true;
