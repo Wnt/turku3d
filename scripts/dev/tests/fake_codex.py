@@ -45,4 +45,17 @@ else:
         signal.pause()
     out = Path(sys.argv[sys.argv.index("-o") + 1])
     out.write_text("## Result: DONE\n\n" + prompt[-100:])
-    print(json.dumps({"type": "turn.completed"}), flush=True)
+    print(
+        json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 4,
+                    "output_tokens": 2,
+                    "reasoning_output_tokens": 1,
+                },
+            }
+        ),
+        flush=True,
+    )

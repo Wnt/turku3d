@@ -130,6 +130,9 @@ def launch(name, brief=None, ref="main", effort="high", force=False, followup=No
 
 
 def worker(name):
+    sys.path.insert(0, str(s.REPO / "textures"))
+    from turkutex.codex import accounting, routing
+
     path = task(name)
     # Parent writes pid and identity under this lock before we start.
     with s.lock(path / "lock"):
@@ -137,11 +140,12 @@ def worker(name):
     signal.signal(
         signal.SIGTERM, lambda *_: None
     )  # reap Codex and record the result after group TERM
+    model, effort = routing.route("task", effort=meta["effort"])
     cmd = [
         "codex",
         "exec",
         "-m",
-        "gpt-6-astra",
+        model,
         "--sandbox",
         "danger-full-access",
         "-C",
@@ -156,9 +160,70 @@ def worker(name):
     cmd += ["--json", "-o", str(path / "last.md"), "-"]
     try:
         with (path / "input.md").open() as prompt, (path / "events.jsonl").open("a") as events:
-            rc = subprocess.call(cmd, stdin=prompt, stdout=events, cwd=meta["repo"])
+            started = time.time()
+            thread = None
+            terminal = False
+            index = sum(
+                e.get("type") in ("turn.completed", "turn.failed") for e in read_events(path)
+            )
+            with subprocess.Popen(
+                cmd, stdin=prompt, stdout=subprocess.PIPE, text=True, cwd=meta["repo"]
+            ) as proc:
+                for line in proc.stdout:
+                    events.write(line)
+                    events.flush()
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if event.get("type") == "turn.started":
+                        terminal = False
+                    if event.get("type") == "thread.started":
+                        thread = event.get("thread_id")
+                    if event.get("type") in ("turn.completed", "turn.failed"):
+                        terminal = True
+                        accounting.record_call(
+                            source=path / "events.jsonl",
+                            model=model,
+                            effort=effort,
+                            job_type="task",
+                            task=name,
+                            started=started,
+                            seconds=time.time() - started,
+                            tokens=event.get("usage"),
+                            call_id=accounting.stable_id(path / "events.jsonl", index),
+                            events=json.dumps({"type": "thread.started", "thread_id": thread}),
+                            ok=event["type"] == "turn.completed",
+                        )
+                        index += 1
+                        started = time.time()
+                rc = proc.wait()
+                if not terminal:
+                    accounting.record_call(
+                        source=path / "events.jsonl",
+                        model=model,
+                        effort=effort,
+                        job_type="task",
+                        task=name,
+                        started=started,
+                        seconds=time.time() - started,
+                        call_id=accounting.stable_id(
+                            path / "events.jsonl", f"incomplete-{started}"
+                        ),
+                        ok=False,
+                    )
     except OSError as e:
         print(e, file=sys.stderr)
+        accounting.record_call(
+            source=path / "events.jsonl",
+            model=model,
+            effort=effort,
+            job_type="task",
+            task=name,
+            started=meta["started"],
+            seconds=time.time() - meta["started"],
+            ok=False,
+        )
         rc = 127
     with s.lock(path / "lock"):
         meta = s.read_json(path / "meta.json")

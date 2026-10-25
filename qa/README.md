@@ -186,3 +186,18 @@ Browser profiles are created under `$TURKU3D_BROWSER_DIR/tmp`. `make qa-loop` de
 From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
 `scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)
 for dependency setup, path selection, caches, sandbox ports and Git hooks.
+
+### Shared Codex accounting
+
+The judge records every attempt, including retries and timeouts, in
+`~/turku3d/ledger/codex-calls.jsonl` (`TURKU3D_CODEX_LEDGER` overrides it for tests).
+Defaults come from `textures/codex-routing.toml` `[qa]`; `--model` and `--effort` override them.
+Usage comes from completed-turn events; missing usage remains unknown. To inspect costs:
+
+```sh
+source ../sandbox.env
+scripts/dev/codex-cost --by job_type
+```
+
+The fixed planted-difference model pilot and its quota limitations are documented in
+[`bench/codex/README.md`](../bench/codex/README.md).

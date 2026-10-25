@@ -36,6 +36,7 @@ class ToolingTests(unittest.TestCase):
             ignore=shutil.ignore_patterns("__pycache__"),
         )
         for name in (
+            "textures/codex-routing.toml",
             "docs/flags.toml",
             "docs/specs/materials.md",
             "game/src/shared/col/materials.ts",
@@ -57,6 +58,7 @@ class ToolingTests(unittest.TestCase):
             "TURKU3D_WT_ROOT": str(self.base / "wt"),
             "TURKU3D_TASKS_ROOT": str(self.base / "tasks"),
             "TURKU3D_DATA": str(self.base / "data"),
+            "TURKU3D_CODEX_LEDGER": str(self.base / "ledger.jsonl"),
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
             "GATE_PYTHON": sys.executable,
             "TURKU3D_SANDBOX": "orchestrator",
@@ -179,6 +181,13 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("Follow-up", self.cli("codex-task", "result", "demo").stdout)
         self.assertIn("turn.completed", self.cli("codex-task", "log", "demo", "1").stdout)
         self.cli("codex-task", "run", "demo", "--brief", "brief.md", ok=False)
+        ledger = [
+            json.loads(line) for line in (self.base / "ledger.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual(len(ledger), 2)
+        self.assertEqual(len({row["call_id"] for row in ledger}), 2)
+        self.assertEqual(sum(row["tokens"]["input_tokens"] for row in ledger), 20)
+        self.assertTrue(all(row["task"] == "demo" and row["effort"] == "high" for row in ledger))
 
     def test_quota_refusal_and_override(self):
         env = {**self.env, "FAKE_QUOTA": "100"}

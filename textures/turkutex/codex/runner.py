@@ -42,14 +42,15 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from jsonschema import ValidationError, validate
 from PIL import Image
 
+from . import accounting, routing, usage
 from . import rollout as ro
-from . import usage
 
 CACHE_VERSION = "1"
 DEFAULT_MODEL = "gpt-6-astra"
@@ -73,6 +74,7 @@ class Job:
     files: list[Path] = field(default_factory=list)
     schema: Path | None = None
     model: str = DEFAULT_MODEL
+    effort: str = "medium"
     sandbox: str = "read-only"
     timeout: float = 900
     expect_images: int = 0
@@ -84,6 +86,7 @@ class Job:
         parts = [
             CACHE_VERSION,
             self.model,
+            self.effort,
             self.sandbox,
             self.prompt_version,
             self.prompt,
@@ -117,13 +120,17 @@ def load_jobs(path: Path) -> list[Job]:
         if d.get("vars"):
             text = string.Template(text).safe_substitute({k: str(v) for k, v in d["vars"].items()})
         rp = lambda s: (base / s).resolve()  # noqa: E731
+        model, effort = routing.route(
+            d.get("meta", {}).get("kind", "default"), d.get("model"), d.get("effort")
+        )
         j = Job(
             id=jid,
             prompt=text,
             images=[rp(s) for s in d.get("images", [])],
             files=[rp(s) for s in d.get("files", [])],
             schema=rp(d["schema"]) if d.get("schema") else None,
-            model=d.get("model", DEFAULT_MODEL),
+            model=model,
+            effort=effort,
             sandbox=d.get("sandbox", "read-only"),
             timeout=float(d.get("timeout", 900)),
             expect_images=int(d.get("expect_images", 0)),
@@ -304,6 +311,8 @@ class Runner:
                 "exec",
                 "-m",
                 job.model,
+                "-c",
+                f'model_reasoning_effort="{job.effort}"',
                 "-C",
                 str(tmp),
                 "--skip-git-repo-check",
@@ -320,6 +329,7 @@ class Runner:
             for p in job.images:
                 cmd += ["-i", str(tmp / p.name)]
             t0 = time.time()
+            accounting_id = str(uuid.uuid4())
             self.log(f"START {job.id} attempt={attempt} usage={pct_before}% key={key[:12]}")
             with (
                 open(logs / f"{job.id}.events.jsonl", "w") as ev,
@@ -332,7 +342,26 @@ class Runner:
                     rc = pr.returncode
                 except subprocess.TimeoutExpired:
                     rc = -9
+                except OSError:
+                    rc = 127
             secs = round(time.time() - t0, 1)
+            accounting.record_call(
+                source=logs / f"{job.id}.events.jsonl",
+                model=job.model,
+                fallback_id=accounting_id,
+                effort=job.effort,
+                job_type=job.meta.get("kind", "texture"),
+                job_id=job.id,
+                events=(logs / f"{job.id}.events.jsonl").read_text(),
+                seconds=secs,
+                started=t0,
+                ok=rc == 0,
+                units={
+                    "facade": len(job.meta.get("facade_ids", []))
+                    or int(bool(job.meta.get("facade_id"))),
+                    "view": len(job.meta.get("views", job.meta.get("views_used", []))),
+                },
+            )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -345,7 +374,11 @@ class Runner:
             if e.get("type") == "thread.started":
                 thread_id = e.get("thread_id")
             elif e.get("type") == "turn.completed":
-                usage_ev = e.get("usage")
+                turn_usage = e.get("usage") or {}
+                usage_ev = usage_ev or {}
+                for field, value in turn_usage.items():
+                    if isinstance(value, (int, float)):
+                        usage_ev[field] = usage_ev.get(field, 0) + value
             elif e.get("type") in ("error", "turn.failed"):
                 err_ev = e.get("message") or json.dumps(e.get("error"))
         last_msg = last.read_text() if last.exists() else None
@@ -358,7 +391,9 @@ class Runner:
             "seconds": secs,
             "attempt": attempt,
             "model": job.model,
+            "effort": job.effort,
             "thread_id": thread_id,
+            "accounting_id": accounting_id,
             "meta": job.meta,
             "prompt_version": job.prompt_version,
             "prompt_sha256": hashlib.sha256(job.prompt.encode()).hexdigest(),
@@ -391,7 +426,7 @@ class Runner:
                     for c in rollout.calls
                 ]
                 if rollout.tokens:
-                    rec["tokens"] = rollout.tokens
+                    rec["rollout_tokens"] = rollout.tokens
             imgs = ro.collect_images(thread_id, rollout=rollout)
             prim = ro.pick_primary(imgs)
             dst = self.out / "images" / job.id

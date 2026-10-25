@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 import jsonschema
@@ -33,7 +34,9 @@ HERE = Path(__file__).resolve().parent
 SCHEMA = HERE / "qa.schema.json"
 PROMPT = HERE / "prompt.md"
 USAGE = HERE / "codex_usage.py"
-DEFAULT_MODEL = "gpt-6-astra"
+DEFAULT_MODEL = None
+sys.path.insert(0, str(HERE.parents[1] / "textures"))
+from turkutex.codex import accounting, routing  # noqa: E402
 
 
 class QuotaError(RuntimeError):
@@ -95,7 +98,9 @@ def judge(
     timeout=900,
     dry_run=False,
     retries=1,
+    effort=None,
 ) -> dict:
+    model, effort = routing.route("qa", model, effort)
     cap = float(cap if cap is not None else os.environ.get("QA_CODEX_CAP", 100))
     prompt = build_prompt(context, id_image is not None)
     with tempfile.TemporaryDirectory(prefix="qa-judge-") as directory:
@@ -111,11 +116,12 @@ def judge(
             dry_run,
             retries,
             prompt,
+            effort,
         )
 
 
 def _judge_in_dir(
-    tmp, ref, render, id_image, context, model, cap, timeout, dry_run, retries, prompt
+    tmp, ref, render, id_image, context, model, cap, timeout, dry_run, retries, prompt, effort
 ):
     imgs = [("1_reference", ref), ("2_render", render)] + (
         [("3_object_ids", id_image)] if id_image else []
@@ -131,6 +137,8 @@ def _judge_in_dir(
         "exec",
         "-m",
         model,
+        "-c",
+        f'model_reasoning_effort="{effort}"',
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
@@ -154,14 +162,46 @@ def _judge_in_dir(
         if attempt:
             check_quota(cap)
         ta = time.time()
+        accounting_id = str(uuid.uuid4())
         last.unlink(missing_ok=True)
         try:
             p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            accounting.record_call(
+                source="qa",
+                fallback_id=accounting_id,
+                model=model,
+                effort=effort,
+                job_type="qa",
+                events=getattr(exc, "stdout", None) or "",
+                seconds=time.time() - ta,
+                started=ta,
+                job_id=str(ref),
+                units={"view": 1},
+                ok=False,
+            )
             attempts.append(
-                {"rc": -1, "error": "judge timeout", "secs": round(time.time() - ta, 1)}
+                {
+                    "rc": -1,
+                    "error": str(exc),
+                    "secs": round(time.time() - ta, 1),
+                    "accounting_id": accounting_id,
+                }
             )
             continue
+        accounting.record_call(
+            source="qa",
+            fallback_id=accounting_id,
+            model=model,
+            effort=effort,
+            job_type="qa",
+            events=p.stdout,
+            seconds=time.time() - ta,
+            started=ta,
+            job_id=str(ref),
+            units={"view": 1},
+            ok=p.returncode == 0,
+        )
         thread_id, tokens = None, None
         for line in p.stdout.splitlines():
             try:
@@ -174,6 +214,7 @@ def _judge_in_dir(
                 tokens = ev.get("usage")
         rec = {
             "rc": p.returncode,
+            "accounting_id": accounting_id,
             "thread_id": thread_id,
             "tokens": tokens,
             "secs": round(time.time() - ta, 1),
@@ -193,6 +234,7 @@ def _judge_in_dir(
     after = usage_percent()
     return {
         "model": model,
+        "effort": effort,
         "ref": str(ref),
         "render": str(render),
         "id_image": str(id_image) if id_image else None,
@@ -215,6 +257,7 @@ def main(argv=None):
     ap.add_argument("--id-image")
     ap.add_argument("--context", default="")
     ap.add_argument("--model", default=DEFAULT_MODEL)
+    ap.add_argument("--effort")
     ap.add_argument(
         "--cap", type=float, default=None, help="refuse at >= this weekly usage %% (default 100)"
     )
@@ -222,7 +265,16 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
     try:
-        r = judge(a.ref, a.render, a.id_image, a.context, a.model, a.cap, dry_run=a.dry_run)
+        r = judge(
+            a.ref,
+            a.render,
+            a.id_image,
+            a.context,
+            a.model,
+            a.cap,
+            dry_run=a.dry_run,
+            effort=a.effort,
+        )
     except QuotaError as e:
         print(f"QUOTA: {e}", file=sys.stderr)
         return 3

@@ -253,3 +253,23 @@ Run `source ../sandbox.env && make -j2 ground-texture-test` for the fast checks.
 provides rasterio, shapely, geopandas and pyarrow; `make textures-venv` includes it.
 DeepBump runs in a bounded ONNX worker (one intra-op thread, one inter-op thread, no spinning)
 so concurrent texture jobs do not each occupy a full-machine thread pool.
+
+
+## Shared Codex accounting and routing
+
+Every uncached attempt is appended to `~/turku3d/ledger/codex-calls.jsonl` before image collection.
+`TURKU3D_CODEX_LEDGER` overrides the destination for isolated tests. `turn.completed.usage` is
+canonical; rollout totals are retained separately because resumed sessions can accumulate usage.
+Missing usage is null, including interrupted attempts, and cached/reasoning tokens are subsets.
+
+`textures/codex-routing.toml` supplies job-kind model and effort defaults. Explicit job `model`
+and `effort` override it; effort participates in the cache key. `TURKU3D_CODEX_ROUTING` can select
+another TOML file. QA reads the same `[qa]` route; task workers read `[task]` while preserving
+explicit task effort. Current conservative defaults and pilot limitations are in
+[`docs/reports/codex-model-bench.md`](../docs/reports/codex-model-bench.md).
+
+```sh
+source ../sandbox.env
+scripts/dev/codex-cost --by job_type
+scripts/dev/codex-cost --by model --json
+```

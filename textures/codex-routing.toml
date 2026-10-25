@@ -1,0 +1,23 @@
+# Conservative routing until the fixed-corpus pilot establishes a cheaper passing model.
+# Explicit job/CLI model and effort take precedence. See docs/reports/codex-model-bench.md.
+[default]
+model = "gpt-6-astra"
+effort = "medium"
+[label]
+model = "gpt-6-astra"
+effort = "medium"
+[building_label]
+model = "gpt-6-astra"
+effort = "medium"
+[improve]
+model = "gpt-6-astra"
+effort = "medium"
+[library]
+model = "gpt-6-astra"
+effort = "medium"
+[qa]
+model = "gpt-6-astra"
+effort = "medium"
+[task]
+model = "gpt-6-astra"
+effort = "high"

@@ -1,0 +1,198 @@
+{
+  "version": "facade-candidates-v1",
+  "status": "unreviewed; not scored or sent to models",
+  "cases": [
+    {
+      "id": "101250521U_023",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/101250521U_023/101250521U_023_v1_f_l_606793631686_rectified.jpg"
+      ],
+      "sha256": [
+        "455fe519e72533ae260d1d5285dda9d8c596a640bd9123962924d093e9d7de92"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/101250521U_023/101250521U_023_v1_f_l_606793631686_rectified.jpg"
+      ]
+    },
+    {
+      "id": "101250521U_104",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/101250521U_104/101250521U_104_v0_f_g_XG9L_DCS1aET_rectified.jpg"
+      ],
+      "sha256": [
+        "3ffd6f46d5633e2878e38a38a71e4ba30e9aed4ca786e09e4bf1fdfbc619e1f4"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/101250521U_104/101250521U_104_v0_f_g_XG9L_DCS1aET_rectified.jpg"
+      ]
+    },
+    {
+      "id": "101250521U_194",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/101250521U_194/101250521U_194_v0_f_l_606793631686_rectified.jpg"
+      ],
+      "sha256": [
+        "d02a4c60c19e59da6e784ed6793578bda0b7dc2dda2fb3dc3afef5b8a850bb13"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/101250521U_194/101250521U_194_v0_f_l_606793631686_rectified.jpg"
+      ]
+    },
+    {
+      "id": "101250521U_289",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/101250521U_289/101250521U_289_v0_f_l_606793631686_rectified.jpg"
+      ],
+      "sha256": [
+        "80209d4846f9be91420178ae1b465e4a06a6266555ae97752909fd4d9911cb7c"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/101250521U_289/101250521U_289_v0_f_l_606793631686_rectified.jpg"
+      ]
+    },
+    {
+      "id": "101250521U_331",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/101250521U_331/101250521U_331_v0_f_g_P8hiRHyOYkhK_rectified.jpg"
+      ],
+      "sha256": [
+        "c46e584a082d0fd1211c24a0927e3c7e14d7b75b39e7eaa88f4922825569596c"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/101250521U_331/101250521U_331_v0_f_g_P8hiRHyOYkhK_rectified.jpg"
+      ]
+    },
+    {
+      "id": "101640309M_236",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/101640309M_236/101640309M_236_v0_f_g_CIHM0ogKEICA_rectified.jpg"
+      ],
+      "sha256": [
+        "213b00c493c9ada26852a2142f41405550032c26901e93aa5dd3e5203192e595"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/101640309M_236/101640309M_236_v0_f_g_CIHM0ogKEICA_rectified.jpg"
+      ]
+    },
+    {
+      "id": "102725984D_059",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/102725984D_059/102725984D_059_v0_f_g_NHg768pVOTGd_rectified.jpg"
+      ],
+      "sha256": [
+        "89c3b51c98db2fddf9714981a9dbb73e0f1d6052adcfb80d060ea4ace99648a8"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/102725984D_059/102725984D_059_v0_f_g_NHg768pVOTGd_rectified.jpg"
+      ]
+    },
+    {
+      "id": "102725984D_060",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/102725984D_060/102725984D_060_v0_f_g_c6BOWEgP8Nho_rectified.jpg"
+      ],
+      "sha256": [
+        "68a3d351b5537b6a1abfc70d7227c32787054f745059b23da4e2d253840f9ecf"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/102725984D_060/102725984D_060_v0_f_g_c6BOWEgP8Nho_rectified.jpg"
+      ]
+    },
+    {
+      "id": "102725984D_060_1",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/102725984D_060_1/102725984D_060_1_v0_f_g_8nvZs8ICnBR2_rectified.jpg"
+      ],
+      "sha256": [
+        "b3297e59d89eb67827e35f6e93dc715e817397740f7d5956193386168b74e869"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/102725984D_060_1/102725984D_060_1_v0_f_g_8nvZs8ICnBR2_rectified.jpg"
+      ]
+    },
+    {
+      "id": "102725984D_060_2",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/102725984D_060_2/102725984D_060_2_v0_f_g_IGMFJWvGVkek_rectified.jpg"
+      ],
+      "sha256": [
+        "d476826c9acb95cd69bf63a4f905bfe1ea48a703b70389376772bc62adcf1748"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/102725984D_060_2/102725984D_060_2_v0_f_g_IGMFJWvGVkek_rectified.jpg"
+      ]
+    },
+    {
+      "id": "102725984D_060_3",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/102725984D_060_3/102725984D_060_3_v0_f_g_cz4PO2U610Nd_rectified.jpg"
+      ],
+      "sha256": [
+        "f73c8dcaf2db3f718ba8d1d1a971450b7bfb079494272346cb1a339768e367fa"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/102725984D_060_3/102725984D_060_3_v0_f_g_cz4PO2U610Nd_rectified.jpg"
+      ]
+    },
+    {
+      "id": "102725984D_060_4",
+      "kind": "label",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/facade-inputs/102725984D_060_4/102725984D_060_4_v0_f_g_OLzf0V0VobLh_rectified.jpg"
+      ],
+      "sha256": [
+        "2c941cf3bba952cfd89a3d3a5d8b304fc2245d807150ac7e19c52930e19da553"
+      ],
+      "reviewed": false,
+      "truth": {},
+      "review_note": "No independent lidar/footprint or human label truth available. Partial and occluded crops require review.",
+      "source_images": [
+        "/Users/wnt/turku3d/wt/w1-09-facades/work/textures/refs/102725984D_060_4/102725984D_060_4_v0_f_g_OLzf0V0VobLh_rectified.jpg"
+      ]
+    }
+  ]
+}

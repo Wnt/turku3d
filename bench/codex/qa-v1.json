@@ -1,0 +1,143 @@
+{
+  "version": "qa-planted-v1",
+  "cases": [
+    {
+      "id": "qa-eight-v1",
+      "kind": "qa_batch",
+      "images": [
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/00_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/00_render.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/01_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/01_render.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/02_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/02_render.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/03_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/03_render.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/04_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/04_render.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/05_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/05_render.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/06_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/06_render.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/07_reference.png",
+        "${TURKU3D_WORK}/reports/costbench/qa-inputs/07_render.png"
+      ],
+      "sha256": [
+        "456109af3d304b58825c0d66e1af20ad6d70ad90f01000f1fb29e7b97594a46f",
+        "456109af3d304b58825c0d66e1af20ad6d70ad90f01000f1fb29e7b97594a46f",
+        "456109af3d304b58825c0d66e1af20ad6d70ad90f01000f1fb29e7b97594a46f",
+        "1f470995c8364adba77d5c61d1ea92d170f70c93b2bb1eb68b3c212ffd689153",
+        "a0409f8ac570ff9702357c1778a0869ce53b7939359c65b5a875e1641f2e2fc6",
+        "a0409f8ac570ff9702357c1778a0869ce53b7939359c65b5a875e1641f2e2fc6",
+        "a0409f8ac570ff9702357c1778a0869ce53b7939359c65b5a875e1641f2e2fc6",
+        "69dd5979dbc0f8bcc37a548c5c29d322cabe6471631958400967fd062c1b1a70",
+        "a516bc2915e952b2dfdb86bfb0278cdbd5216c1377b75a11a14ff411d5003e5e",
+        "a516bc2915e952b2dfdb86bfb0278cdbd5216c1377b75a11a14ff411d5003e5e",
+        "a516bc2915e952b2dfdb86bfb0278cdbd5216c1377b75a11a14ff411d5003e5e",
+        "a39a4c839c1d5200679c81a41690a201f52009433d63e389a8f840ac35a6cb76",
+        "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+        "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+        "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+        "6e6c8f1172603772c96e12e72febc0a791bc990a678a9e8a5e5eb5e6d8866c37"
+      ],
+      "truth": [
+        [],
+        [
+          {
+            "what": "building replaced by a flat grey block (no texture/detail)",
+            "bbox": [
+              0.2,
+              0.2,
+              0.8,
+              0.8
+            ],
+            "category": "texture"
+          }
+        ],
+        [],
+        [
+          {
+            "what": "building replaced by a flat grey block (no texture/detail)",
+            "bbox": [
+              0.2,
+              0.2,
+              0.8,
+              0.8
+            ],
+            "category": "texture"
+          }
+        ],
+        [],
+        [
+          {
+            "what": "building replaced by a flat grey block (no texture/detail)",
+            "bbox": [
+              0.2,
+              0.2,
+              0.8,
+              0.8
+            ],
+            "category": "texture"
+          }
+        ],
+        [],
+        [
+          {
+            "what": "building replaced by a flat grey block (no texture/detail)",
+            "bbox": [
+              0.2,
+              0.2,
+              0.8,
+              0.8
+            ],
+            "category": "texture"
+          }
+        ]
+      ],
+      "provenance": [
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/office_oblique_sw.jpg",
+          "sha256": "e2da58076ad66ab0cb99eebf3600aaf47afdeba5b1b9423072aebd7966fe39fd",
+          "operation": "identity"
+        },
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/office_oblique_sw.jpg",
+          "sha256": "e2da58076ad66ab0cb99eebf3600aaf47afdeba5b1b9423072aebd7966fe39fd",
+          "operation": "grey_mask"
+        },
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/sv_04.jpg",
+          "sha256": "f31ff9966074fd68a67eeb4fc42f80948a02e6f0744a1c7d3236eae44082a1ab",
+          "operation": "identity"
+        },
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/sv_04.jpg",
+          "sha256": "f31ff9966074fd68a67eeb4fc42f80948a02e6f0744a1c7d3236eae44082a1ab",
+          "operation": "grey_mask"
+        },
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/sv_05.jpg",
+          "sha256": "9739374d3ee90234cc4d7aceb7f109de034891ef7625a5677d4d26c745426e48",
+          "operation": "identity"
+        },
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/sv_05.jpg",
+          "sha256": "9739374d3ee90234cc4d7aceb7f109de034891ef7625a5677d4d26c745426e48",
+          "operation": "grey_mask"
+        },
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/sv_06.jpg",
+          "sha256": "05a7c09c42d636b1a0790ff52265201f128f9c0f9f70a944306ae4be7988bea1",
+          "operation": "identity"
+        },
+        {
+          "source": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/refs/sv_06.jpg",
+          "sha256": "05a7c09c42d636b1a0790ff52265201f128f9c0f9f70a944306ae4be7988bea1",
+          "operation": "grey_mask"
+        }
+      ],
+      "schema": "bench/codex/qa-batch.schema.json",
+      "prompt": "Judge eight independent pairs, numbered 00 through 07. For each pair XX_reference.png is image 1 and XX_render.png is image 2. Return judgements in exact numerical order, one per pair. Do not use external tools or inspect other files.\nYou are the visual QA judge for an open-world game that recreates a real city (Turku, Finland).\n\nYou are given images, attached in this order:\n1. **Image 1 = REFERENCE**: a real photo of the place (Street View / panorama crop or similar).\n2. **Image 2 = RENDER**: a frame from the game, taken from the same camera position, heading and field of view as the reference (pose error up to about 1-2 m and 2 deg is normal).\n\n\n\nYour job: judge whether the render is **recognisably the same place**, and list the concrete things in the render that must be fixed so that a local would recognise it. You are a strict art director, not a pixel metric.\n\nWhat matters (report these):\n- Geometry and massing: building shapes, heights, number of floors, roof shapes, street layout, missing or extra buildings, wrong perspective or scale.\n- Facade appearance: wall material and colour, window layout and style, ornament, plinths, doors, shop fronts that are permanent.\n- Materials and textures: wrong material (e.g. plaster instead of wood), blurry or low-resolution textures, stretched or repeating textures, flat untextured surfaces (e.g. plain grey blocks), obvious seams.\n- Permanent street features: curbs, paving, steps, quay edges, lamp posts, permanent signs, fences, trees (presence and rough size; not foliage state).\n- Lighting that makes the scene unrecognisable or clearly broken (black surfaces, missing shadows everywhere, blown-out sky), not mere time-of-day differences.\n\nWhat does NOT matter (do not report as issues; you may list them in `ignored_differences`):\n- People, cars, bicycles, boats and other movable or transient objects; temporary scaffolding, construction fences, A-board signs, flower pots, cafe furniture.\n- Weather, clouds, season, foliage colour or density, snow, wet surfaces, sun direction and time of day, unless they hide a real problem.\n- Camera artefacts of the reference: privacy blurs, stitching seams, the Street View car, lens flare, watermarks, slight exposure/white-balance differences.\n- Small pose offsets (a few pixels / degrees of shift or slightly different crop).\nUnless the context above explicitly asks for them.\n\nScoring `similarity` (0-10), recognisability as the same place from this viewpoint:\n- 10: indistinguishable as a place; only transient differences.\n- 8-9: clearly the same place; minor material/detail issues.\n- 5-7: same place, but several clear errors a local would notice (wrong colours, missing detail, flat/untextured parts).\n- 2-4: barely recognisable; major geometry or appearance errors, large parts missing or wrong.\n- 0-1: a different place or an unrelated image.\nIf the two images show different places, say `same_place: \"no\"`, give 0-1, and report the main mismatches (geometry/missing_object) without trying to list everything.\nIf the images are identical or differ only in ignorable ways, return an empty `issues` list and a score of 9.5-10.\n\nRules for issues:\n- Describe only what is wrong in **image 2 (the render)** relative to image 1. One issue per distinct problem; merge duplicates.\n- `bbox` = [x0, y0, x1, y1] of the problem area **in image 2**, normalised to 0-1 (x to the right, y down, origin top-left). Use [0,0,1,1] only for whole-image problems (e.g. everything is blurry). Make boxes tight around the affected object.\n- `category`: geometry (shape/massing/position), texture (resolution, blur, stretching, flat/untextured, seams), material (wrong material or colour), lighting, missing_object, scale, vegetation, other.\n- `severity` 1-5: 5 = breaks recognisability of the place, 4 = obvious to any local, 3 = clearly visible, 2 = minor, 1 = nitpick.\n- `fix_hint`: concrete and actionable for an artist or the asset pipeline (e.g. \"re-project the facade texture from the reference; the wall is yellow ochre painted wood, not blue\").\n- Look at the whole frame systematically (left to right, ground to sky) before answering. Do not invent problems.\n\nWrite every text value in English. Do not run shell commands; the images are attached. Answer only with the JSON object required by the output schema.\n\nCalibration rule: first compare only permanent structures visible in both views. Do not subtract points for cars, people, boats, season, weather, foliage density or exposure. Mention these only in ignored_differences. At low pose confidence, do not label a displacement or an apparent width change as a geometry error unless permanent landmarks independently support it. Missing surfaces have no object-ID pixels: do not claim that the background object's ID identifies the missing asset. Keep scores on the same anchored scale across repeats; severity describes the permanent defect, not the size of its pixel box.\n"
+    }
+  ]
+}

@@ -13,6 +13,7 @@ HERE = Path(__file__).parent
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
+    monkeypatch.setenv("TURKU3D_CODEX_LEDGER", str(tmp_path / "ledger.jsonl"))
     fake = tmp_path / "bin" / "codex"
     fake.parent.mkdir()
     fake.write_text(f'#!/bin/sh\nexec {sys.executable} {HERE / "fake_codex.py"} "$@"\n')
@@ -243,3 +244,144 @@ def test_deleted_image_is_not_a_resume_hit(env):
     Path(runner.done_records()["gen"]["primary"]).unlink()
     assert runner.run([job]) == 0
     assert len(calls(tmp)) == before + 1
+
+
+def test_accounting_idempotent_unknown_and_subsets(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from turkutex.codex import accounting, cost
+
+    monkeypatch.setenv("TURKU3D_CODEX_LEDGER", str(tmp_path / "ledger"))
+    events = "\n".join(
+        json.dumps(e)
+        for e in [
+            {"type": "thread.started", "thread_id": "real-thread"},
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 80,
+                    "output_tokens": 20,
+                    "reasoning_output_tokens": 5,
+                },
+            },
+        ]
+    )
+
+    def write(_):
+        return accounting.record_call(
+            source="fixture", model="m", effort="low", job_type="label", events=events
+        )
+
+    with ThreadPoolExecutor(4) as pool:
+        assert sum(pool.map(write, range(12))) == 1
+    accounting.record_call(source="fixture", model="m", effort="low", job_type="label", ok=False)
+    result = cost.summary(accounting.rows(accounting.ledger_path()), "job_type")[0]
+    assert result["calls"] == 2 and result["unknown_usage"] == 1
+    assert result["total_tokens"] == 120  # cached input and reasoning must not be added twice
+
+
+def test_effort_changes_cache_key(env):
+    _, path = env
+    job = load_jobs(path)[0]
+    first = job.key()
+    job.effort = "low"
+    assert job.key() != first
+
+
+def test_benchmark_metrics_and_budget():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(root / "qa"))
+    sys.path.insert(0, str(root / "bench/codex"))
+    spec = importlib.util.spec_from_file_location("costbench", root / "bench/codex/run.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    state = {"start": 72, "budget": 3, "cap": 80, "reset": 123}
+    module.check_budget(state, {"usedPercent": 73, "resetsAt": 123})
+    for current in [{"usedPercent": 74, "resetsAt": 123}, {"usedPercent": 72, "resetsAt": 124}, {}]:
+        with pytest.raises(module.QuotaStop):
+            module.check_budget(state, current)
+    issue = {"category": "texture", "bbox": [0, 0, 1, 1]}
+    score = module.metrics.qa({"issues": [issue, issue]}, [issue])
+    assert score["recall"] == 1 and score["false_positives"] == 1
+    assert module.metrics.labels({"bays": 4}, {"bays": 5})["accuracy"] == 0
+
+
+def test_backfill_retry_dedup_and_unit_cost(tmp_path, monkeypatch):
+    from turkutex.codex import accounting, cost
+
+    monkeypatch.setenv("TURKU3D_CODEX_LEDGER", str(tmp_path / "ledger"))
+    run = tmp_path / "runs"
+    run.mkdir()
+    records = [
+        {
+            "id": "f.improve",
+            "thread_id": f"thread-{n}",
+            "model": "m",
+            "meta": {"kind": "improve", "facade_id": "f"},
+            "tokens": {"input_tokens": 100, "output_tokens": 20},
+            "seconds": 2,
+            "ok": n == 1,
+        }
+        for n in range(2)
+    ]
+    (run / "attempts.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+    (run / "out.jsonl").write_text(json.dumps(records[-1]) + "\n")
+    assert cost.backfill([run]) == 2
+    assert cost.backfill([run]) == 0
+    result = cost.summary(accounting.rows(accounting.ledger_path()), "job_type")[0]
+    assert result["calls"] == 2 and result["tokens_per_facade"] == 240
+
+
+def test_ledger_survives_partial_tail(tmp_path, monkeypatch):
+    from turkutex.codex import accounting
+
+    path = tmp_path / "ledger"
+    monkeypatch.setenv("TURKU3D_CODEX_LEDGER", str(path))
+    path.write_text('{"interrupted":')
+    assert accounting.record_call(source="s", model="m", effort="low", job_type="task") == 1
+    assert len(list(accounting.rows(path))) == 1
+
+
+def test_accounting_void_and_failure_identity(tmp_path, monkeypatch):
+    from turkutex.codex import accounting, cost
+
+    monkeypatch.setenv("TURKU3D_CODEX_LEDGER", str(tmp_path / "ledger"))
+    accounting.record_call(
+        source="fixture", model="m", effort="low", job_type="qa", fallback_id="failed-attempt"
+    )
+    assert (
+        accounting.record_call(
+            source="fixture", model="m", effort="low", job_type="qa", fallback_id="failed-attempt"
+        )
+        == 0
+    )
+    accounting.append(
+        {"call_id": "void:failed-attempt", "record_type": "void", "voids": "failed-attempt"}
+    )
+    assert cost.summary(accounting.rows(accounting.ledger_path()), "job_type") == []
+
+
+def test_backfill_multiturn_matches_live_ledger(tmp_path, monkeypatch):
+    from turkutex.codex import accounting, cost
+
+    monkeypatch.setenv("TURKU3D_CODEX_LEDGER", str(tmp_path / "ledger"))
+    run = tmp_path / "runs"
+    (run / "logs").mkdir(parents=True)
+    events = "\n".join(
+        json.dumps(e)
+        for e in [
+            {"type": "thread.started", "thread_id": "multi"},
+            {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 2}},
+            {"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 3}},
+        ]
+    )
+    accounting.record_call(source="live", model="m", effort="low", job_type="label", events=events)
+    (run / "logs/f.events.jsonl").write_text(events)
+    (run / "out.jsonl").write_text(
+        json.dumps({"id": "f", "thread_id": "multi", "model": "m"}) + "\n"
+    )
+    assert cost.backfill([run]) == 0
+    assert len(list(accounting.rows(accounting.ledger_path()))) == 2

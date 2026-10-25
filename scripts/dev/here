@@ -9,12 +9,14 @@ from pathlib import Path
 import sandbox as s
 
 try:
-    repo = Path(s.git("rev-parse", "--show-toplevel", cwd=Path.cwd()))
+    root, branch = s.git(
+        "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD", cwd=Path.cwd()
+    ).splitlines()
+    repo = Path(root)
     env_file = repo.parent / "sandbox.env"
     env = s.read_env(env_file) if env_file.exists() else {}
     name = env.get("TURKU3D_SANDBOX", "main")
     port = int(env.get("TURKU3D_PORT_BASE", "5170"))
-    branch = s.git("branch", "--show-current", cwd=repo)
     print(f"{name} | {branch} | {repo}\nPorts {port}..{port + 9} | dev +0, dist +1, QA +2")
     dirty = s.git("status", "--short", cwd=repo).splitlines()
     print("Changes: " + ("clean" if not dirty else f"{len(dirty)} files"))

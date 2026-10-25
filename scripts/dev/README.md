@@ -476,3 +476,33 @@ without updating main.
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA
 response budgets are explicit perf tests outside the functional gate.
+
+## Codex token ledger
+
+`codex-task` records each completed/failed turn while streaming events, with distinct identities
+across resumes. Texture attempts and QA judge attempts use the same append-only ledger at
+`~/turku3d/ledger/codex-calls.jsonl`; tests set `TURKU3D_CODEX_LEDGER` to an isolated file.
+Model defaults come from `textures/codex-routing.toml`; task effort remains explicit.
+
+```sh
+source ../sandbox.env
+scripts/dev/codex-cost --by job_type
+scripts/dev/codex-cost --by model --json
+scripts/dev/codex-cost --by task --json
+scripts/dev/codex-cost --by day
+scripts/dev/codex-cost --backfill ~/turku3d/tasks \
+  ~/turku3d/wt/w1-09-facades/work/textures ~/turku3d/wt/w1-11-visualqa/work/qa
+```
+
+Backfill is idempotent and reads its sources without modifying them. Historical task wall time,
+legacy effort and absent usage remain unknown. Structured texture attempts/out and QA attempts
+are deduplicated by thread/turn; raw task events use file identity plus terminal-turn ordinal.
+Old overwritten retries cannot be recovered unless an attempts record survives.
+`total_tokens = input_tokens + output_tokens`; cached input and reasoning output are subsets.
+Per-facade/view costs use only attributable calls, include retries in cost, and count a logical
+job's units once. These units describe jobs, not globally unique physical facade identities.
+The JSON report includes unknown counters; never interpret missing evidence as free work.
+No token-to-weekly-percentage conversion is claimed.
+
+Append-only corrections have `record_type: "void"` and `voids: "<call_id>"`; aggregate readers
+must exclude both the annotation and its referenced call. `codex-cost` applies these annotations.
