@@ -16,12 +16,12 @@ from turku3d.col.materials import mat_id, table
 from turku3d.package.gltf import GlbMesh, write_glb
 
 from .breaklines import load_breaklines, records, validation_geojson
-from .curbs import Curb, fit_curbs
+from .ground_qa import evaluate_ground
 from .inputs import fingerprints, read_lidar, source_paths, vectors
 from .materials import Materials
 from .mesh import Mesh, build_mesh, parts, tile_mesh
 from .points import Surface, select_ground, split_points
-from .qa import evaluate, write_report
+from .qa import write_report
 
 
 def log(message):
@@ -149,7 +149,7 @@ def run(args):
     params = {
         "visual_tiles": [v.id for v in visual],
         "margin": C.MESH_MARGIN,
-        "adaptive_tolerance": 0.01,
+        "adaptive_tolerance": 0.02,
         "station_spacing": 1.0,
         "breakline_half_width": 0.03,
         "water_level_override": args.water_level,
@@ -246,49 +246,11 @@ def run(args):
             f"lowest supported river-interior lidar mode ({len(sample)} returns)",
         )
     log(f"Ground selection: {selection}; water level {water_level:.3f} ({water_source})")
-    curb_key = hashlib.sha256(
-        (
-            selection_key
-            + Path(__file__).with_name("curbs.py").read_text()
-            + repr([(k, g.wkb_hex) for k, g in lines])
-            + crossings.wkb_hex
-            + str(water_level)
-        ).encode()
-    ).hexdigest()
-    curb_cache = cache / f"curbs-{curb_key}.json"
-    if curb_cache.exists():
-        saved = json.loads(curb_cache.read_text())
-        curbs = [
-            Curb(
-                **{
-                    k: np.array(v)
-                    if k
-                    in ("distances", "fitting_distances", "centers", "normals", "heights", "shifts")
-                    else v
-                    for k, v in c.items()
-                }
-            )
-            for c in saved["curbs"]
-        ]
-        rejected = saved["rejected"]
-    else:
-        log(f"Fitting {len(lines)} city curb/sidewalk-edge lines")
-        curbs, rejected = fit_curbs(lines, surface, crossings, water, water_level)
-        saved = {
-            "curbs": [
-                {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in vars(c).items()}
-                for c in curbs
-            ],
-            "rejected": rejected,
-        }
-        curb_cache.write_text(json.dumps(saved))
-
-    if getattr(args, "breaklines", None):
-        supplied = load_breaklines(args.breaklines)
-        replacement_ids = {c.object_id for c in supplied}
-        curbs = [c for c in curbs if c.object_id not in replacement_ids] + supplied
-
-    log(f"Fitted {len(curbs)} curb/edge lines; {len(rejected)} lack fitting support")
+    # This iteration ships plain lidar terrain. Measured breaklines remain an
+    # explicit data input for the next iteration; city vectors are not fitted here.
+    curbs = load_breaklines(args.breaklines) if getattr(args, "breaklines", None) else []
+    curb_key = hashlib.sha256(json.dumps(records(curbs), sort_keys=True).encode()).hexdigest()
+    rejected = []
     materials = Materials(streets, paths["ortho"])
     mesh_key = hashlib.sha256(
         (
@@ -309,7 +271,9 @@ def run(args):
         log("Using cached canonical CDT")
     else:
         log("Building canonical adaptive CDT")
-        mesh, mesh_info = build_mesh(surface, bounds, tiles, curbs, water, water_level, materials)
+        mesh, mesh_info = build_mesh(
+            surface, bounds, tiles, curbs, water, water_level, materials, tolerance=0.02
+        )
         temporary = mesh_cache.with_suffix(".tmp")
         with temporary.open("wb") as stream:
             np.savez(stream, positions=mesh.positions, indices=mesh.indices, material=mesh.material)
@@ -340,17 +304,15 @@ def run(args):
     ]:
         (output / name).write_text(json.dumps(data, indent=2) + "\n")
         artifacts.append(name)
-    log("Evaluating withheld lidar, curb stations and seams")
-    report = evaluate(
-        meshes, accepted, heldout, curbs, water, buildings, core, materials, surface, lines
-    )
+    log("Evaluating coverage, topology, water, materials and seams")
+    report = evaluate_ground(meshes, accepted, water, buildings, core)
     report.update(
         {
             "selection": selection,
             "mesh_build": mesh_info,
             "rejected_curb_lines": rejected,
             "source_lines": len(lines),
-            "short_lines_without_stations": len(lines) - len(curbs) - len(rejected),
+            "curb_fitting": "deferred by user; plain lidar ground",
             "quay_lines": len(handoff),
             "water_level": {"metres_n2000": water_level, "source": water_source},
             "build_seconds": time.monotonic() - started,
@@ -361,6 +323,17 @@ def run(args):
     manifest = {
         **identity,
         "layer": "ground",
+        "format": "turku3d-layer",
+        "version": 1,
+        "code": identity["code_version"],
+        "tiles": {
+            f: {
+                "sha256": hashlib.sha256((output / f).read_bytes()).hexdigest(),
+                "bytes": (output / f).stat().st_size,
+            }
+            for f in artifacts
+            if f.endswith((".col.npz", ".vis.glb"))
+        },
         "validation": {"curbs": "curbs.geojson"},
         "schema_version": 1,
         "cache_key": key,

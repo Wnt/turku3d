@@ -203,7 +203,7 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
     monkeypatch.setattr(builder, "Materials", lambda *args: ConstantMaterials())
     calls = []
 
-    def fake_cdt(surface, bounds, tiles, *args):
+    def fake_cdt(surface, bounds, tiles, *args, **kwargs):
         calls.append(1)
         p, f = [], []
         for tile in tiles:
@@ -222,7 +222,7 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
     monkeypatch.setattr(builder, "build_mesh", fake_cdt)
     monkeypatch.setattr(
         builder,
-        "evaluate",
+        "evaluate_ground",
         lambda *args: {"passed": False, "checks": {"coverage": False}, "metrics": {}},
     )
 
@@ -425,3 +425,24 @@ def test_missing_curb_relief_fails_length_acceptance(curb_cloud):
     import json
 
     json.dumps(report, allow_nan=False)
+
+
+def test_plain_ground_acceptance_rejects_interior_hole(built_mesh):
+    from turku3d.ground.ground_qa import evaluate_ground
+
+    mesh, tiles, water = built_mesh
+    x, z = np.meshgrid(np.arange(0.5, 125), np.arange(0.5, 62.5))
+    accepted = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
+    meshes = {t: tile_mesh(mesh, t) for t in tiles}
+    bounds = C.BBoxLocal(0, 0, 125, 62.5)
+    report = evaluate_ground(meshes, accepted, water, shapely.Polygon(), bounds)
+    assert report["passed"]
+    part = meshes[tiles[0]]
+    centers = part.positions[part.indices].mean(axis=1)
+    remove = np.argmin(np.linalg.norm(centers[:, [0, 2]] - [20, 20], axis=1))
+    meshes[tiles[0]] = Mesh(
+        part.positions, np.delete(part.indices, remove, axis=0), np.delete(part.material, remove)
+    )
+    broken = evaluate_ground(meshes, accepted, water, shapely.Polygon(), bounds)
+    assert not broken["checks"]["holes"]
+    assert broken["metrics"]["mesh"]["interior_open_edges"] == 3

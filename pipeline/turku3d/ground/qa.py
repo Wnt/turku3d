@@ -335,8 +335,10 @@ def write_report(report, directory):
         "",
         "Result: " + ("PASS" if report["passed"] else "FAIL"),
         "",
-        "Odd 1 m curb stations are excluded from the even-station breakline fit. "
-        "Coordinate-hashed lidar returns (20%) are excluded before ground selection and meshing.",
+        report.get(
+            "acceptance",
+            "Odd curb stations and 20% coordinate-hashed lidar returns are withheld from fitting.",
+        ),
         "",
         "| Check | Result |",
         "|---|---|",
@@ -352,7 +354,7 @@ def write_report(report, directory):
         "",
         f"Build: {report.get('build_seconds', 0):.2f} s. Water: {report.get('water_level', {})}.",
         "",
-        "![Held-out curb profiles](ground-profiles.png)",
+        "![Held-out curb profiles](ground-profiles.png)" if profiles else "",
         "",
     ]
     (directory / "ground-qa.md").write_text("\n".join(lines))
