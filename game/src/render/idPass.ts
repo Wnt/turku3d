@@ -51,21 +51,31 @@ export class IdPass {
       }
       const src = Object.assign({}, ...parents.map(p => p.userData)) as Record<string, unknown>;
       const layerKinds: Record<string, string> = { buildings: 'building', ground: 'ground', vegetation: 'vegetation', props: 'prop' };
-      const kind = typeof src.kind === 'string' && KINDS.has(src.kind) ? src.kind : layerKinds[String(src.layer)] ?? 'other';
-      const entry: IdEntry = { kind, id: String(src.object_id ?? src.id ?? (m.name || 'mesh')),
-        tile: typeof src.tile === 'string' ? src.tile : tileId };
-      if (src.layer != null) entry.layer = String(src.layer);
-      if (src.building_id != null) entry.building = String(src.building_id);
-      if (src.facade_index != null || src.facade != null) entry.facade = String(src.facade_index ?? src.facade);
-      const replace = (original: THREE.Material) => {
-        const material = original.userData.material_key ?? src.material_key ?? src.material ?? original.name;
+      const replace = (original: THREE.Material, data: Record<string, unknown>) => {
+        const kind = typeof data.kind === 'string' && KINDS.has(data.kind) ? data.kind : layerKinds[String(data.layer)] ?? 'other';
+        const entry: IdEntry = { kind, id: String(data.object_id ?? data.id ?? (m.name || 'mesh')),
+          tile: typeof data.tile === 'string' ? data.tile : tileId };
+        if (data.layer != null) entry.layer = String(data.layer);
+        if (data.building_id != null) entry.building = String(data.building_id);
+        if (data.facade_index != null || data.facade != null) entry.facade = String(data.facade_index ?? data.facade);
+        const material = original.userData.material_key ?? data.material_key ?? data.material ?? original.name;
         const item = { ...entry, ...(material ? { material: String(material) } : {}) };
         const mat = new THREE.MeshBasicNodeMaterial({ color: IdPass.color(this.idFor(item)), side: original.side });
         mat.toneMapped = false;
         mat.fog = false;
         return mat;
       };
-      m.material = Array.isArray(m.material) ? m.material.map(replace) : replace(m.material);
+      if (Array.isArray(src.objects)) {
+        const original = Array.isArray(m.material) ? m.material[0] : m.material;
+        m.geometry = m.geometry.clone();
+        m.geometry.clearGroups();
+        m.material = src.objects.map((object: Record<string, unknown>, index: number) => {
+          m.geometry.addGroup(Number(object.start), Number(object.count), index);
+          return replace(original, object);
+        });
+      } else {
+        m.material = Array.isArray(m.material) ? m.material.map(mat => replace(mat, src)) : replace(m.material, src);
+      }
       m.castShadow = m.receiveShadow = false;
     });
   }

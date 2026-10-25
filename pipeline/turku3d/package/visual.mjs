@@ -1,5 +1,6 @@
-// Explicit GLB assembly: bind/encode textures first, then lossless meshopt. No L0 simplify/join/quantize.
+// Explicit GLB assembly: bind/encode textures first, then lossless meshopt. No L0 simplification or position quantization.
 import fs from 'node:fs';
+import { batchVisual } from './batch.mjs';
 import { createMaterialBinder } from './materials.mjs';
 import path from 'node:path';
 import os from 'node:os';
@@ -13,7 +14,7 @@ const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.j
 const dep = (name) => import(pathToFileURL(require.resolve(name)).href);
 const { Document, NodeIO } = await dep('@gltf-transform/core');
 const { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu, KHRTextureTransform } = await dep('@gltf-transform/extensions');
-const { mergeDocuments, unpartition, prune, simplifyPrimitive, listTextureSlots } = await dep('@gltf-transform/functions');
+const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrimitive, simplifyPrimitive, getBounds, listTextureSlots } = await dep('@gltf-transform/functions');
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
@@ -74,6 +75,7 @@ async function assembleVisual(request) {
     }
     if (!mesh.listPrimitives().length) node.setMesh(null);
   }
+  await batchVisual(doc, scene, request.tile, { dedup, joinPrimitives, transformPrimitive });
   await doc.transform(prune({ keepLeaves: false, keepSolidTextures: true, keepAttributes: true, keepIndices: true }), unpartition());
 
   // Snapshot world positions and triangle topology before codecs; validates each actual packaged tile.
