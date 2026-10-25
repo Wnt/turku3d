@@ -107,3 +107,13 @@ test remains skipped. The focused native packaging target passed **20 tests in 2
 Evidence: `$TURKU3D_WORK/reports/rebase-gate-final.json`, `rebase-assembler-tests.log` and
 `rebase-gate-tests.log`. An initial loaded-host run hit the existing 20 s tooling timeout; its
 cache test also observed source edits during hashing. The final fixed-source run passed both.
+
+### Current-main rebase
+
+Main advanced with coordination tooling and the W1-13 brief during verification. Rebased again
+without conflicts onto `5eac8a1`. The shared helpers are now `85fffbb`; gate integration is
+`d61e3e0`. The complete fixed-source gate passed **19/19 stages in 208.770 s** on this base.
+It includes 79 pipeline tests, 74 game unit tests, the expanded **19-test tooling suite**,
+18 game browser routes and 6 four-tile browser routes. The same two cached-terrain browser
+skips and optional DeepBump skip remain. Evidence: `$TURKU3D_WORK/reports/rebase-gate-current-main.json`.
+No landing or broadcast was performed; the orchestrator owns both.
