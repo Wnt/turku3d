@@ -84,6 +84,18 @@ behind another gate's checkout lock. The exact eight-agent sample remains unveri
 Raw logs and JSON are retained in this checkout's `.cache/` (`full-gate.log`, `final-gate.log`,
 `verified-gate.log`, `tooling2.log`, and `timing-*.json`).
 
+## Rebase verification (2026-10-26)
+
+Rebased onto main `637bdfb`, preserving the integration/spawn fixes, parked vehicles, props,
+vegetation, region and audio changes. Conflict resolution retained the shared worker setting,
+generous assertion deadlines and both region/pytest-xdist dependency declarations. Environment
+synchronization and the clean import check now install the region extra as well.
+
+The combined gate exposed upstream vegetation instancing loss and an unused visual-packager
+import. Applied the integration owner's existing `b669448` batching fix and removed the import;
+all functional assertions remain intact. The eight-active-agent measurement is a follow-up,
+as explicitly agreed by the orchestrator, rather than a completion prerequisite.
+
 ## Remaining measurement
 
 Repeat the typical-change probes during an orchestrator-confirmed eight-active-agent window.

@@ -89,7 +89,8 @@ class GateStateTests(unittest.TestCase):
             ):
                 self.assertEqual(sync(root, {})["status"], "PASS")
                 self.assertIn(
-                    f"{root}/pipeline[dev,fetch,lidar,buildings]", run.call_args_list[0].args[0]
+                    f"{root}/pipeline[dev,fetch,lidar,buildings,region]",
+                    run.call_args_list[0].args[0],
                 )
                 self.assertEqual(run.call_count, 2)
                 sync(root, {})
