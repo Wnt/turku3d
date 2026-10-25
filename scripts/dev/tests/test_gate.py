@@ -184,6 +184,7 @@ class GateTest(unittest.TestCase):
 
         package = selected("pipeline/turku3d/package/manifest.py")
         self.assertIn("pipeline-tests", package)
+        self.assertIn("pipeline-tests", selected("pipeline/turku3d/package/visual.mjs"))
         self.assertFalse(package & {"game-e2e", "textures-tests", "tooling-tests"})
         for path in ("game/src/physics/world.ts", "game/src/shared/col/rapierBuild.ts"):
             self.assertIn("game-e2e", selected(path))

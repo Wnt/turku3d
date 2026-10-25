@@ -1,6 +1,7 @@
 # Gate routing and execution profile (2026-10-25)
 
-Status: **timing acceptance BLOCKED**; corrective functional gates are green.
+Status: **DONE**. All stages have green verification after rebasing. Timing targets remain
+unverified under severe shared-host contention; the orchestrator accepted this limitation.
 
 Baseline: `04037fc`. Sandbox: `fix-gate-speed`, ports 5360–5369. No main merge/landing.
 Raw JSON and stage logs are in this sandbox's `repo/.cache/gate-speed/`.
@@ -19,8 +20,8 @@ integration. Incoming lidar, region and Codex benchmark paths have explicit rows
 `watch-tests` row from `tool-watch` when the orchestrator combines branches.
 
 Browser suites use four workers and full file parallelism, one build per gate, and shared, hash-verified
-synthetic tiles. Cache invalidation covers all Python producer sources/data, the meshopt bridge and
-lockfile, and NumPy/SciPy/Pillow versions. Corrupt output hashes force reconstruction. Game input pages
+synthetic tiles. Cache invalidation covers all Python/JavaScript producer sources/data, fixture generators, codec and
+assembler lockfiles, synthetic input files, and NumPy/SciPy/Pillow versions. Corrupt output hashes force reconstruction. Game input pages
 emulate focus, and the analog-speed test samples within animation frames rather than missing transient
 velocity through slow protocol polling. Its speed bounds and five-second sampling window remain. Controller specs now inherit the shared
 120-second functional deadline instead of a local 25-second cap; measured frame budgets stay in
@@ -43,7 +44,8 @@ scans sockets when wildcard IPv4/IPv6 binding detects occupancy. Listener-only p
 
 ## Measurements
 
-These are elapsed observations, not controlled speedup claims. During the run, this 10-core host had
+These representative-route probes were measured before the final rebase; the rebased full gate is
+reported separately below. These are elapsed observations, not controlled speedup claims. During the run, this 10-core host had
 load averages **433 / 457 / 478**, later **402 / 436 / 464**. Other agents independently reported the
 unchanged 2-second `here` assertion and 20-second removal timeout failing. No other processes were stopped.
 A single synthetic tile profile took 44.1 seconds, including 14.1 seconds in imports and 16.7 seconds
@@ -90,7 +92,7 @@ The full suite always runs all assertions, irrespective of the related-test rows
 
 Run the same five probes with a quiet host to establish timing acceptance. Keep full real-data sampling
 in `make tile-validate`. The orchestrator requested dependency-complete per-stage GREEN result caching, incremental re-gating
-when main advances, and batched landing with one combined gate and culprit isolation. These need a
+when main advances, fail-fast landing precondition checks, and batched landing with one combined gate and culprit isolation. These need a
 separate follow-up with cache invalidation and landing-race tests. Synthetic asset reuse in this
 change is not a substitute for a stage-result cache. Existing landing already checks
 unacknowledged requests before the gate and again before updating main.
@@ -109,10 +111,47 @@ The final corrective tooling gate is GREEN in 95.972 seconds (20 tooling/environ
 plus the gate/policy/cache regressions). The unchanged here latency assertion passes.
 
 The final physics gate is GREEN in 200.045 seconds, including the full selected walk/drive browser
-subset and pipeline tile assertions. Timing acceptance remains blocked: package 73.689 s, render 142.625 s
+subset and pipeline tile assertions. Historical timing targets remain unmet: package 73.689 s, render 142.625 s
 and physics 200.045 s exceed the requested budgets under severe host contention. No blanket GREEN stage
 cache or incremental landing rewrite is claimed.
 
 The custom render-controls context also passed both WebGPU/WebGL cases (2 passed, 1.2 minutes),
 including the unchanged KeyH/hidden-slider regression. A direct second fixture invocation printed
 `Reusing hash-verified synthetic browser tile`; no producer rebuild was performed.
+
+
+## Final integration verification
+
+Rebased onto main `aaf46d1` without landing or merging main. The stop/scanner fix was already
+present as `77d7353`, so Git skipped its duplicate. Preserved the newly landed four-tile production
+assembler browser fixture, building validator cases, and producer test rows. Fixture reuse now
+hashes both assembler and codec JavaScript/lockfiles and the synthetic fixture generator; the
+JavaScript assembler bridge explicitly selects assembler Python integration tests.
+
+The rebased full gate ran all 19 stages in **423.926 s**. Seventeen passed, including game-e2e
+**343.413 s**, validator **167.747 s** (24 tests), and tooling **116.499 s** (20 tests).
+The only failures were missing sandbox dependencies introduced by the new main: `mapbox_earcut`,
+`matplotlib`, and `streetlevel`. Installed the current pipeline extras and documented Streetlevel
+setup; no assertions changed. Reran both affected complete suites plus gate regressions:
+
+```sh
+source ../sandbox.env
+uv pip install --python .venv/bin/python -e 'pipeline[dev,fetch,lidar,buildings]'
+uv pip install --python .venv/bin/python --no-deps streetlevel==0.12.13
+uv pip install --python .venv/bin/python -r textures/requirements-streetlevel.txt
+scripts/dev/gate --paths pipeline/pyproject.toml textures/pyproject.toml scripts/dev/tests/test_gate.py scripts/dev/tests/test_gate_fixtures.py --json
+```
+
+That corrective gate is **GREEN, 21.837 s**: pipeline 21.785 s, textures 11.047 s,
+gate regressions 10.443 s; policy, generated files, and lint also pass. All 19 stages therefore
+have passing verification across the full and corrective runs; this is not a claim that the
+initial full invocation was green. Raw results: `.cache/gate-speed/rebased-gate.json` and
+`.cache/gate-speed/rebased-corrective-gate.json`. Load averages ranged from about 230 to 460
+during the full run and fell to about 165 during the corrective run. The unchanged timing
+budgets cannot be compared reliably at this contention level.
+
+Both backends pass the four-L0-seam route (previously skipped with a one-tile fixture).
+The two coarse-terrain cases remain intentionally skipped because synthetic fixtures do not
+include real coarse terrain. Direct cache verification prints `Reusing hash-verified synthetic
+browser tile`. Per-stage result caching, fail-fast landing preconditions, and batched landing
+remain the separate next task described above.

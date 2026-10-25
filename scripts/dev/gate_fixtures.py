@@ -42,13 +42,15 @@ def main():
     out = Path(sys.argv[1])
     inputs = sorted((root / "pipeline/turku3d").rglob("*.py"))
     inputs += sorted((root / "pipeline/turku3d").rglob("*.json"))
+    inputs += sorted((root / "pipeline/turku3d").rglob("*.mjs"))
     inputs += sorted((root / "pipeline/tests/fixtures").rglob("*.py"))
     inputs += [
         Path(__file__).resolve(),
-        root / "pipeline/turku3d/col/meshopt_bridge.mjs",
+        root / "pipeline/env/package-lock.json",
         root / "tools/validator/package-lock.json",
         root / "pipeline/pyproject.toml",
     ]
+    inputs += sorted(p for p in (root / ".cache/gate-inputs").rglob("*") if p.is_file())
     digest = hashlib.sha256()
     for path in inputs:
         digest.update(str(path.relative_to(root)).encode())

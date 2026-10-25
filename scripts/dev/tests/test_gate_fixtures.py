@@ -11,7 +11,7 @@ import gate_fixtures as fixtures  # noqa: E402
 
 
 class FixtureCacheTests(unittest.TestCase):
-    def test_build_assembles_all_four_tiles(self):
+    def test_assembly_and_producer_and_output_invalidation(self):
         with patch.object(fixtures.subprocess, "run") as run:
             fixtures.build(Path("/repo"), Path("/repo/tiles"))
         commands = [call.args[0] for call in run.call_args_list]
@@ -19,7 +19,6 @@ class FixtureCacheTests(unittest.TestCase):
         self.assertEqual(commands[1][2], "turku3d.package.assemble")
         self.assertEqual(commands[1][-4:], ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"])
 
-    def test_producer_and_output_invalidation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             script = root / "scripts/dev/gate_fixtures.py"
@@ -27,6 +26,8 @@ class FixtureCacheTests(unittest.TestCase):
                 "scripts/dev/gate_fixtures.py",
                 "pipeline/turku3d/config.py",
                 "pipeline/turku3d/col/meshopt_bridge.mjs",
+                "pipeline/env/package-lock.json",
+                "pipeline/tests/fixtures/make_layers.py",
                 "pipeline/pyproject.toml",
                 "tools/validator/package-lock.json",
             ):
@@ -49,6 +50,12 @@ class FixtureCacheTests(unittest.TestCase):
                     (root / "pipeline/turku3d/config.py").write_text("changed")
                     fixtures.main()
                     self.assertEqual(build.call_count, 2)
-                    verify.side_effect = [["bad hash"], []]
+                    (root / "pipeline/tests/fixtures/make_layers.py").write_text("changed")
                     fixtures.main()
                     self.assertEqual(build.call_count, 3)
+                    (root / "pipeline/turku3d/col/meshopt_bridge.mjs").write_text("changed")
+                    fixtures.main()
+                    self.assertEqual(build.call_count, 4)
+                    verify.side_effect = [["bad hash"], []]
+                    fixtures.main()
+                    self.assertEqual(build.call_count, 5)

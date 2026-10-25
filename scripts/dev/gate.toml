@@ -43,7 +43,7 @@ sources = ["pipeline/*.py", "qa/*.py", "textures/*.py", "bench/*.py", "scripts/*
 [[stages]]
 name = "pipeline-tests"
 kind = "pytest"
-triggers = ["pipeline/*.py", "pipeline/pyproject.toml", "docs/specs/*", "game/src/shared/col/*", "tools/validator/src/*"]
+triggers = ["pipeline/*.py", "pipeline/turku3d/package/*.mjs", "pipeline/pyproject.toml", "docs/specs/*", "game/src/shared/col/*", "tools/validator/src/*"]
 cwd = "pipeline"
 tests = ["tests", "turku3d/col/tests"]
 # Unmapped modules conservatively select the whole package.
