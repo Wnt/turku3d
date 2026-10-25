@@ -35,7 +35,7 @@ from . import camera as C
 from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, z17_tile
 
-REFS_VERSION = "2-rectified"
+REFS_VERSION = "3-calibrated-mapillary"
 
 
 def rectified_points(corners: np.ndarray, long_side: int) -> np.ndarray:
@@ -79,6 +79,9 @@ def coverage_points(centre_en: np.ndarray, radius: float) -> list[tuple[float, f
 
 
 def equirect_model(m: PanoMeta) -> C.EquirectModel:
+    if m.source == "mapillary" and m.extra.get("camera_type") in ("perspective", "fisheye"):
+        from .mapillary_camera import MapillaryCamera
+        return MapillaryCamera(m)
     if m.source in ("google", "mapillary"):
         return C.EquirectModel(m.heading_rad, 1.0)
     # Look Around: streetlevel's stitch puts face yaw 0 at column W/2 + ... ; equirect centre is the
@@ -199,9 +202,15 @@ def evaluate(
             continue
         signed = theta * (1 if float(v @ g.tangent) >= 0 else -1)
         corners = g.corners(base_h)
-        pos = np.array(
-            [m.E, m.N, m.elevation if m.elevation is not None else base_h + m.cam_height]
-        )
+        pos = np.array([m.E, m.N, m.elevation if m.elevation is not None else base_h + m.cam_height])
+        model = equirect_model(m)
+        visible_fraction = 1.
+        if hasattr(model, "project"):
+            w, h = m.extra["image_sizes"][0]
+            _, _, visible = model.project(rectified_points(corners, 32) - pos, w, h)
+            visible_fraction = float(visible.mean())
+            if visible_fraction < .95:
+                continue
         try:
             cam = C.fit_camera(pos, corners, P.long_side, max_hfov=180)
         except ValueError:
@@ -213,32 +222,21 @@ def evaluate(
             continue
         sizes = m.extra.get("image_sizes") or [[16384, 8192]]
         W = sizes[-1][0] if m.source in ("google", "mapillary") else 16384
-        ppm = W / (2 * math.pi) * math.cos(math.radians(theta)) / max(d, 1.0)
+        focal_pixels = max(m.extra["image_sizes"][0]) * model.focal if hasattr(model, "project") else W / (2 * math.pi)
+        ppm = focal_pixels * math.cos(math.radians(theta)) / max(d, 1.0)
         year = int(str(m.date or "2000")[:4])
         d_opt = P.d_opt if part == "full" else 10.0
         d_sig = P.d_sigma if part == "full" else 10.0
-        s = math.cos(math.radians(theta)) ** 0.8 * math.exp(-(((d - d_opt) / d_sig) ** 2)) * (
-            1 - 0.8 * (occ or 0.0)
-        ) * min(1.0, ppm / 40) * (1.0 if part == "full" else 0.7) + 0.002 * (year - 2009)
-        res.append(
-            {
-                "meta": m,
-                "cam": cam,
-                "corners": corners,
-                "part": part,
-                "section_m": [
-                    round(float((g.p0 - f.p0) @ f.tangent), 2),
-                    round(float((g.p1 - f.p0) @ f.tangent), 2),
-                ],
-                "distance_m": round(d, 2),
-                "front_m": round(front, 2),
-                "view_angle_deg": round(theta, 1),
-                "signed_angle_deg": round(signed, 1),
-                "occluded_frac": None if occ is None else round(occ, 3),
-                "px_per_m": round(ppm, 1),
-                "score": round(s, 4),
-            }
-        )
+        s = (math.cos(math.radians(theta)) ** 0.8 * math.exp(-((d - d_opt) / d_sig) ** 2)
+             * (1 - 0.8 * (occ or 0.0)) * min(1.0, ppm / 40) * (1.0 if part == "full" else 0.7)
+             + 0.002 * (year - 2009))
+        res.append({"meta": m, "cam": cam, "corners": corners, "part": part,
+                    "source_visible_fraction": visible_fraction,
+                    "section_m": [round(float((g.p0 - f.p0) @ f.tangent), 2), round(float((g.p1 - f.p0) @ f.tangent), 2)],
+                    "distance_m": round(d, 2), "front_m": round(front, 2),
+                    "view_angle_deg": round(theta, 1), "signed_angle_deg": round(signed, 1),
+                    "occluded_frac": None if occ is None else round(occ, 3), "px_per_m": round(ppm, 1),
+                    "score": round(s, 4)})
     return res
 
 
@@ -292,11 +290,19 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
     equi = np.asarray(Image.open(src).convert("RGB"))
     cam: C.PerspectiveCam = e["cam"]
     img = C.render(equi, equirect_model(m), cam)
+    model = equirect_model(m)
+    if hasattr(model, "project"):
+        _, _, visible = model.project(cam.rays(), equi.shape[1], equi.shape[0])
+        img[~visible] = 0
     points = rectified_points(e["corners"], P.long_side)
     directions = points - cam.pos
     ru, rv = equirect_model(m).uv_from_dir(directions, equi.shape[1], equi.shape[0])
     rectified = C.sample_bilinear(equi, ru, rv)
     rect_mask = np.full(points.shape[:2], 255, dtype=np.uint8)
+    if hasattr(model, "project"):
+        _, _, visible = model.project(directions, equi.shape[1], equi.shape[0])
+        rectified[~visible] = 0
+        rect_mask[~visible] = 0
     del equi
     t, inside = C.facade_hits(cam, e["corners"])
     mask = np.where(inside, 255, 0).astype(np.uint8)
@@ -331,11 +337,15 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
            "facade_corners_EN_H": [[round(float(v), 3) for v in c] for c in e["corners"]],
            "facade_corners_px": [[round(float(v), 1) for v in p] for p in px],
            "facade_visible_frac": round(float((mask == 255).sum() / max(1, (mask > 0).sum())), 3),
+           "source_visible_fraction": e.get("source_visible_fraction", 1.),
+           "source_camera_model": {k: m.extra.get(k) for k in
+                                    ("camera_type", "camera_parameters", "computed_rotation", "pose_confidence")},
            **{k: e[k] for k in ("part", "section_m", "distance_m", "front_m", "view_angle_deg", "signed_angle_deg",
                                 "occluded_frac", "px_per_m", "score")},
            "files": {"crop": f"{view_id}.jpg", "outline": f"{view_id}_outline.jpg", "mask": f"{view_id}_mask.png",
                      "rectified": f"{view_id}_rectified.jpg", "rectified_mask": f"{view_id}_rectified_mask.png"},
-           "notes": "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; "
+           "notes": ("calibrated Mapillary camera rotation; approximate camera height; " if hasattr(model, "project") else
+                     "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; ") +
                     "attribution: imagery (c) Google / Apple / Mapillary contributors, reference use only, never shipped"}
     (out_dir / f"{view_id}.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False))
     return rec
@@ -371,7 +381,7 @@ def facade_refs(
         old_key = hashlib.sha256(json.dumps([REFS_VERSION, old["facade"], old["params"], sources], sort_keys=True).encode()).hexdigest()
         same_geometry = (geometry(old["facade"]) == geometry(f.to_feature()) and old["params"] == P.__dict__)
         if ((old.get("key") == key or (old.get("key") == old_key and same_geometry))
-                and old.get("views") and not old.get("source_errors")):
+                and isinstance(old.get("views"), list) and not old.get("source_errors")):
             records = [summary_path.parent / f"{v}.json" for v in old["views"]]
             if all(p.exists() and all((p.parent / n).is_file() for n in json.loads(p.read_text())["files"].values())
                    for p in records):

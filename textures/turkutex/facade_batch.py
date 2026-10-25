@@ -32,15 +32,17 @@ from .streetview.facades import load_facades
 VERSION = "facades-v1"
 
 
-def post_code_hash() -> str:
+def post_code_hash(*, facade: bool = True) -> str:
     from .paths import TEXTURES_DIR
     files = [TEXTURES_DIR / "turkutex/post" / name for name in
-             ("pipeline.py", "maps.py", "tileable.py", "qa.py", "deepbump_worker.py", "frame.py")]
+             ("pipeline.py", "maps.py", "tileable.py", "qa.py", "deepbump_worker.py")]
+    if facade:
+        files.append(TEXTURES_DIR / "turkutex/post/frame.py")
     native = native_encoder()
     if native:
         files.append(native)
     # Contact-sheet/CLI edits do not alter texture pixels or UVs.
-    transforms = "".join(inspect.getsource(f) for f in (post_facade, metric_size, uv_transform))
+    transforms = "".join(inspect.getsource(f) for f in (post_facade, metric_size, uv_transform)) if facade else ""
     return hashlib.sha256(("".join(sha(p) for p in files) + transforms).encode()).hexdigest()
 
 
@@ -150,6 +152,8 @@ def post_facade(f, record: dict, refs: Path, output: Path, *, ppm=64, max_side=2
     with Image.open(source) as image:
         content_box = facade_content_box(image)
         source_size = image.size
+        content_aspect = (content_box[2] - content_box[0]) / (content_box[3] - content_box[1])
+        aspect_error = max(content_aspect / (width / height), (width / height) / content_aspect) - 1
         post_dir.mkdir(parents=True, exist_ok=True)
         cropped_source = post_dir / "source.png"
         image.crop(content_box).convert("RGB").save(cropped_source)
@@ -173,6 +177,7 @@ def post_facade(f, record: dict, refs: Path, output: Path, *, ppm=64, max_side=2
            "hashes": {n: sha(target.parent / n) for n in files.values()},
            "qa": {"seam": "not applicable: unique wall, clamped UVs",
                   "scale_relative_error": abs(size[0] / width / (size[1] / height) - 1),
+                  "content_aspect_error": aspect_error,
                   "gltf_basisu_valid": all(v["gltf_basisu_valid"] for v in post["ktx2"].values()),
                   "normal_method": post["maps"]}}
     write_json(metadata_path, rec)
@@ -237,6 +242,8 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
                     problems.append("stale geometry scale")
                 if metadata["qa"]["scale_relative_error"] > .03:
                     problems.append("pixel scale mismatch")
+                if metadata["qa"].get("content_aspect_error", float("inf")) > .30:
+                    problems.append("generated facade aspect mismatch")
                 if not metadata["qa"].get("gltf_basisu_valid"):
                     problems.append("KTX2 not validated for glTF")
                 for name, digest in metadata["hashes"].items():
@@ -406,7 +413,13 @@ def main(argv=None) -> int:
         else:
             summary = report(a.facades, a.refs, a.run, a.output)
             print(json.dumps({k: summary[k] for k in ("facades", "complete", "missing")}))
-    write_json(a.run / "stage-errors.json", errors)
+        if stage in ("refs", "post"):
+            error_path = a.run / "stage-errors.json"
+            previous = json.loads(error_path.read_text()) if error_path.exists() else {}
+            if isinstance(previous, list):
+                previous = {s: [e for e in previous if e.get("stage") == s] for s in ("refs", "post")}
+            previous[stage] = [e for e in errors if e["stage"] == stage]
+            write_json(error_path, previous)
     if a.stage in ("all", "report"):
         return 1 if summary["missing"] or summary["missing_roofs"] or errors else 0
     return 1 if errors else 0

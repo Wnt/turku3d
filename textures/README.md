@@ -95,8 +95,11 @@ silently promoted into usable inputs. Photospheres use the same third-party disc
 
 Mapillary Graph v4 uses `Authorization: OAuth <token>` from
 `~/.config/turku3d/mapillary.token`. The token is never put in a URL, logged or copied. Pagination
-uses cursors, not token-bearing next URLs. Only spherical images have a supported rectification
-model; perspective/fisheye metadata stays in the coverage cache and is not projected as equirectangular.
+uses cursors, not token-bearing next URLs. Spherical, calibrated perspective and calibrated fisheye
+images are supported. Perspective/fisheye require focal/radial parameters, a computed rotation,
+EXIF orientation 1 and at least 95% wall coverage in the source photo; unsupported metadata stays
+in the cache. Projection follows MapillaryJS's OpenSfM model and converts grid ENU into true ENU.
+Camera height remains approximate: labels must reject misregistered or wrong-building crops.
 [Official field reference](https://mapillary.github.io/mapillary-python-sdk/docs/mapillary.config.api/mapillary.config.api.entities/).
 
 ### Codex and provenance
@@ -148,6 +151,9 @@ period-cropped nor flattened (that would destroy unique architectural bands). Li
 always receive low-frequency flattening and a make-tileable pass, with seam and low-frequency QA.
 Paired, flat near-white presentation margins are removed before metric scaling. The original
 image size and exact content box are recorded; isolated light cornice/plinth bands are preserved.
+Very wide/tall walls receive a deterministic layout guide within the five-image tool limit.
+QA rejects a generated content aspect more than 30% away from geometry, even when output pixel
+dimensions are correct: resizing a squat generated building is not a valid metric facade.
 Production requires DeepBump; the generic `post --sobel` option remains available for diagnostics.
 
 Albedo is ETC1S/sRGB/BT709; ORM is ETC1S/linear/unspecified primaries; normals are RGB XYZ

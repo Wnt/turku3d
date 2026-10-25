@@ -9,6 +9,22 @@ from .paths import PROMPTS_DIR, SCHEMAS_DIR
 from .streetview.facades import load_facades
 
 
+def layout_guide(facade, directory: Path) -> Path:
+    """A deterministic geometry guide, not another photo reference."""
+    from PIL import Image, ImageDraw
+    ratio = facade.length / facade.height_m
+    width, height = (1536, 1024) if ratio >= 1 else (1024, 1536)
+    scale = min((width - 80) / facade.length, (height - 80) / facade.height_m)
+    w, h = max(2, round(facade.length * scale)), max(2, round(facade.height_m * scale))
+    image = Image.new('RGB', (width, height), 'white')
+    x, y = (width - w) // 2, (height - h) // 2
+    ImageDraw.Draw(image).rectangle((x, y, x + w - 1, y + h - 1), fill=(160, 160, 160))
+    path = directory / f'{facade.id}_layout_{w}x{h}.png'
+    if not path.exists():
+        image.save(path)
+    return path
+
+
 def reference_matches(facade, root: Path) -> bool:
     path = root / facade.id / "refs.json"
     if not path.is_file():
@@ -110,8 +126,14 @@ def improve_jobs(facades_path: Path, refs_root: Path, labels_out: Path) -> list[
         # Never silently turn a rejected view into an accepted reference.
         if not views:
             continue
-        images = [str(d / v["files"]["rectified"]) for v in views]
         best = max(views, key=lambda v: (v["part"] == "full", v["score"]))
+        ratio = f.length / f.height_m
+        guide = layout_guide(f, d) if ratio > 3 or ratio < 1 / 3 else None
+        if guide:
+            views = views[:3]
+            if best not in views:
+                views[-1] = best
+        images = [str(d / v["files"]["rectified"]) for v in views]
         images += [str(d / best["files"]["outline"])]
         count = f.props.get("bay_count")
         extent = (f"Cover the WHOLE facade edge to edge: {f.length:.3f} m wide and {f.height_m:.3f} m high. "
@@ -121,6 +143,15 @@ def improve_jobs(facades_path: Path, refs_root: Path, labels_out: Path) -> list[
             extent += f"Geometry requires exactly {int(count)} bays; override the photo count prior."
         else:
             extent += "No geometry bay count is available yet; retain the reference rhythm without claiming a verified count."
+        if guide:
+            images.append(str(guide))
+            extent += (f" CRITICAL LAYOUT: {guide.name} is a geometry guide, NOT a facade photo. "
+                       f"Replace ONLY its grey rectangle with the WHOLE unique facade, maintaining that rectangle's "
+                       f"exact {ratio:.4f}:1 content aspect ratio and its white surrounding canvas. "
+                       "Do not enlarge the rectangle to fill the canvas. The white margins will be removed locally. "
+                       "Do not squash a short facade, omit repeated bays, crop away ends, or add extra storeys to fit. "
+                       "Read all references together and preserve their full run of window bays. "
+                       "This geometry-guide layout overrides the generic edge-to-edge canvas instruction.")
         jobs.append({"id": f"{f.id}.improve", "prompt_file": str(PROMPTS_DIR / "facade_improve.md"),
                      "vars": {"view_list": "\n".join(
                          f"- {v['files']['rectified']}: {v['part']} rectified view, u={v['section_m']} metres" for v in views) +

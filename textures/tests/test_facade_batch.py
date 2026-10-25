@@ -232,6 +232,8 @@ def test_metres_up_uv_maps_base_to_bottom_of_texture():
 
 def test_improve_keeps_four_views_within_image_tool_limit(tmp_path):
     fs, path, refs = inventory(tmp_path)
+    fs[0].height_m = 20.  # Ordinary 2:1 wall: no geometry guide is needed.
+    save_facades(fs, path)
     d = refs / fs[0].id
     view = json.loads((d / 'wall_a_view.json').read_text())
     ids = []
@@ -249,3 +251,15 @@ def test_improve_keeps_four_views_within_image_tool_limit(tmp_path):
     result = jobs.improve_jobs(path, refs, labels)
     assert len(result[0]['images']) == 5
     assert len(result[0]['meta']['views_used']) == 4
+
+
+def test_extreme_facade_uses_exact_layout_without_exceeding_five_inputs(tmp_path):
+    from turkutex.post.frame import facade_content_box
+    fs, path, refs = inventory(tmp_path)
+    guide = jobs.layout_guide(fs[0], refs / fs[0].id)
+    with Image.open(guide) as image:
+        box = facade_content_box(image)
+    assert (box[2] - box[0]) / (box[3] - box[1]) == pytest.approx(8., rel=.01)
+    stamp = guide.stat().st_mtime_ns
+    assert jobs.layout_guide(fs[0], refs / fs[0].id) == guide
+    assert guide.stat().st_mtime_ns == stamp

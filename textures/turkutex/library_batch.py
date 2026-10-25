@@ -95,7 +95,7 @@ def main(argv=None):
             continue
         meta, source = rec["meta"], Path(rec["primary"])
         out = a.output / meta["material_key"]
-        key = hashlib.sha256(json.dumps([job.key(), sha(source), POST_VERSION, post_code_hash(), "1024x1024"], sort_keys=True).encode()).hexdigest()
+        key = hashlib.sha256(json.dumps([job.key(), sha(source), POST_VERSION, post_code_hash(facade=False), "1024x1024"], sort_keys=True).encode()).hexdigest()
         if material_valid(out, key):
             continue
         post = process(source, out, tile="xy", flatten="xy", size="1024x1024", material=meta["preset"])

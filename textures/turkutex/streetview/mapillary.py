@@ -1,8 +1,8 @@
 """Mapillary Graph v4 reference discovery. The token is only sent as an OAuth header.
 
 Metadata: https://mapillary.github.io/mapillary-python-sdk/docs/mapillary.config.api/mapillary.config.api.entities/
-Only spherical images are used for geometry-based rectification. Perspective/fisheye
-images without a calibrated pose are logged as unsupported, never treated as panoramas.
+Perspective/fisheye images require calibrated intrinsics and a computed camera rotation.
+Unsupported/missing calibration stays in metadata, never treated as a panorama.
 """
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ from turku3d import config
 from .panos import PanoMeta
 
 API = "https://graph.mapillary.com"
-FIELDS = "id,geometry,computed_geometry,captured_at,compass_angle,computed_compass_angle,camera_type,width,height,thumb_original_url"
+FIELDS = ("id,geometry,computed_geometry,captured_at,compass_angle,computed_compass_angle,camera_type,"
+          "camera_parameters,computed_rotation,computed_altitude,exif_orientation,width,height,thumb_original_url")
 
 
 def request(path: str, params: dict, token_file: Path | None = None) -> dict:
@@ -34,7 +35,7 @@ def request(path: str, params: dict, token_file: Path | None = None) -> dict:
 def coverage(cache, lat: float, lon: float) -> list[PanoMeta]:
     from .panos import z17_tile
     x, y = z17_tile(lat, lon)
-    path = cache.root / "coverage" / f"mapillary_z17_{x}_{y}.json"
+    path = cache.root / "coverage" / f"mapillary_v2_z17_{x}_{y}.json"
     if path.exists():
         rows = json.loads(path.read_text())
     else:
@@ -54,7 +55,14 @@ def coverage(cache, lat: float, lon: float) -> list[PanoMeta]:
         path.write_text(json.dumps(rows))
     out = []
     for row in rows:
-        if row.get("camera_type") != "spherical":
+        kind = row.get("camera_type")
+        if kind not in ("spherical", "perspective", "fisheye"):
+            continue
+        if kind != "spherical" and (len(row.get("camera_parameters") or []) != 3
+                or len(row.get("computed_rotation") or []) != 3 or row.get("exif_orientation", 1) != 1):
+            continue
+        if kind != "spherical" and (row["camera_parameters"][0] <= 0 or not all(
+                math.isfinite(v) for v in row["camera_parameters"] + row["computed_rotation"])):
             continue
         loc = row.get("computed_geometry") or row.get("geometry")
         heading = row.get("computed_compass_angle")
@@ -69,7 +77,10 @@ def coverage(cache, lat: float, lon: float) -> list[PanoMeta]:
                             math.radians(config.true_to_grid_bearing(E, N, heading)), 0, 0, date,
                             {"image_sizes": [[row.get("width", 2048), row.get("height", 1024)]],
                              "image_url": row.get("thumb_original_url"),
-                             "pose_confidence": "uncalibrated camera height; spherical heading"}))
+                             "camera_type": kind, "camera_parameters": row.get("camera_parameters"),
+                             "computed_rotation": row.get("computed_rotation"),
+                             "computed_altitude": row.get("computed_altitude"),
+                             "pose_confidence": "computed rotation/intrinsics; approximate camera height from local ground"}))
     return out
 
 
