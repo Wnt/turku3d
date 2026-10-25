@@ -7,6 +7,7 @@ test('audio unlocks, decodes the CC0 bank and builds spatial graph without error
   await page.goto(`/?backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready);
   expect(await page.evaluate(() => (window as any).__game.audio.snapshot().state)).toBe('locked');
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.keyboard.press('KeyM');
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot()), { timeout: 30_000 })
     .toMatchObject({ state: 'running', loaded: 18, loops: 8, errors: [] });

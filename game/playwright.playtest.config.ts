@@ -12,7 +12,7 @@ const backends = ['webgpu', 'webgl'];
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 export default defineConfig({
   testDir: 'tests',
-  testMatch: ['e2e-playtest/**/*.spec.ts', 'e2e/gamepad.spec.ts', 'e2e/start.spec.ts'],
+  testMatch: ['e2e-playtest/**/*.spec.ts', 'e2e/gamepad.spec.ts', 'e2e/start.spec.ts', 'e2e/audio.spec.ts'],
   fullyParallel: true,
   workers: 2,
   retries: 0,

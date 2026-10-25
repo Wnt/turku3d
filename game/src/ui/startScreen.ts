@@ -15,7 +15,7 @@ export class StartScreen {
     this.element.innerHTML = `<div class="start-card">
       <p class="eyebrow">TURKU · FREE ROAM</p>
       <h1 id="start-title">Läntinen Rantakatu 15</h1>
-      <p>Explore on foot. Your car is parked six metres to your right.</p>
+      <p>Explore on foot. Your car is parked nearby.</p>
       <p id="gamepad-status" role="status"></p>
       <dl id="start-bindings"></dl>
       <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump<br>F enter/exit · W/S drive/reverse · Space handbrake · Esc pause</p>

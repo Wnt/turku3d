@@ -13,6 +13,7 @@ silently skipped or counted as passing.
 | Spec | Data | Assertions | Tags |
 |---|---|---|---|
 | Start screen | Synthetic dev tiles | Xbox connected/disconnected/reconnected, glyphs, A to start, office spawn and nearby car | `@launch @input @synthetic` |
+| Audio startup | Synthetic dev tiles | Start dialog dismissal, audio unlock, bank decode, mute, footsteps and spatial effects | `@audio @input` |
 | Four-seam loop | Real-data AOI | 48 m loop, four distinct L0 tiles, final position, speed bounds, continuous finite positions, sampled ground clearance | `@ground @streaming @character @aoi` |
 | Office drive | Real-data AOI | Y enter, RT drives 15 m north, speed/lateral bounds, RB stops, Y exit, ground clearance | `@vehicle @ground @input @aoi` |
 | Existing Xbox controls | Synthetic dev tiles | Analog walk, sprint, 12 cm curb, jump, camera, pause, hot-plug | `@input @character @ground @synthetic` |
@@ -64,5 +65,5 @@ its textures are not building colliders. The synthetic stair route cannot certif
 Do not remove the report's real-AOI follow-up notice until these routes pass on both backends.
 
 The report captures `window.__perf` when available (value or zero-argument snapshot function).
-Until W1-08 lands it reports the game's frame-time EMA distribution, marked diagnostic.
+If render telemetry is unavailable it reports the game's frame-time EMA distribution, marked diagnostic.
 1280×720 automated video results are not evidence for the 1440p/60 fps acceptance target.
