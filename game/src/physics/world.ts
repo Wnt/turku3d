@@ -29,6 +29,7 @@ export class PhysicsWorld {
   private acc = 0;
   tick = 0;
   previousCharacter: CharacterState | null = null;
+  previousVehicle: VehicleState | null = null;
   private jumpPending = false;
   get remainder() { return this.acc; }
 
@@ -218,6 +219,7 @@ export class PhysicsWorld {
 
   fixedStep(character: CharacterInput, vehicle: VehicleInput | null) {
     this.previousCharacter = this.characterState();
+    this.previousVehicle = this.vehicleState();
     this.tick++;
     if (this.cc && this.charEnabled) this.stepCharacter(character);
     this.vehicle?.step(DT, vehicle);
@@ -264,4 +266,3 @@ export class PhysicsWorld {
     return { tris, colBytes: bytes, estWasmBytes: (tris + curbTris) * 135 }; // ~135 B/tri measured (engine.md 2.2)
   }
 }
-

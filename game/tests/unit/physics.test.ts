@@ -132,6 +132,9 @@ describe('physics world on dev tiles', () => {
     for (let k = 0; k < 60; k++) pw.fixedStep({ vx: 0, vz: 0, jump: false }, { throttle: 0, steer: 0, brake: 0, handbrake: false });
     for (let k = 0; k < 240; k++) pw.fixedStep({ vx: 0, vz: 0, jump: false }, { throttle: 1, steer: 0, brake: 0, handbrake: false });
     const v = pw.vehicleState()!;
+    expect(pw.previousVehicle).not.toBeNull();
+    expect(pw.previousVehicle!.pos.z).toBeGreaterThan(v.pos.z);
+    expect(v.pos.z - pw.previousVehicle!.pos.z).toBeGreaterThan(-v.speed * DT * 1.5);
     expect(v.pos.z).toBeLessThan(140);
     expect(Math.abs(v.pos.x - 120)).toBeLessThan(1.5);
     expect(v.wheels.filter((w) => w.contact).length).toBe(4);

@@ -41,7 +41,7 @@ export type FromWorker =
   | { type: 'tileLoaded'; stats: TileStats }
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }
-  | { type: 'state'; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; vehicle: VehicleState | null }
+  | { type: 'state'; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null }
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hit: RayHit | null }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }

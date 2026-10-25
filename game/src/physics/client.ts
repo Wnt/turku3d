@@ -1,5 +1,5 @@
 // Main-thread side of the physics worker.
-import { CharacterInterpolation } from '../actors/interpolation';
+import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
 import type { CharacterInput, FromWorker, RayFilter, RayHit, TileStats, ToWorker, VehicleInput } from './protocol';
 
@@ -15,6 +15,7 @@ export class PhysicsClient {
   private pendingDt = 0;
   private jumpPending = false;
   readonly characterRender = new CharacterInterpolation();
+  readonly vehicleRender = new VehicleInterpolation();
   latest: StateMsg | null = null;
   readonly loaded = new Map<string, TileStats>();
   onError: (e: string) => void = (e) => console.error('[physics]', e);
@@ -34,6 +35,7 @@ export class PhysicsClient {
         case 'state':
           this.latest = m; this.inFlight = false;
           this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, performance.now() / 1000);
+          this.vehicleRender.push(m.vehicle, m.previousVehicle, m.tick, m.remainder, performance.now() / 1000);
           break;
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
         case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;

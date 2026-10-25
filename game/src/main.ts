@@ -246,7 +246,7 @@ async function runPlay() {
   const state = () => {
     const en = engineToEN(feet.x, feet.y, feet.z);
     const v = physics.latest?.vehicle;
-    return { mode, paused, locomotion: player.locomotion, contacts: player.contacts, visualFeet: player.root.position.toArray(), cameraYaw: orbit.yaw, inputSource: input.source, feet: feet.toArray(), vel: vel.toArray(), grounded, groundMaterial: groundMat, E: en.E, N: en.N, H: en.H,
+    return { mode, paused, locomotion: player.locomotion, contacts: player.contacts, visualFeet: player.root.position.toArray(), visualVehicle: car.root.position.toArray(), cameraYaw: orbit.yaw, inputSource: input.source, feet: feet.toArray(), vel: vel.toArray(), grounded, groundMaterial: groundMat, E: en.E, N: en.N, H: en.H,
       vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: car.loaded } : null, camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, errors };
   };
@@ -309,6 +309,7 @@ async function runPlay() {
     if (!paused) physics.step(dt, charIn, carIn);
 
     const st = physics.latest;
+    const renderVehicle = physics.vehicleRender.sample(now / 1000);
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
       if (st.character && st.character.enabled) {
@@ -317,7 +318,6 @@ async function runPlay() {
         grounded = st.character.grounded; groundMat = st.character.groundMaterial;
       }
       if (st.vehicle) {
-        car.update(st.vehicle);
         const strike = st.vehicle.curbStrike;
         if (strike && strike.id !== lastRumble) {
           lastRumble = strike.id;
@@ -326,6 +326,7 @@ async function runPlay() {
         if (mode === 'car') { feet.set(st.vehicle.pos.x, st.vehicle.pos.y - 0.6, st.vehicle.pos.z); vel.set(st.vehicle.linvel.x, st.vehicle.linvel.y, st.vehicle.linvel.z); }
       }
     }
+    if (renderVehicle) car.update(renderVehicle);
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
@@ -334,7 +335,7 @@ async function runPlay() {
     }
 
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
-    if (mode === 'car' && st?.vehicle && !paused) chase.update(dt, st.vehicle, input.lookX, input.lookY, resetCamera);
+    if (mode === 'car' && renderVehicle && !paused) chase.update(dt, renderVehicle, input.lookX, input.lookY, resetCamera);
     else if (mode === 'foot') orbit.update(dt, focus);
     // camera collision: async ray from the focus towards the camera (result applies next frame)
     if (mode === 'foot' && !camRayBusy) {
@@ -352,6 +353,7 @@ async function runPlay() {
     env.follow(feet);
     tiles.update(camera);
     renderFrame();
+    window.__render?.afterFrame?.();
 
     const en = engineToEN(feet.x, feet.y, feet.z);
     const tot = physics.totals();

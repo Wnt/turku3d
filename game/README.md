@@ -59,7 +59,7 @@ Full stick = 3.6 m/s jog; sprint = 6 m/s; keyboard slow walk = 1.5 m/s. Input ma
 
 The KCC moves on `stair_slope` (material 16), while `foot` worker queries prefer `stair_tread_helper` (17, query-only) over solid ground. Helpers can lie below the slope. The visual rig uses analytic thigh/shin IK, separate ankle targets, surface-normal foot orientation and a smoothed pelvis offset. Jumping disables IK. Asynchronous results are bounded to one outstanding request per foot and rejected after large movement. The capsule remains physical; only the rendered vertical position is smoothed across autosteps. Camera focus follows that rendered position.
 
-Each worker state includes the previous fixed-step character pose, tick and accumulator remainder. Rendering interpolates with one 60 Hz tick of latency; duplicate packets at 120/240 Hz do not reset interpolation. Teleports and enter/exit transitions snap. This character interpolation does not yet interpolate the car.
+Each worker state includes the previous fixed-step character and vehicle poses, tick and accumulator remainder. Rendering interpolates both actors with one 60 Hz tick of latency; duplicate packets at 120/240 Hz do not reset interpolation. Teleports and enter/exit transitions snap. The chase camera follows the same interpolated car pose and applies collision replies only on a later render frame.
 
 The [CC0 autumn player](public/assets/character/README.md) uses a textured MakeHuman human with a green hoodie, jeans and shoes, retargeted offline to the existing UAL skeleton. KTX2 textures and meshopt are decoded by the player loader. The foot camera aims 1.25 m above the feet with a slight downward pitch, framing the 1.79 m body on both backends.
 
@@ -73,6 +73,7 @@ make game-e2e             # full Chrome suite, WebGPU + WebGL2, two workers
 # Focused virtual-controller routes after building:
 cd game
 npx playwright test tests/e2e/gamepad.spec.ts
+npx playwright test tests/e2e/motion.spec.ts --workers=2  # rotating camera, both backends
 npm run dev
 ```
 
@@ -187,7 +188,7 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 - Verified with the dev tileset in the e2e test: the 3D Tiles Z-up ↔ engine Y-up handling is correct. The NE marker at tile-local (240, ·, 10) ends up at engine x 240, z 10, so `tiles.group.rotation.x = -PI/2` together with the renderer's default glTF Y-up → Z-up rotation is right. This resolves the [U] in docs/specs/tiles.md §1.
 - **Rapier 0.21 bug:** `castRayAndGetNormal(...).featureId` is always 0 for trimesh faces. A canary test covers this. Material lookup therefore uses `triLocator.ts`. `src/shared/col/rapierBuild.ts#hitMaterial` relies on `featureId`, so it returns the material of triangle 0.
 - Character rendering interpolates 60 Hz physics states; car rendering still uses the latest state. On foot, camera collision uses an async worker raycast; driving uses a swept sphere and commits only the checked camera pose.
-- There is no CSM, GTAO or TRAA, and no floating origin.
+- There is no floating origin.
 - The character's walk, jog and sprint clip speeds (1.5, 3.6, 6.0 m/s) were tuned by eye.
 
 ## Vehicle acceptance (W1-07)
