@@ -133,3 +133,19 @@ stages in 164.836 s**, including validator tests (51.910 s), vehicle Node tests
 (7.741 s), tooling tests (41.751 s), and game end-to-end tests (130.502 s).
 Editing the routing table selects the full repository gate. Shared-host load
 was high; no timeouts, assertions or physics thresholds were loosened.
+
+## Final landing verification
+
+The final full `scripts/dev/gate` passed **19/19 stages in 382.956 s** on the
+renderer integration (`04037fc`), including validator tests (60.133 s), tooling
+(52.936 s), and browser end-to-end tests (343.871 s). Earlier intermittent WebGPU
+input/HUD assertions passed unchanged in a focused four-test rerun and this full
+gate; no input behavior, assertion or timeout was changed to obtain green.
+
+The final rebase includes main `662f646`, which adds only two W2 Markdown briefs;
+the implementation tree is identical to the full-gate-tested tree. The final
+report edit receives the prose gate (`scripts/dev/gate --base HEAD`).
+Curbs are deferred for the current playable-block iteration; the existing
+`--checks format,seams,holes,belowGround --require format,seams,holes,belowGround`
+subset is available to the plain-ground producer. No new checks were added during
+landing closeout.
