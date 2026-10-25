@@ -62,3 +62,12 @@ make region AREA=next-ring DRY=1 REGION_WORKERS=3
 Result: **43 passed in 1.56 seconds**, with three workers. Scoped Ruff lint and formatting
 checks passed. The next-ring dry run succeeded. The full gate and real-data build were not
 rerun during this rebase, as instructed; the orchestrator performs the landing gate.
+
+## Rebase after gate-speed, lidar, props and vegetation landing
+
+Rebased onto main `1626ead`. Kept the new `networkx` building dependency and vegetation
+package data alongside region extras, and retained both focused-gate guidance and shared-cache
+documentation. Synced Python dependencies including buildings and region extras; no Node
+lockfiles changed. The same focused command above passed **43 tests in 5.15 seconds** with
+three workers. Scoped Ruff lint/format and the next-ring dry run also passed. No full gate,
+browser tests or real-data build ran; the orchestrator owns the landing gate.
