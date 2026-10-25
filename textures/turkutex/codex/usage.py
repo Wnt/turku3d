@@ -112,6 +112,11 @@ def snapshot(codex_bin: str = "codex") -> dict:
         lim = {}
     windows = [w for w in (lim.get("primary"), lim.get("secondary")) if w]
     w = max(windows, key=lambda w: w.get("windowDurationMins") or 0) if windows else {}
-    return {"used_percent": w.get("usedPercent"), "resets_at": w.get("resetsAt"),
-            "window_mins": w.get("windowDurationMins"), "plan": lim.get("planType"),
-            "limit_reached": lim.get("rateLimitReachedType"), "t": time.time()}
+    return {
+        "used_percent": w.get("usedPercent"),
+        "resets_at": w.get("resetsAt"),
+        "window_mins": w.get("windowDurationMins"),
+        "plan": lim.get("planType"),
+        "limit_reached": lim.get("rateLimitReachedType"),
+        "t": time.time(),
+    }

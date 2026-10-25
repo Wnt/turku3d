@@ -22,10 +22,12 @@ from __future__ import annotations
 import json
 import math
 import os
-import time
+import tempfile
 import threading
-from functools import wraps
+import time
+import warnings
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 
 import numpy as np
@@ -148,22 +150,40 @@ class PanoMeta:
 
 def cached_call(method):
     """Avoid duplicate downloads when facade workers share a cache instance."""
+
     @wraps(method)
     def wrapped(self, *args, **kwargs):
-        identity = z17_tile(*args) if method.__name__ in ("google_coverage", "lookaround_coverage", "mapillary_coverage") else args
+        identity = (
+            z17_tile(*args)
+            if method.__name__ in ("google_coverage", "lookaround_coverage", "mapillary_coverage")
+            else args
+        )
         key = (method.__name__, repr(identity), repr(sorted(kwargs.items())))
         with self._locks_guard:
             lock = self._locks.setdefault(key, threading.RLock())
         with lock:
             return method(self, *args, **kwargs)
+
     return wrapped
+
+
+def atomic_json(path: Path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", dir=path.parent, suffix=".tmp", delete=False
+    ) as stream:
+        json.dump(value, stream, ensure_ascii=False)
+        temporary = Path(stream.name)
+    temporary.replace(path)
 
 
 class PanoCache:
     def __init__(self, root: Path | None = None, sleep: float = 0.2):
         self.root = Path(root) if root else streetview_dir()
         self.read_roots = [config.raw_dir("streetview")]
-        self.read_roots += [Path(p) for p in os.environ.get("TURKUTEX_READ_CACHE", "").split(os.pathsep) if p]
+        self.read_roots += [
+            Path(p) for p in os.environ.get("TURKUTEX_READ_CACHE", "").split(os.pathsep) if p
+        ]
         self.sleep = sleep
         (self.root / "coverage").mkdir(parents=True, exist_ok=True)
         self._auth = None
@@ -177,6 +197,18 @@ class PanoCache:
             return own
         return next((r / relative for r in self.read_roots if (r / relative).is_file()), own)
 
+    def read_json(self, relative: str | Path):
+        for root in [self.root, *self.read_roots]:
+            path = root / relative
+            if path.is_file():
+                try:
+                    return json.loads(path.read_text())
+                except json.JSONDecodeError:
+                    warnings.warn(
+                        f"Ignoring invalid reference cache: {path}", RuntimeWarning, stacklevel=2
+                    )
+        return None
+
     # ------------------------------ Google ------------------------------
     @cached_call
     def google_coverage(self, lat: float, lon: float) -> list[dict]:
@@ -184,12 +216,12 @@ class PanoCache:
 
         x, y = z17_tile(lat, lon)
         f = self.root / "coverage" / f"google_z17_{x}_{y}.json"
-        cached = self.read_path(f.relative_to(self.root))
-        if cached.exists():
-            return json.loads(cached.read_text())
+        cached = self.read_json(f.relative_to(self.root))
+        if cached is not None:
+            return cached
         panos = streetview.get_coverage_tile(x, y)
         res = [{"id": p.id, "lat": p.lat, "lon": p.lon, "date": _date_str(p.date)} for p in panos]
-        f.write_text(json.dumps(res, indent=0))
+        atomic_json(f, res)
         time.sleep(self.sleep)
         return res
 
@@ -197,26 +229,26 @@ class PanoCache:
     def photosphere_coverage(self, lat: float, lon: float) -> list[PanoMeta]:
         """Same third-party discovery RPC as tools/refs/gmaps_photospheres.py, cached by grid cell."""
         from .sl import streetview
+
         # 50 m grid, not one nearest result for an entire coverage tile.
         E, N = config.wgs84_to_en(lat, lon)
         gx, gy = round(E / 50), round(N / 50)
         path = self.root / "coverage" / f"photospheres_{gx}_{gy}.json"
-        if path.exists():
-            ids = json.loads(path.read_text())
-        else:
+        ids = self.read_json(path.relative_to(self.root))
+        if ids is None:
             qlat, qlon = config.en_to_wgs84(gx * 50, gy * 50)
             p = streetview.find_panorama(qlat, qlon, radius=60, search_third_party=True)
             ids = [p.id] if p and streetview.is_third_party_panoid(p.id) else []
-            path.write_text(json.dumps(ids))
+            atomic_json(path, ids)
         return [m for pid in ids if (m := self.google_meta(pid)) is not None]
 
     @cached_call
     def google_meta(self, pid: str) -> PanoMeta | None:
         d = self.root / "google" / pid
         f = d / "meta.json"
-        cached = self.read_path(f.relative_to(self.root))
-        if cached.exists():
-            return PanoMeta.from_dict(json.loads(cached.read_text()))
+        cached = self.read_json(f.relative_to(self.root))
+        if cached is not None:
+            return PanoMeta.from_dict(cached)
         from .sl import streetview
 
         d.mkdir(parents=True, exist_ok=True)
@@ -260,7 +292,7 @@ class PanoCache:
                 "copyright": pano.copyright_message,
             },
         )
-        f.write_text(json.dumps(m.to_dict(), indent=1, ensure_ascii=False))
+        atomic_json(f, m.to_dict())
         return m
 
     @cached_call
@@ -297,11 +329,13 @@ class PanoCache:
     @cached_call
     def mapillary_coverage(self, lat, lon):
         from . import mapillary
+
         return mapillary.coverage(self, lat, lon)
 
     @cached_call
     def mapillary_image(self, meta):
         from . import mapillary
+
         return mapillary.image(self, meta)
 
     # ------------------------------ Look Around ------------------------------
@@ -311,9 +345,9 @@ class PanoCache:
 
         x, y = z17_tile(lat, lon)
         f = self.root / "coverage" / f"lookaround_z17_{x}_{y}.json"
-        cached = self.read_path(f.relative_to(self.root))
-        if cached.exists():
-            return [PanoMeta.from_dict(d) for d in json.loads(cached.read_text())]
+        cached = self.read_json(f.relative_to(self.root))
+        if cached is not None:
+            return [PanoMeta.from_dict(d) for d in cached]
         tile = lookaround.get_coverage_tile_by_latlon(lat, lon)
         res = []
         for p in tile.panos:
@@ -351,7 +385,7 @@ class PanoCache:
                     },
                 )
             )
-        f.write_text(json.dumps([m.to_dict() for m in res], indent=0))
+        atomic_json(f, [m.to_dict() for m in res])
         time.sleep(self.sleep)
         return res
 
@@ -361,7 +395,7 @@ class PanoCache:
 
         d = self.root / "lookaround" / m.id
         d.mkdir(parents=True, exist_ok=True)
-        (d / "meta.json").write_text(json.dumps(m.to_dict(), indent=1))
+        atomic_json(d / "meta.json", m.to_dict())
         out = []
         for k in range(4):  # side faces only; top/bottom are not needed for facades
             f = d / f"face{k}_z{zoom}.heic"

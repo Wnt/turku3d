@@ -104,10 +104,20 @@ def load_facades(path: Path) -> list[Facade]:
         fid = pr.pop("id")
         if fid in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.-]+", fid):
             raise ValueError(f"bad facade id {fid!r}")
-        facade = Facade(fid, np.array(c[0][:2], float), np.array(c[1][:2], float),
-                        float(pr.pop("height_m")), pr.pop("base_h", None), pr, pr.pop("normal", "right"))
-        if (not np.isfinite(np.r_[facade.p0, facade.p1, facade.height_m]).all()
-                or min(facade.length, facade.height_m) <= 0 or facade.normal_side not in ("left", "right")):
+        facade = Facade(
+            fid,
+            np.array(c[0][:2], float),
+            np.array(c[1][:2], float),
+            float(pr.pop("height_m")),
+            pr.pop("base_h", None),
+            pr,
+            pr.pop("normal", "right"),
+        )
+        if (
+            not np.isfinite(np.r_[facade.p0, facade.p1, facade.height_m]).all()
+            or min(facade.length, facade.height_m) <= 0
+            or facade.normal_side not in ("left", "right")
+        ):
             raise ValueError(f"{fid}: invalid facade geometry")
         out.append(facade)
     return out

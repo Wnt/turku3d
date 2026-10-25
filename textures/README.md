@@ -143,6 +143,7 @@ $TURKU3D_WORK/textures/
 The orchestrator promotes the staged facade tree to `data/textures/facades/` and library tree to
 `textures/library/` at integration. Shared production paths are not overwritten by this sandbox.
 `bindings.json` supplies fallback keys and unique texture filenames; roof keys are explicit.
+Failed QA outputs remain available for inspection but are not bound as runtime facade textures.
 
 Unique facades use clamped metre-based UVs, u from segment start and v from facade base. JSON
 records metre extent, pixel density, UV scale, left-normal orientation, source hashes and calls.
@@ -165,7 +166,8 @@ hashes; rerunning unchanged stages makes no model calls and preserves material o
 `contact-sheet.html` embeds small reference/result previews and lists every missing facade.
 It opens on street facades and supports address/ID search and complete/missing/courtyard filters.
 `qa.json` reports reference counts, source coverage, calls per facade (a building label is shared),
-scale/asset failures and roof coverage. Unique walls do not wrap, so their wrap-seam check is explicitly
+scale/asset failures and roof coverage. Calls include targeted repair runs under the AOI run
+directory, deduplicated by Codex thread. Unique walls do not wrap, so their wrap-seam check is explicitly
 not applicable. Library materials must pass both seam and low-frequency checks.
 
 The original two-facade Phase 0 pilot remains available with `make textures-pilot`; it uses the
@@ -173,7 +175,8 @@ legacy per-facade label/strip recipes for reproducibility. It is not the AOI pro
 
 ## Selective quality checks
 
-From the repository root, run `scripts/dev/gate --base main` for this branch. See the
+From the repository root, run
+`GATE_PYTHON="$PWD/textures/.venv/bin/python" scripts/dev/gate --base main` for this branch. See the
 [quality gate guide](../scripts/dev/README.md) for dependency setup, caches and sandbox ports.
 
 DeepBump subprocesses set `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime starts and have a

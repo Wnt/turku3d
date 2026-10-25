@@ -70,9 +70,19 @@ def encode_ktx2(png: Path, out: Path, mode: str, linear: bool) -> dict:
     if native is None:
         raise RuntimeError("KTX-Software is required; run make textures-ktx or put toktx on PATH")
     start = time.monotonic()
-    cmd = [str(native), "--t2", "--genmipmap", "--assign_oetf", "linear" if linear else "srgb",
-           "--assign_primaries", "none" if linear else "bt709", "--threads", "2",
-           "--encode", "etc1s" if mode == "etc1s" else "uastc"]
+    cmd = [
+        str(native),
+        "--t2",
+        "--genmipmap",
+        "--assign_oetf",
+        "linear" if linear else "srgb",
+        "--assign_primaries",
+        "none" if linear else "bt709",
+        "--threads",
+        "2",
+        "--encode",
+        "etc1s" if mode == "etc1s" else "uastc",
+    ]
     if mode == "etc1s":
         cmd += ["--qlevel", "128", "--clevel", "1"]
     else:
@@ -84,11 +94,21 @@ def encode_ktx2(png: Path, out: Path, mode: str, linear: bool) -> dict:
     validator = native.with_name("ktx")
     if not validator.is_file():
         raise RuntimeError(f"Missing KTX validator beside {native}")
-    subprocess.run([str(validator), "validate", "--gltf-basisu", str(out)],
-                   check=True, capture_output=True, text=True)
-    return {"encoder": "toktx", "mode": mode, "srgb": not linear, "bytes": out.stat().st_size,
-            "ms": round((time.monotonic() - start) * 1000), "header": ktx2_header(out),
-            "gltf_basisu_valid": True}
+    subprocess.run(
+        [str(validator), "validate", "--gltf-basisu", str(out)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "encoder": "toktx",
+        "mode": mode,
+        "srgb": not linear,
+        "bytes": out.stat().st_size,
+        "ms": round((time.monotonic() - start) * 1000),
+        "header": ktx2_header(out),
+        "gltf_basisu_valid": True,
+    }
 
 
 def sha(p: Path) -> str:

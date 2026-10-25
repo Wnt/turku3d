@@ -49,8 +49,24 @@ def _deepbump(inp: Path, out: Path, module: str, *extra: str):
     # ONNX Runtime 1DS teardown can hang waiting for telemetry uploads after inference.
     # This is an offline deterministic worker: disable the uploader before ORT initializes.
     env = {**os.environ, "ORT_DISABLE_TELEMETRY": "1"}
-    subprocess.run([sys.executable, "-m", "turkutex.post.deepbump_worker", str(d / "cli.py"), str(inp), str(out), module, *extra],
-                   cwd=d, check=True, capture_output=True, text=True, env=env, timeout=600)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "turkutex.post.deepbump_worker",
+            str(d / "cli.py"),
+            str(inp),
+            str(out),
+            module,
+            *extra,
+        ],
+        cwd=d,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=600,
+    )
 
 
 def normals_deepbump(albedo: np.ndarray, overlap: str = "LARGE") -> np.ndarray:

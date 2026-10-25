@@ -45,8 +45,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PIL import Image
 from jsonschema import ValidationError, validate
+from PIL import Image
 
 from . import rollout as ro
 from . import usage

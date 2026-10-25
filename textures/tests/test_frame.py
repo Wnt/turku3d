@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 from PIL import Image
-
 from turkutex.post.frame import facade_content_box
 
 

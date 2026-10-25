@@ -67,12 +67,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if cmd == "facade-inventory":
         from .inventory import main as m
+
         return m(rest)
     if cmd == "library-batch":
         from .library_batch import main as m
+
         return m(rest)
     if cmd == "facade-batch":
         from .facade_batch import main as m
+
         return m(rest)
     if cmd == "facades":
         from .streetview.facades import main as m

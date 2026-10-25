@@ -3,6 +3,7 @@
 Only full rows/columns that are nearly uniform neutral white qualify. Architectural
 detail is never segmented, filled, or cropped to an estimated bay pattern.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,12 +17,12 @@ def facade_content_box(image: Image.Image) -> tuple[int, int, int, int]:
 
     def bounds(axis):
         # A photograph's sky has texture/colour; a presentation frame is flat white.
-        blank = (white.mean(axis=axis) >= .995) & (rgb.std(axis=(axis, 2)) <= 4)
+        blank = (white.mean(axis=axis) >= 0.995) & (rgb.std(axis=(axis, 2)) <= 4)
         content = np.flatnonzero(~blank)
         if not len(content):
             raise ValueError("Generated facade contains only a blank white canvas")
         lo, hi = int(content[0]), int(content[-1]) + 1
-        minimum = max(3, round(len(blank) * .01))
+        minimum = max(3, round(len(blank) * 0.01))
         # Require both opposing margins, to preserve a real light cornice/plinth.
         return (lo, hi) if lo >= minimum and len(blank) - hi >= minimum else (0, len(blank))
 
