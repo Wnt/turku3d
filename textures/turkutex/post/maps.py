@@ -9,7 +9,6 @@ glTF expects); DeepBump outputs that convention.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -47,12 +46,26 @@ def deepbump_available() -> bool:
 
 def _deepbump(inp: Path, out: Path, module: str, *extra: str):
     d = deepbump_dir()
+    # ONNX Runtime 1DS teardown can hang waiting for telemetry uploads after inference.
+    # This is an offline deterministic worker: disable the uploader before ORT initializes.
+    env = {**os.environ, "ORT_DISABLE_TELEMETRY": "1"}
     subprocess.run(
-        [sys.executable, str(d / "cli.py"), str(inp), str(out), module, *extra],
+        [
+            sys.executable,
+            "-m",
+            "turkutex.post.deepbump_worker",
+            str(d / "cli.py"),
+            str(inp),
+            str(out),
+            module,
+            *extra,
+        ],
         cwd=d,
         check=True,
         capture_output=True,
         text=True,
+        env=env,
+        timeout=600,
     )
 
 
@@ -76,6 +89,22 @@ def height_deepbump(normals: np.ndarray, seamless: bool = True) -> np.ndarray:
             "TRUE" if seamless else "FALSE",
         )
         return np.asarray(Image.open(h).convert("L"))
+
+
+def periodic_normals(normals: np.ndarray, axes: str) -> np.ndarray:
+    """Blend a narrow periodic boundary and restore unit tangent-space vectors."""
+    from .tileable import feather_wrap_x
+
+    result = normals
+    if "x" in axes:
+        result = feather_wrap_x(result, max(4, result.shape[1] // 128))
+    if "y" in axes:
+        result = feather_wrap_x(
+            result.transpose(1, 0, 2), max(4, result.shape[0] // 128)
+        ).transpose(1, 0, 2)
+    vectors = result.astype(np.float32) / 127.5 - 1
+    vectors /= np.maximum(np.linalg.norm(vectors, axis=-1, keepdims=True), 1e-8)
+    return np.clip(np.rint((vectors + 1) * 127.5), 0, 255).astype(np.uint8)
 
 
 def normals_sobel(albedo: np.ndarray, strength: float = 2.0, wrap: bool = True) -> np.ndarray:
@@ -127,6 +156,4 @@ def ensure_deepbump(url: str = "https://github.com/HugoTini/DeepBump.git") -> Pa
     if not (d / "cli.py").exists():
         d.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "clone", "--depth", "1", url, str(d)], check=True)
-    if shutil.which("git"):
-        pass
     return d

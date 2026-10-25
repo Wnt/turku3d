@@ -110,7 +110,8 @@ def snapshot(codex_bin: str = "codex") -> dict:
         lim = rate_limits(codex_bin) or {}
     except (FileNotFoundError, OSError):
         lim = {}
-    w = lim.get("primary") or lim.get("secondary") or {}
+    windows = [w for w in (lim.get("primary"), lim.get("secondary")) if w]
+    w = max(windows, key=lambda w: w.get("windowDurationMins") or 0) if windows else {}
     return {
         "used_percent": w.get("usedPercent"),
         "resets_at": w.get("resetsAt"),

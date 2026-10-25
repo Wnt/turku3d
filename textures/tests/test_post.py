@@ -1,11 +1,10 @@
 import json
-import shutil
 
 import numpy as np
 import pytest
 from PIL import Image
 from turkutex.post import maps, qa
-from turkutex.post.pipeline import ktx2_header, pow2_floor, process, target_size
+from turkutex.post.pipeline import ktx2_header, native_encoder, pow2_floor, process, target_size
 from turkutex.post.tileable import flatten_lowfreq, make_tileable
 
 
@@ -66,6 +65,18 @@ def test_sobel_normals_and_orm():
     assert maps.orm(img, h, "metal_painted")[..., 2].min() > 100
 
 
+def test_periodic_normals_close_both_edges_and_remain_unit_vectors():
+    normals = maps.normals_sobel(textured(64, 64), wrap=False)
+    normals[:, 0] = [40, 100, 230]
+    normals[:, -1] = [210, 150, 230]
+    result = maps.periodic_normals(normals, "xy")
+    np.testing.assert_array_equal(result[:, 0], result[:, -1])
+    np.testing.assert_array_equal(result[0], result[-1])
+    vectors = result.astype(float) / 127.5 - 1
+    np.testing.assert_allclose(np.linalg.norm(vectors, axis=-1), 1, atol=0.01)
+    assert qa.metrics(result, "xy")["pass_seam"]
+
+
 def test_target_size():
     assert pow2_floor(1254) == 1024 and pow2_floor(724) == 512
     assert target_size(2172, 724, None) == (2048, 512)
@@ -82,12 +93,8 @@ def test_process_sobel_no_ktx2(tmp_path):
     assert json.loads((tmp_path / "out" / "post.json").read_text())["files"]["albedo.png"]["sha256"]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.skipif(native_encoder() is None, reason="run make textures-ktx")
 def test_ktx2_encode(tmp_path):
-    from turkutex.paths import NODE_DIR
-
-    if not (NODE_DIR / "node_modules" / "ktx2-encoder").exists():
-        pytest.skip("run `make textures-setup` (npm install in textures/node)")
     src = tmp_path / "in.png"
     Image.fromarray(textured(128, 128)).save(src)
     r = process(src, tmp_path / "out", tile="xy", flatten="xy", ktx2=True, sobel=True)
@@ -99,6 +106,7 @@ def test_ktx2_encode(tmp_path):
         and a["supercompression"] == "BasisLZ(ETC1S)"
     )
     assert n["valid"] and n["supercompression"] == "zstd"
+    assert all(v["gltf_basisu_valid"] for v in r["ktx2"].values())
     assert ktx2_header(tmp_path / "out" / "orm.ktx2")["valid"]
 
 
@@ -130,3 +138,14 @@ def test_period_crop_and_feather():
         assert seg.max() - seg.min() == 0
     f = feather_wrap_x(c, 4)
     assert qa.seam_ratio(f, "x") < 1.5
+
+
+def test_deepbump_worker_disables_network_teardown_and_has_timeout(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        maps.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs))
+    )
+    maps._deepbump(tmp_path / "in.png", tmp_path / "out.png", "color_to_normals")
+    assert calls[0][1]["env"]["ORT_DISABLE_TELEMETRY"] == "1"
+    assert calls[0][1]["timeout"] == 600
+    assert "turkutex.post.deepbump_worker" in calls[0][0][0]

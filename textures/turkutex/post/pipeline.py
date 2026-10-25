@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import shutil
 import struct
 import subprocess
 import time
@@ -21,11 +23,20 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from ..paths import NODE_DIR
+from ..paths import tools_dir
 from . import maps, qa
 from .tileable import crop_to_period, feather_wrap_x, flatten_lowfreq, make_tileable
 
-POST_VERSION = "2"  # 2: whole-bay period crop for x strips
+POST_VERSION = "3"  # 3: native KTX encoder support, explicit RGB normal channels
+
+
+def native_encoder() -> Path | None:
+    configured = os.environ.get("TURKUTEX_TOKTX")
+    path = Path(configured) if configured else tools_dir() / "ktx/bin/toktx"
+    if path.is_file():
+        return path
+    found = shutil.which("toktx") if not configured else None
+    return Path(found) if found else None
 
 
 def pow2_floor(n: int) -> int:
@@ -41,7 +52,7 @@ def target_size(w: int, h: int, spec: str | None) -> tuple[int, int]:
 
 def ktx2_header(path: Path) -> dict:
     b = Path(path).read_bytes()[:80]
-    if b[:12] != b"\xabKTX 20\xbb\r\n\x1a\n":
+    if len(b) < 80 or b[:12] != b"\xabKTX 20\xbb\r\n\x1a\n":
         return {"valid": False}
     vk, ts, w, h, d, layers, faces, levels, sc = struct.unpack("<9I", b[12:48])
     return {
@@ -55,13 +66,49 @@ def ktx2_header(path: Path) -> dict:
 
 
 def encode_ktx2(png: Path, out: Path, mode: str, linear: bool) -> dict:
-    cmd = ["node", str(NODE_DIR / "encode.mjs"), str(png), str(out), mode] + (
-        ["--linear"] if linear else []
+    native = native_encoder()
+    if native is None:
+        raise RuntimeError("KTX-Software is required; run make textures-ktx or put toktx on PATH")
+    start = time.monotonic()
+    cmd = [
+        str(native),
+        "--t2",
+        "--genmipmap",
+        "--assign_oetf",
+        "linear" if linear else "srgb",
+        "--assign_primaries",
+        "none" if linear else "bt709",
+        "--threads",
+        "2",
+        "--encode",
+        "etc1s" if mode == "etc1s" else "uastc",
+    ]
+    if mode == "etc1s":
+        cmd += ["--qlevel", "128", "--clevel", "1"]
+    else:
+        cmd += ["--zcmp", "6", "--uastc_rdo_l", "0.5", "--uastc_rdo_m"]
+    if mode == "uastc-normal":
+        # --normal_mode repacks XY into RGB/A and breaks standard glTF RGB normal sampling.
+        cmd += ["--normalize"]
+    subprocess.run([*cmd, str(out), str(png)], check=True, capture_output=True, text=True)
+    validator = native.with_name("ktx")
+    if not validator.is_file():
+        raise RuntimeError(f"Missing KTX validator beside {native}")
+    subprocess.run(
+        [str(validator), "validate", "--gltf-basisu", str(out)],
+        check=True,
+        capture_output=True,
+        text=True,
     )
-    r = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    info = json.loads(r.stdout.strip().splitlines()[-1])
-    info["header"] = ktx2_header(out)
-    return info
+    return {
+        "encoder": "toktx",
+        "mode": mode,
+        "srgb": not linear,
+        "bytes": out.stat().st_size,
+        "ms": round((time.monotonic() - start) * 1000),
+        "header": ktx2_header(out),
+        "gltf_basisu_valid": True,
+    }
 
 
 def sha(p: Path) -> str:
@@ -105,12 +152,18 @@ def process(
     Image.fromarray(img).save(out / "albedo.png")
     if not sobel and maps.deepbump_available():
         nrm = maps.normals_deepbump(img)
+        if axes:
+            nrm = maps.periodic_normals(nrm, axes)
         hgt = maps.height_deepbump(nrm, seamless=bool(axes))
         how = "DeepBump color_to_normals (LARGE overlap) + normals_to_height"
     else:
         nrm = maps.normals_sobel(img, wrap=bool(axes))
+        if axes:
+            nrm = maps.periodic_normals(nrm, axes)
         hgt = maps.height_from_luminance(img)
         how = "Sobel on luminance (DeepBump not installed or --sobel)"
+    if axes:
+        how += "; periodic normal-edge blend and unit renormalization"
     Image.fromarray(nrm).save(out / "normal.png")
     Image.fromarray(hgt).save(out / "height.png")
     o = maps.orm(img, hgt, material)
@@ -119,14 +172,9 @@ def process(
         out / "tile2x2.jpg", quality=88
     )
     qa_after = qa.metrics(img, axes)
-    map_seams = (
+    map_qa = (
         {
-            k: {
-                a: round(
-                    qa.seam_ratio(np.asarray(Image.open(out / f"{k}.png").convert("RGB")), a), 3
-                )
-                for a in axes
-            }
+            k: qa.metrics(np.asarray(Image.open(out / f"{k}.png").convert("RGB")), axes)
             for k in ("normal", "height", "orm")
         }
         if axes
@@ -146,7 +194,8 @@ def process(
         "maps": how,
         "qa_before": qa_before,
         "qa_after": qa_after,
-        "map_seam_ratio": map_seams,
+        "map_seam_ratio": {k: {a: v[f"seam_{a}"] for a in axes} for k, v in map_qa.items()},
+        "map_qa": map_qa,
         "ktx2": {},
     }
     if ktx2:

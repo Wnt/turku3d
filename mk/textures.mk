@@ -5,7 +5,7 @@ TEX_VENV     ?= $(TEX_DIR)/.venv
 TEX_PY       ?= $(TEX_VENV)/bin/python
 TEX_DATA     ?= $(shell $(TEX_PY) -c 'from turkutex.paths import textures_data_dir; print(textures_data_dir())' 2>/dev/null)
 TEX_PILOT    ?= $(TEX_DATA)/pilot
-TEX_J        ?= 4
+TEX_J        ?= 6
 TEX_MAX_PCT  ?= 100
 
 .PHONY: textures-venv textures-setup textures-deepbump textures-test textures-usage textures-facades \
@@ -13,7 +13,7 @@ TEX_MAX_PCT  ?= 100
 
 $(TEX_PY):
 	uv venv --python 3.12 $(TEX_VENV)
-	uv pip install --python $(TEX_PY) -e '$(TEX_DIR)[post,dev]' -r $(TEX_DIR)/requirements-streetlevel.txt
+	uv pip install --python $(TEX_PY) -e '$(REPO)/pipeline' -e '$(TEX_DIR)[post,dev]' -r $(TEX_DIR)/requirements-streetlevel.txt
 	uv pip install --python $(TEX_PY) --no-deps streetlevel==0.12.13
 
 textures-venv: $(TEX_PY) ## Create textures/.venv (py3.12; streetlevel --no-deps, onnxruntime, scipy, pytest)
@@ -21,11 +21,10 @@ textures-venv: $(TEX_PY) ## Create textures/.venv (py3.12; streetlevel --no-deps
 textures-deepbump: $(TEX_PY) ## Clone DeepBump (GPL-3, ONNX) to <data>/tools/DeepBump (not vendored)
 	$(TEX_PY) -c 'from turkutex.post.maps import ensure_deepbump; print(ensure_deepbump())'
 
-textures-setup: textures-venv textures-deepbump ## venv + npm ktx2-encoder (textures/node) + DeepBump
-	cd $(TEX_DIR)/node && npm ci --no-audit --no-fund
+textures-setup: textures-venv textures-deepbump textures-ktx ## venv + native KTX tools + DeepBump in sandbox
 
 textures-test: $(TEX_PY) ## Run textures tests (fake codex; no network, no quota)
-	cd $(TEX_DIR) && $(TEX_PY) -m pytest -q
+	cd $(TEX_DIR) && $(TEX_PY) -m pytest -q -n 3
 
 textures-usage: $(TEX_PY) ## Codex weekly quota snapshot (free, no model call)
 	$(TEX_PY) -m turkutex codex usage
@@ -57,3 +56,16 @@ textures-pilot: $(TEX_PY) ## Office-block pilot end to end (cached/resumable; us
 
 textures-pilot-previews: $(TEX_PY) ## Rebuild docs/pilot/textures previews + library/manifest.jsonl
 	cd $(TEX_DIR) && $(TEX_PY) pilot/make_previews.py
+
+.PHONY: textures-ktx textures-facade-inventory textures-facade-batch textures-library-batch
+textures-ktx: $(TEX_PY) ## Pinned native KTX tools in the sandbox (Mac arm64; no system install)
+	$(TEX_PY) -m turkutex.post.setup_ktx
+
+textures-facade-inventory: $(TEX_PY) ## Interim AOI wall inventory; replace with W1-03 facades.geojson
+	$(TEX_PY) -m turkutex facade-inventory --out $(OUT)
+
+textures-facade-batch: $(TEX_PY) ## AOI production: FACADES=... [STAGE=all|refs|label|improve|post|report]
+	$(TEX_PY) -m turkutex facade-batch $(or $(STAGE),all) $(FACADES) -j $(TEX_J) --max-pct $(TEX_MAX_PCT)
+
+textures-library-batch: $(TEX_PY) ## Missing library materials required by FACADES=... (6 Codex workers)
+	$(TEX_PY) -m turkutex library-batch $(FACADES) -j $(TEX_J) --max-pct $(TEX_MAX_PCT)

@@ -22,21 +22,20 @@ REPO_ROOT = TEXTURES_DIR.parent
 PROMPTS_DIR = TEXTURES_DIR / "prompts"
 SCHEMAS_DIR = TEXTURES_DIR / "schemas"
 STYLE_DIR = TEXTURES_DIR / "style"
-NODE_DIR = TEXTURES_DIR / "node"
-
-
-def data_root() -> Path:
-    return config.work_root()
 
 
 def streetview_dir() -> Path:
     return Path(os.environ.get("TURKUTEX_STREETVIEW", config.cache_dir("streetview")))
 
 
+def work_root() -> Path:
+    return config.work_root()
+
+
 def textures_data_dir(sub: str = "") -> Path:
-    return data_root() / "textures" / sub
+    return work_root() / "textures" / sub
 
 
 def tools_dir() -> Path:
     """Third-party tools fetched at setup time (DeepBump clone)."""
-    return data_root() / "tools"
+    return work_root() / "tools"

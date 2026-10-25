@@ -1,114 +1,216 @@
-# textures/ — Codex texture tooling ([M] Mac only)
+# textures/ — photo-referenced facade production (Mac)
 
-Python package `turkutex` (Python 3.12, `textures/.venv`) + a small Node KTX2 encoder (`node/`).
-Images never go into git: generated data lives under `$TURKU3D_WORK` (default `$TURKU3D_DATA` or
-`~/turku3d/data`). Background: `docs/ARCHITECTURE.md` D6/D7/D8, `docs/research/ai-textures.md`,
-`docs/research/streetview.md`, style rules in `style/STYLE.md`.
+`turkutex` runs reference discovery, strict-schema building labels, one cleaned image per street
+facade, deterministic PBR processing, and an offline coverage/contact sheet. The assembler binds
+these textures; this package does not write shipped geometry or tilesets.
 
+All writes use `$TURKU3D_WORK`: `textures/` for artifacts, `cache/streetview/` and `cache/wfs/` for
+new source downloads, and `tools/` for dependencies. Shared `$TURKU3D_DATA/raw/streetview` is a
+read-through cache and is never modified. `TURKUTEX_READ_CACHE` can add read-only caches (colon
+separated). Without a sandbox, outputs use `turku3d.config.data_root()`. Raw panos are never shipped.
+
+## Setup and fast tests
+
+Run from the repository root after sourcing your sandbox environment:
+
+```sh
+source ../sandbox.env
+make textures-setup       # Python 3.12, DeepBump, pinned KTX-Software 4.4.2 (Mac arm64)
+make textures-test        # synthetic fixtures + fake Codex, three pytest workers
+make textures-usage      # quota snapshot; no model call
 ```
-turkutex/codex/      runner.py (jobs.jsonl -> out.jsonl), rollout.py (thread_id -> images + prompts), usage.py (quota)
-turkutex/streetview/ facades.py (footprints -> facade lines), panos.py (cache), camera.py (equirect/pinhole), refs.py
-turkutex/post/       tileable.py, maps.py (DeepBump/Sobel, ORM), qa.py (seam ratio), pipeline.py (-> KTX2)
-turkutex/jobs.py     label / improve job builders     prompts/ schemas/ style/   node/ (ktx2-encoder)
-pilot/               facades.geojson (2 office-block facades) + make_previews.py     library/manifest.jsonl
-tests/               pytest (fake codex binary: no network, no quota)
+
+`make textures-ktx` downloads the official Khronos package, verifies its pinned SHA256, and extracts
+it under `$TURKU3D_WORK/tools/ktx`. It does not run a system installer. On other platforms supply
+`toktx` and `ktx` on PATH, or set `TURKUTEX_TOKTX` to the executable. The old WASM encoder was
+removed: it was substantially slower and emitted linear-map primaries incompatible with glTF.
+
+`streetlevel==0.12.13` is installed with `--no-deps` plus `requirements-streetlevel.txt`; unsupported
+`pyexiv2` is stubbed only in the Street View adapter. DeepBump uses ONNX, not torch.
+
+## AOI workflow
+
+Use W1-03's `$TURKU3D_WORK/build/layers/buildings/facades.geojson` as soon as it is available.
+Until then, derive the full four-visual-tile AOI plus margin from the existing footprint extractor:
+
+```sh
+make textures-facade-inventory OUT="$TURKU3D_WORK/textures/aoi/all-facades.geojson"
+export FACADES="$TURKU3D_WORK/textures/aoi/all-facades.geojson"
+make textures-library-batch FACADES="$FACADES" TEX_J=6 TEX_MAX_PCT=100
+make textures-facade-batch FACADES="$FACADES" TEX_J=6 TEX_MAX_PCT=100
 ```
 
-## Setup and tests
+The temporary `turkutex/inventory.py` explicitly marks heights and facade indices provisional.
+Its AOI uses `turku3d.config` tile bounds and margin, without another coordinate/grid definition.
+Delete this extractor when W1-03's facade contract lands. Do not ship its provisional indices as
+if they were the building mesher's indices.
 
-```bash
-# Run from your current worktree root after sourcing sandbox.env.
-make textures-setup        # textures/.venv + npm ci in textures/node + DeepBump clone in <data>/tools/DeepBump
-make textures-test         # 29 tests
-make textures-usage        # {"used_percent": 1, ...}  (free: codex app-server JSON-RPC, no model call)
+Individual stages can be resumed independently:
+
+```sh
+textures/.venv/bin/python -m turkutex facade-batch refs "$FACADES" --ref-workers 3
+textures/.venv/bin/python -m turkutex facade-batch label "$FACADES" -j 6
+textures/.venv/bin/python -m turkutex facade-batch improve "$FACADES" -j 6
+textures/.venv/bin/python -m turkutex facade-batch post "$FACADES"
+textures/.venv/bin/python -m turkutex facade-batch report "$FACADES"
 ```
-`streetlevel==0.12.13` is installed with `--no-deps` plus `requirements-streetlevel.txt` (its `pyfrpc` dep does
-not build on macOS 26; `pyexiv2` is stubbed in `turkutex/streetview/sl.py`). No torch is needed.
 
-## 1. Codex runner (`turkutex codex run`)
+Default run directory: `$TURKU3D_WORK/textures/aoi`. Override with `--run`, `--refs`, `--output`.
+`report` exits 1 until every listed facade and roof is covered. Missing data remains visible;
+empty job batches do not imply a complete AOI. For long acquisition runs, `label` can process
+buildings whose reference attempts are already complete while other buildings are still downloading.
 
-```bash
-.venv/bin/python -m turkutex codex run JOBS.jsonl --out RUN_DIR [-j 4] [--max-pct 100] [--retries 1] [--no-cache] [--force]
-.venv/bin/python -m turkutex codex collect <thread_id> [--copy DIR]     # images + exact image_gen prompts of one thread
+### Input
+
+GeoJSON FeatureCollection, EPSG:3877 LineStrings `[[E0,N0],[E1,N1]]`, properties:
+
+- `id`: unique safe identifier; `building_id`: safe identifier; `facade_index`: nonnegative integer.
+- `height_m`: positive wall height; optional `base_h`: N2000 base height.
+- `normal`: `right` (default) or `left` relative to the segment direction.
+- `street_facing`: boolean; `material_key`: courtyard/fallback material;
+  `roof_material_key`: roof material. Metadata such as `address`, `floors`, `year` are retained.
+- Optional `bay_count` from W1-03 geometry. It overrides the label count. Image labels never change
+  geometry heights or authoritative bay counts. Missing geometry counts remain explicitly unknown.
+
+Duplicate IDs, output-path collisions, unsafe IDs, zero-length segments and invalid dimensions fail.
+Reference geometry must still match the input; a material/index change alone does not invalidate crops.
+
+### References
+
+Default sources: `google,lookaround,mapillary,photospheres`. `--sources` selects available providers.
+Selection ranks angle, distance, resolution, depth-proxy occlusion and recency, then adds viewpoint
+and facade-section diversity. It retains at least one full view when available and up to four views.
+Each chosen view has a perspective crop, outlined crop, approximate occlusion mask, **wall-plane
+rectified** crop and rectified mask, with pose/date/panorama provenance and its covered u interval.
+Cached successful reference sets do not refetch or rewrite images.
+Transient provider failures are recorded by provider and exception type, without request URLs.
+Other available providers and replacement views remain usable; a partially failed source search
+is retried on the next reference run.
+
+Google depth is flipped horizontally; camera heights follow the verified campaign table. Apple
+camera height and panorama pitch/roll remain approximate. Masks catch nearer depth planes, not
+all trees or vehicles. Label jobs judge visual usability; entirely rejected references are never
+silently promoted into usable inputs. Photospheres use the same third-party discovery RPC as
+`tools/refs/gmaps_photospheres.py`.
+
+Mapillary Graph v4 uses `Authorization: OAuth <token>` from
+`~/.config/turku3d/mapillary.token`. The token is never put in a URL, logged or copied. Pagination
+uses cursors, not token-bearing next URLs. Spherical, calibrated perspective and calibrated fisheye
+images are supported. Perspective/fisheye require focal/radial parameters, a computed rotation,
+EXIF orientation 1 and at least 95% wall coverage in the source photo; unsupported metadata stays
+in the cache. Projection follows MapillaryJS's OpenSfM model and converts grid ENU into true ENU.
+Camera height remains approximate: labels must reject misregistered or wrong-building crops.
+[Official field reference](https://mapillary.github.io/mapillary-python-sdk/docs/mapillary.config.api/mapillary.config.api.entities/).
+
+### Codex and provenance
+
+One strict-schema label job per building produces `facades/<building_id>/spec.json`; one improve
+job per usable street facade preserves the entire unique wall, including doors and ornaments.
+Long walls are not replaced by repeated bays. Library jobs create missing registered roof,
+courtyard, plinth and ground materials. Defaults: `gpt-6-astra`, six concurrent runners,
+read-only child sandbox, weekly cap 100%, fail closed on unknown usage.
+
+The runner validates JSON against the schema locally. A content hash covers prompt, schema,
+model and input bytes. Resume/cache hits verify output image hashes. `attempts.jsonl` includes
+all attempts, including retries; `out.jsonl` uses the last record per ID. The rollout records exact
+image_gen prompts and generated-image count, selected output, tokens and quota readings.
+`usage_log.jsonl` records stage snapshots; `usage.jsonl` records each call. Usage is account-wide,
+so a before/after difference cannot be attributed exclusively to this worker while others run.
+
+```sh
+textures/.venv/bin/python -m turkutex codex run JOBS.jsonl --out RUN_DIR -j 6 --max-pct 100
+textures/.venv/bin/python -m turkutex codex collect THREAD_ID --copy OUTPUT_DIR
 ```
-- Job line: `{"id", "prompt" | "prompt_file", "vars", "images" (attached with -i), "files", "schema"
-  (--output-schema), "model" (gpt-6-astra), "sandbox" (read-only), "timeout", "expect_images", "prompt_version", "meta"}`.
-  Full spec in the `runner.py` docstring.
-- Each call: `codex exec -m gpt-6-astra -C <fresh tmpdir with copies of the inputs> --skip-git-repo-check
-  --sandbox read-only --json -o <last msg> -c notify=[] [--output-schema S] - -i img...`, prompt on stdin.
-- **Quota**: weekly `usedPercent` is read before every call; ≥ `--max-pct` (default 100, `$CODEX_MAX_PCT`) or unknown →
-  no new calls, exit 3. Rerun the same command to resume (ok jobs with the same content key are skipped).
-- **Collection**: `thread_id` from `thread.started`; all PNGs in `~/.codex/generated_images/<thread_id>/` are copied to
-  `RUN_DIR/images/<id>/NN.png` (several per thread happen); the one referenced by the image_gen output hint is `primary`.
-- **Provenance**: the rollout `~/.codex/sessions/.../rollout-*-<thread_id>.jsonl` gives the exact image_gen prompt,
-  referenced images, tokens and the float quota → `imagegen_calls`, `tokens`, `usage_after_rollout` in `out.jsonl`.
-- **Cache**: `sha256(model, sandbox, prompt, schema, input hashes, prompt_version)` → `<data>/textures/codex-cache/`.
-- Outputs: `out.jsonl` (last record per id wins), `failed.json` (failures + jobs not started because of the quota),
-  `usage.jsonl` (before/after per call), `runner.log`, `logs/<id>.events.jsonl|.err|.last.txt`.
-- The visual QA loop (D8) can use it as is: one job per view pair with its own schema and `expect_images: 0`.
 
-## 2. Street View facade references (`turkutex facades`, `turkutex refs`)
+### Outputs and QA
 
-```bash
-.venv/bin/python -m turkutex facades --near 23459668 6704254 --radius 70 --out /tmp/facades.geojson [--containing]
-.venv/bin/python -m turkutex refs pilot/facades.geojson [--only lr15_se] [--sources google,lookaround] [--max-views 4] [--out DIR]
+Sandbox staging mirrors the assembler contract:
+
+```text
+$TURKU3D_WORK/textures/
+  facades/<building_id>/<facade_index>.{ktx2,json}
+  facades/<building_id>/<facade_index>.{normal,orm}.ktx2
+  facades/<building_id>/spec.json
+  facades/<building_id>/bindings.json
+  library/<material_key>/{albedo,normal,orm}.ktx2
+  library/<material_key>/material.json
+  refs/<facade_id>/...
+  post/<facade_id>/{albedo,normal,height,orm}.png
+  aoi/{contact-sheet.html,qa.json,stage-errors.json,usage_log.jsonl}
+  MANIFEST.json
 ```
-- Input: GeoJSON LineStrings `[[E0,N0],[E1,N1]]` in EPSG:3877 with `id`, `height_m` (wall height), optional `base_h`
-  (N2000) and `normal` (`right` = outward side for a CCW footprint). `facades` derives street-facing runs from
-  kantakartta `kanta:Rakennus` 66000 footprints + `GIS:Keskilinjat` (WFS cached in `<data>/raw/wfs/facades/`); heights
-  are `floors*3.2+0.8` until lidar eave heights exist.
-- Panos: Google coverage z17 tiles around the facade, each spot resolved to its **newest time layer**; depth fetched
-  with `find_panorama_by_id(..., download_depth=True)` (retry without depth) and **`np.fliplr`-ed on load**; camera
-  Z = Google `elevation`; ground = elevation − campaign camera height (2026: 2.31, 2022/24: 2.86, 2019: 1.49 m).
-  Apple Look Around: side faces pasted into an equirect (no torch); azimuth convention checked against a
-  co-located Google pano (2.1° offset). Cache: `<data>/raw/streetview/{coverage,google,lookaround}/` (Mac).
-- Selection: full-facade views plus "partial" detail views of long facades (section centred on the camera's
-  foot point); score = angle × distance × (1 − depth-proxy occlusion) × resolution; ≥ 1 full view if any,
-  2–4 views with angle/section diversity; views > 50 % occluded by nearer depth planes are rejected.
-- Output per facade `<data>/textures/refs/<id>/`: `vK_*.jpg` (pinhole crop aimed at the facade centre, FOV fitted
-  to the 4 corners), `_outline.jpg` (facade in red), `_mask.png` (255 facade, 128 depth-occluded, 0 other),
-  `.json` (pose: E/N/H, yaw/pitch/FOV, pano heading, date, cam height, corners in px, scores), `refs.json`.
 
-## 3. Post-processing (`turkutex post`)
+The orchestrator promotes the staged facade tree to `data/textures/facades/` and library tree to
+`textures/library/` at integration. Shared production paths are not overwritten by this sandbox.
+`bindings.json` supplies fallback keys and unique texture filenames; roof keys are explicit.
+Failed QA outputs remain available for inspection but are not bound as runtime facade textures.
 
-```bash
-.venv/bin/python -m turkutex post IN.png --out DIR [--tile xy|x|none] [--size 2048x512] [--material wood_painted] [--sobel] [--no-ktx2]
-.venv/bin/python -m turkutex qa a.png b.png --axes x
-```
-Resize (power of two) → low-frequency flatten (`xy`, or `x` = per-row for facades) → make tileable: `xy` min-error
-cut quilting with the new seam on the quietest column; `x` strips are cropped to a whole number of bays (autocorrelation
-period, cut on quiet wall columns) and feathered → DeepBump normals + height (Sobel fallback) → ORM heuristic
-(AO from height cavities, roughness preset + detail, glass) → KTX2 via `node/encode.mjs`: albedo ETC1S sRGB, ORM
-ETC1S linear, normal UASTC + zstd + RDO, all with mips → `post.json` (QA before/after, map seams, KTX2 headers, sha256).
-QA: seam ratio < 1.5 or seam rank < 95 (`turkutex/post/qa.py`).
+Unique facades use clamped metre-based UVs, u from segment start and v from facade base. JSON
+records metre extent, pixel density, UV scale, left-normal orientation, source hashes and calls.
+Dimensions are multiples of four with approximately equal pixel density. Whole facades are neither
+period-cropped nor flattened (that would destroy unique architectural bands). Library materials
+always receive low-frequency flattening and a make-tileable pass, with seam and low-frequency QA.
+Paired, flat near-white presentation margins are removed before metric scaling. The original
+image size and exact content box are recorded; isolated light cornice/plinth bands are preserved.
+Very wide/tall walls receive a deterministic layout guide within the five-image tool limit.
+QA rejects a generated content aspect more than 30% away from geometry, even when output pixel
+dimensions are correct: resizing a squat generated building is not a valid metric facade.
+Production requires DeepBump; the generic `post --sobel` option remains available for diagnostics.
 
-## 4. Pilot (office block, Läntinen Rantakatu 15)
+Albedo is ETC1S/sRGB/BT709; ORM is ETC1S/linear/unspecified primaries; normals are RGB XYZ
+UASTC + RDO + Zstd, linear/unspecified primaries, with normalized mipmaps. `--normal_mode` is
+intentionally not used because it repacks XY into RGB/A. Every encoded file must pass
+`ktx validate --gltf-basisu`. Post caches cover input bytes, geometry, code, encoder and all output
+hashes; rerunning unchanged stages makes no model calls and preserves material output timestamps.
 
-```bash
-make textures-pilot            # refs -> label (strict schema) -> improve -> post -> previews; cached and resumable
-make textures-pilot-previews   # docs/pilot/textures/*.jpg + pilot.json, library/manifest.jsonl
-```
-Facades (`pilot/facades.geojson`): `lr15_se` = Läntinen Rantakatu 15 river facade (38.8 m, 1 storey wood, → 6-bay
-repeatable strip, `--tile x`) and `aurakatu2_se` = Aurakatu 2 (City Hall) facade on Läntinen Rantakatu (22.5 m,
-2 storeys, → whole unique facade, `--tile none`). Results and Codex usage: `docs/pilot/textures/README.md`.
+`contact-sheet.html` embeds small reference/result previews and lists every missing facade.
+It opens on street facades and supports address/ID search and complete/missing/courtyard filters.
+`qa.json` reports reference counts, source coverage, calls per facade (a building label is shared),
+scale/asset failures and roof coverage. Calls include targeted repair runs under the AOI run
+directory, deduplicated by Codex thread. Unique walls do not wrap, so their wrap-seam check is explicitly
+not applicable. Library materials must pass both seam and low-frequency checks.
 
-## Known limits
-- Wall heights in the pilot are estimates; the reference tool takes `height_m`/`base_h` from the buildings worker later.
-- Look Around elevation datum/camera height is not calibrated against lidar (2.4 m assumed for the ground estimate).
-- Google depth is a planar proxy: trees/scaffolding are not detected as occluders (Codex labelling flags them).
-- `~/.codex/AGENTS.md` makes free-text answers Finnish unless the prompt asks for English (prompts now do).
-
-
-## Sandbox paths
-
-Source `../sandbox.env` from a worker repository root before running the Make targets above.
-`textures_data_dir()` and `tools_dir()` use `TURKU3D_WORK`; Street View and facade WFS downloads use
-its `cache/streetview` and `cache/wfs/facades`. These runners never write shared `TURKU3D_DATA/raw`.
-`TURKUTEX_STREETVIEW` remains an explicit cache override. The committed library manifest's `data_dir`
-is relative to `TURKU3D_WORK` so it is portable between workers.
+The original two-facade Phase 0 pilot remains available with `make textures-pilot`; it uses the
+legacy per-facade label/strip recipes for reproducibility. It is not the AOI production command.
 
 ## Selective quality checks
 
-From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
-`scripts/dev/gate --all` for the complete offline suite. See the [quality gate guide](../scripts/dev/README.md)
-for dependency setup, path selection, caches, sandbox ports and Git hooks.
+From the repository root, run
+`GATE_PYTHON="$PWD/textures/.venv/bin/python" scripts/dev/gate --base main` for this branch. See the
+[quality gate guide](../scripts/dev/README.md) for dependency setup, caches and sandbox ports.
+
+DeepBump subprocesses set `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime starts and have a
+600-second timeout. A live macOS stack sample found ORT 1DS teardown spinning indefinitely after
+inference; disabling its uploader keeps the offline worker from waiting on network teardown. The dedicated
+worker supplies one ONNX inference thread with spinning disabled, avoiding oversubscription during
+parallel production; the DeepBump algorithm and vendor files remain unchanged.
+See [ONNX Runtime telemetry controls](https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md).
+
+## Scoped landing and authoritative assembly
+
+The current batch is stopped at 127 generated facade images. Incomplete or rejected walls use
+library fallbacks; full photo coverage remains a follow-up batch. The loader also accepts W1-03
+schema v1 (`base_height`, `top_height`, engine XYZ `normal`, `building_id`, `facade_index`).
+Never give the assembler the provisional staging tree directly. Export into a separate lookup
+root; only QA-passing assets with an exact baseline, normal, base and height match are copied:
+
+```sh
+textures/.venv/bin/python -m turkutex facade-export \
+  "$TURKU3D_WORK/build/layers/buildings/facades.geojson" \
+  --source-inventory "$TURKU3D_WORK/textures/aoi/all-facades.geojson" \
+  --source "$TURKU3D_WORK/textures" --qa "$TURKU3D_WORK/textures/aoi/qa.json" \
+  --output "$TURKU3D_WORK/textures/assembly"
+```
+
+Point assembler facade/library roots at `assembly/facades` and `assembly/library`. Missing unique
+textures keep the building's library key. The assembler must apply sidecar `uv.scale` / `uv.offset`,
+use `files.normal` and `files.orm`, and apply library `material.json` `uv_scale` to metre UVs.
+The export preserves file timestamps when unchanged. It removes stale unique bindings in its own
+output tree. Provisional heights without a measured base cannot match authoritative geometry.
+
+Resume remaining acquisition and generation only when a new batch is authorized:
+
+```sh
+make textures-facade-batch \
+  FACADES="$TURKU3D_WORK/build/layers/buildings/facades.geojson" TEX_J=6 TEX_MAX_PCT=100
+```

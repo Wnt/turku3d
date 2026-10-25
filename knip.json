@@ -47,12 +47,6 @@
       "project": [
         "**/*.mjs"
       ]
-    },
-    "textures/node": {
-      "entry": [],
-      "project": [
-        "**/*.mjs"
-      ]
     }
   }
 }

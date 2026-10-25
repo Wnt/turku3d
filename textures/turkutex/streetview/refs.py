@@ -19,18 +19,38 @@ else the median ground estimate (elevation - campaign camera height) of the Goog
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+from urllib.error import URLError
 
 import numpy as np
 from PIL import Image, ImageDraw
+from requests.exceptions import RequestException
 from turku3d import config
 
 from . import camera as C
 from .facades import Facade, load_facades
-from .panos import PanoCache, PanoMeta, z17_tile
+from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
+
+REFS_VERSION = "3-calibrated-mapillary"
+
+
+def rectified_points(corners: np.ndarray, long_side: int) -> np.ndarray:
+    """Wall-plane pixel centres, left to right and top to bottom (ENH)."""
+    width = float(np.linalg.norm(corners[1] - corners[0]))
+    height = float(np.linalg.norm(corners[3] - corners[0]))
+    scale = long_side / max(width, height)
+    w, h = max(16, round(width * scale)), max(16, round(height * scale))
+    u, v = np.meshgrid((np.arange(w) + 0.5) / w, 1 - (np.arange(h) + 0.5) / h)
+    return (
+        corners[0]
+        + u[..., None] * (corners[1] - corners[0])
+        + v[..., None] * (corners[3] - corners[0])
+    )
 
 
 @dataclass
@@ -64,7 +84,11 @@ def coverage_points(centre_en: np.ndarray, radius: float) -> list[tuple[float, f
 
 
 def equirect_model(m: PanoMeta) -> C.EquirectModel:
-    if m.source == "google":
+    if m.source == "mapillary" and m.extra.get("camera_type") in ("perspective", "fisheye"):
+        from .mapillary_camera import MapillaryCamera
+
+        return MapillaryCamera(m)
+    if m.source in ("google", "mapillary"):
         return C.EquirectModel(m.heading_rad, 1.0)
     # Look Around: streetlevel's stitch puts face yaw 0 at column W/2 + ... ; equirect centre is the
     # inverse travel direction; heading is CCW (0 = N, 90 = W) -> centre azimuth = -heading + pi.
@@ -73,23 +97,50 @@ def equirect_model(m: PanoMeta) -> C.EquirectModel:
     return C.EquirectModel((-m.heading_rad + math.pi) % (2 * math.pi), 1.0)
 
 
-def candidates(cache: PanoCache, f: Facade, P: SelectParams, sources=("google",)) -> list[PanoMeta]:
+def network_result(call, errors: list, source: str, fallback):
+    """One provider outage must not discard usable references from other providers."""
+    try:
+        return call()
+    except (RequestException, URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
+        # Exception messages may contain request URLs. Keep credentials out of provenance.
+        errors.append({"source": source, "error": type(exc).__name__})
+        return fallback
+
+
+def candidates(
+    cache: PanoCache, f: Facade, P: SelectParams, sources=("google",), errors=None
+) -> list[PanoMeta]:
+    errors = errors if errors is not None else []
     res: dict[str, PanoMeta] = {}
     for lat, lon in coverage_points(f.centre, P.radius):
         if "google" in sources:
-            for p in cache.google_coverage(lat, lon):
+            for p in network_result(partial(cache.google_coverage, lat, lon), errors, "google", []):
                 E, N = config.wgs84_to_en(p["lat"], p["lon"])
                 if math.hypot(E - f.centre[0], N - f.centre[1]) > P.radius:
                     continue
                 if np.dot(np.array([E, N]) - f.centre, f.normal) < P.min_front:
                     continue
-                m = cache.google_newest(p["id"])
+                m = network_result(partial(cache.google_newest, p["id"]), errors, "google", None)
                 if m:
                     res[f"g:{m.id}"] = m
         if "lookaround" in sources:
-            for m in cache.lookaround_coverage(lat, lon):
+            for m in network_result(
+                partial(cache.lookaround_coverage, lat, lon), errors, "lookaround", []
+            ):
                 if math.hypot(m.E - f.centre[0], m.N - f.centre[1]) <= P.radius:
                     res[f"a:{m.id}"] = m
+        if "mapillary" in sources:
+            for m in network_result(
+                partial(cache.mapillary_coverage, lat, lon), errors, "mapillary", []
+            ):
+                if math.hypot(m.E - f.centre[0], m.N - f.centre[1]) <= P.radius:
+                    res[f"m:{m.id}"] = m
+        if "photospheres" in sources:
+            for m in network_result(
+                partial(cache.photosphere_coverage, lat, lon), errors, "photospheres", []
+            ):
+                if math.hypot(m.E - f.centre[0], m.N - f.centre[1]) <= P.radius:
+                    res[f"p:{m.id}"] = m
     return list(res.values())
 
 
@@ -168,6 +219,14 @@ def evaluate(
         pos = np.array(
             [m.E, m.N, m.elevation if m.elevation is not None else base_h + m.cam_height]
         )
+        model = equirect_model(m)
+        visible_fraction = 1.0
+        if hasattr(model, "project"):
+            w, h = m.extra["image_sizes"][0]
+            _, _, visible = model.project(rectified_points(corners, 32) - pos, w, h)
+            visible_fraction = float(visible.mean())
+            if visible_fraction < 0.95:
+                continue
         try:
             cam = C.fit_camera(pos, corners, P.long_side, max_hfov=180)
         except ValueError:
@@ -178,8 +237,13 @@ def evaluate(
         if occ is not None and occ > P.max_occluded:
             continue
         sizes = m.extra.get("image_sizes") or [[16384, 8192]]
-        W = sizes[-1][0] if m.source == "google" else 16384
-        ppm = W / (2 * math.pi) * math.cos(math.radians(theta)) / max(d, 1.0)
+        W = sizes[-1][0] if m.source in ("google", "mapillary") else 16384
+        focal_pixels = (
+            max(m.extra["image_sizes"][0]) * model.focal
+            if hasattr(model, "project")
+            else W / (2 * math.pi)
+        )
+        ppm = focal_pixels * math.cos(math.radians(theta)) / max(d, 1.0)
         year = int(str(m.date or "2000")[:4])
         d_opt = P.d_opt if part == "full" else 10.0
         d_sig = P.d_sigma if part == "full" else 10.0
@@ -192,6 +256,7 @@ def evaluate(
                 "cam": cam,
                 "corners": corners,
                 "part": part,
+                "source_visible_fraction": visible_fraction,
                 "section_m": [
                     round(float((g.p0 - f.p0) @ f.tangent), 2),
                     round(float((g.p1 - f.p0) @ f.tangent), 2),
@@ -251,11 +316,26 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
     m: PanoMeta = e["meta"]
     if m.source == "google":
         src = cache.google_image(m.id, P.zoom)
+    elif m.source == "mapillary":
+        src = cache.mapillary_image(m)
     else:
         src = cache.lookaround_equirect(m, P.la_zoom)
     equi = np.asarray(Image.open(src).convert("RGB"))
     cam: C.PerspectiveCam = e["cam"]
     img = C.render(equi, equirect_model(m), cam)
+    model = equirect_model(m)
+    if hasattr(model, "project"):
+        _, _, visible = model.project(cam.rays(), equi.shape[1], equi.shape[0])
+        img[~visible] = 0
+    points = rectified_points(e["corners"], P.long_side)
+    directions = points - cam.pos
+    ru, rv = equirect_model(m).uv_from_dir(directions, equi.shape[1], equi.shape[0])
+    rectified = C.sample_bilinear(equi, ru, rv)
+    rect_mask = np.full(points.shape[:2], 255, dtype=np.uint8)
+    if hasattr(model, "project"):
+        _, _, visible = model.project(directions, equi.shape[1], equi.shape[0])
+        rectified[~visible] = 0
+        rect_mask[~visible] = 0
     del equi
     t, inside = C.facade_hits(cam, e["corners"])
     mask = np.where(inside, 255, 0).astype(np.uint8)
@@ -265,9 +345,16 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
             u, v = equirect_model(m).uv_from_dir(cam.rays(), depth.shape[1], depth.shape[0])
             dd = C.sample_nearest(depth, u, v)
             mask[inside & (dd > 0) & (dd < t - 1.5)] = 128
+            u, v = equirect_model(m).uv_from_dir(directions, depth.shape[1], depth.shape[0])
+            rd = C.sample_nearest(depth, u, v)
+            rect_mask[(rd > 0) & (rd < np.linalg.norm(directions, axis=-1) - 1.5)] = 128
     out_dir.mkdir(parents=True, exist_ok=True)
     Image.fromarray(img).save(out_dir / f"{view_id}.jpg", quality=92)
     Image.fromarray(mask).save(out_dir / f"{view_id}_mask.png")
+    Image.fromarray(rectified.astype(np.uint8)).save(
+        out_dir / f"{view_id}_rectified.jpg", quality=92
+    )
+    Image.fromarray(rect_mask).save(out_dir / f"{view_id}_rectified_mask.png")
     px = cam.project(e["corners"])
     ol = Image.fromarray(img).copy()
     dr = ImageDraw.Draw(ol)
@@ -303,6 +390,11 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
         "facade_corners_EN_H": [[round(float(v), 3) for v in c] for c in e["corners"]],
         "facade_corners_px": [[round(float(v), 1) for v in p] for p in px],
         "facade_visible_frac": round(float((mask == 255).sum() / max(1, (mask > 0).sum())), 3),
+        "source_visible_fraction": e.get("source_visible_fraction", 1.0),
+        "source_camera_model": {
+            k: m.extra.get(k)
+            for k in ("camera_type", "camera_parameters", "computed_rotation", "pose_confidence")
+        },
         **{
             k: e[k]
             for k in (
@@ -321,9 +413,15 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
             "crop": f"{view_id}.jpg",
             "outline": f"{view_id}_outline.jpg",
             "mask": f"{view_id}_mask.png",
+            "rectified": f"{view_id}_rectified.jpg",
+            "rectified_mask": f"{view_id}_rectified_mask.png",
         },
-        "notes": "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; "
-        "attribution: imagery (c) Google / Apple, reference use only, never shipped",
+        "notes": (
+            "calibrated Mapillary camera rotation; approximate camera height; "
+            if hasattr(model, "project")
+            else "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; "
+        )
+        + "attribution: imagery (c) Google / Apple / Mapillary contributors, reference use only, never shipped",
     }
     (out_dir / f"{view_id}.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False))
     return rec
@@ -348,19 +446,72 @@ def facade_refs(
     cache: PanoCache, f: Facade, out_root: Path, P: SelectParams, sources=("google",)
 ) -> dict:
     P = scaled_params(f, P)
-    cands = candidates(cache, f, P, sources)
+
+    def geometry(feature):
+        p = feature["properties"]
+        return [feature["geometry"], {k: p.get(k) for k in ("id", "height_m", "base_h", "normal")}]
+
+    key = hashlib.sha256(
+        json.dumps(
+            [REFS_VERSION, geometry(f.to_feature()), P.__dict__, sources], sort_keys=True
+        ).encode()
+    ).hexdigest()
+    summary_path = out_root / f.id / "refs.json"
+    if summary_path.exists():
+        old = json.loads(summary_path.read_text())
+        # Older rectified caches hashed all properties. An index/material change does not change a crop.
+        old_key = hashlib.sha256(
+            json.dumps(
+                [REFS_VERSION, old["facade"], old["params"], sources], sort_keys=True
+            ).encode()
+        ).hexdigest()
+        same_geometry = (
+            geometry(old["facade"]) == geometry(f.to_feature()) and old["params"] == P.__dict__
+        )
+        if (
+            (old.get("key") == key or (old.get("key") == old_key and same_geometry))
+            and isinstance(old.get("views"), list)
+            and not old.get("source_errors")
+        ):
+            records = [summary_path.parent / f"{v}.json" for v in old["views"]]
+            if all(
+                p.exists()
+                and all(
+                    (p.parent / n).is_file() for n in json.loads(p.read_text())["files"].values()
+                )
+                for p in records
+            ):
+                return old
+    errors = []
+    cands = candidates(cache, f, P, sources, errors)
     bh, bh_src = base_height(f, cands)
     evals = [x for m in cands for x in evaluate(cache, f, m, bh, P)]
     chosen = select(evals, P)
     out = out_root / f.id
     views = []
-    for k, e in enumerate(chosen):
-        views.append(
-            render_view(
-                cache, e, out, f"v{k}_{e['part'][0]}_{e['meta'].source[0]}_{e['meta'].id[:12]}", P
-            )
+    alternatives = sorted(
+        (e for e in evals if not any(e is c for c in chosen)), key=lambda e: -e["score"]
+    )
+    for e in (chosen + alternatives)[: P.max_views + 8]:
+        k = len(views)
+        view = network_result(
+            lambda e=e, k=k: render_view(
+                cache,
+                e,
+                out,
+                f"{f.id}_v{k}_{e['part'][0]}_{e['meta'].source[0]}_{e['meta'].id[:12]}",
+                P,
+            ),
+            errors,
+            e["meta"].source,
+            None,
         )
+        if view is not None:
+            views.append(view)
+        if len(views) == P.max_views or (len(views) == len(chosen) and not errors):
+            break
     summary = {
+        "key": key,
         "facade": f.to_feature(),
         "base_h": round(bh, 3),
         "base_h_source": bh_src,
@@ -391,9 +542,10 @@ def facade_refs(
         ),
         "views": [v["view_id"] for v in views],
         "params": P.__dict__,
+        "source_errors": errors,
     }
     out.mkdir(parents=True, exist_ok=True)
-    (out / "refs.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
+    atomic_json(out / "refs.json", summary)
     return summary
 
 
