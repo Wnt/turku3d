@@ -27,7 +27,7 @@ try {
   let ready = false;
   for (let i = 0; i < 100; i++) {
     if (server.exitCode !== null) throw new Error(serverLog);
-    try { if ((await fetch(`${base}/ground-qa.html`)).ok) { ready = true; break; } } catch {}
+    try { if ((await fetch(`${base}/ground-qa.html`)).ok) { ready = true; break; } } catch { /* Server is still starting. */ }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert(ready, `Vite did not start: ${serverLog}`);

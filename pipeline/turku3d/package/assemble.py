@@ -159,7 +159,9 @@ def facade_bindings(facades, layers):
     return export["bound"]
 
 
-def visual_tiles(tiles, stage, library, facades, texture_cache, coarse_ids, bindings):
+def visual_tiles(
+    tiles, stage, library, facades, texture_cache, coarse_ids, bindings, ground_bindings
+):
     requests = []
     for tile, inputs in tiles.items():
         work = stage / tile.id
@@ -174,6 +176,7 @@ def visual_tiles(tiles, stage, library, facades, texture_cache, coarse_ids, bind
                 library=str(library),
                 facades=str(facades),
                 facadeBindings=bindings,
+                groundBinding=ground_bindings.get(tile.id),
                 textureCache=str(texture_cache),
                 coarseTerrain=tile.id in coarse_ids,
             )
@@ -201,6 +204,7 @@ def assemble(
     out: Path | None = None,
     library: Path | None = None,
     facades: Path | None = None,
+    ground: Path | None = None,
     area="office-block",
 ) -> dict:
     root = (layers or layer_root()).resolve()
@@ -208,6 +212,10 @@ def assemble(
     export = C.work_root() / "textures/assembly"
     library = (library or export / "library").resolve()
     facades = (facades or export / "facades").resolve()
+    from .ground_textures import publish_ground
+
+    ground = (ground or C.work_root() / "textures/ground").resolve()
+    ground_bindings = publish_ground(ground, out, tile_ids, root / "ground")
     bindings = facade_bindings(facades, root)
     requested = {C.VisualTile.parse(tid) for tid in tile_ids}
     if any(t.level != 0 for t in requested):
@@ -252,7 +260,13 @@ def assemble(
         ]
     )
     code = digest(code_files)
-    textures = [p for d in (library, facades) if d.exists() for p in d.rglob("*") if p.is_file()]
+    textures = [
+        p
+        for d in (library, facades, ground, ground.parent / "library")
+        if d.exists()
+        for p in d.rglob("*")
+        if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
+    ]
     texture_hash = digest(textures)
     available = set(tree.collision)
     for t in requested:
@@ -314,7 +328,17 @@ def assemble(
             out.parent / ".texture-cache",
             coarse_ids,
             bindings,
+            ground_bindings,
         )
+        for tile, (data, stats) in pending_visual.items():
+            if data is not None and tile.level == 0:
+                wire_bytes = stats["brotli_bytes"] + ground_bindings.get(tile.id, {}).get(
+                    "texture_bytes", 0
+                )
+                if wire_bytes > 8_000_000:
+                    raise ValueError(
+                        f"{tile.id}: visual plus ground textures exceeds 8 MB: {wire_bytes}"
+                    )
         shipped = {
             cid: read_col(out / entry["url"])
             for cid, entry in tree.collision.items()
@@ -331,9 +355,17 @@ def assemble(
                 if previous:
                     (out / previous["url"]).unlink(missing_ok=True)
                 continue
+            ground_bytes = ground_bindings.get(tile.id, {}).get("texture_bytes", 0)
+            wire_bytes = stats["brotli_bytes"] + ground_bytes
+            if wire_bytes > 8_000_000 and tile.level == 0:
+                raise ValueError(
+                    f"{tile.id}: visual plus ground textures exceeds 8 MB: {wire_bytes}"
+                )
             entry = tree.add_visual(tile, data, tris=stats["tris"], h=stats["h"])
             entry.update(
                 brotli_bytes=stats["brotli_bytes"],
+                ground_texture_bytes=ground_bytes,
+                wire_bytes=wire_bytes,
                 max_error_m=stats["max_error_m"],
                 bounds=stats["bounds"],
             )
@@ -379,6 +411,7 @@ def main():
     ap.add_argument("--layers", type=Path)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--library", type=Path)
+    ap.add_argument("--ground", type=Path)
     ap.add_argument("--facades", type=Path)
     ap.add_argument("--area", default="office-block")
     args = vars(ap.parse_args())

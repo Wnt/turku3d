@@ -89,7 +89,20 @@ one fixed named-area footprint, independent of tile list/order. Filters use worl
 and overlap gutters. `seams.py` checks matching source texels in neighbours; independent lossy
 KTX2 blocks and coarse mip seams still require rendered inspection.
 
-`make -j2 ground-test` runs small synthetic tests. `make ground-render-test` checks both actual
+`make -j2 ground-texture-test` runs small synthetic tests. `make ground-render-test` checks both actual
 Chrome backends and verifies that material detail survives shader branching. `ground-acceptance`
 is a separate real-data audit and deliberately fails when required upstream data or QA captures
 are absent. See `game/src/render/ground/README.md` for the renderer API and integration steps.
+
+## Incremental integration
+
+`--splats-only` reuses the existing fused ortho PNGs and calibration manifest, avoiding raw raster
+reads and hashes when only ground semantics change. Pass `--ground-layer` to the published ground
+directory. Water-bed collision triangles are excluded by the shared material ID; real surface
+triangles determine all core splats in the current four-tile build.
+Runtime ortho uses ETC1S quality 16 at the same 4 cm output sampling to leave room for building
+geometry under the 8 MB wire budget; the archived year products retain quality 128.
+The assembler verifies semantic input hashes and runtime-map hashes before binding. It reports
+geometry plus ground texture transfer bytes, while the ground manifest reports block-compressed
+GPU residency separately. Complete scene verification is documented in
+[the material API README](../../../../game/src/render/ground/README.md).

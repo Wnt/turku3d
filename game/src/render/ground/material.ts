@@ -20,12 +20,12 @@ export interface GroundTileSpec {
   splat_uv: { offset: number; scale: number };
   textures: Record<'ortho' | 'splat0' | 'splat1', { uri: string }>;
 }
-export interface GroundLibrary {
+interface GroundLibrary {
   albedo: THREE.Texture;
   normal: THREE.Texture;
   orm: THREE.Texture;
 }
-export interface GroundTileTextures {
+interface GroundTileTextures {
   ortho: THREE.Texture;
   splat0: THREE.Texture;
   splat1: THREE.Texture;

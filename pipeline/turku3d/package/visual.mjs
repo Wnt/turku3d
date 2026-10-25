@@ -31,6 +31,7 @@ async function assembleVisual(request) {
     }
   }
   doc.getRoot().setDefaultScene(scene);
+  if (request.groundBinding) scene.setExtras({ ground_binding: request.groundBinding });
 
   const bindMaterial = createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextureTransform });
   for (const node of doc.getRoot().listNodes()) {

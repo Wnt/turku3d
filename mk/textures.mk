@@ -75,9 +75,9 @@ GROUND_OUT ?= $(if $(TURKU3D_WORK),$(TURKU3D_WORK)/textures,$(error Source the s
 GROUND_OSM ?= $(TURKU3D_DATA)/raw/osm/work-3x3/work-3x3-261024.parquet
 GROUND_PY = PYTHONPATH=$(REPO)/textures:$(REPO)/pipeline bash $(REPO)/pipeline/env/run.sh python
 
-.PHONY: ground-test ground-python-test ground-material-test ground-render-test ground-qa ground-jobs ground-library ground-textures ground-markings ground-acceptance
+.PHONY: ground-texture-test ground-python-test ground-material-test ground-render-test ground-qa ground-jobs ground-library ground-textures ground-markings ground-acceptance
 
-ground-test: ground-python-test ground-material-test ## Fast ground unit + material contract/type checks (make -j2)
+ground-texture-test: ground-python-test ground-material-test ## Fast ground unit + material contract/type checks (make -j2)
 
 ground-python-test:
 	$(GROUND_PY) -m pytest -q $(TEX_DIR)/tests/test_ground.py

@@ -1,7 +1,7 @@
 # Ground material API (W1-10 → W1-08 / W1-04)
 
 `material.ts` exports `loadGroundLibrary`, `loadGroundTile`, and `createGroundMaterial`.
-It does not change the renderer, environment, or streaming callbacks owned by W1-08.
+`MaterialStyler` delegates assembler-declared ground bindings to `GroundBindings`. QA readiness waits for these loads. The binding owns tile maps, shares library arrays, and disposes late results after a tile unload.
 
 ```ts
 const library = await loadGroundLibrary(new URL('textures/library/', location.href).href, ktx2Loader);
@@ -50,7 +50,7 @@ From the repository root:
 
 ```sh
 source ../sandbox.env
-make -j2 ground-test
+make -j2 ground-texture-test
 make ground-render-test                  # tiny synthetic arrays, actual Chrome Metal GPU
 make ground-qa                           # requires all four real products + library
 ```
@@ -66,3 +66,31 @@ geometry. Before is the 2022 ortho; after is the cleaned ortho/splat/library mat
 are material inspections; full in-game visual acceptance remains dependent on W1-01/W1-04/W1-08.
 The synthetic GPU test also checks pixel variation in four material channels, so a valid but
 flat shader fails the test.
+
+## Assembled office-core verification
+
+The assembler defaults `--ground` to `$TURKU3D_WORK/textures/ground`. It checks splat source hashes
+against the actual ground layer and copies products to content-addressed URLs. Missing or stale
+products retain the existing material. Scene extras `ground_binding` version 1 declares `spec`,
+`library`, and `texture_bytes`, relative to the tileset URL. No runtime filesystem paths are guessed.
+The assembler reports and enforces L0 geometry plus ground-map wire bytes against 8,000,000 bytes.
+
+```sh
+source ../sandbox.env
+PYTHONPATH=textures:pipeline bash pipeline/env/run.sh python -m turkutex.ground.build \
+  --splats-only --ground-layer "$TURKU3D_DATA/build/layers/ground"
+bash pipeline/env/run.sh python -m turku3d.package.assemble \
+  --layers "$TURKU3D_DATA/build/layers" --tile t0_0_0 t0_0_1 t0_1_0 t0_1_1
+node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/dist" --port 5314 --no-compress
+# In another sourced terminal:
+(cd game && GROUND_TILE_SERVER=http://127.0.0.1:5314 ./node_modules/.bin/vite \
+  --config vite.ground.config.ts --host 127.0.0.1 --port 5313)
+# In a third sourced terminal:
+node game/scripts/ground-scene-qa.mjs http://127.0.0.1:5313/
+```
+
+This captures three office-core street views on both backends in `reports/ground-scene`.
+Each camera is raycast onto real terrain and placed 1.7 m above it. Before/after geometry,
+lighting and cameras match; the baseline removes only the ground binding from served GLBs.
+The runner asserts both terrain and buildings are present, counts textured meshes, rejects console
+errors, and records SHA-256 for each PNG. Close both servers after capture.

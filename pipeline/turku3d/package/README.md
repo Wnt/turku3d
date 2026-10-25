@@ -160,3 +160,14 @@ The office test verifies the footprint exclusion, L0 triangle count, draw-call b
 wall pixels in the ID pass, car entry and console errors. It writes street, facade, car
 and aerial screenshots under `$TURKU3D_WORK/reports/screenshots/integration-*`. The synthetic
 ground-only suite skips this real-office test; synthetic unit tests cover spawn and batching.
+
+## Ground texture binding
+
+`--ground` defaults to `WORK/textures/ground`. Version-1 `material.json` must include ground-input
+hashes matching the current `layers/ground/*.col.npz`; ortho-only previews and stale splats keep
+library fallbacks. The assembler copies the three runtime KTX2 maps and shared eight-layer PBR
+arrays to content-addressed `ground/` URLs and declares scene extras `ground_binding` with
+`version`, `spec`, `library`, and `texture_bytes`. URLs are relative to the tileset.
+The manifest records `ground_texture_bytes` and `wire_bytes`; L0 geometry plus these maps must
+fit 8,000,000 bytes. The shared array library is fetched once across tiles. See
+[ground rendering](../../../../game/src/render/ground/README.md) for complete scene capture commands.

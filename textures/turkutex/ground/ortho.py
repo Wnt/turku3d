@@ -1,4 +1,5 @@
 """Shared-grid ortho fusion. A single calibration is reused by every tile in a build."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,8 +25,12 @@ def fuse(primary, recent, primary_valid, recent_valid, calibration, *, pixel_m=0
     A shared halo of at least ceil(4*.24/pixel_m) is required for identical filter support.
     """
     p = np.asarray(primary, np.float32)
-    r = np.clip(np.asarray(recent, np.float32) * np.asarray(calibration["gain"], np.float32)
-                + np.asarray(calibration["offset"], np.float32), 0, 255)
+    r = np.clip(
+        np.asarray(recent, np.float32) * np.asarray(calibration["gain"], np.float32)
+        + np.asarray(calibration["offset"], np.float32),
+        0,
+        255,
+    )
     pv, rv = np.asarray(primary_valid, bool), np.asarray(recent_valid, bool)
     if p.shape != r.shape or p.shape != (*pv.shape, 3) or rv.shape != pv.shape:
         raise ValueError("ortho shapes do not match")
@@ -34,19 +39,19 @@ def fuse(primary, recent, primary_valid, recent_valid, calibration, *, pixel_m=0
     p = np.where(pv[..., None], p, r)
     r = np.where(rv[..., None], r, p)
     lp, lr = p.mean(-1), r.mean(-1)
-    sigma = .24 / pixel_m
+    sigma = 0.24 / pixel_m
     # Gaussian support is finite (4 sigma); tile halos make the operation spatially invariant.
     bp = gaussian_filter(lp, sigma, mode="nearest")
     br = gaussian_filter(lr, sigma, mode="nearest")
     difference = np.abs(lp - lr)
     p_chroma = p / np.maximum(lp[..., None], 12)
     r_chroma = r / np.maximum(lr[..., None], 12)
-    same_surface = np.max(np.abs(p_chroma - r_chroma), -1) < .22
+    same_surface = np.max(np.abs(p_chroma - r_chroma), -1) < 0.22
     shadow = (lr > lp * 1.30) & same_surface & (lp < 105)
     transient = (np.abs(lp - bp) > np.abs(lr - br) + 18) & (difference > 25)
     use_recent = rv & (shadow | transient | ~pv)
     # Soft selection avoids hard temporal cut lines; all filtering is in world metres.
-    blend = gaussian_filter(use_recent.astype(np.float32), .06 / pixel_m, mode="nearest")
+    blend = gaussian_filter(use_recent.astype(np.float32), 0.06 / pixel_m, mode="nearest")
     blend = np.where(~pv, 1, np.where(~rv, 0, blend))
     combined = p * (1 - blend[..., None]) + r * blend[..., None]
     # Remaining same-colour shadows: bounded luminance lift, preserve texture contrast.

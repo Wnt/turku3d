@@ -17,7 +17,8 @@
       "entry": [
         "src/physics/worker.ts",
         "tests/**/*.ts",
-        "*.config.ts"
+        "*.config.ts",
+        "src/qa/ground.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -28,6 +29,12 @@
       "playwright": {
         "config": [
           "playwright*.config.ts"
+        ]
+      },
+      "vite": {
+        "config": [
+          "vite.config.ts",
+          "vite.ground.config.ts"
         ]
       }
     },

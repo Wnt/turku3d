@@ -243,7 +243,7 @@ See [region cache details](../pipeline/turku3d/region/README.md).
 See [turkutex/ground/README.md](turkutex/ground/README.md) for the four-tile build, quota-aware
 library generation, vector markings, memory accounting, and exact verification commands.
 The renderer/assembler interface is [game/src/render/ground](../game/src/render/ground/README.md).
-Run `source ../sandbox.env && make -j2 ground-test` for the fast checks. The `ground` Python extra
+Run `source ../sandbox.env && make -j2 ground-texture-test` for the fast checks. The `ground` Python extra
 provides rasterio, shapely, geopandas and pyarrow; `make textures-venv` includes it.
 DeepBump runs in a bounded ONNX worker (one intra-op thread, one inter-op thread, no spinning)
 so concurrent texture jobs do not each occupy a full-machine thread pool.

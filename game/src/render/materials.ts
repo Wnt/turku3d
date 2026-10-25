@@ -4,6 +4,7 @@ import * as THREE from 'three/webgpu';
 import { materialColor, materialRoughness, texture, positionWorld, mix, vec3, bumpMap, float } from 'three/tsl';
 import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
+import { GroundBindings } from './ground/binding';
 import type { Environment } from './environment';
 
 type SurfaceStyle = 'asphalt' | 'granite' | 'cobblestone' | 'grass' | 'water' | 'standard';
@@ -43,12 +44,15 @@ function detailTexture() {
 }
 
 export class MaterialStyler {
+  readonly ground: GroundBindings | null;
   private detail = detailTexture();
   private owned = new Map<THREE.Object3D, { materials: THREE.Material[]; rivers: THREE.Mesh[] }>();
   private rivers = new Map<string, { river: RiverMaterial; meshes: Set<THREE.Mesh> }>();
   private riverKeys = new Map<THREE.Mesh, string>();
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
-    private tier: QualityTier, private deterministic: boolean) {}
+    private tier: QualityTier, private deterministic: boolean, tileset?: string) {
+    this.ground = tileset ? new GroundBindings(renderer, new URL(tileset, location.href).href) : null;
+  }
 
   apply(model: THREE.Object3D) {
     const materials: THREE.Material[] = [], rivers: THREE.Mesh[] = [];
@@ -103,9 +107,11 @@ export class MaterialStyler {
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
     });
     this.owned.set(model, { materials, rivers });
+    void this.ground?.apply(model);
   }
 
   release(model: THREE.Object3D) {
+    this.ground?.release(model);
     const owned = this.owned.get(model);
     if (!owned) return;
     for (const mesh of owned.rivers) {
@@ -123,5 +129,6 @@ export class MaterialStyler {
   dispose() {
     for (const model of this.owned.keys()) this.release(model);
     this.detail.dispose();
+    this.ground?.dispose();
   }
 }

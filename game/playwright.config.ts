@@ -9,7 +9,7 @@ const PORT = Number(process.env.E2E_PORT ?? port(1));
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 120_000,
-  workers: 3,
+  workers: Number(process.env.TURKU3D_JOBS ?? 3),
   fullyParallel: true,
   reporter: [['list']],
   outputDir: path.join(reportsRoot, 'playwright'),

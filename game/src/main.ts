@@ -81,7 +81,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
 } };
 const renderFrame = () => { if (post) post.render(); else renderer.render(scene, camera); };
 const tiles = new VisualTiles(params.tileset, renderer, camera, scene);
-const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa);
+const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa, params.tileset);
 tiles.tiles.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.apply(model));
 tiles.tiles.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.release(model));
 
@@ -153,7 +153,8 @@ async function runQa() {
     window.__render?.afterFrame?.();
     if (window.__qaReady || window.__qaError) return;
     if (tiles.errors.length) { window.__qaError = tiles.errors[0]; return; }
-    stable = tiles.settled ? stable + 1 : 0;
+    if (materials?.ground?.errors.length) { window.__qaError = materials.ground.errors[0]; return; }
+    stable = tiles.settled && !materials?.ground?.pending ? stable + 1 : 0;
     // contract: a pose outside the loaded data reports __qaError instead of running into the 120 s timeout. Only when
     // nothing loaded for ~2 s although the tileset is idle, and the camera stands outside the tileset footprint.
     const empty = tiles.tiles.root && tiles.loadedModels === 0 && tiles.tiles.loadProgress >= 1;
