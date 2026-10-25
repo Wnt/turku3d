@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["facades"],
+  "properties": {
+    "facades": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["facade_id", "description", "material", "main_color", "floors", "bays", "confidence", "usable", "problem"],
+        "properties": {
+          "facade_id": {"type": "string"},
+          "description": {"type": "string"},
+          "material": {"type": "string"},
+          "main_color": {"type": "string"},
+          "floors": {"type": ["integer", "null"], "minimum": 0},
+          "bays": {"type": ["integer", "null"], "minimum": 0},
+          "confidence": {"enum": ["high", "medium", "low"]},
+          "usable": {"type": "boolean"},
+          "problem": {"type": "string"}
+        }
+      }
+    }
+  }
+}

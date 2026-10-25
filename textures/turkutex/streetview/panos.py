@@ -19,6 +19,7 @@ Research gotchas applied (docs/research/streetview.md, Verification):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -30,9 +31,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from turku3d import config
-from turku3d.region.cache import atomic_target, synchronized
+from turku3d.region.cache import atomic_target, cache_lock, synchronized
 
-from ..paths import streetview_dir
+from ..paths import streetview_dir, work_root
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -154,6 +155,9 @@ def atomic_json(path: Path, value):
 class PanoCache:
     def __init__(self, root: Path | None = None, sleep: float = 0.2):
         self.root = Path(root) if root else streetview_dir()
+        self.decoded_root = (
+            self.root / "decoded" if root else work_root() / "cache/streetlevel-decoded"
+        )
         self.read_roots = [config.cache_dir("streetview"), config.raw_dir("streetview")]
         self.read_roots += [
             Path(p).expanduser()
@@ -182,6 +186,22 @@ class PanoCache:
                         f"Ignoring invalid reference cache: {path}", RuntimeWarning, stacklevel=2
                     )
         return None
+
+    def decoded_image(self, source: Path) -> np.ndarray:
+        """Memory-map exact decoded pano pixels from the current sandbox cache."""
+        stat = source.stat()
+        identity = f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}"
+        key = hashlib.sha256(identity.encode()).hexdigest()
+        target = self.decoded_root / f"{key}.npy"
+        if not target.is_file():
+            with cache_lock(self.decoded_root):
+                if not target.is_file():
+                    with Image.open(source) as image:
+                        pixels = np.asarray(image.convert("RGB"))
+                    with atomic_target(target) as temporary:
+                        with temporary.open("wb") as stream:
+                            np.save(stream, pixels, allow_pickle=False)
+        return np.load(target, mmap_mode="r", allow_pickle=False)
 
     # ------------------------------ Google ------------------------------
     @synchronized

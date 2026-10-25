@@ -1,8 +1,11 @@
 """Export QA-approved, geometry-matched assets into an assembler lookup tree."""
 
 import argparse
+import fcntl
 import json
 import shutil
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -29,7 +32,25 @@ def matches(a, b):
 def copy(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists() or sha(source) != sha(target):
-        shutil.copy2(source, target)
+        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+        try:
+            shutil.copy2(source, temporary)
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def export_lock(output: Path):
+    """Serialize all writers, including manifest reads and facade publication."""
+    output.mkdir(parents=True, exist_ok=True)
+    with (output / ".export.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def main(argv=None):
@@ -39,9 +60,27 @@ def main(argv=None):
     ap.add_argument("--source", type=Path, required=True, help="staged textures root")
     ap.add_argument("--qa", type=Path, required=True)
     ap.add_argument("--output", type=Path, required=True, help="separate assembler textures root")
+    ap.add_argument(
+        "--merge", action="store_true", help="retain prior bindings; require identical inventory"
+    )
     a = ap.parse_args(argv)
     if a.source.resolve() == a.output.resolve():
         raise ValueError("export must not overwrite production staging")
+    with export_lock(a.output):
+        result = export_assets(a)
+    print(json.dumps(result))
+    return 0
+
+
+def export_assets(a):
+    """Caller holds export_lock for the entire publication transaction."""
+    inventory_hash = sha(a.facades)
+    previous = {}
+    manifest = a.output / "MANIFEST.json"
+    if a.merge and manifest.exists():
+        previous = json.loads(manifest.read_text())
+        if previous.get("inventory_sha256") != inventory_hash:
+            raise ValueError("shared export inventory changed; rebuild into a separate root")
     qa = json.loads(a.qa.read_text())
     if qa["inventory_sha256"] != sha(a.source_inventory):
         raise ValueError("QA inventory hash mismatch")
@@ -72,17 +111,21 @@ def main(argv=None):
         write_json(dest, meta)
         kept.add(dest)
         bound.append(f.id)
-    for old in (a.output / "facades").glob("*/*"):
-        if old.is_file() and old not in kept:
-            old.unlink()
+    if not a.merge:
+        for old in (a.output / "facades").glob("*/*"):
+            if old.is_file() and old not in kept:
+                old.unlink()
     library = []
-    for directory in (a.source / "library").iterdir():
+    for directory in sorted((a.source / "library").glob("*")):
         if directory.is_dir() and material_valid(directory):
             key = safe_id(directory.name)
             for name in ("albedo.ktx2", "normal.ktx2", "orm.ktx2", "material.json"):
                 copy(directory / name, a.output / "library" / key / name)
             library.append(key)
-    result = {"inventory_sha256": sha(a.facades), "bound": bound, "library": sorted(library)}
+    result = {
+        "inventory_sha256": inventory_hash,
+        "bound": sorted(set(previous.get("bound", [])) | set(bound)),
+        "library": sorted(set(previous.get("library", [])) | set(library)),
+    }
     write_json(a.output / "MANIFEST.json", result)
-    print(json.dumps(result))
-    return 0
+    return result

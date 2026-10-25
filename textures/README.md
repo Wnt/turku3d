@@ -28,8 +28,77 @@ removed: it was substantially slower and emitted linear-map primaries incompatib
 
 `streetlevel==0.12.13` is installed with `--no-deps` plus `requirements-streetlevel.txt`; unsupported
 `pyexiv2` is stubbed only in the Street View adapter. DeepBump uses ONNX, not torch.
+Decoded panorama pixels are reused through read-only memory maps in
+`$TURKU3D_WORK/cache/streetlevel-decoded`; the shared compressed panorama cache
+remains the source of truth.
 
 ## AOI workflow
+
+### Direct photo path for the office core
+
+For a quota-light pass, use the authoritative buildings inventory and rectified
+references. `facade_direct` repairs masked occluders from visible bays of the same
+wall, matches broad exposure, and uses the library plinth and roof-edge materials.
+It validates wall coverage and KTX2 output before publishing each facade under
+the additive assembly lock. A wall with no full, geometry-matched reference stays
+unbound with an explicit reason in the contact-sheet JSON. The optional grouped
+label pass uses eight outlined walls per `gpt-6-luna` low-effort call; its runner
+checks the weekly quota before every call and stops at 70%.
+
+```sh
+source ../sandbox.env
+make textures-setup
+make textures-ktx
+FACADES="$TURKU3D_DATA/build/layers/buildings/facades.geojson"
+ASSEMBLY="$TURKU3D_DATA/textures/assembly"
+NEAR="$TURKU3D_WORK/textures/near-120.geojson"
+textures/.venv/bin/python - "$FACADES" "$ASSEMBLY/MANIFEST.json" "$NEAR" <<'PY'
+import json, math, pathlib, sys
+from turku3d import config
+inventory, manifest, output = map(pathlib.Path, sys.argv[1:])
+data = json.loads(inventory.read_text())
+bound = set(json.loads(manifest.read_text())["bound"])
+near = []
+for wall in data["features"]:
+    props = wall["properties"]
+    points = wall["geometry"]["coordinates"]
+    centre = [(points[0][i] + points[-1][i]) / 2 for i in (0, 1)]
+    identity = f"{props['building_id']}_{props['facade_index']}"
+    distance = math.dist(centre, (config.OFFICE_E, config.OFFICE_N))
+    if props.get("street_facing") and distance <= 120 and identity not in bound:
+        near.append((distance, wall))
+data["features"] = [wall for _, wall in sorted(near, key=lambda item: item[0])]
+output.parent.mkdir(parents=True, exist_ok=True)
+output.write_text(json.dumps(data))
+PY
+mkdir -p "$TURKU3D_WORK/textures/library-png"
+for key in plinth_granite roof_standing_seam_metal; do
+  "$TURKU3D_WORK/tools/ktx/bin/ktx" extract --transcode rgba8 \
+    "$ASSEMBLY/library/$key/albedo.ktx2" "$TURKU3D_WORK/textures/library-png/$key.png"
+done
+textures/.venv/bin/python -m turkutex facade-batch refs "$NEAR" \
+  --refs "$TURKU3D_WORK/textures/refs" --sources google,lookaround --ref-workers 3
+textures/.venv/bin/python -m turkutex.facade_direct "$NEAR" \
+  --refs "$TURKU3D_WORK/textures/refs" --staging "$TURKU3D_WORK/textures/direct-staging" \
+  --output "$ASSEMBLY" --library "$TURKU3D_WORK/textures/library-png" \
+  --report-inventory "$FACADES" --contact "$TURKU3D_WORK/reports/facade-contact.html"
+textures/.venv/bin/python -m turkutex.facade_labels "$NEAR" \
+  --refs "$TURKU3D_WORK/textures/refs" --run "$TURKU3D_WORK/textures/label-batch"
+textures/.venv/bin/python -m turkutex.facade_direct "$NEAR" \
+  --refs "$TURKU3D_WORK/textures/refs" --staging "$TURKU3D_WORK/textures/direct-staging" \
+  --output "$ASSEMBLY" --library "$TURKU3D_WORK/textures/library-png" \
+  --labels "$TURKU3D_WORK/textures/label-batch/labels.json" \
+  --report-inventory "$FACADES" --contact "$TURKU3D_WORK/reports/facade-contact.html"
+DEEPBUMP_DIR="$TURKU3D_DATA/tools/DeepBump" \
+textures/.venv/bin/python -m turkutex.facade_repair "$NEAR" \
+  --refs "$TURKU3D_WORK/textures/refs" \
+  --labels "$TURKU3D_WORK/textures/label-batch/labels.json" \
+  --run "$TURKU3D_WORK/textures/repair" \
+  --staging "$TURKU3D_WORK/textures/repair-staging" --output "$ASSEMBLY" --limit 25
+```
+
+The assembly manifest retains earlier bindings; direct staging and reports stay
+in the current sandbox. The bundled label schema records uncertainty explicitly.
 
 Use W1-03's `$TURKU3D_WORK/build/layers/buildings/facades.geojson` as soon as it is available.
 Until then, derive the full four-visual-tile AOI plus margin from the existing footprint extractor:

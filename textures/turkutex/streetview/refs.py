@@ -320,7 +320,7 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
         src = cache.mapillary_image(m)
     else:
         src = cache.lookaround_equirect(m, P.la_zoom)
-    equi = np.asarray(Image.open(src).convert("RGB"))
+    equi = cache.decoded_image(src)
     cam: C.PerspectiveCam = e["cam"]
     img = C.render(equi, equirect_model(m), cam)
     model = equirect_model(m)
