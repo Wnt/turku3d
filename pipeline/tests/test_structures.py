@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 from turku3d.col.materials import mat_id, material_class
+from turku3d.layers import read_collision, read_manifest
 from turku3d.package.gltf import accessor_array, read_glb
 from turku3d.structures.geometry import profile_wall, quay, ramp, stairs
-from turku3d.structures.layer import tile_mesh, write_layer
+from turku3d.structures.layer import write_layer
 from turku3d.structures.survey import Lidar, group_flights
 
 
@@ -98,27 +99,17 @@ def test_ramp_preserves_positions_and_quay_is_closed():
         assert (np.linalg.norm(normals, axis=1) > 0).all()
 
 
-def test_clipping_preserves_surface_area_and_actual_seam_bits():
+def test_whole_object_crosses_grid_without_clipping_or_duplicate_faces(tmp_path):
     mesh = stairs("corner", [60.1234, 2.718, 60.234], [65.567, 4.8, 65.897], 3)[0][0]
-    original = mesh.positions[mesh.indices]
-
-    def area(t):
-        return np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1).sum() / 2
-
-    pieces = tile_mesh(mesh)
-    assert len(pieces) == 4
-    assert sum(area(p[:, :3].reshape(-1, 3, 3)) for p in pieces.values()) == pytest.approx(
-        area(original)
+    out = tmp_path / "structures"
+    write_layer([mesh], out, inputs={}, params={}, metrics={})
+    files = list(out.glob("*.col.npz"))
+    assert len(files) == 1
+    exported = read_collision(files[0])
+    np.testing.assert_array_equal(
+        exported.positions[exported.indices], mesh.positions[mesh.indices]
     )
-    # These are referenced geometry vertices, before any boundary completion.
-    for (i, j), p in pieces.items():
-        for other, axis in [((i + 1, j), 0), ((i, j + 1), 2)]:
-            if other in pieces:
-                coordinate = other[0 if axis == 0 else 1] * 62.5
-                a = np.unique(p[p[:, axis] == coordinate, :3], axis=0)
-                q = pieces[other]
-                b = np.unique(q[q[:, axis] == coordinate, :3], axis=0)
-                assert a.tobytes() == b.tobytes()
+    assert read_manifest(out)["params"]["seams"] == "objects"
 
 
 def test_layer_contract_glb_cache_and_stale_output(tmp_path):
@@ -128,27 +119,18 @@ def test_layer_contract_glb_cache_and_stale_output(tmp_path):
         meshes, out, inputs={"fixture": "abc"}, params={}, metrics=metrics
     )
     assert not cached
-    assert len(list(out.glob("*.vis.glb"))) == 4
+    assert len(list(out.glob("*.vis.glb"))) >= 1
+    assert read_manifest(out)["format"] == "turku3d-layer"
     assert not list(out.glob("*.col"))
-    tiles = {}
+    materials = set()
     for path in out.glob("*.col.npz"):
         with np.load(path, allow_pickle=False) as d:
             assert d["positions"].dtype == np.float64
             assert d["indices"].dtype == np.uint32
             assert d["material"].dtype == np.uint8
             assert len(d["material"]) == len(d["indices"])
-            assert set(d["material"]) == {16, 17, 19}
-            tiles[path.stem.split(".")[0]] = d["positions"]
-    for cid, p in tiles.items():
-        _, i, j = cid.split("_")
-        i, j = int(i), int(j)
-        for other, axis, edge in [
-            (f"c_{i + 1}_{j}", 0, (i + 1) * 62.5),
-            (f"c_{i}_{j + 1}", 2, (j + 1) * 62.5),
-        ]:
-            if other in tiles:
-                q = tiles[other]
-                assert p[p[:, axis] == edge].tobytes() == q[q[:, axis] == edge].tobytes()
+            materials.update(d["material"])
+    assert materials == {16, 17, 19}
     for path in out.glob("*.vis.glb"):
         js, binary = read_glb(path.read_bytes())
         for node in js["nodes"][1:]:
@@ -160,7 +142,7 @@ def test_layer_contract_glb_cache_and_stale_output(tmp_path):
     before = (out / "MANIFEST.json").stat().st_mtime_ns
     assert write_layer(meshes, out, inputs={"fixture": "abc"}, params={}, metrics=metrics)[1]
     assert before == (out / "MANIFEST.json").stat().st_mtime_ns
-    damaged = out / manifest["tiles"][0]
+    damaged = out / next(iter(manifest["tiles"]))
     damaged.write_bytes(b"bad")
     assert not write_layer(meshes, out, inputs={"fixture": "abc"}, params={}, metrics=metrics)[1]
     smaller, metrics = stairs("small", [1, 0, 1], [5, 1, 1], 1)
@@ -195,8 +177,7 @@ def test_ground_barycentric_contact_no_extrapolation(tmp_path):
     from turku3d.structures.inputs import Ground
 
     (ground.root / "quays.json").unlink()
-    with pytest.raises(FileNotFoundError, match="no classified quay"):
-        Ground(ground.root)
+    assert Ground(ground.root).quays == []
 
 
 def test_survey_to_layer_join_and_missing_ramps_are_reported(tmp_path):
@@ -375,3 +356,32 @@ def test_real_barrier_probe_crosses_segment_interior_not_its_open_end(tmp_path):
     route = cases[0]["routes"][0]
     assert route["start"][2] == route["target"][2] == 0
     assert sorted([route["start"][0], route["target"][0]]) == [0, 4]
+
+
+def test_default_scope_is_exact_office_core():
+    from turku3d import config as C
+    from turku3d.structures.inputs import office_bounds
+
+    assert office_bounds() == C.OFFICE_BLOCK.core
+    assert {t.id for t in C.collision_tiles_for_bbox(office_bounds())} == {
+        f"c_{i}_{j}" for i in range(1, 5) for j in range(2, 6)
+    }
+
+
+def test_v1_snapshot_ignores_unlisted_tiles_and_rejects_corruption(tmp_path, monkeypatch):
+    from turku3d.layers import CollisionLayer, write_collision, write_manifest
+    from turku3d.structures.snapshot import snapshot_ground
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    source = tmp_path / "ground"
+    layer = CollisionLayer(
+        np.zeros((3, 3), np.float64), np.array([[0, 1, 2]], np.uint32), np.array([2], np.uint8)
+    )
+    write_collision(source / "c_1_2.col.npz", layer)
+    write_manifest(source, inputs={}, params={}, code="fixture", tiles=["c_1_2.col.npz"])
+    (source / "c_9_9.col.npz").write_bytes(b"unlisted stale data")
+    snapshot, _ = snapshot_ground(source)
+    assert not (snapshot / "c_9_9.col.npz").exists()
+    (source / "c_1_2.col.npz").write_bytes(b"corrupted declared data")
+    with pytest.raises(ValueError, match="differs from its manifest"):
+        snapshot_ground(source)

@@ -19,6 +19,7 @@ from .snapshot import snapshot_ground
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ground-layer", type=Path, default=C.work_root() / "build/layers/ground")
+    ap.add_argument("--area", choices=sorted(C.AREAS), default="office-block")
     a = ap.parse_args(argv)
     start = time.monotonic()
     report_dir = C.work_root() / "reports/structures"
@@ -35,7 +36,7 @@ def main(argv=None):
         print(f"structures: {name} {phase_times[name]:.3f}s", file=sys.stderr, flush=True)
 
     try:
-        bounds = office_bounds()
+        bounds = office_bounds(a.area)
         records = read_surveys(bounds)
         metrics["input_counts"] = dict(Counter(r["code"] for r in records))
         phase("surveys")
@@ -46,7 +47,7 @@ def main(argv=None):
         inputs = {str(p): sha256(p) for p in [*survey_sources(), *ground.paths, *paths]}
         phase("input_hashes")
         out = C.work_root() / "build/layers/structures"
-        params = {"bbox": list(bounds.as_tuple())}
+        params = {"area": a.area, "bbox": list(bounds.as_tuple())}
         manifest = cached_manifest(out, inputs, params)
         if manifest is not None:
             metrics = json.loads((out / "metrics.json").read_text())

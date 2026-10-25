@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.spatial import cKDTree
 from shapely import STRtree, from_wkb, from_wkt
-from shapely.geometry import box
+from shapely import box as boxes
+from shapely.geometry import Point, box
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
@@ -16,15 +16,8 @@ from turku3d.col.materials import mat_id
 from .survey import Lidar
 
 
-# Four visual tiles plus their meshing margin, from the shared grid definitions.
-def office_bounds():
-    tiles = C.OFFICE_BLOCK.visual_tiles
-    return C.BBoxLocal(
-        min(t.bbox.xmin for t in tiles),
-        min(t.bbox.zmin for t in tiles),
-        max(t.bbox.xmax for t in tiles),
-        max(t.bbox.zmax for t in tiles),
-    ).buffered(C.MESH_MARGIN)
+def office_bounds(area="office-block"):
+    return C.AREAS[area].core
 
 
 def local_geometry(value):
@@ -207,17 +200,18 @@ class Ground:
         self.surface = self.triangles[mask]
         if not len(self.surface):
             raise ValueError("ground has no non-water surface")
-        self.centres = self.surface[:, :, [0, 2]].mean(axis=1)
-        self.radii = np.linalg.norm(
-            self.surface[:, :, [0, 2]] - self.centres[:, None, :], axis=2
-        ).max(axis=1)
-        self.tree = cKDTree(self.centres)
-        self.max_radius = float(self.radii.max()) + 1e-8
+        # Query triangle bounds directly: one large river-bed triangle must not
+        # expand every contact query to the maximum radius of the whole AOI.
+        low = self.surface[:, :, [0, 2]].min(axis=1)
+        high = self.surface[:, :, [0, 2]].max(axis=1)
+        self.tree = STRtree(
+            boxes(low[:, 0] - 1e-8, low[:, 1] - 1e-8, high[:, 0] + 1e-8, high[:, 1] + 1e-8)
+        )
         self.quays = self._quays()
 
     def height(self, xz, *, reference=None):
         xz = np.asarray(xz)
-        ids = self.tree.query_ball_point(xz, self.max_radius)
+        ids = self.tree.query(Point(*xz))
         p = self.surface[ids]
         a = p[:, 1][:, [0, 2]] - p[:, 0][:, [0, 2]]
         b = p[:, 2][:, [0, 2]] - p[:, 0][:, [0, 2]]
@@ -253,4 +247,4 @@ class Ground:
                     raise ValueError("invalid ground quay coordinates or elevations")
                 result.append((profile["object_id"], xz, heights.min(axis=1), heights.max(axis=1)))
             return result
-        raise FileNotFoundError("ground has no classified quay profiles: quays.json is required")
+        return []  # Plain ground has no classified quay features; do not invent them.

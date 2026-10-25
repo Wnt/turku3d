@@ -1,4 +1,6 @@
-# W1-02 structures: integration and real acceptance
+# W1-02 structures: historical integration and real acceptance
+
+Latest office-core publication and assembly: [structures-core.md](structures-core.md).
 
 Status: **BLOCKED — full gate is red**, 2026-10-25.
 Landing scope: structures code and synthetic acceptance.

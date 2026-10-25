@@ -15,7 +15,11 @@ def snapshot_ground(source):
         raise FileNotFoundError(f"W1-01 ground layer is required: {manifest_path}")
     manifest_bytes = manifest_path.read_bytes()
     manifest = json.loads(manifest_bytes)
-    paths = sorted(source.glob("*.col.npz"))
+    paths = (
+        [source / name for name in sorted(manifest["tiles"]) if name.endswith(".col.npz")]
+        if manifest.get("format") == "turku3d-layer"
+        else sorted(source.glob("*.col.npz"))
+    )
     if (source / "quays.json").is_file():
         paths.append(source / "quays.json")
     if not paths:
@@ -24,7 +28,9 @@ def snapshot_ground(source):
     hashes = {name: hashlib.sha256(data).hexdigest() for name, data in contents.items()}
     # The producer replaces its manifest last. Reject a mixed generation and let
     # the next build retry, rather than measuring a half-written set of tiles.
-    declared = manifest.get("artifacts", manifest.get("files", {}))
+    declared = dict(manifest.get("artifacts", manifest.get("files", {})))
+    if manifest.get("format") == "turku3d-layer":
+        declared.update({name: entry["sha256"] for name, entry in manifest["tiles"].items()})
     mismatches = [name for name, digest in hashes.items() if declared.get(name, digest) != digest]
     if mismatches:
         raise ValueError(f"ground snapshot differs from its manifest: {mismatches}")
@@ -44,7 +50,9 @@ def snapshot_ground(source):
         "source": str(source),
         "snapshot": str(root),
         "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
-        "code_version": manifest.get("code_version", manifest.get("code_hash")),
+        "code_version": manifest.get(
+            "code", manifest.get("code_version", manifest.get("code_hash"))
+        ),
         "ground_acceptance_passed": manifest.get("acceptance_passed"),
         "files": hashes,
         "manifest_hash_mismatches": [],

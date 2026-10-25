@@ -9,7 +9,7 @@ shared material table.
 # From the worktree, with its sandbox.env already exported:
 scripts/dev/gate
 make -j2 structures-test
-make structures-build
+make structures-build ARGS="--area office-block --ground-layer $TURKU3D_DATA/build/layers/ground"
 # Explicit ground input, if staged at another location:
 make structures-build ARGS="--ground-layer $TURKU3D_WORK/build/layers/ground"
 ```
@@ -29,8 +29,8 @@ Raw inputs are read-only:
 - `raw/osm/work-3x3/work-3x3-261024.parquet`: uncovered `highway=steps` and structural
   barriers. City geometry wins; only uncovered OSM portions are retained. OSM
   steps use their `width` tag or a 2 m default, which needs real-data review.
-- Point clouds in `raw/laz/pistepilvi` or `raw/laz-3x3`: cropped on read to the four
-  office visual tiles plus the configured margin. No CRS is inferred from LAZ.
+- Point clouds in `raw/laz/pistepilvi` or `raw/laz-3x3`: cropped on read to `config.OFFICE_BLOCK.core` (250 m, collision tiles
+  c_1_2 through c_4_5); `--area` selects another configured area. No CRS is inferred from LAZ.
 - `$TURKU3D_WORK/build/layers/ground/MANIFEST.json` and `*.col.npz`: authoritative
   ground contacts and ramp triangles (`material=ramp`). Water is excluded from
   ground contact queries; missing coverage is an error, not a nearest fill.
@@ -39,11 +39,11 @@ The reader consumes W1-01's `ground/quays.json` directly. Each entry contains
 `object_id`, `kind: "quay"`, `centers_xz`, `side_heights` and `normals_xz`. Heights
 are N2000 metres; each station has two measured side elevations. Structures uses
 the lower/upper elevations without repeating the ground classification. An empty
-list explicitly means no classified quays; a missing export is an error. The
+list or missing export means no classified quays, as in plain ground. The
 unused provisional GeoJSON and material-face decoders have been removed.
 
 ```sh
-make structures-build ARGS="--ground-layer $HOME/turku3d/wt/w1-01-ground/work/build/layers/ground"
+make structures-build ARGS="--ground-layer $TURKU3D_DATA/build/layers/ground"
 ```
 
 The producer sandbox is read-only. Before measuring, the build checks artifact
@@ -98,20 +98,20 @@ or unplaceable routes are blocking and retain their measured progress/heights.
   extras contain `layer`, `object_id`, `material_key`, and flight metadata.
   Horizontal UVs follow translated E/N metre axes; wall UVs use along-face and
   above-base metres. Texture binding remains the assembler's responsibility.
-- `MANIFEST.json`: input content hashes, parameters, code hash, status, tile list,
-  and hashes of every output. `BLOCKED` is not ready to ship.
+- `MANIFEST.json`: shared `turku3d-layer` v1 inventory, input hashes, parameters,
+  code hash, tile hashes/sizes and metrics hash. Strict acceptance remains in
+  `metrics.json`; a publishable layer can still have measured acceptance failures.
 - `metrics.json` and `report.md`: object counts, per-object evidence and issues.
 
 Material keys are `stone_stairs`, `concrete_wall`, `metal_fence`, `metal_railing`,
 `granite_quay`, and `concrete_ramp`. Their texture-library assets are a downstream
 integration requirement; the layer GLBs currently use neutral base colours.
 
-Clipping splits each mesh globally against grid planes before assigning cells.
-Canonical intersections are shared bit-for-bit, including four-tile corners. Tile
-boundary vertices where a structure merely touches an adjacent occupied cell are
-retained without duplicate triangles. Assemblers must preserve these boundary
-vertices if validating complete vertex-set seams. Tests also compare the actual
-referenced intersections before that boundary completion and conserve surface area.
+Complete objects belong to the collision and visual tiles containing their footprint
+centroids, with `params.seams=objects`. No grid clipping or face duplication occurs.
+All NPZ, GLB and manifest publication uses `turku3d.layers`; the v1 reader verifies
+these files in the synthetic regression. Cross-grid tests preserve every original
+triangle exactly, including helpers and cheeks.
 
 Unchanged, hash-verified layer products are reused before LAZ decompression; input
 hashing and survey/ground reads still occur. A damaged output is regenerated, and
