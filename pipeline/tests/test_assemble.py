@@ -562,7 +562,7 @@ def test_office_spawn_uses_ground_outside_footprints_and_public_parking(tmp_path
     layer = CollisionLayer(
         np.array(positions, np.float64),
         np.array(indices, np.uint32),
-        np.ones(len(indices), np.uint8),
+        np.full(len(indices), 2, np.uint8),  # sidewalk only: no curbside spot, use parking
     )
     parking = box(x + 12, z + 4, x + 28, z + 15)
     frame = gpd.GeoDataFrame(
@@ -581,3 +581,69 @@ def test_office_spawn_uses_ground_outside_footprints_and_public_parking(tmp_path
     assert result["headingDeg"] == 0  # facing the south facade from the street
     assert result["vehicle"]["osm_id"] == 123
     assert parking.contains(Point(np.array(result["vehicle"]["position"])[[0, 2]]))
+
+
+def test_office_spawn_parks_car_curbside_next_to_player(tmp_path, monkeypatch):
+    from shapely.geometry import Point, box, mapping
+    from turku3d.package import spawn
+
+    root = tmp_path / "layers"
+    buildings = root / "buildings"
+    buildings.mkdir(parents=True)
+    x, z = C.OFFICE_E - C.ORIGIN_E, C.ORIGIN_N - C.OFFICE_N
+    footprint = box(x - 4, z - 4, x + 4, z + 4)
+    (buildings / "footprints.geojson").write_text(
+        json.dumps(
+            dict(
+                turku3d_coords="engine-xz",
+                features=[dict(geometry=mapping(footprint), properties=dict(building_id="office"))],
+            )
+        )
+    )
+    (buildings / "facades.geojson").write_text(
+        json.dumps(
+            dict(
+                features=[
+                    dict(
+                        geometry=dict(
+                            coordinates=[
+                                [C.ORIGIN_E + x - 4, C.ORIGIN_N - z - 4],
+                                [C.ORIGIN_E + x + 4, C.ORIGIN_N - z - 4],
+                            ]
+                        ),
+                        properties=dict(
+                            building_id="office",
+                            object_id="office/facade/0",
+                            street_facing=True,
+                            normal=[0, 0, 1],
+                        ),
+                    )
+                ]
+            )
+        )
+    )
+    positions, indices, materials = [], [], []
+    for a in range(-10, 30):
+        for b in range(-10, 20):
+            n = len(positions)
+            positions.extend(
+                [
+                    [x + a, 3, z + b],
+                    [x + a + 1, 3, z + b],
+                    [x + a, 3, z + b + 1],
+                    [x + a + 1, 3, z + b + 1],
+                ]
+            )
+            indices.extend([[n, n + 2, n + 1], [n + 1, n + 2, n + 3]])
+            materials.extend([1 if 9 <= b <= 14 else 2] * 2)  # road strip south of the sidewalk
+    layer = CollisionLayer(
+        np.array(positions, np.float64), np.array(indices, np.uint32), np.array(materials, np.uint8)
+    )
+    monkeypatch.setattr(spawn, "parking_sources", lambda: [])
+    result = spawn.derive_spawn(root, {"ground": {"c_2_3": layer}})
+    car = np.array(result["vehicle"]["position"])[[0, 2]]
+    feet = np.array(result["position"])[[0, 2]]
+    assert result["vehicle"]["source"] == "curbside road next to the start"
+    assert 2.0 <= np.linalg.norm(car - feet) <= 25.0
+    assert z + 9 <= car[1] <= z + 15
+    assert not footprint.intersects(Point(car).buffer(2.5))

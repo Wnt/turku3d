@@ -75,7 +75,10 @@ def derive_spawn(root, collision):
         raise ValueError("no walkable street-side ground outside office footprints")
     feet, target, facade = selected
     heading = math.degrees(math.atan2(target.x - feet[0], feet[2] - target.y)) % 360
-    vehicle = parking_position(collision["ground"], blockers, feet)
+    street_line = min(street, key=lambda item: item[0].distance(Point(feet[[0, 2]])))[0]
+    vehicle = curbside_position(collision["ground"], blockers, feet, street_line)
+    if vehicle is None:
+        vehicle = parking_position(collision["ground"], blockers, feet)
     if vehicle is None:
         raise ValueError("no mapped public parking with ground and vehicle clearance near office")
     return {
@@ -87,6 +90,53 @@ def derive_spawn(root, collision):
         "source": "ground-triangle-centroids/street-facing-facade",
         "footprints": [f["geometry"] for f in features],
     }
+
+
+def curbside_position(ground, blockers, feet, street_line, max_distance=25.0, min_distance=3.0):
+    """Park the player's car on the road next to the start, aligned with the office street.
+
+    A game start wants the car within a few steps of the player; legal parking may be far away.
+    The car body must lie on flat road triangles, clear of footprints and the player.
+    """
+    road = [m.id for m in table() if m.name == "road"]
+    coords = np.array(street_line.coords)
+    tangent = coords[-1] - coords[0]
+    tangent /= np.linalg.norm(tangent)
+    normal = np.array([-tangent[1], tangent[0]])
+    origin = feet[[0, 2]]
+    surfaces = []
+    candidates = []
+    for layer in ground.values():
+        triangles = layer.positions[layer.indices]
+        centers = triangles.mean(axis=1)
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        distances = np.linalg.norm(centers[:, [0, 2]] - origin, axis=1)
+        flat = normals[:, 1] > np.linalg.norm(normals, axis=1) * 0.98
+        on_road = np.isin(layer.material, road) & flat & (distances < max_distance + 4)
+        surfaces.extend(Polygon(t[:, [0, 2]]) for t in triangles[on_road])
+        keep = on_road & (distances >= min_distance) & (distances <= max_distance)
+        candidates.extend(zip(distances[keep], centers[keep], strict=True))
+    if not surfaces:
+        return None
+    surface = unary_union(surfaces).buffer(0.05)
+    for _, center in sorted(candidates, key=lambda row: row[0]):
+        point = center[[0, 2]]
+        body = Polygon(
+            [
+                point + a * tangent + b * normal
+                for a, b in ((2.5, 1.1), (-2.5, 1.1), (-2.5, -1.1), (2.5, -1.1))
+            ]
+        )
+        if not surface.covers(body) or blockers.intersects(body.buffer(0.5)):
+            continue
+        if body.distance(Point(origin)) < min_distance - 1.0:
+            continue
+        return {
+            "position": center.tolist(),
+            "yaw": math.atan2(-tangent[1], tangent[0]),
+            "source": "curbside road next to the start",
+        }
+    return None
 
 
 def parking_sources():
