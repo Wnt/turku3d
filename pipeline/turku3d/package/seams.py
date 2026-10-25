@@ -16,20 +16,25 @@ def edge_equal(a, b, axis, coordinate):
     def edge(p):
         p = np.unique(p[p[:, axis] == coordinate], axis=0)
         return p[np.lexsort(p.T)].tobytes()
+
     return edge(a) == edge(b)
 
 
 def continuous_positions(tile):
     positions = tile.world_positions()
-    if tile.meta is None or 'continuous_vertices' not in tile.meta:
+    if tile.meta is None or "continuous_vertices" not in tile.meta:
         return positions  # Legacy tiles contained only ground.
-    ranges = tile.meta['continuous_vertices']
-    return np.concatenate([positions[start:start + count] for start, count in ranges]) if ranges else positions[:0]
+    ranges = tile.meta["continuous_vertices"]
+    return (
+        np.concatenate([positions[start : start + count] for start, count in ranges])
+        if ranges
+        else positions[:0]
+    )
 
 
 def verify_seams(root: Path) -> list[str]:
-    manifest = json.loads((root / 'manifest.json').read_text())
-    tiles = {cid: read_col(root / e['url']) for cid, e in manifest['collision'].items()}
+    manifest = json.loads((root / "manifest.json").read_text())
+    tiles = {cid: read_col(root / e["url"]) for cid, e in manifest["collision"].items()}
     return verify_tile_seams(tiles)
 
 
@@ -44,5 +49,5 @@ def verify_tile_seams(tiles) -> list[str]:
             b = continuous_positions(tiles[other.id])
             coordinate = other.origin[axis]
             if not edge_equal(a, b, axis, coordinate):
-                bad.append(f'seam mismatch: {cid}/{other.id}')
+                bad.append(f"seam mismatch: {cid}/{other.id}")
     return bad

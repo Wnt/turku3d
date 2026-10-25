@@ -1,6 +1,6 @@
 # W1-04 assembler verification — 2026-10-25
 
-Branch: `wt/w1-04-assembler`. Shared layer contract was committed first as `9934bd7`.
+Branch: `wt/w1-04-assembler`. Historical pre-rebase commits: shared layer contract first as `9934bd7`.
 Runtime recovery: `553b929`. Layer packaging: `e02b743`. Complete coarse DTM coverage:
 `d71223e`; persistent coarse sibling quadrants: `b103332`.
 
@@ -38,8 +38,8 @@ make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1" TURKU3D_PORT_BASE=5290
   all four L0 seam crossings, textured color/ID/projection passes, and the new outside-AOI
   coarse terrain view all passed. The latter identifies `t1_1_1` ground at the image centre.
 
-`scripts/dev/gate` and repository `AGENTS.md` were not present in this checkout; the brief's
-area-target fallback was used. No tests or thresholds were weakened.
+At this initial verification, `scripts/dev/gate` and repository `AGENTS.md` were not present;
+the brief's area-target fallback was used. No tests or thresholds were weakened.
 
 ## Output measurements
 
@@ -77,6 +77,33 @@ without complete inputs, the assembler uses available published ground for paren
 
 ## Follow-ups
 
-Rebase onto the completed W0 tooling/gate changes when available. Run the same four-tile
-command with the ground, structures and buildings agents' actual published manifests to
+Run the same four-tile command with the ground, structures and buildings agents' actual published manifests to
 measure real L0 budgets and enable their geometry-specific validator checks.
+
+## W0 / Wave 1 integration verification
+
+Rebased the six implementation commits onto main `b3e34d8`, preserving the character/vehicle
+protocol, camera casts, request-capacity optimization, browser isolation, QA and test tags.
+The shared layer helpers remain the first implementation commit (`4a0bf65`).
+
+The gate now generates four explicit synthetic layer tiles and invokes the production assembler,
+with isolated raw/texture roots. Registered the layer/fixture test dependencies and visual Node
+entry point. Restored the now-used `ColFormatError` export, applied Ruff formatting, and aligned
+facade lookup with `$TURKU3D_WORK/textures/facades`. No checks, assertions or time limits changed.
+
+```sh
+source ../sandbox.env
+scripts/dev/gate --base main --json
+make tile-test
+```
+
+The complete gate passed all **19 stages in 267.640 s**: 79 pipeline, 74 game unit, 32 QA Python,
+32 texture, 11 gate and 14 tooling tests; both typechecks, lint, knip, generated data, validator
+and vehicle suites passed. Browser checks passed 18 game routes plus 6 four-tile routes on
+WebGPU/WebGL2. Two outside-AOI coarse tests require real cached terrain and are skipped in the
+offline gate; those views passed in the initial native integration above. One optional DeepBump
+test remains skipped. The focused native packaging target passed **20 tests in 23.90 s**.
+
+Evidence: `$TURKU3D_WORK/reports/rebase-gate-final.json`, `rebase-assembler-tests.log` and
+`rebase-gate-tests.log`. An initial loaded-host run hit the existing 20 s tooling timeout; its
+cache test also observed source edits during hashing. The final fixed-source run passed both.

@@ -52,9 +52,20 @@ def tile_box(tile: C.VisualTile, h: tuple[float, float], bounds=None) -> list[fl
     """3D Tiles frame box (Z-up, Y = north) for tile tL_i_j and height range h."""
     if bounds is not None:
         lo, hi = bounds
-        return [(lo[0]+hi[0])/2, -(lo[2]+hi[2])/2, (lo[1]+hi[1])/2,
-                max(0.001, (hi[0]-lo[0])/2), 0, 0, 0, max(0.001, (hi[2]-lo[2])/2), 0,
-                0, 0, max(1.0, (hi[1]-lo[1])/2)]
+        return [
+            (lo[0] + hi[0]) / 2,
+            -(lo[2] + hi[2]) / 2,
+            (lo[1] + hi[1]) / 2,
+            max(0.001, (hi[0] - lo[0]) / 2),
+            0,
+            0,
+            0,
+            max(0.001, (hi[2] - lo[2]) / 2),
+            0,
+            0,
+            0,
+            max(1.0, (hi[1] - lo[1]) / 2),
+        ]
     s = tile.size
     hmin, hmax = float(h[0]), float(h[1])
     hz = max(1.0, (hmax - hmin) / 2)
@@ -81,32 +92,58 @@ def build_tileset(visual: dict, generator: str) -> dict:
         e = visual[tid]
         t = C.VisualTile.parse(tid)
         box = tile_box(t, e["h"], e.get("bounds"))
-        children.append({"boundingVolume": {"box": box}, "geometricError": GEOMETRIC_ERROR[t.level],
-                         "content": {"uri": e["url"]}, "extras": {"id": tid}})
-    nodes = {node['extras']['id']: node for node in children}
+        children.append(
+            {
+                "boundingVolume": {"box": box},
+                "geometricError": GEOMETRIC_ERROR[t.level],
+                "content": {"uri": e["url"]},
+                "extras": {"id": tid},
+            }
+        )
+    nodes = {node["extras"]["id"]: node for node in children}
     roots = []
     for tid, node in nodes.items():
-        node['refine'] = 'REPLACE'
+        node["refine"] = "REPLACE"
         parent = C.VisualTile.parse(tid).parent()
         if parent and parent.id in nodes:
-            nodes[parent.id].setdefault('children', []).append(node)
+            nodes[parent.id].setdefault("children", []).append(node)
         else:
             roots.append(node)
     children = roots
+
     def union_box(items):
         lo = [min(b[k] - b[(3, 7, 11)[k]] for b in items) for k in range(3)]
         hi = [max(b[k] + b[(3, 7, 11)[k]] for b in items) for k in range(3)]
-        return [(lo[0]+hi[0])/2, (lo[1]+hi[1])/2, (lo[2]+hi[2])/2,
-                (hi[0]-lo[0])/2, 0, 0, 0, (hi[1]-lo[1])/2, 0, 0, 0, (hi[2]-lo[2])/2]
+        return [
+            (lo[0] + hi[0]) / 2,
+            (lo[1] + hi[1]) / 2,
+            (lo[2] + hi[2]) / 2,
+            (hi[0] - lo[0]) / 2,
+            0,
+            0,
+            0,
+            (hi[1] - lo[1]) / 2,
+            0,
+            0,
+            0,
+            (hi[2] - lo[2]) / 2,
+        ]
 
     def expand(node):
-        for child in node.get('children', []):
+        for child in node.get("children", []):
             expand(child)
-        node['boundingVolume']['box'] = union_box([node['boundingVolume']['box']] +
-                                                  [c['boundingVolume']['box'] for c in node.get('children', [])])
+        node["boundingVolume"]["box"] = union_box(
+            [node["boundingVolume"]["box"]]
+            + [c["boundingVolume"]["box"] for c in node.get("children", [])]
+        )
+
     for node in children:
         expand(node)
-    root_box = union_box([n['boundingVolume']['box'] for n in children]) if children else tile_box(C.VisualTile(0, 0, 0), (0, 1))
+    root_box = (
+        union_box([n["boundingVolume"]["box"] for n in children])
+        if children
+        else tile_box(C.VisualTile(0, 0, 0), (0, 1))
+    )
     return {
         "asset": {
             "version": "1.0",

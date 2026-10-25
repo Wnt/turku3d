@@ -285,8 +285,9 @@ Validator Node tests remain Node tests, preserving their cross-language round-tr
 
 Playwright paths are explicitly tagged in the table. Specs use `@walk`, `@drive`, `@render`,
 `@qa`, `@input` and `@pipeline`; the table's `related.tags` selects the affected subsets. A new/unmapped
-browser trigger selects all specs. Both WebGPU and WebGL2 run. The pipeline browser fixture is
-built from synthetic points and a deterministic RGB texture, without reading raw data.
+browser trigger selects all specs. Both WebGPU and WebGL2 run. The pipeline browser fixture publishes four synthetic ground layers with a deterministic RGB texture,
+then runs the production assembler into `.cache/gate-tiles`. Its separate empty input root prevents
+reading shared raw data. This exercises the four L0 seams as well as compression and rendering.
 The long browser stage is deliberately excluded from ordinary pure-core/unit changes.
 
 All caches live in this checkout: `.cache/ruff`, `.cache/eslint`, each TS package's

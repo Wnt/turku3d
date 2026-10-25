@@ -159,7 +159,7 @@ async function assembleVisual(request) {
       fs.writeFileSync(input, t.getImage());
       const temp = dest + `.${process.pid}.tmp.ktx2`;
       const proc = spawnSync('toktx', [...options, temp, input], { encoding:'utf8' });
-      if (proc.status !== 0) throw new Error(`toktx: ${proc.stderr}\n${proc.stdout}`);
+      if (proc.status !== 0) throw new Error(`toktx: ${proc.error?.message ?? proc.stderr}\n${proc.stdout ?? ""}`);
       fs.renameSync(temp, dest);
       fs.unlinkSync(input);
     }

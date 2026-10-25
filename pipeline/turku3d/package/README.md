@@ -21,7 +21,7 @@ To use an explicit layer inventory or texture library:
 ```sh
 bash pipeline/env/run.sh python -m turku3d.package.assemble \
   --layers "$TURKU3D_WORK/build/layers" --out "$TURKU3D_WORK/dist/tiles" \
-  --library textures/library --facades "$TURKU3D_DATA/textures/facades" \
+  --library textures/library --facades "$TURKU3D_WORK/textures/facades" \
   --tile t0_0_0 t0_0_1 t0_1_0 t0_1_1
 ```
 

@@ -98,7 +98,7 @@ interface ReadColOptions {
   onWarning?: (msg: string) => void;
 }
 
-class ColFormatError extends Error {}
+export class ColFormatError extends Error {}
 
 let crcTable: Uint32Array | null = null;
 export function crc32(bytes: Uint8Array, skipFrom = -1, skipTo = -1): number {

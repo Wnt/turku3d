@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from turku3d import config as C
 
 STEP = 1.25  # m; 62.5 / 1.25 = 50 cells per collision tile

@@ -39,7 +39,7 @@ Use `write_visual(path, list[GlbMesh], root_translation=...)` / `read_visual(pat
 Other GLB producers may use the same contract. Embedded images are allowed.
 
 Optional node extras: `surface` = `roof` (retained in coarse LODs), `building_id` and
-`facade_index` select `textures/facades/<building_id>/<facade_index>.ktx2` under the data root;
+`facade_index` select `textures/facades/<building_id>/<facade_index>.ktx2` under `$TURKU3D_WORK`;
 `material_key` remains the building spec's library fallback. Optional facade JSON is provenance,
 not required to render. Library paths are `textures/library/<material_key>/{albedo,normal,orm}.ktx2`.
 PNG/JPEG source maps may be encoded by the assembler. Missing library maps preserve the source

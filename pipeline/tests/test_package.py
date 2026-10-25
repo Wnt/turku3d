@@ -4,13 +4,13 @@ import json
 
 import numpy as np
 import pytest
+from fixtures import ground as G
+from fixtures.stub_tile import CELLS_PER_COL, STEP, build, katualue_material
 from turku3d import config as C
 from turku3d.col import read_col
 from turku3d.col.materials import mat_id
-from fixtures import ground as G
 from turku3d.package import gltf
 from turku3d.package.manifest import DistTree, build_tileset, verify_tree
-from fixtures.stub_tile import build, katualue_material, STEP, CELLS_PER_COL
 
 
 def test_glb_roundtrip_and_root_translation():
@@ -91,7 +91,9 @@ def test_katualue_material_mapping():
 def test_stub_tile_chain_synthetic(tmp_path):
     out = tmp_path / "tiles"
     s = build("t0_0_0", out, synthetic=True, code="test")
-    assert s["collision_tiles"] == 16 and s["visual_tris"] == 2 * int(C.VISUAL_TILE_SIZE / STEP) ** 2
+    assert (
+        s["collision_tiles"] == 16 and s["visual_tris"] == 2 * int(C.VISUAL_TILE_SIZE / STEP) ** 2
+    )
     assert verify_tree(out) == []
     m = json.loads((out / "manifest.json").read_text())
     assert m["format"] == "turku3d-manifest" and m["origin_en"] == [

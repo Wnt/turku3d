@@ -176,7 +176,7 @@ test('character crosses all four L0 seams without a height step', { tag: ['@walk
   await page.screenshot({ path: `${SHOTS}/tile-${info.project.name}-four-seams.png` });
 });
 
-test('coarse terrain remains visible outside the four-tile AOI', async ({ page }, info) => {
+test('coarse terrain remains visible outside the four-tile AOI', { tag: ['@pipeline', '@qa', '@render'] }, async ({ page }, info) => {
   test.skip(!manifest.visual.t1_1_1?.coarse_dtm, 'Requires cached DTM/ortho coverage outside the AOI');
   const bad = watchConsole(page);
   await page.goto(`/?backend=${info.project.name}&tiles=${TILES}&cam=23460250,6703750,70,0,-45,60&qa=1&pass=id`);

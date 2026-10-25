@@ -170,6 +170,12 @@ class GateTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertNotIn("SKIP", output)
             self.assertEqual(run.call_count, 3)
+            fixture_call = run.call_args_list[1]
+            commands, fixture_env = fixture_call.args[1:3]
+            self.assertEqual(commands[0][2], "fixtures.make_layers")
+            self.assertEqual(commands[1][2], "turku3d.package.assemble")
+            self.assertEqual(commands[1][-4:], ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"])
+            self.assertEqual(fixture_env["TURKU3D_DATA"], str(REPO / ".cache/gate-inputs"))
 
     def test_index_snapshot_excludes_unstaged_and_untracked(self):
         f = self.fixture

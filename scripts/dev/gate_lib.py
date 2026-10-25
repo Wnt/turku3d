@@ -167,15 +167,36 @@ def e2e(root, stage, changed, full, env):
             [
                 env["PIPELINE_PY"],
                 "-m",
-                "turku3d.package.stub_tile",
-                "--synthetic",
+                "fixtures.make_layers",
+                "--out",
+                str(root / ".cache/gate-layers"),
+            ],
+            [
+                env["PIPELINE_PY"],
+                "-m",
+                "turku3d.package.assemble",
+                "--layers",
+                str(root / ".cache/gate-layers"),
                 "--out",
                 env["TILE_DIST"],
+                "--library",
+                str(root / ".cache/gate-inputs/library"),
+                "--facades",
+                str(root / ".cache/gate-inputs/facades"),
                 "--tile",
                 "t0_0_0",
-            ]
+                "t0_0_1",
+                "t0_1_0",
+                "t0_1_1",
+            ],
         ],
-        env,
+        {
+            **env,
+            "PYTHONPATH": os.pathsep.join(
+                [env.get("PYTHONPATH", str(root / "pipeline")), str(root / "pipeline/tests")]
+            ),
+            "TURKU3D_DATA": str(root / ".cache/gate-inputs"),
+        },
     )
     output += more
     if code:

@@ -6,13 +6,12 @@ import time
 from pathlib import Path
 
 import numpy as np
-
+from fixtures import ground as G
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
-from fixtures import ground as G
 from turku3d.package.gltf import GlbMesh, build_glb
-from turku3d.package.manifest import DistTree, verify_tree
+from turku3d.package.manifest import DistTree
 
 STEP = 12.5  # Tiny fixtures still exercise all 64 collision tiles and their shared edges.
 CELLS_PER_COL = int(round(C.COLLISION_TILE_SIZE / STEP))
@@ -108,7 +107,9 @@ def build(
     bb = tile.bbox
     n = int(round(tile.size / STEP))
     if not synthetic:
-        raise ValueError('stub fixtures require synthetic=True; use turku3d.package.assemble for layers')
+        raise ValueError(
+            "stub fixtures require synthetic=True; use turku3d.package.assemble for layers"
+        )
     pts = synthetic_points(tile)
     H = G.heightfield(pts, bb.xmin, bb.zmin, n, n, STEP)
     point_count = len(pts)
@@ -119,17 +120,33 @@ def build(
     col_stats = []
     for ct in tile.collision_tiles():
         di, dj = ct.i - tile.i * C.COLLISION_PER_VISUAL, ct.j - tile.j * C.COLLISION_PER_VISUAL
-        sub = H[dj * CELLS_PER_COL: (dj + 1) * CELLS_PER_COL + 1, di * CELLS_PER_COL: (di + 1) * CELLS_PER_COL + 1]
+        sub = H[
+            dj * CELLS_PER_COL : (dj + 1) * CELLS_PER_COL + 1,
+            di * CELLS_PER_COL : (di + 1) * CELLS_PER_COL + 1,
+        ]
         pos, tris = G.grid_mesh(sub, ct.bbox.xmin, ct.bbox.zmin, STEP)
         cen = pos[tris].mean(1)
         m = mats.lookup(cen[:, 0], cen[:, 2])
         # AOI means the playable Phase 1 visual envelope, not each L0 tile separately.
         aoi = {c.id for v in C.OFFICE_BLOCK.visual_tiles for c in v.collision_tiles()}
-        edge = any(C.CollisionTile(ct.i + dx, ct.j + dz).id not in aoi
-                   for dx, dz in ((-1, 0), (1, 0), (0, -1), (0, 1)))
-        ctile = ColTile.for_tile(ct.i, ct.j, pos, tris, m, aoi_border=edge,
-                                 meta={"tile": ct.id, "stub": "phase0-heightfield", "step_m": STEP,
-                                       "source": "synthetic" if synthetic else "maanpinta key points + GIS:Katualueet"})
+        edge = any(
+            C.CollisionTile(ct.i + dx, ct.j + dz).id not in aoi
+            for dx, dz in ((-1, 0), (1, 0), (0, -1), (0, 1))
+        )
+        ctile = ColTile.for_tile(
+            ct.i,
+            ct.j,
+            pos,
+            tris,
+            m,
+            aoi_border=edge,
+            meta={
+                "tile": ct.id,
+                "stub": "phase0-heightfield",
+                "step_m": STEP,
+                "source": "synthetic" if synthetic else "maanpinta key points + GIS:Katualueet",
+            },
+        )
         data = write_col(ctile)
         e = tree.add_collision(
             ct,
@@ -144,7 +161,9 @@ def build(
     # visual: one ground mesh over the whole L0 tile, tile-local, ortho texture
     pos, tris = G.grid_mesh(H, bb.xmin, bb.zmin, STEP)
     local = (pos - np.asarray(tile.origin)).astype(np.float32)
-    uv = np.stack([(pos[:, 0] - bb.xmin) / tile.size, (pos[:, 2] - bb.zmin) / tile.size], 1).astype(np.float32)
+    uv = np.stack([(pos[:, 0] - bb.xmin) / tile.size, (pos[:, 2] - bb.zmin) / tile.size], 1).astype(
+        np.float32
+    )
     img = None
     gid = f"ground_{tile.id}"
     obj = {"kind": "ground", "id": gid, "tile": tile.id, "material": "ground"}
@@ -171,5 +190,3 @@ def build(
         "seconds": round(time.time() - t0, 2),
     }
     return summary
-
-
