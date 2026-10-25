@@ -13,7 +13,7 @@ const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.j
 const dep = (name) => import(pathToFileURL(require.resolve(name)).href);
 const { Document, NodeIO } = await dep('@gltf-transform/core');
 const { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu, KHRTextureTransform } = await dep('@gltf-transform/extensions');
-const { mergeDocuments, unpartition, prune, simplifyPrimitive, getBounds, listTextureSlots } = await dep('@gltf-transform/functions');
+const { mergeDocuments, unpartition, prune, simplifyPrimitive, listTextureSlots } = await dep('@gltf-transform/functions');
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
@@ -82,19 +82,30 @@ async function assembleVisual(request) {
     for (const n of d.getRoot().listNodes()) {
       if (!n.getMesh()) continue;
       const mat = n.getWorldMatrix();
+      const batch = n.getExtension('EXT_mesh_gpu_instancing');
+      const count = batch ? batch.listAttributes()[0].getCount() : 1;
+      const transforms = Array.from({ length: count }, (_, i) => ({
+        t: batch?.getAttribute('TRANSLATION')?.getElement(i, []) ?? [0,0,0],
+        r: batch?.getAttribute('ROTATION')?.getElement(i, []) ?? [0,0,0,1],
+        s: batch?.getAttribute('SCALE')?.getElement(i, []) ?? [1,1,1],
+      }));
       for (const p of n.getMesh().listPrimitives()) {
         const a = p.getAttribute('POSITION');
         const v = [];
-        for (let i=0; i<a.getCount(); i++) {
-          const q = a.getElement(i, []);
-          v.push(...[0,1,2].map(k => mat[k]*q[0]+mat[4+k]*q[1]+mat[8+k]*q[2]+mat[12+k]));
+        for (const { t, r, s } of transforms) for (let i=0; i<a.getCount(); i++) {
+          const q = a.getElement(i, []).map((x,k) => x*s[k]);
+          // Quaternion rotation, then translation, then the complete node world matrix.
+          const uv = [r[1]*q[2]-r[2]*q[1], r[2]*q[0]-r[0]*q[2], r[0]*q[1]-r[1]*q[0]];
+          const uuv = [r[1]*uv[2]-r[2]*uv[1], r[2]*uv[0]-r[0]*uv[2], r[0]*uv[1]-r[1]*uv[0]];
+          const local = q.map((x,k) => x+2*(r[3]*uv[k]+uuv[k])+t[k]);
+          v.push(...[0,1,2].map(k => mat[k]*local[0]+mat[4+k]*local[1]+mat[8+k]*local[2]+mat[12+k]));
         }
         const ix = Array.from(p.getIndices()?.getArray() ?? Uint32Array.from({length:a.getCount()}, (_,i)=>i));
         // Index codec may rotate a triangle cyclically without changing winding.
         for (let i=0;i<ix.length;i+=3) {
           const t=ix.slice(i,i+3), j=t.indexOf(Math.min(...t)); ix.splice(i,3,...t.slice(j),...t.slice(0,j));
         }
-        result.push({ id:n.getExtras().object_id, v, ix });
+        result.push({ id:n.getExtras().object_id, v, ix, instances:count });
       }
     }
     return result;
@@ -150,9 +161,14 @@ async function assembleVisual(request) {
     [zlibConstants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
   } }).length;
   if (request.level === 0 && wire > 8_000_000) throw new Error(`L0 brotli budget exceeded: ${wire}`);
-  const bounds = getBounds(decoded.getRoot().getDefaultScene());
+  // Core getBounds sees only prototype geometry, not EXT_mesh_gpu_instancing transforms.
+  const bounds = { min:[Infinity,Infinity,Infinity], max:[-Infinity,-Infinity,-Infinity] };
+  for (const mesh of after) for (let i=0; i<mesh.v.length; i++) {
+    bounds.min[i%3] = Math.min(bounds.min[i%3],mesh.v[i]);
+    bounds.max[i%3] = Math.max(bounds.max[i%3],mesh.v[i]);
+  }
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
-  fs.writeFileSync(request.stats, JSON.stringify({ tris:after.reduce((s,m)=>s+m.ix.length/3,0), h:[bounds.min[1],bounds.max[1]],
+  fs.writeFileSync(request.stats, JSON.stringify({ tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
     bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()) }));
 
 }

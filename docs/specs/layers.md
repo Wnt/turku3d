@@ -66,3 +66,14 @@ It atomically publishes a deterministic JSON object with `format: "turku3d-layer
 layer, not just this invocation. Readers verify hashes; unlisted/stale files are ignored.
 `read_manifest(directory, verify=True)` rejects unsupported versions and corrupt files.
 Each file is atomically replaced. Producers must not write concurrently with assembly.
+
+## GPU-instanced vegetation
+
+Vegetation may batch a variant/material into a mesh node using required
+`EXT_mesh_gpu_instancing`, with float32 `TRANSLATION`, `ROTATION` (unit xyzw
+quaternion), and positive `SCALE` attributes. Transforms are relative to the node
+and tile root. The usual `layer`, `object_id`, `material_key` strings identify the
+batch; `extras.instance_object_ids` is an ordered array of stable per-tree IDs,
+one per instance. Multiple material nodes for one variant share that ID array.
+The assembler preserves the extension, checks transformed world positions after
+compression, expands bounds over instances, and counts rendered instance triangles.
