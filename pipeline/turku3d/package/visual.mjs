@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { createHash } from 'node:crypto';
+import { externalizeLibraryImages } from './shared_images.mjs';
 
 const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.join(os.homedir(), 'turku3d/tools/npm'), 'package.json'));
 const dep = (name) => import(pathToFileURL(require.resolve(name)).href);
@@ -122,6 +123,30 @@ async function assembleVisual(request) {
   // Cache encoded images independently of tiles. Coarse parents reuse the same GPU textures.
   fs.mkdirSync(request.textureCache, { recursive:true });
   for (const t of doc.getRoot().listTextures()) {
+    if (t.getExtras().facade_normal && t.getMimeType() === 'image/ktx2') {
+      const key = createHash('sha256').update('facade-normal-etc1s-q80-v1').update(t.getImage()).digest('hex');
+      const dest = path.join(request.textureCache, key + '.ktx2');
+      if (!fs.existsSync(dest)) {
+        const source = path.join(request.textureCache, key + '.source.ktx2');
+        const png = path.join(request.textureCache, key + '.png');
+        const temp = dest + `.${process.pid}.tmp.ktx2`;
+        fs.writeFileSync(source, t.getImage());
+        for (const [tool, args] of [
+          ['ktx', ['extract', '--transcode', 'rgb8', source, png]],
+          ['toktx', ['--t2', '--genmipmap', '--threads', '2', '--assign_oetf', 'linear',
+            '--assign_primaries', 'none', '--encode', 'etc1s', '--qlevel', '80', temp, png]],
+          ['ktx', ['validate', '--gltf-basisu', temp]],
+        ]) {
+          const proc = spawnSync(tool, args, { encoding:'utf8' });
+          if (proc.status !== 0) throw new Error(`${tool}: ${proc.error?.message ?? proc.stderr}\n${proc.stdout ?? ''}`);
+        }
+        fs.renameSync(temp, dest);
+        fs.unlinkSync(source);
+        fs.unlinkSync(png);
+      }
+      t.setImage(fs.readFileSync(dest));
+      continue;
+    }
     if (t.getMimeType() === 'image/ktx2') continue;
     const slots = listTextureSlots(t);
     const srgb = slots.some(s => s === 'baseColorTexture' || s === 'emissiveTexture');
@@ -144,10 +169,15 @@ async function assembleVisual(request) {
     t.setImage(fs.readFileSync(dest)).setMimeType('image/ktx2');
     doc.createExtension(KHRTextureBasisu).setRequired(true);
   }
+  const sharedHashes = new Set(doc.getRoot().listTextures()
+    .filter(t => t.getExtras().shared_library)
+    .map(t => createHash('sha256').update(t.getImage()).digest('hex')));
   const packed = doc;
   packed.createExtension(EXTMeshoptCompression).setRequired(true)
     .setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.QUANTIZE });
   await io.write(request.output, packed);
+  const shared = externalizeLibraryImages(request.output, sharedHashes,
+    path.join(path.dirname(path.dirname(request.output)), 'shared'));
   const decoded = await io.read(request.output);
   const after = snapshot(decoded);
   let error = 0;
@@ -172,7 +202,8 @@ async function assembleVisual(request) {
   }
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
   fs.writeFileSync(request.stats, JSON.stringify({ tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
-    bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()) }));
+    bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, shared_images:shared,
+    textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()) }));
 
 }
 for (const request of JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))) await assembleVisual(request);

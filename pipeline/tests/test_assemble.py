@@ -152,6 +152,7 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     assert m["visual"]["t2_0_0"]["tris"] == 3
     for img in glb["images"]:
         assert img["mimeType"] == "image/ktx2"
+        assert img["uri"].startswith("../shared/")
     assert all(
         n["extras"]["kind"] == "building"
         for n in glb["nodes"]
@@ -164,6 +165,9 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     def compression(texture_info):
         tex = glb["textures"][texture_info["index"]]
         image = glb["images"][tex["extensions"]["KHR_texture_basisu"]["source"]]
+        if "uri" in image:
+            data = (out / "visual/0" / image["uri"]).read_bytes()
+            return struct.unpack_from("<I", data, 44)[0]
         bv = glb["bufferViews"][image["bufferView"]]
         return struct.unpack_from("<I", blob, bv.get("byteOffset", 0) + 44)[0]
 
@@ -181,6 +185,11 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     assert before == {p: p.stat().st_mtime_ns for p in out.rglob("*") if p.is_file()}
     # Corrupt output invalidates a cache hit; repair must pass hashes again.
     (out / m["visual"]["t0_0_0"]["url"]).write_bytes(b"broken")
+    assert assemble(["t0_0_0"], layers=layers, out=out, library=library)["changed"]
+    assert verify_tree(out) == []
+    shared = out / m["visual"]["t0_0_0"]["shared_images"][0]["url"]
+    shared.write_bytes(b"broken")
+    assert verify_tree(out)
     assert assemble(["t0_0_0"], layers=layers, out=out, library=library)["changed"]
     assert verify_tree(out) == []
     # Raw staging cannot authorize unique textures, even with a matching filename.
@@ -205,8 +214,11 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     ]:
         tex = glb["textures"][info["index"]]
         img = glb["images"][tex["extensions"]["KHR_texture_basisu"]["source"]]
-        view = glb["bufferViews"][img["bufferView"]]
-        data = blob[view.get("byteOffset", 0) : view.get("byteOffset", 0) + view["byteLength"]]
+        if "uri" in img:
+            data = (out / "visual/0" / img["uri"]).read_bytes()
+        else:
+            view = glb["bufferViews"][img["bufferView"]]
+            data = blob[view.get("byteOffset", 0) : view.get("byteOffset", 0) + view["byteLength"]]
         name = "0.ktx2" if slot == "albedo" else f"0.{slot}.ktx2"
         (facades / "b1" / name).write_bytes(data)
         files[slot], hashes[name] = name, hashlib.sha256(data).hexdigest()
@@ -223,7 +235,7 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     (facades / "b1/0.json").write_text(json.dumps(sidecar))
     kwargs = dict(layers=layers, out=out, library=library, facades=facades)
     assert assemble(["t0_0_0"], **kwargs)["changed"]
-    js, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
+    js, encoded = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
     node = next(n for n in js["nodes"] if n.get("extras", {}).get("object_id") == "facade")
     material = js["materials"][js["meshes"][node["mesh"]]["primitives"][0]["material"]]
     for info in (
@@ -239,6 +251,10 @@ def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
         tex = js["textures"][info["index"]]
         assert js["samplers"][tex["sampler"]]["wrapS"] == 33071
     assert {im.get("name") for im in js["images"]} >= set(files.values())
+    normal_tex = js["textures"][material["normalTexture"]["index"]]
+    normal_image = js["images"][normal_tex["extensions"]["KHR_texture_basisu"]["source"]]
+    normal_view = js["bufferViews"][normal_image["bufferView"]]
+    assert struct.unpack_from("<I", encoded, normal_view["byteOffset"] + 44)[0] == 1
     assert assemble(["t0_0_0"], **kwargs)["changed"] == []
     # A layer republish can change the inventory bytes without changing this facade.
     republished = dict(

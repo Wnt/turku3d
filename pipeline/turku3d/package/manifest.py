@@ -249,4 +249,10 @@ def verify_tree(root: str | Path) -> list[str]:
         b = f.read_bytes()
         if len(b) != e["bytes"] or sha256_bytes(b) != e["sha256"]:
             bad.append(f"hash/size mismatch {e['url']}")
+    for e in {
+        item["url"]: item for tile in m["visual"].values() for item in tile.get("shared_images", [])
+    }.values():
+        f = root / e["url"]
+        if not f.is_file() or sha256_bytes(f.read_bytes()) != e["sha256"]:
+            bad.append(f"missing/hash mismatch {e['url']}")
     return bad

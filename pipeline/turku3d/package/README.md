@@ -65,6 +65,10 @@ Brick, wood and roof tile remain explicit generic approximations. Original `mate
 is retained in node/material extras; `library_material_key` records the chosen library key.
 Untextured inputs retain their source colors. PNG/JPEG maps become ETC1S albedo or UASTC +
 Zstandard linear maps through KTX-Software 4.4.2 **before** lossless meshopt compression.
+Facade normal maps are transcoded to ETC1S at their original resolution and cached by source hash;
+albedo and ORM maps retain their authored encoding. Library KTX2 maps remain UASTC where authored,
+but are published once under `visual/shared/` and referenced by relative URI from each GLB.
+`manifest.json` lists these shared images on each visual entry and verifies their hashes.
 It never invokes `optimize`, simplifies L0 geometry, or quantizes positions.
 The packaged GLB is decoded and compared, and L0 brotli size is limited to 8 MB at quality 5, matching the local server.
 

@@ -370,6 +370,10 @@ def assemble(
         if errors:
             raise ValueError("; ".join(errors))
         # All geometry, budgets and source/decoded seams have passed before publishing anything.
+        shared_dir = stage / "shared"
+        if shared_dir.exists():
+            for asset in shared_dir.iterdir():
+                _atomic_write(out / "visual/shared" / asset.name, asset.read_bytes())
         for tile, (data, stats) in pending_visual.items():
             if data is None:
                 previous = tree.visual.pop(tile.id, None)
@@ -389,6 +393,10 @@ def assemble(
                 wire_bytes=wire_bytes,
                 max_error_m=stats["max_error_m"],
                 bounds=stats["bounds"],
+                shared_images=[
+                    {"url": f"visual/shared/{name}", "sha256": name.removesuffix(".ktx2")}
+                    for name in stats.get("shared_images", [])
+                ],
             )
             if tile.level > 0:
                 entry["coarse_dtm"] = tile.id in coarse_ids
