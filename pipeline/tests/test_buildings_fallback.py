@@ -1,0 +1,92 @@
+"""Fallbacks preserve geometry checks and never invent evidence of accuracy."""
+import numpy as np
+import pytest
+import shapely
+from turku3d.buildings.fallback import lidar_extrusion
+from turku3d.buildings.inputs import Building
+from turku3d.buildings.select import choose
+from turku3d.buildings.shells import make_shell
+from turku3d.buildings.tiles import collision_tiles
+
+
+def test_missing_reconstruction_uses_measured_height():
+    building = Building('missing', shapely.box(0, 0, 10, 10))
+    points = np.array([[2, 8, 2], [3, 8.04, 3], [4, 7.96, 4]])
+    surfaces, evidence = lidar_extrusion(building, points, {'rf_h_ground': 1.})
+    shell, record = choose(building, {'city': [], 'roofer': [], 'lidar_extrusion': surfaces}, points)
+    assert shell is not None and record['pass']
+    assert record['choice'] == 'lidar_extrusion'
+    assert evidence['roof_m'] == 8 and evidence['height_points'] == 3
+    assert evidence['height_source'] == 'class6_inside_footprint'
+    assert not evidence['accuracy_certified']
+    assert shell.hausdorff == 0
+    for tile in collision_tiles([shell], provenance=True).values():
+        assert len(tile['building_index']) == len(tile['indices'])
+        assert (tile['building_index'] == 0).all()
+
+
+def test_nearby_height_does_not_count_as_residual_evidence():
+    building = Building('newer_than_lidar', shapely.box(0, 0, 10, 10))
+    points = np.array([[11, 8, 2], [11.2, 8.04, 3]])
+    surfaces, evidence = lidar_extrusion(building, points, {'rf_h_ground': 1.})
+    shell, record = choose(building, {'lidar_extrusion': surfaces}, points)
+    assert shell is not None and not record['pass']
+    assert record['candidates']['lidar_extrusion']['points'] == 0
+    assert evidence['height_source'] == 'nearest_class6_outside_footprint'
+    assert evidence['nearest_support_distance_m'] == 1
+    with pytest.raises(ValueError, match='no elevated'):
+        lidar_extrusion(building, np.empty((0, 3)), {'rf_h_ground': 1.})
+
+
+def test_fallback_retains_courtyard_and_refuses_unknown_ground():
+    poly = shapely.Polygon([(0, 0), (10, 0), (10, 10), (0, 10)],
+                           [[(3, 3), (3, 7), (7, 7), (7, 3)]])
+    building = Building('courtyard', poly)
+    points = np.array([[1, 8, 1], [5, 30, 5]])
+    surfaces, evidence = lidar_extrusion(building, points, {'rf_h_ground': 0.})
+    shell = make_shell(surfaces, poly)
+    assert shell.footprint.equals(poly)
+    assert evidence['roof_m'] == 8
+    with pytest.raises(ValueError, match='no lidar ground'):
+        lidar_extrusion(building, points, {})
+
+
+def test_surface_distance_measures_facades_as_well_as_roofs():
+    from turku3d.buildings.distance import surface_distances
+    from turku3d.buildings.fallback import extrusion
+    poly = shapely.box(0, 0, 10, 10)
+    shell = make_shell(extrusion(poly, 0, 8), poly)
+    points = np.array([[.03, 4, 5], [5, 8.04, 5], [5, 4, 5], [-3, 8, -4]])
+    np.testing.assert_allclose(surface_distances(shell.positions, shell.indices, points), [.03, .04, 4, 5])
+    _, record = choose(Building('walls', poly), {'city': extrusion(poly, 0, 8)}, points[:2])
+    assert record['pass']
+    assert record['candidates']['city']['metric'] == 'euclidean_point_to_shell'
+    assert not record['candidates']['city']['roof_vertical']['pass']
+
+
+def test_distance_tree_matches_exhaustive_triangle_query():
+    from turku3d.buildings.distance import surface_distances
+    from trimesh.triangles import closest_point
+    rng = np.random.default_rng(103)
+    positions = rng.normal(size=(60, 3))
+    indices = np.arange(60).reshape(-1, 3)
+    points = rng.normal(size=(35, 3))
+    expected = np.full(len(points), np.inf)
+    for tri in positions[indices]:
+        q = closest_point(np.broadcast_to(tri, (len(points), 3, 3)), points)
+        expected = np.minimum(expected, np.linalg.norm(q-points, axis=1))
+    np.testing.assert_allclose(surface_distances(positions, indices, points), expected, atol=1e-12)
+
+
+def test_local_overlap_plane_precedes_distant_building_proxy():
+    building = Building('under_trees', shapely.box(0, 0, 4, 4))
+    x, z = np.meshgrid(np.linspace(.1, 3.9, 12), np.linspace(.1, 3.9, 12))
+    overlap = np.column_stack((x.ravel(), 6+.02*x.ravel(), z.ravel()))
+    distant = np.array([[55, 32, 2], [55.1, 32.1, 3]])
+    surfaces, evidence = lidar_extrusion(building, distant, {'rf_h_ground': 3.}, overlap)
+    assert evidence['height_source'] == 'local_overlap_class12_plane'
+    assert evidence['roof_m'] == pytest.approx(6.04)
+    assert evidence['plane_support_area_ratio'] > .8
+    assert not evidence['accuracy_certified']
+    _, record = choose(building, {'lidar_extrusion': surfaces}, distant)
+    assert not record['pass'] and record['candidates']['lidar_extrusion']['points'] == 0

@@ -17,11 +17,13 @@ def main():
     for f in facets['features']:
         p = f['properties']
         bases[p['building_id']] = min(bases.get(p['building_id'], float('inf')), p['base_height'])
-    data = {'tiles': [], 'footprints': footprints, 'base_heights': bases}
+    data = {'tiles': [], 'footprints': footprints, 'base_heights': bases,
+            'building_ids': report['collision_building_ids']}
     for path in sorted(layer.glob('*.col.npz')):
         with np.load(path) as tile:
             data['tiles'].append({'positions': tile['positions'].ravel().tolist(),
-                                  'indices': tile['indices'].ravel().tolist()})
+                                  'indices': tile['indices'].ravel().tolist(),
+                                  'building_index': tile['building_index'].tolist()})
     cache = C.work_root()/'cache/buildings'
     cache.mkdir(parents=True, exist_ok=True)
     path = cache/'walkers-input.json'

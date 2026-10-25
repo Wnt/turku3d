@@ -2,6 +2,7 @@
 import numpy as np
 import shapely
 from .shells import make_shell
+from .distance import surface_distances
 from turku3d.col.materials import mat_id
 
 
@@ -45,7 +46,14 @@ def choose(building, candidates, points):
     for name, surfaces in sorted(candidates.items()):
         try:
             shell = make_shell(surfaces, building.footprint)
-            fit = residuals(shell, points, building.footprint)
+            vertical = residuals(shell, points, building.footprint)
+            inside = shapely.intersects_xy(building.footprint, points[:, 0], points[:, 2])
+            errors = surface_distances(shell.positions, shell.indices, points[inside])
+            median, p75 = np.quantile(errors, [.5, .75]) if len(errors) else (np.inf, np.inf)
+            fit = {'points': len(errors), 'median_m': float(median) if np.isfinite(median) else None,
+                   'p75_m': float(p75) if np.isfinite(p75) else None,
+                   'pass': bool(median <= .10 and p75 <= .25),
+                   'metric': 'euclidean_point_to_shell', 'roof_vertical': vertical}
             metrics[name] = {**fit, 'triangles': len(shell.indices), 'hausdorff_m': shell.hausdorff,
                              'closed': True}
             # Satisfying BOTH acceptance limits beats any failing candidate, then median/p75.

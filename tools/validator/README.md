@@ -70,7 +70,10 @@ for dependency setup, path selection, caches, sandbox ports and Git hooks.
 `make buildings-validate` checks W1-03 layer NPZ triangles through `src/buildings.ts`;
 no shipped `.col` is created. It uses this validator's `Walker`, 2,000 seeded ten-second
 trials, and a temporary horizontal pad at each shell's base to isolate wall blocking.
+Per-triangle `building_index` provenance indexes `metrics.json.collision_building_ids`.
+Each trial enables only the target building's exported triangles. This gives nested parts
+valid outside starts and prevents an enclosing building from hiding a broken inner wall.
 Missing shells fail coverage and are listed in `missingShells`; existing shells still
 receive the complete 2,000-trial run. Any entry into a footprint fails, even if the walker
 later exits. This does not replace integrated terrain/vehicle/streaming validation.
-The closed/open-wall regression test is included in `make -j2 buildings-test`.
+Closed/open-wall and nested-part masking regressions are included in `make -j2 buildings-test`.

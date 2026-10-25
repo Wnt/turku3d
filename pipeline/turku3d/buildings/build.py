@@ -20,6 +20,8 @@ from . import citygml, roofer
 from .inputs import (attach_osm, envelope, local_polygon, read_footprints, read_points,
                      write_roofer_footprints)
 from .select import choose
+from .fallback import lidar_extrusion
+from .height import overlap_points
 from .facades import make_visuals, ortho_roof_key
 from .tiles import collision_tiles
 
@@ -57,7 +59,7 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
         visuals[tile.id].extend(meshes)
         features.extend(facades)
         accepted.append(shell)
-    for tid, arrays in collision_tiles(accepted).items():
+    for tid, arrays in collision_tiles(accepted, provenance=True).items():
         name = tid + '.col.npz'
         np.savez_compressed(output/name, **arrays)
         files.append(name)
@@ -72,7 +74,9 @@ def _publish(buildings, selected, records, output, streets, ortho_paths, inputs,
                'features': [{'type': 'Feature', 'id': b.id, 'properties': {'id': b.id, 'building_id': b.id,
                             'has_shell': b.id in selected}, 'geometry': mapping(b.footprint)} for b in buildings]})
     report = {'schema_version': 1, 'building_count': len(buildings), 'shell_count': len(selected),
-              'facade_count': len(features), 'pass': bool(buildings) and all(r['pass'] for r in records),
+              'facade_count': len(features), 'shell_coverage_pass': len(selected) == len(buildings) > 0,
+              'collision_building_ids': [b.id for b in buildings if b.id in selected],
+              'fallback_count': sum(r.get('fallback') is not None for r in records), 'pass': bool(buildings) and all(r['pass'] for r in records),
               'buildings': records, 'params': params,
               'walker_validation': {'status': 'not_run', 'reason': 'Run buildings-validate after layer build'}}
     write_json(output/'metrics.json', report)
@@ -170,12 +174,28 @@ def main(argv=None):
                          max(b.xmax for b in all_bounds), max(b.zmax for b in all_bounds))
         points = read_points(laz, bb)
         np.save(points_path, points)
+    missing = [b for b in buildings if reconstruction_metadata.get(b.id, {}).get('rf_pointcloud_unusable')]
+    overlap = overlap_points(laz, missing, cache, point_key) if missing else np.empty((0, 3))
     selected, records = {}, []
     for i, building in enumerate(buildings):
         x0, z0, x1, z1 = building.footprint.bounds
-        keep = (points[:, 0] >= x0) & (points[:, 0] <= x1) & (points[:, 2] >= z0) & (points[:, 2] <= z1)
+        padding = 100 if reconstruction_metadata.get(building.id, {}).get('rf_pointcloud_unusable') else 20
+        keep = ((points[:, 0] >= x0-padding) & (points[:, 0] <= x1+padding)
+                & (points[:, 2] >= z0-padding) & (points[:, 2] <= z1+padding))
         shell, record = choose(building, {'city': city.get(building.id, []),
                                          'roofer': reconstructed.get(building.id, [])}, points[keep])
+        if not record['pass']:
+            reason = 'no_valid_reconstruction' if shell is None else 'residual_limits_exceeded'
+            try:
+                surfaces, evidence = lidar_extrusion(building, points[keep], reconstruction_metadata.get(building.id, {}), overlap)
+                alternatives = {'city': city.get(building.id, []), 'roofer': reconstructed.get(building.id, []),
+                                'lidar_extrusion': surfaces}
+                shell, record = choose(building, alternatives, points[keep])
+                record['fallback'] = {'reason': reason, 'selected': record['choice'] == 'lidar_extrusion',
+                                      'height_evidence': evidence}
+            except ValueError as exc:
+                record['fallback'] = {'reason': reason, 'error': str(exc)}
+        record['shell_valid'] = shell is not None
         record['city_match'] = matches.get(building.id)
         record['roofer_metadata'] = reconstruction_metadata.get(building.id)
         if shell is not None:
@@ -189,10 +209,12 @@ def main(argv=None):
         input_files.append(execution)
     inputs = [{'path': str(p), 'sha256': sha256(p)} for p in input_files]
     params = {'aoi_local': envelope().as_tuple(), 'median_limit_m': .10, 'p75_limit_m': .25,
+              'residual_metric': 'euclidean_point_to_shell',
               'hausdorff_limit_m': .3, 'triangle_limit': 2000, 'roofer_command': command,
               'roof_uv_origin_en': [C.ORIGIN_E, C.ORIGIN_N]}
     output = C.work_root()/'build/layers/buildings'
     report = publish(buildings, selected, records, output, streets, ortho, inputs, params)
-    print(json.dumps({'pass': report['pass'], 'shells': len(selected), 'buildings': len(buildings),
+    print(json.dumps({'pass': report['pass'], 'shell_coverage_pass': report['shell_coverage_pass'],
+                      'fallbacks': report['fallback_count'], 'shells': len(selected), 'buildings': len(buildings),
                       'elapsed_s': round(time.monotonic()-started, 2), 'output': str(output)}), flush=True)
     return 0 if report['pass'] else 1

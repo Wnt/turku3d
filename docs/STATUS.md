@@ -60,10 +60,11 @@ lookup. The reference camera poses have medium confidence and are not lidar-regi
 
 ## Buildings layer (W1-03)
 
-The buildings implementation and [facade contract](specs/facades.md) are available;
-real-data acceptance is **blocked**, not complete. The four-tile envelope plus margin
-contains 71 building and 10 building-part footprints. 62 have validated closed shells,
-57 meet the lidar residual limits. All 119 exported collision seam comparisons pass;
-2,000 Rapier walkers have zero penetrations, but missing/untested coverage still fails.
-See [the measured report](reports/buildings.md) for rejected IDs, timings and commands.
-`make -j2 buildings-test` passes in 5.63 s. This layer is not yet assembled into the game.
+The buildings layer and [facade contract](specs/facades.md) cover all 81 source footprints
+with validated closed shells, including 19 explicit footprint fallbacks. Exact shell-distance
+scoring fixes three of the five former residual failures; 63/81 now meet the unchanged
+10 cm / 25 cm limits. Two retained roofer parts and 16 extrusions remain accuracy-degraded.
+All 137 exported seam comparisons pass, and the maximum clipped shell is 1,800 triangles.
+Per-building collision provenance allows nested parts to be tested independently.
+See [the measured report](reports/buildings.md) for scope, fallback evidence and verification.
+This layer is not yet assembled into the game.

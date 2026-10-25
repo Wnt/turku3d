@@ -1,11 +1,12 @@
 {
-  "collision_tiles": 78,
-  "seam_pairs": 119,
-  "seam_errors": 0,
-  "visual_tiles": 10,
-  "meshes": 6888,
-  "facades": 5817,
-  "street_facing_facades": 600,
-  "shells": 62,
-  "passing_footprints": 57
+  "pass": true,
+  "errors": [],
+  "collision_tiles": 87,
+  "seam_pairs": 137,
+  "shells": 81,
+  "max_clipped_triangles": 1800,
+  "visual_tiles": 12,
+  "meshes": 7479,
+  "facades": 6370,
+  "passing_footprints": 63
 }

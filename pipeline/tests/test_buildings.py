@@ -70,7 +70,7 @@ def test_snap_and_select_on_final_geometry(two_buildings):
     assert record['choice'] == 'roofer'
     assert record['pass']
     assert record['candidates']['roofer']['median_m'] == pytest.approx(.03)
-    assert record['candidates']['city']['median_m'] == pytest.approx(.97)
+    assert record['candidates']['city']['roof_vertical']['median_m'] == pytest.approx(.97)
     assert shell.hausdorff <= .3
     empty = residuals(shell, np.empty((0, 3)), b.footprint)
     assert not empty['pass'] and empty['median_m'] is None
@@ -247,6 +247,20 @@ def test_publish_layer_contract_and_remove_only_stale_owned_files(two_buildings,
     publish(two_buildings, selected, records, out, LineString(), [ortho], [], {})
     assert not (out/'obsolete.col.npz').exists()
     assert (out/'notes.txt').read_text() == 'keep'
+    from turku3d.buildings.audit import audit
+    result = audit(out)
+    assert result['pass'], result['errors']
+    assert result['shells'] == 2
+    assert result['seam_pairs'] > 0
+    path = next(out.glob('*.col.npz'))
+    with np.load(path) as tile:
+        arrays = {key: tile[key].copy() for key in tile.files}
+    for key in ('indices', 'material', 'building_index'):
+        arrays[key] = arrays[key][1:]
+    np.savez_compressed(path, **arrays)
+    broken = audit(out)
+    assert not broken['pass']
+    assert any('not closed' in error for error in broken['errors'])
 
 
 def test_courtyard_facades_are_occluded_by_the_same_building(two_buildings):

@@ -25,9 +25,9 @@ def split_polygon(poly, axis, value, cuts):
     return [np.asarray(p) for p in (lo, hi) if len(p) >= 3]
 
 
-def collision_tiles(shells):
+def collision_tiles(shells, provenance=False):
     buckets, cuts = defaultdict(list), {}
-    for shell in shells:
+    for owner, shell in enumerate(shells):
         for tri, material in zip(shell.positions[shell.indices], shell.material):
             pieces = [tri]
             for axis in (0, 2):
@@ -43,10 +43,12 @@ def collision_tiles(shells):
                 for k in range(1, len(p)-1):
                     t = p[[0, k, k+1]]
                     if np.linalg.norm(np.cross(t[1]-t[0], t[2]-t[0])) > 1e-10:
-                        buckets[tile.id].append((t, material))
+                        buckets[tile.id].append((t, material, owner))
     result = {}
     for tid, items in sorted(buckets.items()):
-        p, inverse = np.unique(np.array([t for t, _ in items]).reshape(-1, 3), axis=0, return_inverse=True)
+        p, inverse = np.unique(np.array([t for t, _, _ in items]).reshape(-1, 3), axis=0, return_inverse=True)
         result[tid] = {'positions': p.astype(np.float64), 'indices': inverse.reshape(-1, 3).astype(np.uint32),
-                       'material': np.array([m for _, m in items], np.uint8)}
+                       'material': np.array([m for _, m, _ in items], np.uint8)}
+        if provenance:
+            result[tid]['building_index'] = np.array([owner for _, _, owner in items], np.uint32)
     return result

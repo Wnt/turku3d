@@ -10,12 +10,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 58103,
           "hausdorff_m": 0.0013911850352021648,
-          "median_m": 0.02842338263934252,
-          "p75_m": 0.09670633801346007,
+          "median_m": 0.026513665694568853,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.0778419517621073,
           "pass": true,
           "points": 58108,
+          "roof_vertical": {
+            "covered": 58103,
+            "median_m": 0.02842338263934252,
+            "p75_m": 0.09670633801346007,
+            "pass": true,
+            "points": 58108
+          },
           "triangles": 752
         }
       },
@@ -71,7 +78,8 @@
         },
         "registry_id": "101640309M",
         "source_feature": "44e578633ee98e938474d698d158e53dc8d6d493"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "102725984D",
@@ -82,12 +90,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 184176,
           "hausdorff_m": 0.04390791916558324,
-          "median_m": 0.03654858753217738,
-          "p75_m": 0.07041462013180322,
+          "median_m": 0.035263652728499496,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06471795942362699,
           "pass": true,
           "points": 184176,
+          "roof_vertical": {
+            "covered": 184176,
+            "median_m": 0.03654858753217738,
+            "p75_m": 0.07041462013180322,
+            "pass": true,
+            "points": 184176
+          },
           "triangles": 828
         }
       },
@@ -180,7 +195,8 @@
         "osm": {},
         "registry_id": "102725984D",
         "source_feature": "3b20179df078adf6ae3a4651cefb53423f6796c6"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032581225",
@@ -191,12 +207,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 380,
           "hausdorff_m": 0.0008276314465664335,
-          "median_m": 0.006564510142100133,
-          "p75_m": 0.011262068209285658,
+          "median_m": 0.00642951430861409,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.011109236530071781,
           "pass": true,
           "points": 381,
+          "roof_vertical": {
+            "covered": 380,
+            "median_m": 0.006564510142100133,
+            "p75_m": 0.011262068209285658,
+            "pass": true,
+            "points": 381
+          },
           "triangles": 12
         }
       },
@@ -246,7 +269,8 @@
         "osm": {},
         "registry_id": "1032581225",
         "source_feature": "0bec1c79b4d0ddd636488d313635a185bfa0cdeb"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277348B",
@@ -255,17 +279,61 @@
           "error": "surface is non-planar by more than 5 cm",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 2.842170943040401e-14,
+          "median_m": 1.2219999999999978,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 1.7556864074033434,
+          "pass": false,
+          "points": 60166,
+          "roof_vertical": {
+            "covered": 60166,
+            "median_m": 1.448999999999998,
+            "p75_m": 2.279,
+            "pass": false,
+            "points": 60166
+          },
+          "triangles": 464
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_908845",
         "footprint_iou": 0.9978448006375292
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 3.9749999046325684,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 60166,
+          "height_range_m": [
+            5.093,
+            31.763
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 27.193
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 1585,
+        "rgb_median": [
+          207.0,
+          210.0,
+          208.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103277348B",
         "rf_extrusion_mode": "standard",
@@ -292,7 +360,33 @@
         "rf_success": true,
         "rf_t_run": 8476,
         "rf_volume_lod22": 37016.6796875
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459738.242848348,
+                6704388.356028955
+              ],
+              "type": "Point"
+            },
+            "osm_id": "5580677372",
+            "tags": {
+              "entrance": "yes"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "4",
+        "osm": {
+          "building:levels": "4",
+          "roof:shape": "quadruple_saltbox"
+        },
+        "registry_id": "103277348B",
+        "source_feature": "8113e6b8bb2a3c9cfd31b347089c092b03b4eb2c"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277350D",
@@ -303,12 +397,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 44031,
           "hausdorff_m": 0.0013890928826167475,
-          "median_m": 0.0575610576798562,
-          "p75_m": 0.11974927462514184,
+          "median_m": 0.052785987931939365,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.09761735186351642,
           "pass": true,
           "points": 44032,
+          "roof_vertical": {
+            "covered": 44031,
+            "median_m": 0.0575610576798562,
+            "p75_m": 0.11974927462514184,
+            "pass": true,
+            "points": 44032
+          },
           "triangles": 340
         }
       },
@@ -420,7 +521,8 @@
         },
         "registry_id": "103277350D",
         "source_feature": "99bd73f156a6befe2e2ae0be86057ad6533f8a88"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277352F",
@@ -431,12 +533,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 48431,
           "hausdorff_m": 0.0013305142681114838,
-          "median_m": 0.03820029544018411,
-          "p75_m": 0.09392939533269384,
+          "median_m": 0.034263258713203036,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.07996027743816597,
           "pass": true,
           "points": 48437,
+          "roof_vertical": {
+            "covered": 48431,
+            "median_m": 0.03820029544018411,
+            "p75_m": 0.09392939533269384,
+            "pass": true,
+            "points": 48437
+          },
           "triangles": 316
         }
       },
@@ -558,7 +667,8 @@
         },
         "registry_id": "103277352F",
         "source_feature": "62eb41e130a4492d923eec02196e1d0c112195a2"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277355K",
@@ -569,12 +679,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 48635,
           "hausdorff_m": 0.0013887660198735078,
-          "median_m": 0.11001770480702788,
-          "p75_m": 0.3063931904767241,
-          "pass": false,
+          "median_m": 0.0750268945684592,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.15922795897293496,
+          "pass": true,
           "points": 48635,
+          "roof_vertical": {
+            "covered": 48635,
+            "median_m": 0.11001770480702788,
+            "p75_m": 0.3063931904767241,
+            "pass": false,
+            "points": 48635
+          },
           "triangles": 1020
         }
       },
@@ -583,7 +700,7 @@
         "city_id": "Building_1155065",
         "footprint_iou": 0.9983403468054098
       },
-      "pass": false,
+      "pass": true,
       "roof": {
         "material_key": "roof_metal_gray",
         "pixels": 1191,
@@ -660,7 +777,8 @@
         },
         "registry_id": "103277355K",
         "source_feature": "e9ee4e19d9e0ba5141ba745d04b612e752e0aac5"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277358N",
@@ -671,12 +789,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 17833,
           "hausdorff_m": 0.0013068461397967932,
-          "median_m": 0.03162059331428679,
-          "p75_m": 0.05715823023176547,
+          "median_m": 0.02850422950056174,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.04946683769216558,
           "pass": true,
           "points": 17833,
+          "roof_vertical": {
+            "covered": 17833,
+            "median_m": 0.03162059331428679,
+            "p75_m": 0.05715823023176547,
+            "pass": true,
+            "points": 17833
+          },
           "triangles": 192
         }
       },
@@ -746,7 +871,8 @@
         },
         "registry_id": "103277358N",
         "source_feature": "298d5dc61e456662713fc810bb210df422c91508"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032773768",
@@ -757,12 +883,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 10402,
           "hausdorff_m": 0.0013958726782324971,
-          "median_m": 0.02458154913523547,
-          "p75_m": 0.05043077972290533,
+          "median_m": 0.023216929856174486,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.04630072297235067,
           "pass": true,
           "points": 10402,
+          "roof_vertical": {
+            "covered": 10402,
+            "median_m": 0.02458154913523547,
+            "p75_m": 0.05043077972290533,
+            "pass": true,
+            "points": 10402
+          },
           "triangles": 148
         }
       },
@@ -818,7 +951,8 @@
         },
         "registry_id": "1032773768",
         "source_feature": "b281d2c558fd2879d2d1ea57d9afaf75fe2735ec"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277378A",
@@ -829,12 +963,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 10477,
           "hausdorff_m": 0.00831815482793145,
-          "median_m": 0.024926721590880163,
-          "p75_m": 0.04562928612151573,
+          "median_m": 0.02152132777032966,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.03917534523372446,
           "pass": true,
           "points": 10479,
+          "roof_vertical": {
+            "covered": 10477,
+            "median_m": 0.024926721590880163,
+            "p75_m": 0.04562928612151573,
+            "pass": true,
+            "points": 10479
+          },
           "triangles": 120
         }
       },
@@ -889,7 +1030,8 @@
         },
         "registry_id": "103277378A",
         "source_feature": "2c9c0a94059b8c316f243feb9ce6b77712b5bff2"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277379B",
@@ -900,12 +1042,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 27645,
           "hausdorff_m": 0.0013896663424005744,
-          "median_m": 0.028824190072628042,
-          "p75_m": 0.060463885063873235,
+          "median_m": 0.025284770328358765,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.052440874431177176,
           "pass": true,
           "points": 27645,
+          "roof_vertical": {
+            "covered": 27645,
+            "median_m": 0.028824190072628042,
+            "p75_m": 0.060463885063873235,
+            "pass": true,
+            "points": 27645
+          },
           "triangles": 492
         }
       },
@@ -961,7 +1110,8 @@
         },
         "registry_id": "103277379B",
         "source_feature": "f75aa401fa7fd73017f4daa847949c76054f0b16"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277385J",
@@ -972,12 +1122,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 88086,
           "hausdorff_m": 0.013069299591138358,
-          "median_m": 0.03912781906011453,
-          "p75_m": 0.1673608800493982,
+          "median_m": 0.0358412178305321,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.12204726769663042,
           "pass": true,
           "points": 88088,
+          "roof_vertical": {
+            "covered": 88086,
+            "median_m": 0.03912781906011453,
+            "p75_m": 0.1673608800493982,
+            "pass": true,
+            "points": 88088
+          },
           "triangles": 1210
         }
       },
@@ -1049,7 +1206,8 @@
         },
         "registry_id": "103277385J",
         "source_feature": "2c29355912e1d13e6834a301a94cb946a703cb6c"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277386K",
@@ -1060,12 +1218,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 37455,
           "hausdorff_m": 0.001388533921087131,
-          "median_m": 0.04421823790607693,
-          "p75_m": 0.17028629695304387,
+          "median_m": 0.04209339187540562,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.1205582907785322,
           "pass": true,
           "points": 37456,
+          "roof_vertical": {
+            "covered": 37455,
+            "median_m": 0.04421823790607693,
+            "p75_m": 0.17028629695304387,
+            "pass": true,
+            "points": 37456
+          },
           "triangles": 384
         }
       },
@@ -1121,7 +1286,8 @@
         },
         "registry_id": "103277386K",
         "source_feature": "7209f82092f1622c40a990ba0de2ba594fcc9f7a"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277387L",
@@ -1130,17 +1296,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": 1.3879999999999981,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 2.565581827845861,
+          "pass": false,
+          "points": 29109,
+          "roof_vertical": {
+            "covered": 29109,
+            "median_m": 2.2659999999999982,
+            "p75_m": 5.443000000000001,
+            "pass": false,
+            "points": 29109
+          },
+          "triangles": 88
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_570551",
         "footprint_iou": 0.9999981007599165
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 2.305000066757202,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 29094,
+          "height_range_m": [
+            7.529,
+            35.261
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 28.987000000000002
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 695,
+        "rgb_median": [
+          184.0,
+          193.0,
+          199.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103277387L",
         "rf_extrusion_mode": "standard",
@@ -1167,7 +1377,60 @@
         "rf_success": true,
         "rf_t_run": 742,
         "rf_volume_lod22": 17754.30078125
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459711.027632024,
+                6704532.41296338
+              ],
+              "type": "Point"
+            },
+            "osm_id": "10314909542",
+            "tags": {
+              "entrance": "yes"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459700.541212715,
+                6704542.257288298
+              ],
+              "type": "Point"
+            },
+            "osm_id": "12985765983",
+            "tags": {
+              "entrance": "yes"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459703.192024004,
+                6704544.0329678655
+              ],
+              "type": "Point"
+            },
+            "osm_id": "4765209340",
+            "tags": {
+              "entrance": "yes",
+              "name": "Forum Eerikinkatu"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "6",
+        "osm": {
+          "building:levels": "6",
+          "roof:shape": "gambrel"
+        },
+        "registry_id": "103277387L",
+        "source_feature": "a2990b71dbcbe7a25372a2013d705ba465c476e9"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277388M",
@@ -1178,12 +1441,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 43143,
           "hausdorff_m": 0.001387553262930332,
-          "median_m": 0.05161410426773472,
-          "p75_m": 0.12042157571749712,
+          "median_m": 0.0447796999694173,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.1006791720145695,
           "pass": true,
           "points": 43143,
+          "roof_vertical": {
+            "covered": 43143,
+            "median_m": 0.05161410426773472,
+            "p75_m": 0.12042157571749712,
+            "pass": true,
+            "points": 43143
+          },
           "triangles": 560
         }
       },
@@ -1238,7 +1508,8 @@
         },
         "registry_id": "103277388M",
         "source_feature": "df327039c46b3209a1d658fce0e892dfc2a17d2b"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103277389N",
@@ -1249,12 +1520,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 50245,
           "hausdorff_m": 0.005633698502269761,
-          "median_m": 0.05961755351662745,
-          "p75_m": 0.11192422873695218,
+          "median_m": 0.05493094219996042,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.09926784276479028,
           "pass": true,
           "points": 50248,
+          "roof_vertical": {
+            "covered": 50245,
+            "median_m": 0.05961755351662745,
+            "p75_m": 0.11192422873695218,
+            "pass": true,
+            "points": 50248
+          },
           "triangles": 316
         }
       },
@@ -1367,7 +1645,8 @@
         },
         "registry_id": "103277389N",
         "source_feature": "3f6989cae473aab3c1e10a4f8cf43768e8e4c90d"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032865761",
@@ -1378,12 +1657,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 23368,
           "hausdorff_m": 0.008821572903885326,
-          "median_m": 0.03193616560433554,
-          "p75_m": 0.0900433928823201,
+          "median_m": 0.026715311252698798,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06665565867605265,
           "pass": true,
           "points": 23368,
+          "roof_vertical": {
+            "covered": 23368,
+            "median_m": 0.03193616560433554,
+            "p75_m": 0.0900433928823201,
+            "pass": true,
+            "points": 23368
+          },
           "triangles": 438
         }
       },
@@ -1453,7 +1739,8 @@
         },
         "registry_id": "1032865761",
         "source_feature": "0937a52336335079d8518e84659e0ec883a21dfc"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032865772",
@@ -1464,12 +1751,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 12812,
           "hausdorff_m": 0.003394593588759342,
-          "median_m": 0.062325251709548724,
-          "p75_m": 0.19745791673979607,
+          "median_m": 0.05305011223095123,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.145524237822045,
           "pass": true,
           "points": 12812,
+          "roof_vertical": {
+            "covered": 12812,
+            "median_m": 0.062325251709548724,
+            "p75_m": 0.19745791673979607,
+            "pass": true,
+            "points": 12812
+          },
           "triangles": 230
         }
       },
@@ -1525,7 +1819,8 @@
         },
         "registry_id": "1032865772",
         "source_feature": "c49d910dfa87d1e9a3c0e96a7178e1b8d0296db9"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032865783",
@@ -1536,12 +1831,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 19864,
           "hausdorff_m": 0.0013902059394677922,
-          "median_m": 0.04623541898924444,
-          "p75_m": 0.18337909945209674,
+          "median_m": 0.03963060387887051,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.11912572882295158,
           "pass": true,
           "points": 19865,
+          "roof_vertical": {
+            "covered": 19864,
+            "median_m": 0.04623541898924444,
+            "p75_m": 0.18337909945209674,
+            "pass": true,
+            "points": 19865
+          },
           "triangles": 234
         }
       },
@@ -1597,7 +1899,8 @@
         },
         "registry_id": "1032865783",
         "source_feature": "6d0efbd0562322d1b67df35f75aba5975bb6586c"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032958849",
@@ -1608,12 +1911,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 32773,
           "hausdorff_m": 0.041592520061738185,
-          "median_m": 0.03609384803770865,
-          "p75_m": 0.08620849526223395,
+          "median_m": 0.03354231244889224,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.07837560088133234,
           "pass": true,
           "points": 32773,
+          "roof_vertical": {
+            "covered": 32773,
+            "median_m": 0.03609384803770865,
+            "p75_m": 0.08620849526223395,
+            "pass": true,
+            "points": 32773
+          },
           "triangles": 424
         }
       },
@@ -1689,7 +1999,8 @@
         },
         "registry_id": "1032958849",
         "source_feature": "06e000faeada528aad7489bfe8236c1db1e664d0"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295888D",
@@ -1700,12 +2011,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 13254,
           "hausdorff_m": 0.0013955441559496662,
-          "median_m": 0.038274765131012245,
-          "p75_m": 0.06776284435004998,
+          "median_m": 0.02796985823830246,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.04937150382802813,
           "pass": true,
           "points": 13254,
+          "roof_vertical": {
+            "covered": 13254,
+            "median_m": 0.038274765131012245,
+            "p75_m": 0.06776284435004998,
+            "pass": true,
+            "points": 13254
+          },
           "triangles": 96
         }
       },
@@ -1761,7 +2079,8 @@
         },
         "registry_id": "103295888D",
         "source_feature": "072376583979c7a3ada76c1834c038b5a5b551c3"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295889E",
@@ -1772,12 +2091,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 5364,
           "hausdorff_m": 0.001961892136602934,
-          "median_m": 0.021747957825756004,
-          "p75_m": 0.0445750314993929,
+          "median_m": 0.01934443902566093,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.03934800737526698,
           "pass": true,
           "points": 5364,
+          "roof_vertical": {
+            "covered": 5364,
+            "median_m": 0.021747957825756004,
+            "p75_m": 0.0445750314993929,
+            "pass": true,
+            "points": 5364
+          },
           "triangles": 112
         }
       },
@@ -1833,7 +2159,8 @@
         },
         "registry_id": "103295889E",
         "source_feature": "800a10a1181250a1bb9a4e9c587073506e7e81d7"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295893K",
@@ -1844,12 +2171,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 18725,
           "hausdorff_m": 0.04050511826245026,
-          "median_m": 0.04554374327902977,
-          "p75_m": 0.08187938444728005,
+          "median_m": 0.0396335640904165,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.07037736122149336,
           "pass": true,
           "points": 18729,
+          "roof_vertical": {
+            "covered": 18725,
+            "median_m": 0.04554374327902977,
+            "p75_m": 0.08187938444728005,
+            "pass": true,
+            "points": 18729
+          },
           "triangles": 204
         }
       },
@@ -1905,7 +2239,8 @@
         },
         "registry_id": "103295893K",
         "source_feature": "1b5c211d289bfab9ea5d69d5fc20fc444f47d921"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295896N",
@@ -1916,12 +2251,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 32623,
           "hausdorff_m": 0.008296206710170227,
-          "median_m": 0.03321163497880519,
-          "p75_m": 0.07767276219590258,
+          "median_m": 0.02945125718313526,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06436561700023169,
           "pass": true,
           "points": 32623,
+          "roof_vertical": {
+            "covered": 32623,
+            "median_m": 0.03321163497880519,
+            "p75_m": 0.07767276219590258,
+            "pass": true,
+            "points": 32623
+          },
           "triangles": 590
         }
       },
@@ -1991,7 +2333,8 @@
         },
         "registry_id": "103295896N",
         "source_feature": "278c6dcd5581edce7d962724402cc5505388917b"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295899S",
@@ -2002,12 +2345,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 44236,
           "hausdorff_m": 0.044102136516805585,
-          "median_m": 0.06198813711056417,
-          "p75_m": 0.20506177497824574,
+          "median_m": 0.040905563432999954,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.10046842667162828,
           "pass": true,
           "points": 44239,
+          "roof_vertical": {
+            "covered": 44236,
+            "median_m": 0.06198813711056417,
+            "p75_m": 0.20506177497824574,
+            "pass": true,
+            "points": 44239
+          },
           "triangles": 1444
         }
       },
@@ -2086,7 +2436,8 @@
         },
         "registry_id": "103295899S",
         "source_feature": "d69037cbae240e82649ffac4c7aaf7fac6b99980"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295900T",
@@ -2097,12 +2448,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 45597,
           "hausdorff_m": 0.011756070374685861,
-          "median_m": 0.029490803127252718,
-          "p75_m": 0.08577761397130601,
+          "median_m": 0.026737265868617004,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06137013411699957,
           "pass": true,
           "points": 45599,
+          "roof_vertical": {
+            "covered": 45597,
+            "median_m": 0.029490803127252718,
+            "p75_m": 0.08577761397130601,
+            "pass": true,
+            "points": 45599
+          },
           "triangles": 510
         }
       },
@@ -2188,7 +2546,8 @@
         },
         "registry_id": "103295900T",
         "source_feature": "cafbdcd48b68bd4fc0de984fb314b9d68160ed54"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295901U",
@@ -2199,12 +2558,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 22978,
           "hausdorff_m": 0.001388533751532154,
-          "median_m": 0.06364717369839745,
-          "p75_m": 0.14971682705051048,
+          "median_m": 0.05307903004274783,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.09677586309552158,
           "pass": true,
           "points": 22978,
+          "roof_vertical": {
+            "covered": 22978,
+            "median_m": 0.06364717369839745,
+            "p75_m": 0.14971682705051048,
+            "pass": true,
+            "points": 22978
+          },
           "triangles": 148
         }
       },
@@ -2300,7 +2666,8 @@
         },
         "registry_id": "103295901U",
         "source_feature": "1316243916db8dc859ae8af7cc288825f998e25a"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295902V",
@@ -2311,12 +2678,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 20582,
           "hausdorff_m": 0.0013936644306370438,
-          "median_m": 0.02009170442658359,
-          "p75_m": 0.05551817599829256,
+          "median_m": 0.01714782323855225,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.03641460809338609,
           "pass": true,
           "points": 20591,
+          "roof_vertical": {
+            "covered": 20582,
+            "median_m": 0.02009170442658359,
+            "p75_m": 0.05551817599829256,
+            "pass": true,
+            "points": 20591
+          },
           "triangles": 202
         }
       },
@@ -2372,7 +2746,8 @@
         },
         "registry_id": "103295902V",
         "source_feature": "27397258b3a93c53af78851c61ac143b32eb46d2"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295903W",
@@ -2383,12 +2758,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 15567,
           "hausdorff_m": 0.0013880027435328362,
-          "median_m": 0.04644529642192907,
-          "p75_m": 0.09306457176876215,
+          "median_m": 0.0424170274598836,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.07749621947588359,
           "pass": true,
           "points": 15571,
+          "roof_vertical": {
+            "covered": 15567,
+            "median_m": 0.04644529642192907,
+            "p75_m": 0.09306457176876215,
+            "pass": true,
+            "points": 15571
+          },
           "triangles": 88
         }
       },
@@ -2461,7 +2843,8 @@
         },
         "registry_id": "103295903W",
         "source_feature": "3ab19abd993eaea09f81e88fafb53bb1e1fb7589"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295904X",
@@ -2472,12 +2855,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 11691,
           "hausdorff_m": 0.001392485917063828,
-          "median_m": 0.007634019308479623,
-          "p75_m": 0.015486161413598154,
+          "median_m": 0.0075388791135071135,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.014954520754847909,
           "pass": true,
           "points": 11692,
+          "roof_vertical": {
+            "covered": 11691,
+            "median_m": 0.007634019308479623,
+            "p75_m": 0.015486161413598154,
+            "pass": true,
+            "points": 11692
+          },
           "triangles": 80
         }
       },
@@ -2552,7 +2942,8 @@
         },
         "registry_id": "103295904X",
         "source_feature": "8bfdf8219bb97ebbdd98d11777801f30a222faae"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103295905Y",
@@ -2563,12 +2954,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 21348,
           "hausdorff_m": 0.0013403396951501155,
-          "median_m": 0.03238680977719177,
-          "p75_m": 0.06079777239747397,
+          "median_m": 0.030975593191056663,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.05604230858397376,
           "pass": true,
           "points": 21354,
+          "roof_vertical": {
+            "covered": 21348,
+            "median_m": 0.03238680977719177,
+            "p75_m": 0.06079777239747397,
+            "pass": true,
+            "points": 21354
+          },
           "triangles": 138
         }
       },
@@ -2624,7 +3022,8 @@
         },
         "registry_id": "103295905Y",
         "source_feature": "a3e0a3d4c4f94fc06fd518140fb9d51c7e8a17f8"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032959060",
@@ -2635,12 +3034,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 22890,
           "hausdorff_m": 0.0013684758302352311,
-          "median_m": 0.04887180160569571,
-          "p75_m": 1.1049286077042098,
-          "pass": false,
+          "median_m": 0.03842709572259595,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.14061759095241405,
+          "pass": true,
           "points": 22891,
+          "roof_vertical": {
+            "covered": 22890,
+            "median_m": 0.04887180160569571,
+            "p75_m": 1.1049286077042098,
+            "pass": false,
+            "points": 22891
+          },
           "triangles": 466
         }
       },
@@ -2649,7 +3055,7 @@
         "city_id": "Building_790282",
         "footprint_iou": 1.0
       },
-      "pass": false,
+      "pass": true,
       "roof": {
         "material_key": "roof_metal_gray",
         "pixels": 491,
@@ -2696,7 +3102,8 @@
         },
         "registry_id": "1032959060",
         "source_feature": "30418271c94590688fc0dd4b0c58d44df2367c57"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1032959104",
@@ -2707,12 +3114,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 21719,
           "hausdorff_m": 0.0013858749794345396,
-          "median_m": 0.022063946163520143,
-          "p75_m": 0.0721204082080984,
+          "median_m": 0.020188035764626293,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.05840039473437346,
           "pass": true,
           "points": 21719,
+          "roof_vertical": {
+            "covered": 21719,
+            "median_m": 0.022063946163520143,
+            "p75_m": 0.0721204082080984,
+            "pass": true,
+            "points": 21719
+          },
           "triangles": 288
         }
       },
@@ -2768,7 +3182,8 @@
         },
         "registry_id": "1032959104",
         "source_feature": "d8a284455e08f2e7837c4d07661733d4d3329575"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046480",
@@ -2779,12 +3194,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 37923,
           "hausdorff_m": 0.0013885039598204982,
-          "median_m": 0.035483706798956405,
-          "p75_m": 0.08777208594820962,
+          "median_m": 0.03204435219535263,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.07101837318475784,
           "pass": true,
           "points": 37925,
+          "roof_vertical": {
+            "covered": 37923,
+            "median_m": 0.035483706798956405,
+            "p75_m": 0.08777208594820962,
+            "pass": true,
+            "points": 37925
+          },
           "triangles": 326
         }
       },
@@ -2893,7 +3315,8 @@
         },
         "registry_id": "1033046480",
         "source_feature": "d9fabee176d27e744f0fa3a0f942f1b1a9762ecd"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046502",
@@ -2904,12 +3327,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 17780,
           "hausdorff_m": 0.0013885010193740086,
-          "median_m": 0.02729991249213981,
-          "p75_m": 0.050837118039984475,
+          "median_m": 0.025955417504257505,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.047384420864078354,
           "pass": true,
           "points": 17781,
+          "roof_vertical": {
+            "covered": 17780,
+            "median_m": 0.02729991249213981,
+            "p75_m": 0.050837118039984475,
+            "pass": true,
+            "points": 17781
+          },
           "triangles": 142
         }
       },
@@ -2965,7 +3395,8 @@
         },
         "registry_id": "1033046502",
         "source_feature": "5589971cdd6fe6d1bf29e057902592623c7c619d"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046557",
@@ -2976,12 +3407,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 49811,
           "hausdorff_m": 0.0013886538426520197,
-          "median_m": 0.024807063585307265,
-          "p75_m": 0.06461120688733302,
+          "median_m": 0.024060559037959266,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.055440046589645776,
           "pass": true,
           "points": 49812,
+          "roof_vertical": {
+            "covered": 49811,
+            "median_m": 0.024807063585307265,
+            "p75_m": 0.06461120688733302,
+            "pass": true,
+            "points": 49812
+          },
           "triangles": 250
         }
       },
@@ -3036,7 +3474,8 @@
         },
         "registry_id": "1033046557",
         "source_feature": "5daabcfe71bb639a52762a68d9698e859870b86c"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046579",
@@ -3047,12 +3486,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 33731,
           "hausdorff_m": 0.002045891691995186,
-          "median_m": 0.025030827105528175,
-          "p75_m": 0.07109599311915105,
+          "median_m": 0.023565256524375165,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.05930436247707077,
           "pass": true,
           "points": 33733,
+          "roof_vertical": {
+            "covered": 33731,
+            "median_m": 0.025030827105528175,
+            "p75_m": 0.07109599311915105,
+            "pass": true,
+            "points": 33733
+          },
           "triangles": 264
         }
       },
@@ -3107,7 +3553,8 @@
         },
         "registry_id": "1033046579",
         "source_feature": "6e0c6f1bdebde311d52b3e0c98191977dc02b320"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304658A",
@@ -3118,12 +3565,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 36465,
           "hausdorff_m": 0.008416333216313417,
-          "median_m": 0.026998166712449034,
-          "p75_m": 0.051434425138033646,
+          "median_m": 0.024838468360960285,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.04653380207764386,
           "pass": true,
           "points": 36465,
+          "roof_vertical": {
+            "covered": 36465,
+            "median_m": 0.026998166712449034,
+            "p75_m": 0.051434425138033646,
+            "pass": true,
+            "points": 36465
+          },
           "triangles": 374
         }
       },
@@ -3206,7 +3660,8 @@
         },
         "registry_id": "103304658A",
         "source_feature": "3e1674830009d0852925ed06bb1d407a53e82005"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304659B",
@@ -3217,12 +3672,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 20523,
           "hausdorff_m": 0.013577910944183882,
-          "median_m": 0.029854832516216234,
-          "p75_m": 0.1037018735685713,
+          "median_m": 0.024864158501661824,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.05726414183320923,
           "pass": true,
           "points": 20523,
+          "roof_vertical": {
+            "covered": 20523,
+            "median_m": 0.029854832516216234,
+            "p75_m": 0.1037018735685713,
+            "pass": true,
+            "points": 20523
+          },
           "triangles": 296
         }
       },
@@ -3278,7 +3740,8 @@
         },
         "registry_id": "103304659B",
         "source_feature": "c37463c7b18bfd9e62ea4241be6e01551bc47857"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304661D",
@@ -3287,17 +3750,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": 0.8236742907794725,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 1.4556182467898973,
+          "pass": false,
+          "points": 19038,
+          "roof_vertical": {
+            "covered": 19038,
+            "median_m": 1.113500000000002,
+            "p75_m": 1.9164999999999992,
+            "pass": false,
+            "points": 19038
+          },
+          "triangles": 120
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_822801",
         "footprint_iou": 0.999992503494863
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 4.0289998054504395,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 19028,
+          "height_range_m": [
+            5.039,
+            21.303
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 15.2625
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 510,
+        "rgb_median": [
+          188.0,
+          199.0,
+          206.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103304661D",
         "rf_extrusion_mode": "standard",
@@ -3324,7 +3831,19 @@
         "rf_success": true,
         "rf_t_run": 195,
         "rf_volume_lod22": 5653.94677734375
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "muu materiaali",
+        "levels": "2",
+        "osm": {
+          "building:levels": "2.5",
+          "roof:shape": "gabled"
+        },
+        "registry_id": "103304661D",
+        "source_feature": "2645b1367a58e71701744a23d01263a4356c2797"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304665J",
@@ -3335,12 +3854,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 8423,
           "hausdorff_m": 0.01037111041910638,
-          "median_m": 0.017891743711826003,
-          "p75_m": 0.03998586338938459,
+          "median_m": 0.01663117734640747,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.03671708975583033,
           "pass": true,
           "points": 8426,
+          "roof_vertical": {
+            "covered": 8423,
+            "median_m": 0.017891743711826003,
+            "p75_m": 0.03998586338938459,
+            "pass": true,
+            "points": 8426
+          },
           "triangles": 72
         }
       },
@@ -3395,7 +3921,8 @@
         },
         "registry_id": "103304665J",
         "source_feature": "f446c619cd26ae054791ecdc54947077d7536a56"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304666K",
@@ -3406,12 +3933,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 131334,
           "hausdorff_m": 0.004857168885931825,
-          "median_m": 0.047455228899234925,
-          "p75_m": 0.12399112429530668,
+          "median_m": 0.04539952236780063,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.108572336091921,
           "pass": true,
           "points": 131334,
+          "roof_vertical": {
+            "covered": 131334,
+            "median_m": 0.047455228899234925,
+            "p75_m": 0.12399112429530668,
+            "pass": true,
+            "points": 131334
+          },
           "triangles": 774
         }
       },
@@ -3510,7 +4044,8 @@
         },
         "registry_id": "103304666K",
         "source_feature": "41fbbf4c45d51a12e40f7ee0bd8032f5b0f0698e"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304667L",
@@ -3521,12 +4056,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 30009,
           "hausdorff_m": 0.0013895350711180755,
-          "median_m": 0.042904022066649006,
-          "p75_m": 0.10203046126374016,
+          "median_m": 0.04065503875476739,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.08678502404565824,
           "pass": true,
           "points": 30011,
+          "roof_vertical": {
+            "covered": 30009,
+            "median_m": 0.042904022066649006,
+            "p75_m": 0.10203046126374016,
+            "pass": true,
+            "points": 30011
+          },
           "triangles": 262
         }
       },
@@ -3582,7 +4124,8 @@
         },
         "registry_id": "103304667L",
         "source_feature": "00f596a21b35ea2efc2d793c74a7f83952bd34d8"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304668M",
@@ -3593,12 +4136,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 19763,
           "hausdorff_m": 0.0013920902187437938,
-          "median_m": 0.03037962624770696,
-          "p75_m": 0.08296586755469049,
+          "median_m": 0.028267440218693443,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06811951445271246,
           "pass": true,
           "points": 19764,
+          "roof_vertical": {
+            "covered": 19763,
+            "median_m": 0.03037962624770696,
+            "p75_m": 0.08296586755469049,
+            "pass": true,
+            "points": 19764
+          },
           "triangles": 160
         }
       },
@@ -3654,7 +4204,8 @@
         },
         "registry_id": "103304668M",
         "source_feature": "728513e22cc94a5f2bcb28e56189f1cea6c20aec"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304670P",
@@ -3665,12 +4216,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 70554,
           "hausdorff_m": 0.0008231773248389359,
-          "median_m": 0.07510789830920839,
-          "p75_m": 0.1277498676726201,
+          "median_m": 0.067326536803853,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.11341101345061819,
           "pass": true,
           "points": 70554,
+          "roof_vertical": {
+            "covered": 70554,
+            "median_m": 0.07510789830920839,
+            "p75_m": 0.1277498676726201,
+            "pass": true,
+            "points": 70554
+          },
           "triangles": 168
         }
       },
@@ -3874,7 +4432,8 @@
         },
         "registry_id": "103304670P",
         "source_feature": "269ab5028b71f717dff44f8edb4398f170d7b5fb"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304671R",
@@ -3883,17 +4442,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 1.4210854715202004e-14,
+          "median_m": 1.4135000000000026,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 2.7204531778072334,
+          "pass": false,
+          "points": 52476,
+          "roof_vertical": {
+            "covered": 52476,
+            "median_m": 2.3525000000000027,
+            "p75_m": 3.6164999999999985,
+            "pass": false,
+            "points": 52476
+          },
+          "triangles": 96
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_568735",
         "footprint_iou": 0.9999928019602757
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 4.310999870300293,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 52286,
+          "height_range_m": [
+            5.312,
+            26.957
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 17.764499999999998
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 1437,
+        "rgb_median": [
+          179.0,
+          177.0,
+          170.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103304671R",
         "rf_extrusion_mode": "standard",
@@ -3920,7 +4523,19 @@
         "rf_success": true,
         "rf_t_run": 779,
         "rf_volume_lod22": 19634.16796875
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "muu materiaali",
+        "levels": "3",
+        "osm": {
+          "building:levels": "3",
+          "roof:shape": "flat"
+        },
+        "registry_id": "103304671R",
+        "source_feature": "723d0a272d36b5ba6a5bb628a977d6661fa143c8"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304672S",
@@ -3931,12 +4546,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 18227,
           "hausdorff_m": 0.0013315850837872685,
-          "median_m": 0.036898911528442824,
-          "p75_m": 0.24350994500872503,
+          "median_m": 0.02984040936507331,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.07835799228874833,
           "pass": true,
           "points": 18229,
+          "roof_vertical": {
+            "covered": 18227,
+            "median_m": 0.036898911528442824,
+            "p75_m": 0.24350994500872503,
+            "pass": true,
+            "points": 18229
+          },
           "triangles": 100
         }
       },
@@ -3992,7 +4614,8 @@
         },
         "registry_id": "103304672S",
         "source_feature": "cf22b63f2a9ffa2bb605457e2f0e167df309bb8e"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304673T",
@@ -4001,17 +4624,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": 2.421999999999997,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 3.439293183110156,
+          "pass": false,
+          "points": 147365,
+          "roof_vertical": {
+            "covered": 147365,
+            "median_m": 3.1839999999999975,
+            "p75_m": 3.521000000000001,
+            "pass": false,
+            "points": 147365
+          },
+          "triangles": 104
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_356326501",
         "footprint_iou": 0.9999954493487642
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 7.618000030517578,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 142100,
+          "height_range_m": [
+            8.619,
+            29.711000000000002
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 20.987000000000002
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 3704,
+        "rgb_median": [
+          154.0,
+          161.0,
+          170.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103304673T",
         "rf_extrusion_mode": "standard",
@@ -4038,29 +4705,72 @@
         "rf_success": true,
         "rf_t_run": 5988,
         "rf_volume_lod22": 51477.046875
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459471.450855166,
+                6704561.960478948
+              ],
+              "type": "Point"
+            },
+            "osm_id": "5107508763",
+            "tags": {
+              "access": "yes",
+              "door": "sliding",
+              "entrance": "yes",
+              "level": "0"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "3",
+        "osm": {
+          "building:levels": "4",
+          "roof:shape": "many"
+        },
+        "registry_id": "103304673T",
+        "source_feature": "4c836033a04033091c38c82d14245dd36b521bd7"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304674U",
       "candidates": {
         "city": {
           "closed": true,
-          "covered": 16355,
           "hausdorff_m": 9.898034367863707e-06,
-          "median_m": 0.08256061017582894,
-          "p75_m": 0.19399999999999906,
+          "median_m": 0.07589247846298583,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.19118840674037763,
           "pass": true,
           "points": 16355,
+          "roof_vertical": {
+            "covered": 16355,
+            "median_m": 0.08256061017582894,
+            "p75_m": 0.19399999999999906,
+            "pass": true,
+            "points": 16355
+          },
           "triangles": 162
         },
         "roofer": {
           "closed": true,
-          "covered": 16353,
           "hausdorff_m": 0.008752892337916578,
-          "median_m": 0.026828813861861533,
-          "p75_m": 0.05393764308864846,
+          "median_m": 0.024818725635115196,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.049668618716609644,
           "pass": true,
           "points": 16355,
+          "roof_vertical": {
+            "covered": 16353,
+            "median_m": 0.026828813861861533,
+            "p75_m": 0.05393764308864846,
+            "pass": true,
+            "points": 16355
+          },
           "triangles": 208
         }
       },
@@ -4116,7 +4826,8 @@
         },
         "registry_id": "103304674U",
         "source_feature": "a2e03aef6011c7b25d18ba67cfe9a4a90c03788c"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304675V",
@@ -4127,12 +4838,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 49573,
           "hausdorff_m": 0.00139128056208916,
-          "median_m": 0.02807651652979004,
-          "p75_m": 0.05630328304549792,
+          "median_m": 0.026885267067237997,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.052826464750459004,
           "pass": true,
           "points": 49573,
+          "roof_vertical": {
+            "covered": 49573,
+            "median_m": 0.02807651652979004,
+            "p75_m": 0.05630328304549792,
+            "pass": true,
+            "points": 49573
+          },
           "triangles": 296
         }
       },
@@ -4236,7 +4954,8 @@
         },
         "registry_id": "103304675V",
         "source_feature": "2a712c395826d3dd7b96ec273c07a303a82e8293"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304676W",
@@ -4245,17 +4964,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": 0.8460000000000001,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 2.1219284231200604,
+          "pass": false,
+          "points": 84262,
+          "roof_vertical": {
+            "covered": 84262,
+            "median_m": 1.3589999999999982,
+            "p75_m": 3.0549999999999997,
+            "pass": false,
+            "points": 84262
+          },
+          "triangles": 104
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_568733",
         "footprint_iou": 0.9999940984865453
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 5.040999889373779,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 82115,
+          "height_range_m": [
+            6.048,
+            27.75
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 21.32
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 2096,
+        "rgb_median": [
+          170.0,
+          172.0,
+          175.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103304676W",
         "rf_extrusion_mode": "standard",
@@ -4282,7 +5045,75 @@
         "rf_success": true,
         "rf_t_run": 3876,
         "rf_volume_lod22": 34572.15625
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459577.807677466,
+                6704480.254195617
+              ],
+              "type": "Point"
+            },
+            "osm_id": "5107508748",
+            "tags": {
+              "access": "yes",
+              "addr:housenumber": "13",
+              "addr:street": "Eerikinkatu",
+              "door": "sliding",
+              "entrance": "yes",
+              "level": "0",
+              "name": "Hansa Eerikinkatu 13"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459591.00089015,
+                6704493.010580372
+              ],
+              "type": "Point"
+            },
+            "osm_id": "7124290548",
+            "tags": {
+              "access": "permissive",
+              "bicycle": "no",
+              "entrance": "exit",
+              "foot": "no",
+              "motor_vehicle": "permissive"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459589.486115277,
+                6704532.907929719
+              ],
+              "type": "Point"
+            },
+            "osm_id": "3217083115",
+            "tags": {
+              "access": "yes",
+              "addr:housenumber": "10",
+              "addr:street": "Aurakatu",
+              "door": "sliding",
+              "entrance": "yes",
+              "level": "0",
+              "name": "Hansa Aurakatu 10"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "3",
+        "osm": {
+          "building:levels": "3",
+          "roof:shape": "many"
+        },
+        "registry_id": "103304676W",
+        "source_feature": "c877fdec1c8ffdeb2be43a1ceff715b3fa4cdcf0"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304677X",
@@ -4293,12 +5124,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 74637,
           "hausdorff_m": 0.001555366529599516,
-          "median_m": 0.05567435394787523,
-          "p75_m": 0.1113821948999183,
+          "median_m": 0.049591079342020956,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.09744538423418536,
           "pass": true,
           "points": 74639,
+          "roof_vertical": {
+            "covered": 74637,
+            "median_m": 0.05567435394787523,
+            "p75_m": 0.1113821948999183,
+            "pass": true,
+            "points": 74639
+          },
           "triangles": 558
         }
       },
@@ -4446,7 +5284,8 @@
         },
         "registry_id": "103304677X",
         "source_feature": "086a645289e7b848e9383d31a7e71fb8fb4ba5ef"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103304678Y",
@@ -4455,17 +5294,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": 1.2079999999999984,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 2.279,
+          "pass": false,
+          "points": 78717,
+          "roof_vertical": {
+            "covered": 78717,
+            "median_m": 1.3199999999999967,
+            "p75_m": 3.0450000000000017,
+            "pass": false,
+            "points": 78717
+          },
+          "triangles": 88
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_568540",
         "footprint_iou": 0.999992775506284
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 5.263999938964844,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 78468,
+          "height_range_m": [
+            6.9030000000000005,
+            27.619
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 21.025000000000002
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 1891,
+        "rgb_median": [
+          159.0,
+          168.0,
+          176.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103304678Y",
         "rf_extrusion_mode": "standard",
@@ -4492,7 +5375,19 @@
         "rf_success": true,
         "rf_t_run": 5915,
         "rf_volume_lod22": 30657.3828125
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "muu materiaali",
+        "levels": "3",
+        "osm": {
+          "building:levels": "3",
+          "roof:shape": "many"
+        },
+        "registry_id": "103304678Y",
+        "source_feature": "52b2f43339f9991318e18e608a672b0608068f85"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046801",
@@ -4501,17 +5396,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 3.552713678800501e-15,
+          "median_m": 2.676000000000002,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 4.0020000000000024,
+          "pass": false,
+          "points": 156572,
+          "roof_vertical": {
+            "covered": 156572,
+            "median_m": 3.1590000000000025,
+            "p75_m": 4.344999999999999,
+            "pass": false,
+            "points": 156572
+          },
+          "triangles": 240
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_95579",
         "footprint_iou": 0.9999964568145575
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 5.013999938964844,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 154537,
+          "height_range_m": [
+            6.017,
+            31.45
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 18.435
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 3885,
+        "rgb_median": [
+          164.0,
+          168.0,
+          172.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "1033046801",
         "rf_extrusion_mode": "standard",
@@ -4538,7 +5477,39 @@
         "rf_success": true,
         "rf_t_run": 17589,
         "rf_volume_lod22": 54275.828125
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459550.36853927,
+                6704461.550487318
+              ],
+              "type": "Point"
+            },
+            "osm_id": "5107508775",
+            "tags": {
+              "access": "yes",
+              "addr:housenumber": "15",
+              "addr:street": "Eerikinkatu",
+              "door": "sliding",
+              "entrance": "yes",
+              "level": "0",
+              "name": "Hansa Eeirikinkatu 15"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "3",
+        "osm": {
+          "building:levels": "3",
+          "roof:shape": "many"
+        },
+        "registry_id": "1033046801",
+        "source_feature": "8f2c7c3140ff93de5a5a235c677d6c2f48ca0ffa"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046812",
@@ -4547,17 +5518,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 3.972054645195637e-15,
+          "median_m": 3.6110000000000007,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 3.803000000000001,
+          "pass": false,
+          "points": 141371,
+          "roof_vertical": {
+            "covered": 141371,
+            "median_m": 3.710000000000001,
+            "p75_m": 4.829000000000001,
+            "pass": false,
+            "points": 141371
+          },
+          "triangles": 88
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_568597",
         "footprint_iou": 0.999997295748259
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 5.611999988555908,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 141371,
+          "height_range_m": [
+            7.221,
+            34.422000000000004
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 25.671
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 3685,
+        "rgb_median": [
+          154.0,
+          162.0,
+          170.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "1033046812",
         "rf_extrusion_mode": "standard",
@@ -4584,7 +5599,49 @@
         "rf_success": true,
         "rf_t_run": 5121,
         "rf_volume_lod22": 75868.5703125
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459428.791509546,
+                6704478.275283986
+              ],
+              "type": "Point"
+            },
+            "osm_id": "11841836626",
+            "tags": {
+              "entrance": "staircase"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459417.6934877,
+                6704525.378042873
+              ],
+              "type": "Point"
+            },
+            "osm_id": "13226799947",
+            "tags": {
+              "addr:city": "Turku",
+              "addr:housenumber": "22",
+              "addr:postcode": "20100",
+              "addr:street": "Yliopistonkatu",
+              "entrance": "main"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "3",
+        "osm": {
+          "building:levels": "3"
+        },
+        "registry_id": "1033046812",
+        "source_feature": "2b23a679434bf9e06d667166a46263856dc18717"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046823",
@@ -4595,12 +5652,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 76390,
           "hausdorff_m": 0.0013908982278273278,
-          "median_m": 0.030591073315642703,
-          "p75_m": 0.08261125020791305,
+          "median_m": 0.029965754929343186,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.07585863061609126,
           "pass": true,
           "points": 76390,
+          "roof_vertical": {
+            "covered": 76390,
+            "median_m": 0.030591073315642703,
+            "p75_m": 0.08261125020791305,
+            "pass": true,
+            "points": 76390
+          },
           "triangles": 436
         }
       },
@@ -4688,7 +5752,8 @@
         },
         "registry_id": "1033046823",
         "source_feature": "4e23f3caeb79e4c5d13bfc2b70dbcf74d2381cfc"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1033046845",
@@ -4699,12 +5764,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 123934,
           "hausdorff_m": 0.0013892297774872363,
-          "median_m": 0.028311720027353715,
-          "p75_m": 0.06354431012432293,
+          "median_m": 0.02793177820198513,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06158866501299076,
           "pass": true,
           "points": 123943,
+          "roof_vertical": {
+            "covered": 123934,
+            "median_m": 0.028311720027353715,
+            "p75_m": 0.06354431012432293,
+            "pass": true,
+            "points": 123943
+          },
           "triangles": 388
         }
       },
@@ -4789,7 +5861,8 @@
         },
         "registry_id": "1033046845",
         "source_feature": "46917ab256b7c9df60e65e1c18e10496b2727862"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103440070E",
@@ -4800,12 +5873,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 53471,
           "hausdorff_m": 0.0159848184571906,
-          "median_m": 0.06398455678835901,
-          "p75_m": 0.15936615727096193,
+          "median_m": 0.0593821291212468,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.13467349329157002,
           "pass": true,
           "points": 53471,
+          "roof_vertical": {
+            "covered": 53471,
+            "median_m": 0.06398455678835901,
+            "p75_m": 0.15936615727096193,
+            "pass": true,
+            "points": 53471
+          },
           "triangles": 648
         }
       },
@@ -4885,7 +5965,8 @@
         "osm": {},
         "registry_id": "103440070E",
         "source_feature": "bbbbe757bb96e541fb0adaa67d074b938ff99a05"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103440105K",
@@ -4896,12 +5977,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 26025,
           "hausdorff_m": 0.041845547301480324,
-          "median_m": 0.023990140851932296,
-          "p75_m": 0.062303652314975366,
+          "median_m": 0.02073658552846669,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.05261568387397762,
           "pass": true,
           "points": 26026,
+          "roof_vertical": {
+            "covered": 26025,
+            "median_m": 0.023990140851932296,
+            "p75_m": 0.062303652314975366,
+            "pass": true,
+            "points": 26026
+          },
           "triangles": 378
         }
       },
@@ -4957,7 +6045,8 @@
         },
         "registry_id": "103440105K",
         "source_feature": "90539cc950a5a00295e8b24b4bd7cc5f1521bdc1"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103440106L",
@@ -4968,12 +6057,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 40640,
           "hausdorff_m": 0.03661267890126409,
-          "median_m": 0.04161494688926126,
-          "p75_m": 0.15501541248757178,
+          "median_m": 0.036061213238500936,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.09870951507411177,
           "pass": true,
           "points": 40641,
+          "roof_vertical": {
+            "covered": 40640,
+            "median_m": 0.04161494688926126,
+            "p75_m": 0.15501541248757178,
+            "pass": true,
+            "points": 40641
+          },
           "triangles": 772
         }
       },
@@ -5062,7 +6158,8 @@
         },
         "registry_id": "103440106L",
         "source_feature": "9f16f4031882d0e4162505bfee87f03a6446a093"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103440107M",
@@ -5073,12 +6170,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 80285,
           "hausdorff_m": 0.0013914728163536723,
-          "median_m": 0.03044403819091457,
-          "p75_m": 0.06248160594638463,
+          "median_m": 0.023354445440493476,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.04695650300859381,
           "pass": true,
           "points": 80287,
+          "roof_vertical": {
+            "covered": 80285,
+            "median_m": 0.03044403819091457,
+            "p75_m": 0.06248160594638463,
+            "pass": true,
+            "points": 80287
+          },
           "triangles": 1180
         }
       },
@@ -5196,7 +6300,8 @@
         "osm": {},
         "registry_id": "103440107M",
         "source_feature": "67982a4e28a27569909b8a0d64c3d4e2b563f9cf"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103440108N",
@@ -5207,12 +6312,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 22044,
           "hausdorff_m": 0.004019792529022557,
-          "median_m": 0.008071127357231589,
-          "p75_m": 0.014639173362689384,
+          "median_m": 0.007956043828809909,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.014340834676183987,
           "pass": true,
           "points": 22046,
+          "roof_vertical": {
+            "covered": 22044,
+            "median_m": 0.008071127357231589,
+            "p75_m": 0.014639173362689384,
+            "pass": true,
+            "points": 22046
+          },
           "triangles": 64
         }
       },
@@ -5294,7 +6406,8 @@
         },
         "registry_id": "103440108N",
         "source_feature": "7d6770f23e3bc14b17811ecd6549b90198b26435"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103440113U",
@@ -5305,12 +6418,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 46873,
           "hausdorff_m": 0.0014109994949114426,
-          "median_m": 0.02410511061189169,
-          "p75_m": 0.05161316055046683,
+          "median_m": 0.020764599467062418,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.042077446211149026,
           "pass": true,
           "points": 46876,
+          "roof_vertical": {
+            "covered": 46873,
+            "median_m": 0.02410511061189169,
+            "p75_m": 0.05161316055046683,
+            "pass": true,
+            "points": 46876
+          },
           "triangles": 706
         }
       },
@@ -5365,7 +6485,8 @@
         },
         "registry_id": "103440113U",
         "source_feature": "fb63f28dde18900a21e0af501046d33ad1ca519c"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103447029X",
@@ -5376,12 +6497,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 7949,
           "hausdorff_m": 0.0013900703106286523,
-          "median_m": 0.02608946103839216,
-          "p75_m": 0.04977168459012127,
+          "median_m": 0.02290782755892797,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.04363280855947711,
           "pass": true,
           "points": 7950,
+          "roof_vertical": {
+            "covered": 7949,
+            "median_m": 0.02608946103839216,
+            "p75_m": 0.04977168459012127,
+            "pass": true,
+            "points": 7950
+          },
           "triangles": 84
         }
       },
@@ -5434,7 +6562,8 @@
         "osm": {},
         "registry_id": "103447029X",
         "source_feature": "72a1ea0dcbb22cbaee3c1eb943369a8dd84ae734"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103447030Y",
@@ -5443,17 +6572,61 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 5.684341886080802e-14,
+          "median_m": 0.4200000000000017,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.7109999999999985,
+          "pass": false,
+          "points": 17447,
+          "roof_vertical": {
+            "covered": 17447,
+            "median_m": 0.5380000000000003,
+            "p75_m": 0.8670000000000009,
+            "pass": false,
+            "points": 17447
+          },
+          "triangles": 96
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_904813",
         "footprint_iou": 0.519636459420865
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 19.88800048828125,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 17388,
+          "height_range_m": [
+            20.899,
+            37.067
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 26.725
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 857,
+        "rgb_median": [
+          153.0,
+          166.0,
+          143.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103447030Y",
         "rf_extrusion_mode": "standard",
@@ -5480,7 +6653,18 @@
         "rf_success": true,
         "rf_t_run": 743,
         "rf_volume_lod22": 3044.583251953125
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "muu materiaali",
+        "levels": "1",
+        "osm": {
+          "roof:shape": "hipped"
+        },
+        "registry_id": "103447030Y",
+        "source_feature": "84fb641baad6088ce8de13809858f1f1023ba811"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1034470332",
@@ -5491,12 +6675,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 76713,
           "hausdorff_m": 0.0013912240927288046,
-          "median_m": 0.06338336497735497,
-          "p75_m": 0.1602139029038785,
+          "median_m": 0.06033966324503207,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.14491404572947436,
           "pass": true,
           "points": 76714,
+          "roof_vertical": {
+            "covered": 76713,
+            "median_m": 0.06338336497735497,
+            "p75_m": 0.1602139029038785,
+            "pass": true,
+            "points": 76714
+          },
           "triangles": 346
         }
       },
@@ -5573,7 +6764,8 @@
         },
         "registry_id": "1034470332",
         "source_feature": "c74ed3e3fe64e8bb7ee6942e427bc577f161917d"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1034470343",
@@ -5582,17 +6774,61 @@
           "error": "surface is non-planar by more than 5 cm",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 0.0,
+          "median_m": 0.6310000000000002,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 1.023197100032977,
+          "pass": false,
+          "points": 41515,
+          "roof_vertical": {
+            "covered": 41515,
+            "median_m": 0.7719999999999985,
+            "p75_m": 1.3269999999999982,
+            "pass": false,
+            "points": 41515
+          },
+          "triangles": 212
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_904821",
         "footprint_iou": 0.9999163102960844
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 9.491999626159668,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 41511,
+          "height_range_m": [
+            12.43,
+            37.057
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 33.991
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 994,
+        "rgb_median": [
+          189.0,
+          180.0,
+          163.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "1034470343",
         "rf_extrusion_mode": "standard",
@@ -5619,7 +6855,101 @@
         "rf_success": true,
         "rf_t_run": 1258,
         "rf_volume_lod22": 24636.37109375
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459868.307167698,
+                6704129.022706051
+              ],
+              "type": "Point"
+            },
+            "osm_id": "11228827645",
+            "tags": {
+              "entrance": "staircase"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459861.100648724,
+                6704141.404237936
+              ],
+              "type": "Point"
+            },
+            "osm_id": "11228827641",
+            "tags": {
+              "entrance": "staircase"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459879.62848969,
+                6704142.736863434
+              ],
+              "type": "Point"
+            },
+            "osm_id": "11228827646",
+            "tags": {
+              "access": "private",
+              "addr:city": "Turku",
+              "addr:housenumber": "1",
+              "addr:postcode": "20700",
+              "addr:street": "Kaskenkatu",
+              "addr:unit": "B",
+              "door": "yes",
+              "entrance": "staircase"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459864.870487947,
+                6704164.183135876
+              ],
+              "type": "Point"
+            },
+            "osm_id": "11228827647",
+            "tags": {
+              "access": "private",
+              "addr:city": "Turku",
+              "addr:housenumber": "1",
+              "addr:postcode": "20700",
+              "addr:street": "Kaskenkatu",
+              "addr:unit": "A",
+              "door": "yes",
+              "entrance": "staircase"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459839.630634326,
+                6704167.6718078945
+              ],
+              "type": "Point"
+            },
+            "osm_id": "11228802815",
+            "tags": {
+              "addr:city": "Turku",
+              "addr:postcode": "20700",
+              "addr:unit": "C",
+              "entrance": "yes"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "5",
+        "osm": {
+          "building:levels": "5"
+        },
+        "registry_id": "1034470343",
+        "source_feature": "8ca981bc73388152b63435e009c22e9dd21bd36f"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1034470398",
@@ -5630,12 +6960,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 16369,
           "hausdorff_m": 0.0009796477558329515,
-          "median_m": 0.02932501531186915,
-          "p75_m": 0.06628048220188276,
+          "median_m": 0.02439828312829335,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.0532272744667949,
           "pass": true,
           "points": 16369,
+          "roof_vertical": {
+            "covered": 16369,
+            "median_m": 0.02932501531186915,
+            "p75_m": 0.06628048220188276,
+            "pass": true,
+            "points": 16369
+          },
           "triangles": 352
         }
       },
@@ -5732,7 +7069,8 @@
         },
         "registry_id": "1034470398",
         "source_feature": "b061c006f75c91648c71b69b77a1a1e80499ed27"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "1034470409",
@@ -5743,12 +7081,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 18219,
           "hausdorff_m": 0.049074074426791306,
-          "median_m": 0.03281858899467949,
-          "p75_m": 0.07829870526186511,
+          "median_m": 0.027097906179555677,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06387664526159806,
           "pass": true,
           "points": 18219,
+          "roof_vertical": {
+            "covered": 18219,
+            "median_m": 0.03281858899467949,
+            "p75_m": 0.07829870526186511,
+            "pass": true,
+            "points": 18219
+          },
           "triangles": 282
         }
       },
@@ -5894,7 +7239,8 @@
         },
         "registry_id": "1034470409",
         "source_feature": "ef3225f17b4e53cf1981ecb64b7a29c27c0eb26b"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103762753K",
@@ -5903,17 +7249,61 @@
           "error": "surface is non-planar by more than 5 cm",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 1.4210854715202004e-14,
+          "median_m": 3.8609074438816866,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 5.192,
+          "pass": false,
+          "points": 101241,
+          "roof_vertical": {
+            "covered": 101241,
+            "median_m": 5.199999999999996,
+            "p75_m": 18.276000000000003,
+            "pass": false,
+            "points": 101241
+          },
+          "triangles": 308
+        },
         "roofer": {
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": {
         "city_id": "Building_311508432",
         "footprint_iou": 0.9999013670202831
       },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 2.8589999675750732,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 101190,
+          "height_range_m": [
+            4.634,
+            40.368
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 32.752
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 2516,
+        "rgb_median": [
+          128.0,
+          140.0,
+          160.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103762753K",
         "rf_extrusion_mode": "standard",
@@ -5940,7 +7330,46 @@
         "rf_success": true,
         "rf_t_run": 4377,
         "rf_volume_lod22": 65079.171875
-      }
+      },
+      "semantics": {
+        "entrances": [
+          {
+            "geometry": {
+              "coordinates": [
+                23459758.498428777,
+                6704531.540207182
+              ],
+              "type": "Point"
+            },
+            "osm_id": "9410494700",
+            "tags": {
+              "entrance": "main"
+            }
+          },
+          {
+            "geometry": {
+              "coordinates": [
+                23459728.851997953,
+                6704561.264431933
+              ],
+              "type": "Point"
+            },
+            "osm_id": "9537399177",
+            "tags": {
+              "entrance": "yes"
+            }
+          }
+        ],
+        "facade_material": "muu materiaali",
+        "levels": "10",
+        "osm": {
+          "building:levels": "9",
+          "roof:shape": "many"
+        },
+        "registry_id": "103762753K",
+        "source_feature": "ff9ada818bb32df8a1fa29075fe58eb9e2ef1a85"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "103969493L",
@@ -5949,14 +7378,58 @@
           "error": "candidate is missing",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 1.4210854715202004e-14,
+          "median_m": 0.04550000000000054,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.06100000000000083,
+          "pass": true,
+          "points": 4,
+          "roof_vertical": {
+            "covered": 4,
+            "median_m": 0.04550000000000054,
+            "p75_m": 0.06100000000000083,
+            "pass": true,
+            "points": 4
+          },
+          "triangles": 40
+        },
         "roofer": {
           "error": "candidate is missing",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": null,
-      "pass": false,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 4.578999996185303,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 4,
+          "height_range_m": [
+            8.805,
+            8.928
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 8.8675
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
+      "pass": true,
+      "roof": {
+        "material_key": "roof_metal_gray",
+        "pixels": 466,
+        "rgb_median": [
+          184.0,
+          187.0,
+          175.5
+        ]
+      },
       "roofer_metadata": {
         "building_id": "103969493L",
         "rf_extrusion_mode": "skip",
@@ -5983,7 +7456,18 @@
         "rf_success": true,
         "rf_t_run": 0,
         "rf_volume_lod22": null
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "muu materiaali",
+        "levels": "7",
+        "osm": {
+          "building:levels": "7"
+        },
+        "registry_id": "103969493L",
+        "source_feature": "b6470f6c9936778f3a07059887d2bf46a10aea29"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-0ae1f2a9771e780d415e9d72284ea849065cb86a",
@@ -5992,14 +7476,58 @@
           "error": "candidate is missing",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 1.0658141036401503e-14,
+          "median_m": null,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": null,
+          "pass": false,
+          "points": 0,
+          "roof_vertical": {
+            "covered": 0,
+            "median_m": null,
+            "p75_m": null,
+            "pass": false,
+            "points": 0
+          },
+          "triangles": 12
+        },
         "roofer": {
           "error": "candidate is missing",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": null,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 4.138999938964844,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 80,
+          "height_range_m": [
+            8.774000000000001,
+            9.032
+          ],
+          "height_source": "nearest_class6_outside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 2.4024664403387725,
+          "roof_m": 8.9315
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_dark",
+        "pixels": 11,
+        "rgb_median": [
+          72.0,
+          97.0,
+          112.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "kanta-0ae1f2a9771e780d415e9d72284ea849065cb86a",
         "rf_extrusion_mode": "skip",
@@ -6026,7 +7554,16 @@
         "rf_success": true,
         "rf_t_run": 0,
         "rf_volume_lod22": null
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "<NA>",
+        "levels": "<NA>",
+        "osm": {},
+        "registry_id": "kanta-0ae1f2a9771e780d415e9d72284ea849065cb86a",
+        "source_feature": "0ae1f2a9771e780d415e9d72284ea849065cb86a"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-152298a5d487e0c2ec3636a20d201a703d60196a",
@@ -6035,14 +7572,58 @@
           "error": "candidate is missing",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": 0.021000000000000796,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.03799999999999937,
+          "pass": true,
+          "points": 197,
+          "roof_vertical": {
+            "covered": 197,
+            "median_m": 0.021000000000000796,
+            "p75_m": 0.03799999999999937,
+            "pass": true,
+            "points": 197
+          },
+          "triangles": 12
+        },
         "roofer": {
           "error": "candidate is missing",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": null,
-      "pass": false,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 4.639999866485596,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 197,
+          "height_range_m": [
+            7.67,
+            14.266
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 7.736
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
+      "pass": true,
+      "roof": {
+        "material_key": "roof_metal_green",
+        "pixels": 18,
+        "rgb_median": [
+          55.5,
+          89.5,
+          51.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "kanta-152298a5d487e0c2ec3636a20d201a703d60196a",
         "rf_extrusion_mode": "skip",
@@ -6069,7 +7650,18 @@
         "rf_success": true,
         "rf_t_run": 0,
         "rf_volume_lod22": null
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "<NA>",
+        "levels": "<NA>",
+        "osm": {
+          "building:levels": "1"
+        },
+        "registry_id": "kanta-152298a5d487e0c2ec3636a20d201a703d60196a",
+        "source_feature": "152298a5d487e0c2ec3636a20d201a703d60196a"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-1b56ec2b707d69d7d171b5b32f1d9d3e93c55179",
@@ -6078,14 +7670,58 @@
           "error": "candidate is missing",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": null,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": null,
+          "pass": false,
+          "points": 0,
+          "roof_vertical": {
+            "covered": 0,
+            "median_m": null,
+            "p75_m": null,
+            "pass": false,
+            "points": 0
+          },
+          "triangles": 12
+        },
         "roofer": {
           "error": "candidate is missing",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": null,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 4.7230000495910645,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 47,
+          "height_range_m": [
+            6.63,
+            17.487000000000002
+          ],
+          "height_source": "nearest_class6_outside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 9.998345512113014,
+          "roof_m": 7.687
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_dark",
+        "pixels": 20,
+        "rgb_median": [
+          97.0,
+          108.5,
+          114.5
+        ]
+      },
       "roofer_metadata": {
         "building_id": "kanta-1b56ec2b707d69d7d171b5b32f1d9d3e93c55179",
         "rf_extrusion_mode": "skip",
@@ -6112,7 +7748,16 @@
         "rf_success": true,
         "rf_t_run": 0,
         "rf_volume_lod22": null
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "<NA>",
+        "levels": "<NA>",
+        "osm": {},
+        "registry_id": "kanta-1b56ec2b707d69d7d171b5b32f1d9d3e93c55179",
+        "source_feature": "1b56ec2b707d69d7d171b5b32f1d9d3e93c55179"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-52df0535c3b740b4a292d1e55730a21fbe2f568a",
@@ -6121,14 +7766,58 @@
           "error": "candidate is missing",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 2.842170943040401e-14,
+          "median_m": 0.05900000000000105,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.08150000000000013,
+          "pass": true,
+          "points": 11,
+          "roof_vertical": {
+            "covered": 11,
+            "median_m": 0.06400000000000006,
+            "p75_m": 0.13849999999999962,
+            "pass": true,
+            "points": 11
+          },
+          "triangles": 28
+        },
         "roofer": {
           "error": "candidate is missing",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": null,
-      "pass": false,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 8.621000289916992,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 11,
+          "height_range_m": [
+            10.466000000000001,
+            11.868
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 10.648
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
+      "pass": true,
+      "roof": {
+        "material_key": "roof_metal_green",
+        "pixels": 12,
+        "rgb_median": [
+          32.0,
+          65.0,
+          47.5
+        ]
+      },
       "roofer_metadata": {
         "building_id": "kanta-52df0535c3b740b4a292d1e55730a21fbe2f568a",
         "rf_extrusion_mode": "skip",
@@ -6155,7 +7844,18 @@
         "rf_success": true,
         "rf_t_run": 0,
         "rf_volume_lod22": null
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "<NA>",
+        "levels": "<NA>",
+        "osm": {
+          "building:levels": "1"
+        },
+        "registry_id": "kanta-52df0535c3b740b4a292d1e55730a21fbe2f568a",
+        "source_feature": "52df0535c3b740b4a292d1e55730a21fbe2f568a"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-71d6bc58276f04081135e71a9cbd97d04d909375",
@@ -6166,12 +7866,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 1494,
           "hausdorff_m": 0.0005605499795392426,
-          "median_m": 0.03194015337103373,
-          "p75_m": 0.05646165915440582,
+          "median_m": 0.031211258197365678,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.05567390921401896,
           "pass": true,
           "points": 1494,
+          "roof_vertical": {
+            "covered": 1494,
+            "median_m": 0.03194015337103373,
+            "p75_m": 0.05646165915440582,
+            "pass": true,
+            "points": 1494
+          },
           "triangles": 12
         }
       },
@@ -6223,7 +7930,8 @@
         },
         "registry_id": "kanta-71d6bc58276f04081135e71a9cbd97d04d909375",
         "source_feature": "71d6bc58276f04081135e71a9cbd97d04d909375"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-84488cf9ec6912ef917b364173f7ec4e5f91ad27",
@@ -6232,14 +7940,62 @@
           "error": "candidate is missing",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 0.0,
+          "median_m": null,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": null,
+          "pass": false,
+          "points": 0,
+          "roof_vertical": {
+            "covered": 0,
+            "median_m": null,
+            "p75_m": null,
+            "pass": false,
+            "points": 0
+          },
+          "triangles": 12
+        },
         "roofer": {
           "error": "candidate is missing",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": null,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 3.256999969482422,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 167,
+          "height_range_m": [
+            6.455,
+            6.635
+          ],
+          "height_semantics": "overlap class may contain vegetation; provisional plane proxy",
+          "height_source": "local_overlap_class12_plane",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "plane_support_area_ratio": 0.8838657975441709,
+          "plane_support_fraction": 0.10907903331156107,
+          "plane_tolerance_m": 0.08,
+          "roof_m": 6.537
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_green",
+        "pixels": 16,
+        "rgb_median": [
+          40.0,
+          72.0,
+          45.5
+        ]
+      },
       "roofer_metadata": {
         "building_id": "kanta-84488cf9ec6912ef917b364173f7ec4e5f91ad27",
         "rf_extrusion_mode": "skip",
@@ -6266,7 +8022,19 @@
         "rf_success": true,
         "rf_t_run": 0,
         "rf_volume_lod22": null
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "<NA>",
+        "levels": "<NA>",
+        "osm": {
+          "building:levels": "1",
+          "roof:shape": "gabled"
+        },
+        "registry_id": "kanta-84488cf9ec6912ef917b364173f7ec4e5f91ad27",
+        "source_feature": "84488cf9ec6912ef917b364173f7ec4e5f91ad27"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-97e1d0fd0320a859d69b69fbb8293fcfc83fbfdd",
@@ -6275,19 +8043,61 @@
           "error": "candidate is missing",
           "pass": false
         },
-        "roofer": {
+        "lidar_extrusion": {
           "closed": true,
-          "covered": 3240,
-          "hausdorff_m": 0.001387553262930332,
-          "median_m": 0.08535391590158348,
-          "p75_m": 2.2201414752319084,
+          "hausdorff_m": 7.105427357601002e-15,
+          "median_m": 1.5264052206330447,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 4.0425,
           "pass": false,
           "points": 3240,
+          "roof_vertical": {
+            "covered": 3240,
+            "median_m": 2.333499999999999,
+            "p75_m": 4.227000000000002,
+            "pass": false,
+            "points": 3240
+          },
+          "triangles": 52
+        },
+        "roofer": {
+          "closed": true,
+          "hausdorff_m": 0.001387553262930332,
+          "median_m": 0.05502509430376397,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.26998712948109116,
+          "pass": false,
+          "points": 3240,
+          "roof_vertical": {
+            "covered": 3240,
+            "median_m": 0.08535391590158348,
+            "p75_m": 2.2201414752319084,
+            "pass": false,
+            "points": 3240
+          },
           "triangles": 126
         }
       },
       "choice": "roofer",
       "city_match": null,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 2.1630001068115234,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 3240,
+          "height_range_m": [
+            5.814,
+            33.835
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 13.0095
+        },
+        "reason": "residual_limits_exceeded",
+        "selected": false
+      },
       "pass": false,
       "roof": {
         "material_key": "roof_metal_gray",
@@ -6348,7 +8158,8 @@
         },
         "registry_id": "kanta-97e1d0fd0320a859d69b69fbb8293fcfc83fbfdd",
         "source_feature": "97e1d0fd0320a859d69b69fbb8293fcfc83fbfdd"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-ace494b85c84b8d3f10bdf05e3026e9ed096286c",
@@ -6357,14 +8168,38 @@
           "error": "shell is not a closed, consistently oriented manifold",
           "pass": false
         },
-        "roofer": {
+        "lidar_extrusion": {
           "closed": true,
-          "covered": 2307,
-          "hausdorff_m": 0.0013857628186149309,
-          "median_m": 1.8966102138309466,
-          "p75_m": 6.0240538012976526,
+          "hausdorff_m": 5.329070518200751e-15,
+          "median_m": 1.234084545305328,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 4.110000000000001,
           "pass": false,
           "points": 2307,
+          "roof_vertical": {
+            "covered": 2307,
+            "median_m": 5.4510000000000005,
+            "p75_m": 9.334499999999998,
+            "pass": false,
+            "points": 2307
+          },
+          "triangles": 64
+        },
+        "roofer": {
+          "closed": true,
+          "hausdorff_m": 0.0013857628186149309,
+          "median_m": 0.22666109245487345,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.5958747469786242,
+          "pass": false,
+          "points": 2307,
+          "roof_vertical": {
+            "covered": 2307,
+            "median_m": 1.8966102138309466,
+            "p75_m": 6.0240538012976526,
+            "pass": false,
+            "points": 2307
+          },
           "triangles": 80
         }
       },
@@ -6372,6 +8207,24 @@
       "city_match": {
         "city_id": "Building_292365905",
         "footprint_iou": 0.9936061436392998
+      },
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 2.1570000648498535,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 2307,
+          "height_range_m": [
+            12.620000000000001,
+            35.384
+          ],
+          "height_source": "class6_inside_footprint",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "roof_m": 25.157
+        },
+        "reason": "residual_limits_exceeded",
+        "selected": false
       },
       "pass": false,
       "roof": {
@@ -6419,7 +8272,8 @@
         },
         "registry_id": "kanta-ace494b85c84b8d3f10bdf05e3026e9ed096286c",
         "source_feature": "ace494b85c84b8d3f10bdf05e3026e9ed096286c"
-      }
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-c03581d0e7a8357e46ce3c8b92ac4cb38d9c629f",
@@ -6428,14 +8282,62 @@
           "error": "candidate is missing",
           "pass": false
         },
+        "lidar_extrusion": {
+          "closed": true,
+          "hausdorff_m": 0.0,
+          "median_m": null,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": null,
+          "pass": false,
+          "points": 0,
+          "roof_vertical": {
+            "covered": 0,
+            "median_m": null,
+            "p75_m": null,
+            "pass": false,
+            "points": 0
+          },
+          "triangles": 12
+        },
         "roofer": {
           "error": "candidate is missing",
           "pass": false
         }
       },
-      "choice": null,
+      "choice": "lidar_extrusion",
       "city_match": null,
+      "fallback": {
+        "height_evidence": {
+          "accuracy_certified": false,
+          "base_m": 3.4839999675750732,
+          "ground_source": "roofer_lidar_ground",
+          "height_points": 259,
+          "height_range_m": [
+            7.05,
+            7.197
+          ],
+          "height_semantics": "overlap class may contain vegetation; provisional plane proxy",
+          "height_source": "local_overlap_class12_plane",
+          "method": "footprint_extrusion",
+          "nearest_support_distance_m": 0.0,
+          "plane_support_area_ratio": 0.7525122251583273,
+          "plane_support_fraction": 0.24003707136237257,
+          "plane_tolerance_m": 0.08,
+          "roof_m": 7.111
+        },
+        "reason": "no_valid_reconstruction",
+        "selected": true
+      },
       "pass": false,
+      "roof": {
+        "material_key": "roof_metal_green",
+        "pixels": 10,
+        "rgb_median": [
+          33.5,
+          61.5,
+          46.0
+        ]
+      },
       "roofer_metadata": {
         "building_id": "kanta-c03581d0e7a8357e46ce3c8b92ac4cb38d9c629f",
         "rf_extrusion_mode": "skip",
@@ -6462,7 +8364,16 @@
         "rf_success": true,
         "rf_t_run": 0,
         "rf_volume_lod22": null
-      }
+      },
+      "semantics": {
+        "entrances": [],
+        "facade_material": "<NA>",
+        "levels": "<NA>",
+        "osm": {},
+        "registry_id": "kanta-c03581d0e7a8357e46ce3c8b92ac4cb38d9c629f",
+        "source_feature": "c03581d0e7a8357e46ce3c8b92ac4cb38d9c629f"
+      },
+      "shell_valid": true
     },
     {
       "building_id": "kanta-f4a8db243ddae25e0cfde199c3707460892a1cf4",
@@ -6473,12 +8384,19 @@
         },
         "roofer": {
           "closed": true,
-          "covered": 1073,
           "hausdorff_m": 0.0005685020059920759,
-          "median_m": 0.08171410488297681,
-          "p75_m": 3.6523235310872852,
-          "pass": false,
+          "median_m": 0.0672348478646816,
+          "metric": "euclidean_point_to_shell",
+          "p75_m": 0.2328747599559038,
+          "pass": true,
           "points": 1073,
+          "roof_vertical": {
+            "covered": 1073,
+            "median_m": 0.08171410488297681,
+            "p75_m": 3.6523235310872852,
+            "pass": false,
+            "points": 1073
+          },
           "triangles": 64
         }
       },
@@ -6487,7 +8405,7 @@
         "city_id": "Building_292365904",
         "footprint_iou": 1.0
       },
-      "pass": false,
+      "pass": true,
       "roof": {
         "material_key": "roof_metal_dark",
         "pixels": 18,
@@ -6547,10 +8465,95 @@
         },
         "registry_id": "kanta-f4a8db243ddae25e0cfde199c3707460892a1cf4",
         "source_feature": "f4a8db243ddae25e0cfde199c3707460892a1cf4"
-      }
+      },
+      "shell_valid": true
     }
   ],
-  "facade_count": 5817,
+  "collision_building_ids": [
+    "101640309M",
+    "102725984D",
+    "1032581225",
+    "103277348B",
+    "103277350D",
+    "103277352F",
+    "103277355K",
+    "103277358N",
+    "1032773768",
+    "103277378A",
+    "103277379B",
+    "103277385J",
+    "103277386K",
+    "103277387L",
+    "103277388M",
+    "103277389N",
+    "1032865761",
+    "1032865772",
+    "1032865783",
+    "1032958849",
+    "103295888D",
+    "103295889E",
+    "103295893K",
+    "103295896N",
+    "103295899S",
+    "103295900T",
+    "103295901U",
+    "103295902V",
+    "103295903W",
+    "103295904X",
+    "103295905Y",
+    "1032959060",
+    "1032959104",
+    "1033046480",
+    "1033046502",
+    "1033046557",
+    "1033046579",
+    "103304658A",
+    "103304659B",
+    "103304661D",
+    "103304665J",
+    "103304666K",
+    "103304667L",
+    "103304668M",
+    "103304670P",
+    "103304671R",
+    "103304672S",
+    "103304673T",
+    "103304674U",
+    "103304675V",
+    "103304676W",
+    "103304677X",
+    "103304678Y",
+    "1033046801",
+    "1033046812",
+    "1033046823",
+    "1033046845",
+    "103440070E",
+    "103440105K",
+    "103440106L",
+    "103440107M",
+    "103440108N",
+    "103440113U",
+    "103447029X",
+    "103447030Y",
+    "1034470332",
+    "1034470343",
+    "1034470398",
+    "1034470409",
+    "103762753K",
+    "103969493L",
+    "kanta-0ae1f2a9771e780d415e9d72284ea849065cb86a",
+    "kanta-152298a5d487e0c2ec3636a20d201a703d60196a",
+    "kanta-1b56ec2b707d69d7d171b5b32f1d9d3e93c55179",
+    "kanta-52df0535c3b740b4a292d1e55730a21fbe2f568a",
+    "kanta-71d6bc58276f04081135e71a9cbd97d04d909375",
+    "kanta-84488cf9ec6912ef917b364173f7ec4e5f91ad27",
+    "kanta-97e1d0fd0320a859d69b69fbb8293fcfc83fbfdd",
+    "kanta-ace494b85c84b8d3f10bdf05e3026e9ed096286c",
+    "kanta-c03581d0e7a8357e46ce3c8b92ac4cb38d9c629f",
+    "kanta-f4a8db243ddae25e0cfde199c3707460892a1cf4"
+  ],
+  "facade_count": 6370,
+  "fallback_count": 21,
   "params": {
     "aoi_local": [
       -50.0,
@@ -6561,6 +8564,7 @@
     "hausdorff_limit_m": 0.3,
     "median_limit_m": 0.1,
     "p75_limit_m": 0.25,
+    "residual_metric": "euclidean_point_to_shell",
     "roof_uv_origin_en": [
       23459500.0,
       6704500.0
@@ -6570,106 +8574,106 @@
   },
   "pass": false,
   "schema_version": 1,
-  "shell_count": 62,
+  "shell_count": 81,
+  "shell_coverage_pass": true,
   "walker_validation": {
-    "elapsed_ms": 111632,
+    "elapsed_ms": 158533,
     "endedInside": 0,
     "entered": 0,
     "failures": [],
-    "missingShells": [
-      "103277348B",
-      "103277387L",
-      "103304661D",
-      "103304671R",
-      "103304673T",
-      "103304676W",
-      "103304678Y",
-      "1033046801",
-      "1033046812",
-      "103447030Y",
-      "1034470343",
-      "103762753K",
-      "103969493L",
-      "kanta-0ae1f2a9771e780d415e9d72284ea849065cb86a",
-      "kanta-152298a5d487e0c2ec3636a20d201a703d60196a",
-      "kanta-1b56ec2b707d69d7d171b5b32f1d9d3e93c55179",
-      "kanta-52df0535c3b740b4a292d1e55730a21fbe2f568a",
-      "kanta-84488cf9ec6912ef917b364173f7ec4e5f91ad27",
-      "kanta-c03581d0e7a8357e46ce3c8b92ac4cb38d9c629f"
-    ],
-    "pass": false,
+    "missingShells": [],
+    "pass": true,
     "perBuilding": {
-      "101640309M": 22,
-      "102725984D": 40,
-      "1032581225": 46,
-      "103277350D": 45,
-      "103277352F": 42,
-      "103277355K": 39,
-      "103277358N": 21,
-      "1032773768": 40,
-      "103277378A": 38,
-      "103277379B": 46,
-      "103277385J": 20,
-      "103277386K": 19,
+      "101640309M": 15,
+      "102725984D": 25,
+      "1032581225": 30,
+      "103277348B": 15,
+      "103277350D": 30,
+      "103277352F": 28,
+      "103277355K": 25,
+      "103277358N": 17,
+      "1032773768": 29,
+      "103277378A": 28,
+      "103277379B": 30,
+      "103277385J": 24,
+      "103277386K": 25,
+      "103277387L": 12,
       "103277388M": 25,
-      "103277389N": 23,
-      "1032865761": 23,
-      "1032865772": 24,
-      "1032865783": 33,
-      "1032958849": 43,
-      "103295888D": 40,
-      "103295889E": 29,
-      "103295893K": 26,
-      "103295896N": 22,
-      "103295899S": 17,
-      "103295900T": 26,
-      "103295901U": 36,
-      "103295902V": 45,
-      "103295903W": 43,
-      "103295904X": 15,
-      "103295905Y": 40,
-      "1032959060": 43,
+      "103277389N": 20,
+      "1032865761": 22,
+      "1032865772": 25,
+      "1032865783": 25,
+      "1032958849": 27,
+      "103295888D": 30,
+      "103295889E": 22,
+      "103295893K": 17,
+      "103295896N": 14,
+      "103295899S": 13,
+      "103295900T": 19,
+      "103295901U": 27,
+      "103295902V": 30,
+      "103295903W": 29,
+      "103295904X": 16,
+      "103295905Y": 30,
+      "1032959060": 30,
       "1032959104": 14,
-      "1033046480": 34,
-      "1033046502": 45,
-      "1033046557": 44,
-      "1033046579": 36,
-      "103304658A": 45,
-      "103304659B": 25,
-      "103304665J": 39,
-      "103304666K": 32,
-      "103304667L": 20,
-      "103304668M": 37,
-      "103304670P": 42,
-      "103304672S": 27,
-      "103304674U": 18,
-      "103304675V": 24,
-      "103304677X": 32,
-      "1033046823": 26,
-      "1033046845": 41,
-      "103440070E": 37,
-      "103440105K": 33,
-      "103440106L": 41,
-      "103440107M": 32,
-      "103440108N": 27,
-      "103440113U": 43,
-      "103447029X": 45,
-      "1034470332": 40,
-      "1034470398": 35,
-      "1034470409": 42,
-      "kanta-71d6bc58276f04081135e71a9cbd97d04d909375": 45,
-      "kanta-97e1d0fd0320a859d69b69fbb8293fcfc83fbfdd": 23,
-      "kanta-ace494b85c84b8d3f10bdf05e3026e9ed096286c": 5
+      "1033046480": 30,
+      "1033046502": 30,
+      "1033046557": 30,
+      "1033046579": 28,
+      "103304658A": 30,
+      "103304659B": 20,
+      "103304661D": 20,
+      "103304665J": 25,
+      "103304666K": 25,
+      "103304667L": 25,
+      "103304668M": 30,
+      "103304670P": 30,
+      "103304671R": 23,
+      "103304672S": 20,
+      "103304673T": 30,
+      "103304674U": 19,
+      "103304675V": 21,
+      "103304676W": 25,
+      "103304677X": 20,
+      "103304678Y": 30,
+      "1033046801": 19,
+      "1033046812": 25,
+      "1033046823": 30,
+      "1033046845": 25,
+      "103440070E": 23,
+      "103440105K": 24,
+      "103440106L": 28,
+      "103440107M": 17,
+      "103440108N": 29,
+      "103440113U": 27,
+      "103447029X": 29,
+      "103447030Y": 29,
+      "1034470332": 26,
+      "1034470343": 22,
+      "1034470398": 17,
+      "1034470409": 21,
+      "103762753K": 28,
+      "103969493L": 29,
+      "kanta-0ae1f2a9771e780d415e9d72284ea849065cb86a": 29,
+      "kanta-152298a5d487e0c2ec3636a20d201a703d60196a": 29,
+      "kanta-1b56ec2b707d69d7d171b5b32f1d9d3e93c55179": 29,
+      "kanta-52df0535c3b740b4a292d1e55730a21fbe2f568a": 29,
+      "kanta-71d6bc58276f04081135e71a9cbd97d04d909375": 29,
+      "kanta-84488cf9ec6912ef917b364173f7ec4e5f91ad27": 29,
+      "kanta-97e1d0fd0320a859d69b69fbb8293fcfc83fbfdd": 25,
+      "kanta-ace494b85c84b8d3f10bdf05e3026e9ed096286c": 16,
+      "kanta-c03581d0e7a8357e46ce3c8b92ac4cb38d9c629f": 29,
+      "kanta-f4a8db243ddae25e0cfde199c3707460892a1cf4": 29
     },
     "rapier": "0.21.0",
-    "rejectedStarts": 306,
+    "rejectedStarts": 4,
     "requested": 2000,
+    "scope": "each building in isolation, using exported collision triangles and provenance",
     "seconds_per_walker": 10,
     "seed": 103,
     "terrain": "validation-only horizontal pad at each shell base; integrated terrain tested after assembly",
-    "untestedBuildings": [
-      "kanta-f4a8db243ddae25e0cfde199c3707460892a1cf4"
-    ],
+    "untestedBuildings": [],
     "walkers": 2000
   }
 }

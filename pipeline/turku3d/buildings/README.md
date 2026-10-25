@@ -7,6 +7,7 @@ source /Users/wnt/turku3d/wt/w1-03-buildings/sandbox.env
 make buildings-test
 make buildings-build
 make buildings-validate
+bash pipeline/env/run.sh python -m turku3d.buildings.audit
 ```
 
 `buildings-build` runs native roofer with four jobs. To reuse a completed reconstruction:
@@ -35,20 +36,39 @@ triangulation. A candidate must have nondegenerate triangles, consistent outward
 closed manifold edges, positive volume, at most 2,000 triangles and footprint-boundary
 Hausdorff distance ≤ 0.3 m. A failed candidate stays in the report with its reason.
 
-Selection measures vertical absolute residuals against **all class-6 points inside the
-reference footprint**, after snapping. Highest roof intersection wins for overlapping roof
-surfaces. Uncovered points count as infinite error; no outlier trimming or downsampling.
-The median and p75 use linearly interpolated empirical percentiles. Candidates satisfying both
-10 cm / 25 cm limits rank before failing candidates; ties use median, p75, then source name.
-A valid shell with failing residuals is exported for inspection but the build exits 1.
-Missing shells also fail the build. No inferred building heights silently pass acceptance.
+Selection measures exact Euclidean point-to-triangle distances against **all class-6
+points inside the reference footprint**, after snapping. Facades and roof steps are
+included: a vertical roof-only distance mis-scores wall returns as roof errors. An AABB
+tree prunes only triangles whose bounding boxes cannot improve the current distance;
+tests compare it with exhaustive triangle queries. The old vertical-roof statistics
+remain in `roof_vertical`, including infinite uncovered points. Neither metric trims
+outliers or downsamples lidar. Both use linearly interpolated empirical percentiles.
+Candidates satisfying the unchanged 10 cm median / 25 cm p75 limits rank first.
+
+When both source models fail geometry or residual checks, the builder also evaluates a
+kantakartta footprint extrusion. Its roof height is the median elevated class-6 height
+inside that footprint. Where class 6 is absent, it first seeks a local, near-horizontal
+plane in overlap-class (12) returns: 1,000 seeded RANSAC trials, 8 cm tolerance,
+≥20 points, ≥10% support and ≥50% footprint-area coverage. Class 12 may contain
+vegetation, so this remains a provisional height proxy and is never scored as class-6
+accuracy evidence. If no plane is supported, it uses the nearest class-6 neighbourhood
+within 100 m. Its base uses roofer's lidar ground estimate. The report
+records source, point count, height range, support distance, reason and selected status.
+An existing closed model remains selected if it fits better than the extrusion.
+Nearby points **never** count as in-footprint residual evidence. No evidence means a
+hard error, not an assumed storey height. Every fallback passes the same manifold,
+triangle-budget and footprint checks. Coverage and measured accuracy are separate:
+`pass` retains strict accuracy acceptance and `shell_coverage_pass` checks all shells.
+A valid shell with failing residuals is exported with explicit degradation and the
+strict build exits 1. No inferred building heights silently pass accuracy acceptance.
 
 ## Artifacts
 
 All output is under `$TURKU3D_WORK/build/layers/buildings`:
 
 - `c_i_j.col.npz`: float64 world-local positions, uint32 triangle indices, uint8 materials.
-  Walls and base use `building`; roofs use `roof`. Each triangle is cut once at global grid
+  The optional uint32 `building_index` per triangle indexes
+  `metrics.json.collision_building_ids` for isolated validation. Walls and base use `building`; roofs use `roof`. Each triangle is cut once at global grid
   planes; canonical cached intersections give bitwise-identical shared boundary vertices.
   The complete building is closed; tile fragments intentionally have open clipping boundaries.
 - `t0_i_j.vis.glb`: world-local geometry, metre UVs, one mesh/node per planar surface.
@@ -63,8 +83,12 @@ All output is under `$TURKU3D_WORK/build/layers/buildings`:
 The layer never writes shipped `.col`, tilesets, texture assets or compressed delivery GLBs.
 The assembler binds material keys and handles final compression.
 
+The exported-data audit checks collision closure, winding, volume, the 2,000-triangle
+budget after clipping, bitwise tile seams, and finite visual attributes/metadata.
+
 The Rapier check consumes the **exported NPZ triangles** through a temporary JSON bridge.
-It runs 2,000 seeded 10-second walkers with the project's character controller and rejects
+It uses triangle provenance to test each building independently, including nested parts.
+Enclosing neighbours cannot hide an open wall. It runs 2,000 seeded 10-second walkers with the project's character controller and rejects
 any entry, not just final positions inside a footprint. A horizontal support pad at each
 shell base isolates building blocking from ground availability. The integrated ground,
 vehicle and streaming checks remain the assembler/game validator's responsibility.
@@ -73,7 +97,5 @@ Tests use a two-building fixture with a concavity, courtyard, grid crossings, pl
 negative open-wall Rapier fixture. They do not read real city data. Node dependencies:
 `npm ci --prefix tools/validator --ignore-scripts`.
 
-Current real-data acceptance is **blocked**: 62/81 source footprints have exported shells,
-57 satisfy the residual limits. The complete run, rejected IDs and next actions are in
-[the measured report](../../../docs/reports/buildings.md). The fast gate is green;
-real-data failures remain nonzero exits.
+The current measurements, degraded building IDs and exact verification results are in
+[the measured report](../../../docs/reports/buildings.md).
