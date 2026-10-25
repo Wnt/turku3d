@@ -31,6 +31,11 @@ The four-tile assembler completed with nine visual and 64 collision tiles and
 261 current facade bindings. An example placeholder artwork PNG is under
 `$TURKU3D_WORK/reports/building-coverage/placeholder-preview.png`; it is a
 synthetic preview because no current footprint needed a placeholder.
+The assembled Chrome aerial screenshot is
+`$TURKU3D_WORK/reports/buildings-after/aerial.png`.
+The exported-collision Rapier run passed all 2,000 ten-second walkers: zero
+entries, zero final positions inside, no missing shells, and no untested
+buildings. Under concurrent host load it took 618.3 seconds.
 
 ## Reproduce
 
