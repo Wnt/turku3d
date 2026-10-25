@@ -210,3 +210,18 @@ def test_coarse_dtm_uses_complete_cached_coverage(tmp_path):
     assert pos[:,0].max() == pos[:,2].max() == 500
     assert pos[:,1].min() == 2 and pos[:,1].max() == 5
     assert js['images'][0]['mimeType'] == 'image/png'
+
+    # Complete the 1 km core and prove every quadrant gets a persistent 500 m child.
+    for i,j in ((1,0),(0,1),(1,1)):
+        las.x = C.ORIGIN_E + np.array([i*500,(i+1)*500,i*500,(i+1)*500])
+        las.y = C.ORIGIN_N - np.array([j*500,j*500,(j+1)*500,(j+1)*500])
+        las.write(lazdir/f'{int(C.ORIGIN_E+i*500)}_{int(C.ORIGIN_N-j*500)}.laz')
+    layers = tmp_path/'layers'; fixture(layers)
+    out = tmp_path/'dist'
+    assemble(['t0_0_0'],layers=layers,out=out)
+    manifest = json.loads((out/'manifest.json').read_text())
+    expected = {'t1_0_0','t1_0_1','t1_1_0','t1_1_1'}
+    assert {k for k,v in manifest['visual'].items() if v['level']==1} == expected
+    assert all(v['coarse_dtm'] for v in manifest['visual'].values() if v['level']>0)
+    tileset = json.loads((out/'tileset.json').read_text())
+    assert {c['extras']['id'] for c in tileset['root']['children'][0]['children']} == expected

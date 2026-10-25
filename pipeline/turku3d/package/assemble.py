@@ -142,6 +142,8 @@ def assemble(tile_ids: list[str], *, layers: Path | None = None, out: Path | Non
             raise ValueError(f'{t.id}: no published visual layers in {root}')
     parents = {t.parent() for t in requested}
     parents |= {t.parent() for t in list(parents)}
+    # REPLACE removes the entire parent, so its uncovered quadrants need coarse leaf siblings.
+    parents |= {child for parent in list(parents) if parent.level == 2 for child in parent.children()}
     build = requested | parents
     tree = DistTree(out, areas=[area])
     cache_file = out / '.assemble-cache.json'
@@ -230,7 +232,8 @@ def assemble(tile_ids: list[str], *, layers: Path | None = None, out: Path | Non
         tree.commit(code=git_sha())
         cache.update(keys)
         _atomic_write(cache_file, (json.dumps(cache, sort_keys=True) + '\n').encode())
-    return {'changed': changed, 'visual': len(tree.visual), 'collision': len(tree.collision)}
+    return {'changed': [tid for tid in changed if tid in tree.visual],
+            'visual': len(tree.visual), 'collision': len(tree.collision)}
 
 
 def main():

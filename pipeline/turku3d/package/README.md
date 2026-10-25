@@ -48,7 +48,9 @@ raw coverage, parents retain available published ground, with coarse-only simpli
 locked boundaries. Structures-only inputs omit empty parent content. Raw LAZ, VRT and image
 dependencies participate in the content hash; all writes remain in the sandbox.
 
-The tileset is a REPLACE quadtree; bounds include whole objects and descendant content,
+The tileset is a REPLACE quadtree. Missing 500 m sibling quadrants receive coarse terrain
+leaves when cached coverage is available, so refining the AOI does not remove its surroundings.
+Bounds include whole objects and descendant content,
 even when they extend outside nominal grid cells.
 
 Inputs, implementation, texture contents and tool lock are hashed. An unchanged, verified

@@ -175,3 +175,18 @@ test('character crosses all four L0 seams without a height step', { tag: ['@walk
   console.log(`[${info.project.name}] four L0 seams: grounded throughout the route endpoints, height range ${(Math.max(...heights) - Math.min(...heights)).toFixed(3)} m`);
   await page.screenshot({ path: `${SHOTS}/tile-${info.project.name}-four-seams.png` });
 });
+
+test('coarse terrain remains visible outside the four-tile AOI', async ({ page }, info) => {
+  test.skip(!manifest.visual.t1_1_1?.coarse_dtm, 'Requires cached DTM/ortho coverage outside the AOI');
+  const bad = watchConsole(page);
+  await page.goto(`/?backend=${info.project.name}&tiles=${TILES}&cam=23460250,6703750,70,0,-45,60&qa=1&pass=id`);
+  await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError);
+  const state = await page.evaluate(() => ({ error:(window as any).__qaError, info:(window as any).__qaInfo, ids:(window as any).__qaIdTable }));
+  expect(state.error).toBeFalsy();
+  expect(state.info.tiles).toContain('t1_1_1');
+  const { w, h, px } = await decodePng(page, await page.screenshot());
+  const k = 4 * (Math.floor(h/2) * w + Math.floor(w/2));
+  const id = (px[k] << 16) | (px[k+1] << 8) | px[k+2];
+  expect(state.ids[String(id)]).toMatchObject({kind:'ground',tile:'t1_1_1'});
+  expect(bad).toEqual([]);
+});
