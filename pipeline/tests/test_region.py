@@ -132,3 +132,22 @@ def test_parallel_tile_jobs_have_separate_logs(tmp_path):
     assert rows[0]["status"] == "done"
     assert len(rows[0]["logs"]) == 2
     assert all(p.read_text() == "done" for p in outputs)
+
+
+def test_landed_layer_adapter_and_assembler_area(tmp_path, monkeypatch):
+    from turku3d.region.runner import plan
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setattr(C, "REPO_ROOT", tmp_path)
+    code = tmp_path / "pipeline/turku3d"
+    for module in ("ground/build.py", "buildings/build.py", "package/assemble.py"):
+        path = code / module
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    steps = {s.name: s for s in plan(C.OFFICE_BLOCK, "work-3x3", 3, tmp_path / "reports")}
+    assert steps["ground"].commands
+    assert steps["buildings"].commands[0][-2:] == ["--jobs", "3"]
+    assert code / "layers.py" in steps["ground"].inputs
+    assert "office-block" in steps["assemble"].commands[0]
+    assert "work-3x3" not in steps["assemble"].commands[0]
+    assert len(steps["validate"].commands) == 4

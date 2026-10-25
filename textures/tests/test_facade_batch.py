@@ -227,7 +227,7 @@ def test_sandbox_paths_and_read_only_cache(tmp_path, monkeypatch):
     assert tools_dir() == tmp_path / "work/tools"
     cache = PanoCache()
     assert cache.google_image("p") == shared / "pano_z5.jpg"
-    assert streetview_dir() == tmp_path / "work/cache/streetview"
+    assert streetview_dir() == tmp_path / "shared/cache/streetlevel"
     assert not (cache.root / "google/p/pano_z5.jpg").exists()
 
 

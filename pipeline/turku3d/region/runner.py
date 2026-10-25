@@ -133,7 +133,12 @@ def plan(area, source, workers, report):
     code = C.REPO_ROOT / "pipeline/turku3d"
     raw = C.raw_dir()
     sources = [raw / k for k in ("laz", "wfs", "ortho", "osm")]
-    common = [code / "config.py", code / "region", C.DATA_MANIFESTS / "areas" / f"{area.name}.yaml"]
+    common = [
+        code / "config.py",
+        code / "layers.py",
+        code / "region",
+        C.DATA_MANIFESTS / "areas" / f"{area.name}.yaml",
+    ]
     steps = [
         Step(
             "fetch",
@@ -166,7 +171,6 @@ def plan(area, source, workers, report):
         )
     for name in ("facades", "ground-textures"):
         steps.append(Step(name, reason="no area-aware producer adapter published"))
-    assembler = "assemble" if (code / "package/assemble.py").exists() else "stub_tile"
     steps.append(
         Step(
             "assemble",
@@ -175,8 +179,8 @@ def plan(area, source, workers, report):
                 + [
                     "turku3d.region.dispatch",
                     "assemble",
-                    source if assembler == "stub_tile" else area.name,
-                    assembler,
+                    area.name,
+                    "assemble",
                     *tiles,
                 ]
             ],

@@ -15,7 +15,7 @@ make cache-gc APPLY=1          # delete interrupted writes older than 24 hours
 
 `STEPS` selects steps in dependency order; it does not silently rebuild omitted prerequisites.
 Fetch, ground, structures, buildings, facades, ground textures, assemble, validate is the full
-order. The legacy packager reproduces the current AOI until `package.assemble` is installed.
+order. Production assembly uses the landed `turku3d.package.assemble` batch CLI and shared v1 layer manifests.
 The ground CLI supports arbitrary tile lists. Current buildings/structures CLIs only support
 the office block; they are explicitly skipped for expansion areas. Facade and ground-texture
 area adapters remain unavailable until their owners publish them. No Codex job is fabricated.

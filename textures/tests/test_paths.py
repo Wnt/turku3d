@@ -1,5 +1,6 @@
 """Workers never put newly downloaded or generated texture data in shared raw/."""
 
+import pytest
 from turkutex import paths
 
 
@@ -49,3 +50,18 @@ def test_legacy_panorama_is_reused_without_migration(tmp_path, monkeypatch):
     shared = tmp_path / "shared"
     assert PanoCache(shared).google_image("test", zoom=1) == old
     assert not (shared / "google/test/pano_z1.jpg").exists()
+
+
+def test_mapillary_uses_legacy_read_cache_without_network(tmp_path, monkeypatch):
+    from turkutex.streetview import mapillary
+    from turkutex.streetview.panos import PanoCache, PanoMeta
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    old = tmp_path / "work/cache/streetview/mapillary/test/pano.jpg"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"existing")
+    cache = PanoCache(tmp_path / "shared")
+    meta = PanoMeta("mapillary", "test", 0, 0, 0, 0, None, 0, 0, 0, None, {})
+    monkeypatch.setattr(mapillary, "request", lambda *args: pytest.fail("unexpected download"))
+    assert cache.mapillary_image(meta) == old
+    assert not (cache.root / "mapillary/test/pano.jpg").exists()
