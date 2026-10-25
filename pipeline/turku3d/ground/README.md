@@ -48,6 +48,10 @@ not a learned surface classifier. Visual materials use the same keys as collisio
 
 Water polygons constrain the shoreline. The separate water sensor/visual surface uses
 median class-9 N2000 elevation; ground heights are not interpolated across the river.
+The solid river bed required by `materials.md` is an explicitly synthetic collision-only
+fallback 3 m below that water level, with closed bank faces. It is not measured bathymetry
+and is omitted from visuals. This prevents unbounded falls through the sensor without
+interpolating land elevations across the river. Its provenance is recorded in the report.
 If reliable water observations are absent, supply a measured level explicitly:
 
 ```sh

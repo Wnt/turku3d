@@ -429,8 +429,11 @@ def test_missing_curb_relief_fails_length_acceptance(curb_cloud):
 
 def test_plain_ground_acceptance_rejects_interior_hole(built_mesh):
     from turku3d.ground.ground_qa import evaluate_ground
+    from turku3d.ground.water import add_river_bed
 
     mesh, tiles, water = built_mesh
+    mesh = add_river_bed(mesh, -0.25)
+    assert np.any(mesh.positions[:, 1] == -3.25)
     x, z = np.meshgrid(np.arange(0.5, 125), np.arange(0.5, 62.5))
     accepted = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
     meshes = {t: tile_mesh(mesh, t) for t in tiles}

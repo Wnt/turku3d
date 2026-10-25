@@ -22,6 +22,7 @@ from .materials import Materials
 from .mesh import Mesh, build_mesh, parts, tile_mesh
 from .points import Surface, select_ground, split_points
 from .qa import write_report
+from .water import add_river_bed
 
 
 def log(message):
@@ -280,6 +281,8 @@ def run(args):
         temporary.replace(mesh_cache)
         info_cache.write_text(json.dumps(mesh_info))
     log(f"CDT: {mesh_info}")
+    visual_source = mesh
+    mesh = add_river_bed(mesh, water_level)
     meshes = {tile: tile_mesh(mesh, tile) for tile in tiles}
     output.mkdir(parents=True, exist_ok=True)
     artifacts = []
@@ -290,7 +293,7 @@ def run(args):
     for tile in visual:
         name = f"{tile.id}.vis.glb"
         write_glb(
-            visual_meshes(mesh, tile, curbs),
+            visual_meshes(visual_source, tile, curbs),
             output / name,
             root_extras={"layer": "ground", "tile": tile.id},
         )
@@ -315,6 +318,11 @@ def run(args):
             "curb_fitting": "deferred by user; plain lidar ground",
             "quay_lines": len(handoff),
             "water_level": {"metres_n2000": water_level, "source": water_source},
+            "river_bed": {
+                "source": "synthetic collision fallback; no measured bathymetry",
+                "depth_below_water_m": 3.0,
+                "visual": False,
+            },
             "build_seconds": time.monotonic() - started,
             "cache_key": key,
         }

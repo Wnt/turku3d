@@ -37,7 +37,7 @@ def evaluate_ground(meshes, accepted, water, buildings, bounds):
     unique, counts = np.unique(edges, axis=0, return_counts=True)
     exposed = unique[counts == 1]
     midpoints = p[exposed].mean(axis=1)[:, [0, 2]]
-    domain = shapely.box(*bounds.as_tuple()).difference(water)
+    domain = shapely.box(*bounds.as_tuple())
     unexpected = shapely.distance(shapely.points(midpoints), domain.boundary) > 1e-7
     internal_open_edges = int(unexpected.sum())
     seams = seam_errors(meshes)
