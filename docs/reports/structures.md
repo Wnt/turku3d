@@ -1,68 +1,109 @@
-# W1-02 structures implementation and acceptance
+# W1-02 structures: integration and real acceptance
 
-Status: **BLOCKED on the W1-01 ground layer**, 2026-10-25.
-Branch: `wt/w1-02-structures`. The implementation and synthetic acceptance tests
-are committed; a complete real office-AOI structures layer is not yet produced.
+Status: **BLOCKED — real acceptance fails**, 2026-10-25.
+Branch: `wt/w1-02-structures`. The branch is rebased onto the Wave 0 integration;
+there is no merge to main. The README conflict preserves both the gate instructions
+and the structures instructions.
 
-## Implemented
+## Changes
 
-- City survey/OSM gap adapters and lidar-backed stair/wall/fence measurements.
-- Grouped stair flights, smooth solid slopes, query-only visual treads, and cheeks.
-- Closed mitered retaining walls, fence/railing profiles, preserved ground ramps,
-  and ground-classified quay stone walls with railing collision.
-- Shared material classes, deterministic float64 seam clipping, world-local GLBs
-  with material keys, hash-checked manifests, caching and JSON/Markdown reports.
-- Explicit blocking diagnostics for absent ground/quay classification, missing
-  lidar, unsupported stair geometry, landing/contact errors and uncovered ramps.
+- Adopted Ruff formatting/checks and registered selective structures Python and
+  Rapier coverage in `scripts/dev/gate.toml`.
+- Replaced the provisional quay decoder with W1-01's actual `quays.json` contract.
+  The build snapshots and verifies the producer's files without writing to that
+  sandbox; mixed-generation inputs are rejected.
+- Vectorized ground contact queries and added real-data Rapier probes over the
+  supplied ground and generated structures. The probes use the game's shared
+  collider builder, material friction, interaction groups and internal-edge flags.
+  Barrier routes cross segment interiors, with a regression for two-point fences.
+- Fixed a reproduced macOS task-stop race: an empty process group can transiently
+  return EPERM after termination. The stop command checks live membership, while
+  real permission failures remain errors. The original termination assertions and
+  timeout limits remain unchanged.
 
-The [package README](../../pipeline/turku3d/structures/README.md) documents exact
-commands, output schemas, material keys and the proposed W1-01 quay handoff.
-The quay profile interface still needs confirmation against W1-01's landed output.
-No W1-01 code or shared raw input was changed.
-
-## Verification
+## Reproduce
 
 ```sh
+source ../sandbox.env
+scripts/dev/gate
 make -j2 structures-test
-make structures-build
+make structures-build ARGS="--ground-layer $HOME/turku3d/wt/w1-01-ground/work/build/layers/ground"
+npm --prefix tools/validator run structures -- \
+  "$TURKU3D_WORK/reports/structures/physics-cases.json" \
+  "$TURKU3D_WORK/reports/structures/physics-runtime.json"
 ```
 
-The synthetic suite covers flight grouping, independent lidar samples, exact ramp
-contacts, ground/OSM adapters, actual referenced collision seam bits, four-tile
-corners, surface-area conservation, NPZ/GLB contracts and damaged-cache recovery.
-Rapier uses the generated meshes: 10/25/39/40-degree stairs climb and descend;
-0.31/0.35/1.2 m walls, fences and quays block the capsule; ramps climb and descend;
-foot IK hits query-only treads; a CCD 1,500 kg car proxy stops at the quay at 10 m/s.
-The car proxy is not a substitute for W1-05's assembled raycast-vehicle checks.
+The real build and saved-case replay both exit nonzero because acceptance fails.
+To repeat against the exact measured ground generation rather than the advancing
+producer, pass the `ground_input.snapshot` path in the
+[metrics JSON](structures-metrics.json) as `--ground-layer`.
 
-## Gate output
+## Ground input
 
-`make -j2 structures-test`: **PASS**, 9.33 seconds wall time (5.03 s user,
-1.18 s system). Python: **17 passed** in 5.27 s. Rapier: **12 passed, 0 failed**
-in 4.77 s. Validator TypeScript typecheck: **PASS**. `git diff --cached --check`:
-**PASS**. `scripts/dev/gate` is not present at this branch base, so the area target
-is the required gate. Full captured output remains at
-`$TURKU3D_WORK/reports/structures/gate.txt`.
+Read-only source: `~/turku3d/wt/w1-01-ground/work/build/layers/ground/`.
+The consistent snapshot contains **64 collision tiles and 868,620 triangles**.
+Ground code hash: `4f39c844c7886fa2ac12a981654a324899f9894426e16783f2350d08c742e6c8`.
+Manifest hash: `ec77d6ab3d3edb6e100184619107b7f8c1c2a9bd29e3ca2eef43cec97eaa0279`.
+All copied artifact hashes matched and no source changed during the read. The
+producer's `acceptance_passed` is **false**. That provenance is recorded separately
+from the actual structures checks below.
 
-## Real input run
+## Real measurements
 
-`make structures-build` exits 2 (the module exits 1) after the read-only survey
-inventory, in **2.991 seconds**. Its blocking output is:
+The build took **206.390 s** and emitted an explicitly blocked intermediate layer:
+**49 collision tiles, 4 visual tiles and 18,058 triangles**. There are **223 fences,
+3 walls, 3 OSM gap-fill stair flights and one 200.660 m quay**. No city-nosing flight
+passed all reconstruction checks; the three emitted flights do not establish full
+stair coverage. No ramp geometry passed coverage.
 
-```text
-W1-01 ground layer is required: /Users/wnt/turku3d/wt/w1-02-structures/work/build/layers/ground/MANIFEST.json
-make: *** [structures-build] Error 1
-```
+| Check | Measured result |
+|---|---|
+| Emitted stair landing error bounds | 2.465, 2.922, 4.963 cm; limit 5 cm |
+| Emitted stair ground contact errors | 0.804, 1.427, 1.941 cm; limit 2 cm |
+| Visual/collider stair endpoint difference | 0 cm by shared construction |
+| Emitted wall top holdout errors | 1.620, 9.090, 1.250 cm; limit 10 cm |
+| Fence height evidence | 3 class-1 stations; 1,735 default-height stations |
+| Ramp coverage | 373 survey lines uncovered; input has no ramp-material triangles |
+| Missing ground contacts | 8 within the supplied 500 m envelope; 139 in its acquisition margin |
 
-The [JSON report](structures-metrics.json) records the full source counts. Runtime
-reports live at `$TURKU3D_WORK/reports/structures/{metrics.json,report.md}`. Missing
-inputs do not publish a structures manifest or pretend to satisfy lidar accuracy.
+There are **877 geometry/evidence issues**. Besides missing ramps and contacts,
+these include 96 stair landing holdout errors above 5 cm, 42 wall-top holdout
+errors above 10 cm, 14 stair contact gaps above 2 cm, sparse lidar and unresolved
+survey grouping. The JSON retains the remaining counts and accepted measurements.
+These are failures to resolve, not excluded samples or relaxed tolerances.
 
-## Remaining acceptance
+## Real physics
 
-1. Stage the completed W1-01 ground layer in the sandbox and confirm its quay
-   classifications and ramp material coverage match the documented consumer.
-2. Run `make structures-build`; resolve every object-level issue and inspect the
-   real flight/wall height measurements, default fence heights and ground joins.
-3. Assemble with W1-04, bind the structure material textures, and run W1-05's
-   character routes and full car checks across the real office block.
+Replaying the saved cases through the runtime's collider builder took **61.51 s**.
+**152 of 248 cases passed; 96 failed.** Three additional fence routes could not be
+placed because their ground contacts were missing.
+
+| Object/check | Pass / tested |
+|---|---:|
+| Stair ascent and descent | 6 / 6 (all three emitted flights) |
+| Fence blocking | 129 / 220 |
+| Wall blocking above 0.3 m | 1 / 2 |
+| Quay character blocking | 17 / 20 stations |
+| Quay 1,500 kg CCD proxy at 10 m/s | 16 / 20 stations |
+| Quay stations passing both checks | 16 / 20 |
+
+The quay failed at stations 4, 5, 6 and 15. The case/report IDs identify the exact
+routes. These are route probes against the real neighbouring geometry; failed
+barriers need topology, ground-contact and route inspection. A full raycast-vehicle
+run remains an integration check; the proxy is not presented as that vehicle.
+
+Full evidence stays in this sandbox:
+`reports/structures/{metrics.json,physics-cases.json,physics-runtime.json,real-build.log,runtime-acceptance.log}`.
+The committed metrics JSON includes the report/case hashes and snapshot location.
+No shipped `.col` or tileset was produced.
+
+## Remaining work
+
+1. Resolve the rejected city flights and wall measurements against lidar and the
+   ground contacts; do not substitute the three successful OSM flights for coverage.
+2. Reconstruct the 373 ramp footprints from survey data or agree an explicit ramp
+   mask with W1-01, then preserve those ground triangles with the ramp material.
+3. Diagnose the 91 failed fence probes, the wall probe and four quay stations using
+   the saved cases; resolve the eight internal contact holes and margin coverage.
+4. Rerun the complete real acceptance against the final ground generation before
+   reporting DONE or requesting landing.

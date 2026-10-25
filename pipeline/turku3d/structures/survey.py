@@ -1,8 +1,10 @@
 """Survey grouping and lidar estimates. Missing evidence is an error, never invented terrain."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
+from dataclasses import dataclass
+
 import numpy as np
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString
@@ -32,18 +34,22 @@ def group_flights(lines, *, gap=1.1, angle_deg=12):
         length = np.linalg.norm(d)
         if length < 0.3 or line.length > length * 1.03:
             if code == "66626":
-                rejected.append({"object_id": object_id, "reason": "nonlinear or short stair survey line"})
+                rejected.append(
+                    {"object_id": object_id, "reason": "nonlinear or short stair survey line"}
+                )
             continue
         d /= length
         if d[0] < 0 or (d[0] == 0 and d[1] < 0):
             d = -d
         records.append((object_id, p, d, code))
     parent = list(range(len(records)))
+
     def root(k):
         while parent[k] != k:
             parent[k] = parent[parent[k]]
             k = parent[k]
         return k
+
     cos = np.cos(np.radians(angle_deg))
     for i, (_, a, u, _) in enumerate(records):
         v = np.array([-u[1], u[0]])
@@ -66,7 +72,9 @@ def group_flights(lines, *, gap=1.1, angle_deg=12):
             continue
         ids = [item[0] for item in items]
         if len(items) < 2:
-            rejected.append({"object_id": ids[0], "reason": "isolated stair line; no measurable flight run"})
+            rejected.append(
+                {"object_id": ids[0], "reason": "isolated stair line; no measurable flight run"}
+            )
             continue
         u = items[0][2]
         v = np.array([-u[1], u[0]])
@@ -80,8 +88,15 @@ def group_flights(lines, *, gap=1.1, angle_deg=12):
             continue
         centre = (left + right) / 2
         key = hashlib.sha256("\n".join(sorted(ids)).encode()).hexdigest()[:16]
-        flights.append(Flight("stairs:" + key, u * centre + v * across.min(),
-                              u * centre + v * across.max(), float(right - left), sorted(ids)))
+        flights.append(
+            Flight(
+                "stairs:" + key,
+                u * centre + v * across.min(),
+                u * centre + v * across.max(),
+                float(right - left),
+                sorted(ids),
+            )
+        )
     return flights, rejected
 
 
@@ -89,7 +104,11 @@ class Lidar:
     def __init__(self, positions, classes):
         self.positions = np.asarray(positions, dtype=np.float64)
         self.classes = np.asarray(classes)
-        if self.positions.ndim != 2 or self.positions.shape[1] != 3 or len(self.positions) != len(self.classes):
+        if (
+            self.positions.ndim != 2
+            or self.positions.shape[1] != 3
+            or len(self.positions) != len(self.classes)
+        ):
             raise ValueError("lidar requires xyz and one class per point")
         if not np.isfinite(self.positions).all():
             raise ValueError("non-finite lidar")
@@ -111,8 +130,10 @@ class Lidar:
         ground = self.nearby(xz, radius, [2])
         if len(ground) < 6 or len(p) < 12:
             raise ValueError(f"insufficient landing lidar at {np.asarray(xz).tolist()}")
+
         def design(points):
             return np.column_stack((points[:, [0, 2]] - xz, np.ones(len(points))))
+
         A = design(ground)
         coeff = np.linalg.lstsq(A, ground[:, 1], rcond=None)[0]
         for _ in range(3):
@@ -155,7 +176,7 @@ def sample_line(line: LineString, spacing=1.0):
     """Densify without replacing original bend vertices."""
     out = []
     points = np.asarray(line.coords)[:, :2]
-    for a, b in zip(points[:-1], points[1:]):
+    for a, b in zip(points[:-1], points[1:], strict=True):
         length = np.linalg.norm(b - a)
         if length < 1e-6:
             continue

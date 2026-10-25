@@ -1,11 +1,14 @@
 {
-  "status": "BLOCKED",
-  "issues": [
-    {
-      "object_id": "inputs",
-      "reason": "W1-01 ground layer is required: /Users/wnt/turku3d/wt/w1-02-structures/work/build/layers/ground/MANIFEST.json"
-    }
-  ],
+  "result": "BLOCKED",
+  "ground_input": {
+    "source": "/Users/wnt/turku3d/wt/w1-01-ground/work/build/layers/ground",
+    "snapshot": "/Users/wnt/turku3d/wt/w1-02-structures/work/cache/structures-ground/e09dffd7293aa3469faedd10485175b62919cc7aff9981d9d42584628a1fdf6f",
+    "manifest_sha256": "ec77d6ab3d3edb6e100184619107b7f8c1c2a9bd29e3ca2eef43cec97eaa0279",
+    "code_version": "4f39c844c7886fa2ac12a981654a324899f9894426e16783f2350d08c742e6c8",
+    "ground_acceptance_passed": false,
+    "manifest_hash_mismatches": [],
+    "changed_during_read": []
+  },
   "input_counts": {
     "66636": 147,
     "62540": 373,
@@ -19,5 +22,208 @@
     "wall": 14,
     "retaining_wall": 58
   },
-  "elapsed_seconds": 2.991
+  "ground_triangles": 868620,
+  "ground_material_counts": {
+    "8": 204637,
+    "2": 93156,
+    "3": 19853,
+    "1": 77532,
+    "10": 419269,
+    "4": 21729,
+    "5": 1423,
+    "7": 14836,
+    "14": 4397,
+    "6": 10321,
+    "24": 358,
+    "9": 1109
+  },
+  "output": {
+    "collision_tiles": 49,
+    "visual_tiles": 4,
+    "triangles": 18058,
+    "object_counts": {
+      "fence": 223,
+      "wall": 3,
+      "stairs": 3,
+      "quay": 1
+    }
+  },
+  "geometry_issues": {
+    "total": 877,
+    "by_reason": {
+      "nonlinear or short stair survey line": 8,
+      "isolated stair line; no measurable flight run": 35,
+      "inconsistent flight widths": 3,
+      "landing held-out pN residual N m exceeds N m": 96,
+      "insufficient landing lidar": 54,
+      "stair landing contact gap N m exceeds N m": 14,
+      "no ground contact": 147,
+      "insufficient lidar": 76,
+      "wall top held-out error N m exceeds N m": 42,
+      "stair rise under N cm: survey/lidar disagree": 28,
+      "insufficient independent landing samples": 1,
+      "ramp survey is not covered by ground material-ramp triangles": 373
+    },
+    "missing_contacts_inside_ground_export": 8,
+    "missing_contacts_in_acquisition_margin": 139
+  },
+  "physics": {
+    "cases": 248,
+    "passed_cases": 152,
+    "failed_cases": 96,
+    "unplaceable_routes": 3,
+    "by_kind": {
+      "fence": {
+        "cases": 220,
+        "passed": 129,
+        "walkers_passed": 129,
+        "cars_passed": 0
+      },
+      "quay": {
+        "cases": 20,
+        "passed": 16,
+        "walkers_passed": 17,
+        "cars_passed": 16
+      },
+      "stairs": {
+        "cases": 6,
+        "passed": 6,
+        "walkers_passed": 6,
+        "cars_passed": 0
+      },
+      "wall": {
+        "cases": 2,
+        "passed": 1,
+        "walkers_passed": 1,
+        "cars_passed": 0
+      }
+    },
+    "report": "/Users/wnt/turku3d/wt/w1-02-structures/work/reports/structures/physics-runtime.json",
+    "report_sha256": "f93dc68a0745694a6621c3ea0364e3e16fc5cea73b13451105e882180aa3d8bf",
+    "cases_sha256": "72899141b561816d803f11aa58d2abf36b9908fd3e99428857b92e731e9a6dda",
+    "collider_builder": "game/src/shared/col/rapierBuild.ts"
+  },
+  "measured_objects": [
+    {
+      "object_id": "osm:way:776088933:1",
+      "kind": "wall",
+      "lidar_height_error_m": 0.016199999999999992,
+      "max_height_m": 0.9329336561438959
+    },
+    {
+      "object_id": "osm:way:777814614:0:0",
+      "sources": [
+        "osm:way:777814614:0"
+      ],
+      "kind": "stairs",
+      "bottom": [
+        91.5863,
+        3.3630822252352695,
+        392.0055
+      ],
+      "top": [
+        94.5346,
+        3.6236185952648197,
+        397.153
+      ],
+      "width": 2.0,
+      "rise_m": 0.2605363700295502,
+      "run_m": 5.932051006186679,
+      "risers": 2,
+      "slope_deg": 2.5148211197008914,
+      "flagged_steep": false,
+      "landing_error_bound_m": 0.02464692575391636,
+      "ground_contact_error_m": 0.008039456891355545,
+      "visual_collider_endpoint_error_m": 0.0
+    },
+    {
+      "object_id": "osm:way:777814620:0:0",
+      "sources": [
+        "osm:way:777814620:0"
+      ],
+      "kind": "stairs",
+      "bottom": [
+        152.0255,
+        2.3857822138263534,
+        350.4694
+      ],
+      "top": [
+        151.18754324187796,
+        2.466036325269975,
+        348.9689957116691
+      ],
+      "width": 2.0,
+      "rise_m": 0.08025411144362149,
+      "run_m": 1.7185414039016282,
+      "risers": 1,
+      "slope_deg": 2.673711345957704,
+      "flagged_steep": false,
+      "landing_error_bound_m": 0.029223965142311403,
+      "ground_contact_error_m": 0.014267826075986978,
+      "visual_collider_endpoint_error_m": 0.0
+    },
+    {
+      "object_id": "osm:way:834588617:2",
+      "kind": "wall",
+      "lidar_height_error_m": 0.09090000000000131,
+      "max_height_m": 17.812463994688564
+    },
+    {
+      "object_id": "osm:way:1095239116:1:0",
+      "sources": [
+        "osm:way:1095239116:1"
+      ],
+      "kind": "stairs",
+      "bottom": [
+        401.442,
+        2.806706437886283,
+        193.2583
+      ],
+      "top": [
+        402.5848303799561,
+        3.012351848165176,
+        194.8352543828694
+      ],
+      "width": 2.0,
+      "rise_m": 0.20564541027889316,
+      "run_m": 1.9475231456908602,
+      "risers": 1,
+      "slope_deg": 6.027714189067777,
+      "flagged_steep": false,
+      "landing_error_bound_m": 0.04963003817845033,
+      "ground_contact_error_m": 0.019409550083318905,
+      "visual_collider_endpoint_error_m": 0.0
+    },
+    {
+      "object_id": "osm:way:1229270310:0",
+      "kind": "wall",
+      "lidar_height_error_m": 0.012500000000000178,
+      "max_height_m": 0.06124416131223143
+    },
+    {
+      "object_id": "2323801ef58b13ea8cba584f1036c554efa9b01e:0",
+      "kind": "quay",
+      "source": "ground classification",
+      "length_m": 200.65958208232996,
+      "ground_contact_error_m": 0.0
+    }
+  ],
+  "fence_height_stations": {
+    "class1_checked": 3,
+    "default_1_2m": 1735
+  },
+  "timing_seconds": {
+    "full_build": 206.39,
+    "runtime_physics_replay": 61.51,
+    "build_phases": {
+      "surveys": 1.801,
+      "ground_snapshot": 1.125,
+      "input_hashes": 1.01,
+      "lidar": 52.817,
+      "geometry": 37.684,
+      "physics": 110.646,
+      "layer_write": 1.307
+    }
+  },
+  "full_metrics": "/Users/wnt/turku3d/wt/w1-02-structures/work/reports/structures/metrics.json"
 }

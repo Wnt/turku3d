@@ -79,6 +79,16 @@ tests = ["tests/test_parked.py"]
 paths = ["pipeline/turku3d/props/*", "pipeline/tests/test_props.py"]
 tests = ["tests/test_props.py"]
 
+[[stages.related]]
+paths = ["pipeline/turku3d/structures/*", "pipeline/tests/test_structures.py"]
+tests = ["tests/test_structures.py"]
+
+[[stages]]
+name = "structures-physics"
+kind = "command"
+triggers = ["pipeline/turku3d/structures/*", "pipeline/tests/test_structures.py", "tools/validator/test/structures.test.ts", "tools/validator/src/structures*.ts", "tools/validator/src/kcc.ts", "game/src/shared/col/*", "mk/structures.mk"]
+commands = [["node", "--test", "tools/validator/test/structures.test.ts"]]
+
 [[stages]]
 name = "qa-python-tests"
 kind = "pytest"

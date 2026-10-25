@@ -1,20 +1,29 @@
 """Deterministic clipping and the COMMON §4 layer writer."""
+
 from __future__ import annotations
 
-from collections import defaultdict
 import hashlib
 import json
-from pathlib import Path
 import tempfile
+from collections import defaultdict
+from pathlib import Path
+
 import numpy as np
+
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh, write_glb
+
 from .geometry import Mesh
 
-
-MATERIAL_KEYS = {"stair_tread_helper": "stone_stairs", "wall": "concrete_wall",
-                 "fence": "metal_fence", "railing": "metal_railing", "quay": "granite_quay", "ramp": "concrete_ramp"}
+MATERIAL_KEYS = {
+    "stair_tread_helper": "stone_stairs",
+    "wall": "concrete_wall",
+    "fence": "metal_fence",
+    "railing": "metal_railing",
+    "quay": "granite_quay",
+    "ramp": "concrete_ramp",
+}
 
 
 def sha256(path):
@@ -27,8 +36,23 @@ def sha256(path):
 
 def code_hash():
     paths = sorted(Path(__file__).parent.glob("*.py"))
-    paths += [Path(C.__file__), Path(C.__file__).parent / "col/materials_v1.json",
-              Path(C.__file__).parent / "package/gltf.py"]
+    paths += [
+        Path(C.__file__),
+        Path(C.__file__).parent / "col/materials_v1.json",
+        Path(C.__file__).parent / "package/gltf.py",
+    ]
+    paths += [
+        C.REPO_ROOT / p
+        for p in (
+            "tools/validator/src/structures.ts",
+            "tools/validator/src/structures-cli.ts",
+            "tools/validator/src/kcc.ts",
+            "tools/validator/package-lock.json",
+            "game/src/shared/col/rapierBuild.ts",
+            "game/src/shared/col/colFormat.ts",
+            "game/src/shared/col/materials.ts",
+        )
+    ]
     return hashlib.sha256("".join(sha256(p) for p in paths).encode()).hexdigest()
 
 
@@ -40,7 +64,7 @@ def _split(poly, axis, plane):
     applied globally (x then z), before any tile selects its triangles.
     """
     low, high = [], []
-    for a, b in zip(poly, np.roll(poly, -1, axis=0)):
+    for a, b in zip(poly, np.roll(poly, -1, axis=0), strict=True):
         if a[axis] <= plane:
             low.append(a)
         if a[axis] >= plane:
@@ -82,8 +106,9 @@ def _arrays(parts):
     # Lexicographic deduplication preserves float64 seam values and strips hard-normal duplication.
     p, inverse = np.unique(p, axis=0, return_inverse=True)
     indices = inverse.astype(np.uint32).reshape(-1, 3)
-    mats = np.concatenate([np.full(len(part) // 3, mat_id(mesh.material), dtype=np.uint8)
-                           for mesh, part in parts])
+    mats = np.concatenate(
+        [np.full(len(part) // 3, mat_id(mesh.material), dtype=np.uint8) for mesh, part in parts]
+    )
     return p, indices, mats
 
 
@@ -100,11 +125,13 @@ def _complete_seams(tiles):
                 continue
             coordinate = other[0 if axis == 0 else 1] * C.COLLISION_TILE_SIZE
             a, b = tiles[i, j][0], tiles[other][0]
-            edge = np.unique(np.concatenate((a[a[:, axis] == coordinate], b[b[:, axis] == coordinate])), axis=0)
+            edge = np.unique(
+                np.concatenate((a[a[:, axis] == coordinate], b[b[:, axis] == coordinate])), axis=0
+            )
             for key in ((i, j), other):
                 p, idx, mat = tiles[key]
                 merged, inv = np.unique(np.concatenate((p, edge)), axis=0, return_inverse=True)
-                tiles[key] = merged, inv[:len(p)][idx].astype(np.uint32), mat
+                tiles[key] = merged, inv[: len(p)][idx].astype(np.uint32), mat
     # A corner can be introduced by the final edge: propagate once more to all four neighbours.
     corners = defaultdict(list)
     for p, _, _ in tiles.values():
@@ -116,11 +143,13 @@ def _complete_seams(tiles):
             if key in tiles:
                 p, idx, mat = tiles[key]
                 merged, inv = np.unique(np.concatenate((p, points)), axis=0, return_inverse=True)
-                tiles[key] = merged, inv[:len(p)][idx].astype(np.uint32), mat
+                tiles[key] = merged, inv[: len(p)][idx].astype(np.uint32), mat
 
 
 def layer_identity(inputs, params):
-    return dict(layer="structures", schema_version=1, inputs=inputs, params=params, code_hash=code_hash())
+    return dict(
+        layer="structures", schema_version=1, inputs=inputs, params=params, code_hash=code_hash()
+    )
 
 
 def cached_manifest(out, inputs, params):
@@ -136,8 +165,9 @@ def cached_manifest(out, inputs, params):
     if not files or not {"metrics.json", "report.md"}.issubset(files):
         return None
     if all(previous.get(k) == v for k, v in layer_identity(inputs, params).items()) and all(
-            Path(name).name == name and (out / name).is_file() and sha256(out / name) == digest
-            for name, digest in files.items()):
+        Path(name).name == name and (out / name).is_file() and sha256(out / name) == digest
+        for name, digest in files.items()
+    ):
         return previous
     return None
 
@@ -166,20 +196,52 @@ def write_layer(meshes, out, *, inputs, params, metrics):
         for (i, j), parts in sorted(visuals.items()):
             glb_meshes = []
             for mesh, part in parts:
-                glb_meshes.append(GlbMesh(mesh.object_id, part[:, :3],
-                    np.arange(len(part), dtype=np.uint32).reshape(-1, 3), uvs=part[:, 3:],
-                    extras={"layer": "structures", "object_id": mesh.object_id,
-                            "material_key": MATERIAL_KEYS[mesh.material], **mesh.metadata}))
-            write_glb(glb_meshes, stage / f"t0_{i}_{j}.vis.glb", root_extras={"layer": "structures"})
-        metrics = {**metrics, "collision_tiles": len(arrays), "visual_tiles": len(visuals),
-                   "triangles": sum(len(v[1]) for v in arrays.values())}
+                glb_meshes.append(
+                    GlbMesh(
+                        mesh.object_id,
+                        part[:, :3],
+                        np.arange(len(part), dtype=np.uint32).reshape(-1, 3),
+                        uvs=part[:, 3:],
+                        extras={
+                            "layer": "structures",
+                            "object_id": mesh.object_id,
+                            "material_key": MATERIAL_KEYS[mesh.material],
+                            **mesh.metadata,
+                        },
+                    )
+                )
+            write_glb(
+                glb_meshes, stage / f"t0_{i}_{j}.vis.glb", root_extras={"layer": "structures"}
+            )
+        metrics = {
+            **metrics,
+            "collision_tiles": len(arrays),
+            "visual_tiles": len(visuals),
+            "triangles": sum(len(v[1]) for v in arrays.values()),
+        }
         (stage / "metrics.json").write_text(json.dumps(metrics, indent=2, allow_nan=False) + "\n")
-        lines = ["# Structures layer report", "", f"Status: {metrics.get('status', 'synthetic')}", "",
-                 f"Collision tiles: {len(arrays)}; visual tiles: {len(visuals)}; triangles: {metrics['triangles']}.", "",
-                 "## Measurements", "", "```json", json.dumps(metrics, indent=2, allow_nan=False), "```", ""]
+        lines = [
+            "# Structures layer report",
+            "",
+            f"Status: {metrics.get('status', 'synthetic')}",
+            "",
+            f"Collision tiles: {len(arrays)}; visual tiles: {len(visuals)}; triangles: {metrics['triangles']}.",
+            "",
+            "## Measurements",
+            "",
+            "```json",
+            json.dumps(metrics, indent=2, allow_nan=False),
+            "```",
+            "",
+        ]
         (stage / "report.md").write_text("\n".join(lines))
         files = {p.name: sha256(p) for p in sorted(stage.iterdir())}
-        manifest = {**identity, "status": metrics.get("status", "SYNTHETIC"), "tiles": sorted(n for n in files if n.endswith((".col.npz", ".vis.glb"))), "files": files}
+        manifest = {
+            **identity,
+            "status": metrics.get("status", "SYNTHETIC"),
+            "tiles": sorted(n for n in files if n.endswith((".col.npz", ".vis.glb"))),
+            "files": files,
+        }
         (stage / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
         if manifest_path.exists():
             old = json.loads(manifest_path.read_text())

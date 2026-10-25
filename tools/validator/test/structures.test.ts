@@ -16,7 +16,8 @@ if (!fixture) {
   if (!work) throw new Error('Set TURKU3D_WORK or STRUCTURES_FIXTURE for isolated test output');
   fixture = join(work, 'build/structures-tests/scenes.json');
   mkdirSync(join(work, 'build/structures-tests'), { recursive: true });
-  execFileSync('bash', [join(repo, 'pipeline/env/run.sh'), 'python', '-m', 'turku3d.structures.fixtures', '--out', fixture], { cwd: repo });
+  const python = process.env.PIPELINE_PY ?? join(repo, '.venv/bin/python');
+  execFileSync(python, ['-m', 'turku3d.structures.fixtures', '--out', fixture], { cwd: repo });
 }
 interface Scene {
   meshes: {positions: number[][]; indices: number[][]; material: number}[];
@@ -84,4 +85,27 @@ test('quay railing stops a 1500 kg car proxy at 10 m/s', () => {
     assert.ok(furthest < 1.1, `car passed quay: centre x=${furthest}`);
     assert.ok(Math.abs(body.linvel().x) < 0.5, `car did not stop: vx=${body.linvel().x}`);
   } finally { world.free(); }
+});
+
+test('real-ground acceptance detects missing colliders and checks actual landing heights', async () => {
+  const { checkStructures } = await import('../src/structures.ts');
+  const ground = [[[-10, 0, -10], [-10, 0, 10], [30, 0, 10]],
+    [[-10, 0, -10], [30, 0, 10], [30, 0, -10]]];
+  const scene = scenes['stairs-25'];
+  const h = scene.meta.top![1];
+  const landing = [[[4, h, -2], [4, h, 2], [8, h, 2]], [[4, h, -2], [8, h, 2], [8, h, -2]]];
+  const triangles = [...ground, ...landing];
+  const material: number[] = [MAT.sidewalk, MAT.sidewalk, MAT.sidewalk, MAT.sidewalk];
+  for (const mesh of scene.meshes) for (const indices of mesh.indices) {
+    triangles.push(indices.map(i => mesh.positions[i])); material.push(mesh.material);
+  }
+  const stairsCase = { object_id: 'survey-stairs', kind: 'stairs' as const, triangles, material,
+    routes: [{ start: [-1, 0, 0], target: [5, h, 0] }, { start: [5, h, 0], target: [-1, 0, 0] }] };
+  const good = await checkStructures([stairsCase]);
+  assert.ok(good.passed, JSON.stringify(good));
+  const bad = await checkStructures([{ ...stairsCase, triangles: [...ground, ...landing], material: material.slice(0, 4) }]);
+  assert.equal(bad.passed, false, 'walking underneath a missing stair must fail its landing-height check');
+  const missingFence = await checkStructures([{ object_id: 'missing-fence', kind: 'fence',
+    triangles: ground, material: [MAT.sidewalk, MAT.sidewalk], routes: [{ start: [0, 0, 0], target: [4, 0, 0] }] }]);
+  assert.equal(missingFence.passed, false, 'an unobstructed route must not pass a barrier test');
 });

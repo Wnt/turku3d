@@ -7,6 +7,7 @@ shared material table.
 
 ```sh
 # From the worktree, with its sandbox.env already exported:
+scripts/dev/gate
 make -j2 structures-test
 make structures-build
 # Explicit ground input, if staged at another location:
@@ -34,29 +35,28 @@ Raw inputs are read-only:
   ground contacts and ramp triangles (`material=ramp`). Water is excluded from
   ground contact queries; missing coverage is an error, not a nearest fill.
 
-W1-01's production output has not landed on this branch. The consumer supports
-classified vertical `quay` faces in ground NPZs, or the following explicit profile
-handoff in `ground/quays.geojson`. This profile schema must be agreed with W1-01
-when integrating; it is not claimed to be an existing producer API.
+The reader consumes W1-01's `ground/quays.json` directly. Each entry contains
+`object_id`, `kind: "quay"`, `centers_xz`, `side_heights` and `normals_xz`. Heights
+are N2000 metres; each station has two measured side elevations. Structures uses
+the lower/upper elevations without repeating the ground classification. An empty
+list explicitly means no classified quays; a missing export is an error. The
+unused provisional GeoJSON and material-face decoders have been removed.
 
-```json
-{
-  "type": "FeatureCollection",
-  "coordinate_space": "world-local-xz",
-  "features": [{
-    "type": "Feature",
-    "id": "quay-survey-id",
-    "geometry": {"type": "LineString", "coordinates": [[168,246],[169,246]]},
-    "properties": {"lower_y": [-1,-1], "upper_y": [2,2]}
-  }]
-}
+```sh
+make structures-build ARGS="--ground-layer $HOME/turku3d/wt/w1-01-ground/work/build/layers/ground"
 ```
 
-Coordinates are engine x/z; heights are N2000 metres, one pair per line vertex.
-An explicit empty collection means ground found no quays. An absent classification
-is an error. Structures does **not** repeat the ground layer's step classification
-or run the Phase 0 heightfield as a fallback. Ramp survey lines must be covered by
-ramp-labelled ground triangles; uncovered lines are reported individually.
+The producer sandbox is read-only. Before measuring, the build checks artifact
+hashes and reads a consistent copy into `$TURKU3D_WORK/cache/structures-ground/`.
+A changed or partially published producer output fails closed. Snapshot evidence
+records the source path, manifest/code hashes and upstream acceptance status.
+All collision/visual output and reports stay in this sandbox.
+
+Ramp survey lines currently require coverage by ramp-labelled ground triangles.
+The real input contains no material-18 triangles, so these lines remain blocking;
+reconstructing their footprints from survey edges or agreeing an explicit ramp
+mask with W1-01 is still needed. The code does not invent a footprint around an
+ambiguous line merely to make coverage pass.
 
 ## Geometry and evidence
 
@@ -80,8 +80,13 @@ ramp-labelled ground triangles; uncovered lines are reported individually.
 
 Real-data accuracy is **not established by the synthetic tests**. Sparse lidar,
 uneven landing crossfall, ambiguous survey grouping, and uncovered ramp lines
-produce explicit blocking issues. The synthetic car check uses a 1,500 kg CCD box
-at 10 m/s; a full raycast-vehicle run over the assembled AOI belongs to W1-05.
+produce explicit blocking issues. The synthetic and real car checks use a 1,500 kg CCD box at 10 m/s; a full
+raycast-vehicle run over the assembled AOI belongs to W1-05. Real probes combine
+the supplied ground with generated solid/query geometry: each emitted flight in
+both directions, representative wall/fence interiors, and quay crossings every
+10 m. Barrier probes cross segment interiors rather than open endpoints. Failed
+or unplaceable routes are blocking and retain their measured progress/heights.
+`physics-cases.json` and `physics.json` live in the sandbox report directory.
 
 ## Output
 
@@ -113,4 +118,5 @@ hashing and survey/ground reads still occur. A damaged output is regenerated, an
 stale owned tiles are removed when the manifest is replaced. No missing-input
 run publishes a new layer manifest. Every run writes its latest status to
 `$TURKU3D_WORK/reports/structures/{metrics.json,report.md}` and exits nonzero for
-blocking issues. Real assembled traversal is required after `READY_FOR_VALIDATION`.
+blocking issues. `PASS` requires both geometry evidence and real-ground Rapier
+probes to pass; assembled runtime and full vehicle QA remain W1-05 integration work.
