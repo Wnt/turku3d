@@ -30,3 +30,35 @@ test('@render HiDPI SSE follows output pixels after resize and the debug time sl
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
+
+for (const aa of ['off', 'taa', 'fxaa']) {
+  test(`@render AA diagnostic ${aa} renders without errors`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 480, height: 320 });
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await page.goto(`/?backend=${info.project.name}&aa=${aa}&cam=23459668,6704254,8,0,-15,60`);
+    await page.waitForFunction(() => window.__qaReady || window.__qaError);
+    expect(await page.evaluate(() => window.__qaError)).toBeUndefined();
+    expect(await page.evaluate(() => (window.__game!.params as any).aa)).toBe(aa);
+    const result = await page.evaluate(async () => {
+      const renderer = window.__render!.renderer, original = renderer.render.bind(renderer);
+      const passes: string[] = [];
+      renderer.render = (scene, camera) => { passes.push(scene.name); original(scene, camera); };
+      try {
+        for (let i = 0; i < 3; i++) await new Promise(requestAnimationFrame);
+        const canvas = document.createElement('canvas');
+        canvas.width = 480; canvas.height = 320;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(renderer.domElement, 0, 0);
+        const pixels = context.getImageData(0, 0, 480, 320).data;
+        const colors = new Set<number>();
+        for (let i = 0; i < pixels.length; i += 4) colors.add(pixels[i] << 16 | pixels[i + 1] << 8 | pixels[i + 2]);
+        return { temporal: passes.includes('TRAA'), colors: colors.size };
+      } finally { renderer.render = original; }
+    });
+    expect(result.temporal).toBe(aa === 'taa');
+    expect(result.colors).toBeGreaterThan(100);
+    expect(errors).toEqual([]);
+  });
+}
