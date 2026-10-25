@@ -10,7 +10,6 @@ from fixtures import ground as G
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
-from turku3d.ground.materials import surface_material as katualue_material
 from turku3d.package.gltf import GlbMesh, build_glb
 from turku3d.package.manifest import DistTree
 

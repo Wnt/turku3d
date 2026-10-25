@@ -5,10 +5,11 @@ import json
 import numpy as np
 import pytest
 from fixtures import ground as G
-from fixtures.stub_tile import CELLS_PER_COL, STEP, build, katualue_material
+from fixtures.stub_tile import CELLS_PER_COL, STEP, build
 from turku3d import config as C
 from turku3d.col import read_col
 from turku3d.col.materials import mat_id
+from turku3d.ground.materials import surface_material as katualue_material
 from turku3d.package import gltf
 from turku3d.package.manifest import DistTree, build_tileset, verify_tree
 

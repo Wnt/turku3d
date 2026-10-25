@@ -13,7 +13,9 @@ import shapely
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id, table
-from turku3d.package.gltf import GlbMesh, write_glb
+from turku3d.layers import CollisionLayer, write_collision, write_manifest, write_visual
+from turku3d.package.gltf import GlbMesh
+from turku3d.package.manifest import _atomic_write
 
 from .breaklines import load_breaklines, records, validation_geojson
 from .ground_qa import evaluate_ground
@@ -34,6 +36,8 @@ def code_hash():
         Path(C.__file__),
         Path(__file__).parents[1] / "package/gltf.py",
         Path(__file__).parents[1] / "col/materials_v1.json",
+        Path(__file__).parents[1] / "layers.py",
+        Path(__file__).parents[1] / "package/manifest.py",
     ]
     return hashlib.sha256(b"".join(p.read_bytes() for p in files)).hexdigest()
 
@@ -275,10 +279,7 @@ def run(args):
         mesh, mesh_info = build_mesh(
             surface, bounds, tiles, curbs, water, water_level, materials, tolerance=0.02
         )
-        temporary = mesh_cache.with_suffix(".tmp")
-        with temporary.open("wb") as stream:
-            np.savez(stream, positions=mesh.positions, indices=mesh.indices, material=mesh.material)
-        temporary.replace(mesh_cache)
+        mesh.save(mesh_cache)
         info_cache.write_text(json.dumps(mesh_info))
     log(f"CDT: {mesh_info}")
     visual_source = mesh
@@ -288,13 +289,13 @@ def run(args):
     artifacts = []
     for tile, part in meshes.items():
         name = f"{tile.id}.col.npz"
-        part.save(output / name)
+        write_collision(output / name, CollisionLayer(part.positions, part.indices, part.material))
         artifacts.append(name)
     for tile in visual:
         name = f"{tile.id}.vis.glb"
-        write_glb(
-            visual_meshes(visual_source, tile, curbs),
+        write_visual(
             output / name,
+            visual_meshes(visual_source, tile, curbs),
             root_extras={"layer": "ground", "tile": tile.id},
         )
         artifacts.append(name)
@@ -328,37 +329,37 @@ def run(args):
         }
     )
     write_report(report, reports)
-    manifest = {
-        **identity,
-        "layer": "ground",
-        "format": "turku3d-layer",
-        "version": 1,
-        "code": identity["code_version"],
-        "tiles": {
-            f: {
-                "sha256": hashlib.sha256((output / f).read_bytes()).hexdigest(),
-                "bytes": (output / f).stat().st_size,
-            }
-            for f in artifacts
-            if f.endswith((".col.npz", ".vis.glb"))
-        },
-        "validation": {"curbs": "curbs.geojson"},
-        "schema_version": 1,
-        "cache_key": key,
-        "tiles_written": [t.id for t in tiles] + [t.id for t in visual],
-        "artifacts": {f: hashlib.sha256((output / f).read_bytes()).hexdigest() for f in artifacts},
-        "collision_tile_cache": {
-            t.id: {
-                "key": hashlib.sha256((key + t.id).encode()).hexdigest(),
-                "artifact": f"{t.id}.col.npz",
-            }
-            for t in tiles
-        },
-        "qa": str(reports / "ground-qa.json"),
-        "qa_sha256": hashlib.sha256((reports / "ground-qa.json").read_bytes()).hexdigest(),
-        "acceptance_passed": report["passed"],
-    }
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest = write_manifest(
+        output,
+        inputs=inputs,
+        params=params,
+        code=identity["code_version"],
+        tiles=[f for f in artifacts if f.endswith((".col.npz", ".vis.glb"))],
+    )
+    manifest.update(
+        {
+            **identity,
+            "river_bed": report.get("river_bed"),
+            "validation": {"curbs": "curbs.geojson"},
+            "schema_version": 1,
+            "cache_key": key,
+            "tiles_written": [t.id for t in tiles] + [t.id for t in visual],
+            "artifacts": {
+                f: hashlib.sha256((output / f).read_bytes()).hexdigest() for f in artifacts
+            },
+            "collision_tile_cache": {
+                t.id: {
+                    "key": hashlib.sha256((key + t.id).encode()).hexdigest(),
+                    "artifact": f"{t.id}.col.npz",
+                }
+                for t in tiles
+            },
+            "qa": str(reports / "ground-qa.json"),
+            "qa_sha256": hashlib.sha256((reports / "ground-qa.json").read_bytes()).hexdigest(),
+            "acceptance_passed": report["passed"],
+        }
+    )
+    _atomic_write(manifest_path, (json.dumps(manifest, indent=2) + "\n").encode())
     log(
         json.dumps(
             {

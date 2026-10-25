@@ -166,8 +166,6 @@ def write_glb(meshes: list[GlbMesh], path: str | Path, **kw) -> bytes:
     data = build_glb(meshes, **kw)
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    if p.exists() and p.read_bytes() == data:
-        return data
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_bytes(data)
     tmp.replace(p)

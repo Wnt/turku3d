@@ -42,6 +42,8 @@ def git_sha() -> str:
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
+    if path.exists() and path.read_bytes() == data:
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(data)
