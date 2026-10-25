@@ -155,3 +155,33 @@ verification; the tested integration base is explicitly `7218b14`.
 
 Engine-probe build/Node checks passed in 38.52 s under concurrent load; its Chrome WebGPU
 headless route passed in 27.37 s. Final `scripts/dev/here` completed in 0.37 s.
+
+## Frozen-main integration verification (2026-10-25)
+
+Rebased onto frozen main `ea0509d`, including W1-07 vehicle (`2fd13b0`) and W1-11 visual QA
+(`8e8d2f9` through `ea0509d`). The QA loop and path-precedence implementation match main;
+parallel judging, immutable evidence, calibration, regression and manifest provenance remain intact.
+Sandbox integration retains the explicit `TILE_QA_PORT` / render `--port` overrides, defaults to
+base +1 / +2 respectively, and uses the shared browser-profile helper. Vehicle screenshots now
+use the sandbox reports directory. Active examples no longer reference the other workers' ports.
+
+```bash
+source ../sandbox.env
+make tooling-test qa-test game-test game-build game-vehicle-test
+make game-e2e
+```
+
+| Target | Result | Elapsed |
+|---|---|---|
+| `tooling-test` | 13 passed | 18.45 s |
+| `qa-test` | 32 Python + 7 render tests passed | 28.09 s |
+| `game-test` | 67 passed | 5.90 s |
+| `game-build` | typecheck and production build passed | 21.04 s |
+| `game-vehicle-test` | 22 game-WASM + 13 Node tests passed | 22.95 s |
+| `game-e2e` | 18 passed, WebGPU and WebGL2; one run | 124.64 s |
+
+An initial parallel batch exceeded the unchanged 2 ms streaming assertion and a 20 s tooling
+removal timeout. Both affected targets passed when rerun separately; no checks or limits were
+weakened. The build/vehicle timings include contention from that batch. Logs and machine-readable
+results are under `~/turku3d/wt/w0-tooling/work/reports/rebase-ea0509d/`.
+Main remains at `ea0509d`; this branch has not been merged into main.
