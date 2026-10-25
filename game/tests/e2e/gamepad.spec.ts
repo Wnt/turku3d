@@ -4,12 +4,6 @@ import { installPad } from './fixtures';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
-// Isolate input focus from other parallel Chrome windows on the shared Mac.
-test.beforeEach(async ({ page }) => {
-  const session = await page.context().newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-});
-
 // Use the shared functional timeout. Frame/throughput budgets live in performance.spec.ts.
 
 async function start(page: Page, backend: string, spawn: string) {

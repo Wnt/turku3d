@@ -21,6 +21,7 @@ silently skipped or counted as passing.
 
 The virtual pad overrides **only** `navigator.getGamepads`. It does not teleport actors,
 advance physics manually or overwrite state. All movement uses the production input path.
+Chrome focus emulation isolates every virtual-pad page from other browser windows on the shared host.
 Route evidence records every rendered frame and casts a ground ray in the physics worker
 at approximately 10 Hz. The AOI tests reject missed rays and negative ground clearance.
 

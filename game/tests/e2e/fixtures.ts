@@ -17,6 +17,9 @@ declare global {
 }
 export const gameState = (page: Page) => page.evaluate(() => (window.__game!.state as () => GameState)());
 export async function installPad(page: Page) {
+  // Every virtual-pad route needs focus isolation from parallel Chrome windows on the shared Mac.
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.addInitScript(() => {
     const virtual = { connected: true, axes: [0, 0, 0, 0], buttons: Array<number>(17).fill(0) };
     window.__virtualPad = virtual;
@@ -69,7 +72,7 @@ export const test = base.extend<{ evidence: void }>({
     await use();
     if (!page.isClosed()) {
       const evidence = await page.evaluate(() => {
-        const perf = (window as Window & { __perf?: unknown }).__perf;
+        const perf: unknown = window.__perf;
         return { samples: window.__routeSamples ?? [], state: window.__game?.state ? (window.__game.state as () => GameState)() : null,
           backend: window.__game?.backend, perf: typeof perf === 'function' ? perf() : perf ?? null };
       });
