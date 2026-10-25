@@ -21,9 +21,13 @@ def test_ground_publication_fallback_hashes_and_unchanged_writes(tmp_path):
         maps[name] = {"uri": f"{name}.ktx2", "sha256": hashlib.sha256(data).hexdigest()}
     spec = {"textures": maps, "ground_inputs": []}
     (tile / "material.json").write_text(json.dumps(spec))
+    (library / "normal.array.ktx2").unlink()
     assert publish_ground(root, out, ["t0_0_0"]) == {}
     spec["ground_inputs"] = [{"path": "c_0_0.col.npz", "sha256": "fixture"}]
     (tile / "material.json").write_text(json.dumps(spec))
+    with pytest.raises(FileNotFoundError, match="normal.array.ktx2"):
+        publish_ground(root, out, ["t0_0_0"])
+    (library / "normal.array.ktx2").write_bytes(b"array fixture")
     result = publish_ground(root, out, ["t0_0_0", "t0_1_0"])
     assert result["t0_0_0"]["spec"].startswith("ground/t0_0_0/")
     assert len(result) == 1

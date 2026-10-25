@@ -2,6 +2,9 @@
 
 `material.ts` exports `loadGroundLibrary`, `loadGroundTile`, and `createGroundMaterial`.
 `MaterialStyler` delegates assembler-declared ground bindings to `GroundBindings`. QA readiness waits for these loads. The binding owns tile maps, shares library arrays, and disposes late results after a tile unload.
+The office integration spec checks the published binding, applied runtime material, and distinct
+ground pixels near the spawn on WebGPU and WebGL. Run it after `make tile-build` with
+`cd game && npx playwright test -c playwright.tile.config.ts integration.spec.ts --workers=1`.
 
 ```ts
 const library = await loadGroundLibrary(new URL('textures/library/', location.href).href, ktx2Loader);

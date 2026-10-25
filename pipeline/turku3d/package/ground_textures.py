@@ -12,6 +12,13 @@ def publish_ground(root: Path, out: Path, tile_ids, ground_layer: Path | None = 
     library = root.parent / "library"
     arrays = [library / f"{name}.array.ktx2" for name in ("albedo", "normal", "orm")]
     if not all(p.is_file() for p in arrays):
+        if any(
+            source.is_file() and json.loads(source.read_text()).get("ground_inputs")
+            for tile in tile_ids
+            if (source := root / tile / "material.json")
+        ):
+            missing = ", ".join(str(p) for p in arrays if not p.is_file())
+            raise FileNotFoundError(f"Ground texture library is incomplete: {missing}")
         return bindings
     library_id = hashlib.sha256(b"".join(p.read_bytes() for p in arrays)).hexdigest()[:16]
     library_url = f"ground/library/{library_id}/"

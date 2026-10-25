@@ -19,6 +19,7 @@ function inside(point: number[], ring: number[][]) {
 test('office integration: street spawn, L0, batched draws and visible facade pixels', { tag: ['@pipeline', '@render', '@walk'] }, async ({ page, context }, info) => {
   // Synthetic ground-only tile suites do not claim office/building acceptance.
   test.skip(!manifest.visual.t0_0_0 || manifest.visual.t0_0_0.tris < 1000, 'Requires the assembled office layers');
+  expect(manifest.visual.t0_0_0.ground_texture_bytes, 'office ground must have a published texture binding').toBeGreaterThan(0);
   expect(manifest.spawn, 'assembly must publish a data-derived street spawn').toBeTruthy();
   const bad: string[] = [];
   page.on('pageerror', e => bad.push(e.message));
@@ -91,5 +92,44 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError);
   expect(await page.evaluate(() => (window as any).__qaError)).toBeFalsy();
   await page.screenshot({ path: path.join(shots, `integration-${backend}-aerial.png`) });
+
+  const groundCamera = `${23459500 + x},${6704500 - z},${y + 5},${heading},-80,60`;
+  const captures: Record<string, Buffer> = {};
+  let groundIds: Record<string, { kind?: string }> = {};
+  for (const pass of ['id', 'color']) {
+    await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json&qa=1&pass=${pass}&cam=${groundCamera}`);
+    await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError);
+    expect(await page.evaluate(() => (window as any).__qaError)).toBeFalsy();
+    if (pass === 'id') groundIds = await page.evaluate(() => (window as any).__qaIdTable);
+    captures[pass] = await page.screenshot({ path: path.join(shots, `integration-${backend}-ground-${pass}.png`) });
+  }
+  const texturedMeshes = await page.evaluate(() => {
+    let count = 0;
+    (window as any).__game.tiles.tiles.group.traverse((node: any) => {
+      if (node.isMesh && node.material?.name === 'ground-ortho-stochastic-v1') count++;
+    });
+    return count;
+  });
+  expect(texturedMeshes, 'runtime must apply the ground KTX2 material').toBeGreaterThan(0);
+  const groundPixels = await page.evaluate(async ([idB64, colorB64, table]) => {
+    const decode = async (b64: string) => {
+      const image = new Image(); image.src = `data:image/png;base64,${b64}`; await image.decode();
+      const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+      const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0);
+      return context.getImageData(0, 0, image.width, image.height).data;
+    };
+    const ids = await decode(idB64), colors = await decode(colorB64);
+    const unique = new Set<number>();
+    let count = 0;
+    for (let k = 0; k < ids.length; k += 4 * 8) {
+      const id = ids[k] * 65536 + ids[k + 1] * 256 + ids[k + 2];
+      if (table[id]?.kind !== 'ground') continue;
+      count++;
+      unique.add((colors[k] >> 3 << 10) | (colors[k + 1] >> 3 << 5) | (colors[k + 2] >> 3));
+    }
+    return { count, colors: unique.size };
+  }, [captures.id.toString('base64'), captures.color.toString('base64'), groundIds] as const);
+  expect(groundPixels.count).toBeGreaterThan(10_000);
+  expect(groundPixels.colors, 'ground pixels near spawn must show texture detail').toBeGreaterThan(30);
   expect(bad).toEqual([]);
 });

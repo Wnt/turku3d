@@ -82,6 +82,45 @@ def fixture(root, ids=("t0_0_0",), *, image=False):
     write_manifest(ground, inputs={"synthetic": "v1"}, params={}, code="test", tiles=files)
 
 
+def test_assembled_ground_binding_survives_visual_packaging(tmp_path):
+    layers, out = tmp_path / "layers", tmp_path / "dist"
+    fixture(layers)
+    ground = tmp_path / "textures/ground"
+    tile = ground / "t0_0_0"
+    tile.mkdir(parents=True)
+    library = ground.parent / "library"
+    library.mkdir()
+    for name in ("albedo", "normal", "orm"):
+        (library / f"{name}.array.ktx2").write_bytes(name.encode())
+    maps = {}
+    for name in ("ortho", "splat0", "splat1"):
+        data = name.encode()
+        (tile / f"{name}.ktx2").write_bytes(data)
+        maps[name] = {"uri": f"{name}.ktx2", "sha256": hashlib.sha256(data).hexdigest()}
+    source = layers / "ground/c_0_0.col.npz"
+    spec = {
+        "ground_inputs": [
+            {"path": str(source), "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
+        ],
+        "textures": maps,
+    }
+    (tile / "material.json").write_text(json.dumps(spec))
+
+    assemble(["t0_0_0"], layers=layers, out=out, ground=ground)
+    manifest = json.loads((out / "manifest.json").read_text())
+    entry = manifest["visual"]["t0_0_0"]
+    assert entry["ground_texture_bytes"] == sum(
+        (tile / f"{name}.ktx2").stat().st_size for name in maps
+    )
+    glb, _ = read_glb((out / entry["url"]).read_bytes())
+    binding = glb["scenes"][0]["extras"]["ground_binding"]
+    assert (out / binding["spec"]).is_file()
+    assert all(
+        (out / binding["library"] / f"{name}.array.ktx2").is_file()
+        for name in ("albedo", "normal", "orm")
+    )
+
+
 def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):
     layers, out = tmp_path / "layers", tmp_path / "dist"
     fixture(layers, image=True)
