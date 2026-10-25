@@ -25,6 +25,12 @@ coverage; no current footprint required a placeholder.
 The after-build layer audit passed: 60 closed collision shells, 32 collision
 tiles, four visual tiles, and no errors. The map files are under
 `$TURKU3D_WORK/reports/buildings-{before,after}/coverage.png`.
+The synthetic building suite passed 28 Python and two Rapier Node tests in
+17.9 seconds. The scoped gate passed in 28.0 seconds after the address update.
+The four-tile assembler completed with nine visual and 64 collision tiles and
+261 current facade bindings. An example placeholder artwork PNG is under
+`$TURKU3D_WORK/reports/building-coverage/placeholder-preview.png`; it is a
+synthetic preview because no current footprint needed a placeholder.
 
 ## Reproduce
 
