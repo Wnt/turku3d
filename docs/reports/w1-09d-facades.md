@@ -61,7 +61,7 @@ facade-based IDs, and the unduplicated call totals above are authoritative.
 The direct photo/cleanup path used zero
 Codex tokens. Three improve calls used 309,342 input and 2,718 output tokens,
 312,060 total, or 104,020 per attempted facade. The task spent 631,065 total
-tokens across these steps. Weekly quota was 38% at task start and 40% at the
+tokens across these steps. Weekly quota was 38% at task start and 41% at the
 end. This percentage is account-wide and includes other active agents.
 
 ## Verification
