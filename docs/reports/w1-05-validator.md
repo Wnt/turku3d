@@ -213,3 +213,21 @@ historical; this closeout does not add checks or rerun the newly landed layers.
 All **50/50 tests passed, zero skipped**, in **393.39 s wall** (31.01 s user and
 2.43 s system CPU) on the shared host. This is the standalone 150-walker suite;
 the gate's landed 32-walker configuration was preserved but not rerun here.
+
+## Batch-3 landing repair
+
+Rebased onto main `637bdfb`, retaining the landed integration, spawn, parked-car
+and audio changes. The two README conflicts retain both the audio collision
+telemetry and parked-layer probe instructions alongside validator acceptance
+and bounded-worker instructions. Vehicle/physics changes merged cleanly; no
+runtime interfaces, assertions or thresholds were changed in this closeout.
+
+Synced Python dependencies with the editable-install command above; no npm lock
+changed. Validator/game TypeScript, targeted ESLint, Ruff lint/format and gate
+TOML parsing passed. Area verification uses the batch-1 command with
+`TURKU3D_JOBS=3`, one Node test-file worker and two fixture physics workers.
+The log is `$TURKU3D_WORK/reports/batch3-validator-tests.log`.
+All **50/50 tests passed, zero skipped**, in **39.28 s wall** (24.76 s user,
+1.63 s system CPU), including the unchanged standalone 150-walker fixtures.
+The full landing gate and real AOI rerun remain outside this explicitly limited
+rebase task; the orchestrator runs the landing gate.
