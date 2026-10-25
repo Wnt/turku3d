@@ -65,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print("usage: turkutex codex run|usage|collect", file=sys.stderr)
         return 2
+    if cmd == "facade-export":
+        from .export import main as m
+
+        return m(rest)
     if cmd == "facade-inventory":
         from .inventory import main as m
 

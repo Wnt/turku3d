@@ -185,3 +185,32 @@ inference; disabling its uploader keeps the offline worker from waiting on netwo
 worker supplies one ONNX inference thread with spinning disabled, avoiding oversubscription during
 parallel production; the DeepBump algorithm and vendor files remain unchanged.
 See [ONNX Runtime telemetry controls](https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md).
+
+## Scoped landing and authoritative assembly
+
+The current batch is stopped at 127 generated facade images. Incomplete or rejected walls use
+library fallbacks; full photo coverage remains a follow-up batch. The loader also accepts W1-03
+schema v1 (`base_height`, `top_height`, engine XYZ `normal`, `building_id`, `facade_index`).
+Never give the assembler the provisional staging tree directly. Export into a separate lookup
+root; only QA-passing assets with an exact baseline, normal, base and height match are copied:
+
+```sh
+textures/.venv/bin/python -m turkutex facade-export \
+  "$TURKU3D_WORK/build/layers/buildings/facades.geojson" \
+  --source-inventory "$TURKU3D_WORK/textures/aoi/all-facades.geojson" \
+  --source "$TURKU3D_WORK/textures" --qa "$TURKU3D_WORK/textures/aoi/qa.json" \
+  --output "$TURKU3D_WORK/textures/assembly"
+```
+
+Point assembler facade/library roots at `assembly/facades` and `assembly/library`. Missing unique
+textures keep the building's library key. The assembler must apply sidecar `uv.scale` / `uv.offset`,
+use `files.normal` and `files.orm`, and apply library `material.json` `uv_scale` to metre UVs.
+The export preserves file timestamps when unchanged. It removes stale unique bindings in its own
+output tree. Provisional heights without a measured base cannot match authoritative geometry.
+
+Resume remaining acquisition and generation only when a new batch is authorized:
+
+```sh
+make textures-facade-batch \
+  FACADES="$TURKU3D_WORK/build/layers/buildings/facades.geojson" TEX_J=6 TEX_MAX_PCT=100
+```

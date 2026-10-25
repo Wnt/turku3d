@@ -101,6 +101,16 @@ def load_facades(path: Path) -> list[Facade]:
         c = f["geometry"]["coordinates"]
         if len(c) != 2:
             raise ValueError(f"facade {pr.get('id')}: expected 2 points, got {len(c)}")
+        if "height_m" not in pr and "base_height" in pr:
+            pr["height_m"] = float(pr["top_height"]) - float(pr["base_height"])
+            pr["base_h"] = float(pr["base_height"])
+            pr["id"] = f"{pr['building_id']}_{pr['facade_index']}"
+            normal = np.asarray(pr["normal"], dtype=float)
+            tangent = np.asarray(c[1][:2]) - np.asarray(c[0][:2])
+            right = np.array([tangent[1], -tangent[0]])
+            if normal.shape != (3,) or not np.isfinite(normal).all():
+                raise ValueError("invalid buildings facade normal")
+            pr["normal"] = "right" if right @ (normal[[0, 2]] * [1, -1]) >= 0 else "left"
         fid = pr.pop("id")
         if fid in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.-]+", fid):
             raise ValueError(f"bad facade id {fid!r}")
