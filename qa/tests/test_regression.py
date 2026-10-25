@@ -3,6 +3,7 @@ import importlib
 import json
 import threading
 import time
+from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
@@ -153,3 +154,20 @@ def test_render_backend_and_unknown_id_colours_rejected(tmp_path):
     (tmp_path/f"{v['id']}.id.json").write_text(json.dumps({'1':{'kind':'ground','id':'g'}}))
     with pytest.raises(ValueError,match='backend mismatch'):validate_render(v,tmp_path,'webgl')
     with pytest.raises(ValueError,match='unregistered colours'):validate_render(v,tmp_path,'webgpu')
+
+
+def test_native_mac_data_path_precedence(tmp_path, monkeypatch):
+    from qalib.paths import data_dir
+    for key in ('QA_DATA', 'TURKU3D_WORK', 'TURKU3D_DATA'):
+        monkeypatch.delenv(key, raising=False)
+    assert data_dir() == (Path.home() / 'turku3d/data/qa').resolve()
+    for key, directory, expected in [
+        ('TURKU3D_DATA', tmp_path / 'shared', tmp_path / 'shared/qa'),
+        ('TURKU3D_WORK', tmp_path / 'sandbox', tmp_path / 'sandbox/qa'),
+        ('QA_DATA', tmp_path / 'override', tmp_path / 'override'),
+    ]:
+        monkeypatch.setenv(key, str(directory))
+        assert data_dir() == expected.resolve()
+        reference = expected / 'refs/view.jpg'
+        assert rel(reference) == 'data/qa/refs/view.jpg'
+        assert resolve(rel(reference)) == reference.resolve()
