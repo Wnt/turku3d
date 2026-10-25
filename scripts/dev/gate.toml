@@ -1,6 +1,8 @@
 # The only path -> stage routing table. Globs use fnmatch: * includes slashes.
 # A trigger selects a stage; sources bounds the files linted by that stage.
 [gate]
+full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py"]
+prose = ["*.md"]
 workers = 6
 python = ".venv/bin/python"
 python_workers = 2

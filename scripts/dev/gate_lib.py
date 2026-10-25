@@ -229,12 +229,15 @@ def run_gate(root, config, changed, *, full=False, listing=False, as_json=False,
     start = time.monotonic()
     files = inventory(root)
     full = full or (
-        not fast and any(p in ("scripts/dev/gate.toml", "scripts/dev/gate_lib.py") for p in changed)
+        not fast and any(matches(p, config["gate"].get("full_triggers", [])) for p in changed)
     )
     chosen, results = [], []
     for stage in config["stages"]:
         hits = [
-            p for p in changed if not p.endswith(".md") and matches(p, stage.get("triggers", []))
+            p
+            for p in changed
+            if not matches(p, config["gate"].get("prose", ["*.md"]))
+            and matches(p, stage.get("triggers", []))
         ]
         selected = full or stage.get("always") or bool(hits)
         reason = "--all" if full else "always" if stage.get("always") else ", ".join(hits[:3])
