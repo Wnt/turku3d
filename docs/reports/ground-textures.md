@@ -79,3 +79,14 @@ OSM/city crosswalk extraction is not yet terrain-draped into shipped geometry. T
 are follow-ups to this timeboxed integration, not claimed complete here. Full-scene WebGL captures
 can be run with the same QA command; the first-version evidence prioritizes three matched WebGPU
 views. The separate synthetic ground shader check covers both renderer backends.
+
+## Final main rebase
+
+After capture, main advanced with material batching and shared river reflections. The branch was
+rebased onto `f53dcad`, preserving those changes and the ground binding. The screenshot artifacts
+and the 628.612-second full gate refer to the pre-rebase integration (`5a4dd04` / `9fbd7ed`); they
+are not presented as new measurements of the subsequent batching optimization. The focused post-rebase run passed all functional stages, including assembler tests (42.451 s),
+render/game unit tests, types, and browser regressions (218.484 s). Its sole failure was an unused
+`getBounds` import left by the landed batching change. Removing that import produced a green
+correction gate in **21.190 s**, including assembler tests, lint, policy and dependency checks.
+There are no unresolved check failures.

@@ -14,7 +14,7 @@ const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.j
 const dep = (name) => import(pathToFileURL(require.resolve(name)).href);
 const { Document, NodeIO } = await dep('@gltf-transform/core');
 const { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu, KHRTextureTransform } = await dep('@gltf-transform/extensions');
-const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrimitive, simplifyPrimitive, getBounds, listTextureSlots } = await dep('@gltf-transform/functions');
+const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrimitive, simplifyPrimitive, listTextureSlots } = await dep('@gltf-transform/functions');
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)

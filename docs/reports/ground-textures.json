@@ -2669,6 +2669,16 @@
       }
     ],
     "comparison": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/reports/ground-scene/comparison.jpg",
-    "scope": "Three matched WebGPU office-core views; full original paint and full-scene WebGL acceptance remain follow-ups."
+    "scope": "Three matched WebGPU office-core views; full original paint and full-scene WebGL acceptance remain follow-ups.",
+    "final_rebase": {
+      "main": "f53dcad",
+      "functional_stages": "PASS",
+      "browser_seconds": 218.484,
+      "assembler_seconds": 42.451,
+      "initial_failure": "Unused getBounds import from landed batching; removed.",
+      "correction_gate": "PASS",
+      "correction_seconds": 21.19,
+      "capture_version_note": "Captures remain evidence of pre-rebase 5a4dd04/9fbd7ed integration, not of later batching."
+    }
   }
 }
