@@ -191,3 +191,25 @@ Main advanced to `8c1f9a5` during closeout with building producer fixes. The fin
 rebase is clean; validator sources/tests, shared vehicle/physics integration and
 gate routing are byte-for-byte identical to the area-tested tree. No dependency
 lock or Python dependency declaration changed in this last main advance.
+
+## Batch-2 landing repair
+
+Rebased onto main `1626ead`, including gate-speed improvements, lidar tooling,
+props and vegetation. Conflict resolution retains main's two-worker fixture
+runner, selective fixture checks and gate sampling, together with the shared
+vehicle acceptance suite, buildings tests and validator Python lint routing.
+Standalone fixture tests still use 150 walkers; assertions and physics thresholds
+are unchanged. Both README sections are retained.
+
+Python dependencies were synced with the editable-install command above. No npm
+lockfile changed. Validator and game TypeScript checks, targeted ESLint, Ruff lint
+and format checks, and gate TOML parsing passed. Only area tests were run, with
+one Node test file at a time and at most two additional physics workers. The full
+gate remains the orchestrator's landing step, as explicitly requested.
+
+The area-test command is the same as in the batch-1 section. Its current log is
+`$TURKU3D_WORK/reports/batch2-validator-tests.log`. Real AOI evidence above remains
+historical; this closeout does not add checks or rerun the newly landed layers.
+All **50/50 tests passed, zero skipped**, in **393.39 s wall** (31.01 s user and
+2.43 s system CPU) on the shared host. This is the standalone 150-walker suite;
+the gate's landed 32-walker configuration was preserved but not rerun here.
