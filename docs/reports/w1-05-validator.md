@@ -246,3 +246,19 @@ Ruff, gate TOML parsing and main stage/tag coverage checks passed. Area tests:
 **63/63 passed, zero skipped, 18.52 s wall**; `TURKU3D_JOBS=3` bounds the runner
 and the Node suite runs one file worker at a time. The log is
 `$TURKU3D_WORK/reports/batch4-validator-tests.log`. Full gate remains for landing.
+
+## Batch-5 landing repair
+
+Rebased onto main `09d264b`, retaining the facade binding, routing, playtest,
+placement, structures and curbside-car changes. The collision Make target now
+retains the complete validator acceptance suite under one Node test-file worker;
+the validator package also retains main's structures command. Gate TOML contains
+all 21 main stages and all six main tags, plus validator-specific acceptance
+routing.
+
+Synced Python environment including the updated dev and Street View extras; no
+npm lockfile changed. Only validator tests were run, with one Node test-file
+worker and `TURKU3D_JOBS=2` (maximum three concurrent test/physics workers):
+**50/50 passed, zero skipped, 14.76 s wall**. The log is
+`$TURKU3D_WORK/reports/batch5-validator-tests.log`. The orchestrator runs the
+full landing gate.
