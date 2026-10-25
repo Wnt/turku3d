@@ -90,3 +90,27 @@ render/game unit tests, types, and browser regressions (218.484 s). Its sole fai
 `getBounds` import left by the landed batching change. Removing that import produced a green
 correction gate in **21.190 s**, including assembler tests, lint, policy and dependency checks.
 There are no unresolved check failures.
+
+## Audio integration rebase verification
+
+Rebased onto `e43067e` (including audio `637bdfb`). The npm script conflict retains both
+`prepare-audio` and the ground QA commands. The landed visual batching/material deduplication,
+mapped spawn and shared river reflections remain intact; ground binding still uses scene metadata.
+A focused regression checks that batched parent metadata binds one shared ground material while
+preserving object ranges. Sandbox environment exports were refreshed and game dependencies synced
+with `npm --prefix game ci --no-audit --no-fund`; no Python dependency manifests changed in this rebase.
+
+Area verification used at most three test workers and passed in **36.604 s**: 13 ground texture
+tests, 2 material tests, 8 binding/audio tests, and 11 ground publication/assembler tests, plus
+TypeScript and ESLint. Exact commands after sourcing `../sandbox.env`:
+
+```sh
+export TURKU3D_JOBS=3
+make -j2 ground-texture-test
+npm --prefix game exec -- vitest run tests/unit/ground-binding.test.ts tests/unit/audio.test.ts --maxWorkers=3
+PYTHONPATH=textures:pipeline bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_ground_textures.py pipeline/tests/test_assemble.py -n 3
+node_modules/.bin/eslint game/src/main.ts game/src/render/materials.ts game/src/render/ground game/tests/unit/ground-binding.test.ts pipeline/turku3d/package/visual.mjs
+```
+
+The existing before/after images remain the explicitly versioned first-version evidence above;
+this landing repair does not claim new scene captures or artifact regeneration.

@@ -55,3 +55,21 @@ it('disposes a late load after unload without mutating the removed mesh', async 
   expect(ground.material).toBe(original);
   expect(binding.pending).toBe(0);
 });
+it('binds one material through batched parent metadata and preserves object ranges', async () => {
+  mocks.library.mockResolvedValue({});
+  const material = new THREE.MeshStandardNodeMaterial();
+  mocks.tile.mockResolvedValue({ material, dispose: vi.fn() });
+  const { scene } = fixture(), batch = new THREE.Group();
+  const objects = [{ object_id: 'street', start: 0, count: 3 }, { object_id: 'sidewalk', start: 3, count: 3 }];
+  batch.userData = { layer: 'ground', material_key: 'asphalt', objects };
+  const a = new THREE.Mesh(), b = new THREE.Mesh();
+  b.material = a.material;
+  batch.add(a, b); scene.add(batch);
+  const binding = new GroundBindings({} as THREE.WebGPURenderer, 'https://tiles.test/tileset.json');
+  await binding.apply(scene);
+  expect(a.material).toBe(material);
+  expect(b.material).toBe(material);
+  expect(batch.userData.objects).toBe(objects);
+  expect(mocks.tile).toHaveBeenCalledOnce();
+  binding.dispose();
+});
