@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-25",
+  "files_verified": 319,
+  "verified_bytes": 245925086,
+  "metadata_paths_updated": [
+    "reports/validate-t0_0_1.json",
+    "reports/validate-t0_0_0.json",
+    "reports/validate-t0_1_1.json",
+    "reports/validate-t0_1_0.json",
+    "textures/pilot/improve_jobs.jsonl",
+    "textures/pilot/label_jobs.jsonl",
+    "textures/pilot/run_improve/out.jsonl",
+    "textures/pilot/post/lr15_se/post.json",
+    "textures/pilot/post/aurakatu2_se/post.json",
+    "textures/refs/lr15_se/v0_p_g_hOH16IE5o9B6.json",
+    "textures/refs/lr15_se/v1_p_g_yf3WuGulqNxb.json",
+    "textures/refs/lr15_se/v2_p_g_9YcdVIRiQEgv.json",
+    "textures/refs/lr15_se/v3_p_g_GX4MZSFv2sCC.json",
+    "textures/refs/aurakatu2_se/v1_p_g_8qDFHujwGqqI.json",
+    "textures/refs/aurakatu2_se/v0_f_g_Ng7nDt08o1hO.json",
+    "textures/refs/aurakatu2_se/v2_p_g_yz7Il6o5Px4m.json",
+    "textures/refs/aurakatu2_se/v3_f_g_YpJel-Jkzb-h.json",
+    "textures/codex-cache/d4/d4f66051a1edd4ca7d26396a03b1e3f5ce03dc5f706f68d8b724b9c7aaafce69/record.json",
+    "textures/codex-cache/cf/cf885347d3dc63eb2a67d8b4d29c95436392fa4bb96f8d9bfd64c86072d06033/record.json"
+  ],
+  "retired_root_removed": true
+}

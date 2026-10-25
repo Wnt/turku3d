@@ -1,9 +1,9 @@
 # Game skeleton (game/) and dev tools (tools/dev/). See game/README.md.
 GAME_DIR := $(REPO)/game
 GAME_NPM := cd $(GAME_DIR) && npm
-DIST_MIRROR ?= $(HOME)/turku3d-data/dist
+DIST_MIRROR ?= $(or $(TURKU3D_WORK),$(HOME)/turku3d/data)/dist
 
-.PHONY: game-install game-dev game-build game-test game-e2e game-test-all game-dev-tiles game-preview game-serve-dist game-sync game-dev-tools-test
+.PHONY: game-install game-dev game-build game-test game-e2e game-test-all game-dev-tiles game-preview game-serve-dist game-dev-tools-test
 
 $(GAME_DIR)/node_modules/.package-lock.json: $(GAME_DIR)/package.json
 	$(GAME_NPM) install
@@ -34,8 +34,7 @@ game-preview: game-build ## Serve game/dist with tools/dev/serve-dist.mjs on :80
 game-serve-dist: ## Serve the mirrored tile dist ($(DIST_MIRROR)) on :8081
 	node $(REPO)/tools/dev/serve-dist.mjs --root $(DIST_MIRROR) --port 8081
 
-game-sync: ## Mirror osgallery-dev:~/turku3d/data/dist -> $(DIST_MIRROR) (ARGS=--dry-run|--delete)
-	LOCAL_DIST=$(DIST_MIRROR) $(REPO)/tools/dev/sync.sh $(ARGS)
+
 
 game-dev-tools-test: ## node --test for tools/dev/serve-dist.mjs
 	node --test $(REPO)/tools/dev/serve-dist.test.mjs

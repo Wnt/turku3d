@@ -1,6 +1,4 @@
-# Remote pipeline env: ~/turku3d/envs/pipeline (created by pipeline/env/bootstrap-remote.sh).
-# conda-forge only. Pins are lower bounds that were verified on osgallery-dev on 2026-10-25;
-# the exact resolved versions are recorded in ~/turku3d/envs/pipeline.lock.txt by the bootstrap.
+# macOS arm64, conda-forge only. Exact packages: osx-arm64.lock.txt.
 name: turku3d-pipeline
 channels:
   - conda-forge
@@ -35,9 +33,8 @@ dependencies:
   # misc
   - pyyaml
   - requests
+  - pytest-xdist
   - pytest>=8
   - pip:
       # Shewchuk Triangle python binding (the conda-forge "triangle" package is only the C library)
       - triangle>=20230923
-      # conda-forge open3d 0.20 is broken against filament 1.77 (undefined symbol at import); the CPU wheel works
-      - open3d-cpu>=0.19

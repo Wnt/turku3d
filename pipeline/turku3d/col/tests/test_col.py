@@ -223,3 +223,17 @@ def test_fixture_tiles_read_back():
         assert M.mat_id(name) in mats
     assert len(r.primitives) == 3
     assert r.flags & FLAG_FIX_INTERNAL_EDGES
+
+
+@needs_encoder
+def test_encoder_reuses_worker_after_failed_request(tmp_path):
+    worker = meshopt._encoder(meshopt.meshopt_dir())
+    pid = worker.process.pid
+    with pytest.raises(meshopt.MeshoptError, match='bridge failed'):
+        worker.encode(dir=str(tmp_path), vc=3, ic=3, optimize=False, version=0)
+    pos = np.array([[0, 0, 0], [1, 0, 0], [0, 0, 1]], np.float32)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    _, _, _, encoded, _ = meshopt.encode_mesh(pos, idx, optimize=False)
+    decoded = meshopt.decode_vertex_buffer(encoded, 3, 12).view(np.float32).reshape(-1, 3)
+    np.testing.assert_array_equal(decoded, pos)
+    assert meshopt._encoder(meshopt.meshopt_dir()).process.pid == pid

@@ -129,7 +129,7 @@ Rules:
 ## 2. End-to-end pipeline
 
 ```
- RAW (remote ~/turku3d/data/raw)            PROCESS                                          SHIP (static)            ENGINE (Chrome)
+ RAW (local ~/turku3d/data/raw)            PROCESS                                          SHIP (static)            ENGINE (Chrome)
  ───────────────────────────────            ───────                                          ─────────────            ───────────────
  LAZ 500 m tiles ──[L]fetch_laz──► raw/laz ─[L]ground: cls2+cls12 merge, denoise ─┐
  WFS GML (kanta, GIS, bldg) ─[L]fetch_wfs─► raw/wfs ─[L]gml2geojson (local coords)─┤
@@ -158,13 +158,14 @@ Rules:
                          [L] validate (Node + Rapier WASM): scripted walkers + cars per collision tile:
                              no holes, curb steps vs lidar, building penetration test → report.json
                                                                                     │
-                         [L] rsync dist/ → Mac (or serve directly)  ─────────► dist/tiles/... ──HTTP──► 3DTilesRenderer (main)
+                         [L] serve local sandbox dist/            ─────────► dist/tiles/... ──HTTP──► 3DTilesRenderer (main)
                                                                                  (COOP/COEP,              + .col → physics worker
                                                                                   brotli, CORS)            (Rapier) via transferables
                          [M] Playwright headless Chrome (real Metal GPU): visual + perf + physics regression
 ```
 
-`[L]` = Linux osgallery-dev (10 cores, 48 GB, no GPU): bulk download, lidar, CDT, roofer, packaging, Node validation.
+`[L]` = local Mac native pipeline: bulk download, lidar, CDT, roofer, packaging, Node validation.
+History: Phase 0 used Linux osgallery-dev; Wave 0 retires that execution path.
 `[M]` = Mac M1 Max: Codex CLI 0.160, Blender GUI/MPS work, mono depth and segmentation (MPS), Chrome/Playwright tests, game dev server.
 GPU-heavy Phase 2 work (splats, large-scale segmentation) needs the M1 MPS or a rented CUDA GPU.
 
@@ -227,15 +228,16 @@ Pipeline principles:
 └── .gitignore                           data/, dist/, node_modules/, *.laz
 ```
 
-**Bulk data lives on the remote** in `osgallery-dev:~/turku3d/data/`. It is never committed.
+**Bulk data lives locally** in `~/turku3d/data/`. Raw inputs are shared and immutable to workers;
+outputs use `$TURKU3D_WORK/{build,cache,dist,reports}`. Bulk data is never committed.
 ```
-~/turku3d/data/raw/{laz,wfs,ortho,osm}/            immutable downloads (+ checksums); Street View panos are cached on the Mac in ~/turku3d-data/raw/streetview
+~/turku3d/data/raw/{laz,wfs,ortho,osm}/            immutable downloads (+ checksums); Street View panos are cached on the Mac in ~/turku3d/data/raw/streetview
 ~/turku3d/data/cache/<step>/<hash>/                 intermediate products
 ~/turku3d/data/dist/tiles/{visual,collision}/...    shippable output + tileset.json + manifest.json
 ~/turku3d/envs/                                     conda/venv envs (pipeline, recon)
 ~/turku3d/research/                                 research scratch (existing)
 ```
-- The Mac holds a partial mirror at `~/turku3d-data/` (rsync of `dist/`, the Phase 1 raw subset and the texture library).
+- The old Mac mirror is consolidated into `~/turku3d/data/`; builds need no sync step.
 - The game dev server serves `dist/` with COOP/COEP headers [V].
 - `~/leikkipuistodata` is never written to.
 
@@ -245,28 +247,28 @@ Pipeline principles:
 
 ### Phase 0: Tooling (≈ 1 week)
 1. `git init` the repo, add the layout above, `.gitignore`, Makefile skeleton, `config.py` with origin O and the tile grid. Commit `laz-tiles.csv` as a manifest.
-2. Remote: `~/turku3d/envs/pipeline` (conda-forge: pdal 2.10, python-triangle, open3d, laspy[lazrs], shapely, pyproj). Node 24, gltf-transform 4.5.1, KTX-Software 4.4.2, gltfpack 1.3, roofer v1.0.0 binary.
-3. Mac: the same pipeline env (for small runs), Blender 5.2 headless, Codex CLI 0.160, Playwright + Chrome channel.
+2. Local Mac: `~/turku3d/envs/pipeline` (conda-forge: pdal 2.10, python-triangle, open3d, laspy[lazrs], shapely, pyproj). Node 24, gltf-transform 4.5.1, KTX-Software 4.4.2, gltfpack 1.3, roofer v1.0.0 binary.
+3. Mac: the native pipeline env, Blender 5.2 headless, Codex CLI 0.160, Playwright + Chrome channel.
 4. Fetchers with caching and checksums: LAZ (`curl -L`, resumable), WFS (paged GML → GeoParquet/GeoJSON in local coords), WMS (tiled GeoTIFF at native resolution), Geofabrik Finland pbf + osmium clip.
 5. `.col` collision format (spec + Python writer + TS reader + round-trip test).
 6. Node Rapier validator skeleton (from `tools/engine-probe` and the reconstruction verify scripts) that consumes `.col` tiles.
 7. Game skeleton: `game/` (copy the engine-probe bootstrap) with the WebGPU/WebGL2 switch, physics worker, 3DTilesRenderer loading a dummy tileset, a debug HUD (backend, frame ms, resident tris/MB).
-8. `tools/dev/serve-dist.mjs` (COOP/COEP, brotli, range requests) and `sync.sh` (remote dist → Mac).
+8. `tools/dev/serve-dist.mjs` (COOP/COEP, brotli, range requests).
 
 **Exit:** `make tile T=<office tile>` runs the whole chain on stub data, and Chrome shows the stub tile with a walking capsule.
 
-**Phase 0 status (integration, 2026-10-25): exit criterion met.** `make tile T=t0_0_0` (75 s) runs: remote fetch (all cached) → `turku3d.package.stub_tile` (maanpinta key points → 1.25 m heightfield → 16 meshopt `.col` tiles with Katualueet materials + one ortho-draped ground GLB) → `tileset.json` + `manifest.json` (hash-checked) → `sync.sh` to `~/turku3d-data/dist` (sha256-verified) → validator (format, holes, belowGround PASS; buildings/curbs/stairs skipped: the stub has none) → game build + Playwright in Chrome (WebGPU and WebGL2): tile renders, the animated character walks 8 m on the stub collision, QA render contract incl. ID pass. How to run everything: [STATUS.md](STATUS.md).
+**Historical Phase 0 status (before the local Wave 0 migration, 2026-10-25): exit criterion met.** `make tile T=t0_0_0` (75 s) runs: remote fetch (all cached) → `turku3d.package.stub_tile` (maanpinta key points → 1.25 m heightfield → 16 meshopt `.col` tiles with Katualueet materials + one ortho-draped ground GLB) → `tileset.json` + `manifest.json` (hash-checked) → `sync.sh` to `~/turku3d/data/dist` (sha256-verified) → validator (format, holes, belowGround PASS; buildings/curbs/stairs skipped: the stub has none) → game build + Playwright in Chrome (WebGPU and WebGL2): tile renders, the animated character walks 8 m on the stub collision, QA render contract incl. ID pass. How to run everything: [STATUS.md](STATUS.md).
 
 | Step | Status | Notes |
 |---|---|---|
 | 1. repo, layout, Makefile, config.py, laz-tiles.csv | done | `mk/*.mk` per area; first commit "Phase 0 tooling skeleton" |
-| 2. remote env (pdal, triangle, open3d, laspy, shapely, pyproj; Node 24, gltf-transform 4.5.1, gltfpack 1.3, roofer 1.0.0, npm meshoptimizer 1.3.0) | done, except KTX-Software | `toktx` 4.4.2 not installed on the remote; the Mac encodes KTX2 with npm `ktx2-encoder` (textures/) |
+| 2. native Mac environment (PDAL, GDAL, Triangle, laspy, shapely, pyproj; gltf-transform 4.5.1, gltfpack 1.3, roofer 1.0.0) | done | Includes KTX-Software / toktx 4.4.2; `make pipeline-bootstrap pipeline-versions` |
 | 3. Mac env: pipeline venv, Blender, Codex CLI 0.160, Playwright + Chrome | done | Blender headless not exercised by any Phase 0 step yet |
 | 4. fetchers (LAZ, WFS paged → GeoParquet, WMS tiled GeoTIFF, OSM clip) with checksums | done | office-block fetched; drone layer has no coverage in the AOI; Street View panos fetched by textures/ and qa/ on the Mac, `fetch/panos.py` not written |
 | 5. `.col` format: spec + Python writer + TS reader + round trip | done | Python `pipeline/turku3d/col/`, TS `game/src/shared/col/` (used by game and validator); 7-case bit-exact round trip |
 | 6. Node Rapier validator | done (walkers) | holes, buildings, curbs, stairs, belowGround; no car checks and no seam-identity check yet |
 | 7. game skeleton (WebGPU/WebGL2, physics worker, 3DTilesRenderer, HUD, character, car) | done | KCC switched to the validator's single-move scheme (25 cm curb climbs); QA render contract of qa/README §2 implemented (vertical fov, roll, pose echo, `__qaProject`, ID pass) |
-| 8. `serve-dist.mjs` (COOP/COEP, brotli, ranges) + `sync.sh` | done | |
+| 8. `serve-dist.mjs` (COOP/COEP, brotli, ranges) | done | Local sandbox output; no sync step |
 | exit: `make tile` on stub data, Chrome shows the tile with a walking character | done | `make tile-qa` also renders the 3 QA registry views against the game (no judge) |
 | Codex texture pilot / QA judge self-test | done (pilot) | 2 facades textured; judge planted-difference test 9/9; quota cost per call still unresolved (integer % counter) |
 
@@ -305,7 +307,7 @@ AOI: one 250 m visual tile centred on the office block at Läntinen Rantakatu 15
 - Optional: Google Photorealistic 3D Tiles as a far backdrop (key needed) [U].
 
 ### Phase 3: Scale-out automation (ongoing)
-- A district-level job runner on the remote: tile queue, per-step cache, resumable, a nightly validator report, and a coverage map (HTML).
+- A district-level local job runner: tile queue, per-step cache, resumable, a nightly validator report, and a coverage map (HTML).
 - Order: the office district (2×2 km) → city centre (≈ 5×5 km) → whole city (1,282 LAZ tiles ≈ 170 GB [V\*]; process and discard the raw LAZ, keep only products).
 - Coarse LODs: merged roofs + ortho-draped DTM for 500 m–2 km parents. Floating origin beyond ~8 km.
 - Throughput target [U]: 1 km² ≈ 16 visual tiles in ≤ 2 h on the 10-core server (excluding Codex), plus ~1.5–2 h with 5 Codex runners per km² for textures.

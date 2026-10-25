@@ -146,12 +146,16 @@ def test_area_yaml_is_committed_and_current():
 
 
 def test_paths(monkeypatch, tmp_path):
+    monkeypatch.delenv("TURKU3D_WORK", raising=False)
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path))
     assert C.raw_dir("laz") == tmp_path / "raw" / "laz"
     assert C.cache_dir("cdt") == tmp_path / "cache" / "cdt"
     assert C.dist_dir() == tmp_path / "dist"
     monkeypatch.delenv("TURKU3D_DATA")
-    assert C.data_root().name in ("turku3d-data", "data")
+    assert C.data_root() == C.Path("~/turku3d/data").expanduser()
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "worker"))
+    assert C.dist_dir() == tmp_path / "worker/dist"
+    assert C.cache_dir() == tmp_path / "worker/cache"
     assert (C.REPO_ROOT / "docs" / "ARCHITECTURE.md").exists()
 
 
@@ -186,8 +190,6 @@ def test_game_origin_ts_mirrors_config():
     import re
 
     path = C.REPO_ROOT / "game/src/core/origin.ts"
-    if not path.exists():  # `make pipeline-sync` does not copy game/ to the remote
-        pytest.skip("game/ not present (remote sync copy)")
     ts = path.read_text()
 
     def num(name):
@@ -198,3 +200,9 @@ def test_game_origin_ts_mirrors_config():
     m = re.search(r"OFFICE_EN = \{ E: ([0-9.]+), N: ([0-9.]+) \}", ts)
     assert (float(m[1]), float(m[2])) == (C.OFFICE_E, C.OFFICE_N)
     assert abs(num("TRUE_NORTH_GRID_BEARING_DEG") - C.grid_bearing_of_true_north(C.ORIGIN_E, C.ORIGIN_N)) < 0.01
+
+
+def test_work_area():
+    assert len(C.WORK_3X3.laz_tiles) == 9
+    assert C.WORK_3X3.core.to_en() == BBoxEN(23459000, 6703500, 23460500, 6705000)
+    assert (C.DATA_MANIFESTS / "areas/work-3x3.yaml").read_text() == C.area_yaml(C.WORK_3X3)

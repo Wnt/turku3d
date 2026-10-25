@@ -2,7 +2,7 @@
 
 Python package `turkutex` (Python 3.12, `textures/.venv`) + a small Node KTX2 encoder (`node/`).
 Images never go into git: everything large lives under the data root (`$TURKU3D_DATA`, else
-`~/turku3d-data` on the Mac). Background: `docs/ARCHITECTURE.md` D6/D7/D8, `docs/research/ai-textures.md`,
+`~/turku3d/data` on the Mac). Background: `docs/ARCHITECTURE.md` D6/D7/D8, `docs/research/ai-textures.md`,
 `docs/research/streetview.md`, style rules in `style/STYLE.md`.
 
 ```

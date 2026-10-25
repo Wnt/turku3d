@@ -1,5 +1,5 @@
 // Phase 0 exit criterion (ARCHITECTURE §4): Chrome shows the pipeline-built stub tile (dist/tiles from
-// `make tile`, synced to the Mac) and the character walks on its collision. Also checks the qa/README.md §2
+// `make tile`, built locally) and the character walks on its collision. Also checks the qa/README.md §2
 // render contract on the real tile: pose echo, __qaProject, and the object-ID pass.
 // Run: npx playwright test -c playwright.tile.config.ts   (after `npm run build`; TILE_DIST=<dir> optional)
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const TILE_DIST = process.env.TILE_DIST ?? path.join(os.homedir(), 'turku3d-data/dist/tiles');
+const TILE_DIST = process.env.TILE_DIST ?? path.join(process.env.TURKU3D_WORK ?? process.env.TURKU3D_DATA ?? path.join(os.homedir(), 'turku3d/data'), 'dist/tiles');
 const SHOTS = 'test-results/screenshots';
 fs.mkdirSync(SHOTS, { recursive: true });
 const manifest = JSON.parse(fs.readFileSync(path.join(TILE_DIST, 'manifest.json'), 'utf8'));
@@ -132,4 +132,38 @@ test('QA render contract on the stub tile: pose echo, projection, ID pass', asyn
   }
   expect(bad).toEqual([]);
   await ctx.close();
+});
+
+test('character crosses all four L0 seams without a height step', async ({ page }, info) => {
+  const required = ['t0_0_0', 't0_1_0', 't0_1_1', 't0_0_1'];
+  test.skip(required.some((id) => !manifest.visual[id]), 'Requires the full four-tile Phase 1 build');
+  const bad = watchConsole(page);
+  // A 12 m square around the four-tile junction, on the coarse river heightfield.
+  // Start east of the junction so the car parked 6 m east stays outside the route.
+  await page.goto(`/?backend=${info.project.name}&tiles=${TILES}&spawn=23459756,6704256,0`);
+  await page.waitForFunction(() => {
+    const s = (window as any).__game?.state?.();
+    return s?.tilesSettled && s.grounded && s.collision.tiles >= 16;
+  }, null, { timeout: 60_000 });
+  const visited = new Set<string>();
+  const heights: number[] = [];
+  for (const [key, axis, direction] of [['KeyS', 2, 1], ['KeyA', 0, -1], ['KeyW', 2, -1], ['KeyD', 0, 1]] as const) {
+    const start = await page.evaluate(() => (window as any).__game.state());
+    await page.keyboard.down(key);
+    await page.waitForFunction(({ axis, direction, from }) => {
+      const s = (window as any).__game.state();
+      return direction * (s.feet[axis] - from) >= 12;
+    }, { axis, direction, from: start.feet[axis] }, { timeout: 8_000 });
+    await page.keyboard.up(key);
+    await page.waitForTimeout(150);
+    const end = await page.evaluate(() => (window as any).__game.state());
+    visited.add(`t0_${Math.floor(end.feet[0] / 250)}_${Math.floor(end.feet[2] / 250)}`);
+    heights.push(start.H, end.H);
+    expect(end.grounded).toBe(true);
+  }
+  expect([...visited].sort()).toEqual([...required].sort());
+  expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(0.15);
+  expect(bad).toEqual([]);
+  console.log(`[${info.project.name}] four L0 seams: grounded throughout the route endpoints, height range ${(Math.max(...heights) - Math.min(...heights)).toFixed(3)} m`);
+  await page.screenshot({ path: `${SHOTS}/tile-${info.project.name}-four-seams.png` });
 });

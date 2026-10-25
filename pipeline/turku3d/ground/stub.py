@@ -116,3 +116,37 @@ def load_ground_points(bbox: C.BBoxLocal, margin: float = 60.0) -> np.ndarray:
     if len(pts) < 3:
         raise ValueError(f"no ground key points around {bbox}")
     return pts
+
+
+def area_heightfield(area: C.Area) -> tuple[np.ndarray, C.BBoxLocal, int]:
+    """One canonical grid for an area's visual tiles, cached by source identities and code.
+
+    Every L0 build slices this same grid, even when built separately. The cache avoids repeatedly
+    decompressing the LAZ tiles and rebuilding the same Delaunay triangulation.
+    """
+    import hashlib
+    import io
+    import json
+    from pathlib import Path
+    from turku3d.fetch.common import atomic_write_bytes
+
+    tiles = area.visual_tiles
+    bb = C.BBoxLocal(min(t.bbox.xmin for t in tiles), min(t.bbox.zmin for t in tiles),
+                     max(t.bbox.xmax for t in tiles), max(t.bbox.zmax for t in tiles))
+    sources = [C.raw_dir("laz") / "maanpinta" / f"{t.name}.laz"
+               for t in C.laz_tiles_for_bbox(bb.buffered(C.MESH_MARGIN))]
+    identities = [(str(p), p.stat().st_size, p.stat().st_mtime_ns) if p.exists() else (str(p), None)
+                  for p in sources]
+    key = hashlib.sha256(Path(__file__).read_bytes() + json.dumps(
+        [identities, bb.as_tuple(), STEP, C.MESH_MARGIN]).encode()).hexdigest()
+    path = C.cache_dir("stub-ground") / f"{key}.npz"
+    if path.exists():
+        with np.load(path, allow_pickle=False) as data:
+            return data["height"], bb, int(data["point_count"])
+    pts = load_ground_points(bb, margin=C.MESH_MARGIN)
+    H = heightfield(pts, bb.xmin, bb.zmin, round((bb.xmax - bb.xmin) / STEP),
+                    round((bb.zmax - bb.zmin) / STEP), method="scipy")
+    buffer = io.BytesIO()
+    np.savez(buffer, height=H, point_count=len(pts))
+    atomic_write_bytes(path, buffer.getvalue())
+    return H, bb, len(pts)

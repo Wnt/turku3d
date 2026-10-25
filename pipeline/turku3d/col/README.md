@@ -52,3 +52,8 @@ meshopt encoder: why Node
   or `$TURKU3D_MESHOPT_DIR` pointing at an npm `meshoptimizer` package directory.
 - Without them `write_col(encoding="auto")` writes RAW (valid per spec §5) and prints a warning;
   `encoding="meshopt"` raises. Reading never needs Node.
+
+The encoder starts one Node/WASM worker per Python process and reuses it for every tile.
+Requests are serialized; a failed request is reported without losing the next response.
+The worker exits with its parent (stdin EOF), with an atexit cleanup for normal shutdown.
+This removes 64 Node startups from a four-L0 build while preserving the codec and triangle/material ordering.

@@ -2,10 +2,10 @@ import { defineConfig } from '@playwright/test';
 import os from 'node:os';
 import path from 'node:path';
 
-// Phase 0 exit check (`make tile`): the built game (dist/) served by tools/dev/serve-dist.mjs with the synced tile
-// dist mounted at /tiles. TILE_DIST overrides the mirror (default ~/turku3d-data/dist/tiles).
-const PORT = Number(process.env.E2E_TILE_PORT ?? 4175);
-export const TILE_DIST = process.env.TILE_DIST ?? path.join(os.homedir(), 'turku3d-data/dist/tiles');
+// Phase 0 exit check (`make tile`): the built game (dist/) served by tools/dev/serve-dist.mjs with the local tile
+// dist mounted at /tiles. TILE_DIST overrides the local build output.
+const PORT = Number(process.env.E2E_TILE_PORT ?? (Number(process.env.TURKU3D_PORT_BASE ?? 5170) + 1));
+export const TILE_DIST = process.env.TILE_DIST ?? path.join(process.env.TURKU3D_WORK ?? process.env.TURKU3D_DATA ?? path.join(os.homedir(), 'turku3d/data'), 'dist/tiles');
 export default defineConfig({
   testDir: 'tests/e2e-tile',
   timeout: 120_000,

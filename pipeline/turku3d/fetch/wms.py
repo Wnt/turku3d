@@ -5,7 +5,7 @@ We request a fixed chunk grid aligned to the world origin O (chunk = CHUNK_PX * 
 resolution at or finer than the native pixel (5 cm for the 5.2-5.5 cm orthos, 1.25 cm for the ~1.2 cm
 drone layer). Requests use TRANSPARENT=TRUE; pixels outside the layer's coverage come back transparent
 (or pure white when the server ignores it) and become the GeoTIFF mask. Chunks with no data at all
-are recorded as empty in ``<area>.chunks.json`` and not stored, so re-runs skip them.
+are recorded as empty in ``<area>.chunks.json`` and not stored, with an expiry so transient blank responses are retried.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import io
 import json
 import math
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from .common import Registry, atomic_write_text, http_get, kind_dir
 from .sources import WMS_LAYERS, WMS_MAX_PX, WMS_URL, WmsLayer
 
 CHUNK_PX = 2000
+EMPTY_TTL_SECONDS = 3600  # absence of imagery is not permanent proof of no coverage
 REFERER = {"Referer": "https://turku.asiointi.fi/IMS/fi"}
 
 
@@ -98,7 +100,7 @@ def native_resolution_cm(rgb, valid, px_m: float) -> float | None:
     return px_m * 100 / max(1e-6, 1 - p)
 
 
-def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print, get=http_get) -> dict:
+def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print, get=http_get, chunk_px: int | None = None) -> dict:
     root = kind_dir("ortho")
     reg = Registry(root)
     adir = root / layer.slug / area.name
@@ -106,23 +108,27 @@ def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print,
     state_path = adir.parent / f"{area.name}.chunks.json"
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
     bbox = area.with_margin.to_en().as_tuple()
-    chunks = chunk_grid(bbox, layer.px_m, CHUNK_PX)
+    chunk_px = chunk_px or CHUNK_PX
+    chunks = chunk_grid(bbox, layer.px_m, chunk_px)
 
     def one(item):
         key, bb = item
         dest = adir / f"{key}.tif"
         st = state.get(key)
-        if st and st.get("status") == "empty":
+        if st and st.get("bbox") != list(bb):
+            st = None
+        if (st and st.get("status") == "empty"
+                and time.time() - st.get("checked_at", 0) < EMPTY_TTL_SECONDS):
             return key, st
         if st and st.get("status") == "ok" and reg.is_complete(dest):
             return key, st
-        body, hdr = get(WMS_URL, getmap_params(layer.name, bb, CHUNK_PX, CHUNK_PX), headers=REFERER)
+        body, hdr = get(WMS_URL, getmap_params(layer.name, bb, chunk_px, chunk_px), headers=REFERER)
         if "image" not in hdr.get("content-type", ""):
             raise RuntimeError(f"WMS {layer.name} {key}: {hdr.get('content-type')} {body[:300]!r}")
         rgb, valid = decode_png(body)
         cov = float(valid.mean())
         if cov == 0.0:
-            return key, {"status": "empty", "bbox": list(bb)}
+            return key, {"status": "empty", "bbox": list(bb), "checked_at": time.time()}
         write_geotiff(dest, rgb, valid, bb, layer.px_m, layer.compress)
         reg.record(dest, url=WMS_URL, layer=layer.name, bbox=list(bb), px_m=layer.px_m, coverage=round(cov, 4))
         return key, {"status": "ok", "bbox": list(bb), "coverage": round(cov, 4),
@@ -148,13 +154,13 @@ def fetch_layer(layer: WmsLayer, area: config.Area, workers: int = 4, log=print,
         subprocess.run(["gdalbuildvrt", "-q", "-overwrite", str(vrt), *files], check=True)
     covs = [state[k]["coverage"] for k in ok]
     natives = [state[k].get("native_cm") for k in ok if state[k].get("native_cm")]
-    area_px = (CHUNK_PX * CHUNK_PX) * len(chunks)
+    area_px = (chunk_px * chunk_px) * len(chunks)
     s = {
         "layer": layer.name, "slug": layer.slug, "area": area.name, "px_m": layer.px_m,
-        "chunk_m": CHUNK_PX * layer.px_m, "chunks": len(chunks), "chunks_ok": len(ok),
+        "chunk_m": chunk_px * layer.px_m, "chunks": len(chunks), "chunks_ok": len(ok),
         "chunks_empty": sum(1 for k, _ in chunks if state.get(k, {}).get("status") == "empty"),
         "errors": errors,
-        "coverage_of_bbox": round(sum(c * CHUNK_PX * CHUNK_PX for c in covs) / area_px, 4) if area_px else 0,
+        "coverage_of_bbox": round(sum(c * chunk_px * chunk_px for c in covs) / area_px, 4) if area_px else 0,
         "native_cm_median": round(sorted(natives)[len(natives) // 2], 2) if natives else None,
         "bytes": sum((adir / f"{k}.tif").stat().st_size for k in ok),
         "vrt": str(vrt) if ok else None,
@@ -170,5 +176,6 @@ def fetch_area(area: config.Area, layers=None, workers: int = 4, log=print) -> l
     for L in WMS_LAYERS:
         if layers and L.slug not in layers and L.name not in layers:
             continue
-        out.append(fetch_layer(L, area, workers=workers, log=log))
+        out.append(fetch_layer(L, area, workers=workers, log=log,
+                               chunk_px=4000 if area.name == "work-3x3" else CHUNK_PX))
     return out

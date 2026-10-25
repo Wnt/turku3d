@@ -1,6 +1,6 @@
 """Codex weekly-quota check (no model call, costs nothing).
 
-Port of osgallery-dev:~/leikkipuistodata/codex-usage.py (read-only source, not modified): it starts
+Port of the historical codex-usage.py helper (read-only source, not modified): it starts
 `codex app-server` and asks `account/rateLimits/read` over JSON-RPC on stdio.
 
 `used_percent()` returns the integer weekly usedPercent (None if unknown). Rollout `token_count`

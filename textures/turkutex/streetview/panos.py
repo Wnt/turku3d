@@ -1,6 +1,6 @@
 """Discover, download and cache Google Street View and Apple Look Around panoramas (streetlevel 0.12.13).
 
-Cache layout (default ~/turku3d-data/raw/streetview on the Mac; $TURKUTEX_STREETVIEW overrides):
+Cache layout (default ~/turku3d/data/raw/streetview on the Mac; $TURKUTEX_STREETVIEW overrides):
   coverage/google_z17_<x>_<y>.json        coverage-tile pano list (id, lat, lon, date)
   coverage/lookaround_z17_<x>_<y>.json    Look Around coverage tile (incl. camera metadata)
   google/<id>/meta.json                   metadata incl. historical layers, EN position, has_depth

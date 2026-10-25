@@ -1,40 +1,36 @@
-# pipeline/ (Python package `turku3d`)
+# Local data pipeline
 
-Runs on the remote `osgallery-dev` (bulk) and on the Mac (small runs). Python ≥ 3.12.
+The complete pipeline runs on the Mac. Shared inputs: `$TURKU3D_DATA/raw`
+(default `~/turku3d/data/raw`). Workers only read them. Writable products:
+`$TURKU3D_WORK/{build,cache,dist,reports}` (default `~/turku3d/data`).
+See [env/README.md](env/README.md) for the native arm64 toolchain.
 
-```
-make foundation-venv        # = uv venv --python 3.12 pipeline/.venv && uv pip install -e 'pipeline[dev]'
-make foundation-test        # = cd pipeline && .venv/bin/python -m pytest -q tests/test_config.py tests/test_specs.py
-make foundation-areas       # regenerate data-manifests/areas/office-block.yaml from config.py
-make foundation-where E=23459668 N=6704254   # -> local x/z, visual/collision/LAZ tile ids
-```
-
-`turku3d/config.py` is the single source of truth:
-- origin O (E 23459500, N 6704500, H 0), CRS strings (`EPSG:3877`, `EPSG:3900`, `EPSG:3877+3900`, `EPSG:4326`)
-- `en_to_local` / `local_to_en` (x = E−E0, y = H, z = −(N−N0)); `en_to_wgs84` / `wgs84_to_en` / `local_to_wgs84` / `wgs84_to_local` (pyproj, horizontal only; heights stay N2000)
-- grids: `VisualTile` (`t{L}_{i}_{j}`, 250·2^L m), `CollisionTile` (`c_{i}_{j}`, 62.5 m), `LazTile` (`<xmin>_<ymax>`, 500 m, `.url()`), `*_tiles_for_bbox`
-- areas: `OFFICE_BLOCK` (Phase 1 AOI, 4×4 collision tiles + 50 m margin), `AREAS`, `area_yaml()`
-- paths: `data_root()` (`$TURKU3D_DATA`, else Linux `~/turku3d/data`, macOS `~/turku3d-data`), `raw_dir()`, `cache_dir()`, `dist_dir()`, `REMOTE_HOST`, `LAZ_TILES_CSV`
-
-`turku3d/tiles.py` re-exports the grid API. Heavy deps (laspy, triangle, shapely, …) are in the `lidar` extra; pdal/open3d come from conda-forge on the remote (`~/turku3d/envs/pipeline`, Phase 0 step 2).
-Subpackages `ground/ structures/ buildings/ vegetation/ package/ qa/` are empty stubs for the workers that own them.
-
-## Remote pipeline (workstream remote-pipeline; targets in `mk/pipeline.mk`)
-
-The code lives here on the Mac; `make pipeline-sync` rsyncs `pipeline/`, `data-manifests/`, `docs/specs/`
-and `docs/ARCHITECTURE.md` to `osgallery-dev:~/turku3d/repo/`, and the remote targets run there over ssh in
-`~/turku3d/envs/pipeline` (see `env/README.md`).
-
-```
-make pipeline-bootstrap                    # remote env + node tools + roofer (idempotent)
-make pipeline-versions                     # verify tool/library versions
-make pipeline-test                         # local pytest (gdal/osmium tests skip on the Mac)
-make pipeline-test-remote                  # pytest in the remote env (all tests run)
-make fetch-aoi                             # fetch LAZ, WFS, WMS orthos, OSM for AREA=office-block + report
-make fetch-checksums                       # pull SHA256SUMS + REPORT into data-manifests/checksums/
-make pipeline-ssh-run CMD='python -m turku3d.fetch report'
-make pipeline-sources                      # regenerate data-manifests/sources.yaml
+```sh
+make pipeline-bootstrap pipeline-versions
+make pipeline-test                        # offline, synthetic fixtures, 4 pytest workers
+make fetch-aoi AREA=work-3x3               # prepare shared data once, intentionally writes raw/
+make fetch-checksums AREA=work-3x3         # export small provenance files for git
+make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
+make tile-show                            # sandbox port base + 1
+make qa-refs                              # regenerate crops with corrected grid heading
 ```
 
-Local extra deps for the fetch tests: `uv pip install --python pipeline/.venv/bin/python -e 'pipeline[dev,fetch]'`.
-Fetcher details: `turku3d/fetch/README.md`.
+`make tile` checks the cached input registry without network access, builds locally, verifies
+manifest hashes and every shared collision seam, runs the Node/Rapier validator and Chrome e2e
+on WebGPU and WebGL2. Missing inputs fail with the exact preparation command.
+The four office tiles stay the playable Phase 1 target; `work-3x3` is the larger input reservoir.
+
+`turku3d.config` is the only coordinate/grid definition: EPSG:3877 + N2000, engine origin
+E=23459500, N=6704500, H=0; x=east, y=up, z=south. Visual L0 is 250 m, collision is 62.5 m.
+`data_root()`, `work_root()`, `raw_dir()`, `cache_dir()` and `dist_dir()` implement the W0-A contract.
+
+```sh
+make foundation-where E=23459668 N=6704254
+make foundation-areas
+bash pipeline/env/run.sh python -m turku3d.config --area-yaml work-3x3
+```
+
+The Phase 0 builder still produces coarse heightfield ground with orthophoto textures;
+curbs, structures and building shells belong to the Wave 1 layers. It caches one canonical
+area heightfield keyed by source file identities and interpolation code. Independent L0 builds
+slice that same grid, avoiding repeated LAZ decompression/TIN construction and seam steps.

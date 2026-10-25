@@ -7,15 +7,15 @@ Game skeleton (ARCHITECTURE.md Phase 0 step 7). It uses Vite 8, TypeScript, thre
 ```bash
 cd game
 npm install
-npm run dev -- --port 5210 --strictPort # http://localhost:5210/  (COOP/COEP on; ?backend=webgl for WebGL2)
+npm run dev            # http://localhost:$TURKU3D_PORT_BASE/  (COOP/COEP on; ?backend=webgl for WebGL2)
 npm run build          # tsc --noEmit + vite build -> dist/
 npm test               # vitest (Node): .col reader, Rapier character/car on the dev tiles, origin, URL params, sun
-E2E_PORT=5210 npm run test:e2e # build + Playwright, Chrome channel (real Metal GPU), both backends; screenshots in test-results/screenshots/
+npm run test:e2e       # build + Playwright, Chrome channel (real Metal GPU), both backends; screenshots in test-results/screenshots/
 npm run dev-tiles      # regenerate public/dev-tiles/ (dummy tileset)
-TILE_DIST=~/turku3d-data/dist/tiles npx playwright test -c playwright.tile.config.ts   # after npm run build: pipeline stub tiles (make tile)
-npm run probe -- "http://localhost:5210/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
+TILE_DIST=~/turku3d/data/dist/tiles npx playwright test -c playwright.tile.config.ts   # after npm run build: pipeline stub tiles (make tile)
+npm run probe -- "http://localhost:$TURKU3D_PORT_BASE/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
 ```
-The same commands are available from the repo root through `mk/game.mk`: `make game-dev`, `make game-build`, `make game-test`, `make game-e2e`, `make game-dev-tiles`, `make game-preview`, `make game-sync`, `make game-serve-dist` and `make game-test-all`.
+The same commands are available from the repo root through `mk/game.mk`: `make game-dev`, `make game-build`, `make game-test`, `make game-e2e`, `make game-dev-tiles`, `make game-preview`, `make game-serve-dist` and `make game-test-all`.
 
 ## Controls
 

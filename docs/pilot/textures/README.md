@@ -1,7 +1,7 @@
 # Texture pilot: two office-block facades (2026-10-25)
 
 Small review previews only (full-resolution images, KTX2 files and Street View crops are in
-`~/turku3d-data/textures/{refs,pilot}/` on the Mac and are never committed). Full record: `pilot.json`.
+`~/turku3d/data/textures/{refs,pilot}/` on the Mac and are never committed). Full record: `pilot.json`.
 Rebuild: `make textures-pilot` (cached; no new Codex calls unless a prompt changes), previews only:
 `make textures-pilot-previews`.
 
@@ -17,7 +17,7 @@ Files: `*_refs.jpg` (reference crops with the target facade outlined), `*_codex_
 (20:01). The rollout float `used_percent` also read 1.0 after each call. The quota counter is an integer, so
 four calls (2 label + 2 image generation, ≈ 236k input tokens, 63 % cached) cost < 1 % of the window. Another
 reading earlier in the session was 0 %; other workstreams may share the account, so per-call cost is still not resolved.
-Log: `~/turku3d-data/textures/pilot/usage_log.jsonl` and `run_*/usage.jsonl`.
+Log: `~/turku3d/data/textures/pilot/usage_log.jsonl` and `run_*/usage.jsonl`.
 
 **Observations.**
 - Both outputs keep the real identity (bay rhythm, window shapes, pediments, granite plinth with cellar vents,

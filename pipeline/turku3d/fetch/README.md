@@ -1,14 +1,14 @@
-# turku3d.fetch — cached, checksummed, resumable fetchers
+# Input fetchers
 
-Run on the remote (bulk data in `~/turku3d/data/raw/`) via make from the Mac; each target rsyncs the
-repo first. `AREA` defaults to `office-block` (Phase 1 AOI: 250 m core + 50 m margin, from config.py).
+Run locally with the native environment. Shared raw input preparation is explicit; normal worker
+builds only check and read the prepared cache.
 
 ```
-make fetch-aoi           # laz + wfs + wms + osm + report   (all idempotent; a re-run takes ~15 s)
+make fetch-aoi           # laz + wfs + wms + osm + report   (all idempotent; explicit preparation/refresh)
 make fetch-laz | fetch-wfs | fetch-wms | fetch-osm | fetch-report
-make fetch-checksums     # pull raw/*/SHA256SUMS + REPORT-<area>.json into data-manifests/checksums/
-make pipeline-ssh-run CMD='python -m turku3d.fetch verify'                 # re-hash every raw file
-make pipeline-ssh-run CMD='python -m turku3d.fetch wfs --layers GIS:Puut'  # one layer
+make fetch-checksums     # export raw/*/SHA256SUMS + REPORT-<area>.json into data-manifests/checksums/
+bash pipeline/env/run.sh python -m turku3d.fetch verify                 # re-hash every raw file
+bash pipeline/env/run.sh python -m turku3d.fetch wfs --layers GIS:Puut  # one layer
 ```
 
 | Step | Output under `raw/` | Notes |
@@ -22,3 +22,24 @@ make pipeline-ssh-run CMD='python -m turku3d.fetch wfs --layers GIS:Puut'  # one
 Each kind keeps `raw/<kind>/SHA256SUMS` (sha256sum -c compatible) and `MANIFEST.jsonl` (url, bytes,
 sha256, time, HTTP metadata). A file is skipped when its size matches the registry (`--verify` re-hashes).
 Endpoints and layer lists: `sources.py` (→ `data-manifests/sources.yaml`, `make pipeline-sources`).
+
+
+## Working area and cached builds
+
+`make fetch-aoi AREA=work-3x3` prepares the nine LAZ tiles' 1.5 × 1.5 km envelope.
+Existing `raw/laz-3x3/*.laz` files are checksum-verified and hard-linked into the standard
+pistepilvi layout; they are never downloaded again. Maanpinta, every configured WFS layer,
+2022 true ortho, 2025 ortho, drone imagery and the OSM clip use the same named area.
+The known restricted WFS layers remain explicitly reported as unauthorized.
+
+Working-area WMS chunks are 4000 px (within the service's 4096 px limit). Blank chunks
+expire after one hour; legacy undated blanks retry immediately. Nonblank chunks retain
+checksum-backed caching. `fetch-aoi` is the explicit refresh operation; `make tile` never
+hits the network or writes shared inputs. OSM reuses its dated, verified Finland snapshot.
+
+```sh
+make fetch-aoi AREA=work-3x3
+make fetch-report AREA=work-3x3
+make fetch-checksums AREA=work-3x3
+bash pipeline/env/run.sh python -m turku3d.fetch verify
+```

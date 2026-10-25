@@ -1,7 +1,7 @@
 """Repo and data locations for qa/.
 
 Images (references, renders, judge outputs) are data and live outside git:
-  $QA_DATA if set, else <repo>/data/qa   (the root /data/ is git-ignored).
+  $QA_DATA if set, else $TURKU3D_WORK/qa   (the root /data/ is git-ignored).
 Registry rows store image paths relative to the repo root when the file is inside the repo,
 else absolute paths.
 """
@@ -17,7 +17,8 @@ PIPELINE = REPO / "pipeline"
 
 
 def data_dir() -> Path:
-    return Path(os.environ.get("QA_DATA", REPO / "data" / "qa")).expanduser().resolve()
+    work = os.environ.get("TURKU3D_WORK", os.environ.get("TURKU3D_DATA", "~/turku3d/data"))
+    return Path(os.environ.get("QA_DATA", str(Path(work).expanduser() / "qa"))).expanduser().resolve()
 
 
 def rel(p: str | Path) -> str:
@@ -34,6 +35,8 @@ def resolve(p: str | Path, base: Path | None = None) -> Path:
     p = Path(p)
     if p.is_absolute():
         return p
+    if base is None and p.parts[:2] == ("data", "qa"):
+        return (data_dir() / Path(*p.parts[2:])).resolve()
     return ((base or REPO) / p).resolve()
 
 

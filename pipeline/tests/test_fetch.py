@@ -501,3 +501,38 @@ def test_http_get_retries_incomplete_read(monkeypatch):
         assert body == b"y" * 1000 and len(hits) == 3
     finally:
         srv.shutdown()
+
+
+def test_wms_expired_and_legacy_blanks_are_retried(data_root, monkeypatch):
+    import numpy as np
+    from PIL import Image
+    from turku3d.fetch import wms
+
+    monkeypatch.setattr(wms, 'CHUNK_PX', 8)
+    monkeypatch.setattr(wms.time, 'time', lambda: 10000)
+    area = config.Area('blank-test', 'test', config.BBoxLocal(0, 0, 8, 8), margin=0)
+    layer = sources.WmsLayer('Test', 'test', 1, 100, 'test', 'DEFLATE', '')
+    state = config.raw_dir('ortho') / 'test/blank-test.chunks.json'
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({'0_0': {'status': 'empty', 'bbox': list(area.core.to_en().as_tuple())}}))
+    calls = []
+
+    def get(*args, **kwargs):
+        calls.append(1)
+        buf = io.BytesIO()
+        Image.fromarray(np.full((8, 8, 4), 255, np.uint8)).save(buf, 'PNG')
+        return buf.getvalue(), {'content-type': 'image/png'}
+
+    s = wms.fetch_layer(layer, area, get=get)
+    assert len(calls) == 1 and s['chunks_ok'] == 1  # old permanent blank recovers
+    state.write_text(json.dumps({'0_0': {'status': 'empty', 'bbox': list(area.core.to_en().as_tuple()),
+                                       'checked_at': 1}}))
+    wms.fetch_layer(layer, area, get=get)
+    assert len(calls) == 2  # expired negative cache is retried as well
+
+
+def test_cached_check_missing_inputs_is_read_only(data_root, monkeypatch):
+    from turku3d.fetch import cached
+    monkeypatch.setattr(common, 'http_get', lambda *a, **kw: pytest.fail('network during cached check'))
+    assert cached.check(config.WORK_3X3)
+    assert not data_root.exists()

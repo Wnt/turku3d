@@ -14,8 +14,8 @@ foundation-test: $(PIPELINE_PY) ## Run turku3d.config + spec consistency tests (
 	cd $(REPO)/pipeline && $(PIPELINE_PY) -m pytest -q tests/test_config.py tests/test_specs.py
 
 foundation-areas: $(PIPELINE_PY) ## Regenerate data-manifests/areas/*.yaml from config.py
-	cd $(REPO)/pipeline && $(PIPELINE_PY) -m turku3d.config --area-yaml office-block \
-	  > $(REPO)/data-manifests/areas/office-block.yaml
+	cd $(REPO)/pipeline && for area in office-block work-3x3; do \
+	  $(PIPELINE_PY) -m turku3d.config --area-yaml $$area > $(REPO)/data-manifests/areas/$$area.yaml; done
 
 foundation-where: $(PIPELINE_PY) ## Tile ids for a point: make foundation-where E=23459668 N=6704254
 	cd $(REPO)/pipeline && $(PIPELINE_PY) -m turku3d.config --where $(E) $(N)

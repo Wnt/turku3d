@@ -23,4 +23,4 @@ How to run everything (tests per area, data locations, known gaps): [docs/STATUS
 | `data-manifests/` | small committed manifests (LAZ index, AOIs, checksums) |
 | `mk/` | per-area Make fragments, included by the root `Makefile` |
 
-Bulk data is never committed: it lives on `osgallery-dev:~/turku3d/data/{raw,cache,dist}` (Mac mirror `~/turku3d-data/`).
+Bulk data is never committed: shared raw inputs live in `~/turku3d/data/raw`; sandbox build products live under `$TURKU3D_WORK`. The pipeline runs locally on the Mac.

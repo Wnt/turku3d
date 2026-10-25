@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Vendored copy of osgallery-dev:~/leikkipuistodata/codex-usage.py (read-only source; --percent changed to report
+# Vendored copy of the historical codex-usage.py helper (read-only source; --percent changed to report
 # the highest window so a weekly 100 % is not hidden behind a lower 5 h primary).
 # Used by judge.py as the quota guard. No model call; asks `codex app-server` over JSON-RPC.
 """Show Codex (ChatGPT account) usage: the rate-limit windows (weekly / 5 h) as used-percent with

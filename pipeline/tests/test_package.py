@@ -143,3 +143,55 @@ def test_dist_tree_rejects_foreign_manifest(tmp_path):
     (tmp_path / "manifest.json").write_text('{"format": "other", "version": 1}')
     with pytest.raises(ValueError):
         DistTree(tmp_path)
+
+
+def test_all_64_collision_seams_and_aoi_flags(tmp_path):
+    from turku3d.package.seams import verify_seams
+    from turku3d.col.format import FLAG_AOI_BORDER
+
+    out = tmp_path / 'tiles'
+    for t in C.OFFICE_BLOCK.visual_tiles:
+        build(t.id, out, synthetic=True, code='test')
+    assert verify_seams(out) == []
+    m = json.loads((out / 'manifest.json').read_text())
+    assert len(m['collision']) == 64
+    for cid, e in m['collision'].items():
+        c = C.CollisionTile.parse(cid)
+        decoded = read_col(out / e['url'])
+        assert decoded.flags == e['flags']
+        assert bool(e['flags'] & FLAG_AOI_BORDER) == (c.i in (0, 7) or c.j in (0, 7))
+    from turku3d.col.format import write_col
+    path = out / m['collision']['c_3_3']['url']
+    broken = read_col(path)
+    broken.positions[0, 1] += 1
+    path.write_bytes(write_col(broken, encoding='raw'))
+    assert verify_seams(out)  # a real seam step must fail the validator
+
+
+def test_real_input_grid_is_shared_cached_and_invalidated(tmp_path, monkeypatch):
+    monkeypatch.setenv('TURKU3D_DATA', str(tmp_path / 'data'))
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'work'))
+    area = C.Area('test', 'test', C.BBoxLocal(0, 0, 500, 500), margin=0)
+    src = C.raw_dir('laz') / 'maanpinta/23459500_6704500.laz'
+    src.parent.mkdir(parents=True)
+    src.write_bytes(b'first source identity')
+    calls = []
+
+    def load(bb, margin):
+        calls.append(bb)
+        return np.array([[-50, -50, 0], [-50, 550, 1], [550, -50, 2], [550, 550, 3]], dtype=float)
+
+    monkeypatch.setattr(G, 'load_ground_points', load)
+    H, bb, count = G.area_heightfield(area)
+    again, _, _ = G.area_heightfield(area)
+    assert len(calls) == 1 and H.tobytes() == again.tobytes() and count == 4
+    src.write_bytes(b'changed source identity')
+    G.area_heightfield(area)
+    assert len(calls) == 2
+    assert not (tmp_path / 'data/cache').exists()
+
+
+def test_nullable_wfs_materials():
+    import pandas as pd
+    assert katualue_material(pd.NA, pd.NA) == "paving_slab"
+    assert katualue_material("Ajorata", pd.NA) == "road"

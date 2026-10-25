@@ -31,8 +31,8 @@ qa-test-render: $(QA_DIR)/render/node_modules
 	cd $(QA_DIR)/render && npm test --silent
 
 qa-refs: $(QA_PY) ## Re-create missing reference images (data/qa/refs) from qa/views/views.jsonl + selftest registry
-	$(QA_PY) $(QA_DIR)/views/sv_views.py refetch
-	$(QA_PY) $(QA_DIR)/views/sv_views.py --registry $(QA_DIR)/selftest/other_views.jsonl refetch
+	$(QA_PY) $(QA_DIR)/views/sv_views.py refetch --force
+	$(QA_PY) $(QA_DIR)/views/sv_views.py --registry $(QA_DIR)/selftest/other_views.jsonl refetch --force
 
 qa-views-search: $(QA_PY) ## List Street View panos near a point: make qa-views-search E=23459668 N=6704254
 	$(QA_PY) $(QA_DIR)/views/sv_views.py search --near $(E),$(N) --half 60

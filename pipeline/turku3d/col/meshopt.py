@@ -16,6 +16,10 @@
 from __future__ import annotations
 
 import os
+import atexit
+import json
+import select
+import threading
 import shutil
 import subprocess
 import tempfile
@@ -291,6 +295,57 @@ def encoder_available() -> bool:
     return shutil.which("node") is not None and meshopt_dir() is not None
 
 
+class _Encoder:
+    """One WASM instance per Python process, reused across tiles; requests are serialized."""
+
+    def __init__(self, mdir: Path):
+        self.process = subprocess.Popen(["node", str(BRIDGE), str(mdir)], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.lock = threading.Lock()
+        atexit.register(self.close)
+
+    def close(self):
+        p = self.process
+        if p.stdin and not p.stdin.closed:
+            p.stdin.close()
+        try:
+            p.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        for stream in (p.stdout, p.stderr):
+            if stream:
+                stream.close()
+
+    def encode(self, **request):
+        with self.lock:
+            p = self.process
+            try:
+                p.stdin.write(json.dumps(request) + "\n")
+                p.stdin.flush()
+                if not select.select([p.stdout], [], [], 60)[0]:
+                    self.close()
+                    raise MeshoptError("meshopt bridge timed out")
+                line = p.stdout.readline()
+                if not line:
+                    raise MeshoptError(f"meshopt bridge exited: {p.stderr.read().strip()}")
+                result = json.loads(line)
+                if not result.get("ok"):
+                    raise MeshoptError(f"meshopt bridge failed: {result.get('error')}")
+            except (BrokenPipeError, OSError) as exc:
+                raise MeshoptError(f"meshopt bridge failed: {exc}") from exc
+
+
+_encoders: dict[tuple[int, str], _Encoder] = {}
+
+
+def _encoder(mdir: Path) -> _Encoder:
+    key = (os.getpid(), str(mdir.resolve()))
+    if key not in _encoders or _encoders[key].process.poll() is not None:
+        _encoders[key] = _Encoder(mdir)
+    return _encoders[key]
+
+
 def encode_mesh(positions: np.ndarray, indices: np.ndarray, *, optimize: bool = True,
                 vertex_version: int = 0):
     """Encode a mesh with the official meshopt encoder.
@@ -311,11 +366,7 @@ def encode_mesh(positions: np.ndarray, indices: np.ndarray, *, optimize: bool = 
         t = Path(td)
         (t / "pos.bin").write_bytes(pos.tobytes())
         (t / "idx.bin").write_bytes(idx.tobytes())
-        r = subprocess.run(["node", str(BRIDGE), str(mdir), td, str(len(pos)), str(idx.size),
-                            "1" if optimize else "0", str(vertex_version)],
-                           capture_output=True, text=True)
-        if r.returncode != 0:
-            raise MeshoptError(f"meshopt bridge failed: {r.stderr.strip()}")
+        _encoder(mdir).encode(dir=td, vc=len(pos), ic=idx.size, optimize=optimize, version=vertex_version)
         pos_o = np.frombuffer((t / "pos_out.bin").read_bytes(), np.float32).reshape(-1, 3).copy()
         idx_o = np.frombuffer((t / "idx_out.bin").read_bytes(), np.uint32).reshape(-1, 3).copy()
         posn = (t / "posn.enc").read_bytes()

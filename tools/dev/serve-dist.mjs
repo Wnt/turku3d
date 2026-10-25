@@ -6,7 +6,7 @@
 //  - optional --mount /tiles=<dir> to serve a tile dist next to the game build
 // No dependencies (Node >= 20).
 //
-// Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port 8080] [--host 127.0.0.1] [--mount /tiles=~/turku3d-data/dist/tiles] [--no-compress]
+// Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port 8080] [--host 127.0.0.1] [--mount /tiles=~/turku3d/data/dist/tiles] [--no-compress]
 import http from 'node:http';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';

@@ -12,6 +12,7 @@ The clip bbox is the area core + margin + OSM_EXTRA_M (context for the road grap
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -44,6 +45,11 @@ def wgs84_bbox(area: config.Area, extra: float = OSM_EXTRA_M) -> tuple[float, fl
 def fetch_finland(log=print) -> Path:
     root = kind_dir("osm")
     reg = Registry(root)
+    cached = sorted((root / "geofabrik").glob("finland-*.osm.pbf"))
+    for path in reversed(cached):
+        if reg.is_complete(path):
+            log(f"osm  {path.name}: cached snapshot")
+            return path
     h = resolve_dated_url()
     name = h["url"].rsplit("/", 1)[1]  # finland-261024.osm.pbf
     dest = root / "geofabrik" / name
@@ -54,7 +60,8 @@ def fetch_finland(log=print) -> Path:
     md5 = md5_body.decode().split()[0]
     rec, now = curl_download(h["url"], dest, reg, expected_bytes=h["content_length"],
                              last_modified=h["last_modified"], md5=md5)
-    got = subprocess.run(["md5sum", str(dest)], check=True, capture_output=True, text=True).stdout.split()[0]
+    with dest.open("rb") as stream:
+        got = hashlib.file_digest(stream, "md5").hexdigest()
     if got != md5:
         dest.unlink()
         raise RuntimeError(f"md5 mismatch for {name}: {got} != {md5}")

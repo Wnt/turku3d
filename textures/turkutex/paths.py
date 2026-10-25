@@ -1,6 +1,6 @@
 """Where texture data lives. Images never go into git.
 
-Data root comes from turku3d.config.data_root(): $TURKU3D_DATA, else ~/turku3d-data on the Mac
+Data root comes from turku3d.config.data_root(): $TURKU3D_DATA, else ~/turku3d/data on the Mac
 (~/turku3d/data on Linux).
 - raw/streetview/google/<panoid>/    pano_z<zoom>.jpg, depth.npy (as returned, NOT flipped), meta.json
 - raw/streetview/lookaround/<id>/    face<k>_z<zoom>.heic, meta.json

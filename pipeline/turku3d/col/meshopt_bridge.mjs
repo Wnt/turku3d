@@ -1,16 +1,18 @@
 // Node bridge used by turku3d/col/meshopt.py to run the official meshoptimizer encoder (npm WASM).
-// usage: node meshopt_bridge.mjs <meshoptimizer pkg dir> <tmpdir> <vertexCount> <indexCount> <optimize 0|1> <vertexVersion>
+// usage: node meshopt_bridge.mjs <meshoptimizer pkg dir>
+// NDJSON requests on stdin: {dir, vc, ic, optimize, version}; one JSON response per request.
 // reads  <tmpdir>/pos.bin (f32x3) and idx.bin (u32)
 // writes <tmpdir>/pos_out.bin, idx_out.bin (after optional reorderMesh), posn.enc, indx.enc
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createInterface } from 'node:readline';
 
-const [pkg, dir, vcS, icS, optS, verS] = process.argv.slice(2);
+const [pkg] = process.argv.slice(2);
 const { MeshoptEncoder } = await import(pathToFileURL(join(pkg, 'meshopt_encoder.js')).href);
 await MeshoptEncoder.ready;
 
-const vc = Number(vcS), ic = Number(icS), optimize = optS === '1', version = Number(verS);
+function encode({ dir, vc, ic, optimize, version }) {
 const rd = (f) => { const b = readFileSync(join(dir, f)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 let pos = new Float32Array(rd('pos.bin'));
 let idx = new Uint32Array(rd('idx.bin'));
@@ -34,3 +36,13 @@ writeFileSync(join(dir, 'pos_out.bin'), new Uint8Array(pos.buffer));
 writeFileSync(join(dir, 'idx_out.bin'), new Uint8Array(idx.buffer));
 writeFileSync(join(dir, 'posn.enc'), posn);
 writeFileSync(join(dir, 'indx.enc'), indx);
+
+}
+for await (const line of createInterface({ input: process.stdin })) {
+  try {
+    encode(JSON.parse(line));
+    process.stdout.write('{"ok":true}\n');
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ error: String(error) }) + '\n');
+  }
+}

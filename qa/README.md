@@ -84,7 +84,7 @@ $P qa/views/tour360_adapter.py make --pano B5D39CE1 --heading-offset 0 --tour-ya
 
 ## 2. Render URL contract (the game must implement this)
 
-**Status (integration, 2026-10-25):** the game implements this contract (`game/src/main.ts` QA mode, `game/src/render/idPass.ts`). Against the pipeline stub tiles: `make tile-qa` (serves `game/dist` + `~/turku3d-data/dist/tiles`, runs `loop.py --no-judge`; `JUDGE=1` calls Codex), or with any server: `qa/.venv/bin/python qa/loop.py --url "http://localhost:8080/?tiles=/tiles/tileset.json" --no-judge` (`contractUrl` keeps the `tiles` query). All 3 registry views render in both passes with pose echo OK; `game/tests/e2e-tile/tile.spec.ts` checks pose echo, canvas size, `__qaProject` and the ID pixels.
+**Status (integration, 2026-10-25):** the game implements this contract (`game/src/main.ts` QA mode, `game/src/render/idPass.ts`). Against the pipeline stub tiles: `make tile-qa` (serves `game/dist` + `~/turku3d/data/dist/tiles`, runs `loop.py --no-judge`; `JUDGE=1` calls Codex), or with any server: `qa/.venv/bin/python qa/loop.py --url "http://localhost:8080/?tiles=/tiles/tileset.json" --no-judge` (`contractUrl` keeps the `tiles` query). All 3 registry views render in both passes with pose echo OK; `game/tests/e2e-tile/tile.spec.ts` checks pose echo, canvas size, `__qaProject` and the ID pixels.
 
 `render/stub/index.html` implements it and is the reference; `render/test/stub.test.mjs` tests it.
 

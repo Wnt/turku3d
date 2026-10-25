@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import math
 import os
-import platform
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -418,7 +417,11 @@ OFFICE_BLOCK = area_centred_on(
     VISUAL_TILE_SIZE,
 )
 
-AREAS: dict[str, Area] = {OFFICE_BLOCK.name: OFFICE_BLOCK}
+WORK_3X3 = Area(
+    "work-3x3", "Nine 500 m LAZ tiles around the office; shared input working area",
+    BBoxEN(23459000, 6703500, 23460500, 6705000).to_local(), margin=0,
+)
+AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, WORK_3X3)}
 
 
 def area_yaml(area: Area) -> str:
@@ -466,24 +469,14 @@ DATA_MANIFESTS = REPO_ROOT / "data-manifests"
 LAZ_TILES_CSV = DATA_MANIFESTS / "laz-tiles.csv"
 SPECS_DIR = REPO_ROOT / "docs" / "specs"
 
-REMOTE_HOST = "osgallery-dev"
-REMOTE_DATA_ROOT = "~/turku3d/data"  # on REMOTE_HOST (Linux), bulk data
-REMOTE_ENVS = "~/turku3d/envs"
-REMOTE_READONLY = "~/leikkipuistodata"  # NEVER write here
-MAC_MIRROR = Path("~/turku3d-data").expanduser()  # partial mirror on the Mac
-
-
 def data_root() -> Path:
-    """Root holding raw/ cache/ dist/.
+    """Shared input root on every OS; workers treat raw/ as immutable."""
+    return Path(os.environ.get("TURKU3D_DATA", "~/turku3d/data")).expanduser()
 
-    $TURKU3D_DATA overrides; otherwise Linux -> ~/turku3d/data, macOS -> ~/turku3d-data.
-    """
-    env = os.environ.get("TURKU3D_DATA")
-    if env:
-        return Path(env).expanduser()
-    if platform.system() == "Darwin":
-        return MAC_MIRROR
-    return Path(REMOTE_DATA_ROOT).expanduser()
+
+def work_root() -> Path:
+    """Writable sandbox root (W0-A environment contract)."""
+    return Path(os.environ.get("TURKU3D_WORK", str(data_root()))).expanduser()
 
 
 def raw_dir(kind: str = "") -> Path:
@@ -492,11 +485,11 @@ def raw_dir(kind: str = "") -> Path:
 
 
 def cache_dir(step: str = "") -> Path:
-    return data_root() / "cache" / step
+    return work_root() / "cache" / step
 
 
 def dist_dir() -> Path:
-    return data_root() / "dist"
+    return work_root() / "dist"
 
 
 def main(argv: list[str] | None = None) -> int:
