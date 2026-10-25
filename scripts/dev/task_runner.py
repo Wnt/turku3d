@@ -32,7 +32,9 @@ def identity(pid):
 
 
 def running(meta):
-    return bool(meta.get("pid") and identity(meta["pid"]) == meta.get("identity"))
+    return bool(
+        meta.get("pid") and meta.get("identity") and identity(meta["pid"]) == meta["identity"]
+    )
 
 
 def read_events(path):
@@ -205,6 +207,44 @@ def list_tasks():
             print(f"{path.name}: inbox only, {unread_status(path.name, 'inbox only')}")
 
 
+def group_members(pgid):
+    """Live members and start identities; zombies cannot receive signals on macOS."""
+    out = s.run("ps", "-axo", "pid=,pgid=,stat=,lstart=", check=True).stdout
+    members = {}
+    for line in out.splitlines():
+        fields = line.split()
+        if len(fields) >= 8 and int(fields[1]) == pgid and not fields[2].startswith("Z"):
+            members[int(fields[0])] = " ".join(fields[3:])
+    return members
+
+
+def signal_group(meta):
+    pid = meta["pid"]
+    members = group_members(pid)
+    if not meta.get("identity") or members.get(pid) != meta["identity"]:
+        return {}
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        # Exit between ps and killpg may leave only unsignalable zombies. A live
+        # matching member means a real permission failure, which must stay visible.
+        current = group_members(pid)
+        if any(current.get(p) == born for p, born in members.items()):
+            raise
+    return members
+
+
+def kill_members(members):
+    """Escalate only identities observed in the original, still-live group."""
+    for member, born in members.items():
+        if identity(member) == born:
+            try:
+                os.kill(member, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                if identity(member) == born:
+                    raise
+
+
 def stop(name):
     path = task(name)
     with s.lock(path / "lock"):
@@ -213,24 +253,28 @@ def stop(name):
             print(f"{name}: not running")
             return
         pid = meta["pid"]
-        if os.getpgid(pid) != pid:
-            raise ValueError("task no longer owns its process group; refusing signal")
+        try:
+            if os.getpgid(pid) != pid:
+                raise ValueError("task no longer owns its process group; refusing signal")
+        except ProcessLookupError:
+            print(f"{name}: not running")
+            return
+        members = signal_group(meta)
         meta.update(state="stopped", finished=time.time())
         s.write_json(path / "meta.json", meta)
-        os.killpg(pid, signal.SIGTERM)
     deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        try:
-            os.killpg(pid, 0)
-        except ProcessLookupError:
+    while members:
+        current = group_members(pid)
+        # A surviving known identity anchors the group even after the supervisor
+        # exits; include descendants created since the previous snapshot.
+        anchored = any(current.get(p) == born for p, born in members.items())
+        members = current if anchored else {}
+        if time.monotonic() >= deadline:
+            # Never signal a recycled group ID after its supervisor has exited.
+            kill_members(members)
             break
-        time.sleep(0.05)
-    else:
-        # The group was verified above; descendants can outlive the supervisor.
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        if members:
+            time.sleep(0.05)
     print(f"{name}: stopped")
 
 

@@ -116,7 +116,7 @@ def ports_free(base):
         try:
             for port in range(base, base + 10):
                 s = stack.enter_context(socket.socket())
-                s.bind(("127.0.0.1", port))
+                s.bind(("0.0.0.0", port))
         except OSError:
             return False
     return True
@@ -172,10 +172,22 @@ def live_processes(home):
     env = read_env(home / "sandbox.env")
     base = int(env["TURKU3D_PORT_BASE"])
     pids = set()
-    # One scan, with OR selectors: cwd entries plus listeners on the reserved block.
-    out = run(
-        "lsof", "-nP", "-Fpnf", "-d", "cwd", f"-iTCP:{base}-{base + 9}", "-sTCP:LISTEN", check=False
-    ).stdout
+    # OR-ing cwd and socket selectors makes lsof inspect every descriptor on the
+    # host. A cwd-only scan asks just for vnode paths; scan sockets only if a port
+    # cannot be bound. Check IPv6 too (an IPv6-only listener permits an IPv4 bind).
+    out = run("lsof", "-nP", "-Fpnf", "-a", "-d", "cwd", check=False).stdout
+    occupied = not ports_free(base)
+    for port in range(base, base + 10) if socket.has_ipv6 else ():
+        with socket.socket(socket.AF_INET6) as probe:
+            probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            try:
+                probe.bind(("::", port))
+            except OSError:
+                occupied = True
+    if occupied:
+        out += run(
+            "lsof", "-nP", "-Fpnf", f"-iTCP:{base}-{base + 9}", "-sTCP:LISTEN", check=False
+        ).stdout
     pid, descriptor = None, None
     for line in out.splitlines():
         if line.startswith("p"):
@@ -192,10 +204,6 @@ def remove(name, force=False):
     with lock(root() / ".registry/lock"):
         home = sandbox(name)
         repo = home / "repo"
-        live = live_processes(home)
-        # --force may discard work, but never kills somebody else's processes.
-        if live:
-            raise ValueError(f"live processes in {name}: {live}; stop them before removal")
         if not force:
             if git("status", "--porcelain", cwd=repo):
                 raise ValueError("worktree is dirty; use --force to discard it")
@@ -203,6 +211,10 @@ def remove(name, force=False):
                 "git", "merge-base", "--is-ancestor", "HEAD", "main", cwd=repo, check=False
             ).returncode:
                 raise ValueError("unmerged commits; land first or use --force")
+        live = live_processes(home)
+        # --force may discard work, but never kills somebody else's processes.
+        if live:
+            raise ValueError(f"live processes in {name}: {live}; stop them before removal")
         records = registry()
         git("worktree", "remove", *(["--force"] if force else []), str(repo))
         git("branch", "-D", f"wt/{name}")

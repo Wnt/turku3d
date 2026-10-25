@@ -3,9 +3,9 @@
 
 import json
 import os
+import signal
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 if sys.argv[1] == "app-server":
@@ -34,9 +34,15 @@ else:
     assert "gpt-6-astra" in sys.argv
     assert "danger-full-access" in sys.argv
     if os.environ.get("FAKE_SLEEP"):
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        child = subprocess.Popen([sys.executable, "-c", "import signal; signal.pause()"])
+
+        def terminate(*_):
+            child.wait(timeout=5)
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, terminate)
         print(json.dumps({"type": "fake.child", "pid": child.pid}), flush=True)
-        time.sleep(60)
+        signal.pause()
     out = Path(sys.argv[sys.argv.index("-o") + 1])
     out.write_text("## Result: DONE\n\n" + prompt[-100:])
     print(json.dumps({"type": "turn.completed"}), flush=True)

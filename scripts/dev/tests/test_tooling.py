@@ -102,7 +102,9 @@ class ToolingTests(unittest.TestCase):
             env=env or self.env,
             capture_output=True,
             text=True,
-            timeout=20,
+            # Functional CLI deadline, not a throughput assertion: overloaded hosts
+            # can deschedule Git/lsof children for seconds. The here budget stays explicit.
+            timeout=60,
         )
         if ok:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
