@@ -10,44 +10,13 @@ from fixtures import ground as G
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
+from turku3d.ground.materials import surface_material as katualue_material
 from turku3d.package.gltf import GlbMesh, build_glb
 from turku3d.package.manifest import DistTree
 
 STEP = 12.5  # Tiny fixtures still exercise all 64 collision tiles and their shared edges.
 CELLS_PER_COL = int(round(C.COLLISION_TILE_SIZE / STEP))
 DEFAULT_MATERIAL = "grass"
-
-# GIS:Katualueet -> materials.md v1 (Katuosalaji first, then Pintamateriaali)
-_KATUOSA = {
-    "Ajorata": "road",
-    "Jalkakäytävä": "sidewalk",
-    "Pyöräkaista": "cycleway",
-    "Yhdistetty kevyen liikenteen väylä": "sidewalk",
-    "Silta": "bridge_deck",
-    "Portaat": "paving_slab",
-}
-_PINTA = [
-    ("noppakivi", "cobblestone"),
-    ("nupukivi", "cobblestone"),
-    ("luonnonkivi", "cobblestone"),
-    ("kenttäkivi", "cobblestone"),
-    ("graniitti", "cobblestone"),
-    ("betonilaatta", "paving_slab"),
-    ("betonikivi", "paving_slab"),
-    ("betoni", "paving_slab"),
-    ("sora", "gravel"),
-    ("asfalt", "road"),
-]
-
-
-def katualue_material(katuosalaji: str | None, pinta: str | None) -> str:
-    if isinstance(katuosalaji, str) and katuosalaji in _KATUOSA:
-        return _KATUOSA[katuosalaji]
-    p = pinta.lower() if isinstance(pinta, str) else ""
-    for key, name in _PINTA:
-        if key in p:
-            return name
-    return "paving_slab"
 
 
 class MaterialMap:
