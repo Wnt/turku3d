@@ -16,27 +16,10 @@ single policy file and this document keeps only the layer contracts (§3–§4).
   you and shared. Write into your own sandbox dirs (Wave 0 tooling provides them). osgallery-dev is legacy: no new
   work there.
 
-## 2. Working rules (non-negotiable)
+## 2. Working rules
 
-1. **Fix things where they belong.** You may edit any part of the system, so do not leave workarounds in your own area
-   for a problem elsewhere. Remove the code you replace in the same change, and leave no commented-out code.
-2. **No feature flags** unless you are A/B-measuring two real alternatives. Then register the flag (owner, reason,
-   removal condition counted in landed merges, at most 10) and remove it with the losing path once decided.
-3. **Dead code is deleted**, not kept "just in case".
-4. **Green before done.** Run the quality gate (`scripts/dev/gate` once Wave 0 lands; until then the area's `make
-   *-test` targets) for what you touched. If you cannot make it green, finish with `## Result: BLOCKED`, the failing
-   command and its output. Never weaken a test or a check to pass.
-5. **Fast tests.** Run only the tests relevant to your change, in parallel. Unit tests use small synthetic fixtures, not
-   real tiles. The target is 5–20 s for the gate on a typical change. If yours is slower, fix that too.
-6. **Commit** on your branch with clear messages, and end each message with
-   `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`. Do not merge to `main`: the orchestrator lands branches.
-7. **Isolation.** Use only your sandbox's ports, data/build/cache dirs and browser profile. Never kill processes you
-   did not start, and never use `pkill -f` / `pgrep -f` with a pattern that appears in your own command line.
-8. **No paid services** and no new API keys. Secrets live in `~/.config/turku3d/`, are never copied into the repo and
-   are never printed. Codex image calls may use the weekly quota up to 100 %; the runners already check it.
-9. **Language: English for everything in this project**: code, comments, docs, commit messages, progress updates
-   and your final report. This overrides any personal default language setting. Match the surrounding style and keep
-   each area's README current with exact commands.
+The single policy source is [AGENTS.md](../../AGENTS.md), including the English-language rule,
+isolation, verification, commits and run results. Tool commands: [scripts/dev/README.md](../../scripts/dev/README.md).
 
 ## 3. Coordinates and tiles (from `pipeline/turku3d/config.py`, do not redefine)
 
@@ -71,13 +54,3 @@ Texture assets are looked up by `material_key`:
 - Library materials: `textures/library/<material_key>/{albedo,normal,orm}.ktx2`.
 - Per-building facades: `~/turku3d/data/textures/facades/<building_id>/<facade_index>.{ktx2,json}`.
 - The assembler binds them. A missing texture falls back to the library material named by the building spec.
-
-## 5. Finishing
-
-Your final message (the run's result) has these sections:
-
-- `## Result: DONE` or `## Result: BLOCKED`
-- `## What changed`
-- `## How to verify` (exact commands)
-- `## Gate output` (summary + timing)
-- `## Follow-ups` (only real, concrete items)

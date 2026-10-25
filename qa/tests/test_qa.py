@@ -273,3 +273,14 @@ def test_true_heading_is_converted_to_grid_bearing():
 
     g = geo.true_to_grid_bearing(geo.OFFICE_E, geo.OFFICE_N, 90.0)
     assert abs(g - 90.637) < 0.01
+
+
+def test_sandbox_paths_and_portable_registry(tmp_path, monkeypatch):
+    from qalib.paths import data_dir, resolve
+    monkeypatch.delenv('QA_DATA', raising=False)
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'worker'))
+    monkeypatch.setenv('TURKU3D_DATA', str(tmp_path / 'shared'))
+    assert data_dir() == tmp_path / 'worker/qa'
+    assert resolve('data/qa/refs/view.jpg') == tmp_path / 'worker/qa/refs/view.jpg'
+    monkeypatch.setenv('QA_DATA', str(tmp_path / 'override'))
+    assert resolve('data/qa/refs/view.jpg') == tmp_path / 'override/refs/view.jpg'

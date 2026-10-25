@@ -1,17 +1,19 @@
 import { defineConfig } from '@playwright/test';
-import os from 'node:os';
 import path from 'node:path';
+import { port, reportsRoot, isolateBrowser, gameDist, tileDist } from '../tools/dev/environment.mjs';
+
+isolateBrowser();
 
 // Phase 0 exit check (`make tile`): the built game (dist/) served by tools/dev/serve-dist.mjs with the local tile
-// dist mounted at /tiles. TILE_DIST overrides the local build output.
-const PORT = Number(process.env.E2E_TILE_PORT ?? (Number(process.env.TURKU3D_PORT_BASE ?? 5170) + 1));
-export const TILE_DIST = process.env.TILE_DIST ?? path.join(process.env.TURKU3D_WORK ?? process.env.TURKU3D_DATA ?? path.join(os.homedir(), 'turku3d/data'), 'dist/tiles');
+// dist mounted at /tiles. TILE_DIST overrides the local output (default $TURKU3D_WORK/dist/tiles).
+const PORT = Number(process.env.E2E_TILE_PORT ?? port(1));
+export const TILE_DIST = tileDist;
 export default defineConfig({
   testDir: 'tests/e2e-tile',
   timeout: 120_000,
   workers: 1,
   reporter: [['list']],
-  outputDir: 'test-results/pw-tile',
+  outputDir: path.join(reportsRoot, 'playwright-tile'),
   use: {
     baseURL: `http://localhost:${PORT}/`,
     channel: 'chrome',
@@ -24,7 +26,7 @@ export default defineConfig({
     { name: 'webgl', use: { backendParam: 'webgl' } as never },
   ],
   webServer: {
-    command: `node ../tools/dev/serve-dist.mjs --root dist --port ${PORT} --mount /tiles=${TILE_DIST}`,
+    command: `node ../tools/dev/serve-dist.mjs --root ${JSON.stringify(gameDist)} --port ${PORT} --mount ${JSON.stringify(`/tiles=${TILE_DIST}`)}`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 30_000,

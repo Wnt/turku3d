@@ -1,3 +1,4 @@
+from pathlib import Path
 import csv
 import math
 
@@ -152,7 +153,7 @@ def test_paths(monkeypatch, tmp_path):
     assert C.cache_dir("cdt") == tmp_path / "cache" / "cdt"
     assert C.dist_dir() == tmp_path / "dist"
     monkeypatch.delenv("TURKU3D_DATA")
-    assert C.data_root() == C.Path("~/turku3d/data").expanduser()
+    assert C.data_root() == Path.home() / "turku3d/data"
     monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "worker"))
     assert C.dist_dir() == tmp_path / "worker/dist"
     assert C.cache_dir() == tmp_path / "worker/cache"
@@ -206,3 +207,12 @@ def test_work_area():
     assert len(C.WORK_3X3.laz_tiles) == 9
     assert C.WORK_3X3.core.to_en() == BBoxEN(23459000, 6703500, 23460500, 6705000)
     assert (C.DATA_MANIFESTS / "areas/work-3x3.yaml").read_text() == C.area_yaml(C.WORK_3X3)
+
+
+def test_work_paths_are_isolated(monkeypatch, tmp_path):
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "shared"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "worker"))
+    assert C.raw_dir("laz") == tmp_path / "shared/raw/laz"
+    assert C.cache_dir("cdt") == tmp_path / "worker/cache/cdt"
+    assert C.build_dir("layers") == tmp_path / "worker/build/layers"
+    assert C.dist_dir() == tmp_path / "worker/dist"

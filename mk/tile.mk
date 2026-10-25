@@ -27,18 +27,18 @@ tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
 	  node src/cli.ts --walkers $(TILE_WALKERS) --out $(TILE_REPORTS)/validate-$$t.json $(DIST_MIRROR)/tiles/collision/$$t || exit 1; done
 
 tile-e2e: game-install ## Build the game and test real tiles with Chrome WebGPU and WebGL2
-	cd $(GAME_DIR) && npm run build && E2E_TILE_PORT=$(TILE_PORT) TILE_DIST=$(DIST_MIRROR)/tiles npx playwright test -c playwright.tile.config.ts
+	cd $(GAME_DIR) && npm run build && E2E_TILE_PORT=$(DIST_PORT) TILE_DIST=$(DIST_MIRROR)/tiles npx playwright test -c playwright.tile.config.ts
 
 tile-show: game-build ## Serve the local result on the sandbox dist port
-	@echo "open http://localhost:$(TILE_PORT)/?tiles=/tiles/tileset.json"
-	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIR)/dist --port $(TILE_PORT) --mount /tiles=$(DIST_MIRROR)/tiles
+	@echo "open http://localhost:$(DIST_PORT)/?tiles=/tiles/tileset.json"
+	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIST) --port $(DIST_PORT) --mount /tiles=$(DIST_MIRROR)/tiles
 
 tile-test: ## Offline packaging tests with synthetic inputs
 	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n 4 tests/test_package.py
 
-TILE_QA_PORT ?= $(TILE_PORT)
+TILE_QA_PORT ?= $(DIST_PORT)
 tile-qa: qa-venv game-build ## Render local tiles (colour+ID); JUDGE=1 enables quota-guarded parallel judging
-	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIR)/dist --port $(TILE_QA_PORT) --mount /tiles=$(DIST_MIRROR)/tiles & pid=$$!; \
+	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIST) --port $(TILE_QA_PORT) --mount /tiles=$(DIST_MIRROR)/tiles & pid=$$!; \
 	  trap 'kill "$$pid" 2>/dev/null || true' EXIT; sleep 1; kill -0 "$$pid" || exit 1; \
 	  $(QA_PY) $(QA_DIR)/loop.py --url "http://localhost:$(TILE_QA_PORT)/?tiles=/tiles/tileset.json" $(if $(filter 1,$(JUDGE)),,--no-judge) --workers $(QA_WORKERS) --manifest "$(DIST_MIRROR)/tiles/manifest.json" \
 	    --run-id $(or $(QA_RUN),tile-$(shell date +%Y%m%d-%H%M%S))

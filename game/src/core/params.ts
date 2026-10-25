@@ -23,7 +23,7 @@ export interface Params {
 export const DEFAULT_TIME = '2026-06-21T14:00:00+03:00';
 
 /** manifest.json next to the tileset. Same-origin paths stay page-relative (as before); an absolute tileset URL on
- *  another host (e.g. `make game-serve-dist` on :8081) keeps its origin, otherwise the manifest would be fetched from
+ *  another host (e.g. `make game-serve-dist` on the sandbox dist port) keeps its origin, otherwise the manifest would be fetched from
  *  the game server. */
 function defaultManifest(tileset: string): string {
   const u = new URL('manifest.json', new URL(tileset, 'http://x/'));

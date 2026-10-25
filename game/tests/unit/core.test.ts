@@ -21,7 +21,7 @@ test('url params', () => {
   expect(p.time.toISOString()).toBe('2026-07-01T10:00:00.000Z');
   expect(p.manifest).toBe('dev-tiles/manifest.json');
   expect(parseParams('?tiles=/tiles/tileset.json').manifest).toBe('tiles/manifest.json');
-  expect(parseParams('?tiles=http://localhost:8081/tiles/tileset.json').manifest).toBe('http://localhost:8081/tiles/manifest.json');
+  expect(parseParams('?tiles=http://tiles.example/tiles/tileset.json').manifest).toBe('http://tiles.example/tiles/manifest.json');
   expect(() => parseParams('?colRadius=abc')).toThrow(/colRadius/);
   expect(() => parseParams('?cam=1,2,3')).toThrow();
   // qa/README.md §2 contract: roll as its own param (or 7th cam value), pass=id, qa=1 accepted

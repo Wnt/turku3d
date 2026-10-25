@@ -6,8 +6,9 @@
 //  - optional --mount /tiles=<dir> to serve a tile dist next to the game build
 // No dependencies (Node >= 20).
 //
-// Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port 8080] [--host 127.0.0.1] [--mount /tiles=~/turku3d/data/dist/tiles] [--no-compress]
+// Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
 import http from 'node:http';
+import { workRoot, port } from './environment.mjs';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -17,8 +18,8 @@ import os from 'node:os';
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const expand = (p) => path.resolve(p.replace(/^~(?=$|\/)/, os.homedir()));
-const ROOT = expand(opt('--root', args.find((a, i) => !a.startsWith('--') && (i === 0 || !args[i - 1].startsWith('--'))) ?? 'dist'));
-const PORT = Number(opt('--port', 8080));
+const ROOT = expand(opt('--root', args.find((a, i) => !a.startsWith('--') && (i === 0 || !args[i - 1].startsWith('--'))) ?? path.join(workRoot, 'dist')));
+const PORT = Number(opt('--port', port(1)));
 const HOST = opt('--host', '127.0.0.1');
 const COMPRESS = !args.includes('--no-compress');
 const MOUNTS = []; // [prefix, dir]
@@ -121,7 +122,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
   if (!fs.existsSync(ROOT)) { console.error(`root ${ROOT} does not exist`); process.exit(2); }
   const server = http.createServer((req, res) => handler(req, res).catch((e) => { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }));
   server.listen(PORT, HOST, () => {
-    console.log(`serve-dist: http://${HOST}:${PORT}/ -> ${ROOT}${MOUNTS.map(([p, d]) => `\n  ${p}/ -> ${d}`).join('')}`);
+    console.log(`serve-dist: http://${HOST}:${server.address().port}/ -> ${ROOT}${MOUNTS.map(([p, d]) => `\n  ${p}/ -> ${d}`).join('')}`);
     console.log(`  COOP/COEP on, brotli ${COMPRESS ? 'on' : 'off'}, ranges on`);
   });
 }

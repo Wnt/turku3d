@@ -80,7 +80,7 @@ def main():
                                          "label_thread_id": lab["thread_id"]},
                                "post": {"tile": post["tile"], "size": post["size"], "post_version": post["post_version"]},
                                "files": {k: v["sha256"] for k, v in post["files"].items()},
-                               "data_dir": str(PILOT / "post" / fid), "width_m": rec["meta"]["width_m"],
+                               "data_dir": str(Path("textures/pilot/post") / fid), "width_m": rec["meta"]["width_m"],
                                "height_m": rec["meta"]["height_m"]})
     (DOCS / "pilot.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
     existing = []

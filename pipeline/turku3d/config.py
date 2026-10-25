@@ -479,6 +479,10 @@ def work_root() -> Path:
     return Path(os.environ.get("TURKU3D_WORK", str(data_root()))).expanduser()
 
 
+def build_dir(layer: str = "") -> Path:
+    return work_root() / "build" / layer
+
+
 def raw_dir(kind: str = "") -> Path:
     """kind in laz, wfs, ortho, osm, panos (immutable downloads)."""
     return data_root() / "raw" / kind

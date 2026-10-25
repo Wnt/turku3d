@@ -1,13 +1,24 @@
-# Local development server
+# tools/dev
 
-`serve-dist.mjs` is a dependency-free Node static server with COOP/COEP, CORP, CORS,
-brotli, byte ranges, ETag/304 and MIME types for WASM/GLB/KTX2/COL.
+Static serving needs Node 20+. `environment.mjs` defines host-side paths and ports for Vite, Playwright, QA
+and the dist server. Source the worker's `sandbox.env` before invoking any tool.
 
-```sh
-make tile-show
-# Explicit sandbox ports (example: w0-macpipe owns 5200..5209):
-node tools/dev/serve-dist.mjs --root game/dist --port 5201 --mount /tiles="$TURKU3D_WORK/dist/tiles"
-node --test tools/dev/serve-dist.test.mjs
+## Static server
+
+`serve-dist.mjs` sends COOP/COEP, CORP and CORS headers, serves precompressed or on-demand brotli and gzip,
+HTTP byte ranges, ETag/304 and MIME types for wasm, GLB, KTX2 and collision tiles. It defaults to
+`$TURKU3D_WORK/dist` and port `$TURKU3D_PORT_BASE + 1` (main: 5171).
+
+```bash
+make game-preview       # build then serve game + tile mount
+make game-serve-dist    # serve just the sandbox tile dist
+# Explicit paths, same default port:
+node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build/game" --mount "/tiles=$TURKU3D_WORK/dist/tiles"
+# Optional --port, --host, --no-compress
+make game-dev-tools-test
 ```
 
-Build outputs are local; no sync step is needed. `make tile-show` uses the sandbox port base + 1.
+Tests use sandbox ports +3, +4 and +5, including simultaneous servers with separate output roots.
+Playwright and QA profiles use `TURKU3D_BROWSER_DIR/tmp`. See [agent tooling](../../scripts/dev/README.md).
+
+Build outputs are local; no sync step is needed. `make tile-show` serves the locally built tiles.

@@ -12,7 +12,7 @@ From the repository root, with the sandbox environment exported:
 source ../sandbox.env
 make qa-venv game-install
 make -j2 qa-test game-test
-make tile-qa TILE_QA_PORT=5250 DIST_MIRROR="$TURKU3D_WORK/dist" \
+make tile-qa DIST_MIRROR="$TURKU3D_WORK/dist" \
   QA_RUN=office-current JUDGE=1 QA_WORKERS=3
 make qa-calibrate QA_RUN=office-current QA_VIEW=sv_01
 make qa-regress QA_BASELINE=office-baseline QA_RUN=office-current QA_MARGIN=0.5
@@ -20,7 +20,7 @@ qa/.venv/bin/python qa/acceptance.py --run "$TURKU3D_WORK/qa/runs/office-current
   --calibration "$TURKU3D_WORK/qa/calibration/calibration.json"
 ```
 
-Use your assigned sandbox port, not another agent's port. `JUDGE=1` explicitly enables
+The server uses your sandbox dist port (base +1). `JUDGE=1` explicitly enables
 judging; `JUDGE=0` or absent only renders. `QA_WORKERS` defaults to 3, maximum 8.
 `QA_DATA` defaults to `$TURKU3D_WORK/qa`, then `$TURKU3D_DATA/qa`, or `~/turku3d/data/qa` without overrides. Registry paths
 beginning `data/qa/` resolve under that directory, keeping the registry portable.
@@ -175,3 +175,8 @@ For a self-contained private review attachment (all reference/render images embe
 qa/.venv/bin/python qa/export.py "$TURKU3D_WORK/qa/runs/office-current/report.html" \
   "$TURKU3D_WORK/qa/office-current.html"
 ```
+
+## Sandbox execution
+
+The stub defaults to `TURKU3D_PORT_BASE + 2`; `--port` can override it explicitly.
+Browser profiles are created under `$TURKU3D_BROWSER_DIR/tmp`. `make qa-loop` defaults to the sandbox dev URL.

@@ -1,13 +1,17 @@
 import { defineConfig } from '@playwright/test';
+import path from 'node:path';
+import { port, reportsRoot, isolateBrowser } from '../tools/dev/environment.mjs';
+
+isolateBrowser();
 
 // Real Chrome (channel 'chrome') in headless mode uses the Mac's Metal GPU (docs/research/engine.md §8).
-const PORT = Number(process.env.E2E_PORT ?? 4174);
+const PORT = Number(process.env.E2E_PORT ?? port(1));
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 120_000,
   workers: 2,
   reporter: [['list']],
-  outputDir: 'test-results/pw',
+  outputDir: path.join(reportsRoot, 'playwright'),
   use: {
     baseURL: `http://localhost:${PORT}/`,
     channel: 'chrome',

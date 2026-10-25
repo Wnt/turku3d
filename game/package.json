@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "preview": "vite preview --port 4173 --strictPort",
+    "preview": "vite preview --strictPort",
     "dev-tiles": "node scripts/make-dev-tiles.mjs",
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",

@@ -295,7 +295,7 @@ AOI: one 250 m visual tile centred on the office block at Läntinen Rantakatu 15
 | 1.17 | Visual QA loop (D8): ≥ 20 posed reference views around the block (SV, Look Around, 360tour), render-matching script, Astra judge with strict schema, issue back-mapping | M | Every view renders at the same pose; issues map to asset IDs; at least one fix-and-rerun cycle shows a higher score; scores stored per commit |
 | 1.16 | Playwright e2e on the Mac (real Metal GPU): scripted walk + drive route, screenshots, frame stats, physics assertions; both backends | M | Green in CI-like `npm run test:e2e`; screenshots archived per commit |
 
-**Phase 1 done when:** the user can open `http://localhost:5173` in Chrome, walk around the office block on foot (curbs, stairs, ramps felt), drive a car around it (curbs felt), cannot enter any building, and all the automated criteria above pass.
+**Phase 1 done when:** the user can open `http://localhost:${TURKU3D_PORT_BASE:-5170}` in Chrome, walk around the office block on foot (curbs, stairs, ramps felt), drive a car around it (curbs felt), cannot enter any building, and all the automated criteria above pass.
 
 ### Phase 2: Photoreal pass (≈ 6–10 weeks)
 - Street View pose registration (COLMAP/hloc SuperPoint+LightGlue against lidar-rendered views). The skyline method is **[R]** and is not used. Target: reprojection error < 2 px on 20+ panos.

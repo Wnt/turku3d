@@ -6,6 +6,19 @@
 REPO := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 export REPO
 
+# Shared inputs; sandbox-specific outputs and services (source sandbox.env in a worktree).
+TURKU3D_DATA ?= $(HOME)/turku3d/data
+TURKU3D_WORK ?= $(TURKU3D_DATA)
+TURKU3D_SANDBOX ?= main
+TURKU3D_PORT_BASE ?= 5170
+TURKU3D_BROWSER_DIR ?= $(HOME)/turku3d/browser/$(TURKU3D_SANDBOX)
+export TURKU3D_DATA TURKU3D_WORK TURKU3D_SANDBOX TURKU3D_PORT_BASE TURKU3D_BROWSER_DIR
+GAME_DIST := $(TURKU3D_WORK)/build/game
+DIST_PORT := $(shell expr $(TURKU3D_PORT_BASE) + 1)
+QA_PORT := $(shell expr $(TURKU3D_PORT_BASE) + 2)
+export npm_config_cache := $(TURKU3D_WORK)/cache/npm
+export UV_CACHE_DIR := $(TURKU3D_WORK)/cache/uv
+
 include $(sort $(wildcard $(REPO)/mk/*.mk))
 
 .PHONY: help

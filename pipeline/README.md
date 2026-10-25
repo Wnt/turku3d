@@ -22,7 +22,7 @@ The four office tiles stay the playable Phase 1 target; `work-3x3` is the larger
 
 `turku3d.config` is the only coordinate/grid definition: EPSG:3877 + N2000, engine origin
 E=23459500, N=6704500, H=0; x=east, y=up, z=south. Visual L0 is 250 m, collision is 62.5 m.
-`data_root()`, `work_root()`, `raw_dir()`, `cache_dir()` and `dist_dir()` implement the W0-A contract.
+`data_root()`, `work_root()`, `raw_dir()`, `build_dir()`, `cache_dir()` and `dist_dir()` implement the W0-A contract.
 
 ```sh
 make foundation-where E=23459668 N=6704254

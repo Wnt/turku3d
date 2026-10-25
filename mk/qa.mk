@@ -6,7 +6,7 @@ QA_PY     ?= $(QA_VENV)/bin/python
 QA_DEPS   := $(QA_VENV)/.qa-deps
 QA_DATA   ?= $(or $(TURKU3D_WORK),$(TURKU3D_DATA),$(HOME)/turku3d/data)/qa
 export QA_DATA
-QA_URL    ?= http://localhost:5173/
+QA_URL    ?= http://localhost:$(TURKU3D_PORT_BASE)/
 QA_WORKERS ?= 3
 QA_MARGIN ?= 0.5
 QA_RUN    ?=
@@ -47,7 +47,7 @@ qa-views-search: $(QA_DEPS) ## List Street View panos near a point: make qa-view
 qa-render-stub: $(QA_DIR)/render/node_modules ## Render all registered views with the contract stub into data/qa/stub-renders
 	cd $(QA_DIR)/render && node render.mjs --views $(QA_DIR)/views/views.jsonl --serve stub --out $(QA_DATA)/stub-renders
 
-qa-loop: $(QA_DEPS) $(QA_DIR)/render/node_modules ## Render+judge+report against the running game: make qa-loop QA_URL=http://localhost:5173/
+qa-loop: $(QA_DEPS) $(QA_DIR)/render/node_modules ## Render+judge+report against the running game: make qa-loop QA_URL=http://localhost:$(TURKU3D_PORT_BASE)/
 	$(QA_PY) $(QA_DIR)/loop.py --url "$(QA_URL)" --workers $(QA_WORKERS) $(if $(QA_RUN),--run-id $(QA_RUN))
 
 qa-loop-stub: $(QA_DEPS) $(QA_DIR)/render/node_modules ## Plumbing check of the loop with the stub page, no Codex calls

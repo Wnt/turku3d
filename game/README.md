@@ -7,13 +7,13 @@ Game skeleton (ARCHITECTURE.md Phase 0 step 7). It uses Vite 8, TypeScript, thre
 ```bash
 cd game
 npm install
-npm run dev -- --port 5220 --strictPort # http://localhost:5220/  (COOP/COEP on; ?backend=webgl for WebGL2)
-npm run build          # tsc --noEmit + vite build -> dist/
+npm run dev # http://localhost:${TURKU3D_PORT_BASE:-5170}/  (COOP/COEP on; ?backend=webgl for WebGL2)
+npm run build          # tsc --noEmit + vite build -> $TURKU3D_WORK/build/game
 npm test               # vitest (Node): .col reader, Rapier character/car on the dev tiles, origin, URL params, sun
-E2E_PORT=5220 npm run test:e2e # build + Playwright, Chrome channel (real Metal GPU), both backends; screenshots in test-results/screenshots/
+npm run test:e2e # build + Playwright, Chrome channel (real Metal GPU), both backends; screenshots in $TURKU3D_WORK/reports/screenshots/
 npm run dev-tiles      # regenerate public/dev-tiles/ (dummy tileset)
-TILE_DIST=~/turku3d/data/dist/tiles npx playwright test -c playwright.tile.config.ts   # after npm run build: pipeline stub tiles (make tile)
-npm run probe -- "http://localhost:5220/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
+TILE_DIST="$TURKU3D_WORK/dist/tiles" npx playwright test -c playwright.tile.config.ts   # after npm run build: pipeline stub tiles (make tile)
+npm run probe -- "http://localhost:${TURKU3D_PORT_BASE:-5170}/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
 ```
 The same commands are available from the repo root through `mk/game.mk`: `make game-dev`, `make game-build`, `make game-test`, `make game-e2e`, `make game-dev-tiles`, `make game-preview`, `make game-serve-dist` and `make game-test-all`.
 
@@ -54,14 +54,14 @@ CC0 Quaternius UAL Standard is extended with `Walk_Formal_Loop` for the slower s
 # From the repository root; no real tiles, controller, network or API keys needed.
 make game-test                         # synthetic unit tests, normally <2 s
 make game-build                        # typecheck + production bundle
-E2E_PORT=5220 make game-e2e             # full Chrome suite, WebGPU + WebGL2, two workers
+make game-e2e             # full Chrome suite, WebGPU + WebGL2, two workers
 # Focused virtual-controller routes after building:
 cd game
-E2E_PORT=5220 npx playwright test tests/e2e/gamepad.spec.ts
-npm run dev -- --port 5220 --strictPort
+npx playwright test tests/e2e/gamepad.spec.ts
+npm run dev
 ```
 
-Ports 5220–5229 belong to the w1-07 sandbox; select your assigned port in another sandbox. Playwright launches isolated temporary Chrome profiles and does not reuse an existing server. Unit tests cover radial curves, standard mappings, bindings/glyphs, focus/hot-plug/rumble, 120/240 Hz interpolation, two-bone IK, pelvis adjustment, 7/12/15 cm curbs, query treads, jump buffering and the 35 cm blocking boundary. The virtual controller is injected by overriding `navigator.getGamepads` in Playwright; routes cover curb traversal, stair ascent/descent with measured ankle targets, camera, jumping, pause, disconnect/reconnect and enter/drive/reverse/exit. Stair screenshots are in `test-results/screenshots/*-stair-ik.png`. Physical Elite vibration and subjective feel still need a hardware play session.
+Source `../sandbox.env` from the repository root first. Dev uses `TURKU3D_PORT_BASE`; Playwright uses base +1. Playwright launches isolated temporary Chrome profiles and does not reuse an existing server. Unit tests cover radial curves, standard mappings, bindings/glyphs, focus/hot-plug/rumble, 120/240 Hz interpolation, two-bone IK, pelvis adjustment, 7/12/15 cm curbs, query treads, jump buffering and the 35 cm blocking boundary. The virtual controller is injected by overriding `navigator.getGamepads` in Playwright; routes cover curb traversal, stair ascent/descent with measured ankle targets, camera, jumping, pause, disconnect/reconnect and enter/drive/reverse/exit. Stair screenshots are in `$TURKU3D_WORK/reports/screenshots/*-stair-ik.png`. Physical Elite vibration and subjective feel still need a hardware play session.
 
 ## URL parameters
 
@@ -171,13 +171,21 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 # From the repository root. The vehicle target installs the validator's Node WASM dependency.
 make game-test game-vehicle-test game-build
 cd game
-E2E_PORT=5220 npx playwright test tests/e2e/vehicle.spec.ts --workers=2
+npx playwright test tests/e2e/vehicle.spec.ts --workers=2
 # Existing keyboard enter/drive/exit regression, also on both backends:
-E2E_PORT=5220 npx playwright test tests/e2e/smoke.spec.ts --grep 'enter the car' --workers=2
+npx playwright test tests/e2e/smoke.spec.ts --grep 'enter the car' --workers=2
 ```
 
 The small fixtures cover 7/12/15 cm curbs at 3/6/10 m/s, 26/30/40 cm blocks at 2 m/s with throttle held after impact,
 a single-wheel roll, non-curb negative controls, analog controls, terminal speed, camera clearance and 30 m/s CCD
 against a 3 cm building shell. The same core runs directly under Node 24 using the validator's Rapier compat 0.21;
 Vite unit tests use the game's non-compat WASM. See [vehicle/README](src/vehicle/README.md) for the validator API.
-Screenshots: `game/test-results/screenshots/{webgpu,webgl}-vehicle-curb.png`.
+Screenshots: `$TURKU3D_WORK/reports/screenshots/{webgpu,webgl}-vehicle-curb.png`.
+
+## Sandbox outputs
+
+From the repository root, `source ../sandbox.env` in a worker, then `make game-e2e`.
+Direct `npm` commands use the same environment. Dev uses `TURKU3D_PORT_BASE`, preview/e2e use base +1
+and fail if the port is occupied. The build lives in `$TURKU3D_WORK/build/game`, Vite cache in
+`$TURKU3D_WORK/cache/vite`, screenshots and test results in `$TURKU3D_WORK/reports`.
+Chrome creates unique profiles under `$TURKU3D_BROWSER_DIR/tmp`. See `scripts/dev/README.md`.

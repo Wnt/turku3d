@@ -4,11 +4,11 @@
 // Run: npx playwright test -c playwright.tile.config.ts   (after `npm run build`; TILE_DIST=<dir> optional)
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
 import fs from 'node:fs';
-import os from 'node:os';
+import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import path from 'node:path';
 
-const TILE_DIST = process.env.TILE_DIST ?? path.join(process.env.TURKU3D_WORK ?? process.env.TURKU3D_DATA ?? path.join(os.homedir(), 'turku3d/data'), 'dist/tiles');
-const SHOTS = 'test-results/screenshots';
+const TILE_DIST = tileDist;
+const SHOTS = path.join(reportsRoot, 'screenshots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const manifest = JSON.parse(fs.readFileSync(path.join(TILE_DIST, 'manifest.json'), 'utf8'));
 const TILES = '/tiles/tileset.json';

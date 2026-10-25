@@ -1,8 +1,8 @@
 # textures/ — Codex texture tooling ([M] Mac only)
 
 Python package `turkutex` (Python 3.12, `textures/.venv`) + a small Node KTX2 encoder (`node/`).
-Images never go into git: everything large lives under the data root (`$TURKU3D_DATA`, else
-`~/turku3d/data` on the Mac). Background: `docs/ARCHITECTURE.md` D6/D7/D8, `docs/research/ai-textures.md`,
+Images never go into git: generated data lives under `$TURKU3D_WORK` (default `$TURKU3D_DATA` or
+`~/turku3d/data`). Background: `docs/ARCHITECTURE.md` D6/D7/D8, `docs/research/ai-textures.md`,
 `docs/research/streetview.md`, style rules in `style/STYLE.md`.
 
 ```
@@ -97,3 +97,12 @@ repeatable strip, `--tile x`) and `aurakatu2_se` = Aurakatu 2 (City Hall) facade
 - Look Around elevation datum/camera height is not calibrated against lidar (2.4 m assumed for the ground estimate).
 - Google depth is a planar proxy: trees/scaffolding are not detected as occluders (Codex labelling flags them).
 - `~/.codex/AGENTS.md` makes free-text answers Finnish unless the prompt asks for English (prompts now do).
+
+
+## Sandbox paths
+
+Source `../sandbox.env` from a worker repository root before running the Make targets above.
+`textures_data_dir()` and `tools_dir()` use `TURKU3D_WORK`; Street View and facade WFS downloads use
+its `cache/streetview` and `cache/wfs/facades`. These runners never write shared `TURKU3D_DATA/raw`.
+`TURKUTEX_STREETVIEW` remains an explicit cache override. The committed library manifest's `data_dir`
+is relative to `TURKU3D_WORK` so it is portable between workers.

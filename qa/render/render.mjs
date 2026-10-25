@@ -8,11 +8,13 @@
 // and <out>/render-summary.json. Exit code 1 if any view failed.
 //
 // Usage (from qa/render, after `npm install`):
-//   node render.mjs --views ../views/views.jsonl --url http://localhost:5173/ --out ../../data/qa/runs/R/renders
+//   node render.mjs --views ../views/views.jsonl --url http://localhost:$TURKU3D_PORT_BASE/ --out ../../data/qa/runs/R/renders
 //   node render.mjs --views ... --serve stub --out /tmp/x          # test against the contract stub
 // Options: --ids a,b  --pass color|id|both (default both)  --backend webgpu|webgl  --timeout 120000
 //          --channel chrome|chromium (default chromium)  --headed  --extra "k=v&k2=v2"
 import { chromium } from 'playwright';
+import { port, isolateBrowser } from '../../tools/dev/environment.mjs';
+isolateBrowser();
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -22,7 +24,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
 export function parseArgs(argv) {
-  const a = { port: Number(process.env.TURKU3D_PORT_BASE || 0), pass: 'both', timeout: 120000, channel: 'chromium', backend: null, headed: false, extra: '' };
+  const a = { port: port(2), pass: 'both', timeout: 120000, channel: 'chromium', backend: null, headed: false, extra: '' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const next = () => argv[++i];
@@ -119,10 +121,6 @@ export async function main(argv = process.argv.slice(2), sharedBrowser = null) {
     const dir = a.serve === 'stub' ? path.join(HERE, 'stub') : path.resolve(a.serve);
     srv = await serveDir(dir, a.port);
     base = `http://127.0.0.1:${srv.address().port}/index.html`;
-  }
-  if (process.env.TURKU3D_BROWSER_DIR) {
-    fs.mkdirSync(process.env.TURKU3D_BROWSER_DIR, { recursive: true });
-    process.env.TMPDIR = process.env.TURKU3D_BROWSER_DIR;
   }
   const browser = sharedBrowser ?? await chromium.launch({
     channel: a.channel === 'chrome' ? 'chrome' : undefined, headless: !a.headed,

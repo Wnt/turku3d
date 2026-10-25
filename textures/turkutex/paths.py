@@ -1,10 +1,10 @@
 """Where texture data lives. Images never go into git.
 
-Data root comes from turku3d.config.data_root(): $TURKU3D_DATA, else ~/turku3d/data on the Mac
-(~/turku3d/data on Linux).
-- raw/streetview/google/<panoid>/    pano_z<zoom>.jpg, depth.npy (as returned, NOT flipped), meta.json
-- raw/streetview/lookaround/<id>/    face<k>_z<zoom>.heic, meta.json
-- raw/streetview/coverage/           cached coverage-tile queries
+Writable outputs use $TURKU3D_WORK (default $TURKU3D_DATA or ~/turku3d/data).
+Street View downloads use the sandbox cache; shared raw inputs remain read-only.
+- cache/streetview/google/<panoid>/    pano_z<zoom>.jpg, depth.npy (as returned, NOT flipped), meta.json
+- cache/streetview/lookaround/<id>/    face<k>_z<zoom>.heic, meta.json
+- cache/streetview/coverage/           cached coverage-tile queries
 - textures/runs/<run>/               codex runner output (out.jsonl, failed.json, logs/, images/)
 - textures/refs/<facade_id>/         reference crops + pose JSON
 - textures/post/<asset>/             post-processed maps + KTX2
@@ -25,11 +25,11 @@ NODE_DIR = TEXTURES_DIR / "node"
 
 
 def data_root() -> Path:
-    return config.data_root()
+    return config.work_root()
 
 
 def streetview_dir() -> Path:
-    return Path(os.environ.get("TURKUTEX_STREETVIEW", config.raw_dir("streetview")))
+    return Path(os.environ.get("TURKUTEX_STREETVIEW", config.cache_dir("streetview")))
 
 
 def textures_data_dir(sub: str = "") -> Path:

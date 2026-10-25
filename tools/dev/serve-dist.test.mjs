@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { port } from './environment.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-dist-'));
 const tiles = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-tiles-'));
@@ -13,11 +14,14 @@ fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>x</title>'
 const big = Buffer.alloc(100000, 7); big.write('TCOL', 0);
 fs.mkdirSync(path.join(tiles, 'collision'));
 fs.writeFileSync(path.join(tiles, 'collision', 'c_0_0.col'), big);
-const PORT = 18000 + Math.floor(Math.random() * 1000);
+const PORT = port(3);
 let srv;
 before(async () => {
   srv = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', String(PORT), '--mount', `/tiles=${tiles}`]);
-  await new Promise((res) => srv.stdout.on('data', (d) => /serve-dist/.test(d) && res()));
+  await new Promise((res, reject) => {
+    srv.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
+    srv.stdout.on('data', (d) => /serve-dist/.test(d) && res());
+  });
 });
 after(() => srv.kill());
 const url = (p) => `http://127.0.0.1:${PORT}${p}`;
@@ -61,4 +65,30 @@ test('wasm mime + etag 304', async () => {
   assert.equal(r.headers.get('content-type'), 'application/wasm');
   const r2 = await fetch(url('/a.wasm'), { headers: { 'if-none-match': r.headers.get('etag') } });
   assert.equal(r2.status, 304);
+});
+
+
+test('two dist servers use independent environment ports and output roots', async () => {
+  const servers = [];
+  const roots = [];
+  try {
+    await Promise.all([4, 5].map(async (offset) => {
+      const work = fs.mkdtempSync(path.join(os.tmpdir(), 'isolated-dist-'));
+      roots.push(work);
+      fs.mkdirSync(path.join(work, 'dist'));
+      fs.writeFileSync(path.join(work, 'dist/index.html'), `sandbox-${offset}`);
+      const child = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname], {
+        env: { ...process.env, TURKU3D_WORK: work, TURKU3D_PORT_BASE: String(port(offset) - 1) },
+      });
+      servers.push(child);
+      await new Promise((resolve, reject) => {
+        child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
+        child.stdout.on('data', (d) => /serve-dist/.test(d) && resolve());
+      });
+      assert.equal(await (await fetch(`http://127.0.0.1:${port(offset)}/`)).text(), `sandbox-${offset}`);
+    }));
+  } finally {
+    await Promise.all(servers.map((child) => new Promise((resolve) => { child.once('exit', resolve); child.kill(); })));
+    roots.forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
+  }
 });

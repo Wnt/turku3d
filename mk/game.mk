@@ -1,7 +1,7 @@
 # Game skeleton (game/) and dev tools (tools/dev/). See game/README.md.
 GAME_DIR := $(REPO)/game
 GAME_NPM := cd $(GAME_DIR) && npm
-DIST_MIRROR ?= $(or $(TURKU3D_WORK),$(HOME)/turku3d/data)/dist
+DIST_MIRROR ?= $(TURKU3D_WORK)/dist
 
 .PHONY: game-install game-dev game-build game-test game-e2e game-test-all game-dev-tiles game-preview game-serve-dist game-dev-tools-test
 
@@ -14,25 +14,25 @@ game-install: $(GAME_DIR)/node_modules/.package-lock.json ## npm install for gam
 game-dev-tiles: game-install ## Regenerate the dummy tileset game/public/dev-tiles (GLB + .col + manifest)
 	$(GAME_NPM) run dev-tiles
 
-game-dev: game-install ## Vite dev server http://localhost:5173 (COOP/COEP); ?backend=webgl for WebGL2
+game-dev: game-install ## Vite dev server http://localhost:$(TURKU3D_PORT_BASE) (COOP/COEP); ?backend=webgl for WebGL2
 	$(GAME_NPM) run dev
 
-game-build: game-install ## Typecheck + production build into game/dist
+game-build: game-install ## Typecheck + production build into $(GAME_DIST)
 	$(GAME_NPM) run build
 
 game-test: game-install ## Node unit tests (vitest: .col reader, Rapier character/car on the dev tiles, origin, sun)
 	$(GAME_NPM) test
 
-game-e2e: game-install ## Build + Playwright smoke test in Chrome (WebGPU and WebGL2), screenshots in game/test-results/screenshots
+game-e2e: game-install ## Build + Playwright smoke test in Chrome (WebGPU and WebGL2), screenshots in $(TURKU3D_WORK)/reports/screenshots
 	$(GAME_NPM) run test:e2e
 
 game-test-all: game-test game-e2e game-dev-tools-test ## All game + tools/dev tests
 
-game-preview: game-build ## Serve game/dist with tools/dev/serve-dist.mjs on :8080 (+ /tiles -> $(DIST_MIRROR)/tiles)
-	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIR)/dist --port 8080 --mount /tiles=$(DIST_MIRROR)/tiles
+game-preview: game-build ## Serve $(GAME_DIST) with tools/dev/serve-dist.mjs on the sandbox dist port (+ /tiles -> $(DIST_MIRROR)/tiles)
+	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIST) --port $(DIST_PORT) --mount /tiles=$(DIST_MIRROR)/tiles
 
-game-serve-dist: ## Serve the mirrored tile dist ($(DIST_MIRROR)) on :8081
-	node $(REPO)/tools/dev/serve-dist.mjs --root $(DIST_MIRROR) --port 8081
+game-serve-dist: ## Serve the local tile dist ($(DIST_MIRROR)) on the sandbox dist port
+	node $(REPO)/tools/dev/serve-dist.mjs --root $(DIST_MIRROR) --port $(DIST_PORT)
 
 
 
