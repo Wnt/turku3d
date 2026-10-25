@@ -234,7 +234,7 @@ class GateTest(unittest.TestCase):
             ("game/src/world/tiles.ts", {"@streaming"}),
             (
                 "game/src/actors/player.ts",
-                {"@walk", "@drive", "@character", "@ground", "@structures"},
+                {"@walk", "@drive", "@character", "@ground", "@structures", "@buildings"},
             ),
             ("game/src/vehicle/vehicle.ts", {"@drive", "@vehicle"}),
         ]:
