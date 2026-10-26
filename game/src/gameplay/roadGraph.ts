@@ -1,7 +1,8 @@
 // Street graph published by pipeline/turku3d/roads (manifest.roads, format turku3d-roadgraph v1).
 import type { Manifest } from '../world/manifest';
 
-export const FOOT = 1, CAR = 2, ONEWAY = 4, CLASS_SHIFT = 3;
+export const FOOT = 1, CAR = 2, ONEWAY = 4;
+const CLASS_SHIFT = 3;
 export type TravelMode = 'foot' | 'car';
 export const modeBit = (mode: TravelMode) => (mode === 'car' ? CAR : FOOT);
 

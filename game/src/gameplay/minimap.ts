@@ -4,7 +4,7 @@ import type { MissionHudSource, MissionHudState, Router, RouteTarget, TargetKind
 import { EMPTY_HUD_STATE } from './contract';
 import { edgeClass, type RoadGraph, type TravelMode } from './roadGraph';
 
-export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
+const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
 /** Recompute the route after the player moves this far from where it started. */
 export const REROUTE_M = 5;
 const SIZE = 240;
@@ -15,7 +15,7 @@ const STATIC_PAD_M = 60;
 const ROAD_WIDTH = [1.8, 4, 6, 8];
 const ROAD_COLOUR = ['#7c8a91', '#a9b3b8', '#c9d0d4', '#e3e7e9'];
 
-export interface MinimapView {
+interface MinimapView {
   position: WorldPoint;
   /** Camera compass heading (deg): the minimap turns so this points up. */
   headingDeg: number;

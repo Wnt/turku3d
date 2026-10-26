@@ -3,7 +3,7 @@ import type { Router, WorldPoint } from './contract';
 import { CAR, ONEWAY, edgeLength, modeBit, type RoadEdge, type RoadGraph, type TravelMode } from './roadGraph';
 
 /** A point on an edge: `offset` metres from node a along the polyline. */
-export interface Snap { edge: number; offset: number; point: WorldPoint; distance: number }
+interface Snap { edge: number; offset: number; point: WorldPoint; distance: number }
 
 const CELL = 32;
 /** Farther than this from every usable street counts as off the graph. */
