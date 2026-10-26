@@ -18,7 +18,8 @@ class FixtureCacheTests(unittest.TestCase):
         self.assertEqual(commands[0][2], "fixtures.make_layers")
         self.assertEqual(commands[1][2], "turku3d.package.assemble")
         self.assertEqual(
-            commands[1][commands[1].index("--ground") + 1], "/repo/.cache/gate-inputs/ground"
+            commands[1][commands[1].index("--ground") + 1],
+            "/repo/.cache/gate-inputs/ground-preview",
         )
         self.assertEqual(commands[1][-4:], ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"])
 

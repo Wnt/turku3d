@@ -25,12 +25,12 @@ def build(root, out):
             str(out),
             "--library",
             str(inputs / "library"),
+            # Synthetic GLBs embed their own preview texture. Never bind them to
+            # the sandbox's production ground splats and collision fingerprints.
             "--ground",
-            str(inputs / "ground"),
+            str(inputs / "ground-preview"),
             "--facades",
             str(inputs / "facades"),
-            "--ground",
-            str(inputs / "ground"),
             "--tile",
             "t0_0_0",
             "t0_0_1",
