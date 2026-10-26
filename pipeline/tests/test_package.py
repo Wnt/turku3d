@@ -1,6 +1,7 @@
 """Offline tests for the Phase 0 packaging chain (turku3d.package + fixtures.ground), synthetic inputs only."""
 
 import json
+import subprocess
 
 import numpy as np
 import pytest
@@ -15,6 +16,11 @@ from turku3d.layers import CollisionLayer, read_collision, write_collision, writ
 from turku3d.package import gltf
 from turku3d.package.assemble import assemble
 from turku3d.package.manifest import DistTree, build_tileset, verify_tree
+
+
+def test_facade_atlas_vertical_uv():
+    test_file = C.REPO_ROOT / "pipeline/turku3d/package/facade_atlas.test.mjs"
+    subprocess.run(["node", "--test", str(test_file)], check=True)
 
 
 def test_collision_margin_is_published_beyond_l0_edge(tmp_path, monkeypatch):

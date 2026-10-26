@@ -8,6 +8,15 @@ const slots = ['albedo', 'normal', 'orm'];
 const clamp = (v) => Math.max(0, Math.min(1, v));
 const align4 = (v) => Math.ceil(v / 4) * 4;
 
+export function atlasUv(u, v, scale, offset, entry, pageHeight) {
+  // glTF/KTX coordinates have v=0 at the image's top row. Keep that origin
+  // when moving a source image into an atlas row.
+  return [
+    (entry.x + GUTTER + clamp(u * scale[0] + offset[0]) * entry.width) / PAGE,
+    (entry.y + GUTTER + clamp(v * scale[1] + offset[1]) * entry.height) / pageHeight,
+  ];
+}
+
 function imageSize(texture) {
   const image = texture.getImage();
   return [image.readUInt32LE(20), image.readUInt32LE(24)];
@@ -144,8 +153,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
     const array = uv.getArray();
     const scale = transform.getScale(); const offset = transform.getOffset();
     for (let i = 0; i < array.length; i += 2) {
-      array[i] = (entry.x + GUTTER + clamp(array[i] * scale[0] + offset[0]) * entry.width) / PAGE;
-      array[i+1] = 1 - (entry.y + GUTTER + (1 - clamp(array[i+1] * scale[1] + offset[1])) * entry.height) / page.height;
+      [array[i], array[i+1]] = atlasUv(array[i], array[i+1], scale, offset, entry, page.height);
     }
     prim.setAttribute('TEXCOORD_0', uv).setMaterial(materials[entry.page]);
   }

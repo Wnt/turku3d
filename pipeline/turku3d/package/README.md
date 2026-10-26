@@ -11,6 +11,7 @@ make refresh
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-test
+bash pipeline/env/run.sh python -m turku3d.package.facade_ground_audit
 make game-test
 ```
 
@@ -83,6 +84,13 @@ encoded variants are cached outside the export. The manifest records each tile's
 size before and after adaptation as `budget_before_bytes` and `wire_bytes`.
 For L0 tiles with multiple unique facade maps, the packager resizes maps directly
 from their source KTX2 files and packs them into per-tile 2048-pixel atlas pages.
+The atlas preserves glTF's top-left image coordinate: a source facade's lower
+photo edge (v=1) stays at the lower edge of its atlas region. `make tile-test`
+checks a two-metre door on synthetic walls placed in separate atlas rows.
+`bash pipeline/env/run.sh python -m turku3d.package.facade_ground_audit`
+samples approved walls within 75 m of the office
+against ground collision triangles at the street side, requiring the photo's
+lower edge to be within 0.3 m of surveyed ground.
 Each page has aligned albedo, normal and ORM rectangles, a four-pixel copied-edge
 gutter, and one shared material. It bakes `uv.scale`/`uv.offset` with clamped
 sampling into mesh UVs before geometry batching. `extras.objects` retains each
