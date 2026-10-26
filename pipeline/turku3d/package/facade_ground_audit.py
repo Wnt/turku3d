@@ -80,13 +80,22 @@ def audit(work, radius=None, tolerance=0.3):
             )
         checked.append(error)
     if radius is None:
-        failures.extend(f"{facade_id}: missing facade geometry" for facade_id in sorted(approved - seen))
+        failures.extend(
+            f"{facade_id}: missing facade geometry" for facade_id in sorted(approved - seen)
+        )
     if failures:
-        raise AssertionError(f"{len(failures)} facade ground audit failures:\n" + "\n".join(failures))
+        raise AssertionError(
+            f"{len(failures)} facade ground audit failures:\n" + "\n".join(failures)
+        )
     if len(checked) < 20:
         raise AssertionError(f"Only {len(checked)} approved facades sampled")
-    return {"sampled": len(checked), "max_ground_error_m": max(checked), "approved": len(approved),
-            "buried_facades": buried, "buried_explanation": "Facade photo bases begin below adjacent sloped terrain; no floating wall is visible."}
+    return {
+        "sampled": len(checked),
+        "max_ground_error_m": max(checked),
+        "approved": len(approved),
+        "buried_facades": buried,
+        "buried_explanation": "Facade photo bases begin below adjacent sloped terrain; no floating wall is visible.",
+    }
 
 
 if __name__ == "__main__":

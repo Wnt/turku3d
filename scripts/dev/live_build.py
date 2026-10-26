@@ -330,7 +330,11 @@ def _build(repo, work, published, env, log_path, reason=None):
             ["node", "src/cli.ts", "--checks", "cars", "--require", "cars", "--workers", "4"],
             repo / "tools/validator",
         ),
-        ("facade-ground-audit", ["bash", "pipeline/env/run.sh", "python", "-m", "turku3d.package.facade_ground_audit"], repo),
+        (
+            "facade-ground-audit",
+            ["bash", "pipeline/env/run.sh", "python", "-m", "turku3d.package.facade_ground_audit"],
+            repo,
+        ),
         ("game-build", ["make", "game-build"], repo),
         ("collision-sweep", ["make", "collision-sweep"], repo),
         ("collision-audit", ["make", "collision-audit"], repo),
@@ -457,9 +461,11 @@ def _build(repo, work, published, env, log_path, reason=None):
                     work,
                     stage,
                     key,
-                    {"facades_bound": report["facades_bound"]} if stage == "tile-build"
+                    {"facades_bound": report["facades_bound"]}
+                    if stage == "tile-build"
                     else {"facade_ground_audit": report["facade_ground_audit"]}
-                    if stage == "facade-ground-audit" else {},
+                    if stage == "facade-ground-audit"
+                    else {},
                 )
                 previous = key
             elif key:
