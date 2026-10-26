@@ -14,7 +14,6 @@ from turku3d.layers import layer_root, read_collision, read_manifest
 from turku3d.placement import Instance, Surfaces, Validator
 from turku3d.placement.clearance import ENVELOPE_PATH, Obstacles
 
-
 # Instance producers run in this order. Each one clears only the inventories published before
 # it, so a rebuild never invalidates an earlier producer and make refresh converges in one pass.
 PLACEMENT_ORDER = ("props", "vegetation", "traffic_static")
