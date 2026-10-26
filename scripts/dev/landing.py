@@ -48,7 +48,7 @@ def fast(name):
             raise ValueError("main worktree is dirty")
         if time.monotonic() - started > 110:
             raise ValueError("merge verification is slow; 2-minute budget would be exceeded")
-        with coord.landing_guard(name, force=True):
+        with coord.landing_guard(name, force=False):
             if main:
                 s.git("merge", "--ff-only", receipt["head"], cwd=main)
             else:

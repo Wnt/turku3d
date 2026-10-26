@@ -222,7 +222,10 @@ def process(record, limit=4):
                         reverify(name, record)
                 result = fast(name)
             except (ValueError, OSError, subprocess.CalledProcessError, KeyError) as exc:
-                resume(name, str(exc)[-1000:], record)
+                if "unacknowledged request/warning" in str(exc):
+                    event(record, name, "held", reason=str(exc)[-1000:])
+                else:
+                    resume(name, str(exc)[-1000:], record)
             else:
                 event(
                     record,
