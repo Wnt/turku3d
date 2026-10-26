@@ -33,7 +33,7 @@ from PIL import Image
 from turku3d import config
 from turku3d.region.cache import atomic_target, cache_lock, synchronized
 
-from ..paths import streetview_dir, work_root
+from ..paths import streetview_dir
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -155,9 +155,7 @@ def atomic_json(path: Path, value):
 class PanoCache:
     def __init__(self, root: Path | None = None, sleep: float = 0.2):
         self.root = Path(root) if root else streetview_dir()
-        self.decoded_root = (
-            self.root / "decoded" if root else work_root() / "cache/streetlevel-decoded"
-        )
+        self.decoded_root = self.root / "decoded"
         self.read_roots = [config.cache_dir("streetview"), config.raw_dir("streetview")]
         self.read_roots += [
             Path(p).expanduser()
@@ -188,10 +186,12 @@ class PanoCache:
         return None
 
     def decoded_image(self, source: Path) -> np.ndarray:
-        """Memory-map exact decoded pano pixels from the current sandbox cache."""
-        stat = source.stat()
-        identity = f"{source.resolve()}:{stat.st_size}:{stat.st_mtime_ns}"
-        key = hashlib.sha256(identity.encode()).hexdigest()
+        """Memory-map decoded pixels in the shared content-addressed cache."""
+        digest = hashlib.sha256()
+        with source.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        key = digest.hexdigest()
         target = self.decoded_root / f"{key}.npy"
         if not target.is_file():
             with cache_lock(self.decoded_root):

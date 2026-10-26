@@ -11,12 +11,10 @@ bash pipeline/env/run.sh python -m turku3d.buildings.audit
 bash pipeline/env/run.sh python -m turku3d.buildings.coverage
 ```
 
-`buildings-build` runs native roofer with four jobs. To reuse a completed reconstruction:
-
-```sh
-bash pipeline/env/run.sh python -m turku3d.buildings \
-  --roofer-output "$TURKU3D_WORK/cache/buildings/roofer"
-```
+`buildings-build` runs native roofer with four jobs. By default it reuses a content-keyed
+reconstruction and class-6 point arrays in `$TURKU3D_DATA/cache/buildings`, shared between
+sandboxes. The cache uses locks and publishes point arrays atomically. An explicit
+`--roofer-output` must point to a completed CityJSONSeq directory, not its parent.
 
 Inputs are immutable `raw/wfs/work-3x3/{kanta_Rakennus,bldg_Building_LOD2,GIS_Keskilinjat}.parquet`,
 class-6 points in `raw/laz/pistepilvi`, OSM GeoParquet, and `raw/ortho/ortho2022to/work-3x3`.

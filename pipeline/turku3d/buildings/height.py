@@ -7,31 +7,37 @@ import numpy as np
 import shapely
 
 from turku3d import config as C
+from turku3d.region.cache import atomic_target, cache_lock
 
 
 def overlap_points(paths, buildings, cache, input_hash):
     footprint = shapely.union_all([b.footprint for b in buildings])
     key = hashlib.sha256(input_hash.encode() + footprint.wkb).hexdigest()
     output = cache / (key + ".overlap-heights.npy")
-    if output.exists():
-        return np.load(output)
-    chunks = []
-    for path in paths:
-        bounds = C.LazTile.parse(path.stem).bbox_en.to_local()
-        if not shapely.box(*bounds.as_tuple()).intersects(footprint):
-            continue
-        with laspy.open(path) as reader:
-            for chunk in reader.chunk_iterator(1_000_000):
-                keep = np.asarray(chunk.classification) == 12
-                x, y, z = C.en_to_local(
-                    np.asarray(chunk.x)[keep], np.asarray(chunk.y)[keep], np.asarray(chunk.z)[keep]
-                )
-                inside = shapely.intersects_xy(footprint, x, z)
-                if inside.any():
-                    chunks.append(np.column_stack((x[inside], y[inside], z[inside])))
-    points = np.concatenate(chunks) if chunks else np.empty((0, 3))
-    np.save(output, points)
-    return points
+    with cache_lock(cache / "locks" / key):
+        if output.exists():
+            return np.load(output)
+        chunks = []
+        for path in paths:
+            bounds = C.LazTile.parse(path.stem).bbox_en.to_local()
+            if not shapely.box(*bounds.as_tuple()).intersects(footprint):
+                continue
+            with laspy.open(path) as reader:
+                for chunk in reader.chunk_iterator(1_000_000):
+                    keep = np.asarray(chunk.classification) == 12
+                    x, y, z = C.en_to_local(
+                        np.asarray(chunk.x)[keep],
+                        np.asarray(chunk.y)[keep],
+                        np.asarray(chunk.z)[keep],
+                    )
+                    inside = shapely.intersects_xy(footprint, x, z)
+                    if inside.any():
+                        chunks.append(np.column_stack((x[inside], y[inside], z[inside])))
+        points = np.concatenate(chunks) if chunks else np.empty((0, 3))
+        with atomic_target(output) as temporary:
+            with temporary.open("wb") as stream:
+                np.save(stream, points)
+        return points
 
 
 def supported_plane(footprint, points, base):

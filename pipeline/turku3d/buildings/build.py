@@ -18,6 +18,7 @@ from shapely.ops import unary_union
 
 from turku3d import config as C
 from turku3d.layers import CollisionLayer, write_manifest, write_visual
+from turku3d.region.cache import atomic_target, cache_lock
 
 from . import citygml, roofer
 from .facades import make_visuals, ortho_roof_key
@@ -229,7 +230,7 @@ def main(argv=None):
     )
     args = ap.parse_args(argv)
     started = time.monotonic()
-    cache = C.work_root() / "cache/buildings"
+    cache = C.data_root() / "cache/buildings"
     cache.mkdir(parents=True, exist_ok=True)
     source = C.raw_dir("wfs") / args.source_area
     paths = {
@@ -269,12 +270,16 @@ def main(argv=None):
         + json.dumps([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in laz]).encode()
     ).hexdigest()[:20]
     reconstruction = args.roofer_output or cache / "roofer" / footprint_key
+    if args.roofer_output is None:
+        with cache_lock(cache / "locks" / f"roofer-{footprint_key}"):
+            if not (reconstruction / "execution.json").exists():
+                footprints = cache / "footprints" / f"{footprint_key}.gpkg"
+                if not footprints.exists():
+                    with atomic_target(footprints) as temporary:
+                        write_roofer_footprints(buildings, temporary)
+                roofer.run(laz, footprints, reconstruction, args.jobs)
     execution = reconstruction / "execution.json"
     command = json.loads(execution.read_text()).get("command") if execution.exists() else None
-    if args.roofer_output is None and not list(reconstruction.glob("*.city.jsonl")):
-        footprints = cache / "footprints.gpkg"
-        write_roofer_footprints(buildings, footprints)
-        command = roofer.run(laz, footprints, reconstruction, args.jobs)
     seq = sorted(reconstruction.glob("*.city.jsonl"))
     if not seq:
         raise FileNotFoundError(f"no CityJSONSeq files in {reconstruction}")
@@ -285,18 +290,21 @@ def main(argv=None):
     point_key = hashlib.sha256(json.dumps([(str(p), sha256(p)) for p in laz]).encode()).hexdigest()
     points_path = cache / (point_key + ".class6.npy")
     # Cache whole LAZ bounds so changes in footprint/AOI cannot truncate reused points.
-    if points_path.exists():
-        points = np.load(points_path, mmap_mode="r")
-    else:
-        all_bounds = [C.LazTile.parse(p.stem).bbox_en.to_local() for p in laz]
-        bb = C.BBoxLocal(
-            min(b.xmin for b in all_bounds),
-            min(b.zmin for b in all_bounds),
-            max(b.xmax for b in all_bounds),
-            max(b.zmax for b in all_bounds),
-        )
-        points = read_points(laz, bb)
-        np.save(points_path, points)
+    with cache_lock(cache / "locks" / point_key):
+        if points_path.exists():
+            points = np.load(points_path, mmap_mode="r")
+        else:
+            all_bounds = [C.LazTile.parse(p.stem).bbox_en.to_local() for p in laz]
+            bb = C.BBoxLocal(
+                min(b.xmin for b in all_bounds),
+                min(b.zmin for b in all_bounds),
+                max(b.xmax for b in all_bounds),
+                max(b.zmax for b in all_bounds),
+            )
+            points = read_points(laz, bb)
+            with atomic_target(points_path) as temporary:
+                with temporary.open("wb") as stream:
+                    np.save(stream, points)
     missing = [
         b for b in buildings if reconstruction_metadata.get(b.id, {}).get("rf_pointcloud_unusable")
     ]

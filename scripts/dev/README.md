@@ -14,6 +14,8 @@ cd ~/turku3d/wt/stairs/repo
 scripts/dev/here
 make game-e2e
 scripts/dev/wt ls
+scripts/dev/wt du
+scripts/dev/wt prune-landed
 scripts/dev/wt path stairs
 scripts/dev/wt env stairs
 # Leave the sandbox and stop its processes before removing it:
@@ -25,8 +27,11 @@ scripts/dev/wt gc
 Layout: `~/turku3d/wt/<name>/{repo,work,browser,sandbox.env}`, branch `wt/<name>`.
 `work` contains writable `build/`, `cache/`, `dist/`, `reports/`, and `qa/`; raw inputs remain under
 `TURKU3D_DATA/raw`. Vite emits `work/build/game`, tiles use `work/dist/tiles`, Playwright artifacts use
-`work/reports`, and browser temporary profiles live under `browser/tmp`. Textures use `work/textures`;
-new Street View downloads use `work/cache/streetview`, never shared raw data.
+`work/reports`, and browser temporary profiles live under `browser/tmp`. Textures use `work/textures`.
+Compressed Street View panoramas and content-addressed decoded arrays use
+`$TURKU3D_DATA/cache/streetlevel/` across sandboxes. Roofer reconstructions and class-6
+point arrays use `$TURKU3D_DATA/cache/buildings/`. Facade crops, KTX2 intermediates,
+build products, `dist/` and browser profiles remain sandbox outputs.
 
 `TURKU3D_PORT_BASE` reserves 10 ports. Main uses 5170–5179; allocation starts at 5180, skips existing
 reservations and listeners, and is serialized by an advisory file lock under `wt/.registry`.
@@ -38,6 +43,19 @@ The registry protects against cooperating tools; it cannot prevent an unrelated 
 `wt rm` refuses live processes (cwd in the sandbox or listeners on its ports), dirty files and commits not in main.
 `--force` permits discarding dirty/unmerged work but still refuses live processes. It never sends signals.
 `gc` releases only entries whose sandbox directory no longer exists; it never deletes files.
+`du` lists allocated bytes per sandbox, largest first, with `landed`, `unmerged`, `dirty` and
+`live` status. `prune-landed` applies the ordinary `wt rm` checks to each clean, merged,
+stopped sandbox.
+
+Disk probe (2026-10-26): a fresh `wt new facade-measure --from main` under this task's work root
+started with an empty `work/`. Decoding one existing 16384×8192 Street View panorama and writing
+one 1536×768 facade crop used 402,755,584 allocated bytes in the former sandbox cache layout:
+402,657,280 bytes were the decoded array. The shared layout left 98,304 bytes in that sandbox's
+`work/` for the crop and wrote the array once to the shared cache. The probe sandbox was removed.
+The historical `w1-09d-facades` sandbox had already been removed, so its exact 128 GB breakdown
+could not be recovered. The prior per-sandbox decoded arrays and per-sandbox Roofer/class-6 caches
+were repeatable bulk copies. `dist/`, facade outputs and browser profiles remain sandbox-specific
+and are reclaimed when their landed sandbox is removed.
 `TURKU3D_WT_ROOT` and `TURKU3D_TASKS_ROOT` override tooling storage for tests or an alternate installation.
 Names are lowercase letters, digits, hyphens and underscores; `main` is reserved.
 
@@ -58,6 +76,8 @@ Use an actual brief path from `docs/briefs/`. `run` creates the sandbox if absen
 starts `codex exec -m gpt-6-astra --sandbox danger-full-access -C <repo>` in a new process group. It returns
 immediately. The prompt contains COMMON plus the brief. `resume` uses the recorded `thread.started` session ID,
 not the most recent global session. The model and effort remain the same. Codex is responsible for committing work.
+`run` refuses to create a sandbox below 30 GiB free on the sandbox filesystem. Check with
+`scripts/dev/wt du`, then remove safe candidates with `scripts/dev/wt prune-landed`.
 CLI behavior is checked against the installed CLI and [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 `~/turku3d/tasks/<name>/` holds `prompt.md`, append-only `events.jsonl`, `last.md`, `pid`, `meta.json`,
@@ -76,6 +96,9 @@ unchanged main, then fast-forwards main. If main has no checkout, a compare-and-
 Do not update main outside this orchestrator while landing. A missing gate fails closed; there is no
 legacy Make fallback. The landing record goes to
 `wt/.registry/landed.jsonl`. A red gate leaves main unchanged; inspect `gate.log`, fix and resume the task.
+After a successful fast-forward, `land` and each batch member remove clean, stopped sandboxes
+and report allocated bytes freed. A retained sandbox prints the reason; remove it later with
+`scripts/dev/wt rm <name>` or `scripts/dev/wt prune-landed`.
 
 ### Live agent monitor
 

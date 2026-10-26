@@ -39,3 +39,17 @@ def test_decoded_cache_invalidates_changed_source(tmp_path):
     second = cache.decoded_image(source)
     assert first.shape == (8, 8, 3) and second.shape == (8, 9, 3)
     np.testing.assert_array_equal(second[0, 0], [0, 0, 255])
+
+
+def test_default_decoded_cache_is_shared_and_content_addressed(tmp_path, monkeypatch):
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "shared"))
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (32, 16), "blue").save(source)
+    duplicate = tmp_path / "duplicate.jpg"
+    duplicate.write_bytes(source.read_bytes())
+    for name, image_path in (("first", source), ("second", duplicate)):
+        monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / name))
+        image = PanoCache().decoded_image(image_path)
+        assert image.shape == (16, 32, 3)
+        assert not (tmp_path / name / "cache/streetlevel-decoded").exists()
+    assert len(list((tmp_path / "shared/cache/streetlevel/decoded").glob("*.npy"))) == 1

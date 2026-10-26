@@ -24,6 +24,8 @@ def main():
     p.add_argument("name", nargs="?")
     p.add_argument("--all", action="store_true")
     subs.add_parser("ls")
+    subs.add_parser("du")
+    subs.add_parser("prune-landed")
     subs.add_parser("gc")
     a = ap.parse_args()
     if a.cmd == "new":
@@ -33,7 +35,8 @@ def main():
     elif a.cmd == "env":
         print((s.sandbox(a.name) / "sandbox.env").read_text(), end="")
     elif a.cmd == "rm":
-        s.remove(a.name, a.force)
+        freed = s.remove(a.name, a.force)
+        print(f"{a.name}: removed; freed {freed} bytes ({s.format_bytes(freed)})")
     elif a.cmd == "sync-env":
         if a.all and a.name:
             ap.error("choose a name or --all")
@@ -48,6 +51,10 @@ def main():
                 raise ValueError("environment sync failed")
     elif a.cmd == "ls":
         s.list_sandboxes()
+    elif a.cmd == "du":
+        s.du()
+    elif a.cmd == "prune-landed":
+        s.prune_landed()
     else:
         s.gc()
 

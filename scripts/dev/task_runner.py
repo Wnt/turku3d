@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -76,6 +77,19 @@ def quota(force=False):
     return pct
 
 
+def check_disk():
+    path = s.root()
+    while not path.exists():
+        path = path.parent
+    free = shutil.disk_usage(path).free
+    required = 30 * 1024**3
+    if free < required:
+        raise ValueError(
+            f"free disk {s.format_bytes(free)} is below 30 GiB; "
+            "launch refused. Run scripts/dev/wt du and scripts/dev/wt prune-landed"
+        )
+
+
 def launch(
     name,
     brief=None,
@@ -97,6 +111,7 @@ def launch(
             raise ValueError("task already exists; use resume")
         pct = quota(force)
         if followup is None:
+            check_disk()
             if not brief:
                 raise ValueError("--brief is required")
             brief_path = Path(brief).resolve()
@@ -410,6 +425,24 @@ def main_checkout(repo):
     return None
 
 
+def cleanup_landed(name, integrated_commit=None):
+    """Best-effort cleanup after main advanced; never turn a landing into a false failure."""
+    try:
+        home = s.sandbox(name)
+        repo = home / "repo"
+        if integrated_commit is not None:
+            # Batch cherry-picks preserve the source SHA in the landing ledger, but
+            # their original branches are not ancestors of main.
+            if s.git("status", "--porcelain", cwd=repo) or s.live_processes(home):
+                raise ValueError("dirty worktree or live processes")
+            if s.git("rev-parse", "HEAD", cwd=repo) != integrated_commit:
+                s.git("reset", "--hard", integrated_commit, cwd=repo)
+        freed = s.remove(name)
+        print(f"{name}: sandbox removed; freed {freed} bytes ({s.format_bytes(freed)})")
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(f"{name}: landed, sandbox retained: {error}; use wt rm after resolving it")
+
+
 def land(name, force=False):
     path = task(name)
     with s.lock(s.root() / ".registry/land.lock"), s.lock(path / "lock"):
@@ -485,6 +518,7 @@ def land(name, force=False):
         with (s.root() / ".registry/landed.jsonl").open("a") as f:
             f.write(json.dumps(record) + "\n")
         print(f"{name}: landed {head[:12]} (gate {record['gate_seconds']}s)")
+        cleanup_landed(name)
 
 
 def main():

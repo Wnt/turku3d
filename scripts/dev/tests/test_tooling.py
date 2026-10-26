@@ -245,6 +245,46 @@ class ToolingTests(unittest.TestCase):
         self.cli("codex-task", "run", "full", "--brief", "brief.md", "--force", env=env)
         self.wait_done("full")
 
+    def test_low_disk_refuses_before_creating_sandbox(self):
+        code = (
+            "import sys; from unittest.mock import patch; "
+            "sys.path.insert(0, 'scripts/dev'); import task_runner; "
+            "from collections import namedtuple; "
+            "Usage = namedtuple('Usage', 'total used free'); "
+            "\nwith patch.object(task_runner, 'quota', return_value=0), "
+            "patch.object(task_runner.shutil, 'disk_usage', return_value=Usage(100, 75, 25)): "
+            "\n try: task_runner.launch('low', brief='brief.md')"
+            "\n except ValueError as error: print(error)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("below 30 GiB", result.stdout)
+        self.assertFalse((self.base / "wt/low").exists())
+
+    def test_du_and_prune_landed_only_remove_safe_sandboxes(self):
+        self.cli("wt", "new", "landed")
+        self.cli("wt", "new", "unmerged")
+        self.cli("wt", "new", "dirty")
+        self.commit(self.base / "wt/unmerged/repo")
+        (self.base / "wt/dirty/repo/dirty.txt").write_text("dirty")
+        (self.base / "wt/landed/work/cache/filler").write_bytes(b"x" * 4096)
+        rows = self.cli("wt", "du").stdout
+        self.assertIn("landed", rows)
+        self.assertIn("unmerged", rows)
+        self.assertIn("dirty", rows)
+        self.assertLess(rows.index("landed"), rows.index("unmerged"))
+        result = self.cli("wt", "prune-landed").stdout
+        self.assertIn("landed: removed; freed", result)
+        self.assertFalse((self.base / "wt/landed").exists())
+        self.assertTrue((self.base / "wt/unmerged").exists())
+        self.assertTrue((self.base / "wt/dirty").exists())
+
     def test_stop_and_duplicate_run(self):
         self.cli(
             "codex-task", "run", "slow", "--brief", "brief.md", env={**self.env, "FAKE_SLEEP": "1"}
@@ -287,14 +327,16 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("unread=1", self.cli("codex-task", "status", "demo").stdout)
         self.cli("codex-task", "ack", message_id, env={**self.env, "TURKU3D_SANDBOX": "demo"})
         self.assertIn("unread=0", self.cli("codex-task", "status", "demo").stdout)
-        self.cli("codex-task", "land", "demo")
+        land_output = self.cli("codex-task", "land", "demo").stdout
+        self.assertIn("sandbox removed; freed", land_output)
+        self.assertFalse((self.base / "wt/demo").exists())
         self.assertEqual(self.git("rev-parse", "main"), expected)
         self.assertTrue((self.repo / "change.md").exists())
         self.assertFalse(self.git("status", "--porcelain"))
         log = (self.base / "tasks/demo/gate.log").read_text()
         self.assertIn("PASS   policy", log)
         self.assertIn("PASS   generated", log)
-        self.assertIn("materials", (repo / "scripts/dev/gate.toml").read_text())
+        self.assertIn("materials", (self.repo / "scripts/dev/gate.toml").read_text())
         self.assertIn("TOTAL  GREEN", log)
         meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
         self.assertEqual(meta["landed"]["commit"], expected)
@@ -470,16 +512,19 @@ class ToolingTests(unittest.TestCase):
             self.cli("codex-task", "msg", "demo", "--kind", kind, "--subject", "FYI", "FYI")
         self.cli("codex-task", "msg", "all", "--kind", "request", "--subject", "Board", "FYI")
         self.cli("codex-task", "land", "demo")  # Informational and board messages do not block.
+        self.assertFalse(repo.exists())
+        repo = self.start("demo2")
         self.commit(repo, "second.md")
-        self.cli("codex-task", "msg", "demo", "--kind", "warning", "--subject", "Check", "Check")
-        self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo", ok=False).stderr)
+        self.cli("codex-task", "msg", "demo2", "--kind", "warning", "--subject", "Check", "Check")
+        self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo2", ok=False).stderr)
         (repo / "dirty.md").write_text("dirty")
-        self.assertIn("dirty", self.cli("codex-task", "land", "demo", "--force", ok=False).stderr)
+        self.assertIn("dirty", self.cli("codex-task", "land", "demo2", "--force", ok=False).stderr)
         (repo / "dirty.md").unlink()
-        self.cli("codex-task", "land", "demo", "--force")
-        self.assertEqual(self.git("rev-parse", "main"), self.git("rev-parse", "HEAD", cwd=repo))
+        self.cli("codex-task", "land", "demo2", "--force")
+        self.assertFalse(repo.exists())
         self.assertEqual(
-            len(json.loads(self.cli("codex-task", "inbox", "demo", "--unread", "--json").stdout)), 3
+            len(json.loads(self.cli("codex-task", "inbox", "demo2", "--unread", "--json").stdout)),
+            1,
         )
 
     def test_land_refuses_request_arriving_during_gate(self):
@@ -559,6 +604,8 @@ class ToolingTests(unittest.TestCase):
             for line in (self.base / "wt/.registry/landed.jsonl").read_text().splitlines()
         ]
         self.assertEqual([row["name"] for row in records], ["batch-a", "batch-b"])
+        self.assertFalse((self.base / "wt/batch-a").exists())
+        self.assertFalse((self.base / "wt/batch-b").exists())
 
     def test_batch_red_bisects_without_updating_main(self):
         a = self.start("batch-a")
@@ -591,7 +638,7 @@ class ToolingTests(unittest.TestCase):
         self.git("add", ".", cwd=repo)
         self.git("commit", "-qm", "Gate fixture", cwd=repo)
         self.cli("codex-task", "land", "demo")
-        self.assertEqual(self.git("rev-parse", "main"), self.git("rev-parse", "HEAD", cwd=repo))
+        self.assertFalse(repo.exists())
 
     def test_rm_refuses_unmerged_and_live_then_releases(self):
         self.cli("wt", "new", "a")

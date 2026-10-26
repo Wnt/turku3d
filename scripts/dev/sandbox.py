@@ -170,7 +170,22 @@ def sandbox(name):
     return home
 
 
-def live_processes(home):
+def cwd_processes():
+    """One host scan, reusable when inspecting many sandboxes."""
+    out = run("lsof", "-nP", "-Fpnf", "-a", "-d", "cwd", check=False).stdout
+    rows = []
+    pid, descriptor = None, None
+    for line in out.splitlines():
+        if line.startswith("p"):
+            pid = int(line[1:])
+        elif line.startswith("f"):
+            descriptor = line[1:]
+        elif line.startswith("n") and descriptor == "cwd":
+            rows.append((pid, line[1:]))
+    return rows
+
+
+def live_processes(home, cwd_rows=None):
     """Processes whose cwd is inside the sandbox, or which listen on its ports."""
     env = read_env(home / "sandbox.env")
     base = int(env["TURKU3D_PORT_BASE"])
@@ -178,7 +193,11 @@ def live_processes(home):
     # OR-ing cwd and socket selectors makes lsof inspect every descriptor on the
     # host. A cwd-only scan asks just for vnode paths; scan sockets only if a port
     # cannot be bound. Check IPv6 too (an IPv6-only listener permits an IPv4 bind).
-    out = run("lsof", "-nP", "-Fpnf", "-a", "-d", "cwd", check=False).stdout
+    pids.update(
+        pid
+        for pid, path in (cwd_rows if cwd_rows is not None else cwd_processes())
+        if path == str(home) or path.startswith(str(home) + "/")
+    )
     occupied = not ports_free(base)
     for port in range(base, base + 10) if socket.has_ipv6 else ():
         with socket.socket(socket.AF_INET6) as probe:
@@ -188,17 +207,13 @@ def live_processes(home):
             except OSError:
                 occupied = True
     if occupied:
-        out += run(
+        out = run(
             "lsof", "-nP", "-Fpnf", f"-iTCP:{base}-{base + 9}", "-sTCP:LISTEN", check=False
         ).stdout
-    pid, descriptor = None, None
-    for line in out.splitlines():
-        if line.startswith("p"):
-            pid = int(line[1:])
-        elif line.startswith("f"):
-            descriptor = line[1:]
-        elif line.startswith("n"):
-            if descriptor != "cwd" or line[1:] == str(home) or line[1:].startswith(str(home) + "/"):
+        pid = None
+        for line in out.splitlines():
+            if line.startswith("p"):
+                pid = int(line[1:])
                 pids.add(pid)
     return sorted(pids - {os.getpid()})
 
@@ -219,11 +234,71 @@ def remove(name, force=False):
         if live:
             raise ValueError(f"live processes in {name}: {live}; stop them before removal")
         records = registry()
+        size = disk_bytes(home)
         git("worktree", "remove", *(["--force"] if force else []), str(repo))
         git("branch", "-D", f"wt/{name}")
         shutil.rmtree(home)
         records.pop(name, None)
         save_registry(records)
+        return size
+
+
+def disk_bytes(path):
+    """Allocated bytes, with hard links counted once within this directory."""
+    result = run("du", "-sk", str(path))
+    return int(result.stdout.split()[0]) * 1024
+
+
+def format_bytes(size):
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{size} B"
+        size /= 1024
+
+
+def sandbox_rows():
+    with lock(root() / ".registry/lock"):
+        records = registry()
+        save_registry(records)
+    rows = []
+    cwd_rows = cwd_processes()
+    for name in records:
+        home = root() / name
+        repo = home / "repo"
+        if not repo.exists():
+            rows.append((name, None, "missing"))
+            continue
+        merged = (
+            run(
+                "git", "merge-base", "--is-ancestor", "HEAD", "main", cwd=repo, check=False
+            ).returncode
+            == 0
+        )
+        dirty = bool(git("status", "--porcelain", cwd=repo))
+        live = bool(live_processes(home, cwd_rows))
+        status = (
+            ("landed" if merged else "unmerged")
+            + (",dirty" if dirty else "")
+            + (",live" if live else "")
+        )
+        rows.append((name, disk_bytes(home), status))
+    return sorted(rows, key=lambda row: -(row[1] or 0))
+
+
+def du():
+    for name, size, status in sandbox_rows():
+        print(f"{name:24} {format_bytes(size) if size is not None else '-':>12} {status}")
+
+
+def prune_landed():
+    for name, _size, status in sandbox_rows():
+        if status != "landed":
+            continue
+        try:
+            freed = remove(name)
+            print(f"{name}: removed; freed {freed} bytes ({format_bytes(freed)})")
+        except (ValueError, OSError, subprocess.CalledProcessError) as error:
+            print(f"{name}: retained ({error})")
 
 
 def gc():

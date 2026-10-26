@@ -29,8 +29,10 @@ removed: it was substantially slower and emitted linear-map primaries incompatib
 `streetlevel==0.12.13` is installed with `--no-deps` plus `requirements-streetlevel.txt`; unsupported
 `pyexiv2` is stubbed only in the Street View adapter. DeepBump uses ONNX, not torch.
 Decoded panorama pixels are reused through read-only memory maps in
-`$TURKU3D_WORK/cache/streetlevel-decoded`; the shared compressed panorama cache
+`$TURKU3D_DATA/cache/streetlevel/decoded`; the shared compressed panorama cache
 remains the source of truth.
+The decoded files are keyed by compressed image SHA-256, so repeated facade runs in separate
+sandboxes map the same panorama without another 384 MiB array per 16K image.
 
 ## AOI workflow
 

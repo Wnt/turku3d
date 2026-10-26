@@ -3,6 +3,7 @@
 import contextlib
 import json
 import os
+import shutil
 import subprocess
 import time
 import uuid
@@ -12,7 +13,7 @@ import sandbox as s
 
 
 def batch(names, force=False):
-    from task_runner import main_checkout, running, task
+    from task_runner import cleanup_landed, main_checkout, running, task
 
     if len(set(names)) != len(names):
         raise ValueError("batch members must be unique")
@@ -144,11 +145,14 @@ def batch(names, force=False):
                         s.write_json(path / "meta.json", meta)
                         ledger.write(json.dumps(record) + "\n")
                 print(f"batch landed: {', '.join(names)}; {log_path}")
+                for (name, _, _, _), commit in zip(members, commits, strict=True):
+                    cleanup_landed(name, commit)
         finally:
             # This process created the integration checkout; member worktrees are untouched.
             s.git("worktree", "remove", "--force", str(integration), check=False)
-            s.git("branch", "-D", f"wt/{integration.parent.name}", cwd=repo, check=False)
+            s.git("branch", "-D", f"wt/{integration.parent.name}", cwd=s.REPO, check=False)
             with s.lock(s.root() / ".registry/lock"):
                 records = s.registry()
                 records.pop(integration.parent.name, None)
                 s.save_registry(records)
+            shutil.rmtree(integration.parent, ignore_errors=True)
