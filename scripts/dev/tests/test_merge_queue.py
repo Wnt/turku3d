@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import contextlib
+import io
 import json
 import os
 import subprocess
@@ -17,12 +18,65 @@ import landing  # noqa: E402
 import live_cache  # noqa: E402
 import merge_queue  # noqa: E402
 import queue_sweep  # noqa: E402
+import task_runner  # noqa: E402
 import verification  # noqa: E402
 import warm_queue  # noqa: E402
 from gate_cache import cache_root, stage_key  # noqa: E402
 
 
 class QueueTests(unittest.TestCase):
+    def test_precheck_records_gate_inputs_and_prepared_release(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / "worker"
+            repo = home / "repo"
+            repo.mkdir(parents=True)
+            task = root / "task"
+            task.mkdir()
+            gate = {"ok": True, "stages": [{"name": "unit", "status": "PASS", "input_hash": "abc"}]}
+            completed = type("Completed", (), {"returncode": 0, "stdout": json.dumps(gate)})()
+
+            def git(*args, cwd):
+                if args == ("status", "--porcelain") or args[:1] == ("rebase",):
+                    return ""
+                if args == ("rev-parse", "HEAD"):
+                    return "head"
+                raise AssertionError(args)
+
+            with (
+                patch.object(task_runner, "task", return_value=task),
+                patch.object(task_runner.s, "sandbox", return_value=home),
+                patch.object(task_runner.s, "git", side_effect=git),
+                patch.object(
+                    task_runner.s,
+                    "read_env",
+                    return_value={
+                        "TURKU3D_DATA": str(root / "data"),
+                        "TURKU3D_WORK": str(root / "work"),
+                    },
+                ),
+                patch.object(task_runner.s, "run_group", return_value=completed) as run,
+                patch.object(task_runner.live_build, "build", return_value={"input_hashes": {}}),
+                patch.object(
+                    verification,
+                    "create",
+                    return_value={
+                        "version": 1,
+                        "head": "head",
+                        "tree": "tree",
+                        "main": "base",
+                        "checks": {"gate": {"unit": "abc"}, "live": {}},
+                        "release_id": "key",
+                        "artifact_hash": "hash",
+                    },
+                ) as create,
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    task_runner.precheck("worker")
+            self.assertEqual(run.call_args.args[0][-1], "--json")
+            self.assertEqual(create.call_args.args[3], gate)
+            self.assertEqual(json.loads((task / "precheck.json").read_text())["release_id"], "key")
+
     def test_full_sweep_holds_only_regressed_domain(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
