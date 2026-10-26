@@ -98,6 +98,12 @@ paths = ["pipeline/turku3d/refresh.py", "pipeline/tests/test_refresh.py"]
 tests = ["tests/test_refresh.py", "tests/test_ground_textures.py", "tests/test_assemble.py"]
 
 [[stages]]
+name = "package-js-tests"
+kind = "command"
+triggers = ["pipeline/turku3d/package/*"]
+commands = [["node", "--test", "pipeline/turku3d/package/prop_atlas.test.mjs"]]
+
+[[stages]]
 name = "structures-physics"
 kind = "command"
 triggers = ["pipeline/turku3d/structures/*", "pipeline/tests/test_structures.py", "tools/validator/test/structures.test.ts", "tools/validator/src/structures*.ts", "tools/validator/src/kcc.ts", "game/src/shared/col/*", "mk/structures.mk"]

@@ -32,6 +32,7 @@ tile-show: game-build ## Serve the local result on the sandbox dist port
 
 tile-test: ## Offline packaging tests with synthetic inputs
 	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q -n $(TURKU3D_JOBS) tests/test_package.py tests/test_layers.py tests/test_assemble.py tests/test_assemble_outer.py
+	node --test $(REPO)/pipeline/turku3d/package/prop_atlas.test.mjs
 
 TILE_QA_PORT ?= $(DIST_PORT)
 tile-qa: qa-venv game-build ## Render local tiles (colour+ID); JUDGE=1 enables quota-guarded parallel judging

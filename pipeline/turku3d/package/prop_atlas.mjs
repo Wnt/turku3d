@@ -5,9 +5,12 @@ import { createHash } from 'node:crypto';
 export async function atlasPropSigns(doc, sharp) {
   const signs = [];
   const images = new Map();
+  const seen = new Set();
   for (const node of doc.getRoot().listNodes()) {
     if (node.getExtras().material_key !== 'props_sign') continue;
     for (const prim of node.getMesh()?.listPrimitives() ?? []) {
+      if (seen.has(prim)) continue;
+      seen.add(prim);
       const material = prim.getMaterial();
       const texture = material?.getBaseColorTexture();
       const bytes = texture?.getImage();
