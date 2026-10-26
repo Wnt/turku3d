@@ -256,7 +256,7 @@ def format_bytes(size):
         size /= 1024
 
 
-def sandbox_rows():
+def sandbox_rows(measure=True):
     with lock(root() / ".registry/lock"):
         records = registry()
         save_registry(records)
@@ -281,8 +281,8 @@ def sandbox_rows():
             + (",dirty" if dirty else "")
             + (",live" if live else "")
         )
-        rows.append((name, disk_bytes(home), status))
-    return sorted(rows, key=lambda row: -(row[1] or 0))
+        rows.append((name, disk_bytes(home) if measure else None, status))
+    return sorted(rows, key=lambda row: -(row[1] or 0)) if measure else rows
 
 
 def du():
@@ -291,7 +291,7 @@ def du():
 
 
 def prune_landed():
-    for name, _size, status in sandbox_rows():
+    for name, _size, status in sandbox_rows(measure=False):
         if status != "landed":
             continue
         try:
