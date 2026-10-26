@@ -64,7 +64,9 @@ def restore(published, work, stage, key):
             return None
     for relative in OUTPUTS.get(stage, ()):
         target = work / relative
-        if target.exists():
+        if target.is_symlink():
+            target.unlink()
+        elif target.exists():
             shutil.rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         from live_build import _clone

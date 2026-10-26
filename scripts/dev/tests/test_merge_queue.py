@@ -1,6 +1,7 @@
 """Synthetic queue scheduling, failures and shared-cache key tests."""
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,42 @@ from gate_cache import cache_root, stage_key  # noqa: E402
 
 
 class QueueTests(unittest.TestCase):
+    def test_conflicting_branch_is_aborted_and_routed_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            origin = root / "origin"
+            origin.mkdir()
+
+            def git(*args, cwd=origin):
+                return subprocess.run(
+                    ["git", *args], cwd=cwd, check=True, text=True, capture_output=True
+                ).stdout.strip()
+
+            git("init", "-b", "main")
+            git("config", "user.email", "queue@example.test")
+            git("config", "user.name", "Queue Test")
+            (origin / "line.txt").write_text("base\n")
+            git("add", ".")
+            git("commit", "-m", "base")
+            home = root / "worker"
+            repo = home / "repo"
+            home.mkdir()
+            git("worktree", "add", "-b", "wt/worker", str(repo))
+            (repo / "line.txt").write_text("worker\n")
+            git("add", ".", cwd=repo)
+            git("commit", "-m", "worker", cwd=repo)
+            (origin / "line.txt").write_text("main\n")
+            git("add", ".")
+            git("commit", "-m", "main")
+            with (
+                patch.object(merge_queue.s, "sandbox", return_value=home),
+                patch.object(merge_queue, "resume") as resume,
+            ):
+                self.assertFalse(merge_queue.rebase("worker", {"tasks": {}, "events": []}))
+                self.assertIn("rebase conflict", resume.call_args.args[1])
+                self.assertEqual(git("status", "--porcelain", cwd=repo), "")
+                self.assertNotEqual(git("rev-parse", "HEAD", cwd=repo), git("rev-parse", "main"))
+
     def test_done_tasks_enqueue_once_and_publish_batch(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -78,6 +115,41 @@ class QueueTests(unittest.TestCase):
                 self.assertEqual(
                     [r["task"] for r in record["events"] if r["kind"] == "retry"], ["one"]
                 )
+
+    def test_live_failure_falls_back_to_individual_landings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tasks = root / "tasks"
+            for name in ("one", "two"):
+                path = tasks / name
+                path.mkdir(parents=True)
+                (path / "meta.json").write_text(
+                    json.dumps({"state": "done", "exit_code": 0, "finished": 1})
+                )
+                (path / "last.md").write_text("## Result: DONE\n")
+            record = {"tasks": {}, "events": []}
+            calls = []
+
+            def batch(names, force):
+                calls.append(names)
+                if names != ["one"]:
+                    raise ValueError("tile-build failed")
+                path = tasks / "one/meta.json"
+                meta = json.loads(path.read_text())
+                meta["landed"] = {"commit": "one"}
+                path.write_text(json.dumps(meta))
+
+            with (
+                patch.object(merge_queue.s, "root", return_value=root),
+                patch.object(merge_queue.s, "tasks_root", return_value=tasks),
+                patch.object(merge_queue, "rebase", return_value=True),
+                patch.object(merge_queue, "resume") as resume,
+                patch("landing.batch", side_effect=batch),
+            ):
+                self.assertTrue(merge_queue.process(record))
+                self.assertEqual(calls, [["one", "two"], ["one"], ["two"]])
+                self.assertEqual(resume.call_args.args[0], "two")
+                self.assertIn("published", record["tasks"]["one"])
 
     def test_gate_cache_key_is_sandbox_independent(self):
         with tempfile.TemporaryDirectory() as temp:

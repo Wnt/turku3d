@@ -55,7 +55,9 @@ def discover(record):
 def ready(record):
     rows = []
     for name, row in record["tasks"].items():
-        if "published" in row or "resumed" in row or "failed" in row:
+        if "published" in row or "resumed" in row:
+            continue
+        if "failed" in row and time.time() - row["failed"] < 300:
             continue
         meta = s.read_json(s.tasks_root() / name / "meta.json", {})
         if meta.get("state") == "done" and meta.get("exit_code") == 0:
@@ -100,6 +102,8 @@ def process(record, limit=4):
     from landing import batch
 
     discover(record)
+    if record.get("last_error") and time.time() - record["last_error"]["time"] < 300:
+        return False
     names = []
     for name in ready(record):
         if rebase(name, record):
@@ -141,6 +145,8 @@ def process(record, limit=4):
         return True
     for name in names:
         published(record, name)
+    record.pop("last_error", None)
+    save(record)
     return True
 
 
@@ -157,7 +163,6 @@ def published(record, name):
 
 def status():
     record = state()
-    discover(record)
     lock = s.root() / ".registry/merge-queue.lock"
     running = False
     if lock.exists():
@@ -189,6 +194,8 @@ def status():
 
 
 def run(interval=5, once=False, limit=4):
+    if limit < 1:
+        raise ValueError("queue limit must be positive")
     lock = s.root() / ".registry/merge-queue.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open("a") as file:
