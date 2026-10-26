@@ -27,7 +27,7 @@ def test_outer_building_massing_survives_coarse_parent_packaging(tmp_path, monke
     )
     write_visual(outer / "t0_-1_0.vis.glb", [mesh])
     write_manifest(outer, inputs={}, params={}, code="test", tiles=["t0_-1_0.vis.glb"])
-    assemble(["t0_0_0"], layers=layers, out=out)
+    assemble(["t0_0_0"], layers=layers, out=out, area="work-3x3")
     for level, tile in ((1, "t1_-1_0"), (2, "t2_-1_0")):
         doc, _ = read_glb((out / f"visual/{level}/{tile}.glb").read_bytes())
         identities = {
