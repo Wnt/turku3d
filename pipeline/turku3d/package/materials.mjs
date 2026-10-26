@@ -81,7 +81,15 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
     const selected = facade(e) ?? library(key);
     const { albedo, normal, orm } = selected.maps;
     if ((albedo || normal || orm) && !prim.getAttribute('TEXCOORD_0')) throw new Error(`Missing UVs: ${e.object_id}`);
-    material.setExtras({ ...material.getExtras(), material_key: e.material_key, library_material_key: key });
+    // The source mesh name and semantic key are per object, not per GPU material.
+    // Canonicalize library-backed materials so dedup can batch all walls/roofs
+    // using the same maps. Per-object keys remain in the node's QA ranges.
+    if (!selected.unique && (albedo || normal || orm)) {
+      material.setName(`library:${key}`);
+      material.setExtras({ material_key: key, library_material_key: key });
+    } else {
+      material.setExtras({ ...material.getExtras(), material_key: e.material_key, library_material_key: key });
+    }
     if (albedo) material.setBaseColorTexture(texture(albedo, !selected.unique, 'albedo', selected.facadeInfo)).setBaseColorFactor([1, 1, 1, 1]);
     if (normal) material.setNormalTexture(texture(normal, !selected.unique, 'normal', selected.facadeInfo));
     if (orm) material.setOcclusionTexture(texture(orm, !selected.unique, 'orm', selected.facadeInfo)).setMetallicRoughnessTexture(texture(orm, !selected.unique, 'orm', selected.facadeInfo))

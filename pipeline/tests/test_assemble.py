@@ -479,12 +479,16 @@ def test_building_library_fallbacks_and_metre_uvs(tmp_path):
     out = tmp_path / "dist"
     assemble(["t0_0_0"], layers=directory.parent, out=out)
     js, _ = read_glb((out / "visual/0/t0_0_0.glb").read_bytes())
-    assert len(js["materials"]) == len(keys)
+    assert len(js["materials"]) == 2
+    batches = [
+        node["extras"] for node in js["nodes"] if node.get("extras", {}).get("layer") == "buildings"
+    ]
+    assert len(batches) == 2
+    assert {item["object_id"] for batch in batches for item in batch["objects"]} == set(keys)
     for mat in js["materials"]:
         key = mat["extras"]["material_key"]
-        assert mat["extras"]["library_material_key"] == (
-            "render_smooth" if key.startswith("facade_") else "roof_standing_seam_metal"
-        )
+        assert key in {"render_smooth", "roof_standing_seam_metal"}
+        assert mat["extras"]["library_material_key"] == key
         for info in (
             mat["pbrMetallicRoughness"]["baseColorTexture"],
             mat["normalTexture"],

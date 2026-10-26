@@ -52,6 +52,10 @@ Available collision tiles in the 50 m margin around each requested L0 tile are a
 published. This includes the west Teatterisilta shore outside the four visual tiles.
 
 Visuals preserve L0 topology and source object IDs. Compatible primitives are batched per tile, layer and material.
+Library-backed materials use the selected library key as their material identity, so
+different facade or roof classes that resolve to the same library maps form one batch
+per layer and library material. The number of these batches does not grow with the
+number of buildings.
 Batches carry `extras.objects` with source metadata and index `start`/`count` ranges; the QA ID
 pass expands these ranges into draw groups only while capturing IDs. Normal rendering uses one
 draw per batch. Texture and material deduplication prevents repeated glTF texture transforms
@@ -91,7 +95,8 @@ The single fallback table is `materials.mjs`: W1-03's four `facade_*` classes us
 `render_smooth`; its four `roof_*` classes use `roof_standing_seam_metal`.
 `plinth_granite`, `ground_asphalt`, and `ground_granite` use their namesake library assets.
 Brick, wood and roof tile remain explicit generic approximations. Original `material_key`
-is retained in node/material extras; `library_material_key` records the chosen library key.
+is retained in node extras and `extras.objects` QA ranges. Library-backed material extras
+use the chosen library key for both `material_key` and `library_material_key`.
 Untextured inputs retain their source colors. PNG/JPEG maps become ETC1S albedo or UASTC +
 Zstandard linear maps through KTX-Software 4.4.2 **before** lossless meshopt compression.
 Facade albedo and ORM maps use ETC1S; normal maps use UASTC with Zstandard, retaining

@@ -37,25 +37,52 @@ scripts/dev/gate --base main
   4.90 seconds. Result: 82 kept, 236 reprojected, 40 new walls, 14 retired
   approvals, zero photo-bound rejections. The shared source has 316 approved
   maps, so the migrated result is 318 bound maps.
+
+The 14 approved facade IDs that lost their old wall binding are:
+`102725984D_114`, `103277350D_49`, `103277379B_123`,
+`103277379B_124`, `103277379B_126`, `103277379B_128`,
+`103304666K_44`, `103304666K_51`, `103304666K_75`,
+`103304670P_38`, `103304672S_11`, `103304677X_73`,
+`103440107M_288`, and `103440107M_305`. Their approved assets are archived
+under `textures/assembly/retired/<inventory-hash>/`.
 - Full refresh rerun: ground cached 0.006 seconds, buildings cached 1.604,
   props cached 0.054, facades cached 0.079, ground textures cached 0.140.
-- Four L0 tile wire sizes: 6,925,414; 7,983,712; 7,992,411; 7,902,858 bytes.
+- Four L0 tile wire sizes after library material batching: 6,924,005;
+  7,984,768; 7,995,421; 7,903,206 bytes.
   All are below 8,000,000 bytes. The assembler bound 318 facades and published
   100 collision tiles.
 - WebGPU browser screenshots at the office spawn and Auransilta are in the
   sandbox's `work/reports/screenshots/` and `work/reports/bridges/` directories.
   Auransilta render and walk/drive tests passed.
-- `scripts/dev/gate --base main`: green in 10.311 seconds.
+- Initial rebind `scripts/dev/gate --base main`: green in 10.311 seconds.
 
-## Remaining acceptance gaps
+The follow-up per-tile material identity change merges library-backed facade
+classes into one `render_smooth` batch and roof classes into one
+`roof_standing_seam_metal` batch. It preserves every source `material_key` and
+index range in `extras.objects`; only the rendered material uses the canonical
+library key. The synthetic fixture fell from eight building materials to two.
+The rebuilt office tile fell from 38 to 34 materials. The 1440p office browser
+test measured **487 draws on both WebGPU and WebGL2**, down from 502; both passed.
+The batching count depends on library materials rather than the number of
+buildings, so the pending additional building shells can reuse these batches.
+The changed-path gate after batching was green in 35.298 seconds under host
+contention.
+The Auransilta view and facade color/ID QA passed on WebGPU. The WebGL Auransilta
+view passed. WebGL facade QA reached color/ID capture, then twice exceeded the
+repository's 120-second test limit while loading the aerial pose under host
+load above 200. The same test passed alone in 2.9 minutes with a 240-second
+command timeout; no repository timeout was changed.
+
+## Approved export and prior draw failure
 
 The shared export contains 316 approved maps. The earlier w1-09d run reported
 26 additional approved maps and 344 final bindings, but its sandbox export is
 not present in shared data or available worktrees. That export must be restored
 or recreated before a main refresh can verify 344 bindings.
 
-The office integration browser test measures 502 WebGPU draw calls at 1440p,
-against the required `<500`. The failing command is:
+Before material batching, the office integration browser test measured 502
+WebGPU draw calls at 1440p, against the required `<500`. The same command now
+passes at 487 on both backends:
 
 ```sh
 cd game && E2E_TILE_PORT="$((TURKU3D_PORT_BASE + 1))" \
@@ -64,6 +91,6 @@ cd game && E2E_TILE_PORT="$((TURKU3D_PORT_BASE + 1))" \
   tests/e2e-tile/integration.spec.ts --project webgpu -g 'office integration'
 ```
 
-The assertion reports `Expected: < 500; Received: 502`. Neither limit was
-weakened. Coordination messages request the missing approved export and an
-owner for the small draw-budget regression.
+The original assertion reported `Expected: < 500; Received: 502`. Neither
+limit was weakened. The missing approved export is handled separately by the
+orchestrator.
