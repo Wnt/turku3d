@@ -13,7 +13,9 @@ import time
 from pathlib import Path
 
 from turku3d import config as C
+from turku3d.bridges.__main__ import code_hash as bridges_code_hash
 from turku3d.ground.build import code_hash as ground_code_hash
+from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
@@ -67,6 +69,16 @@ def manifest_current(path, expected_code):
         return False
     manifest = json.loads(path.read_text())
     return manifest.get("code") == expected_code and declared_inputs_current(manifest)
+
+
+def layer_current(path, expected_code):
+    if not manifest_current(path, expected_code):
+        return False
+    try:
+        read_manifest(path.parent)
+    except (OSError, ValueError, KeyError):
+        return False
+    return True
 
 
 def texture_sources_current(manifest_path, cache_path):
@@ -255,6 +267,39 @@ def timed(name, operation, *args):
     return status
 
 
+def bridges(layers):
+    if layer_current(layers / "bridges/MANIFEST.json", bridges_code_hash()):
+        return "cached"
+    run("turku3d.bridges")
+    return "rebuilt"
+
+
+def bridge_textures(textures):
+    library = textures / "assembly/library"
+    aliases = {
+        "bridge_asphalt": "ground_asphalt",
+        "bridge_stone": "ground_granite",
+        "painted_steel": "roof_standing_seam_metal",
+    }
+    changed = False
+    for alias, original in aliases.items():
+        source, target = library / original, library / alias
+        if not source.is_dir():
+            shared = C.data_root() / "textures/assembly/library" / original
+            if not shared.is_dir():
+                raise FileNotFoundError(f"Bridge material source missing: {shared}")
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.symlink_to(shared, target_is_directory=True)
+            changed = True
+        if target.exists():
+            continue
+        if target.is_symlink():
+            target.unlink()
+        target.symlink_to(source.name, target_is_directory=True)
+        changed = True
+    return "rebuilt" if changed else "cached"
+
+
 def refresh(work, target=None):
     work.mkdir(parents=True, exist_ok=True)
     layers, textures = work / "build/layers", work / "textures"
@@ -278,16 +323,18 @@ def refresh(work, target=None):
             }
             for name, future in futures.items():
                 result[name] = future.result()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             futures = {
                 "ground-textures": pool.submit(
                     timed, "ground-textures", ground_textures, layers, textures
                 ),
                 "facades": pool.submit(timed, "facades", facades, layers, textures),
                 "props": pool.submit(timed, "props", props, layers),
+                "bridges": pool.submit(timed, "bridges", bridges, layers),
             }
             for name, future in futures.items():
                 result[name] = future.result()
+        result["bridge-textures"] = timed("bridge-textures", bridge_textures, textures)
     return result
 
 

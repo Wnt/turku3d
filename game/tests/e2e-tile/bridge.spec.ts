@@ -54,6 +54,7 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   }
   const middle = await page.evaluate(() => (window as any).__game.state());
   expect(middle.groundMaterial).toBe(24);
+  await page.screenshot({ path: path.join(shots, `auransilta-deck-${backend}.png`) });
   await page.waitForFunction(() => {
     const s = (window as any).__game.state();
     return s.feet[0] > 325 && s.feet[2] > 254;

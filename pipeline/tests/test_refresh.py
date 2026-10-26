@@ -98,11 +98,39 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "ground_textures", node("ground-textures", ("ground",)))
     monkeypatch.setattr(refresh, "facades", node("facades", ("buildings",)))
     monkeypatch.setattr(refresh, "props", node("props", ("ground", "buildings")))
+    monkeypatch.setattr(refresh, "bridges", node("bridges", ("ground",)))
+    monkeypatch.setattr(refresh, "bridge_textures", node("bridge-textures"))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
     second = refresh.refresh(tmp_path)
     assert set(second.values()) == {"cached"}
-    assert len(calls) == 5
+    assert len(calls) == 7
+
+
+def test_bridge_refresh_rebuilds_for_stale_ground_or_code(tmp_path, monkeypatch):
+    from turku3d.layers import write_manifest
+
+    layers = tmp_path / "layers"
+    source = tmp_path / "ground.json"
+    source.write_text("ground-v1")
+    bridge = layers / "bridges"
+    write_manifest(
+        bridge,
+        inputs={str(source): refresh.sha(source)},
+        params={},
+        code=refresh.bridges_code_hash(),
+        tiles=[],
+    )
+    calls = []
+    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
+    assert refresh.bridges(layers) == "cached"
+    source.write_text("ground-v2")
+    assert refresh.bridges(layers) == "rebuilt"
+    assert calls == [("turku3d.bridges",)]
+    calls.clear()
+    monkeypatch.setattr(refresh, "bridges_code_hash", lambda: "changed-code")
+    assert refresh.bridges(layers) == "rebuilt"
+    assert calls == [("turku3d.bridges",)]
 
 
 def test_ground_target_ignores_unrelated_stale_buildings(monkeypatch, tmp_path):

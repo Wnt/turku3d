@@ -20,6 +20,13 @@ make collision-audit                      # layer collider/visual check near pub
 make collision-sweep                      # headless KCC grid sweep + ortho overlay
 ```
 
+`make refresh` builds ground, buildings, bridges, props and the ground/facade
+texture bindings. Bridge layers are rebuilt when their declared source hashes
+or code change. `make tile-build` requires the ground, buildings and bridges
+manifests in the sandbox; run `make refresh` first when one is missing.
+Structures remain a separate `make structures-build` step until its real AOI
+acceptance report passes.
+
 `make tile` checks the cached input registry without network access, builds locally, verifies
 manifest hashes and every shared collision seam, runs the Node/Rapier validator and Chrome e2e
 on WebGPU and WebGL2. Missing inputs fail with the exact preparation command.

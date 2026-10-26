@@ -70,6 +70,22 @@ def load_layers(root: Path):
     return manifests, collision
 
 
+def require_office_layers(manifests):
+    required = {"ground", "buildings", "bridges"}
+    missing = sorted(required - manifests.keys())
+    if missing:
+        raise ValueError(
+            f"Missing required office-block layers: {', '.join(missing)}; run make refresh"
+        )
+    bridge_tiles = manifests["bridges"]["tiles"]
+    if not any(name.endswith(".vis.glb") for name in bridge_tiles) or not any(
+        name.endswith(".col.npz") for name in bridge_tiles
+    ):
+        raise ValueError(
+            "Office-block bridges layer has no visual or collision tiles; run make refresh"
+        )
+
+
 def collision_tile(tile, layers, manifests, available, *, dynamic_traffic=False):
     positions, indices, material, primitives, ranges = [], [], [], [], []
     count = 0
@@ -270,6 +286,9 @@ def assemble(
 ) -> dict:
     root = (layers or layer_root()).resolve()
     out = (out or C.dist_dir() / "tiles").resolve()
+    manifests, collision = load_layers(root)
+    if root == layer_root().resolve() and area == "office-block":
+        require_office_layers(manifests)
     export = C.work_root() / "textures/assembly"
     library = (library or export / "library").resolve()
     facades = (facades or export / "facades").resolve()
@@ -281,7 +300,6 @@ def assemble(
     requested = {C.VisualTile.parse(tid) for tid in tile_ids}
     if any(t.level != 0 for t in requested):
         raise ValueError("request L0 tiles; 500 m and 1 km parents are built automatically")
-    manifests, collision = load_layers(root)
     visuals = {}
     for name, m in manifests.items():
         if name == "traffic_static":

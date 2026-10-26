@@ -19,12 +19,19 @@ from turku3d.layers import (
     write_manifest,
     write_visual,
 )
-from turku3d.package.assemble import assemble, facade_priorities
+from turku3d.package.assemble import assemble, facade_priorities, require_office_layers
 from turku3d.package.gltf import GlbMesh, read_glb
 from turku3d.package.manifest import verify_tree
 from turku3d.package.seams import verify_seams
 from turku3d.parked.__main__ import publish as publish_parked
 from turku3d.parked.models import MODELS
+
+
+def test_office_assembly_requires_bridges():
+    with pytest.raises(ValueError, match="bridges.*make refresh"):
+        require_office_layers({"ground": {}, "buildings": {}})
+    with pytest.raises(ValueError, match="bridges layer has no visual or collision tiles"):
+        require_office_layers({"ground": {}, "buildings": {}, "bridges": {"tiles": {}}})
 
 
 def test_facade_budget_priority_uses_spawn_distance_and_tile(tmp_path):

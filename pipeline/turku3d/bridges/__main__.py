@@ -26,6 +26,21 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def code_hash():
+    base = Path(__file__).parents[1]
+    sources = sorted(Path(__file__).parent.glob("*.py")) + [
+        base / "config.py",
+        base / "layers.py",
+        base / "col/materials.py",
+        base / "col/materials_v1.json",
+        base / "package/gltf.py",
+        base / "structures/geometry.py",
+        base / "structures/inputs.py",
+        base / "structures/survey.py",
+    ]
+    return hashlib.sha256("".join(digest(p) for p in sources).encode()).hexdigest()
+
+
 def main():
     city_path = C.raw_dir("wfs") / "work-3x3/GIS_Katualueet.parquet"
     osm_path = C.raw_dir("osm") / "work-3x3/work-3x3-261024.parquet"
@@ -104,9 +119,6 @@ def main():
             root_extras={"layer": "bridges"},
         )
         files.append(name)
-    code = hashlib.sha256(
-        "".join(digest(p) for p in sorted(Path(__file__).parent.glob("*.py"))).encode()
-    ).hexdigest()
     manifest = write_manifest(
         out,
         inputs={
@@ -121,7 +133,7 @@ def main():
             if p.is_file()
         },
         params={"bounds": list(BOUNDS.as_tuple()), "seams": "objects"},
-        code=code,
+        code=code_hash(),
         tiles=files,
     )
     report = {
