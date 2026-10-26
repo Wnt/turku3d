@@ -65,6 +65,22 @@ class ToolingTests(unittest.TestCase):
         (self.repo / ".gitignore").write_text("__pycache__/\n.cache/\n")
         self.bin = self.base / "bin"
         self.bin.mkdir()
+        self.python_support = self.base / "python-support"
+        self.python_support.mkdir()
+        (self.python_support / "sitecustomize.py").write_text(
+            "import os\n"
+            "import shutil\n"
+            "from collections import namedtuple\n"
+            "\n"
+            "if os.environ.get('TURKU3D_TEST_DISK_FREE_BYTES'):\n"
+            "    Usage = namedtuple('Usage', 'total used free')\n"
+            "    real_disk_usage = shutil.disk_usage\n"
+            "    def disk_usage(path):\n"
+            "        actual = real_disk_usage(path)\n"
+            "        free = int(os.environ['TURKU3D_TEST_DISK_FREE_BYTES'])\n"
+            "        return Usage(actual.total, max(0, actual.total - free), free)\n"
+            "    shutil.disk_usage = disk_usage\n"
+        )
         shutil.copy(SOURCE / "scripts/dev/tests/fake_codex.py", self.bin / "codex")
         (self.bin / "codex").chmod(0o755)
         self.env = {
@@ -77,6 +93,11 @@ class ToolingTests(unittest.TestCase):
             "GATE_PYTHON": sys.executable,
             "TURKU3D_SANDBOX": "orchestrator",
             "TURKU3D_COORD_ROOT": str(self.base / "coord"),
+            # Launch integration tests use a synthetic filesystem independent of host disk pressure.
+            "TURKU3D_TEST_DISK_FREE_BYTES": str(40 * 1024**3),
+            "PYTHONPATH": str(self.python_support)
+            + os.pathsep
+            + os.environ.get("PYTHONPATH", ""),
         }
         self.env.pop("TURKUTEX_USAGE_CMD", None)
         # Synthetic registries must still avoid the caller's real, concurrently running stacks.
