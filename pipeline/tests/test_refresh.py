@@ -97,6 +97,7 @@ def test_parallel_rebuilds_detach_shared_layers_ancestor_once(tmp_path, monkeypa
     for name in (
         "ground",
         "buildings",
+        "structures",
         "ground_textures",
         "facades",
         "props",
