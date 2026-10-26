@@ -8,8 +8,13 @@ export class StartScreen {
   private status: HTMLElement;
   private button: HTMLButtonElement;
 
-  /** `intro`: story paragraphs for a new game (dialogue line texts), empty when continuing; `onClose` runs once. */
-  constructor(input: Input, intro: readonly string[] = [], private readonly onClose: () => void = () => {}) {
+  /** Resolves when the player dismisses the screen. */
+  readonly closed: Promise<void>;
+  private resolveClosed!: () => void;
+
+  /** `intro`: story paragraphs for a new game (dialogue line texts), empty when continuing a saved game. */
+  constructor(input: Input, intro: readonly string[] = []) {
+    this.closed = new Promise(resolve => { this.resolveClosed = resolve; });
     this.element.id = 'start-screen';
     this.element.setAttribute('role', 'dialog');
     this.element.setAttribute('aria-labelledby', 'start-title');
@@ -55,6 +60,6 @@ export class StartScreen {
     if (!this.active) return;
     this.active = false;
     this.element.remove();
-    this.onClose();
+    this.resolveClosed();
   }
 }

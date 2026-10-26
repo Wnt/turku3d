@@ -7,7 +7,7 @@ import { DIALOGUE, dialogueLine, lineText } from '../../src/gameplay/content/dia
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import {
-  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, SAVE_KEY, lineSeconds, type KeyValueStore, type MissionFrame,
+  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, hasSavedGame, SAVE_KEY, lineSeconds, type KeyValueStore, type MissionFrame,
 } from '../../src/gameplay/missions/missions';
 
 /** Synthetic router: an L-shaped path (x first, then z), so route length differs from the straight line. */
@@ -99,7 +99,7 @@ describe('dialogue content', () => {
 describe('mission state machine', () => {
   it('starts idle and asks for the licence after begin()', () => {
     const h = harness();
-    expect(h.missions.isNewGame).toBe(true);
+    expect(h.missions.phase).toBe('idle');
     expect(h.last()).toMatchObject({ activeTargetId: null, money: START_MONEY, timerSeconds: null, message: null });
     h.missions.begin();
     h.at(far);
@@ -259,14 +259,16 @@ describe('mission state machine', () => {
   it('continues a saved game after a reload, including the running timer', () => {
     const store = new MemoryStore();
     const a = harness(store);
+    expect(hasSavedGame(store)).toBe(false);
     a.missions.begin();
+    expect(hasSavedGame(store)).toBe(true);
     a.press(near(MARKET.point));
     a.press(near(PIZZERIA.point));
     a.wait(far, 10);
     const saved = JSON.parse(store.getItem(SAVE_KEY)!);
     expect(saved).toMatchObject({ phase: 'carrying', licence: true, money: START_MONEY - LICENCE_PRICE });
     const b = harness(store);
-    expect(b.missions.isNewGame).toBe(false);
+    expect(b.missions.phase).toBe('carrying');
     b.missions.begin();
     b.at(far, 0);
     expect(b.missions.phase).toBe('carrying');
@@ -277,9 +279,9 @@ describe('mission state machine', () => {
   it('falls back to a new game on a corrupt save', () => {
     const store = new MemoryStore();
     store.setItem(SAVE_KEY, '{"version":1,"phase":"carrying","money":-5}');
-    expect(harness(store).missions).toMatchObject({ isNewGame: true, money: START_MONEY });
+    expect(harness(store).missions).toMatchObject({ phase: 'idle', money: START_MONEY });
     store.setItem(SAVE_KEY, 'not json');
-    expect(harness(store).missions.isNewGame).toBe(true);
+    expect(harness(store).missions.phase).toBe('idle');
   });
 
   it('notifies subscribers only on change and stops after unsubscribe', () => {

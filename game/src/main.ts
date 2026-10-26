@@ -25,7 +25,7 @@ import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
-import { MissionSystem, OWN_VEHICLE_ID } from './gameplay/missions/missions';
+import { MissionSystem, OWN_VEHICLE_ID, hasSavedGame } from './gameplay/missions/missions';
 import { straightRouter } from './gameplay/missions/straightRouter';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
@@ -189,8 +189,8 @@ async function runPlay() {
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
   audio.mount(document.body);
   addEventListener('pagehide', () => audio.dispose(), { once: true });
-  const missions = new MissionSystem({ router: straightRouter, storage: browserStorage() });
-  const startScreen = new StartScreen(input, missions.isNewGame ? INTRO_LINE_IDS.map(lineText) : [], () => missions.begin());
+  const storage = browserStorage();
+  const startScreen = new StartScreen(input, hasSavedGame(storage) ? [] : INTRO_LINE_IDS.map(lineText));
   const hud = new Hud(hudEl);
   const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
   if (!params.hud) hud.toggle();
@@ -242,6 +242,8 @@ async function runPlay() {
         halfExt: { x: parked.length / 2 - 0.18, y: Math.min(0.55, parked.height * 0.32), z: parked.width / 2 - 0.05 } });
   }
   await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
+  const missions = new MissionSystem({ router: straightRouter, storage });
+  void startScreen.closed.then(() => missions.begin());
 
   let mode: 'foot' | 'car' = 'foot';
   let drivenId: string | null = null;

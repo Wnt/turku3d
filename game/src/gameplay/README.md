@@ -23,7 +23,8 @@ Story, locations, economy and the state machine are specified in
 the start screen), asks `missions.mayDrive(id)` before entering a vehicle, caps the player's car at
 bicycle speed when the bicycle is owned, and moves the player's car to the dealer kerb after a
 purchase. The interaction button is the `mission` input action (Xbox A / keyboard E); targets act
-within 3 m. The start screen shows the intro lines while `missions.isNewGame`.
+within 3 m. The start screen shows the intro lines unless `hasSavedGame(localStorage)`, and
+`missions.begin()` runs when it closes.
 `window.__game.missions` and `__game.state().missions` expose the system and a snapshot for tests.
 
 ### Adding a delivery

@@ -96,6 +96,11 @@ function parseSave(raw: string | null): MissionSave {
   }
 }
 
+/** Whether the store holds a started game; the start screen shows the intro only for a new game. */
+export function hasSavedGame(storage: KeyValueStore | null): boolean {
+  return parseSave(storage?.getItem(SAVE_KEY) ?? null).phase !== 'idle';
+}
+
 export class MissionSystem implements MissionHudSource {
   private s: MissionSave;
   private queue: { id: string; left: number }[] = [];
@@ -115,8 +120,6 @@ export class MissionSystem implements MissionHudSource {
   get money(): number { return this.s.money; }
   get licence(): boolean { return this.s.licence; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
-  /** True until begin() starts a new game: the start screen shows the intro then. */
-  get isNewGame(): boolean { return this.s.phase === 'idle'; }
   get currentDelivery(): Delivery { return DELIVERIES[this.s.delivery % DELIVERIES.length]; }
   snapshot() {
     return { ...this.s, address: this.currentDelivery.address, dialogue: this.queue.map(q => q.id), hud: this.hud };
