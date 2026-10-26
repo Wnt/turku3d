@@ -52,6 +52,37 @@ pass the traversal check. The real AOI passes **135/135** Rapier probes: 29/29
 walls, 90/90 fences, 14/14 quays and 2/2 stair traversals. **64** remaining
 issues concern stair reconstruction and survey/ground evidence.
 
+## Final measured state at the timebox
+
+The final run on committed code again passes **135/135** Rapier probes but
+reports **64** producer evidence issues, so the structures manifest remains
+unaccepted and assembly correctly stops. One surveyed stair flight is built
+and passes ascent/descent. The remaining issues are:
+
+| Evidence gap | Count |
+| --- | ---: |
+| Stair landing independent lidar residual above 5 cm | 27 |
+| Too few landing lidar samples | 11 |
+| Measured rise below 5 cm | 8 |
+| Isolated stair survey line | 5 |
+| Ground contact missing at water/coverage gaps | 4 |
+| Wall-top independent lidar residual above 10 cm | 4 |
+| Bent/short stair survey line | 3 |
+| Inconsistent flight width | 1 |
+| Stair landing contact gap above 2 cm | 1 |
+
+Sampling city stair landings up to 0.75 m beyond surveyed nosings, enlarging
+sparse lidar search to 0.8 m, filtering the original sample toward class 2,
+and using class 2 alone all left one accepted flight and 64 issues. Those
+experiments were reverted; neither the 5 cm lidar nor 2 cm contact limit was
+relaxed. Four OSM wall/fence/retaining-wall records lack dry ground contact;
+four untagged OSM walls on near-level ground have no reliable lidar top.
+
+The layer currently adds 22–55 visual meshes per L0 tile and 22–58 kB of
+brotli-compressed GLB bytes per tile. Combined draw and 8 MB tile budgets,
+street-level screenshots on WebGPU/WebGL2, and the shipped collision sweep
+remain unverified because assembly requires an accepted structures manifest.
+
 ## Initial baseline
 
 Measured 2026-10-26 in the `fix-structures-in-main` sandbox against the
