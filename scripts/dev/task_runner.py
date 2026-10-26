@@ -16,6 +16,7 @@ from pathlib import Path
 import coordination as coord
 import host_slots
 import live_build
+import queue_sweep
 import sandbox as s
 
 
@@ -616,9 +617,11 @@ def precheck(name, base="main"):
         env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
         env["TURKU3D_VERIFY_BASE"] = base
         gate_log = path / "precheck-gate.log"
+        # A red full sweep admits a branch touching its held domains only with full-gate proof.
+        scope = ["--all"] if queue_sweep.held(repo) else []
         start = time.monotonic()
         result = s.run_group(
-            [str(repo / "scripts/dev/gate"), "--base", base, "--json"], cwd=repo, env=env
+            [str(repo / "scripts/dev/gate"), "--base", base, *scope, "--json"], cwd=repo, env=env
         )
         gate_log.write_text(result.stdout)
         if result.returncode:

@@ -70,7 +70,8 @@ def ready(record):
         meta = s.read_json(s.tasks_root() / name / "meta.json", {})
         if meta.get("state") == "done" and meta.get("exit_code") == 0:
             try:
-                if queue_sweep.blocked(s.sandbox(name) / "repo", record):
+                receipt = s.read_json(s.tasks_root() / name / "precheck.json", {})
+                if queue_sweep.blocked(s.sandbox(name) / "repo", receipt):
                     continue
             except ValueError:
                 continue

@@ -659,7 +659,10 @@ verified prefixes and records each successful member in `landed.jsonl`.
 After each pointer swap, `queue_sweep.py` checks the full gate and live area from its own sandbox
 in the background. Its status is in `wt/.registry/queue-sweep.json` and `queue status`; a red
 sweep creates a fix task and holds queue members touching the changed source domain until a
-green sweep clears it. The sweep does not delay publication of the verified prefix.
+green sweep clears it. While a hold covers a branch, `codex-task precheck` runs `gate --all`
+and records `full_gate: true` in the receipt; the queue admits a held branch whose receipt is a
+green full gate and live build on its current head over current main, so the fix lands and
+its own sweep clears the hold. The sweep does not delay publication of the verified prefix.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA

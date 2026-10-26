@@ -49,6 +49,7 @@ def create(repo, published, work, gate, build, base="main"):
         "checks": checks,
         "release_id": release_id,
         "artifact_hash": artifact_hash(release),
+        "full_gate": bool(gate.get("full")),
         "gate_stages": {
             row["name"]: {
                 "seconds": row["seconds"],

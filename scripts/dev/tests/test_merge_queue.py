@@ -71,8 +71,18 @@ class QueueTests(unittest.TestCase):
                     },
                 ) as create,
             ):
-                with contextlib.redirect_stdout(io.StringIO()):
+                with (
+                    contextlib.redirect_stdout(io.StringIO()),
+                    patch.object(task_runner.queue_sweep, "held", return_value=False),
+                ):
                     task_runner.precheck("worker")
+                self.assertNotIn("--all", run.call_args.args[0])
+                with (
+                    contextlib.redirect_stdout(io.StringIO()),
+                    patch.object(task_runner.queue_sweep, "held", return_value=True),
+                ):
+                    task_runner.precheck("worker")
+                self.assertIn("--all", run.call_args.args[0])
             self.assertEqual(run.call_args.args[0][-1], "--json")
             self.assertEqual(create.call_args.args[3], gate)
             self.assertEqual(json.loads((task / "precheck.json").read_text())["release_id"], "key")
@@ -93,6 +103,29 @@ class QueueTests(unittest.TestCase):
                 patch.object(queue_sweep.s, "git", return_value="pipeline/turku3d/a.py"),
             ):
                 self.assertFalse(queue_sweep.blocked(root, {}))
+
+    def test_held_branch_lands_only_with_full_gate_on_its_head(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state = root / ".registry/queue-sweep.json"
+            state.parent.mkdir()
+            state.write_text(json.dumps({"blocked_domains": ["scripts/dev"]}))
+
+            def git(*args, cwd):
+                return {
+                    ("rev-parse", "HEAD"): "head",
+                    ("rev-parse", "main"): "main",
+                }.get(args, "scripts/dev/gate_fixtures.py")
+
+            full = {"full_gate": True, "head": "head", "main": "main"}
+            with (
+                patch.object(queue_sweep.s, "root", return_value=root),
+                patch.object(queue_sweep.s, "git", side_effect=git),
+            ):
+                self.assertFalse(queue_sweep.blocked(root, full))
+                self.assertTrue(queue_sweep.blocked(root, {**full, "full_gate": False}))
+                self.assertTrue(queue_sweep.blocked(root, {**full, "head": "older"}))
+                self.assertTrue(queue_sweep.blocked(root, {**full, "main": "older"}))
 
     def test_red_full_sweep_opens_fix_once_and_holds_area(self):
         with tempfile.TemporaryDirectory() as temp:

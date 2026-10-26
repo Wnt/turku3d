@@ -376,6 +376,7 @@ def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False
     results.sort(key=lambda r: order.get(r["name"], -1))
     report = {
         "changed": changed,
+        "full": full,
         "stages": results,
         "seconds": round(time.monotonic() - start, 3),
         "ok": all(r["status"] != "FAIL" for r in results),

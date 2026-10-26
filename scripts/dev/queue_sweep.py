@@ -21,12 +21,28 @@ def domains(paths):
     return sorted({"/".join(name.split("/")[:2]) for name in paths})
 
 
-def blocked(repo, record):
+def held(repo):
+    """Whether a red sweep holds a source domain this branch touches."""
     holds = set(s.read_json(path(), {}).get("blocked_domains", []))
     if not holds:
         return False
     changed = s.git("diff", "--name-only", "main...HEAD", cwd=repo).splitlines()
     return "*" in holds or bool(holds.intersection(domains(changed)))
+
+
+def blocked(repo, receipt):
+    """Hold a branch unless its receipt proves a full sweep on its head over current main.
+
+    Precheck escalates to the full gate while held, so the branch that fixes a red
+    sweep lands with the same proof the sweep needs instead of waiting on itself.
+    """
+    if not held(repo):
+        return False
+    return not (
+        receipt.get("full_gate")
+        and receipt.get("head") == s.git("rev-parse", "HEAD", cwd=repo)
+        and receipt.get("main") == s.git("rev-parse", "main", cwd=repo)
+    )
 
 
 def start():
