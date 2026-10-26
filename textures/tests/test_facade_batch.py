@@ -6,7 +6,9 @@ import pytest
 from PIL import Image
 from turkutex import building_jobs as jobs
 from turkutex.facade_batch import asset_path, metric_size, report, validate_inventory
+from turkutex.facade_generated_qa import audit
 from turkutex.paths import streetview_dir, textures_data_dir, tools_dir
+from turkutex.post.pipeline import sha
 from turkutex.streetview.facades import Facade, read_footprints, save_facades
 from turkutex.streetview.panos import PanoCache
 from turkutex.streetview.refs import rectified_points
@@ -69,6 +71,104 @@ def test_generate_jobs_use_metric_wall_and_reference_without_labels(tmp_path):
     assert "11 bays" in generated[0]["vars"]["bay_instruction"]
     assert len(generated[0]["images"]) == 3  # rectified, outline, extreme-aspect guide
     assert generated[1]["meta"]["kind"] == "generate"
+
+
+def test_generate_feedback_regenerates_only_rejected_walls_with_reason(tmp_path):
+    _, path, refs = inventory(tmp_path)
+    first = jobs.generate_jobs(path, refs)
+    retry = jobs.generate_jobs(path, refs, feedback={"wall_b": "Three storeys instead of two."})
+    assert [job["id"] for job in retry] == ["wall_b.generate"]
+    assert "Three storeys instead of two." in retry[0]["vars"]["retry_instruction"]
+    assert first[1]["vars"]["retry_instruction"] == ""
+
+
+def test_visual_qa_reviews_exact_generated_bytes_against_used_references(tmp_path):
+    _, path, refs = inventory(tmp_path)
+    primary = tmp_path / "images" / "00.png"
+    primary.parent.mkdir()
+    Image.new("RGB", (40, 20), "#a05030").save(primary)
+    records = [
+        {
+            "id": "wall_a.generate",
+            "ok": True,
+            "key": "k",
+            "primary": str(primary),
+            "meta": {"kind": "generate", "views_used": ["wall_a_view"]},
+        },
+        {"id": "wall_b.generate", "ok": False, "key": "k2", "primary": None, "meta": {}},
+    ]
+    out = tmp_path / "run_generate" / "out.jsonl"
+    out.parent.mkdir()
+    out.write_text("".join(json.dumps(r) + "\n" for r in records))
+    generated = tmp_path / "generated"
+    qa = jobs.visual_qa_jobs(path, refs, out, generated)
+    assert [job["id"] for job in qa] == ["wall_a.visualqa"]
+    assert (generated / "wall_a.png").read_bytes() == primary.read_bytes()
+    assert qa[0]["images"] == [
+        str(generated / "wall_a.png"),
+        str(refs / "wall_a/wall_a_view_rectified.jpg"),
+    ]
+    assert qa[0]["schema"].endswith("facade_visual_qa.schema.json")
+    assert qa[0]["meta"] == {
+        "kind": "generated_visual_qa",
+        "facade_id": "wall_a",
+        "generate_key": "k",
+        "views": ["wall_a_view"],
+    }
+
+
+def test_generated_audit_measures_guided_content_and_storeys(tmp_path):
+    fs, path, refs = inventory(tmp_path)
+    staging, generated = tmp_path / "staging", tmp_path / "generated"
+    generated.mkdir()
+    # wall_a is 40 x 5 m: an 8:1 wall drawn inside a white layout-guide canvas.
+    image = Image.new("RGB", (1536, 1024), "white")
+    image.paste(Image.new("RGB", (1456, 182), "#a05030"), (40, 421))
+    image.save(generated / "wall_a.png")
+    sidecar = asset_path(fs[0], staging).with_suffix(".json")
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text(
+        json.dumps(
+            {
+                "references": [{"pano_id": "p"}],
+                "hashes": {},
+                "qa": {
+                    "scale_relative_error": 0,
+                    "content_aspect_error": 0,
+                    "gltf_basisu_valid": True,
+                },
+            }
+        )
+    )
+    answer = {
+        "facade_id": "wall_a",
+        "storeys": 2,
+        "expected_storeys": 1,
+        "upper_openings": 11,
+        "expected_upper_openings": 11,
+        "grid_matches": True,
+        "orthographic": True,
+        "foreign_objects": [],
+        "clean": True,
+    }
+    qa = tmp_path / "qa.jsonl"
+    qa.write_text(
+        json.dumps(
+            {
+                "id": "wall_a.visualqa",
+                "answer": answer,
+                "inputs": [{"name": "wall_a.png", "sha256": sha(generated / "wall_a.png")}],
+            }
+        )
+        + "\n"
+    )
+    rows = {r["facade_id"]: r for r in audit(path, refs, generated, staging, qa)}
+    assert rows["wall_a"]["problems"] == ["storey count mismatch"]
+    answer["expected_storeys"] = 2
+    qa.write_text(qa.read_text().replace('"expected_storeys": 1', '"expected_storeys": 2'))
+    rows = {r["facade_id"]: r for r in audit(path, refs, generated, staging, qa)}
+    assert rows["wall_a"]["accepted"]
+    assert json.loads(sidecar.read_text())["source_mode"] == "generate"
 
 
 def test_generated_report_requires_opening_and_foreign_object_review(tmp_path):

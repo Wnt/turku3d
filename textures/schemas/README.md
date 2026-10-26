@@ -6,3 +6,7 @@ Bay counts from Codex are a prior only; take them from lidar or the footprint wh
 `building_label.schema.json` wraps the existing facade schema in a strict building object with
 `building_id` and `facades`. AOI production checks both JSON Schema and returned facade IDs.
 Geometry dimensions/bay counts remain authoritative over visual label priors.
+
+`facade_visual_qa.schema.json` v1 is the generated-facade review: storey and upper-row opening
+counts in the generated image and in the references, grid/orthographic/clean verdicts and foreign
+objects. `turkutex.facade_generated_qa` accepts a generated wall only when all of them agree.

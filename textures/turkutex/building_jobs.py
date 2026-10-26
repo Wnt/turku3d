@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from .jobs import _views
@@ -233,9 +234,16 @@ def improve_jobs(facades_path: Path, refs_root: Path, labels_out: Path) -> list[
 
 
 def generate_jobs(
-    facades_path: Path, refs_root: Path, labels_out: Path | None = None
+    facades_path: Path,
+    refs_root: Path,
+    labels_out: Path | None = None,
+    feedback: dict[str, str] | None = None,
 ) -> list[dict]:
-    """Build reference-led, fully generated elevations without depending on a label pass."""
+    """Build reference-led, fully generated elevations without depending on a label pass.
+
+    ``feedback`` maps facade IDs to the rejection reason of a previous image. Only those
+    walls get a job, and the reason becomes part of the prompt (and so of the cache key).
+    """
     specs = labels(labels_out) if labels_out is not None else {}
     fragments = {
         k: (PROMPTS_DIR / "fragments" / f"{k}.md").read_text().strip()
@@ -244,6 +252,8 @@ def generate_jobs(
     result = []
     for f in load_facades(facades_path):
         if not f.props.get("street_facing", True) or not reference_matches(f, refs_root):
+            continue
+        if feedback is not None and f.id not in feedback:
             continue
         d = refs_root / f.id
         views = [v for v in _views(d) if v.get("part") == "full"][:3]
@@ -278,6 +288,12 @@ def generate_jobs(
                         if guide
                         else ""
                     ),
+                    "retry_instruction": (
+                        "A previous image of this wall was rejected in review: "
+                        f"{feedback[f.id]} Correct that while following every rule below."
+                        if feedback
+                        else ""
+                    ),
                     **fragments,
                 },
                 "images": images,
@@ -292,6 +308,53 @@ def generate_jobs(
                     "height_m": f.height_m,
                     "bay_count": count,
                     "views_used": [v["view_id"] for v in views],
+                },
+            }
+        )
+    return result
+
+
+def visual_qa_jobs(facades_path: Path, refs_root: Path, generate_out: Path, generated: Path):
+    """One strict-schema review per generated wall, comparing its exact bytes to references.
+
+    The reviewed image is copied to ``generated/<facade_id>.png``; the acceptance audit
+    later proves that the review saw those bytes.
+    """
+    records = latest(generate_out)
+    result = []
+    for f in load_facades(facades_path):
+        record = records.get(f"{f.id}.generate", {})
+        if not record.get("ok") or not record.get("primary") or not reference_matches(f, refs_root):
+            continue
+        d = refs_root / f.id
+        used = record["meta"]["views_used"]
+        views = [v for v in _views(d) if v["view_id"] in used][:2]
+        if not views:
+            continue
+        image = generated / f"{f.id}.png"
+        image.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(record["primary"], image)
+        result.append(
+            {
+                "id": f"{f.id}.visualqa",
+                "prompt_file": str(PROMPTS_DIR / "facade_visual_qa.md"),
+                "vars": {
+                    "facade_id": f.id,
+                    "width_m": f"{f.length:.3f}",
+                    "height_m": f"{f.height_m:.3f}",
+                    "aspect": f"{f.length / f.height_m:.4f}:1",
+                    "reference_count": str(len(views)),
+                },
+                "images": [str(image)] + [str(d / v["files"]["rectified"]) for v in views],
+                "schema": str(SCHEMAS_DIR / "facade_visual_qa.schema.json"),
+                "expect_images": 0,
+                "timeout": 900,
+                "prompt_version": "facade-visual-qa-v1",
+                "meta": {
+                    "kind": "generated_visual_qa",
+                    "facade_id": f.id,
+                    "generate_key": record["key"],
+                    "views": [v["view_id"] for v in views],
                 },
             }
         )

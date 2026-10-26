@@ -10,6 +10,7 @@ from PIL import Image
 
 from .building_jobs import latest, reference_matches
 from .facade_batch import asset_path, write_json
+from .post.frame import facade_content_box
 from .post.pipeline import sha
 from .streetview.facades import load_facades
 
@@ -38,7 +39,9 @@ def audit(
         if not problems:
             meta = json.loads(sidecar.read_text())
             with Image.open(source) as image:
-                aspect = image.width / image.height
+                # Extreme walls are drawn inside a layout guide; its white margin is not wall.
+                left, top, right, bottom = facade_content_box(image)
+                aspect = (right - left) / (bottom - top)
             wall_aspect = facade.length / facade.height_m
             aspect_error = max(aspect / wall_aspect, wall_aspect / aspect) - 1
             if aspect_error > 0.03 or meta["qa"]["content_aspect_error"] > 0.03:
@@ -61,6 +64,10 @@ def audit(
                 problems.append("window or ground-opening grid mismatch")
             if answer.get("upper_openings") != answer.get("expected_upper_openings"):
                 problems.append("upper opening count mismatch")
+            if answer.get("storeys") != answer.get("expected_storeys"):
+                problems.append("storey count mismatch")
+            if not answer.get("orthographic"):
+                problems.append("generated image is not an orthographic elevation")
             if not answer.get("clean") or answer.get("foreign_objects"):
                 problems.append("large foreground or foreign object detected")
             if not problems:

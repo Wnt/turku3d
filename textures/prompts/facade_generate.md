@@ -7,6 +7,7 @@ $label_instruction
 
 Draw a perfectly orthographic, evenly lit architectural elevation filling the wall rectangle edge to edge. Reconstruct the observed cladding, window and door positions, storey count, trim, cornice and plinth. Preserve unique openings rather than repeating a convenient bay. Generate every surface pixel anew. Remove people, vehicles, signs, poles, trees, awnings from other buildings, street reflections, cast shadows, neighbouring structures and any perspective. No ground or sky, border, text or watermark.
 $layout_instruction
+$retry_instruction
 $albedo_rules
 $style
 

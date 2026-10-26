@@ -488,7 +488,8 @@ def log_usage(run: Path, stage: str):
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "stage", choices=["refs", "label", "improve", "generate", "post", "report", "all"]
+        "stage",
+        choices=["refs", "label", "improve", "generate", "visualqa", "post", "report", "all"],
     )
     ap.add_argument("facades", type=Path)
     ap.add_argument("--run", type=Path, default=textures_data_dir("aoi"))
@@ -503,7 +504,14 @@ def main(argv=None) -> int:
     ap.add_argument("--max-side", type=int, default=2048)
     ap.add_argument("--ppm", type=float, default=64)
     ap.add_argument("--mode", choices=["improve", "generate"], default="improve")
+    ap.add_argument(
+        "--feedback",
+        type=Path,
+        help="generate: JSON {facade_id: rejection reason}; regenerate only those walls once",
+    )
     a = ap.parse_args(argv)
+    if a.feedback and a.stage != "generate":
+        ap.error("--feedback applies only to the generate stage")
     if not 1 <= a.ref_max_views <= 12:
         ap.error("--ref-max-views must be between 1 and 12")
     facades = validate_inventory(a.facades, a.output)
@@ -546,11 +554,12 @@ def main(argv=None) -> int:
                             }
                         )
                         print(f"{f.id}: reference failed ({type(exc).__name__})", flush=True)
-        elif stage in ("label", "improve", "generate"):
+        elif stage in ("label", "improve", "generate", "visualqa"):
             builder = {
                 "label": jobs.label_jobs,
                 "improve": jobs.improve_jobs,
                 "generate": jobs.generate_jobs,
+                "visualqa": jobs.visual_qa_jobs,
             }[stage]
             args = [a.facades, a.refs] + (
                 [a.run / "run_label/out.jsonl"] if stage == "improve" else []
@@ -558,6 +567,9 @@ def main(argv=None) -> int:
             if stage == "generate":
                 label_path = a.run / "run_label/out.jsonl"
                 args.append(label_path if label_path.exists() else None)
+                args.append(json.loads(a.feedback.read_text()) if a.feedback else None)
+            if stage == "visualqa":
+                args += [a.run / "run_generate/out.jsonl", a.run / "generated"]
             job_path = a.run / f"{stage}_jobs.jsonl"
             _write(builder(*args), job_path)
             log_usage(a.run, stage + "_before")
