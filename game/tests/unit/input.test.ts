@@ -65,6 +65,9 @@ test('hot plug, edge actions, tap/hold sprint, focus clearing and unsupported ru
   pads = []; input.update(0.01); expect(input.source).toBe('keyboard'); expect(input.actions.moveY).toBe(0);
   const key = (type: string) => { const e = new Event(type); Object.assign(e, { code: 'KeyF', repeat: false }); events.dispatchEvent(e); };
   key('keydown'); key('keyup'); input.update(0.01); expect(input.consume('interact')).toBe(true);
+  key('keydown'); input.update(0.01); expect(input.consume('interact')).toBe(true);
+  key('keyup'); key('keydown'); key('keyup'); input.update(0.01);
+  expect(input.consume('interact'), 'a tap after a held frame must remain an edge').toBe(true);
   key('keydown'); events.dispatchEvent(new Event('blur')); input.update(0.01); expect(input.consume('interact')).toBe(false);
   input.dispose();
 });

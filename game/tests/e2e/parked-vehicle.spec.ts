@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { isolatedTest as test, expect } from './fixtures';
 import { Document, NodeIO } from '@gltf-transform/core';
 
 test('walk to a parked car, use Xbox Y, drive 20 m, and exit', { tag: ['@drive', '@input'] }, async ({ page }, info) => {

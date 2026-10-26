@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, isolatedTest as test } from './fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';

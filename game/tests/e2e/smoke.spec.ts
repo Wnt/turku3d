@@ -3,26 +3,12 @@ import path from 'node:path';
 // Smoke test, both backends: page loads without console errors, the dummy tile renders, the player walks
 // forward >= 5 m, the 3D Tiles frame is correct (NE marker at +x/-z), QA camera mode reports ready.
 // Screenshots go to $TURKU3D_WORK/reports/screenshots/.
-import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
+import { isolatedTest as test, expect, type Page, type ConsoleMessage } from './fixtures';
 import fs from 'node:fs';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
-// Isolate input focus from other parallel Chrome windows on the shared Mac.
-test.beforeEach(async ({ page }) => {
-  const session = await page.context().newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-});
-
 const SHOTS = path.join(reportsRoot, 'screenshots');
 fs.mkdirSync(SHOTS, { recursive: true });
-
-// Keyboard routes must be independent of physical controllers connected to the shared host.
-// Controller routes provide their own virtual gamepad in gamepad.spec.ts.
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'getGamepads', { value: () => [] });
-  });
-});
 
 function watchConsole(page: Page) {
   const bad: string[] = [];

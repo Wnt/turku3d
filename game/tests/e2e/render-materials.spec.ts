@@ -1,5 +1,5 @@
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
-import { test, expect, type Page } from '@playwright/test';
+import { isolatedTest as test, expect, type Page } from './fixtures';
 import type { Scene, RenderTarget } from 'three/webgpu';
 import fs from 'node:fs';
 

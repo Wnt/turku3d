@@ -59,7 +59,9 @@ export class Input {
     const taps = mapActions(null, this.tapped, this.bindings);
     this.tapped.clear();
     this.edges.clear();
-    for (const a of ACTIONS) if ((next[a] > 0.5 || taps[a] > 0.5) && this.actions[a] <= 0.5) this.edges.add(a);
+    // A full key press/release can happen between frames. Its next press is a new edge
+    // even if the previous frame still recorded the key as held.
+    for (const a of ACTIONS) if (taps[a] > 0.5 || (next[a] > 0.5 && this.actions[a] <= 0.5)) this.edges.add(a);
     // A tap grants a short sprint burst; holding A sustains it. Releasing movement cancels it.
     if (this.edges.has('sprint')) this.sprintUntil = this.time + 0.45;
     if (Math.hypot(next.moveX, next.moveY) < 0.01) this.sprintUntil = 0;

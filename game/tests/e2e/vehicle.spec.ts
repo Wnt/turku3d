@@ -1,13 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { isolatedTest as test, expect } from './fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
-
-// Isolate input focus from other parallel Chrome windows on the shared Mac.
-test.beforeEach(async ({ page }) => {
-  const session = await page.context().newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-});
 
 const SHOTS = path.join(reportsRoot, 'screenshots');
 

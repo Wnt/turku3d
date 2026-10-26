@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { isolatedTest as test, expect } from './fixtures';
 import { PNG } from 'pngjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,8 +7,6 @@ import { reportsRoot } from '../../../tools/dev/environment.mjs';
 type Sample = { frame: number; time: number; x: number; y: number };
 
 test('turning around a moving car and walker keeps actor edges in one screen position', { tag: ['@drive', '@character', '@render'] }, async ({ page }, info) => {
-  const session = await page.context().newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.addInitScript(() => {
     const w = window as any;
     w.pad = { id: 'Xbox Wireless Controller (virtual)', index: 0, connected: true, mapping: 'standard',
@@ -30,7 +28,7 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
   await page.waitForFunction(() => (window as any).__game.state().mode === 'car');
   await button(3, 0);
 
-  const record = async (mode: 'car' | 'foot'): Promise<Sample[]> => page.evaluate(async mode => {
+  const record = async (mode: 'car' | 'foot'): Promise<{ samples: Sample[]; image: string }> => page.evaluate(async mode => {
     const w = window as any;
     const samples: Sample[] = [];
     const project = (p: number[]) => {
@@ -44,21 +42,24 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
       const clipW = q[3] * x + q[7] * y + q[11] * z + q[15];
       return [(clipX / clipW + 1) * innerWidth / 2, (1 - clipY / clipW) * innerHeight / 2];
     };
-    await new Promise<void>(resolve => {
+    const image = await new Promise<string>(resolve => {
       w.__render.afterFrame = () => {
         const state = w.__game.state();
         const p = mode === 'car' ? state.visualVehicle : state.visualFeet;
         const [x, y] = project([p[0], p[1] + (mode === 'car' ? 0.9 : 1.6), p[2]]);
         samples.push({ frame: samples.length, time: performance.now(), x, y });
-        if (samples.length >= 90) { w.__render.afterFrame = undefined; resolve(); }
+        if (samples.length >= 90) {
+          w.__render.afterFrame = undefined;
+          resolve(w.__render.renderer.domElement.toDataURL('image/png'));
+        }
       };
     });
-    return samples;
+    return { samples, image };
   }, mode);
   await button(7, 0.35);
   await axis(2, 0.7);
-  const car = await record('car');
-  const carImage = PNG.sync.read(await page.screenshot());
+  const { samples: car, image: carData } = await record('car');
+  const carImage = PNG.sync.read(Buffer.from(carData.split(',')[1], 'base64'));
   await button(7, 0);
   await axis(2, 0);
   await button(3, 1);
@@ -66,8 +67,8 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
   await button(3, 0);
   await axis(0, 0.7);
   await axis(2, 0.7);
-  const walker = await record('foot');
-  const walkerImage = PNG.sync.read(await page.screenshot());
+  const { samples: walker, image: walkerData } = await record('foot');
+  const walkerImage = PNG.sync.read(Buffer.from(walkerData.split(',')[1], 'base64'));
   const shots = path.join(reportsRoot, 'screenshots');
   fs.mkdirSync(shots, { recursive: true });
   fs.writeFileSync(path.join(shots, `${info.project.name}-motion-walker.png`), PNG.sync.write(walkerImage));
@@ -90,8 +91,12 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
       const i = (y * image.width + x) * 4;
       const [r, g, b] = image.data.subarray(i, i + 3);
       const primary = color === 'red' ? r : g, secondary = color === 'red' ? g : r;
-      if (primary > secondary * 1.16 && primary > b * (color === 'red' ? 1.08 : 0.85))
-        (primary - secondary > (color === 'red' ? 18 : 12) ? strong : faint).push(x);
+      if (primary > secondary * 1.16 && primary > b * (color === 'red' ? 1.08 : 0.85)) {
+        if (primary - secondary > (color === 'red' ? 18 : 12)) strong.push(x);
+        // Faint blue pavement can satisfy the broad visibility mask; a green
+        // history fringe still needs more green than blue at its edge.
+        else if (color === 'red' || g >= b) faint.push(x);
+      }
     }
     expect(strong.length, `${name} visible color`).toBeGreaterThan(1000);
     const left = Math.min(...strong), right = Math.max(...strong);

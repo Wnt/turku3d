@@ -106,7 +106,7 @@ CC0 Quaternius UAL Standard is extended with `Walk_Formal_Loop` for the slower s
 # From the repository root; no real tiles, controller, network or API keys needed.
 make game-test                         # synthetic unit tests, normally <2 s
 make game-build                        # typecheck + production bundle
-make game-e2e             # full Chrome suite, WebGPU + WebGL2, two workers
+make game-e2e             # full Chrome suite, WebGPU + WebGL2, sandbox worker count
 # Focused virtual-controller routes after building:
 cd game
 npx playwright test tests/e2e/gamepad.spec.ts
@@ -114,7 +114,7 @@ npx playwright test tests/e2e/motion.spec.ts --workers=2  # rotating camera, bot
 npm run dev
 ```
 
-Source `../sandbox.env` from the repository root first. Dev uses `TURKU3D_PORT_BASE`; Playwright uses base +1. Playwright launches isolated temporary Chrome profiles and does not reuse an existing server. Unit tests cover radial curves, standard mappings, bindings/glyphs, focus/hot-plug/rumble, 120/240 Hz interpolation, two-bone IK, pelvis adjustment, 7/12/15 cm curbs, query treads, jump buffering and the 35 cm blocking boundary. The virtual controller is injected by overriding `navigator.getGamepads` in Playwright; routes cover curb traversal, stair ascent/descent with measured ankle targets, camera, jumping, pause, disconnect/reconnect and enter/drive/reverse/exit. Stair screenshots are in `$TURKU3D_WORK/reports/screenshots/*-stair-ik.png`. Physical Elite vibration and subjective feel still need a hardware play session.
+Source `../sandbox.env` from the repository root first. Dev uses `TURKU3D_PORT_BASE`; Playwright uses base +1. Playwright launches isolated temporary Chrome profiles and does not reuse an existing server. Every game e2e context emulates focus and replaces `navigator.getGamepads` before navigation, so tests never read a host controller; controller routes install a virtual Xbox. Unit tests cover radial curves, standard mappings, bindings/glyphs, rapid keyboard taps, focus/hot-plug/rumble, 120/240 Hz interpolation, two-bone IK, pelvis adjustment, 7/12/15 cm curbs, query treads, jump buffering and the 35 cm blocking boundary. Virtual-controller routes cover curb traversal, stair ascent/descent with measured ankle targets, camera, jumping, pause, disconnect/reconnect and enter/drive/reverse/exit. Stair screenshots are in `$TURKU3D_WORK/reports/screenshots/*-stair-ik.png`. Physical Elite vibration and subjective feel still need a hardware play session.
 
 ## URL parameters
 

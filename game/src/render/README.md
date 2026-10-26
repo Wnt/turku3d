@@ -158,7 +158,7 @@ npm --prefix game run build
 The test drives the actual worker-controlled sedan at 10–20 m/s on the synthetic development tile, captures 20
 consecutive frames from each of two roadside views, and reads GPU motion at a visible roof point. It compares the
 history lookup against the previous projected physics position (maximum error 1.25 pixels), for both signs of motion
-and both backends. Frame IDs ensure that capture skips no rendered frames. The camera is held fixed during these
+and both backends. Projected positions and GPU velocity pixels are sampled in the same render callback; frame IDs ensure that capture skips no rendered frames. The camera is held fixed during these
 captures to isolate object motion from asynchronous chase-camera collision queries; vehicle and wheel updates use
 the normal play path. PNG sequences and motion JSON are saved under `$TURKU3D_WORK/reports/car-ghost/after/`.
 `GHOST_CAPTURE=before` selects a separate evidence directory for a baseline run. The test asserts actual motion and

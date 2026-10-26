@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { isolatedTest as test, expect } from './fixtures';
 
 test('@render HiDPI SSE follows output pixels after resize and the debug time slider refreshes sunlight', async ({ browser }, info) => {
   const context = await browser.newContext({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 2 });

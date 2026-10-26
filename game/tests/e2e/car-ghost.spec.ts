@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { isolatedTest as test, expect } from './fixtures';
 import { DataUtils } from 'three/webgpu';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +8,6 @@ import { reportsRoot } from '../../../tools/dev/environment.mjs';
 // quantised velocity leaves old body/wheel edges behind even when a still screenshot looks OK.
 test('car history follows signed motion at driving speed', { tag: ['@drive', '@render'] }, async ({ page }, info) => {
   await page.setViewportSize({ width: 960, height: 540 });
-  await page.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
@@ -37,38 +36,38 @@ test('car history follows signed motion at driving speed', { tag: ['@drive', '@r
     const r = window.__render!, g = window.__game as any;
     const scene = g.tiles.tiles.group.parent, car = scene.getObjectByName('car');
     const original = r.renderer.render.bind(r.renderer);
-    let target: any, position: any, focus: any;
+    let position: any, focus: any, pending: any[] | null = null, complete: (() => void) | null = null;
     // Fixed roadside views isolate object motion from camera-follow latency. Both signs matter:
     // an unsigned attachment clamps leftward motion and rounds rightward motion to whole bytes.
     r.renderer.render = (s, c) => {
       if (s === scene) { c.position.copy(position); c.lookAt(focus); c.updateMatrixWorld(); }
       original(s, c);
       const rt = r.renderer.getRenderTarget();
-      if (s === scene && rt?.textures.some(t => t.name === 'velocity')) target = rt;
+      if (s !== scene || !rt?.textures.some(t => t.name === 'velocity') || !pending) return;
+      // Read the velocity attachment and projected pose from the same render, rather
+      // than sampling from a separate animation callback whose order can change.
+      const state = g.state(), p = car.position.clone();
+      p.y += 0.65; p.project(c);
+      const x = (p.x + 1) * 480, y = (1 - p.y) * 270;
+      const index = rt.textures.findIndex((t: any) => t.name === 'velocity');
+      const velocity = r.renderer.readRenderTargetPixelsAsync(rt, Math.round(x),
+        backend === 'webgl' ? 539 - Math.round(y) : Math.round(y), 1, 1, index).then(a => Array.from(a));
+      pending.push({ frame: r.renderer.info.frame, speed: state.vehicle.speed, x, y,
+        type: rt.textures[index].type, physics: state.vehicle.pos,
+        previous: g.physics.latest?.previousVehicle?.pos, visual: car.position.toArray(),
+        image: r.renderer.domElement.toDataURL(), velocity });
+      if (pending.length === 24) complete?.();
     };
     const captures = [];
     try {
       for (const side of [-1, 1]) {
         position = car.position.clone().add({ x: side * 10, y: 7, z: 0 });
         focus = car.position.clone().add({ x: 0, y: 0.7, z: 0 });
-        // Drain the view change and establish temporal history before measuring consecutive frames.
-        for (let i = 0; i < 4; i++) await new Promise(requestAnimationFrame);
-        const frames = [], reads: Promise<number[]>[] = [];
-        for (let i = 0; i < 20; i++) {
-          await new Promise(requestAnimationFrame);
-          const state = g.state(), p = car.position.clone();
-          p.y += 0.65; p.project(r.camera); // inside the visible roof, away from silhouette edges
-          const x = (p.x + 1) * 480, y = (1 - p.y) * 270;
-          const index = target.textures.findIndex((t: any) => t.name === 'velocity');
-          reads.push(r.renderer.readRenderTargetPixelsAsync(target, Math.round(x),
-            backend === 'webgl' ? 539 - Math.round(y) : Math.round(y), 1, 1, index).then(a => Array.from(a)));
-          frames.push({ frame: r.renderer.info.frame, speed: state.vehicle.speed, x, y,
-            type: target.textures[index].type, physics: state.vehicle.pos,
-            previous: g.physics.latest?.previousVehicle?.pos, visual: car.position.toArray(),
-            image: r.renderer.domElement.toDataURL() });
-        }
-        const velocities = await Promise.all(reads);
-        captures.push({ side, frames: frames.map((f, i) => ({ ...f, velocity: velocities[i] })) });
+        pending = [];
+        await new Promise<void>(resolve => { complete = resolve; });
+        const frames = pending.slice(4);
+        pending = null;
+        captures.push({ side, frames: await Promise.all(frames.map(async f => ({ ...f, velocity: await f.velocity }))) });
       }
     } finally { r.renderer.render = original; }
     return captures;

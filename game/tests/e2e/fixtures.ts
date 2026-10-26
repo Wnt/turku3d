@@ -16,10 +16,19 @@ declare global {
   }
 }
 export const gameState = (page: Page) => page.evaluate(() => (window.__game!.state as () => GameState)());
+export const isolatedTest = base.extend<{ isolatedInput: void }>({
+  isolatedInput: [async ({ page }, use) => {
+    // Parallel Chrome windows must not steal focus or expose a host controller to a test.
+    const session = await page.context().newCDPSession(page);
+    await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    await page.addInitScript(() => {
+      if (Object.getOwnPropertyDescriptor(navigator, 'getGamepads')?.configurable === false) return;
+      Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [] });
+    });
+    await use();
+  }, { auto: true }],
+});
 export async function installPad(page: Page) {
-  // Every virtual-pad route needs focus isolation from parallel Chrome windows on the shared Mac.
-  const session = await page.context().newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.addInitScript(() => {
     const virtual = { connected: true, axes: [0, 0, 0, 0], buttons: Array<number>(17).fill(0) };
     window.__virtualPad = virtual;
@@ -63,7 +72,7 @@ async function capture(page: Page) {
   });
 }
 
-export const test = base.extend<{ evidence: void }>({
+export const test = isolatedTest.extend<{ evidence: void }>({
   evidence: [async ({ page }, use, info) => {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -85,3 +94,4 @@ export const test = base.extend<{ evidence: void }>({
   }, { auto: true, timeout: 15_000 }],
 });
 export { expect };
+export type { Page, ConsoleMessage } from '@playwright/test';

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, isolatedTest as test } from './fixtures';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
@@ -6,7 +6,6 @@ test('textured player stays framed in third person', { tag: ['@walk'] }, async (
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
   const response = await page.request.get('/assets/character/player.glb');
   expect(response.ok()).toBe(true);
   const asset = await response.body();

@@ -1,5 +1,5 @@
 import { frames, settled } from './waits';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, isolatedTest as test, type Page } from './fixtures';
 import { installPad } from './fixtures';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
