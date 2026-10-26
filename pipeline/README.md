@@ -21,7 +21,9 @@ make collision-sweep                      # headless KCC grid sweep + ortho over
 ```
 
 `make refresh` builds ground, buildings, bridges, props and the ground/facade
-texture bindings. Bridge layers are rebuilt when their declared source hashes
+texture bindings in the sandbox. Before a stale product is rebuilt, a linked sandbox
+directory is copied locally so the producer cannot write into shared live data.
+Bridge layers are rebuilt when their declared source hashes
 or code change. `make tile-build` requires the ground, buildings and bridges
 manifests in the sandbox; run `make refresh` first when one is missing.
 Structures remain a separate `make structures-build` step until its real AOI

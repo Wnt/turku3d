@@ -114,6 +114,40 @@ def run(*args, extra_path=None):
     subprocess.run([sys.executable, "-m", *args], check=True, cwd=C.REPO_ROOT, env=env)
 
 
+def local_directory(path, work):
+    """Detach linked sandbox directories before a producer can write through them."""
+    relative = path.relative_to(work)
+    current = work
+    for part in relative.parts:
+        current = current / part
+        if not current.is_symlink():
+            continue
+        source = current.resolve(strict=True)
+        if not source.is_dir():
+            raise ValueError(f"sandbox directory link is invalid: {current}")
+        temporary = current.with_name(current.name + ".refresh-local")
+        if temporary.exists() or temporary.is_symlink():
+            raise FileExistsError(temporary)
+        if subprocess.call(
+            ["cp", "-cRL", str(source), str(temporary)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ):
+            if temporary.exists():
+                shutil.rmtree(temporary)
+            shutil.copytree(source, temporary)
+        previous = current.with_name(current.name + ".refresh-link")
+        if previous.exists() or previous.is_symlink():
+            raise FileExistsError(previous)
+        os.replace(current, previous)
+        try:
+            os.replace(temporary, current)
+        except Exception:
+            os.replace(previous, current)
+            raise
+        previous.unlink()
+
+
 def ground(layers):
     path = layers / "ground/MANIFEST.json"
     if manifest_current(path, ground_code_hash()):
@@ -123,6 +157,7 @@ def ground(layers):
         inputs = json.loads(path.read_text()).get("inputs", {})
         if "breaklines" in inputs:
             args = ["--breaklines", inputs["breaklines"]["path"]]
+    local_directory(layers / "ground", layers.parents[1])
     run("turku3d.ground.build", *args)
     return "rebuilt"
 
@@ -138,9 +173,11 @@ def buildings(layers):
     expected = hashlib.sha256("".join(sha(p) for p in sources).encode()).hexdigest()
     if manifest_current(layers / "buildings/MANIFEST.json", expected):
         return "cached"
+    local_directory(layers / "buildings", layers.parents[1])
     facade_manifest = layers.parents[1] / "textures/assembly/MANIFEST.json"
     if facade_manifest.exists():
         export = facade_manifest.parent
+        local_directory(export, layers.parents[1])
         with (export / ".export.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if json.loads(facade_manifest.read_text()).get("bound"):
@@ -162,6 +199,7 @@ def outer_buildings(layers):
 
     if manifest_current(layers / "buildings_outer/MANIFEST.json", code_hash()):
         return "cached"
+    local_directory(layers / "buildings_outer", layers.parents[1])
     run("turku3d.buildings.outer")
     return "rebuilt"
 
@@ -173,6 +211,7 @@ def stage_ground_library(textures):
         target = library / f"{name}.array.ktx2"
         source = shared / target.name
         if not target.exists() and source.is_file():
+            local_directory(library, textures.parent)
             library.mkdir(parents=True, exist_ok=True)
             temporary = target.with_suffix(".tmp")
             shutil.copy2(source, temporary)
@@ -214,6 +253,7 @@ def ground_textures(layers, textures):
             current = False
     if current:
         return "cached"
+    local_directory(root, textures.parent)
     args = ["turkutex.ground.build", "--ground-layer", str(layers / "ground"), "--out", str(root)]
     if (
         manifest.exists()
@@ -245,6 +285,7 @@ def facades(layers, textures):
     if set(current) != set(bound) or export_record.get("inventory_sha256") != sha(
         layers / "buildings/facades.geojson"
     ):
+        local_directory(export, textures.parent)
         report = textures.parent / "reports/facade-refresh.json"
         report.parent.mkdir(parents=True, exist_ok=True)
         run(
@@ -275,6 +316,7 @@ def props(layers):
     code = code_hash([C.REPO_ROOT / "pipeline/turku3d/props"])
     if manifest_current(layers / "props/MANIFEST.json", code):
         return "cached"
+    local_directory(layers / "props", layers.parents[1])
     run("turku3d.props", "--area", "phase1")
     return "rebuilt"
 
@@ -293,12 +335,14 @@ def timed(name, operation, *args):
 def bridges(layers):
     if layer_current(layers / "bridges/MANIFEST.json", bridges_code_hash()):
         return "cached"
+    local_directory(layers / "bridges", layers.parents[1])
     run("turku3d.bridges")
     return "rebuilt"
 
 
 def bridge_textures(textures):
     library = textures / "assembly/library"
+    local_directory(library, textures.parent)
     aliases = {
         "bridge_asphalt": "ground_asphalt",
         "bridge_stone": "ground_granite",

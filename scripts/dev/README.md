@@ -119,6 +119,9 @@ checkout, a compare-and-swap `git update-ref` is used. The verified game, tiles,
 are APFS-copied into `$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
 swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
 that link, so the existing :5171 static server serves the verified files without a process restart.
+Preparation dereferences sandbox links and rejects any link left inside a release. Publication checks
+all four stable paths after the swap and restores the previous `live` link if a path does not resolve
+to its directory in the prepared release.
 `~/turku3d/logs/live-version.txt` records the published commit. Do not run `deploy-once.sh`,
 `autodeploy.sh`, or `make refresh` on main after landing: those rebuild unverified artifacts.
 Do not update main outside this orchestrator while landing. A missing gate fails closed; there is no
