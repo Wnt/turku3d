@@ -16,6 +16,7 @@ import { DEFAULT_OPTIONS, validate } from '../src/validate.ts';
 import { htmlReport } from '../src/report.ts';
 import { resolveInputs } from '../src/inputs.ts';
 import { aggregateCurbs, shippedHaloFiles } from '../src/parallel.ts';
+import { sideHeight } from '../src/context.ts';
 
 const fixture = resolve(import.meta.dirname, '../fixtures/good');
 await R.init();
@@ -49,6 +50,15 @@ test('a visual-tile request loads neighboring shipped collision files as physics
     writeFileSync(owned, ''); writeFileSync(neighbor, '');
     assert.deepEqual(shippedHaloFiles([owned]).sort(), [owned, neighbor].sort());
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('curb side height follows cross-fall and ignores one object behind the curb', () => {
+  const slope = (d: number): [number, number] => [d, 3.05 + 0.22 * d];
+  assert.ok(Math.abs(sideHeight([0.1, 0.2, 0.3, 0.45].map(slope)) - 3.05) < 1e-9);
+  const bench: [number, number][] = [slope(0.1), slope(0.2), slope(0.3), [0.45, 3.6]];
+  assert.ok(Math.abs(sideHeight(bench) - 3.05) < 0.01);
+  assert.equal(sideHeight([[0.1, NaN], [0.2, 2]]), 2);
+  assert.ok(Number.isNaN(sideHeight([[0.1, NaN]])));
 });
 
 test('AOI curb acceptance keeps local failures visible and enforces coverage and height error', () => {

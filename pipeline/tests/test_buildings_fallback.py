@@ -57,6 +57,17 @@ def test_measured_gable_is_closed_and_placeholder_is_labelled():
     assert walls and all(mesh.image[:8] == b"\x89PNG\r\n\x1a\n" for mesh in walls)
 
 
+def test_placeholder_across_a_terrace_edge_reaches_both_levels():
+    building = Building("point-only", shapely.box(0, 0, 6, 6), {"levels": 1})
+    x, z = np.meshgrid(np.linspace(-3, 9, 25), np.linspace(-3, 9, 25))
+    ground = np.column_stack((x.ravel(), np.where(x.ravel() < 2, 20.5, 29.2), z.ravel()))
+    far = np.array([[30.0, 50.0, 30.0]])
+    _, evidence = placeholder_extrusion(building, {}, np.vstack((ground, far)))
+    assert evidence["ground_source"] == "footprint_ground_points"
+    assert evidence["base_m"] == 20.5
+    assert evidence["roof_m"] == pytest.approx(29.2 + 3.2)
+
+
 def test_measured_hip_and_multilevel_roofs_are_closed():
     from turku3d.buildings.fallback import _roof_from_class6
 

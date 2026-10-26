@@ -533,6 +533,16 @@ def test_breakline_interchange_validation_and_direct_heights(tmp_path, curb_clou
     assert sidecar["turku3d_coords"] == "engine-xz"
     assert sidecar["features"]
     assert all(abs(f["properties"]["step"] - 0.15) < 0.02 for f in sidecar["features"])
+    swapped = dict(
+        data[0],
+        object_id="swapped-high-side",
+        centers_xz=[[4, 0], [4, 1], [4, 2]],
+        normals_xz=[[1, 0], [1, 0], [1, 0]],
+        side_heights=[[0, 0.06], [0.08, 0], [0.18, 0]],
+    )
+    path.write_text(json.dumps([swapped]))
+    steps = [f["properties"]["step"] for f in validation_geojson(load_breaklines(path))["features"]]
+    assert steps == pytest.approx([0.13])
     tiny = dict(
         data[0],
         object_id="millimetre-transition",

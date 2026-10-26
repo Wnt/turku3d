@@ -19,6 +19,26 @@ export interface Loaded {
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
+/** Building walkers start this far outside a footprint edge (metres). */
+const START_BAND = [0.5, 1.5, 3];
+
+/** Profile offsets from the curb line; the face occupies the first few centimetres. */
+const PROFILE = [0.1, 0.2, 0.3, 0.45];
+const median = (v: number[]) => {
+  const s = [...v].sort((a, b) => a - b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+/** Height at offset 0 of a repeated-median (Siegel) line through finite
+ * [offset, height] samples; one outlier of four leaves it unchanged. */
+export function sideHeight(samples: [number, number][]): number {
+  const p = samples.filter(([, h]) => Number.isFinite(h));
+  if (!p.length) return NaN;
+  if (p.length === 1) return p[0][1];
+  const slope = median(p.map(([di, hi], i) => median(p.filter((_, j) => j !== i).map(([dj, hj]) => (hj - hi) / (dj - di)))));
+  return median(p.map(([d, h]) => h - slope * d));
+}
+
 interface Station {
   source: string;
   x: number;
@@ -40,6 +60,7 @@ export class Ctx {
   walker: Walker;
   tileKeys = new Set<string>();
   trimeshHandles = new Set<number>();
+  waterHandles = new Set<number>();
   minY = Infinity;
   maxY = -Infinity;
   aoi: [number, number, number, number];
@@ -63,7 +84,10 @@ export class Ctx {
       x1 = Math.max(x1, (h.tileI + 1) * TILE); z1 = Math.max(z1, (h.tileJ + 1) * TILE);
       this.minY = Math.min(this.minY, h.origin[1] + h.bboxMin[1]);
       this.maxY = Math.max(this.maxY, h.origin[1] + h.bboxMax[1]);
-      for (const c of l.built.colliders) if (c.kind === 'trimesh' && c.cls === 'solid') this.trimeshHandles.add(c.collider.handle);
+      for (const c of l.built.colliders) {
+        if (c.kind === 'trimesh' && c.cls === 'solid') this.trimeshHandles.add(c.collider.handle);
+        if (c.cls === 'sensor' && c.materials.includes(MAT.water)) this.waterHandles.add(c.collider.handle);
+      }
     }
     this.aoi = o.aoi ?? [x0, z0, x1, z1];
   }
@@ -87,6 +111,15 @@ export class Ctx {
     const pred = trimeshOnly ? (c: any) => this.trimeshHandles.has(c.handle) : undefined;
     const hit = this.world.castRay(ray, yFrom - this.minY + 50, true, this.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, SOLID_QUERY_FILTER, undefined, undefined, pred);
     return hit ? yFrom - hit.timeOfImpact : NaN;
+  }
+
+  /** True when a water sensor surface lies above height y: the character swims there (materials.md). */
+  underWater(x: number, z: number, y: number): boolean {
+    if (!this.waterHandles.size) return false;
+    const top = this.maxY + 20;
+    if (y >= top) return false;
+    const ray = new this.RAPIER.Ray({ x, y: top, z }, { x: 0, y: -1, z: 0 });
+    return this.world.castRay(ray, top - y, true, undefined, undefined, undefined, undefined, (c: any) => this.waterHandles.has(c.handle)) !== null;
   }
 
   /** Below ground = no solid surface at or under the feet (fell through), or far below the tiles. */
@@ -159,6 +192,10 @@ export class Ctx {
       const [x0, z0, x1, z1] = f.bbox;
       return this.inside((x0 + x1) / 2, (z0 + z1) / 2) && this.owns((x0 + x1) / 2, (z0 + z1) / 2);
     });
+    // A footprint needs a usable dry exterior start within the walker start
+    // band: one enclosed by neighbouring footprints or by river water (a
+    // moored boat) cannot be walked into.
+    const scanned = new Map<string, [number, number, number]>();
     const exposed = (f: Footprint) => {
       const ring = f.rings[0], orient = ringOrientation(ring);
       for (let i = 0; i < ring.length; i++) {
@@ -166,10 +203,11 @@ export class Ctx {
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
         if (len < 0.01) continue;
         const nx = orient * (b[1] - a[1]) / len, nz = -orient * (b[0] - a[0]) / len;
-        for (const t of [0.25, 0.5, 0.75]) {
-          const x = a[0] + (b[0] - a[0]) * t + nx;
-          const z = a[1] + (b[1] - a[1]) * t + nz;
-          if (this.inside(x, z, 1.5) && !idx.containing(x, z, -0.5)) return true;
+        for (const t of [0.25, 0.5, 0.75]) for (const d of START_BAND) {
+          const x = a[0] + (b[0] - a[0]) * t + nx * d;
+          const z = a[1] + (b[1] - a[1]) * t + nz * d;
+          const ground = this.startGround(x, z, idx);
+          if (Number.isFinite(ground)) { scanned.set(f.id, [x, z, ground]); return true; }
         }
       }
       return false;
@@ -185,17 +223,26 @@ export class Ctx {
     const testedFootprints = new Set<string>();
     const onRoof = roofSurface(this.loaded);
     for (let n = 0; n < this.o.walkers; n++) {
+      const fp = usable[n % usable.length];
       let s: any = null;
-      for (let tries = 0; tries < 30 && !s; tries++) s = this.walkerStart([usable[n % usable.length]], idx);
-      if (!s) { rejected++; continue; }
+      for (let tries = 0; tries < 30 && !s; tries++) s = this.walkerStart(fp, idx);
+      // Random starts can all miss a short dry stretch such as a gangway;
+      // the scanned start keeps that footprint tested.
+      if (!s) {
+        rejected++;
+        const [x, z, ground] = scanned.get(fp.id)!;
+        s = this.aimWalker(fp, x, z, ground, idx);
+      }
       started++;
-      testedFootprints.add(usable[n % usable.length].id);
+      testedFootprints.add(fp.id);
       const w = this.walker;
       w.place(s.x, s.ground, s.z);
       let hitInside = false;
       const isInside = () => {
         const f = idx.containing(w.x, w.z, 0.05);
-        return f && w.feetY < s.ground + 1.8 && !onRoof(w.x, w.feetY, w.z) ? f : undefined;
+        // A floating hull (restaurant boat) has no shell down to the synthetic
+        // river bed; swimming under it is not entering the building.
+        return f && w.feetY < s.ground + 1.8 && !onRoof(w.x, w.feetY, w.z) && !this.underWater(w.x, w.z, w.feetY) ? f : undefined;
       };
       this.simulate(frames, () => [s.vx, s.vz], () => {
         const f = isInside();
@@ -224,8 +271,16 @@ export class Ctx {
     };
   }
 
-  walkerStart(fps: Footprint[], idx: FootprintIndex) {
-    const f = fps[Math.floor(this.rng() * fps.length)];
+  /** Ground under a usable walker start outside all footprints, or NaN. */
+  startGround(x: number, z: number, idx: FootprintIndex): number {
+    if (!this.inside(x, z, 1.5) || idx.containing(x, z, -0.5)) return NaN;
+    const ground = this.surfaceY(x, z);
+    if (!Number.isFinite(ground) || this.underWater(x, z, ground)) return NaN;
+    const k = this.o.kcc;
+    return this.capsuleFree(x, ground + k.halfHeight + k.radius + 0.05, z) ? ground : NaN;
+  }
+
+  walkerStart(f: Footprint, idx: FootprintIndex) {
     const ring = f.rings[0];
     const orient = ringOrientation(ring);
     // edge weighted by length
@@ -237,13 +292,13 @@ export class Ctx {
     const ex = (bx - ax) / lens[e], ez = (bz - az) / lens[e];
     // outward normal: for a CCW ring (positive area in x/z) outward is (ez, -ex)
     const nx = orient > 0 ? ez : -ez, nz = orient > 0 ? -ex : ex;
-    const d = 0.5 + this.rng() * 2.5;
+    const d = START_BAND[0] + this.rng() * (START_BAND[START_BAND.length - 1] - START_BAND[0]);
     const x = ax + (bx - ax) * t + nx * d, z = az + (bz - az) * t + nz * d;
-    if (!this.inside(x, z, 1.5) || idx.containing(x, z, -0.5)) return null;
-    const ground = this.surfaceY(x, z);
-    if (!Number.isFinite(ground)) return null;
-    const k = this.o.kcc;
-    if (!this.capsuleFree(x, ground + k.halfHeight + k.radius + 0.05, z)) return null;
+    const ground = this.startGround(x, z, idx);
+    return Number.isFinite(ground) ? this.aimWalker(f, x, z, ground, idx) : null;
+  }
+
+  aimWalker(f: Footprint, x: number, z: number, ground: number, idx: FootprintIndex) {
     // aim at a random interior point, with up to ±30° deviation so walkers also slide along walls
     let tx = 0, tz = 0;
     for (let i = 0; i < 20; i++) {
@@ -332,23 +387,24 @@ export class Ctx {
         const ex = (bx - ax) / L, ez = (bz - az) / L;
         for (let d = midpoints ? L / 2 : Math.min(0.5, L / 2); d <= Math.max(L / 2, L - 0.5) + 1e-9; d += midpoints ? L + 1 : sp) {
           const x = ax + ex * d, z = az + ez * d;
-          let nx = ez, nz = -ex;
-          const a = this.surfaceY(x + nx * 0.6, z + nz * 0.6), b = this.surfaceY(x - nx * 0.6, z - nz * 0.6);
-          if (a > b) { nx = -nx; nz = -nz; }
-          out.push({ ...this.measureStation(line.id, x, z, nx, nz), expectedStep: line.height });
+          // The low side is the side below the step itself; terrain 0.6 m away
+          // can rise in either direction on a sloped street.
+          let station = this.measureStation(line.id, x, z, ez, -ex);
+          if (station.step < 0) station = this.measureStation(line.id, x, z, -ez, ex);
+          out.push({ ...station, expectedStep: line.height });
         }
       }
     }
     return out;
   }
 
+  /** Curb steps are declared from slope-fitted profiles on both sides
+   * (ARCHITECTURE ground row). The mesh is measured the same way: a robust
+   * line per side, evaluated at the curb line, keeps sidewalk
+   * cross-fall, ramps and an object behind the curb out of the step. */
   measureStation(source: string, x: number, z: number, nx: number, nz: number): Station {
-    const low = this.surfaceY(x + nx * 0.6, z + nz * 0.6);
-    let high = -Infinity;
-    for (const d of [0.05, 0.1, 0.2, 0.3, 0.45]) {
-      const h = this.surfaceY(x - nx * d, z - nz * d);
-      if (Number.isFinite(h)) high = Math.max(high, h);
-    }
+    const side = (sign: number) => sideHeight(PROFILE.map(d => [d, this.surfaceY(x + sign * nx * d, z + sign * nz * d)]));
+    const low = side(1), high = side(-1);
     return { source, x, z, nx, nz, low, high, step: high - low };
   }
 

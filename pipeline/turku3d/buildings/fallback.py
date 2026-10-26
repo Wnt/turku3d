@@ -214,15 +214,24 @@ def placeholder_extrusion(building, metadata, ground_points=None):
     """Publish a conspicuous stand-in when measured shell evidence is unavailable."""
     base = metadata.get("rf_h_ground")
     source = "roofer_lidar_ground"
+    top = base
     if base is None or not np.isfinite(base):
         ground = np.asarray(ground_points if ground_points is not None else np.empty((0, 3)))
-        if len(ground):
+        under = ground[
+            shapely.contains_xy(building.footprint.buffer(1.0), ground[:, 0], ground[:, 2])
+        ]
+        if len(under):
+            # A stand-in may straddle a terrace edge: reach the lowest ground so
+            # it never floats, and rise above the highest.
+            base, top = float(under[:, 1].min()), float(under[:, 1].max())
+            source = "footprint_ground_points"
+        elif len(ground):
             center = building.footprint.representative_point()
             distance = np.linalg.norm(ground[:, [0, 2]] - [center.x, center.y], axis=1)
-            base = float(np.median(ground[np.argsort(distance)[: min(20, len(ground))], 1]))
+            base = top = float(np.median(ground[np.argsort(distance)[: min(20, len(ground))], 1]))
             source = "nearby_ground_points"
         else:
-            base = 0.0
+            base = top = 0.0
             source = "default_n2000_zero"
     levels = building.properties.get("osm", {}).get("building:levels") or building.properties.get(
         "levels"
@@ -234,11 +243,11 @@ def placeholder_extrusion(building, metadata, ground_points=None):
         height_source = "building_levels"
     except (ValueError, TypeError):
         height, height_source = 10.0, "default_10m"
-    return extrusion(building.footprint, float(base), float(base) + height), {
+    return extrusion(building.footprint, float(base), float(top) + height), {
         "method": "work_in_progress_placeholder",
         "ground_source": source,
         "base_m": float(base),
-        "roof_m": float(base) + height,
+        "roof_m": float(top) + height,
         "height_source": height_source,
         "accuracy_certified": False,
     }

@@ -84,7 +84,9 @@ def validation_geojson(curbs):
         if curb.kind == "quay":
             continue
         for i in range(len(curb.centers) - 1):
-            step = float(np.abs(np.diff(curb.heights[i : i + 2], axis=1)).mean())
+            # Signed: a segment whose high side swaps between its ends has no
+            # mean step in the interpolated mesh, whatever its end magnitudes.
+            step = abs(float(np.diff(curb.heights[i : i + 2], axis=1).mean()))
             if not 0.03 <= step <= 1.0:
                 continue
             features.append(

@@ -24,6 +24,9 @@ The default producer region is `config.PLAYABLE_TILES`, the four complete L0 til
 The inventory keeps the established kantakartta IDs and adds GIS building outlines absent
 from that source. Three GIS records in the playable tiles are points with no surveyed
 outline; each receives a 6 m square, labelled placeholder and is reported as point-only.
+A placeholder without roofer ground spans the class-2 returns under it (1 m buffer): its
+base is the lowest return and its roof the placeholder height above the highest, so a square
+across a terrace edge never floats above the lower street.
 `--tiles t0_i_j [...]` selects another tile or region. Buildings touching selected tiles
 retain their complete footprints, including parts outside the boundary. A cross-tile
 building is owned by the requested tile containing the largest footprint area, so a
