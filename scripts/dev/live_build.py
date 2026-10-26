@@ -277,6 +277,8 @@ def _build(repo, work, published, env, log_path, reason=None):
                 previous = key
                 continue
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            if stage.startswith("chrome"):
+                run_env["TURKU3D_JOBS"] = str(land_jobs("browser"))
             if "TURKU3D_CHECK_DEADLINE" in env:
                 run_env["TURKU3D_CHECK_DEADLINE"] = str(
                     min(

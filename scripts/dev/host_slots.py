@@ -15,9 +15,15 @@ from pathlib import Path
 LIMITS = {"build": 3, "browser": 2, "land": 1}
 
 
-def land_jobs():
+# Chrome suites share one GPU. On the M1 Max the 20-test real-tile suite passed in
+# 1.9 min with four workers; ten workers timed out on 9 tests.
+LAND_BROWSER_JOBS = 4
+
+
+def land_jobs(kind="land"):
     """An admitted land reservation excludes every other slot, so it owns the whole host."""
-    return os.cpu_count() or 1
+    cores = os.cpu_count() or 1
+    return min(cores, LAND_BROWSER_JOBS) if kind == "browser" else cores
 
 
 def root():
@@ -162,9 +168,9 @@ def main():
         if args.kind == "land" and not inherited:
             env["TURKU3D_JOBS"] = str(land_jobs())
             env["TURKU3D_LAND_OWNER"] = f"{os.getpid()}:{identity(os.getpid())}"
-        elif not inherited:
-            # Children of a land reservation keep its whole-host budget.
-            cap = 1 if args.kind == "browser" else 2
+        else:
+            # Children of a land reservation keep its whole-host budget, GPU-bounded for Chrome.
+            cap = land_jobs(args.kind) if inherited else 1 if args.kind == "browser" else 2
             env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))
         return subprocess.call(command, env=env)
 

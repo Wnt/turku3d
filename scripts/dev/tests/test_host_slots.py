@@ -116,11 +116,11 @@ class HostSlotsTest(unittest.TestCase):
 
     def test_land_reservation_children_use_whole_host(self):
         # The exclusive reservation and the build/browser commands nested in it share all cores.
-        expected = str(host_slots.land_jobs())
         for kind in ("build", "browser"):
             with self.subTest(kind=kind):
                 self.assertEqual(
-                    self.nested(kind, "import os; print(os.environ['TURKU3D_JOBS'])"), expected
+                    self.nested(kind, "import os; print(os.environ['TURKU3D_JOBS'])"),
+                    str(host_slots.land_jobs(kind)),
                 )
 
     def test_landing_children_reuse_exclusive_reservation(self):

@@ -568,8 +568,9 @@ for synthetic tests). Up to three `build` jobs and two `browser` jobs run at onc
 each build gets at most two `TURKU3D_JOBS`, and each browser suite one. A queued
 `land` reservation stops new build/browser admissions, then holds exclusive capacity
 through refresh, four-tile assembly, game build, collision checks, and Chrome. Because
-nothing else runs, the reservation and every command nested in it get
-`TURKU3D_JOBS` = all logical cores instead of the shared caps.
+nothing else runs, the reservation and every build nested in it get
+`TURKU3D_JOBS` = all logical cores instead of the shared caps; its Chrome suites get
+four workers (`LAND_BROWSER_JOBS`), because they share one GPU.
 Commands started under a running `land` reservation (`TURKU3D_LAND_OWNER`) reuse it,
 including nested `land` requests: the merge queue holds one reservation per round, and
 the queue-run prechecks and their live builds run inside it instead of waiting on it.
