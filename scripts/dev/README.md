@@ -96,8 +96,25 @@ reading only. Tests use a fake `codex` on PATH and synthetic repositories; no re
 
 Landing is serialized with `wt/.registry/land.lock`. It requires a successful completed task, an exact
 `## Result: DONE` line and clean worker/main worktrees. It rebases on main (aborting a conflicting rebase),
-runs `scripts/dev/gate --base <old-main-sha>` in the worker environment, verifies the tested HEAD/tree and
-unchanged main, then fast-forwards main. If main has no checkout, a compare-and-swap `git update-ref` is used.
+runs `scripts/dev/gate --base <old-main-sha>` in the worker environment, then seeds private APFS copies
+of the published layers, textures and tile dist. It runs `make refresh`, `make tile-build
+T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'`, `make game-build`, `make collision-sweep`, `make collision-audit`,
+and the real-tile Playwright suite in Chrome on the sandbox dist port. The suite checks spawn loading on
+WebGPU and WebGL2 and fewer than 500 draws. The manifest check requires ground textures on all four L0
+tiles and each tile below 8 MB on the wire. The assembler's `facades_bound` count must meet the current
+published release's count. A task may report an intentional reduction with `Facade regression reason:
+<specific reason>` in `last.md`; the exception is recorded in the landing ledger. Stage times and output
+are in `live-build.log` and `meta.json`.
+For the first landing, the baseline comes from the legacy `deploy-once.log` assembler result (164 on
+2026-10-26); later landings read the previous release's `live-build.json`.
+
+After verifying the tested HEAD/tree and unchanged main, landing fast-forwards main. If main has no
+checkout, a compare-and-swap `git update-ref` is used. The verified game, tiles, layers and textures
+are APFS-copied into `$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
+swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
+that link, so the existing :5171 static server serves the verified files without a process restart.
+`~/turku3d/logs/live-version.txt` records the published commit. Do not run `deploy-once.sh`,
+`autodeploy.sh`, or `make refresh` on main after landing: those rebuild unverified artifacts.
 Do not update main outside this orchestrator while landing. A missing gate fails closed; there is no
 legacy Make fallback. The landing record goes to
 `wt/.registry/landed.jsonl`. A red gate leaves main unchanged; inspect `gate.log`, fix and resume the task.

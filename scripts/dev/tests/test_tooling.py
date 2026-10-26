@@ -27,6 +27,18 @@ class ToolingTests(unittest.TestCase):
             self.repo / "scripts/dev",
             ignore=shutil.ignore_patterns("__pycache__"),
         )
+        # The CLI fixture has no real AOI. Exercise orchestration with a synthetic
+        # live builder; live_build itself has separate artifact tests.
+        (self.repo / "scripts/dev/live_build.py").write_text(
+            "def build(repo, work, published, env, log_path, reason=None):\n"
+            "    log_path.write_text('synthetic live build passed\\n')\n"
+            "    return {'facades_bound': 1, 'seconds': {'refresh': 0.001}}\n"
+            "def prepare(work, published, commit, report):\n"
+            "    pass\n"
+            "def publish(published, commit):\n"
+            "    published.mkdir(parents=True, exist_ok=True)\n"
+            "    (published / 'published-commit').write_text(commit)\n"
+        )
         shutil.copytree(SOURCE / "textures/turkutex/codex", self.repo / "textures/turkutex/codex")
         # Use the production routing table and always-on checks for landing, without models
         # or runtime assets. These are the real material generator inputs and policy exception.

@@ -14,6 +14,7 @@ from collections import deque
 from pathlib import Path
 
 import coordination as coord
+import live_build
 import sandbox as s
 
 
@@ -469,6 +470,7 @@ def land(name, force=False):
             raise ValueError("missing scripts/dev/gate; main unchanged")
         before = s.git("rev-parse", "main", cwd=repo)
         start = time.monotonic()
+        build_report = None
         for _attempt in range(3):
             base = s.git("rev-parse", "main", cwd=repo)
             try:
@@ -494,11 +496,34 @@ def land(name, force=False):
                 or s.git("rev-parse", "HEAD", cwd=repo) != head
             ):
                 raise ValueError("gate changed sandbox files or HEAD; main unchanged")
+            result = (path / "last.md").read_text()
+            reason = next(
+                (
+                    line.partition(":")[2].strip()
+                    for line in result.splitlines()
+                    if line.startswith("Facade regression reason:")
+                ),
+                None,
+            )
+            build_report = live_build.build(
+                repo,
+                Path(env["TURKU3D_WORK"]),
+                Path(env["TURKU3D_DATA"]),
+                env,
+                path / "live-build.log",
+                reason,
+            )
+            if (
+                s.git("status", "--porcelain", cwd=repo)
+                or s.git("rev-parse", "HEAD", cwd=repo) != head
+            ):
+                raise ValueError("live build changed sandbox files or HEAD; main unchanged")
             if s.git("rev-parse", "main", cwd=repo) == base:
                 before = base
                 break
         else:
             raise ValueError("main changed during gate three times; retry landing")
+        live_build.prepare(Path(env["TURKU3D_WORK"]), Path(env["TURKU3D_DATA"]), head, build_report)
         with coord.landing_guard(name, force):
             if main:
                 if s.git("status", "--porcelain", cwd=main):
@@ -506,18 +531,23 @@ def land(name, force=False):
                 s.git("merge", "--ff-only", head, cwd=main)
             else:
                 s.git("update-ref", "refs/heads/main", head, before, cwd=repo)
+            live_build.publish(Path(env["TURKU3D_DATA"]), head)
         record = {
             "name": name,
             "before": before,
             "commit": head,
             "time": time.time(),
             "gate_seconds": round(time.monotonic() - start, 3),
+            "live_build": build_report,
         }
         meta["landed"] = record
         s.write_json(path / "meta.json", meta)
         with (s.root() / ".registry/landed.jsonl").open("a") as f:
             f.write(json.dumps(record) + "\n")
-        print(f"{name}: landed {head[:12]} (gate {record['gate_seconds']}s)")
+        print(
+            f"{name}: landed {head[:12]} (landing {record['gate_seconds']}s; "
+            f"live stages {build_report['seconds']})"
+        )
         cleanup_landed(name)
 
 

@@ -7,8 +7,10 @@ import shutil
 import subprocess
 import time
 import uuid
+from pathlib import Path
 
 import coordination as coord
+import live_build
 import sandbox as s
 
 
@@ -50,6 +52,7 @@ def batch(names, force=False):
         log_path = s.tasks_root() / ("batch-" + integration.parent.name + ".log")
         started = time.monotonic()
         commits = []
+        build_report = None
 
         def assemble(count):
             s.git("reset", "--hard", before, cwd=integration)
@@ -109,10 +112,31 @@ def batch(names, force=False):
                         raise ValueError(
                             f"batch bisected failing prefix ends at {names[high - 1]}; main unchanged; {log_path}"
                         )
+                build_report = live_build.build(
+                    integration,
+                    Path(env["TURKU3D_WORK"]),
+                    Path(env["TURKU3D_DATA"]),
+                    env,
+                    log_path.with_suffix(".live.log"),
+                    next(
+                        (
+                            line.partition(":")[2].strip()
+                            for _name, member_path, _meta, _head in members
+                            for line in (member_path / "last.md").read_text().splitlines()
+                            if line.startswith("Facade regression reason:")
+                        ),
+                        None,
+                    ),
+                )
+                if s.git("status", "--porcelain", cwd=integration):
+                    raise ValueError("live build changed integration files; main unchanged")
                 if s.git("rev-parse", "main", cwd=integration) == before:
                     break
             else:
                 raise ValueError("main changed during batch gate three times; retry batch")
+            live_build.prepare(
+                Path(env["TURKU3D_WORK"]), Path(env["TURKU3D_DATA"]), commits[-1], build_report
+            )
             with contextlib.ExitStack() as guards:
                 for name, _path, _, head in members:
                     guards.enter_context(coord.landing_guard(name, force))
@@ -130,6 +154,7 @@ def batch(names, force=False):
                     s.git("merge", "--ff-only", commits[-1], cwd=main)
                 else:
                     s.git("update-ref", "refs/heads/main", commits[-1], before, cwd=integration)
+                live_build.publish(Path(env["TURKU3D_DATA"]), commits[-1])
                 with (s.root() / ".registry/landed.jsonl").open("a") as ledger:
                     for (name, path, meta, source), commit in zip(members, commits, strict=True):
                         record = {
@@ -140,11 +165,14 @@ def batch(names, force=False):
                             "batch": names,
                             "time": time.time(),
                             "gate_seconds": round(time.monotonic() - started, 3),
+                            "live_build": build_report,
                         }
                         meta["landed"] = record
                         s.write_json(path / "meta.json", meta)
                         ledger.write(json.dumps(record) + "\n")
-                print(f"batch landed: {', '.join(names)}; {log_path}")
+                print(
+                    f"batch landed: {', '.join(names)}; live stages {build_report['seconds']}; {log_path}"
+                )
                 for (name, _, _, _), commit in zip(members, commits, strict=True):
                     cleanup_landed(name, commit)
         finally:

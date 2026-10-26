@@ -56,7 +56,11 @@ progress updates and final reports. This overrides personal default language set
   Inspect with `ls`, `status <name>`, `log <name>`, and `result <name>`; follow up with `resume <name> "text"`.
   `stop <name>` stops only that task's process group. The runner refuses exhausted or unreadable quota.
 - Only the orchestrator runs `scripts/dev/codex-task land <name>`. It requires `## Result: DONE`, clean
-  worktrees, rebase on current main, and a green gate before a fast-forward. Workers commit on their own branch.
+  worktrees, rebase on current main, a green gate, a successful sandbox `make refresh`, four-tile build,
+  game build, collision checks and Chrome WebGPU/WebGL2 live checks before a fast-forward. The verified
+  sandbox artifacts are published through `$TURKU3D_DATA/live` after the merge; main does not rebuild them.
+  A facade count below the published baseline requires a `Facade regression reason: ...` line in the task
+  result. Workers commit on their own branch.
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.
   `--force` explicitly discards dirty or unmerged work; it never kills processes. `wt gc` only prunes missing entries.
 - Exact commands and troubleshooting: `scripts/dev/README.md`. No new API keys or paid services.

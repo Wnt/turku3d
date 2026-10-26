@@ -1,0 +1,201 @@
+"""Build, check and publish the real office distribution during landing."""
+
+import json
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
+
+TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+
+
+def _clone(source, target):
+    if target.exists():
+        return
+    if not source.exists():
+        return
+    source = source.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # APFS clones keep a private, writable snapshot without copying asset bytes.
+    if subprocess.call(
+        ["cp", "-cR", str(source), str(target)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ):
+        shutil.copytree(source, target)
+
+
+def seed(work, published):
+    for relative in ("build/layers", "textures", "dist/tiles"):
+        _clone(published / relative, work / relative)
+
+
+def baseline(published):
+    record = published / "live/live-build.json"
+    if record.exists():
+        return int(json.loads(record.read_text())["facades_bound"])
+    # The legacy deploy recorded this count only in its assembler log.
+    legacy_log = published.parent / "logs/deploy-once.log"
+    if legacy_log.exists():
+        for line in reversed(legacy_log.read_text().splitlines()):
+            try:
+                result = json.loads(line)
+                if (
+                    Path(result.get("manifest", "")).resolve()
+                    == (published / "dist/tiles/manifest.json").resolve()
+                ):
+                    return int(result["facades_bound"])
+            except (ValueError, KeyError, TypeError):
+                continue
+    export = published / "textures/assembly/MANIFEST.json"
+    if export.exists():
+        return len(json.loads(export.read_text())["bound"])
+    raise ValueError("published facade baseline is unavailable")
+
+
+def inspect(manifest_path, facade_count, minimum, reason=None):
+    manifest = json.loads(manifest_path.read_text())
+    for tile in TILES:
+        entry = manifest["visual"][tile]
+        if entry.get("tris", 0) < 1000:
+            raise ValueError(f"{tile}: office geometry is missing; Chrome tests would skip")
+        if entry.get("ground_texture_bytes", 0) <= 0:
+            raise ValueError(f"{tile}: ground textures are unbound")
+        if entry.get("wire_bytes", 8_000_001) >= 8_000_000:
+            raise ValueError(f"{tile}: L0 wire size exceeds 8 MB")
+    if facade_count < minimum and not reason:
+        raise ValueError(f"facades_bound regressed: {facade_count} < {minimum}; no reported reason")
+    if not manifest.get("spawn"):
+        raise ValueError("live build has no spawn")
+    return {
+        "facades_bound": facade_count,
+        "facades_baseline": minimum,
+        "facade_regression_reason": reason if facade_count < minimum else None,
+    }
+
+
+def build(repo, work, published, env, log_path, reason=None):
+    seed(work, published)
+    minimum = baseline(published)
+    durations = {}
+    report = None
+    commands = (
+        ("refresh", ["make", "refresh"], repo),
+        ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
+        ("game-build", ["make", "game-build"], repo),
+        ("collision-sweep", ["make", "collision-sweep"], repo),
+        ("collision-audit", ["make", "collision-audit"], repo),
+        (
+            "chrome",
+            [
+                str(repo / "game/node_modules/.bin/playwright"),
+                "test",
+                "-c",
+                "playwright.tile.config.ts",
+            ],
+            repo / "game",
+        ),
+    )
+    with log_path.open("w") as log:
+        for stage, command, cwd in commands:
+            start = time.monotonic()
+            log.write(f"\n== {stage}: {' '.join(command)} ==\n")
+            log.flush()
+            run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            proc = subprocess.run(
+                command,
+                cwd=cwd,
+                env=run_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            log.write(proc.stdout)
+            log.flush()
+            durations[stage] = round(time.monotonic() - start, 3)
+            if proc.returncode:
+                raise ValueError(f"{stage} failed ({proc.returncode}): {log_path}; main unchanged")
+            if stage == "tile-build":
+                facade_count = None
+                for line in reversed(proc.stdout.splitlines()):
+                    try:
+                        facade_count = int(json.loads(line)["facades_bound"])
+                        break
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                if facade_count is None:
+                    raise ValueError(f"tile-build did not report facades_bound: {log_path}")
+                report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
+    report["seconds"] = durations
+    return report
+
+
+def prepare(work, published, commit, report):
+    """Copy the verified release before advancing main."""
+    releases = published / "live-releases"
+    releases.mkdir(parents=True, exist_ok=True)
+    release = releases / commit
+    if release.exists():
+        if (published / "live").is_symlink() and (published / "live").resolve() == release:
+            raise ValueError(f"release is already live: {release}")
+        shutil.rmtree(release)
+    release.mkdir()
+    artifacts = (
+        (work / "build/game", "game"),
+        (work / "dist/tiles", "tiles"),
+        (work / "build/layers", "layers"),
+        (work / "textures", "textures"),
+    )
+    for source, name in artifacts:
+        if not source.is_dir():
+            raise ValueError(f"verified {name} is missing: {source}")
+        _clone(source, release / name)
+        if name in ("game", "tiles"):
+            # The existing server caches Brotli by path and mtime. Give each
+            # release fresh mtimes so the same stable URL cannot reuse old bytes.
+            for asset in (release / name).rglob("*"):
+                if asset.is_symlink():
+                    raise ValueError(f"verified distribution contains a symlink: {asset}")
+                if asset.is_file():
+                    os.utime(asset, None)
+    (release / "live-build.json").write_text(
+        json.dumps({"commit": commit, **report}, indent=2) + "\n"
+    )
+    return release
+
+
+def publish(published, commit):
+    """Swap one release link; stable game/tile paths resolve through that link."""
+    release = published / "live-releases" / commit
+    if not (release / "live-build.json").exists():
+        raise ValueError(f"prepared release is missing: {release}")
+    if json.loads((release / "live-build.json").read_text())["commit"] != commit:
+        raise ValueError("prepared release commit does not match landing")
+    # Migrate the old service's paths once. Its existing server resolves these paths
+    # for each request, so it serves the new release without killing an owned process.
+    live = published / "live"
+    if not live.is_symlink():
+        legacy = published / "live-releases/legacy"
+        legacy.mkdir(exist_ok=True)
+        for target, name in (
+            (published / "build/game", "game"),
+            (published / "dist/tiles", "tiles"),
+            (published / "build/layers", "layers"),
+            (published / "textures", "textures"),
+        ):
+            if not target.is_symlink():
+                if target.exists():
+                    target.rename(legacy / name)
+                target.symlink_to(os.path.relpath(live / name, target.parent))
+        temporary = published / ".live-next"
+        temporary.symlink_to(legacy, target_is_directory=True)
+        os.replace(temporary, live)
+    temporary = published / ".live-next"
+    temporary.symlink_to(release, target_is_directory=True)
+    os.replace(temporary, live)
+    version = published.parent / "logs/live-version.txt"
+    version.parent.mkdir(parents=True, exist_ok=True)
+    pending = version.with_suffix(".tmp")
+    pending.write_text(commit + "\n")
+    os.replace(pending, version)
