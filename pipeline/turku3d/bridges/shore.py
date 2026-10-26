@@ -204,11 +204,14 @@ def approaches(crossing, shores, survey, deck_height):
                         # Quay faces and bridge returns overlap here. The ground
                         # contact is usable only where it agrees with class 2/12.
                         if disagreement <= 0.06:
-                            base[i, j] = max(base[i, j], ground + 0.02)
+                            clearance = 0.02 + 0.10 * min(1.0, abs(s - s1) / 2.0)
+                            base[i, j] = max(base[i, j], ground + clearance)
                     except ValueError:
                         pass
-            # The last row is the measured ground contact, making the join exact.
+            # Keep a 2 cm running clearance over the ground collider at the join.
+            # The resulting lip is below the 6 cm walk/drive contact limit.
             # Interior rows clear ground only where lidar supports that height.
+            base[-1, j] = target + 0.02
         for category in (
             (("road", -4, 4), ("sidewalk", offsets[0], -4), ("sidewalk", 4, offsets[-1]))
             if crossing.road

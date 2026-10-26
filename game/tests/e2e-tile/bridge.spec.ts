@@ -30,7 +30,7 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   const browserErrors: string[] = [];
   page.on('pageerror', error => browserErrors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()); });
-  await page.goto(`/?backend=${backend}&tiles=${tiles}&spawn=23459787.2,6704300.2,145`);
+  await page.goto(`/?backend=${backend}&tiles=${tiles}&spawn=23459785.5,6704302.7,145`);
   await page.waitForFunction(() => {
     const s = (window as any).__game?.state?.();
     return s?.grounded && s.collision.tiles >= 9;
@@ -65,8 +65,8 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
 
   await page.evaluate(() => {
     const g = (window as any).__game;
-    g.physics.resetVehicle({ x: 287.2, y: 6, z: 199.8 }, -0.95);
-    g.physics.setCharacterEnabled(true, { x: 287.2, y: 6.3, z: 200.8 });
+    g.physics.resetVehicle({ x: 285.5, y: 6, z: 197.3 }, -0.95);
+    g.physics.setCharacterEnabled(true, { x: 285.5, y: 6.3, z: 198.3 });
   });
   await page.waitForFunction(() => {
     const s = (window as any).__game.state();

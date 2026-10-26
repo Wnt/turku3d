@@ -83,7 +83,7 @@ def test_approach_matches_full_width_shore_contact_and_waterline():
     for offset, height in zip(contact.offsets, contact.heights, strict=True):
         matches = np.all(np.isclose(deck.positions[:, [0, 2]], [0, offset]), axis=1)
         assert matches.any()
-        assert np.allclose(deck.positions[matches, 1], height, atol=1e-9)
+        assert np.allclose(deck.positions[matches, 1], height + 0.02, atol=1e-9)
     waterline = np.isclose(deck.positions[:, 0], 10)
     assert waterline.any()
     assert np.allclose(deck.positions[waterline, 1], 3.0, atol=1e-9)
