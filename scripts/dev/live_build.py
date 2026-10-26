@@ -12,6 +12,16 @@ import live_cache
 import sandbox as s
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+QUEUE_STAGE_BUDGETS = {
+    "refresh": 75,
+    "tile-build": 150,
+    "game-build": 30,
+    "collision-sweep": 30,
+    "collision-audit": 30,
+    "chrome": 90,
+    "chrome-webgpu": 60,
+    "chrome-webgl": 60,
+}
 
 
 def affected_tiles(previous, work):
@@ -236,6 +246,13 @@ def build(repo, work, published, env, log_path, reason=None):
                 previous = key
                 continue
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            if "TURKU3D_CHECK_DEADLINE" in env:
+                run_env["TURKU3D_CHECK_DEADLINE"] = str(
+                    min(
+                        float(env["TURKU3D_CHECK_DEADLINE"]),
+                        start + QUEUE_STAGE_BUDGETS.get(stage, 60),
+                    )
+                )
             proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             log.flush()

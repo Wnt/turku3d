@@ -3,6 +3,7 @@
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -105,15 +106,27 @@ class LiveBuildTests(unittest.TestCase):
                 )
             )
             calls = []
+            started = time.monotonic()
 
             def run(command, **kwargs):
-                calls.append((command, kwargs["cwd"], kwargs["env"]["TILE_DIST"]))
+                calls.append(
+                    (
+                        command,
+                        kwargs["cwd"],
+                        kwargs["env"]["TILE_DIST"],
+                        float(kwargs["env"]["TURKU3D_CHECK_DEADLINE"]),
+                    )
+                )
                 output = '{"facades_bound": 2}\n' if "tile-build" in command else "passed\n"
                 return type("Completed", (), {"returncode": 0, "stdout": output})()
 
             with patch.object(live_build.s, "run_group", side_effect=run):
                 report = live_build.build(
-                    repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log"
+                    repo,
+                    work,
+                    published,
+                    {"TURKU3D_WORK": str(work), "TURKU3D_CHECK_DEADLINE": str(started + 1000)},
+                    root / "build.log",
                 )
             self.assertEqual(
                 [stage for stage in report["seconds"]],
@@ -128,6 +141,8 @@ class LiveBuildTests(unittest.TestCase):
             )
             self.assertEqual(len(calls), 6)
             self.assertEqual(calls[-1][1], repo / "game")
+            self.assertLess(calls[0][3] - started, 76)
+            self.assertGreater(calls[0][3] - started, 74)
             self.assertEqual(report["facades_bound"], 2)
 
     def test_inspect_requires_bound_ground_budget_and_facade_floor(self):

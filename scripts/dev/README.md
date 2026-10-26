@@ -577,7 +577,9 @@ The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon poll
 When main still matches the receipt, it verifies the tree, checks and release bytes, fast-forwards
 main, and swaps the live pointer without rebuilding. The landed ledger records merge wall seconds.
 When main moved, it rebases and runs only invalidated cached gate/live stages under a 210-second
-check deadline; broad producer changes and slow checks return to the worker for precheck. Layer
+check deadline. Gate checks have a 120-second default queue budget; live stages have declared
+30–150-second budgets. A slow check returns to its worker for a fix and new precheck. Broad
+producer changes also return to the worker. Layer
 mesh deltas select changed visual tiles, while texture and assembler changes require all tiles.
 Disjoint affected domains may precheck cumulative prefixes in parallel with `precheck --base <SHA>`.
 Conflicts and failed members return to their workers with route `task_rebase`; the queue keeps

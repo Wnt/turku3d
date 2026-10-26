@@ -191,6 +191,13 @@ def e2e(root, stage, changed, full, env):
 
 def execute(root, stage, changed, files, full, env, config):
     start = time.monotonic()
+    if "TURKU3D_CHECK_DEADLINE" in env:
+        env = {
+            **env,
+            "TURKU3D_CHECK_DEADLINE": str(
+                min(float(env["TURKU3D_CHECK_DEADLINE"]), start + stage.get("queue_seconds", 120))
+            ),
+        }
     try:
         kind = stage["kind"]
         if kind == "policy":

@@ -62,6 +62,7 @@ progress updates and final reports. This overrides personal default language set
   main and publishes the prepared artifacts through `$TURKU3D_DATA/live`; it never rebuilds in the
   unchanged-main merge path. When main moves, affected checks have a bounded queue recheck or
   return to the worker. Workers never land main.
+  Finish and precheck each coherent slice as soon as it is green, so queue candidates stay small.
   A facade count below the published baseline requires a `Facade regression reason: ...` line in the task
   result. Workers commit on their own branch.
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.
