@@ -1,4 +1,4 @@
-"""Deterministic process-group exit, zombie and PID-reuse regressions."""
+"""Deterministic process-group exit, zombie, PID-reuse and blocking-command regressions."""
 
 import signal
 import subprocess
@@ -94,3 +94,43 @@ class StopTests(unittest.TestCase):
                                 [7, 8] if occupied else [8],
                             )
                             self.assertEqual(scan.call_count, 2 if occupied else 1)
+
+    def test_wait_cmd_logs_everything_and_prints_tail_and_exit_code(self):
+        cli = [sys.executable, str(Path(runner.__file__)), "wait-cmd"]
+        with tempfile.TemporaryDirectory() as directory:
+            tasks = Path(directory) / "tasks"
+            (tasks / "demo").mkdir(parents=True)
+            (tasks / "demo/meta.json").write_text("{}")
+            env = {
+                **runner.os.environ,
+                "TURKU3D_SANDBOX": "demo",
+                "TURKU3D_TASKS_ROOT": str(tasks),
+                "TURKU3D_WT_ROOT": str(Path(directory) / "wt"),
+            }
+            script = "import sys\nfor i in range(5): print('line', i)\nsys.exit(3)"
+            done = subprocess.run(
+                [*cli, "--tail", "2", "--", sys.executable, "-c", script],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(done.returncode, 3)
+            printed = done.stdout.splitlines()
+            self.assertEqual(printed[:2], ["line 3", "line 4"])
+            self.assertRegex(printed[2], r"^wait-cmd: exit 3 after [0-9.]+s; full log: ")
+            log = (tasks / "demo/wait-cmd.log").read_text()
+            self.assertEqual(log.splitlines(), [f"line {i}" for i in range(5)])
+            # Without a task the log goes to the sandbox work dir; a timeout ends the group.
+            (tasks / "demo/meta.json").unlink()
+            env["TURKU3D_WORK"] = str(Path(directory) / "work")
+            start = runner.time.monotonic()
+            sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
+            done = subprocess.run(
+                [*cli, "--timeout", "0.2", *sleeper], env=env, capture_output=True, text=True
+            )
+            self.assertEqual(done.returncode, 124)
+            self.assertLess(runner.time.monotonic() - start, 5)
+            self.assertIn("SLOW", (Path(directory) / "work/wait-cmd.log").read_text())
+            done = subprocess.run([*cli, "--"], env=env, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("needs a command", done.stderr)

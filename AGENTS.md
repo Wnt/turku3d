@@ -28,6 +28,8 @@ progress updates and final reports. This overrides personal default language set
    command and its output. Never weaken a test or a check to pass.
 5. **Fast tests.** Run only the tests relevant to your change, in parallel. Unit tests use small synthetic fixtures, not
    real tiles. The target is 5–20 s for the gate on a typical change. If yours is slower, fix that too.
+   Run anything that can take longer than 30 s through `scripts/dev/codex-task wait-cmd -- <command>` or poll it
+   with `write_stdin` at `yield_time_ms: 30000`; never poll at 1000 ms.
 6. **Commit** on your branch with clear messages, and end each message with
    `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`. Do not merge to `main`: the orchestrator lands branches.
 7. **Isolation.** Use only your sandbox's ports, data/build/cache dirs and browser profile. Never kill processes you

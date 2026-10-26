@@ -691,6 +691,10 @@ def main():
     p = subs.add_parser("adopt", help="register an existing sandbox as an externally worked task")
     p.add_argument("name")
     p.add_argument("--brief", required=True)
+    p = subs.add_parser("wait-cmd", help="run a long command to exit; print its tail and exit code")
+    p.add_argument("--tail", type=int, default=40, help="output lines to print (default 40)")
+    p.add_argument("--timeout", type=float, help="seconds before the command group is terminated")
+    p.add_argument("command", nargs=argparse.REMAINDER)
     p = subs.add_parser("finish", help="record a DONE result written by a non-Codex worker")
     p.add_argument("name")
     p.add_argument("--result", required=True, help="markdown file with the run result headings")
@@ -740,6 +744,10 @@ def main():
         adopt(a.name, a.brief)
     elif a.cmd == "finish":
         finish(a.name, a.result)
+    elif a.cmd == "wait-cmd":
+        # A cancelled tool call must still tear down the command's process group.
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+        sys.exit(s.wait_cmd(a.command, a.tail, a.timeout))
     elif a.cmd == "queue":
         import merge_queue
 

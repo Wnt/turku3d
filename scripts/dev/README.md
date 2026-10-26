@@ -135,6 +135,29 @@ After a successful fast-forward, `land` and each batch member remove clean, stop
 and report allocated bytes freed. A retained sandbox prints the reason; remove it later with
 `scripts/dev/wt rm <name>` or `scripts/dev/wt prune-landed`.
 
+### Long commands (agents)
+
+Run anything that can take longer than 30 s as one blocking call instead of polling it:
+
+```bash
+scripts/dev/codex-task wait-cmd -- scripts/dev/gate
+scripts/dev/codex-task wait-cmd --tail 80 -- scripts/dev/codex-task precheck stairs
+scripts/dev/codex-task wait-cmd --timeout 1800 -- make tile-build T='t0_0_0'
+scripts/dev/codex-task wait-cmd -- make game-e2e
+```
+
+`wait-cmd` runs the command with the sandbox environment (`$TURKU3D_SANDBOX`'s `sandbox.env`
+overlaid on the caller's), in its own process group, from the current directory. Output streams
+to `~/turku3d/tasks/<TURKU3D_SANDBOX>/wait-cmd.log`, or `$TURKU3D_WORK/wait-cmd.log` when the
+sandbox has no task, and the file is rewritten by each call, so `tail -f` it to watch a run. It
+returns only when the command exits, prints the last `--tail` lines (default 40) and
+`wait-cmd: exit <code> after <s>s; full log: <path>`, and exits with the command's code.
+`--timeout S` terminates the group after S seconds and exits 124. Leftover descendants are
+terminated at exit, as for gate stages. If you poll a backgrounded command instead, use
+`write_stdin` with `yield_time_ms: 30000`; never poll at 1000 ms. The transcript study
+(`docs/reports/dev-overhead-study.md`) measured 3,188 one-second polls and 28 % of input
+tokens spent on polling.
+
 ### Live agent monitor
 
 ```bash

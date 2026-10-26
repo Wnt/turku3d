@@ -25,11 +25,17 @@ def run(*args, cwd=REPO, check=True, **kwargs):
     return subprocess.run(args, cwd=cwd, check=check, text=True, capture_output=True, **kwargs)
 
 
-def run_group(command, *, cwd, env):
-    """Own the entire command tree, including a Playwright server and Chrome."""
+def run_group(command, *, cwd, env, log=None, timeout=None):
+    """Own the entire command tree, including a Playwright server and Chrome.
+
+    Output streams to `log` when given (readable while the command runs), else to a
+    private temporary file. `timeout` seconds bound the run like a queue deadline.
+    """
     temp_dir = Path(env.get("TURKU3D_WORK", cwd)) / "cache"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryFile(mode="w+t", dir=temp_dir) as output:
+    with (
+        Path(log).open("w+t") if log else tempfile.TemporaryFile(mode="w+t", dir=temp_dir)
+    ) as output:
         proc = subprocess.Popen(
             command,
             cwd=cwd,
@@ -41,9 +47,15 @@ def run_group(command, *, cwd, env):
         )
         try:
             deadline = env.get("TURKU3D_CHECK_DEADLINE")
-            timeout = max(0.001, float(deadline) - time.monotonic()) if deadline else None
+            limit = (
+                timeout
+                if timeout is not None
+                else max(0.001, float(deadline) - time.monotonic())
+                if deadline
+                else None
+            )
             try:
-                rc = proc.wait(timeout=timeout)
+                rc = proc.wait(timeout=limit)
             except subprocess.TimeoutExpired:
                 os.killpg(proc.pid, signal.SIGTERM)
                 try:
@@ -52,7 +64,11 @@ def run_group(command, *, cwd, env):
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait()
                 rc = 124
-                output.write("\nSLOW: check exceeded queue deadline\n")
+                output.write(
+                    f"\nSLOW: command exceeded {timeout}s timeout\n"
+                    if timeout is not None
+                    else "\nSLOW: check exceeded queue deadline\n"
+                )
         finally:
 
             def members():
@@ -83,6 +99,38 @@ def run_group(command, *, cwd, env):
                     pass
         output.seek(0)
         return subprocess.CompletedProcess(command, rc, output.read())
+
+
+def wait_cmd(command, tail=40, timeout=None):
+    """Run a long command to exit in one call: stream it to a log, then print its tail.
+
+    Agents use this instead of polling a running gate, precheck or build every few seconds.
+    """
+    command = command[1:] if command[:1] == ["--"] else command
+    if not command:
+        raise ValueError("wait-cmd needs a command after --")
+    if tail < 0:
+        raise ValueError("--tail must be non-negative")
+    name = os.environ.get("TURKU3D_SANDBOX") or "main"
+    env = dict(os.environ)
+    if name != "main" and (root() / name_ok(name) / "sandbox.env").exists():
+        env.update(read_env(root() / name / "sandbox.env"))
+    if (tasks_root() / name / "meta.json").exists():
+        log = tasks_root() / name / "wait-cmd.log"
+    else:
+        work = env.get("TURKU3D_WORK") or env.get("TURKU3D_DATA") or Path.home() / "turku3d/data"
+        log = Path(work) / "wait-cmd.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    start = time.monotonic()
+    result = run_group(command, cwd=Path.cwd(), env=env, log=log, timeout=timeout)
+    for line in result.stdout.splitlines()[-tail:] if tail else ():
+        print(line)
+    print(
+        f"wait-cmd: exit {result.returncode} after {time.monotonic() - start:.1f}s; "
+        f"full log: {log}",
+        flush=True,
+    )
+    return result.returncode
 
 
 def failure_detail(output):

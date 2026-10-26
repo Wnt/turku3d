@@ -202,6 +202,7 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("## Coordination", prompt)
         self.assertIn("scripts/dev/codex-task inbox --unread", prompt)
         self.assertIn("scripts/dev/codex-task board", prompt)
+        self.assertIn("scripts/dev/codex-task wait-cmd -- <command>", prompt)
         self.assertIn("Tiny fake test brief.", prompt)
         self.assertIn("## Result: DONE", self.cli("codex-task", "result", "demo").stdout)
         self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
