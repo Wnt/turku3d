@@ -199,6 +199,12 @@ def build_tile(
         png = out / f"{name}.png"
         Image.fromarray(value).save(png)
         maps.append((name, png, {"linear": True, "uastc": True}))
+    core = ids[SPLAT_HALO:-SPLAT_HALO, SPLAT_HALO:-SPLAT_HALO]
+    triangle_coverage = float(np.mean(core != 0))
+    uncertain_fraction = float(np.mean(uncertain[HALO_PX:-HALO_PX, HALO_PX:-HALO_PX] != 0))
+    if not splats_only:
+        del p, pv, r, rv, matched
+    del combined, uncertain, ids, rgb, lo, hi, yy, xx, core, value
 
     def encode_map(item):
         name, png, options = item
@@ -208,7 +214,6 @@ def build_tile(
         for name, meta in pool.map(encode_map, maps):
             outputs[name] = meta
             print(f"{tile.id} {name}: {meta['bytes']:,} bytes", flush=True)
-    core = ids[SPLAT_HALO:-SPLAT_HALO, SPLAT_HALO:-SPLAT_HALO]
     per_tile = gpu_bytes(n, n) + 2 * gpu_bytes(s, s)
     result = {
         "version": 1,
@@ -226,9 +231,9 @@ def build_tile(
         "semantic_source": "ground triangles + ortho fallback"
         if sources
         else "ortho-only preview; ground layer absent",
-        "triangle_coverage": float(np.mean(core != 0)),
+        "triangle_coverage": triangle_coverage,
         "ground_inputs": sources,
-        "uncertain_fraction": float(np.mean(uncertain[HALO_PX:-HALO_PX, HALO_PX:-HALO_PX] != 0)),
+        "uncertain_fraction": uncertain_fraction,
         "gpu_bytes_8bpp": per_tile,
         "seconds": round(time.monotonic() - start, 2),
     }

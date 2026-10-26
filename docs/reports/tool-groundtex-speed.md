@@ -29,3 +29,34 @@ The observed three cold tile run did **not** meet the under three minute cold
 target. A fresh four tile cold run without competing heavy jobs is still needed
 to determine the isolated performance limit; the current measurements cannot
 establish that target. The cached target is met.
+
+## Three cold tile profile
+
+The user-requested follow-up profiled `t0_0_1 t0_1_0 t0_1_1` in fresh sandbox
+work roots with `TURKU3D_JOBS=3`. A thin wrapper timed the builder's existing
+functions without changing their inputs. The two runs used the same source
+rasters and codec settings; all 18 PNGs and 15 KTX2 files match byte for byte.
+
+| Phase | Before releasing arrays | After releasing arrays |
+| --- | ---: | ---: |
+| Whole command | 322.61 s | 361.30 s |
+| Source hash index | 3.19 s | 3.60 s |
+| Ortho reads, summed across threads | 31.08 s | 37.45 s |
+| Fusion, summed across threads | 36.97 s | 35.42 s |
+| Fifteen encodes, summed across threads | 743.76 s | 828.90 s |
+
+The three encoders run concurrently, so their summed times exceed command wall
+time. The first encode wave began about 70 seconds into the build; the remaining
+time was predominantly `toktx`. There is no long source hash, VRT reread, cache
+key collision, or shared lock. During the first run the host showed load about
+23, 99% CPU use, 63/64 GB physical memory in use, and 13 GB compressed. Codec
+processes initially received only about one CPU core each despite being assigned
+three threads. In the second run they briefly reached 2.2–2.3 cores each but
+later slowed as host load rose. This accounts for the large difference from the
+earlier 93-second single tile measurement and the 1,076-second contended run.
+
+The builder now drops each tile's large raster arrays before starting its
+encodes, reducing its live array set during compression. The second measured
+run was slower because the shared host became busier; the change has no byte
+effect. The cold under-three-minute target remains machine-bound under the
+observed load. The four-tile cached path remains below one second.
