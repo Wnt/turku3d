@@ -84,7 +84,12 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
     // The source mesh name and semantic key are per object, not per GPU material.
     // Canonicalize library-backed materials so dedup can batch all walls/roofs
     // using the same maps. Per-object keys remain in the node's QA ranges.
-    if (!selected.unique && (albedo || normal || orm)) {
+    if (e.layer === 'props' && e.material_key !== 'props_sign' && e.material_key !== 'props_bus_stop') {
+      // Furniture shares the producer's neutral palette. Keep type on object
+      // extras, while one material allows all palette meshes to batch.
+      material.setName('props_palette');
+      material.setExtras({ material_key:'props_palette' });
+    } else if (!selected.unique && (albedo || normal || orm)) {
       material.setName(`library:${key}`);
       material.setExtras({ material_key: key, library_material_key: key });
     } else {

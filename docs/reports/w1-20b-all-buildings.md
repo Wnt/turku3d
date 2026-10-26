@@ -46,6 +46,15 @@ buildings in 214.650 s. Walker starts use the sampled wall's local facade base,
 so elevated walls are tested at their actual height; placeholders use their
 recorded fallback base.
 
+The assembled L0 tile wire sizes, including ground textures, are 7,021,138,
+7,974,980, 7,864,637 and 7,941,020 bytes for `t0_0_0`, `t0_0_1`,
+`t0_1_0` and `t0_1_1` respectively. All are below the 8,000,000-byte limit.
+Packing the existing traffic sign faces into a shared tile atlas and sharing
+the identical furniture palette reduces the office WebGPU view to 458 draws
+at 2560×1440. Chrome WebGPU colour screenshots
+from the spawn facing north, east, south and west, plus the southeast corner,
+are in `$TURKU3D_WORK/reports/building-screenshots/`.
+
 ## Verification
 
 ```sh
@@ -57,5 +66,8 @@ make refresh REFRESH_TARGET=facades
 make buildings-test
 make buildings-validate
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
+make game-build
+make tile-show # in another terminal, then render with qa/render/render.mjs
+make tile-e2e
 scripts/dev/gate --base main
 ```

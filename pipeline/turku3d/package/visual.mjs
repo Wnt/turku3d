@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { batchVisual } from './batch.mjs';
 import { createMaterialBinder } from './materials.mjs';
 import { atlasFacades } from './facade_atlas.mjs';
+import { atlasPropSigns } from './prop_atlas.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
@@ -99,9 +100,9 @@ async function assembleVisual(request) {
       node.setMesh(null); continue;
     }
     // Keep QA's object vocabulary while retaining the producer's stable identity.
-    const kind = e.kind ?? ({ buildings:'building', structures:'prop', props:'prop' }[e.layer] ?? e.layer);
+    const kind = e.kind ?? ({ buildings:'building', buildings_outer:'building', structures:'prop', props:'prop' }[e.layer] ?? e.layer);
     node.setExtras({ ...e, id: e.object_id, kind, tile: request.tile, material: e.material_key });
-    if (request.level > 0 && ((e.layer !== 'ground' && e.layer !== 'buildings') || e.surface === 'curb' || e.kind === 'curb')) {
+    if (request.level > 0 && ((e.layer !== 'ground' && e.layer !== 'buildings' && e.layer !== 'buildings_outer') || e.surface === 'curb' || e.kind === 'curb')) {
       node.setMesh(null); continue;
     }
     for (const prim of mesh.listPrimitives()) {
@@ -136,6 +137,7 @@ async function assembleVisual(request) {
   fs.mkdirSync(request.textureCache, { recursive:true });
   if (request.level === 0) {
     await atlasFacades(doc, request, { sharp, run, KHRTextureBasisu });
+    await atlasPropSigns(doc, sharp);
   }
   await batchVisual(doc, scene, request.tile, { dedup, joinPrimitives, transformPrimitive });
   await doc.transform(prune({ keepLeaves: false, keepSolidTextures: true, keepAttributes: true, keepIndices: true }), unpartition());

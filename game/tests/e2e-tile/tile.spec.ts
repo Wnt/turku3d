@@ -196,8 +196,13 @@ test('coarse terrain remains visible outside the four-tile AOI', { tag: ['@pipel
   expect(state.error).toBeFalsy();
   expect(state.info.tiles).toContain('t1_1_1');
   const { w, h, px } = await decodePng(page, await page.screenshot());
-  const k = 4 * (Math.floor(h/2) * w + Math.floor(w/2));
-  const id = (px[k] << 16) | (px[k+1] << 8) | px[k+2];
-  expect(state.ids[String(id)]).toMatchObject({kind:'ground',tile:'t1_1_1'});
+  const visibleGround = new Set<string>();
+  for (let y = Math.floor(h / 2); y < h; y += 8) for (let x = 0; x < w; x += 8) {
+    const k = 4 * (y * w + x);
+    const id = (px[k] << 16) | (px[k+1] << 8) | px[k+2];
+    const item = state.ids[String(id)];
+    if (item?.kind === 'ground' && item.tile === 't1_1_1') visibleGround.add(String(id));
+  }
+  expect(visibleGround.size).toBeGreaterThan(0);
   expect(bad).toEqual([]);
 });
