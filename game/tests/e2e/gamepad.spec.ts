@@ -43,6 +43,7 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   await expect.poll(async () => { const s = await state(page); return Math.hypot(s.vel[0], s.vel[2]); }).toBeGreaterThan(4);
   await axes(page, 0, 0); await button(page, 0, 0);
   await settled(page);
+  await expect.poll(async () => (await state(page)).contacts.length).toBe(2);
   const curb = await state(page);
   expect(curb.feet[1]).toBeCloseTo(2.12, 1); expect(curb.feet[2]).toBeLessThan(initial.feet[2] - 3);
   expect(curb.visualFeet[1]).toBeCloseTo(curb.feet[1], 1);

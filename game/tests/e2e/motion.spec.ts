@@ -7,6 +7,8 @@ import { reportsRoot } from '../../../tools/dev/environment.mjs';
 type Sample = { frame: number; time: number; x: number; y: number };
 
 test('turning around a moving car and walker keeps actor edges in one screen position', { tag: ['@drive', '@character', '@render'] }, async ({ page }, info) => {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.addInitScript(() => {
     const w = window as any;
     w.pad = { id: 'Xbox Wireless Controller (virtual)', index: 0, connected: true, mapping: 'standard',
@@ -19,6 +21,7 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
   }, [index, value]);
   await page.goto(`/?backend=${info.project.name}&aa=taa&hud=0`);
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await axis(0, 1);
   await page.waitForFunction(() => { const s = (window as any).__game.state();
     return Math.hypot(s.vehicle.pos[0] - s.feet[0], s.vehicle.pos[2] - s.feet[2]) < 3; });

@@ -4,6 +4,8 @@ import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
 test('player idle, walk and run remain grounded on both backends', { tag: ['@walk'] }, async ({ page }, info) => {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.addInitScript(() => {
     const pad = { axes: [0, 0, 0, 0], buttons: Array(17).fill(0) };
     (window as any).__lookPad = pad;
@@ -14,6 +16,7 @@ test('player idle, walk and run remain grounded on both backends', { tag: ['@wal
   });
   await page.goto(`/?backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready && (window as any).__game.state().grounded);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   const capture = process.env.PLAYER_CAPTURE;
   const directory = path.join(reportsRoot, 'player-look', capture ?? 'check');
   if (capture) fs.mkdirSync(directory, { recursive: true });
