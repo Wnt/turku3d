@@ -8,6 +8,7 @@ import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SAVE_KEY } from '../../src/gameplay/missions/missions';
 import type { WorldPoint } from '../../src/gameplay/contract';
+import { open, untilSim } from '../e2e/waits';
 
 const shots = path.join(reportsRoot, 'gameplay-missions');
 const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json'), 'utf8'));
@@ -31,8 +32,8 @@ async function teleportNear(page: Page, point: WorldPoint, below = 40) {
     return Math.hypot(s.feet[0] - x, s.feet[2] - z) < 1 && s.grounded;
   }, { x: point.x + 1.5, z: point.z });
 }
-const showsMessage = (page: Page, text: string) => page.waitForFunction(t =>
-  (window.__game!.state as () => { missions: Missions })().missions.hud.message === t, text, { timeout: 20_000 });
+const showsMessage = (page: Page, text: string) => untilSim(page, t =>
+  (window.__game!.state as () => { missions: Missions })().missions.hud.message === t, text, 20);
 
 test('licence, pickup and a timed delivery pay on the published tiles', { tag: ['@gameplay', '@walk'] }, async ({ page }, info) => {
   test.skip(info.project.name !== 'webgpu', 'mission logic is backend-independent; one backend keeps the check fast');
@@ -41,11 +42,12 @@ test('licence, pickup and a timed delivery pay on the published tiles', { tag: [
   fs.mkdirSync(shots, { recursive: true });
   const shot = async (name: string) => fs.writeFileSync(path.join(shots, `${name}.png`), await page.screenshot());
 
-  await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
+  const { scale } = await open(page, `/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
   await page.evaluate(key => localStorage.removeItem(key), SAVE_KEY);
   await page.reload();
   await expect(page.locator('.start-intro')).toContainText(lineText('intro_1'));
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 });
+  // Loading precedes the game clock, so these bounds stay wall-clock, scaled by the measured frame time.
+  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 * scale });
   await shot('01-start-intro');
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => {
@@ -92,7 +94,7 @@ test('licence, pickup and a timed delivery pay on the published tiles', { tag: [
 
   // A reload continues the saved game without the intro.
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 * scale });
   await expect(page.locator('.start-intro')).toHaveCount(0);
   expect(await missions(page)).toMatchObject({ licence: true, money: paid, hud: { activeTargetId: PIZZERIA.id } });
   await page.evaluate(key => localStorage.removeItem(key), SAVE_KEY);
