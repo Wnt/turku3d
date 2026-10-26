@@ -25,6 +25,8 @@ def build(root, out):
             str(out),
             "--library",
             str(inputs / "library"),
+            "--ground",
+            str(inputs / "ground"),
             "--facades",
             str(inputs / "facades"),
             "--ground",
