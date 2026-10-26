@@ -566,7 +566,8 @@ routed source/dependency domains, inventory (including deletions), selected test
 configuration, tools and installed Python versions. Sandbox paths and ports are excluded. Only GREEN stages
 can report `cached PASS`; failures are never cached. Policy runs every time because flag expiry
 depends on main's merge count. Live build stages keep APFS-cloned verified artifacts under
-`$TURKU3D_DATA/cache/tool-stages/live`; keys include the Git tree and input manifests.
+`$TURKU3D_DATA/cache/tool-stages/live`; keys include declared source paths, input manifests
+and the preceding stage key.
 
 Before DONE, workers commit and run `scripts/dev/codex-task precheck <name>`. It rebases on main,
 runs the gate and every live build check in the worker sandbox, and saves a report in

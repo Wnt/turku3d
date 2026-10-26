@@ -116,13 +116,33 @@ class QueueTests(unittest.TestCase):
             textures = work / "textures"
             textures.mkdir()
             (textures / "asset.ktx2").write_bytes(b"verified")
+            approvals = published / "facade-approvals"
+            approvals.mkdir(parents=True)
+            (approvals / "MANIFEST.json").write_text('{"source":"one"}')
             with patch.object(live_cache.s, "git", return_value="tree"):
                 key = live_cache.digest(repo, work, published, "refresh", "")
                 live_cache.store(published, work, "refresh", key, {})
                 (textures / "asset.ktx2").unlink()
                 self.assertEqual(live_cache.restore(published, work, "refresh", key), {})
                 self.assertEqual((textures / "asset.ktx2").read_bytes(), b"verified")
-                (layer / "MANIFEST.json").write_text('{"source":"two"}')
+                (approvals / "MANIFEST.json").write_text('{"source":"two"}')
                 changed = live_cache.digest(repo, work, published, "refresh", "")
                 self.assertNotEqual(key, changed)
                 self.assertIsNone(live_cache.restore(published, work, "refresh", changed))
+
+    def test_live_key_uses_declared_code_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, work, published = root / "repo", root / "work", root / "data"
+            (repo / "game").mkdir(parents=True)
+            (repo / "pipeline").mkdir()
+            (repo / "game/main.ts").write_text("one")
+            (repo / "pipeline/main.py").write_text("one")
+            with patch.object(live_cache.s, "git", return_value="game/main.ts\npipeline/main.py"):
+                first = live_cache.digest(repo, work, published, "game-build", "")
+                (repo / "pipeline/main.py").write_text("two")
+                self.assertEqual(first, live_cache.digest(repo, work, published, "game-build", ""))
+                (repo / "game/main.ts").write_text("two")
+                self.assertNotEqual(
+                    first, live_cache.digest(repo, work, published, "game-build", "")
+                )

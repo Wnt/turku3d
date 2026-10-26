@@ -1,5 +1,6 @@
 """Shared verified live-stage artifacts, keyed by declared source and manifest inputs."""
 
+import fnmatch
 import hashlib
 import json
 import os
@@ -13,22 +14,30 @@ OUTPUTS = {
     "game-build": ("build/game",),
 }
 
+INPUTS = {
+    "refresh": ("pipeline/*", "textures/*", "Makefile", "scripts/dev/live*"),
+    "tile-build": ("pipeline/*", "textures/*", "Makefile", "scripts/dev/live*"),
+    "game-build": ("game/*", "Makefile", "scripts/dev/live*"),
+    "collision-sweep": ("pipeline/*", "game/*", "Makefile", "scripts/dev/live*"),
+    "collision-audit": ("pipeline/*", "game/*", "Makefile", "scripts/dev/live*"),
+    "chrome": ("game/*", "qa/*", "Makefile", "scripts/dev/live*"),
+}
+
 
 def digest(repo, work, published, stage, previous):
-    tree = s.git("rev-parse", "HEAD^{tree}", cwd=repo)
     h = hashlib.sha256(
-        json.dumps(
-            {"v": 1, "tree": tree, "stage": stage, "previous": previous}, sort_keys=True
-        ).encode()
+        json.dumps({"v": 2, "stage": stage, "previous": previous}, sort_keys=True).encode()
     )
+    patterns = INPUTS.get(stage, ("pipeline/*", "game/*", "qa/*", "Makefile", "scripts/dev/live*"))
+    for name in sorted(s.git("ls-files", cwd=repo).splitlines()):
+        if any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns):
+            h.update(name.encode() + b"\0" + (repo / name).read_bytes() + b"\0")
     # Source manifests contain hashes for the large immutable data products. A
     # changed inventory also invalidates the cache, including missing files.
-    for root in (
-        published / "data-manifests",
-        published / "facade-approvals",
-        work / "build/layers",
-        work / "textures",
-    ):
+    data_roots = [published / "data-manifests", published / "facade-approvals"]
+    if stage != "refresh":
+        data_roots.extend((work / "build/layers", work / "textures"))
+    for root in data_roots:
         if not root.exists():
             h.update(f"missing:{root.name}".encode())
             continue
