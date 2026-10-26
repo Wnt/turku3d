@@ -15,6 +15,16 @@ from turku3d.placement import Instance, Surfaces, Validator
 from turku3d.placement.clearance import ENVELOPE_PATH, Obstacles
 
 
+# Instance producers run in this order. Each one clears only the inventories published before
+# it, so a rebuild never invalidates an earlier producer and make refresh converges in one pass.
+PLACEMENT_ORDER = ("props", "vegetation", "traffic_static")
+INVENTORIES = {
+    "props": ("instances.json", None),
+    "vegetation": ("trees.json", "records"),
+    "traffic_static": ("placements.json", "cars"),
+}
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -114,15 +124,19 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
             zones["parking_edge"].append(g.buffer(6).difference(g.buffer(3)))
         if t.get("natural") == "tree" and t.get("tree_pit") not in (None, "no"):
             zones["tree_pit"].append(g.buffer(0.6))
+    return Validator(
+        Surfaces(triangles, materials, decks),
+        {k: union_all(v) for k, v in zones.items()},
+        placed_before(layer, inputs),
+        obstacles,
+    )
+
+
+def placed_before(layer, inputs):
+    """Bases of the instances published by producers that run before layer."""
     occupied = []
-    inventories = {
-        "props": ("instances.json", None),
-        "vegetation": ("trees.json", "records"),
-        "traffic_static": ("placements.json", "cars"),
-    }
-    for other, (filename, key) in inventories.items():
-        if other == layer:
-            continue
+    for other in PLACEMENT_ORDER[: PLACEMENT_ORDER.index(layer)]:
+        filename, key = INVENTORIES[other]
         p = layer_root() / other / filename
         if p.exists():
             inputs[str(p)] = digest(p)
@@ -130,12 +144,7 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
             for record in records[key] if key else records:
                 obj = instance(record, other)
                 occupied.append((obj.object_id, obj.shape))
-    return Validator(
-        Surfaces(triangles, materials, decks),
-        {k: union_all(v) for k, v in zones.items()},
-        occupied,
-        obstacles,
-    )
+    return occupied
 
 
 def solid_obstacles(envelope, inputs, layer):

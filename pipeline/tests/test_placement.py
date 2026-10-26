@@ -1,6 +1,8 @@
 """Placement acceptance uses tiny exact synthetic surfaces and mapped exclusions."""
 
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 from shapely.geometry import LineString, box
@@ -190,3 +192,30 @@ def test_free_length_counts_other_parked_cars():
     found = obstacles().extended([car_box(0.5, 3, -12, 0, 1.8, 1.5, 4.5)])
     assert found.free_length(0, 0, 0, 1.98, 5.0, 3, 2.05, -1) == 7.2
     assert found.free_length(3, 0, 0, 1.98, 5.0, 3, 2.05, -1) == 30.0
+
+
+def test_producers_clear_only_inventories_published_before_them(tmp_path, monkeypatch):
+    from turku3d.placement.inputs import PLACEMENT_ORDER, placed_before
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
+    layers = tmp_path / "build/layers"
+    inventories = {
+        "props/instances.json": [{"object_id": "bench", "kind": "bench", "x": 0, "z": 0}],
+        "vegetation/trees.json": {
+            "records": [{"object_id": "tree", "x": 5, "z": 0, "trunk_radius": 0.3}]
+        },
+        "traffic_static/placements.json": {
+            "cars": [{"object_id": "car", "x": 9, "z": 0, "width": 1.8, "length": 4.4}]
+        },
+    }
+    for name, content in inventories.items():
+        (layers / name).parent.mkdir(parents=True)
+        (layers / name).write_text(json.dumps(content))
+    seen = {}
+    for layer in PLACEMENT_ORDER:
+        inputs = {}
+        seen[layer] = [object_id for object_id, _ in placed_before(layer, inputs)]
+        assert sorted(Path(p).parent.name for p in inputs) == sorted(
+            PLACEMENT_ORDER[: PLACEMENT_ORDER.index(layer)]
+        )
+    assert seen == {"props": [], "vegetation": ["bench"], "traffic_static": ["bench", "tree"]}

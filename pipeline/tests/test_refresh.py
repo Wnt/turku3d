@@ -4,33 +4,7 @@ import os
 
 import pytest
 from turku3d import refresh
-from turku3d.package.assemble import require_office_layers
-
-
-def test_office_assembly_requires_accepted_structures_and_bridges():
-    with pytest.raises(ValueError, match="bridges.*make refresh"):
-        require_office_layers({"ground": {}, "buildings": {}})
-    with pytest.raises(ValueError, match="structures.*make refresh"):
-        require_office_layers({"ground": {}, "buildings": {}, "bridges": {}})
-    with pytest.raises(ValueError, match="structures failed real-data acceptance"):
-        require_office_layers(
-            {"ground": {}, "buildings": {}, "bridges": {}, "structures": {"params": {}}}
-        )
-    accepted = {
-        "ground": {},
-        "buildings": {},
-        "bridges": {"tiles": {}},
-        "structures": {
-            "params": {"acceptance_passed": True},
-            "tiles": {"c_0_0.col.npz": {}, "t0_0_0.vis.glb": {}},
-        },
-    }
-    with pytest.raises(ValueError, match="bridges layer has no visual or collision tiles"):
-        require_office_layers(accepted)
-    accepted["bridges"]["tiles"] = {"c_0_0.col.npz": {}, "t0_0_0.vis.glb": {}}
-    accepted["structures"]["tiles"] = {}
-    with pytest.raises(ValueError, match="structures layer has no visual or collision tiles"):
-        require_office_layers(accepted)
+from turku3d.package.assemble import OFFICE_LAYERS
 
 
 def test_declared_input_and_code_hashes(tmp_path):
@@ -104,12 +78,38 @@ def test_parallel_rebuilds_detach_shared_layers_ancestor_once(tmp_path, monkeypa
         "bridges",
         "bridge_textures",
         "outer_buildings",
+        "roads",
+        "vegetation",
         "parked",
     ):
         monkeypatch.setattr(refresh, name, lambda *args: "rebuilt")
     refresh.refresh(work)
     assert not (work / "build/layers").is_symlink()
     assert (shared / "ground").is_dir()
+
+
+def test_refresh_rebuilds_exactly_the_assembler_office_layers(tmp_path, monkeypatch):
+    """A layer dropped from make refresh (or added without the assembler) fails here."""
+    producers = {
+        "ground": "ground",
+        "buildings": "buildings",
+        "structures": "structures",
+        "bridges": "bridges",
+        "outer_buildings": "buildings_outer",
+        "props": "props",
+        "vegetation": "vegetation",
+        "parked": "traffic_static",
+        "roads": "roads",
+    }
+    texture_steps = {"ground_textures", "facades", "bridge_textures"}
+    rebuilt = []
+    for function, layer in producers.items():
+        monkeypatch.setattr(refresh, function, lambda *args, layer=layer: rebuilt.append(layer))
+    for function in texture_steps:
+        monkeypatch.setattr(refresh, function, lambda *args: "cached")
+    result = refresh.refresh(tmp_path / "work")
+    assert sorted(rebuilt) == sorted(OFFICE_LAYERS)
+    assert set(result) - {"ground-textures", "facades", "bridge-textures"} == set(OFFICE_LAYERS)
 
 
 def test_texture_source_hash_cache_detects_changes(tmp_path, monkeypatch):
@@ -189,19 +189,21 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "buildings", node("buildings"))
     monkeypatch.setattr(refresh, "ground_textures", node("ground-textures", ("ground",)))
     monkeypatch.setattr(refresh, "facades", node("facades", ("buildings",)))
-    monkeypatch.setattr(refresh, "props", node("props", ("ground", "buildings")))
+    surfaces = ("ground", "buildings", "structures", "bridges")
+    monkeypatch.setattr(refresh, "props", node("props", surfaces))
+    monkeypatch.setattr(refresh, "vegetation", node("vegetation", (*surfaces, "props")))
     monkeypatch.setattr(refresh, "bridges", node("bridges", ("ground",)))
     monkeypatch.setattr(refresh, "structures", node("structures", ("ground",)))
     monkeypatch.setattr(refresh, "bridge_textures", node("bridge-textures"))
     monkeypatch.setattr(refresh, "outer_buildings", node("buildings_outer", ("buildings",)))
     monkeypatch.setattr(refresh, "roads", node("roads"))
-    solid = ("ground", "buildings", "structures", "props", "bridges", "buildings_outer")
+    solid = (*surfaces, "buildings_outer", "props", "vegetation")
     monkeypatch.setattr(refresh, "parked", node("traffic_static", solid))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
     second = refresh.refresh(tmp_path)
     assert set(second.values()) == {"cached"}
-    assert len(calls) == 11
+    assert len(calls) == 12
 
 
 def test_structures_refresh_requires_passed_real_acceptance(tmp_path, monkeypatch):
@@ -327,3 +329,25 @@ def test_facade_target_runs_buildings_before_migration(monkeypatch, tmp_path):
     result = refresh.refresh(tmp_path, "facades")
     assert calls == ["buildings", "facades"]
     assert result == {"buildings": "cached", "facades": "rebuilt"}
+
+
+def test_vegetation_refresh_rebuilds_when_props_change(tmp_path, monkeypatch):
+    from turku3d.layers import write_manifest
+
+    layers = tmp_path / "build/layers"
+    props = layers / "props/instances.json"
+    props.parent.mkdir(parents=True)
+    props.write_text("[]")
+    write_manifest(
+        layers / "vegetation",
+        inputs={str(props): refresh.sha(props), "placement_report": "audit output"},
+        params={},
+        code=refresh.vegetation_code_hash(),
+        tiles=[],
+    )
+    calls = []
+    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
+    assert refresh.vegetation(layers) == "cached"
+    props.write_text('[{"object_id": "bench"}]')
+    assert refresh.vegetation(layers) == "rebuilt"
+    assert calls == [("turku3d.vegetation",)]

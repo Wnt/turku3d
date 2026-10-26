@@ -20,6 +20,7 @@ from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
 from turku3d.roads import code_hash as roads_code_hash
 from turku3d.structures.layer import code_hash as structures_code_hash
+from turku3d.vegetation.__main__ import code_hash as vegetation_code_hash
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 _detach_lock = threading.Lock()
@@ -340,6 +341,14 @@ def roads(layers):
     return "rebuilt"
 
 
+def vegetation(layers):
+    if layer_current(layers / "vegetation/MANIFEST.json", vegetation_code_hash()):
+        return "cached"
+    local_directory(layers / "vegetation", layers.parents[1])
+    run("turku3d.vegetation")
+    return "rebuilt"
+
+
 def parked(layers):
     """Parked cars clear the published colliders of every other layer, so they rebuild last."""
     code = code_hash([C.REPO_ROOT / "pipeline/turku3d/parked"])
@@ -452,15 +461,20 @@ def refresh(work, target=None):
                     timed, "ground-textures", ground_textures, layers, textures
                 ),
                 "facades": pool.submit(timed, "facades", facades, layers, textures),
-                "props": pool.submit(timed, "props", props, layers),
                 "bridges": pool.submit(timed, "bridges", bridges, layers),
                 "roads": pool.submit(timed, "roads", roads, layers),
+                "buildings_outer": pool.submit(timed, "buildings_outer", outer_buildings, layers),
             }
-            for name, future in futures.items():
-                result[name] = future.result()
+            for name in ("bridges", "buildings_outer"):
+                result[name] = futures[name].result()
+            # Instance placement reads every solid layer above, and each producer clears
+            # the inventories published before it (placement.inputs.PLACEMENT_ORDER).
+            result["props"] = timed("props", props, layers)
+            result["vegetation"] = timed("vegetation", vegetation, layers)
+            result["traffic_static"] = timed("traffic_static", parked, layers)
+            for name in ("ground-textures", "facades", "roads"):
+                result[name] = futures[name].result()
         result["bridge-textures"] = timed("bridge-textures", bridge_textures, textures)
-        result["buildings_outer"] = timed("buildings_outer", outer_buildings, layers)
-        result["traffic_static"] = timed("traffic_static", parked, layers)
     return result
 
 

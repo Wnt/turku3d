@@ -4,17 +4,13 @@ import json
 
 from turku3d import config as C
 from turku3d.layers import layer_root, read_manifest
-from turku3d.placement.inputs import context, instance
+from turku3d.placement.inputs import INVENTORIES, PLACEMENT_ORDER, context, instance
 
 
 def main():
-    layers = {
-        "props": ("instances.json", None),
-        "vegetation": ("trees.json", "records"),
-        "traffic_static": ("placements.json", "cars"),
-    }
     report = {}
-    for layer, (filename, key) in layers.items():
+    for layer in PLACEMENT_ORDER:
+        filename, key = INVENTORIES[layer]
         root = layer_root() / layer
         manifest = read_manifest(root)
         inventory = json.loads((root / filename).read_text())

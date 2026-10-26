@@ -72,29 +72,36 @@ def load_layers(root: Path):
     return manifests, collision
 
 
+# Every layer make refresh rebuilds, with the tile kinds it must publish. Assembly of the
+# office block fails on any gap instead of shipping a release without that layer.
+OFFICE_LAYERS = {
+    "ground": (".vis.glb", ".col.npz"),
+    "buildings": (".vis.glb", ".col.npz"),
+    "structures": (".vis.glb", ".col.npz"),
+    "bridges": (".vis.glb", ".col.npz"),
+    "buildings_outer": (".vis.glb",),
+    "props": (".vis.glb", ".col.npz"),
+    "vegetation": (".vis.glb", ".col.npz"),
+    "traffic_static": (".vis.glb", ".col.npz"),
+    "roads": (),
+}
+
+
 def require_office_layers(manifests):
-    required = {"ground", "buildings", "bridges", "structures"}
-    missing = sorted(required - manifests.keys())
+    missing = sorted(OFFICE_LAYERS.keys() - manifests.keys())
     if missing:
         raise ValueError(
             f"Missing required office-block layers: {', '.join(missing)}; run make refresh"
         )
     if not manifests["structures"]["params"].get("acceptance_passed"):
         raise ValueError("Office-block structures failed real-data acceptance; run make refresh")
-    structure_tiles = manifests["structures"]["tiles"]
-    if not any(name.endswith(".vis.glb") for name in structure_tiles) or not any(
-        name.endswith(".col.npz") for name in structure_tiles
-    ):
-        raise ValueError(
-            "Office-block structures layer has no visual or collision tiles; run make refresh"
-        )
-    bridge_tiles = manifests["bridges"]["tiles"]
-    if not any(name.endswith(".vis.glb") for name in bridge_tiles) or not any(
-        name.endswith(".col.npz") for name in bridge_tiles
-    ):
-        raise ValueError(
-            "Office-block bridges layer has no visual or collision tiles; run make refresh"
-        )
+    for name, kinds in OFFICE_LAYERS.items():
+        tiles = manifests[name]["tiles"]
+        absent = [kind for kind in kinds if not any(tile.endswith(kind) for tile in tiles)]
+        if absent:
+            raise ValueError(
+                f"Office-block {name} layer has no {' or '.join(absent)} tiles; run make refresh"
+            )
 
 
 def collision_tile(tile, layers, manifests, available, *, dynamic_traffic=False):

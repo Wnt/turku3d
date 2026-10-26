@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from collections import Counter
@@ -21,6 +22,18 @@ from turku3d.layers import (
 from turku3d.placement.inputs import place_objects
 from turku3d.vegetation.trees import digest, load_points, measure, register
 from turku3d.vegetation.visual import ASSETS, write_instances
+
+
+def code_hash():
+    """Producer code identity that make refresh compares with MANIFEST.code."""
+    base = Path(__file__).parents[1]
+    sources = sorted(Path(__file__).parent.glob("*.py")) + [
+        base / "config.py",
+        base / "layers.py",
+        base / "package/gltf.py",
+        base / "package/manifest.py",
+    ]
+    return hashlib.sha256("".join(digest(p) for p in sources).encode()).hexdigest()
 
 
 def publish(trees, out, inputs, params):
@@ -50,7 +63,6 @@ def publish(trees, out, inputs, params):
             ),
         )
         files.append(name)
-    code = {p.name: digest(p) for p in Path(__file__).parent.glob("*.py")}
     inputs.update({str(p): digest(p) for p in ASSETS.glob("*") if p.is_file()})
     report = {
         "trees": len(trees),
@@ -70,7 +82,7 @@ def publish(trees, out, inputs, params):
             "budgets": budgets,
             "inventory_sha256": digest(out / "trees.json"),
         },
-        code=json.dumps(code, sort_keys=True),
+        code=code_hash(),
         tiles=files,
     )
     return report
