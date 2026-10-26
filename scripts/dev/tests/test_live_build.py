@@ -96,13 +96,33 @@ class LiveBuildTests(unittest.TestCase):
                 "\n".join(
                     json.dumps(row)
                     for row in (
-                        {"project": "webgl", "file": "parked.spec.ts", "title": "drives",
-                         "retry": 0, "status": "timedOut", "hostLoad": 63.2,
-                         "pace": {**pace, "p95FrameMs": 3046.1}},
-                        {"project": "webgl", "file": "parked.spec.ts", "title": "drives",
-                         "retry": 1, "status": "passed", "hostLoad": 41.0, "pace": pace},
-                        {"project": "webgpu", "file": "tile.spec.ts", "title": "walks",
-                         "retry": 0, "status": "passed", "hostLoad": 12.0, "pace": None},
+                        {
+                            "project": "webgl",
+                            "file": "parked.spec.ts",
+                            "title": "drives",
+                            "retry": 0,
+                            "status": "timedOut",
+                            "hostLoad": 63.2,
+                            "pace": {**pace, "p95FrameMs": 3046.1},
+                        },
+                        {
+                            "project": "webgl",
+                            "file": "parked.spec.ts",
+                            "title": "drives",
+                            "retry": 1,
+                            "status": "passed",
+                            "hostLoad": 41.0,
+                            "pace": pace,
+                        },
+                        {
+                            "project": "webgpu",
+                            "file": "tile.spec.ts",
+                            "title": "walks",
+                            "retry": 0,
+                            "status": "passed",
+                            "hostLoad": 12.0,
+                            "pace": None,
+                        },
                     )
                 )
                 + "\nnot json\n"
@@ -185,9 +205,18 @@ class LiveBuildTests(unittest.TestCase):
                 load_log = kwargs["env"].get("TURKU3D_BROWSER_LOAD_LOG")
                 if load_log:
                     Path(load_log).write_text(
-                        json.dumps({"project": "webgpu", "file": "tile.spec.ts", "title": "walks",
-                                    "retry": 0, "status": "passed", "hostLoad": 1.0,
-                                    "pace": {"p95FrameMs": 20.0}}) + "\n"
+                        json.dumps(
+                            {
+                                "project": "webgpu",
+                                "file": "tile.spec.ts",
+                                "title": "walks",
+                                "retry": 0,
+                                "status": "passed",
+                                "hostLoad": 1.0,
+                                "pace": {"p95FrameMs": 20.0},
+                            }
+                        )
+                        + "\n"
                     )
                 calls.append(
                     (
