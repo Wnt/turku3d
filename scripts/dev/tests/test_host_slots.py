@@ -115,9 +115,15 @@ class HostSlotsTest(unittest.TestCase):
             self.assertEqual(result.stdout.strip(), expected)
 
     def test_landing_children_reuse_exclusive_reservation(self):
+        # A queue-run precheck builds under the queue's own landing reservation.
+        for kind in ("build", "land"):
+            with self.subTest(kind=kind):
+                self.assertEqual(self.nested(kind), "42")
+
+    def nested(self, kind):
         script = (
             "import os, subprocess, sys; "
-            "subprocess.run([sys.executable, sys.argv[1], 'build', '--', "
+            f"subprocess.run([sys.executable, sys.argv[1], '{kind}', '--', "
             "sys.executable, '-c', 'print(42)'], check=True)"
         )
         result = subprocess.run(
@@ -137,7 +143,7 @@ class HostSlotsTest(unittest.TestCase):
             timeout=5,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "42")
+        return result.stdout.strip()
 
 
 if __name__ == "__main__":

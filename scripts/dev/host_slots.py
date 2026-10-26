@@ -79,7 +79,9 @@ def slot(kind):
     if kind not in LIMITS:
         raise ValueError(f"unknown slot class: {kind}")
     owner = os.environ.get("TURKU3D_LAND_OWNER", "")
-    if kind != "land" and owner:
+    # Children of a running landing reservation, including a nested landing
+    # build such as a queue-run precheck, reuse its exclusive capacity.
+    if owner:
         pid, _, started = owner.partition(":")
         with state() as data:
             inherited = any(
@@ -150,11 +152,11 @@ def main():
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("command required")
-    with slot(args.kind):
+    with slot(args.kind) as inherited:
         env = os.environ.copy()
         cap = 1 if args.kind in ("browser", "land") else 2
         env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))
-        if args.kind == "land":
+        if args.kind == "land" and not inherited:
             env["TURKU3D_LAND_OWNER"] = f"{os.getpid()}:{identity(os.getpid())}"
         return subprocess.call(command, env=env)
 

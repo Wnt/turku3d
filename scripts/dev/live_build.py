@@ -188,12 +188,13 @@ def warm_checks(repo, work, env):
 
 
 def build(repo, work, published, env, log_path, reason=None):
-    with slot("land"):
-        reserved_env = {
-            **env,
-            "TURKU3D_LAND_OWNER": f"{os.getpid()}:{identity(os.getpid())}",
-            "TURKU3D_JOBS": "1",
-        }
+    with slot("land") as inherited:
+        owner = (
+            os.environ["TURKU3D_LAND_OWNER"]
+            if inherited
+            else f"{os.getpid()}:{identity(os.getpid())}"
+        )
+        reserved_env = {**env, "TURKU3D_LAND_OWNER": owner, "TURKU3D_JOBS": "1"}
         return _build(repo, work, published, reserved_env, log_path, reason)
 
 

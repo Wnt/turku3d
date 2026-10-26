@@ -567,6 +567,9 @@ for synthetic tests). Up to three `build` jobs and two `browser` jobs run at onc
 each build gets at most two `TURKU3D_JOBS`, and each browser suite one. A queued
 `land` reservation stops new build/browser admissions, then holds exclusive capacity
 through refresh, four-tile assembly, game build, collision checks, and Chrome.
+Commands started under a running `land` reservation (`TURKU3D_LAND_OWNER`) reuse it,
+including nested `land` requests: the merge queue holds one reservation per round, and
+the queue-run prechecks and their live builds run inside it instead of waiting on it.
 Refresh divides its job budget between independent steps and passes it to Roofer.
 Dead owner PIDs are removed on the next admission or status read. Waiting appears
 in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
