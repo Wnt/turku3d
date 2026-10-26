@@ -16,6 +16,7 @@ import { CHECKS, type CheckName, type Options } from './options.ts';
 export { CHECKS, DEFAULT_OPTIONS, type CheckName, type Options } from './options.ts';
 import { loadFootprints } from './geo.ts';
 import { checkSeams } from './seams.ts';
+import { checkStairs } from './stairs.ts';
 import { resolveInputs } from './inputs.ts';
 import { checkParked, withParked } from './parked.ts';
 import { CurbQueries } from '../../../game/src/vehicle/curbQueries.ts';
@@ -109,7 +110,7 @@ export async function validateSerial(opts: Options): Promise<any> {
   if (want.has('holes')) report.checks.holes = ctx.checkHoles();
   if (want.has('buildings')) report.checks.buildings = opts.metadata!.footprints.features.length ? ctx.checkBuildings(loadFootprints(opts.metadata!.footprints)) : { status: 'skipped', reason: 'no building footprints in layer outputs or --footprints' };
   if (want.has('curbs')) report.checks.curbs = ctx.checkCurbs(opts.metadata!.curbs.features.length ? opts.metadata!.curbs : undefined);
-  if (want.has('stairs')) report.checks.stairs = ctx.checkStairs();
+  if (want.has('stairs')) report.checks.stairs = checkStairs(ctx);
   if (want.has('cars')) report.checks.cars = ctx.checkCars(surfaces);
   if (want.has('belowGround')) report.checks.belowGround = ctx.checkBelowGround();
   if (want.has('cars')) report.checks.cars = withParked(report.checks.cars, checkParked(loaded.map(l => l.tile), opts.metadata!.parked ?? [], (x, z) => ctx.owns(x, z) && ctx.inside(x, z)));
