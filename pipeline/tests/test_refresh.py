@@ -4,6 +4,33 @@ import os
 
 import pytest
 from turku3d import refresh
+from turku3d.package.assemble import require_office_layers
+
+
+def test_office_assembly_requires_accepted_structures_and_bridges():
+    with pytest.raises(ValueError, match="bridges.*make refresh"):
+        require_office_layers({"ground": {}, "buildings": {}})
+    with pytest.raises(ValueError, match="structures.*make refresh"):
+        require_office_layers({"ground": {}, "buildings": {}, "bridges": {}})
+    with pytest.raises(ValueError, match="structures failed real-data acceptance"):
+        require_office_layers(
+            {"ground": {}, "buildings": {}, "bridges": {}, "structures": {"params": {}}}
+        )
+    accepted = {
+        "ground": {},
+        "buildings": {},
+        "bridges": {"tiles": {}},
+        "structures": {
+            "params": {"acceptance_passed": True},
+            "tiles": {"c_0_0.col.npz": {}, "t0_0_0.vis.glb": {}},
+        },
+    }
+    with pytest.raises(ValueError, match="bridges layer has no visual or collision tiles"):
+        require_office_layers(accepted)
+    accepted["bridges"]["tiles"] = {"c_0_0.col.npz": {}, "t0_0_0.vis.glb": {}}
+    accepted["structures"]["tiles"] = {}
+    with pytest.raises(ValueError, match="structures layer has no visual or collision tiles"):
+        require_office_layers(accepted)
 
 
 def test_declared_input_and_code_hashes(tmp_path):
@@ -162,13 +189,46 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "facades", node("facades", ("buildings",)))
     monkeypatch.setattr(refresh, "props", node("props", ("ground", "buildings")))
     monkeypatch.setattr(refresh, "bridges", node("bridges", ("ground",)))
+    monkeypatch.setattr(refresh, "structures", node("structures", ("ground",)))
     monkeypatch.setattr(refresh, "bridge_textures", node("bridge-textures"))
     monkeypatch.setattr(refresh, "outer_buildings", node("buildings_outer", ("buildings",)))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
     second = refresh.refresh(tmp_path)
     assert set(second.values()) == {"cached"}
-    assert len(calls) == 8
+    assert len(calls) == 9
+
+
+def test_structures_refresh_requires_passed_real_acceptance(tmp_path, monkeypatch):
+    from turku3d.layers import write_manifest
+
+    layers = tmp_path / "layers"
+    source = tmp_path / "ground.json"
+    source.write_text("ground-v1")
+    directory = layers / "structures"
+    write_manifest(
+        directory,
+        inputs={str(source): refresh.sha(source)},
+        params={"acceptance_passed": False},
+        code=refresh.structures_code_hash(),
+        tiles=[],
+    )
+    calls = []
+    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
+    assert refresh.structures(layers) == "rebuilt"
+    assert calls == [
+        ("turku3d.structures", "--area", "office-block", "--ground-layer", str(layers / "ground"))
+    ]
+    calls.clear()
+    write_manifest(
+        directory,
+        inputs={str(source): refresh.sha(source)},
+        params={"acceptance_passed": True},
+        code=refresh.structures_code_hash(),
+        tiles=[],
+    )
+    assert refresh.structures(layers) == "cached"
+    assert not calls
 
 
 def test_bridge_refresh_rebuilds_for_stale_ground_or_code(tmp_path, monkeypatch):

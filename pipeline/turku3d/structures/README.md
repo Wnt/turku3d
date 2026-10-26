@@ -98,10 +98,15 @@ or unplaceable routes are blocking and retain their measured progress/heights.
   extras contain `layer`, `object_id`, `material_key`, and flight metadata.
   Horizontal UVs follow translated E/N metre axes; wall UVs use along-face and
   above-base metres. Texture binding remains the assembler's responsibility.
-- `MANIFEST.json`: shared `turku3d-layer` v1 inventory, input hashes, parameters,
+- `MANIFEST.json`: shared `turku3d-layer` v1 inventory, input hashes, parameters
+  including `acceptance_passed`,
   code hash, tile hashes/sizes and metrics hash. Strict acceptance remains in
   `metrics.json`; a publishable layer can still have measured acceptance failures.
 - `metrics.json` and `report.md`: object counts, per-object evidence and issues.
+
+`make refresh` rebuilds this layer after ground, and office assembly requires
+`acceptance_passed: true` plus collision and visual tiles. A blocked run retains
+its layer and report for diagnosis but cannot be shipped.
 
 Material keys are `stone_stairs`, `concrete_wall`, `metal_fence`, `metal_railing`,
 `granite_quay`, and `concrete_ramp`. Their texture-library assets are a downstream

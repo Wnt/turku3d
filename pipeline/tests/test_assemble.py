@@ -19,7 +19,11 @@ from turku3d.layers import (
     write_manifest,
     write_visual,
 )
-from turku3d.package.assemble import assemble, facade_priorities, require_office_layers
+from turku3d.package.assemble import (
+    assemble as assemble_office,
+    facade_priorities,
+    require_office_layers,
+)
 from turku3d.package.gltf import GlbMesh, read_glb
 from turku3d.package.manifest import verify_tree
 from turku3d.package.seams import verify_seams
@@ -27,11 +31,25 @@ from turku3d.parked.__main__ import publish as publish_parked
 from turku3d.parked.models import MODELS
 
 
-def test_office_assembly_requires_bridges():
-    with pytest.raises(ValueError, match="bridges.*make refresh"):
+def assemble(*args, **kwargs):
+    return assemble_office(*args, area="work-3x3", **kwargs)
+
+
+def test_office_assembly_requires_bridges_and_structures():
+    with pytest.raises(ValueError, match="bridges.*structures.*make refresh"):
         require_office_layers({"ground": {}, "buildings": {}})
     with pytest.raises(ValueError, match="bridges layer has no visual or collision tiles"):
-        require_office_layers({"ground": {}, "buildings": {}, "bridges": {"tiles": {}}})
+        require_office_layers(
+            {
+                "ground": {},
+                "buildings": {},
+                "bridges": {"tiles": {}},
+                "structures": {
+                    "params": {"acceptance_passed": True},
+                    "tiles": ["c_1_1.col.npz", "t0_0_0.vis.glb"],
+                },
+            }
+        )
 
 
 def test_facade_budget_priority_uses_spawn_distance_and_tile(tmp_path):
@@ -406,6 +424,8 @@ def test_region_batch_cli_and_manifest(tmp_path):
         str(layers),
         "--out",
         str(out),
+        "--area",
+        "work-3x3",
         "--tile",
         "t0_0_0",
         "t0_1_0",
@@ -525,8 +545,8 @@ def test_seam_rejected_before_publishing(tmp_path):
 
 
 def test_missing_layers_have_actionable_error(tmp_path):
-    with pytest.raises(ValueError, match="no published visual layers"):
-        assemble(["t0_0_0"], layers=tmp_path / "missing", out=tmp_path / "out")
+    with pytest.raises(ValueError, match="Missing required office-block layers"):
+        assemble_office(["t0_0_0"], layers=tmp_path / "missing", out=tmp_path / "out")
 
 
 def test_incremental_neighbours_and_removed_collision_are_updated(tmp_path):

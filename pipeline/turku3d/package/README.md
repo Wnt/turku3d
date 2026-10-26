@@ -2,7 +2,8 @@
 
 Production consumes the complete manifests under `$TURKU3D_WORK/build/layers/`.
 Publish layers first with [`turku3d.layers`](../../../docs/specs/layers.md).
-Missing optional layers are fine; a requested tile needs at least one visual layer.
+The office build requires ground, buildings, bridges, and an acceptance-passed
+structures layer; a requested tile needs at least one visual layer.
 L0 and collision have no stub or raw-data fallback. Coarse parents may read the cached
 maanpinta ground points and 2022 ortho to fill their complete footprint.
 
@@ -17,8 +18,10 @@ make game-test
 
 `make refresh` locks `$TURKU3D_WORK/.refresh.lock`, checks producer manifest input and
 code hashes, and rebuilds changed ground and buildings in parallel. It then checks
-ground splats, the filtered facade export, props placement, and surrounding building
-massing. Ground splats reuse
+ground splats, the filtered facade export, props placement, surrounding building
+massing, bridges, and structures. Structures
+uses the refreshed ground and must pass real-data geometry and Rapier acceptance.
+Ground splats reuse
 the fused orthos when the ground layer changes. A second run with unchanged inputs
 prints `cached` for every present product. It reads shared raw inputs and writes
 only derived products under `$TURKU3D_WORK`. Run it before `make tile-build` after

@@ -18,6 +18,7 @@ from turku3d.bridges.__main__ import code_hash as bridges_code_hash
 from turku3d.ground.build import code_hash as ground_code_hash
 from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
+from turku3d.structures.layer import code_hash as structures_code_hash
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 _detach_lock = threading.Lock()
@@ -349,6 +350,17 @@ def bridges(layers):
     return "rebuilt"
 
 
+def structures(layers):
+    path = layers / "structures/MANIFEST.json"
+    if layer_current(path, structures_code_hash()):
+        manifest = json.loads(path.read_text())
+        if manifest["params"].get("acceptance_passed"):
+            return "cached"
+    local_directory(layers / "structures", layers.parents[1])
+    run("turku3d.structures", "--area", "office-block", "--ground-layer", str(layers / "ground"))
+    return "rebuilt"
+
+
 def bridge_textures(textures):
     library = textures / "assembly/library"
     aliases = {
@@ -414,6 +426,7 @@ def refresh(work, target=None):
             }
             for name, future in futures.items():
                 result[name] = future.result()
+        result["structures"] = timed("structures", structures, layers)
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, workers)) as pool:
             futures = {
                 "ground-textures": pool.submit(

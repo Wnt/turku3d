@@ -67,7 +67,12 @@ def cached_manifest(out, inputs, params):
     out = Path(out)
     try:
         previous = read_manifest(out)
-        expected = {**params, "seams": "objects"}
+        expected = {
+            **params,
+            "seams": "objects",
+            "acceptance_passed": json.loads((out / "metrics.json").read_text()).get("status")
+            == "PASS",
+        }
         stored = dict(previous["params"])
         metrics_hash = stored.pop("metrics_sha256")
         if (
@@ -157,7 +162,12 @@ def write_layer(meshes, out, *, inputs, params, metrics):
     manifest = write_manifest(
         out,
         inputs=inputs,
-        params={**params, "seams": "objects", "metrics_sha256": sha256(out / "metrics.json")},
+        params={
+            **params,
+            "seams": "objects",
+            "acceptance_passed": metrics.get("status") == "PASS",
+            "metrics_sha256": sha256(out / "metrics.json"),
+        },
         code=code_hash(),
         tiles=files,
     )
