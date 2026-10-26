@@ -54,7 +54,7 @@ class LiveBuildTests(unittest.TestCase):
                 output = '{"facades_bound": 2}\n' if "tile-build" in command else "passed\n"
                 return type("Completed", (), {"returncode": 0, "stdout": output})()
 
-            with patch.object(live_build.subprocess, "run", side_effect=run):
+            with patch.object(live_build.s, "run_group", side_effect=run):
                 report = live_build.build(
                     repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log"
                 )

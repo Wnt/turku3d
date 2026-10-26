@@ -41,6 +41,7 @@ def batch(names, force=False):
                 raise ValueError(f"{name}: missing scripts/dev/gate")
             with coord.landing_guard(name, force):
                 pass
+            s.reap_browsers(name)
             members.append((name, path, meta, s.git("rev-parse", "HEAD", cwd=repo)))
         main = main_checkout(repo)
         if main and s.git("status", "--porcelain", cwd=main):
@@ -53,6 +54,7 @@ def batch(names, force=False):
         started = time.monotonic()
         commits = []
         build_report = None
+        gate_failure = ""
 
         def assemble(count):
             s.git("reset", "--hard", before, cwd=integration)
@@ -76,19 +78,26 @@ def batch(names, force=False):
                 commits.append(s.git("rev-parse", "HEAD", cwd=integration))
 
         def gate(log):
+            nonlocal gate_failure
             head = s.git("rev-parse", "HEAD", cwd=integration)
-            code = subprocess.call(
+            result = s.run_group(
                 [str(integration / "scripts/dev/gate"), "--base", gate_base],
                 cwd=integration,
                 env=env,
-                stdout=log,
-                stderr=subprocess.STDOUT,
             )
+            log.write(result.stdout)
+            log.flush()
+            code = result.returncode
             if (
                 s.git("status", "--porcelain", cwd=integration)
                 or s.git("rev-parse", "HEAD", cwd=integration) != head
             ):
                 raise ValueError("gate changed integration files or HEAD; main unchanged")
+            if code:
+                gate_failure = (
+                    f"failing test: {s.failure_detail(result.stdout)}; host load {s.host_load()}"
+                )
+                log.write(gate_failure + "\n")
             return code == 0
 
         try:
@@ -101,7 +110,9 @@ def batch(names, force=False):
                         # Locate the bisected failing prefix, retaining interactions with predecessors.
                         assemble(0)
                         if not gate(log):
-                            raise ValueError(f"base gate fails; main unchanged; {log_path}")
+                            raise ValueError(
+                                f"base gate fails; {gate_failure}; main unchanged; {log_path}"
+                            )
                         while high - low > 1:
                             middle = (low + high) // 2
                             assemble(middle)
@@ -110,7 +121,7 @@ def batch(names, force=False):
                             else:
                                 high = middle
                         raise ValueError(
-                            f"batch bisected failing prefix ends at {names[high - 1]}; main unchanged; {log_path}"
+                            f"batch bisected failing prefix ends at {names[high - 1]}; {gate_failure}; main unchanged; {log_path}"
                         )
                 build_report = live_build.build(
                     integration,

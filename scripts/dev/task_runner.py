@@ -391,6 +391,7 @@ def stop(name):
     with s.lock(path / "lock"):
         meta = s.read_json(path / "meta.json")
         if not running(meta):
+            s.reap_browsers(name)
             print(f"{name}: not running")
             return
         pid = meta["pid"]
@@ -417,6 +418,7 @@ def stop(name):
         if members:
             time.sleep(0.05)
     print(f"{name}: stopped")
+    s.reap_browsers(name)
 
 
 def main_checkout(repo):
@@ -430,6 +432,7 @@ def cleanup_landed(name, integrated_commit=None):
     """Best-effort cleanup after main advanced; never turn a landing into a false failure."""
     try:
         home = s.sandbox(name)
+        s.reap_browsers(name)
         repo = home / "repo"
         if integrated_commit is not None:
             # Batch cherry-picks preserve the source SHA in the landing ledger, but
@@ -452,6 +455,7 @@ def land(name, force=False):
             raise ValueError("task must have completed successfully before landing")
         with coord.landing_guard(name, force):
             pass
+        s.reap_browsers(name)
         if not (path / "last.md").exists() or [
             line
             for line in (path / "last.md").read_text().splitlines()
@@ -486,11 +490,14 @@ def land(name, force=False):
             commands = [[str(gate), "--base", before]]
             with (path / "gate.log").open("w") as log:
                 for command in commands:
-                    rc = subprocess.call(
-                        command, cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT
-                    )
+                    result = s.run_group(command, cwd=repo, env=env)
+                    log.write(result.stdout)
+                    log.flush()
+                    rc = result.returncode
                     if rc:
-                        raise ValueError(f"gate failed ({rc}): {path / 'gate.log'}; main unchanged")
+                        raise ValueError(
+                            f"gate failed ({rc}); {s.failure_detail(result.stdout)}; host load {s.host_load()}: {path / 'gate.log'}; main unchanged"
+                        )
             if (
                 s.git("status", "--porcelain", cwd=repo)
                 or s.git("rev-parse", "HEAD", cwd=repo) != head

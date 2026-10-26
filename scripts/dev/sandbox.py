@@ -9,8 +9,10 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -21,6 +23,69 @@ REPO = Path(__file__).resolve().parents[2]
 
 def run(*args, cwd=REPO, check=True, **kwargs):
     return subprocess.run(args, cwd=cwd, check=check, text=True, capture_output=True, **kwargs)
+
+
+def run_group(command, *, cwd, env):
+    """Own the entire command tree, including a Playwright server and Chrome."""
+    temp_dir = Path(env.get("TURKU3D_WORK", cwd)) / "cache"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryFile(mode="w+t", dir=temp_dir) as output:
+        proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            text=True,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        try:
+            rc = proc.wait()
+        finally:
+
+            def members():
+                rows = run("ps", "-axo", "pid=,pgid=,stat=").stdout
+                return {
+                    int(fields[0])
+                    for line in rows.splitlines()
+                    if len(fields := line.split()) == 3
+                    and fields[1] == str(proc.pid)
+                    and not fields[2].startswith("Z")
+                }
+
+            owned = members()
+            for pid in owned:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            deadline = time.monotonic() + 2
+            while owned and time.monotonic() < deadline:
+                owned &= members()
+                if owned:
+                    time.sleep(0.05)
+            for pid in owned & members():
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        output.seek(0)
+        return subprocess.CompletedProcess(command, rc, output.read())
+
+
+def failure_detail(output):
+    lines = output.splitlines()
+    for line in reversed(lines):
+        if any(mark in line for mark in ("FAILED ", "FAIL ", "Error:", "error:")):
+            return line.strip()[:240]
+    return (lines[-1].strip() if lines else "no test output")[:240]
+
+
+def host_load():
+    try:
+        return ", ".join(f"{value:.2f}" for value in os.getloadavg())
+    except OSError:
+        return "unavailable"
 
 
 def git(*args, cwd=REPO, check=True):
@@ -216,6 +281,53 @@ def live_processes(home, cwd_rows=None):
                 pid = int(line[1:])
                 pids.add(pid)
     return sorted(pids - {os.getpid()})
+
+
+def reap_browsers(name):
+    """Stop Chrome processes with a profile strictly inside this sandbox."""
+    home = sandbox(name)
+    browser_dir = (home / "browser").resolve()
+    output = run("ps", "-axo", "pid=,command=").stdout
+    candidates = []
+    for line in output.splitlines():
+        match = re.match(r"\s*(\d+)\s+(.*)", line)
+        if not match:
+            continue
+        pid, command = int(match[1]), match[2]
+        if pid == os.getpid() or not re.search(
+            r"(?:^|/)(?:Google Chrome|chrome|Chromium|chromium)(?:\s|$)", command
+        ):
+            continue
+        profile = re.search(r"--user-data-dir=(?:\"([^\"]+)\"|'([^']+)'|([^\s]+))", command)
+        if not profile:
+            continue
+        candidate = Path(next(part for part in profile.groups() if part)).expanduser().resolve()
+        if candidate.is_relative_to(browser_dir) and candidate != browser_dir:
+            candidates.append((pid, command))
+    for pid, command in candidates:
+        current = run("ps", "-p", str(pid), "-o", "command=", check=False).stdout.strip()
+        if current == command:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    deadline = time.monotonic() + 2
+    remaining = candidates
+    while remaining and time.monotonic() < deadline:
+        remaining = [
+            (pid, command)
+            for pid, command in remaining
+            if run("ps", "-p", str(pid), "-o", "command=", check=False).stdout.strip() == command
+        ]
+        if remaining:
+            time.sleep(0.05)
+    for pid, command in remaining:
+        if run("ps", "-p", str(pid), "-o", "command=", check=False).stdout.strip() == command:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    return [pid for pid, _ in candidates]
 
 
 def remove(name, force=False):

@@ -16,7 +16,7 @@ from checks import check_policy
 from env_sync import sync
 from gate_cache import cached_execute, stage_key, versions
 from resources import jobs
-from sandbox import lock
+from sandbox import lock, run_group
 
 
 def git(root, *args):
@@ -98,15 +98,7 @@ def run_commands(root, commands, env, cwd="."):
         if "/" in cmd[0] and not Path(cmd[0]).is_absolute():
             cmd[0] = str(root / cmd[0])
         output.append("$ " + " ".join(cmd))
-        result = subprocess.run(
-            cmd,
-            cwd=root / cwd,
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
+        result = run_group(cmd, cwd=root / cwd, env=env)
         output.append(result.stdout)
         if result.returncode:
             return 1, "\n".join(output)

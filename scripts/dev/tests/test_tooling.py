@@ -331,6 +331,12 @@ class ToolingTests(unittest.TestCase):
         message_id = self.cli(
             "codex-task", "msg", "demo", "--kind", "request", "--subject", "Review", "Check API"
         ).stdout.strip()
+        inbox = self.base / "tasks/demo/inbox.jsonl"
+        rows = [json.loads(line) for line in inbox.read_text().splitlines()]
+        rows[0]["time"] = (
+            json.loads((self.base / "tasks/demo/meta.json").read_text())["started"] - 1
+        )
+        inbox.write_text("".join(json.dumps(row) + "\n" for row in rows))
         before = self.git("rev-parse", "main")
         self.assertIn(message_id, self.cli("codex-task", "land", "demo", ok=False).stderr)
         self.assertEqual(self.git("rev-parse", "main"), before)
@@ -528,6 +534,14 @@ class ToolingTests(unittest.TestCase):
         repo = self.start("demo2")
         self.commit(repo, "second.md")
         self.cli("codex-task", "msg", "demo2", "--kind", "warning", "--subject", "Check", "Check")
+        notice = json.loads(self.cli("codex-task", "inbox", "orchestrator", "--json").stdout)[-1]
+        self.assertIn("recipient finished; addressed by orchestrator", notice["body"])
+        inbox = self.base / "tasks/demo2/inbox.jsonl"
+        rows = [json.loads(line) for line in inbox.read_text().splitlines()]
+        rows[0]["time"] = (
+            json.loads((self.base / "tasks/demo2/meta.json").read_text())["started"] - 1
+        )
+        inbox.write_text("".join(json.dumps(row) + "\n" for row in rows))
         self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo2", ok=False).stderr)
         (repo / "dirty.md").write_text("dirty")
         self.assertIn("dirty", self.cli("codex-task", "land", "demo2", "--force", ok=False).stderr)
@@ -539,7 +553,7 @@ class ToolingTests(unittest.TestCase):
             1,
         )
 
-    def test_land_refuses_request_arriving_during_gate(self):
+    def test_land_reports_request_arriving_during_gate(self):
         repo = self.start()
         gate = repo / "scripts/dev/gate"
         gate.write_text(
@@ -549,8 +563,8 @@ class ToolingTests(unittest.TestCase):
         self.git("add", ".", cwd=repo)
         self.git("commit", "-qm", "Gate message fixture", cwd=repo)
         before = self.git("rev-parse", "main")
-        self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo", ok=False).stderr)
-        self.assertEqual(self.git("rev-parse", "main"), before)
+        self.assertIn("late request/warning", self.cli("codex-task", "land", "demo").stdout)
+        self.assertNotEqual(self.git("rev-parse", "main"), before)
         self.assertTrue((self.base / "tasks/demo/gate.log").exists())
 
     def test_land_refuses_result_dirty_and_red_gate(self):
@@ -572,7 +586,10 @@ class ToolingTests(unittest.TestCase):
         (repo / "oversized.png").write_bytes(b"\x89PNG\r\n\x1a\n" + bytes(2 * 1024 * 1024))
         self.git("add", ".", cwd=repo)
         self.git("commit", "-qm", "Red gate", cwd=repo)
-        self.assertIn("gate failed", self.cli("codex-task", "land", "demo", ok=False).stderr)
+        failure = self.cli("codex-task", "land", "demo", ok=False).stderr
+        self.assertIn("gate failed", failure)
+        self.assertIn("host load", failure)
+        self.assertIn("FAIL", failure)
         self.assertEqual(self.git("rev-parse", "main"), before)
         self.assertIn("oversized.png", (self.base / "tasks/demo/gate.log").read_text())
         self.assertIn("TOTAL  RED", (self.base / "tasks/demo/gate.log").read_text())

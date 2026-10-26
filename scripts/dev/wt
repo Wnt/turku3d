@@ -13,7 +13,7 @@ from env_sync import sync
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     subs = ap.add_subparsers(dest="cmd", required=True)
-    for cmd in ("new", "path", "env", "rm"):
+    for cmd in ("new", "path", "env", "rm", "reap"):
         p = subs.add_parser(cmd)
         p.add_argument("name")
         if cmd == "new":
@@ -37,6 +37,8 @@ def main():
     elif a.cmd == "rm":
         freed = s.remove(a.name, a.force)
         print(f"{a.name}: removed; freed {freed} bytes ({s.format_bytes(freed)})")
+    elif a.cmd == "reap":
+        print(f"{a.name}: signalled browser pids {s.reap_browsers(a.name)}")
     elif a.cmd == "sync-env":
         if a.all and a.name:
             ap.error("choose a name or --all")

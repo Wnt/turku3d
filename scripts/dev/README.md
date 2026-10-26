@@ -18,6 +18,7 @@ scripts/dev/wt du
 scripts/dev/wt prune-landed
 scripts/dev/wt path stairs
 scripts/dev/wt env stairs
+scripts/dev/wt reap stairs # stop only Chrome profiles inside stairs/browser
 # Leave the sandbox and stop its processes before removing it:
 cd /path/to/main
 scripts/dev/wt rm stairs
@@ -42,6 +43,8 @@ The registry protects against cooperating tools; it cannot prevent an unrelated 
 
 `wt rm` refuses live processes (cwd in the sandbox or listeners on its ports), dirty files and commits not in main.
 `--force` permits discarding dirty/unmerged work but still refuses live processes. It never sends signals.
+`wt reap <name>` sends TERM only to Chrome processes with a `--user-data-dir` strictly inside that sandbox's
+`browser/`; run it before `wt rm` if an interrupted Playwright run left a profile behind.
 `gc` releases only entries whose sandbox directory no longer exists; it never deletes files.
 `du` lists allocated bytes per sandbox, largest first, with `landed`, `unmerged`, `dirty` and
 `live` status. `prune-landed` applies the ordinary `wt rm` checks to each clean, merged,
@@ -89,6 +92,7 @@ CLI behavior is checked against the installed CLI and [official non-interactive 
 `runner.log`, follow-up prompts, and `gate.log` after landing. `status` detects interrupted processes and reports
 elapsed time, last event and commit. `stop` verifies the supervisor process identity before signalling its group:
 TERM, a three-second grace period, then KILL if necessary. No global process-name matching is used.
+`stop` also reaps sandbox Chrome profiles; landing reaps them before verification and cleanup.
 
 The quota guard reuses `textures/turkutex/codex/usage.py` (`codex app-server` JSON-RPC, no model call).
 It refuses when any usage window reaches 100%, or usage is unknown. `run/resume --force` bypasses a known 100%
@@ -105,6 +109,8 @@ tiles and each tile below 8 MB on the wire. The assembler's `facades_bound` coun
 published release's count. A task may report an intentional reduction with `Facade regression reason:
 <specific reason>` in `last.md`; the exception is recorded in the landing ledger. Stage times and output
 are in `live-build.log` and `meta.json`.
+Each gate and live-build command runs in its own process group, which is terminated on exit.
+Failures name the failing stage or test and include the host load and log path.
 For the first landing, the baseline comes from the legacy `deploy-once.log` assembler result (164 on
 2026-10-26); later landings read the previous release's `live-build.json`.
 
@@ -218,8 +224,11 @@ overrides the board directory. By default it is `coord` beside `TURKU3D_TASKS_RO
 the tasks root also isolates the board. No board records are copied into individual inboxes.
 
 `ls` and `status` show inbox unread counts; finished/interrupted tasks with unread messages have
-an `UNACKNOWLEDGED` marker. `land` refuses unacknowledged direct `request`/`warning` messages,
-both before running the gate and under the inbox lock immediately before updating main.
+an `UNACKNOWLEDGED` marker. A `request` or `warning` sent after a task finishes also creates
+"recipient finished; addressed by orchestrator" notices in the orchestrator and sender inboxes.
+`land` refuses unacknowledged direct `request`/`warning` messages received before the task's
+last turn started, both before the gate and under the inbox lock before updating main.
+Later messages are listed in landing output without blocking.
 Board messages and direct `note`/`interface` messages do not block landing. The orchestrator may
 use `scripts/dev/codex-task land <name> --force` to override only this message check; it neither
 acknowledges messages nor bypasses the result, clean-tree or green-gate requirements.

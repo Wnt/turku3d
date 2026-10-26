@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import sandbox as s
+
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 
 
@@ -103,19 +105,14 @@ def build(repo, work, published, env, log_path, reason=None):
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
-            proc = subprocess.run(
-                command,
-                cwd=cwd,
-                env=run_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
+            proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             log.flush()
             durations[stage] = round(time.monotonic() - start, 3)
             if proc.returncode:
-                raise ValueError(f"{stage} failed ({proc.returncode}): {log_path}; main unchanged")
+                raise ValueError(
+                    f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; host load {s.host_load()}: {log_path}; main unchanged"
+                )
             if stage == "tile-build":
                 facade_count = None
                 for line in reversed(proc.stdout.splitlines()):

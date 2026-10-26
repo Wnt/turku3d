@@ -113,6 +113,23 @@ def send(recipient, kind, subject, body, refs=()):
     with log_lock(path):
         records(path)
         append(path, row)
+    if recipient not in ("all", "main", "orchestrator") and kind in ("request", "warning"):
+        meta = s.read_json(s.tasks_root() / recipient / "meta.json", {})
+        from task_runner import running
+
+        finished = bool(meta) and (
+            meta.get("state") not in ("starting", "running") or not running(meta)
+        )
+        if finished:
+            notice = f"recipient finished; addressed by orchestrator. Original message: {row['id']}"
+            for target in dict.fromkeys(("orchestrator", sender)):
+                notice_path = inbox_path(target)
+                with log_lock(notice_path):
+                    records(notice_path)
+                    append(
+                        notice_path,
+                        entry("orchestrator", target, "note", subject, notice, (row["id"],)),
+                    )
     print(row["id"])
 
 
@@ -186,15 +203,29 @@ def display(rows, as_json=False):
 def landing_guard(name, force=False):
     """Keep the final check and main update atomic with respect to inbox writers."""
     path = inbox_path(name)
+    meta = s.read_json(s.tasks_root() / name / "meta.json", {})
+    cutoff = meta.get("started", float("inf"))
     with log_lock(path):
         pending = [
             row
             for row in messages(records(path), name)
-            if row["ack"] is None and row["kind"] in ("request", "warning")
+            if row["ack"] is None
+            and row["kind"] in ("request", "warning")
+            and row["time"] <= cutoff
+        ]
+        late = [
+            row
+            for row in messages(records(path), name)
+            if row["ack"] is None and row["kind"] in ("request", "warning") and row["time"] > cutoff
         ]
         if pending and not force:
             ids = ", ".join(row["id"] for row in pending)
             raise ValueError(f"unacknowledged request/warning messages: {ids}; ack or use --force")
+        if late:
+            print(
+                "late request/warning messages for orchestrator: "
+                + ", ".join(row["id"] for row in late)
+            )
         yield
 
 
