@@ -20,6 +20,8 @@ def affected_tiles(previous, work):
     new = work / "build/layers"
     if not old.is_dir() or not new.is_dir():
         return TILES
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return TILES
     changed = set()
     names = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
     names |= {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
@@ -42,6 +44,8 @@ def affected_tiles(previous, work):
 
 def same_tree(old, new):
     if not old.is_dir() or not new.is_dir():
+        return False
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
         return False
     before = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
     after = {p.relative_to(new) for p in new.rglob("*") if p.is_file()}

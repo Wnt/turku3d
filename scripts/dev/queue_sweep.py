@@ -101,14 +101,11 @@ def run():
     lock_path = s.root() / ".registry/queue-sweep.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
+        fcntl.flock(lock, fcntl.LOCK_EX)
         while True:
             commit = s.git("rev-parse", "main")
             previous = s.read_json(path(), {})
-            if previous.get("commit") == commit and previous.get("status") == "green":
+            if previous.get("commit") == commit:
                 return
             started = time.time()
             try:
@@ -119,7 +116,9 @@ def run():
                     if previous.get("commit")
                     else []
                 )
-                blocked_domains = domains(changed) or ["*"]
+                blocked_domains = sorted(
+                    set(previous.get("blocked_domains", [])) | set(domains(changed) or ["*"])
+                )
                 detail = str(exc)
                 row = {
                     "commit": commit,
