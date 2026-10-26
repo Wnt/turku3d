@@ -102,6 +102,7 @@ def launch(
     followup=None,
     model=None,
     route_name=None,
+    resume_reason="follow-up",
 ):
     s.name_ok(name)
     path = s.tasks_root() / name
@@ -150,6 +151,7 @@ def launch(
             meta["session_id"] = sessions[-1]
             prompt = coord.PROMPT + "\n" + followup
             (path / f"resume-{time.time_ns()}.md").write_text(prompt)
+            coord.record_resume(path, meta, resume_reason)
         sys.path.insert(0, str(s.REPO / "textures"))
         from turkutex.codex import routing
 
@@ -237,12 +239,15 @@ def worker(name):
                 cmd, stdin=prompt, stdout=subprocess.PIPE, text=True, cwd=meta["repo"]
             ) as proc:
                 for line in proc.stdout:
-                    events.write(line)
-                    events.flush()
                     try:
                         event = json.loads(line)
                     except ValueError:
-                        continue
+                        event = {}
+                    # Codex events carry no time; stamp turn ends for between-turn attribution.
+                    if event.get("type") in ("turn.completed", "turn.failed"):
+                        line = json.dumps({**event, "time": time.time()}) + "\n"
+                    events.write(line)
+                    events.flush()
                     if event.get("type") == "turn.started":
                         terminal = False
                     if event.get("type") == "thread.started":
@@ -310,15 +315,18 @@ def status(name):
     if kind := host_slots.waiting(name):
         state = f"waiting for {kind} slot"
     last = deque(read_events(path), maxlen=1)
-    elapsed = (meta.get("finished") or time.time()) - meta["started"]
+    # Orchestrator-written records (integration batches) have no runner start.
+    elapsed = (meta.get("finished") or time.time()) - meta.get("started", meta["created"])
     commit = (
         s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         if Path(meta["repo"]).exists()
         else meta.get("last_commit", "?")
     )
+    idle = coord.idle_minutes(path, meta)
     print(
         f"{name}: {state}, {elapsed:.1f}s, last event={last[-1].get('type') if last else 'none'}, "
         f"commit={commit}, {unread_status(name, state)}"
+        + (f", idle {idle} min" if idle is not None else "")
     )
 
 
@@ -472,6 +480,15 @@ def finish(name, result_path):
     print(f"{name}: DONE result recorded; the merge queue lands it after precheck")
 
 
+def facade_reason(path):
+    """The result's `Facade regression reason:` text, which admits a lower facade count."""
+    text = (path / "last.md").read_text() if (path / "last.md").exists() else ""
+    marker = "Facade regression reason:"
+    return next(
+        (line[len(marker) :].strip() for line in text.splitlines() if line.startswith(marker)), None
+    )
+
+
 def main_checkout(repo):
     for block in s.git("worktree", "list", "--porcelain", cwd=repo).split("\n\n"):
         if "branch refs/heads/main" in block.splitlines():
@@ -550,22 +567,13 @@ def land(name, force=False):
                 or s.git("rev-parse", "HEAD", cwd=repo) != head
             ):
                 raise ValueError("gate changed sandbox files or HEAD; main unchanged")
-            result = (path / "last.md").read_text()
-            reason = next(
-                (
-                    line.partition(":")[2].strip()
-                    for line in result.splitlines()
-                    if line.startswith("Facade regression reason:")
-                ),
-                None,
-            )
             build_report = live_build.build(
                 repo,
                 Path(env["TURKU3D_WORK"]),
                 Path(env["TURKU3D_DATA"]),
                 env,
                 path / "live-build.log",
-                reason,
+                facade_reason(path),
             )
             if (
                 s.git("status", "--porcelain", cwd=repo)
@@ -630,25 +638,13 @@ def precheck(name, base="main"):
         if not gate_report["ok"]:
             raise ValueError(f"precheck gate reported failure: {gate_log}")
         gate_seconds = round(time.monotonic() - start, 3)
-        reason = (
-            next(
-                (
-                    line.partition(":")[2].strip()
-                    for line in (path / "last.md").read_text().splitlines()
-                    if line.startswith("Facade regression reason:")
-                ),
-                None,
-            )
-            if (path / "last.md").exists()
-            else None
-        )
         build = live_build.build(
             repo,
             Path(env["TURKU3D_WORK"]),
             Path(env["TURKU3D_DATA"]),
             env,
             path / "precheck-live.log",
-            reason,
+            facade_reason(path),
         )
         if s.git("status", "--porcelain", cwd=repo) or s.git("rev-parse", "HEAD", cwd=repo) != head:
             raise ValueError("precheck changed the worker checkout")
@@ -717,6 +713,7 @@ def main():
             p.add_argument("n", type=int, default=20, nargs="?")
         if cmd == "resume":
             p.add_argument("text")
+            p.add_argument("--reason", choices=coord.RESUME_REASONS, default="follow-up")
             p.add_argument("--model")
             p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max", "ultra"))
             p.add_argument("--route", choices=("task", "task_rebase", "light"))
@@ -732,6 +729,7 @@ def main():
             a.name,
             force=a.force,
             followup=a.text,
+            resume_reason=a.reason,
             model=a.model,
             effort=a.effort,
             route_name=a.route,

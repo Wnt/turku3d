@@ -1,4 +1,4 @@
-"""Append-only task inboxes and a shared board, serialized with the runner's locks."""
+"""Append-only task inboxes, a shared board and turn timing, serialized with the runner's locks."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pathlib import Path
 import sandbox as s
 
 KINDS = ("note", "request", "interface", "warning")
+RESUME_REASONS = ("unblock", "review", "main-moved", "quota", "follow-up", "other")
 PROMPT = """## Coordination
 After each major step/commit and before finishing, check:
   scripts/dev/codex-task inbox --unread
@@ -202,6 +203,51 @@ def display(rows, as_json=False):
                 print(f"ack by {ack['from']}: {ack['body']}")
 
 
+def turn_ended(path, meta):
+    """Unix time the last turn completed; unstamped legacy events fall back to the runner exit."""
+    from task_runner import read_events
+
+    ends = [
+        e["time"] for e in read_events(path) if e.get("type") == "turn.completed" and "time" in e
+    ]
+    return ends[-1] if ends else meta.get("finished")
+
+
+def record_resume(path, meta, reason):
+    """Attribute the time between turns: why a stopped task was resumed and after how long."""
+    if reason not in RESUME_REASONS:
+        raise ValueError(f"unknown resume reason: {reason}")
+    ended = turn_ended(path, meta)
+    now = time.time()
+    gap = round(now - ended, 3) if ended else None
+    row = {"type": "task.resumed", "reason": reason, "gap_seconds": gap, "time": now}
+    with (path / "events.jsonl").open("a") as events:
+        events.write(json.dumps(row) + "\n")
+
+
+def idle_minutes(path, meta):
+    """Whole minutes since a stopped task's last turn ended; None while it runs or never ran."""
+    from task_runner import running
+
+    if meta.get("state") in ("starting", "running") and running(meta):
+        return None
+    ended = turn_ended(path, meta)
+    return int((time.time() - ended) // 60) if ended else None
+
+
+def idle_tasks():
+    """Stopped, unlanded tasks whose sandbox still exists: work waiting on the orchestrator."""
+    rows = []
+    for meta_path in sorted(s.tasks_root().glob("*/meta.json")):
+        meta = s.read_json(meta_path)
+        name = meta_path.parent.name
+        if meta.get("landed") or not (s.root() / name / "sandbox.env").exists():
+            continue
+        if (idle := idle_minutes(meta_path.parent, meta)) is not None:
+            rows.append(f"{name}: {meta.get('state')}, idle {idle} min")
+    return rows
+
+
 @contextlib.contextmanager
 def landing_guard(name, force=False):
     """Keep the final check and main update atomic with respect to inbox writers."""
@@ -246,6 +292,8 @@ def dispatch(args):
         acknowledge(args.id, args.note)
     elif args.cmd == "board":
         display(board(args.since), args.json)
+        if not args.json and (idle := idle_tasks()):
+            print("Idle tasks (minutes since the last turn ended):\n  " + "\n  ".join(idle))
     else:
         return False
     return True

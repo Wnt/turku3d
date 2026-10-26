@@ -91,6 +91,7 @@ def resume(name, reason, record):
                 f"and finish with DONE again. Queue detail: {reason}"
             ),
             route_name="task_rebase",
+            resume_reason="main-moved",
         )
     except (ValueError, OSError) as exc:
         event(record, name, "failed", reason=f"resume failed: {exc}; {reason}")

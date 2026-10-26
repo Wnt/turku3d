@@ -75,7 +75,7 @@ scripts/dev/codex-task ls
 scripts/dev/codex-task status stairs
 scripts/dev/codex-task log stairs 30
 scripts/dev/codex-task result stairs
-scripts/dev/codex-task resume stairs 'Fix the failing seam test and rerun the gate.'
+scripts/dev/codex-task resume stairs --reason unblock 'Fix the failing seam test and rerun the gate.'
 scripts/dev/codex-task stop stairs
 scripts/dev/codex-task precheck stairs
 scripts/dev/codex-task queue status
@@ -89,6 +89,15 @@ not the most recent global session. The model and effort remain the same. Codex 
 `run` refuses to create a sandbox below 30 GiB free on the sandbox filesystem. Check with
 `scripts/dev/wt du`, then remove safe candidates with `scripts/dev/wt prune-landed`.
 CLI behavior is checked against the installed CLI and [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+`resume --reason` names why a stopped task continues: `unblock`, `review`, `main-moved` (the merge queue
+uses it), `quota`, `follow-up` (default) or `other`. It appends
+`{"type": "task.resumed", "reason", "gap_seconds", "time"}` to `events.jsonl`, where the gap counts from the
+last `turn.completed`; the worker stamps `time` on each `turn.completed` and `turn.failed`, and
+older unstamped logs fall back to the runner exit time. `ls`, `status` and `board` show
+`idle N min` since the last turn ended for tasks that are not running; `board` lists only
+unlanded tasks whose sandbox still exists. This attributes the 27.2 h between turns measured in
+`docs/reports/dev-overhead-study.md` §1.3.
 
 `~/turku3d/tasks/<name>/` holds `prompt.md`, append-only `events.jsonl`, `last.md`, `pid`, `meta.json`,
 `runner.log`, follow-up prompts, and `gate.log` after landing. `status` detects interrupted processes and reports
