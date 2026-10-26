@@ -28,6 +28,7 @@ from .inputs import (
     attach_osm,
     local_polygon,
     read_footprints,
+    read_playable_footprints,
     read_points,
     write_roofer_footprints,
 )
@@ -225,8 +226,8 @@ def main(argv=None):
     ap.add_argument(
         "--tiles",
         nargs="+",
-        default=[t.id for t in C.OFFICE_BLOCK.visual_tiles],
-        help="L0 visual tiles to cover (default: the four office tiles)",
+        default=[t.id for t in C.PLAYABLE_TILES.visual_tiles],
+        help="L0 visual tiles to cover (default: the four playable tiles)",
     )
     args = ap.parse_args(argv)
     started = time.monotonic()
@@ -235,7 +236,7 @@ def main(argv=None):
     source = C.raw_dir("wfs") / args.source_area
     paths = {
         name: source / (name + ".parquet")
-        for name in ["kanta_Rakennus", "bldg_Building_LOD2", "GIS_Keskilinjat"]
+        for name in ["kanta_Rakennus", "GIS_Rakennukset", "bldg_Building_LOD2", "GIS_Keskilinjat"]
     }
     visual_tiles = [C.VisualTile.parse(tid) for tid in args.tiles]
     if any(tile.level != 0 for tile in visual_tiles):
@@ -246,7 +247,7 @@ def main(argv=None):
         max(t.bbox.xmax for t in visual_tiles),
         max(t.bbox.zmax for t in visual_tiles),
     )
-    buildings = read_footprints(paths["kanta_Rakennus"], region)
+    buildings = read_playable_footprints(paths["kanta_Rakennus"], paths["GIS_Rakennukset"], region)
     from shapely.geometry import box
 
     tile_regions = [box(t.bbox.xmin, t.bbox.zmin, t.bbox.xmax, t.bbox.zmax) for t in visual_tiles]
@@ -264,11 +265,15 @@ def main(argv=None):
     laz = [
         C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz") for t in C.laz_tiles_for_bbox(bounds)
     ]
-    footprint_key = hashlib.sha256(
-        b"".join(b.id.encode() + b.footprint.wkb for b in buildings)
-        + Path(roofer.__file__).read_bytes()
-        + json.dumps([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in laz]).encode()
-    ).hexdigest()[:20]
+
+    def reconstruction_key(source_buildings):
+        return hashlib.sha256(
+            b"".join(b.id.encode() + b.footprint.wkb for b in source_buildings)
+            + Path(roofer.__file__).read_bytes()
+            + json.dumps([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in laz]).encode()
+        ).hexdigest()[:20]
+
+    footprint_key = reconstruction_key(buildings)
     reconstruction = args.roofer_output or cache / "roofer" / footprint_key
     if args.roofer_output is None:
         with cache_lock(cache / "locks" / f"roofer-{footprint_key}"):
@@ -285,6 +290,29 @@ def main(argv=None):
         raise FileNotFoundError(f"no CityJSONSeq files in {reconstruction}")
     reconstructed = roofer.read(seq)
     reconstruction_metadata = roofer.read_metadata(seq)
+    # Roofer's segmentation depends on the entire submitted footprint set.
+    # Keep the established kantakartta geometry stable when GIS fills gaps.
+    established = read_footprints(paths["kanta_Rakennus"], region)
+    established = [b for b in established if any(b.footprint.intersects(r) for r in tile_regions)]
+    established_key = reconstruction_key(established)
+    if established_key != footprint_key:
+        baseline = cache / "roofer" / established_key
+        with cache_lock(cache / "locks" / f"roofer-{established_key}"):
+            if not (baseline / "execution.json").exists():
+                footprint_path = cache / "footprints" / f"{established_key}.gpkg"
+                if not footprint_path.exists():
+                    with atomic_target(footprint_path) as temporary:
+                        write_roofer_footprints(established, temporary)
+                roofer.run(laz, footprint_path, baseline, args.jobs)
+        baseline_seq = sorted(baseline.glob("*.city.jsonl"))
+        previous = roofer.read(baseline_seq)
+        previous_metadata = roofer.read_metadata(baseline_seq)
+        for building in established:
+            if building.id in previous:
+                reconstructed[building.id] = previous[building.id]
+            if building.id in previous_metadata:
+                reconstruction_metadata[building.id] = previous_metadata[building.id]
+        seq.extend(baseline_seq)
     city, matches = citygml.read(paths["bldg_Building_LOD2"], buildings)
     print(f"Candidates: city={len(city)}, roofer={len(reconstructed)}; reading class 6", flush=True)
     point_key = hashlib.sha256(json.dumps([(str(p), sha256(p)) for p in laz]).encode()).hexdigest()
@@ -369,6 +397,22 @@ def main(argv=None):
             shell, record = choose(building, {"placeholder": surfaces}, points[keep])
             record["fallback"] = {
                 "reason": "no_usable_model_or_lidar_shell",
+                "selected": shell is not None,
+                "height_evidence": evidence,
+            }
+        if building.properties.get("point_only"):
+            from turku3d.lidar import TileStore
+
+            store = TileStore(
+                source_dir=C.raw_dir("laz") / "pistepilvi", cache_dir=C.cache_dir("lidar")
+            )
+            ground_points = store.query(
+                C.BBoxLocal(x0 - 15, z0 - 15, x1 + 15, z1 + 15), classes=[2]
+            ).points
+            surfaces, evidence = placeholder_extrusion(building, {}, ground_points)
+            shell, record = choose(building, {"placeholder": surfaces}, points[keep])
+            record["fallback"] = {
+                "reason": "source_has_point_only_no_surveyed_outline",
                 "selected": shell is not None,
                 "height_evidence": evidence,
             }

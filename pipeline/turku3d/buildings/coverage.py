@@ -7,30 +7,28 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import geopandas as gpd
+import shapely
 from PIL import Image, ImageDraw, ImageFont
-from shapely.geometry import box
+from shapely.geometry import box, shape
 
 from turku3d import config as C
 from turku3d.package.gltf import read_glb
 
-from .inputs import attach_osm, read_footprints
+from .inputs import local_polygon
+
+
+def _value(value):
+    return "" if value is None or str(value) in ("<NA>", "nan", "None") else str(value)
 
 
 def audit(layer, tiles, source):
     regions = [box(t.bbox.xmin, t.bbox.zmin, t.bbox.xmax, t.bbox.zmax) for t in tiles]
-    buildings = read_footprints(
-        source,
-        C.BBoxLocal(
-            min(t.bbox.xmin for t in tiles),
-            min(t.bbox.zmin for t in tiles),
-            max(t.bbox.xmax for t in tiles),
-            max(t.bbox.zmax for t in tiles),
-        ),
-    )
-    buildings = [b for b in buildings if any(b.footprint.intersects(r) for r in regions)]
-    osm = sorted((C.raw_dir("osm") / source.parent.name).glob("*.parquet"))
-    if osm:
-        attach_osm(buildings, osm[-1])
+    source_rows = gpd.read_parquet(source)
+    source_rows = source_rows[source_rows.geom_type.isin(["Polygon", "Point"])]
+    footprints = json.loads((layer / "footprints.geojson").read_text())["features"]
+    layer_shapes = [(f["properties"]["building_id"], shape(f["geometry"])) for f in footprints]
+    tree = shapely.STRtree([p for _, p in layer_shapes])
     metrics = json.loads((layer / "metrics.json").read_text())
     records = {r["building_id"]: r for r in metrics["buildings"]}
     published = set()
@@ -43,10 +41,23 @@ def audit(layer, tiles, source):
             node.get("extras", {}).get("building_id") for node in gltf["nodes"] if "mesh" in node
         )
     rows = []
-    for b in buildings:
-        record = records.get(b.id)
+    for source_row in source_rows.itertuples():
+        source_geometry = source_row.geometry
+        if not any(local_polygon(source_geometry).intersects(r) for r in regions):
+            continue
+        point_only = source_geometry.geom_type == "Point"
+        if point_only:
+            source_geometry = source_geometry.buffer(3, cap_style="square")
+        footprint = local_polygon(source_geometry)
+        candidates = [
+            layer_shapes[i][0]
+            for i in tree.query(footprint)
+            if footprint.intersection(layer_shapes[i][1]).area / footprint.area > 0.95
+        ]
+        building_id = next((bid for bid in candidates if bid in published), None)
+        record = records.get(building_id) if building_id else None
         choice = record.get("choice") if record else None
-        if b.id in published:
+        if building_id:
             state = (
                 "placeholder"
                 if choice == "placeholder"
@@ -59,28 +70,25 @@ def audit(layer, tiles, source):
             state = "missing"
             reason = (
                 "no_layer_record"
-                if record is None
+                if not candidates
                 else "no_valid_shell"
-                if not record.get("shell_valid")
+                if not any(records.get(bid, {}).get("shell_valid") for bid in candidates)
                 else "owned_outside_requested_tiles_or_visual_missing"
             )
         rows.append(
             {
-                "building_id": b.id,
+                "building_id": building_id,
+                "source_id": source_row.feature_key,
+                "source_geometry": "point" if point_only else "polygon",
                 "state": state,
                 "reason": reason,
                 "choice": choice,
                 "address": " ".join(
                     filter(
-                        None,
-                        [
-                            b.properties.get("osm", {}).get("addr:street"),
-                            b.properties.get("osm", {}).get("addr:housenumber"),
-                        ],
+                        None, [_value(source_row.Osoitenimi_fi), _value(source_row.Osoitenumero)]
                     )
-                )
-                or b.properties.get("address", ""),
-                "footprint": b.footprint,
+                ),
+                "footprint": footprint,
             }
         )
     return rows
@@ -138,11 +146,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--layer", type=Path, default=C.work_root() / "build/layers/buildings")
     ap.add_argument("--source-area", default="work-3x3")
-    ap.add_argument("--tiles", nargs="+", default=[t.id for t in C.OFFICE_BLOCK.visual_tiles])
+    ap.add_argument("--tiles", nargs="+", default=[t.id for t in C.PLAYABLE_TILES.visual_tiles])
     ap.add_argument("--out", type=Path, default=C.work_root() / "reports/building-coverage")
     args = ap.parse_args(argv)
     tiles = [C.VisualTile.parse(tid) for tid in args.tiles]
-    source = C.raw_dir("wfs") / args.source_area / "kanta_Rakennus.parquet"
+    source = C.raw_dir("wfs") / args.source_area / "GIS_Rakennukset.parquet"
     rows = audit(args.layer, tiles, source)
     args.out.mkdir(parents=True, exist_ok=True)
     draw_map(rows, tiles, args.out / "coverage.png")
@@ -150,6 +158,7 @@ def main(argv=None):
     result = {
         "tiles": args.tiles,
         "footprints": len(rows),
+        "covered": len(rows) - counts.get("missing", 0),
         "counts": dict(sorted(counts.items())),
         "missing": [
             {k: v for k, v in row.items() if k != "footprint"} for row in rows if row["reason"]

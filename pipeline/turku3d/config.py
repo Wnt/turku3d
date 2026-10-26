@@ -417,13 +417,19 @@ OFFICE_BLOCK = area_centred_on(
     VISUAL_TILE_SIZE,
 )
 
+PLAYABLE_TILES = Area(
+    "playable-tiles",
+    "Four complete L0 tiles around the office",
+    BBoxLocal(0, 0, 2 * VISUAL_TILE_SIZE, 2 * VISUAL_TILE_SIZE),
+)
+
 WORK_3X3 = Area(
     "work-3x3",
     "Nine 500 m LAZ tiles around the office; shared input working area",
     BBoxEN(23459000, 6703500, 23460500, 6705000).to_local(),
     margin=0,
 )
-AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, WORK_3X3)}
+AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, PLAYABLE_TILES, WORK_3X3)}
 
 
 def area_yaml(area: Area) -> str:

@@ -6,6 +6,7 @@ Run from the repository root with the sandbox environment loaded:
 source ../sandbox.env
 make buildings-test
 make buildings-build
+make buildings-outer
 make buildings-validate
 bash pipeline/env/run.sh python -m turku3d.buildings.audit
 bash pipeline/env/run.sh python -m turku3d.buildings.coverage
@@ -16,16 +17,28 @@ reconstruction and class-6 point arrays in `$TURKU3D_DATA/cache/buildings`, shar
 sandboxes. The cache uses locks and publishes point arrays atomically. An explicit
 `--roofer-output` must point to a completed CityJSONSeq directory, not its parent.
 
-Inputs are immutable `raw/wfs/work-3x3/{kanta_Rakennus,bldg_Building_LOD2,GIS_Keskilinjat}.parquet`,
+Inputs are immutable `raw/wfs/work-3x3/{kanta_Rakennus,GIS_Rakennukset,bldg_Building_LOD2,GIS_Keskilinjat}.parquet`,
 class-6 points in `raw/laz/pistepilvi`, OSM GeoParquet, and `raw/ortho/ortho2022to/work-3x3`.
 The WFS cache preserves CityGML polygon rings, holes and semantic surface types.
-The default producer region is the four whole L0 visual tiles intersecting `config.OFFICE_BLOCK`.
+The default producer region is `config.PLAYABLE_TILES`, the four complete L0 tiles.
+The inventory keeps the established kantakartta IDs and adds GIS building outlines absent
+from that source. Three GIS records in the playable tiles are points with no surveyed
+outline; each receives a 6 m square, labelled placeholder and is reported as point-only.
 `--tiles t0_i_j [...]` selects another tile or region. Buildings touching selected tiles
 retain their complete footprints, including parts outside the boundary. A cross-tile
 building is owned by the requested tile containing the largest footprint area, so a
 four-tile build includes its visual shell.
 Footprint inventory includes kantakartta codes 66000 and 66001; no building is removed because
 lidar or a candidate model is missing. Shared data is never modified.
+
+`make buildings-outer` uses the immutable work-3x3 GIS inventory and nine lidar
+tiles to publish visual-only massing outside the playable square under
+`$TURKU3D_WORK/build/layers/buildings_outer`. Roof heights come from class-6 returns
+inside each outline, or nearby class-6 returns when an outline has no returns;
+bases use the nearest class-2 ground return. Its `metrics.json` reports source
+records, lidar extrusions, missing height evidence and counts per L0 source tile.
+Packaging the playable four tiles includes surrounding T1/T2 parents containing
+those L0 building visuals.
 
 ## Geometry and selection
 
@@ -76,8 +89,9 @@ building levels or 10 m above lidar ground. Its walls carry amber `WORK IN PROGR
 artwork with building ID and an OSM or kantakartta street address where available. Placeholder facades
 are excluded from photo binding.
 
-`python -m turku3d.buildings.coverage` audits delivered visual GLBs against source
-footprints and writes `coverage.json` and a top-down `coverage.png` under
+`python -m turku3d.buildings.coverage` audits delivered visual GLBs against all
+`GIS_Rakennukset` polygon and point records intersecting the selected tiles and writes
+`coverage.json` and a top-down `coverage.png` under
 `$TURKU3D_WORK/reports/building-coverage/`. Use `--layer`, `--tiles`, and `--out`
 to compare another layer or region. Green means model, blue lidar shell, amber
 placeholder, and red missing.

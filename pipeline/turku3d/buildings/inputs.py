@@ -91,6 +91,61 @@ def read_footprints(path: Path, bounds_local=None) -> list[Building]:
     return sorted(buildings, key=lambda b: b.id)
 
 
+def read_playable_footprints(kanta_path: Path, gis_path: Path, bounds_local) -> list[Building]:
+    """Retain established kantakartta IDs and add GIS footprints absent from it."""
+    buildings = read_footprints(kanta_path, bounds_local)
+    gis = gpd.read_parquet(gis_path)
+    bounds = box(*bounds_local.to_en().as_tuple())
+    existing = [b.footprint for b in buildings]
+    tree = shapely.STRtree(existing)
+    seen = {shapely.normalize(p).wkb for p in existing}
+    for row in gis.itertuples():
+        if row.geometry.geom_type not in ("Polygon", "Point") or not row.geometry.intersects(
+            bounds
+        ):
+            continue
+        geometry = shapely.force_2d(row.geometry)
+        if geometry.geom_type == "Point":
+            # GIS has three building records with a location but no surveyed outline.
+            geometry = geometry.buffer(3, cap_style="square")
+        polygon = local_polygon(geometry)
+        if polygon.is_empty or not polygon.is_valid:
+            raise ValueError(f"invalid GIS building footprint: {row.feature_key}")
+        key = shapely.normalize(polygon).wkb
+        if key in seen:
+            continue
+        # GIS and kantakartta share the same outlines for the established core.
+        # A few GIS records cover separate parts of one registered building.
+        if any(
+            polygon.intersection(existing[i]).area / polygon.area > 0.95
+            for i in tree.query(polygon)
+        ):
+            continue
+        seen.add(key)
+        registry = _property(row, "PysyvaRakennusTunnus")
+        ident = "gis-" + (registry or row.feature_key)
+        if any(b.id == ident for b in buildings):
+            ident += "-" + hashlib.sha256(key).hexdigest()[:12]
+        address = " ".join(
+            filter(None, [_property(row, "Osoitenimi_fi"), _property(row, "Osoitenumero")])
+        )
+        buildings.append(
+            Building(
+                ident,
+                polygon,
+                {
+                    "source_feature": row.feature_key,
+                    "registry_id": registry,
+                    "facade_material": "",
+                    "levels": _property(row, "Kerrosluku"),
+                    "address": address,
+                    "point_only": row.geometry.geom_type == "Point",
+                },
+            )
+        )
+    return sorted(buildings, key=lambda b: b.id)
+
+
 def write_roofer_footprints(buildings, path):
     polys = [
         transform(

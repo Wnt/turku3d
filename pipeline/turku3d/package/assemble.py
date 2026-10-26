@@ -316,6 +316,15 @@ def assemble(
             raise ValueError(f"{t.id}: no published visual layers in {root}")
     parents = {t.parent() for t in requested}
     parents |= {t.parent() for t in list(parents)}
+    # Surrounding lidar massing is visual only. Publish its coarse parents even
+    # though their L0 children are outside the playable collision region.
+    outer = {
+        tile.parent()
+        for tile, paths in visuals.items()
+        if any(path.parent.name == "buildings_outer" for path in paths)
+    }
+    parents |= outer
+    parents |= {tile.parent() for tile in outer}
     # REPLACE removes the entire parent, so its uncovered quadrants need coarse leaf siblings.
     parents |= {
         child for parent in list(parents) if parent.level == 2 for child in parent.children()

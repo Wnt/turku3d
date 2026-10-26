@@ -9,7 +9,8 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from turku3d.buildings import roofer
 from turku3d.buildings.facades import make_visuals, roof_material
-from turku3d.buildings.inputs import Building
+from turku3d.buildings.inputs import Building, read_playable_footprints
+from turku3d.buildings.outer import height_for
 from turku3d.buildings.select import choose, residuals
 from turku3d.buildings.shells import Surface, make_shell, triangulate
 from turku3d.buildings.tiles import collision_tiles
@@ -200,6 +201,62 @@ def test_roofer_transform_and_parts(tmp_path):
     s = roofer.read([p])["building"][0]
     assert s.kind == "RoofSurface"
     np.testing.assert_equal(s.rings[0], [[0, 1, 0], [1, 1, 0], [1, 1, 1]])
+
+
+def test_playable_inventory_keeps_kanta_ids_and_point_only_gis(tmp_path):
+    import geopandas as gpd
+    from turku3d import config as C
+
+    def en(poly):
+        return shapely.transform(
+            poly,
+            lambda coords: np.column_stack((coords[:, 0] + C.ORIGIN_E, C.ORIGIN_N - coords[:, 1])),
+        )
+
+    established = en(shapely.box(10, 10, 20, 20))
+    added = en(shapely.box(30, 10, 40, 20))
+    point = en(shapely.Point(60, 20))
+    kanta = tmp_path / "kanta.parquet"
+    gis = tmp_path / "gis.parquet"
+    gpd.GeoDataFrame(
+        {
+            "feature_key": ["old"],
+            "kplkoodi": ["66000"],
+            "rakennustunnus": ["original-id"],
+            "julkisivumateriaali": ["brick"],
+            "kerrosluku": ["3"],
+        },
+        geometry=[established],
+    ).to_parquet(kanta)
+    gpd.GeoDataFrame(
+        {
+            "feature_key": ["same", "new", "point"],
+            "PysyvaRakennusTunnus": ["duplicate", "new-id", "point-id"],
+            "Osoitenimi_fi": ["Street"] * 3,
+            "Osoitenumero": ["1", "2", "3"],
+            "Kerrosluku": ["3", "4", "1"],
+        },
+        geometry=[established, added, point],
+    ).to_parquet(gis)
+    result = read_playable_footprints(kanta, gis, C.BBoxLocal(0, 0, 100, 100))
+    assert [b.id for b in result] == ["gis-new-id", "gis-point-id", "original-id"]
+    assert result[1].properties["point_only"]
+    assert result[1].footprint.area == pytest.approx(36)
+
+
+def test_outer_massing_height_uses_roof_returns_inside_footprint():
+    from scipy.spatial import cKDTree
+
+    ground = np.array([[5, 2, 5], [50, 10, 50]], dtype=np.float32)
+    roofs = np.array([[4, 17, 4], [5, 18, 5], [6, 19, 6], [50, 40, 50]], dtype=np.float32)
+    base, roof = height_for(
+        shapely.box(0, 0, 10, 10),
+        ground,
+        cKDTree(ground[:, [0, 2]]),
+        roofs,
+        cKDTree(roofs[:, [0, 2]]),
+    )
+    assert (base, roof) == (2, 18)
 
 
 @pytest.mark.parametrize(
