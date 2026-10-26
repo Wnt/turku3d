@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CAR } from '../physics/constants';
 import type { VehicleState } from '../physics/protocol';
+import type { Manifest, ParkedVehicle } from '../world/manifest';
 
 /** Kenney CC0 sedan, +X forward. Authored wheels are independently steered and suspended. */
 export class CarVisual {
@@ -68,5 +69,50 @@ export class CarVisual {
       g.rotation.set(0, w.steer, 0);
       g.children[0].rotation.z = -w.rotation;
     });
+  }
+}
+
+/** One draw per parked model/paint combination; instance transforms follow physics after exit. */
+export class ParkedCarVisuals {
+  private groups = new Map<string, { mesh: THREE.InstancedMesh; cars: ParkedVehicle[] }>();
+  private matrix = new THREE.Matrix4();
+  private position = new THREE.Vector3();
+  private rotation = new THREE.Quaternion();
+  private scale = new THREE.Vector3(1, 1, 1);
+
+  constructor(private readonly scene: THREE.Scene) {}
+
+  async load(manifest: Manifest) {
+    const cars = manifest.vehicles ?? [];
+    const loader = new GLTFLoader();
+    await Promise.all([...new Set(cars.map(c => `${c.model}/${c.color}`))].map(async key => {
+      const entry = manifest.vehicle_models?.[key];
+      if (!entry) throw new Error(`Missing parked car model ${key}`);
+      const gltf = await loader.loadAsync(new URL(entry.url, manifest.baseUrl).href);
+      let source: THREE.Mesh | undefined;
+      gltf.scene.traverse(o => { if ((o as THREE.Mesh).isMesh) source = o as THREE.Mesh; });
+      if (!source) throw new Error(`Parked car model ${key} has no mesh`);
+      const members = cars.filter(c => `${c.model}/${c.color}` === key);
+      const mesh = new THREE.InstancedMesh(source.geometry, source.material, members.length);
+      mesh.name = `parked/${key}`;
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.groups.set(key, { mesh, cars: members });
+    }));
+  }
+
+  update(states: VehicleState[]) {
+    const byId = new Map(states.map(s => [s.id, s]));
+    for (const { mesh, cars } of this.groups.values()) {
+      cars.forEach((car, i) => {
+        const state = byId.get(car.object_id);
+        if (!state) return;
+        this.position.set(state.pos.x, state.pos.y - 0.75, state.pos.z);
+        this.rotation.set(state.rot.x, state.rot.y, state.rot.z, state.rot.w)
+          .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2));
+        mesh.setMatrixAt(i, this.matrix.compose(this.position, this.rotation, this.scale));
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 }

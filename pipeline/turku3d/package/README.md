@@ -174,6 +174,12 @@ assembly cache. Missing public parking fails assembly instead of parking on the 
 `spawn.footprints`, `building_id`, `facade_id`, and vehicle OSM metadata retain QA provenance.
 Explicit `?spawn=E,N,heading` continues to override the published start.
 
+If `traffic_static/placements.json` is published, assembly writes all parked cars in
+the requested L0 tiles to `manifest.vehicles` and each model/paint GLB to
+`manifest.vehicle_models`. The packaged visual and collision tiles omit that layer's
+static car geometry; the game creates sleeping rigid vehicles from these entries.
+Their original layer boxes remain available for placement and source validation.
+
 ```sh
 source ../sandbox.env
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"

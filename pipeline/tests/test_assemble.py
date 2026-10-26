@@ -23,6 +23,8 @@ from turku3d.package.assemble import assemble
 from turku3d.package.gltf import GlbMesh, read_glb
 from turku3d.package.manifest import verify_tree
 from turku3d.package.seams import verify_seams
+from turku3d.parked.__main__ import publish as publish_parked
+from turku3d.parked.models import MODELS
 
 
 @pytest.fixture(autouse=True)
@@ -119,6 +121,39 @@ def test_assembled_ground_binding_survives_visual_packaging(tmp_path):
         (out / binding["library"] / f"{name}.array.ktx2").is_file()
         for name in ("albedo", "normal", "orm")
     )
+
+
+def test_incremental_tiles_keep_drivable_parked_cars(tmp_path):
+    layers, out = tmp_path / "layers", tmp_path / "dist"
+    fixture(layers, ids=("t0_0_0", "t0_1_0"))
+    width, height, length = MODELS["sedan"]
+    cars = [
+        dict(
+            object_id=f"car-{i}",
+            model="sedan",
+            color="blue",
+            x=x,
+            y=2.12345678,
+            z=100,
+            yaw=0,
+            width=width,
+            height=height,
+            length=length,
+        )
+        for i, x in enumerate((80, 280))
+    ]
+    parked = layers / "traffic_static"
+    parked.mkdir(parents=True)
+    (parked / "placements.json").write_text(json.dumps({"cars": cars}))
+    publish_parked(cars, parked, {"fixture": "test"}, 16)
+    assemble(["t0_0_0"], layers=layers, out=out)
+    first = json.loads((out / "manifest.json").read_text())
+    assert [car["object_id"] for car in first["vehicles"]] == ["car-0"]
+    assert first["collision"]["c_1_1"]["prims"] == 0
+    assemble(["t0_1_0"], layers=layers, out=out)
+    second = json.loads((out / "manifest.json").read_text())
+    assert {car["object_id"] for car in second["vehicles"]} == {"car-0", "car-1"}
+    assert not verify_tree(out)
 
 
 def test_assemble_roundtrip_textures_parents_cache_and_invalidation(tmp_path):

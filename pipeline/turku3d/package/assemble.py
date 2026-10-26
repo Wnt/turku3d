@@ -16,6 +16,7 @@ from turku3d import config as C
 from turku3d.col.format import ColTile, Primitive, read_col, write_col
 from turku3d.layers import layer_root, read_collision, read_manifest, read_visual
 from turku3d.package import coarse
+from turku3d.package.gltf import GlbMesh, build_glb
 from turku3d.package.manifest import DistTree, _atomic_write, git_sha, verify_tree
 from turku3d.package.seams import edge_equal, verify_tile_seams
 from turku3d.package.spawn import derive_spawn, osm_sources
@@ -69,10 +70,12 @@ def load_layers(root: Path):
     return manifests, collision
 
 
-def collision_tile(tile, layers, manifests, available):
+def collision_tile(tile, layers, manifests, available, *, dynamic_traffic=False):
     positions, indices, material, primitives, ranges = [], [], [], [], []
     count = 0
     for name in sorted(layers):
+        if dynamic_traffic and name == "traffic_static":
+            continue
         if tile.id not in layers[name]:
             continue
         layer = layers[name][tile.id]
@@ -244,6 +247,8 @@ def assemble(
     manifests, collision = load_layers(root)
     visuals = {}
     for name, m in manifests.items():
+        if name == "traffic_static":
+            continue
         for filename in m["tiles"]:
             if filename.endswith(".vis.glb"):
                 tile = C.VisualTile.parse(filename.removesuffix(".vis.glb"))
@@ -263,6 +268,52 @@ def assemble(
     build = requested | parents
     tree = DistTree(out, areas=[area])
     tree.spawn = derive_spawn(root, collision)
+    parked_path = root / "traffic_static/placements.json"
+    tree.vehicles = [
+        car for car in tree.vehicles if C.VisualTile.at(car["x"], car["z"]) not in requested
+    ]
+    tree.vehicle_models = {}
+    if parked_path.exists() and "traffic_static" in manifests:
+        from turku3d.parked.models import model, palette
+
+        parked = json.loads(parked_path.read_text())["cars"]
+        envelope = {(t.i, t.j) for t in requested}
+        tree.vehicles += [
+            {
+                k: car[k]
+                for k in (
+                    "object_id",
+                    "model",
+                    "color",
+                    "x",
+                    "y",
+                    "z",
+                    "yaw",
+                    "width",
+                    "height",
+                    "length",
+                )
+            }
+            for car in parked
+            if (C.VisualTile.at(car["x"], car["z"]).i, C.VisualTile.at(car["x"], car["z"]).j)
+            in envelope
+        ]
+        for name, color in sorted({(car["model"], car["color"]) for car in tree.vehicles}):
+            pos, idx, normals, uv = model(name)
+            data = build_glb(
+                [
+                    GlbMesh(
+                        name,
+                        pos,
+                        idx,
+                        normals=normals,
+                        uvs=uv,
+                        image=palette(name, color),
+                        roughness=0.42,
+                    )
+                ]
+            )
+            tree.vehicle_models[f"{name}/{color}"] = tree._put(f"vehicles/{name}-{color}.glb", data)
     cache_file = out / ".assemble-cache.json"
     cache = json.loads(cache_file.read_text()) if cache_file.exists() else {}
     # Include implementation and tool lock, not git HEAD: an unrelated commit is not an input change.
@@ -332,7 +383,9 @@ def assemble(
             if tile.level == 0:
                 for c in tile.collision_tiles():
                     if c.id in available:
-                        pending_collision[c] = collision_tile(c, collision, manifests, available)
+                        pending_collision[c] = collision_tile(
+                            c, collision, manifests, available, dynamic_traffic=True
+                        )
         if not changed:
             return {
                 "changed": [],

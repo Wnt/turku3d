@@ -2,6 +2,7 @@
 import { E0, N0, COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 
 export interface ManifestEntry { url: string; sha256: string; bytes: number; tris: number; h: [number, number]; prims?: number; flags?: number; level?: number }
+export interface ParkedVehicle { object_id: string; model: string; color: string; x: number; y: number; z: number; yaw: number; width: number; height: number; length: number }
 export interface Manifest {
   format: string; version: number; built: string; code: string;
   origin_en: [number, number, number]; crs: string;
@@ -9,6 +10,8 @@ export interface Manifest {
   materials_version: number; col_version: [number, number];
   visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   spawn?: { position: [number, number, number]; headingDeg: number; vehicle: { position: [number, number, number]; yaw: number } };
+  vehicles?: ParkedVehicle[];
+  vehicle_models?: Record<string, { url: string; sha256: string; bytes: number }>;
   baseUrl: string;
 }
 

@@ -28,13 +28,14 @@ export class Vehicle {
   private world: Rapier.World;
   private surfaces: WheelQueries;
 
-  constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries) {
+  constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
+    tuning: { mass?: number; halfExt?: V3; parked?: boolean } = {}) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
-      .setCanSleep(false).setCcdEnabled(true).setAngularDamping(1.2));
-    const h = CAR.halfExt;
-    world.createCollider(R.ColliderDesc.cuboid(h.x, h.y, h.z).setMass(CAR.mass).setFriction(0.5)
+      .setCanSleep(true).setCcdEnabled(true).setAngularDamping(1.2));
+    const h = tuning.halfExt ?? CAR.halfExt;
+    world.createCollider(R.ColliderDesc.cuboid(h.x, h.y, h.z).setMass(tuning.mass ?? CAR.mass).setFriction(0.5)
       .setCollisionGroups((GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00), this.body);
     const v = this.controller = world.createVehicleController(this.body);
     v.indexUpAxis = 1;
@@ -49,6 +50,7 @@ export class Vehicle {
       v.setWheelMaxSuspensionForce(i, 18000);
       v.setWheelSideFrictionStiffness(i, 1.1);
     }
+    if (tuning.parked) this.body.sleep();
   }
 
   reset(pos: V3, yaw: number) {
@@ -60,6 +62,7 @@ export class Vehicle {
   }
 
   step(dt: number, input: VehicleInput | null) {
+    if (!input && this.body.isSleeping()) return;
     const v = this.controller, b = this.body;
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
     const speed = lv.x * f.x + lv.y * f.y + lv.z * f.z;
@@ -124,6 +127,7 @@ export class Vehicle {
 
   /** Read solver impulses after each fixed world step; resting contacts stay below the threshold. */
   afterStep(dt: number) {
+    if (this.body.isSleeping()) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);
     const chassis = this.body.collider(0);
     let impulse = 0;

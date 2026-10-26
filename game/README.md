@@ -152,7 +152,7 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 `window.__game` holds the following:
 - `backend` and `three`
 - `ready` (true after spawn)
-- `state()`, which returns `{mode, feet[x,y,z], vel, grounded, groundMaterial, locomotion, contacts, visualFeet, cameraYaw, inputSource, paused, E, N, H, vehicle{pos,rot,linvel,speed,forwardSpeed,wheels,curbStrike,modelLoaded}, camera{pos,fov,yaw}, collision{tiles,tris,colBytes,estWasmBytes}, visTris, visModels, tilesSettled, frameMs, errors}`
+- `state()`, which returns `{mode, feet[x,y,z], vel, grounded, groundMaterial, locomotion, contacts, visualFeet, cameraYaw, inputSource, paused, E, N, H, vehicle{pos,rot,linvel,speed,forwardSpeed,wheels,curbStrike,modelLoaded}, vehicles[], drivenId, camera{pos,fov,yaw}, collision{tiles,tris,colBytes,estWasmBytes}, visTris, visModels, tilesSettled, frameMs, errors}`. `vehicle` is the driven car, or the spawn car while walking; `vehicles` contains every car by ID.
 - `input` (named actions, `rebind`, `bindings`, `rumble`; e2e tests inject a virtual Gamepad or send real keyboard events)
 - `physics` (the `PhysicsClient`)
 - `tiles`

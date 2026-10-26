@@ -10,7 +10,7 @@ import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 export { CHARACTER };
-import type { CharacterInput, CharacterState, RayFilter, RayHit, TileStats, VehicleInput, VehicleState } from './protocol';
+import type { CharacterInput, CharacterState, RayFilter, RayHit, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
 
 type R = typeof RAPIER_NS;
 export const DT = 1 / 60;
@@ -42,7 +42,10 @@ export class PhysicsWorld {
   private charEnabled = true;
 
   // vehicle
-  vehicle: Vehicle | null = null;
+  private vehicles = new Map<string, Vehicle>();
+  private drivenId: string | null = 'player';
+  private nearbyVehicles = new Set<string>();
+  get vehicle(): Vehicle | null { return this.vehicles.get('player') ?? null; }
   private curbQueries: CurbQueries;
 
   constructor(private readonly R: R) {
@@ -194,13 +197,21 @@ export class PhysicsWorld {
   }
 
   // ------------------------------------------------------------------ vehicle
-  spawnVehicle(pos: V3, yaw: number) {
-    if (this.vehicle) { this.vehicle.reset(pos, yaw); return; }
-    this.vehicle = new Vehicle(this.R, this.world, pos, yaw, this.curbQueries);
+  spawnVehicle(pos: V3, yaw: number, spec: Partial<VehicleSpec> = {}) {
+    const id = spec.id ?? 'player';
+    const existing = this.vehicles.get(id);
+    if (existing) { existing.reset(pos, yaw); return; }
+    this.vehicles.set(id, new Vehicle(this.R, this.world, pos, yaw, this.curbQueries, spec));
   }
 
-  resetVehicle(pos: V3, yaw: number) { this.vehicle?.reset(pos, yaw); }
-  vehicleState(): VehicleState | null { return this.vehicle?.state() ?? null; }
+  driveVehicle(id: string | null) {
+    if (id && !this.vehicles.has(id)) throw new Error(`unknown vehicle ${id}`);
+    this.drivenId = id;
+    if (id) this.vehicles.get(id)!.body.wakeUp();
+  }
+  resetVehicle(pos: V3, yaw: number, id = 'player') { this.vehicles.get(id)?.reset(pos, yaw); }
+  vehicleState(): VehicleState | null { return this.vehicles.get(this.drivenId ?? 'player')?.state() ?? null; }
+  vehicleStates(): VehicleState[] { return [...this.vehicles].map(([id, vehicle]) => ({ id, ...vehicle.state() })); }
 
   // ------------------------------------------------------------------ stepping
   /** Advances real time dt with fixed 60 Hz substeps. Returns the number of substeps run. */
@@ -222,9 +233,20 @@ export class PhysicsWorld {
     this.previousVehicle = this.vehicleState();
     this.tick++;
     if (this.cc && this.charEnabled) this.stepCharacter(character);
-    this.vehicle?.step(DT, vehicle);
+    if (this.charEnabled && this.charCollider) {
+      const feet = this.charCollider.translation();
+      for (const [id, car] of this.vehicles) {
+        const pos = car.body.translation();
+        const distance = Math.hypot(pos.x - feet.x, pos.z - feet.z);
+        if (distance < 6 && !this.nearbyVehicles.has(id)) {
+          this.nearbyVehicles.add(id);
+          car.body.wakeUp();
+        } else if (distance > 8) this.nearbyVehicles.delete(id);
+      }
+    }
+    for (const [id, car] of this.vehicles) car.step(DT, id === this.drivenId ? vehicle : null);
     this.world.step();
-    this.vehicle?.afterStep(DT);
+    for (const car of this.vehicles.values()) car.afterStep(DT);
   }
 
   // ------------------------------------------------------------------ queries

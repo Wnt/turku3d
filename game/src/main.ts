@@ -21,7 +21,7 @@ import { CollisionStreamer } from './world/collisionStreaming';
 import { PhysicsClient } from './physics/client';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
-import { CarVisual } from './actors/car';
+import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
@@ -195,6 +195,7 @@ async function runPlay() {
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   const player = new PlayerVisual(scene, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(scene);
+  const parkedVisuals = new ParkedCarVisuals(scene);
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const carLoad = car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`);
@@ -228,9 +229,16 @@ async function runPlay() {
   const carGround = await groundAt(carPos.x, carPos.z);
   const carYaw = selected?.vehicle.yaw ?? yaw0 + Math.PI / 2;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
-  await Promise.all([playerLoad, carLoad]);
+  for (const parked of manifest.vehicles ?? []) {
+    physics.spawnVehicle({ x: parked.x, y: parked.y + 0.75, z: parked.z }, parked.yaw - Math.PI / 2,
+      { id: parked.object_id, parked: true,
+        mass: Math.round(1200 * parked.width * parked.length * parked.height / (1.85 * 4.55 * 1.48)),
+        halfExt: { x: parked.length / 2 - 0.18, y: Math.min(0.55, parked.height * 0.32), z: parked.width / 2 - 0.05 } });
+  }
+  await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
 
   let mode: 'foot' | 'car' = 'foot';
+  let drivenId: string | null = null;
   let paused = false;
   let lastRumble = 0;
   let wasGrounded = false;
@@ -247,9 +255,11 @@ async function runPlay() {
 
   const state = () => {
     const en = engineToEN(feet.x, feet.y, feet.z);
-    const v = physics.latest?.vehicle;
+    const v = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
     return { mode, paused, locomotion: player.locomotion, contacts: player.contacts, visualFeet: player.root.position.toArray(), visualVehicle: car.root.position.toArray(), cameraYaw: orbit.yaw, inputSource: input.source, feet: feet.toArray(), vel: vel.toArray(), grounded, groundMaterial: groundMat, E: en.E, N: en.N, H: en.H,
-      vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: car.loaded } : null, camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
+      vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : true } : null,
+      vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
+      camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, errors };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, ready: true });
@@ -281,15 +291,23 @@ async function runPlay() {
     }
     const { moveY: fwd, moveX: side } = input.actions;
 
-    const vs = physics.latest?.vehicle;
+    const vs = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
     if (!paused && input.consume('interact')) {
-      if (mode === 'foot' && vs && Math.hypot(vs.pos.x - feet.x, vs.pos.z - feet.z) < 4) {
+      const nearest = mode === 'foot' ? physics.latest?.vehicles
+        .map(v => ({ vehicle: v, distance: Math.hypot(v.pos.x - feet.x, v.pos.z - feet.z) }))
+        .filter(v => Math.abs(v.vehicle.pos.y - feet.y) < 3)
+        .sort((a, b) => a.distance - b.distance)[0] : null;
+      if (mode === 'foot' && nearest && nearest.distance < 4) {
+        drivenId = nearest.vehicle.id ?? 'player';
+        physics.driveVehicle(drivenId);
         mode = 'car';
         physics.setCharacterEnabled(false);
         player.root.visible = false;
         orbit.distance = 8;
       } else if (mode === 'car' && vs) {
         mode = 'foot';
+        physics.driveVehicle(null);
+        drivenId = null;
         chase.leave();
         carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w);
         const out = tmp.set(0, 0, -(1.0 + 0.9)).applyQuaternion(carQuat); // driver side (-Z in the chassis frame)
@@ -300,7 +318,7 @@ async function runPlay() {
     }
     if (mode === 'car' && !paused && input.consume('vehicleReset') && vs) {
       const fwdV = tmp.set(1, 0, 0).applyQuaternion(carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w));
-      physics.resetVehicle({ x: vs.pos.x, y: vs.pos.y + 1.5, z: vs.pos.z }, Math.atan2(-fwdV.z, fwdV.x));
+      physics.resetVehicle({ x: vs.pos.x, y: vs.pos.y + 1.5, z: vs.pos.z }, Math.atan2(-fwdV.z, fwdV.x), drivenId ?? 'player');
     }
 
     let charIn = { vx: 0, vz: 0, jump: false };
@@ -328,16 +346,18 @@ async function runPlay() {
         vel.set(st.character.vel.x, st.character.vel.y, st.character.vel.z);
         grounded = st.character.grounded; groundMat = st.character.groundMaterial;
       }
-      if (st.vehicle) {
-        const strike = st.vehicle.curbStrike;
+      parkedVisuals.update(st.vehicles);
+      const activeCar = st.vehicles.find(v => v.id === drivenId);
+      if (activeCar) {
+        const strike = activeCar.curbStrike;
         if (strike && strike.id !== lastRumble) {
           lastRumble = strike.id;
           if (mode === 'car') void input.rumble(120, strike.rumble, strike.rumble * 0.6);
         }
-        if (mode === 'car') { feet.set(st.vehicle.pos.x, st.vehicle.pos.y - 0.6, st.vehicle.pos.z); vel.set(st.vehicle.linvel.x, st.vehicle.linvel.y, st.vehicle.linvel.z); }
+        if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - 0.6, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
     }
-    if (renderVehicle) car.update(renderVehicle);
+    if (renderVehicle && (drivenId === null || drivenId === 'player')) car.update(renderVehicle);
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
@@ -346,7 +366,9 @@ async function runPlay() {
     }
 
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
-    if (mode === 'car' && renderVehicle && !paused) chase.update(dt, renderVehicle, input.lookX, input.lookY, resetCamera);
+    const chaseVehicle = drivenId && drivenId !== 'player'
+      ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
+    if (mode === 'car' && chaseVehicle && !paused) chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera);
     else if (mode === 'foot') orbit.update(dt, focus);
     // camera collision: async ray from the focus towards the camera (result applies next frame)
     if (mode === 'foot' && !camRayBusy) {

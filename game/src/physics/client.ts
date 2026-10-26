@@ -1,7 +1,7 @@
 // Main-thread side of the physics worker.
 import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
-import type { CharacterInput, FromWorker, RayFilter, RayHit, TileStats, ToWorker, VehicleInput } from './protocol';
+import type { CharacterInput, FromWorker, RayFilter, RayHit, TileStats, ToWorker, VehicleInput, VehicleSpec } from './protocol';
 
 type StateMsg = Extract<FromWorker, { type: 'state' }>;
 
@@ -71,8 +71,9 @@ export class PhysicsClient {
   unloadTile(id: string) { this.send({ type: 'unloadTile', id }); this.loaded.delete(id); }
   spawnCharacter(pos: V3) { this.send({ type: 'spawnCharacter', pos }); }
   setCharacterEnabled(enabled: boolean, pos?: V3) { this.send({ type: 'setCharacterEnabled', enabled, pos }); }
-  spawnVehicle(pos: V3, yaw: number) { this.send({ type: 'spawnVehicle', pos, yaw }); }
-  resetVehicle(pos: V3, yaw: number) { this.send({ type: 'resetVehicle', pos, yaw }); }
+  spawnVehicle(pos: V3, yaw: number, spec: Partial<VehicleSpec> = {}) { this.send({ type: 'spawnVehicle', spec: { id: spec.id ?? 'player', pos, yaw, ...spec } }); }
+  driveVehicle(id: string | null) { this.send({ type: 'driveVehicle', id }); }
+  resetVehicle(pos: V3, yaw: number, id = 'player') { this.send({ type: 'resetVehicle', id, pos, yaw }); }
 
   /** Queues dt; sends one step at a time (single in flight) so the worker never falls behind. */
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null) {

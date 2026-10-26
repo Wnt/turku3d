@@ -15,7 +15,9 @@ The producer reads the latest cached `raw/osm/work-3x3/*.parquet`, city
 pins a particular snapshot. It never downloads or writes raw data. Outputs are
 `$TURKU3D_WORK/build/layers/traffic_static`: shared-publisher NPZ box primitives,
 GLBs (one mesh per car), a completed `MANIFEST.json`, and `placements.json`.
-The assembler discovers this layer without a runtime feature flag or API change.
+The assembler discovers this layer. It publishes `placements.json` as `manifest.vehicles`
+and shared model/paint GLBs as `manifest.vehicle_models`, omitting the static car meshes
+and boxes from shipped tiles so each car can move without duplicate collision.
 
 Four CC0 Kenney Car Kit 3.1 models are bundled as authored OBJ geometry: sedan,
 hatchback, SUV and van. Dimensions are normalized to real passenger-vehicle sizes;

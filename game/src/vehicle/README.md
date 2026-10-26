@@ -4,6 +4,16 @@ The physics core has no browser/renderer imports and uses erasable TypeScript, s
 The constructor accepts the Rapier namespace: the browser uses `@dimforge/rapier3d`, the validator uses
 `@dimforge/rapier3d-compat` (both 0.21). Import `vehicle.ts` and `curbQueries.ts`; `chaseCamera.ts` alone needs three.js.
 
+The physics worker now keeps vehicles by ID. The spawn car and every parked car use the same
+`Vehicle` controller and enter/drive/exit path. Parked cars start asleep, wake on contact or
+entry, and skip wheel updates while asleep. Parked glTF model/paint variants are rendered as
+instances, with their transforms following the rigid bodies after exit. `F` or Xbox `Y`
+enters the closest car within 4 m.
+
+Run `npm test --prefix game -- --run tests/unit/vehicle-fleet.test.ts` for the 20 m
+physics route and `(cd game && npx playwright test tests/e2e/parked-vehicle.spec.ts
+--workers=2)` for the Xbox route on WebGPU and WebGL2.
+
 ```ts
 import { Vehicle } from './game/src/vehicle/vehicle.ts';
 import { CurbQueries } from './game/src/vehicle/curbQueries.ts';

@@ -39,12 +39,13 @@ async function handle(msg: ToWorker) {
       break;
     case 'spawnCharacter': pw.spawnCharacter(msg.pos); break;
     case 'setCharacterEnabled': pw.setCharacterEnabled(msg.enabled, msg.pos); break;
-    case 'spawnVehicle': pw.spawnVehicle(msg.pos, msg.yaw); break;
-    case 'resetVehicle': pw.resetVehicle(msg.pos, msg.yaw); break;
+    case 'spawnVehicle': pw.spawnVehicle(msg.spec.pos, msg.spec.yaw, msg.spec); break;
+    case 'driveVehicle': pw.driveVehicle(msg.id); break;
+    case 'resetVehicle': pw.resetVehicle(msg.pos, msg.yaw, msg.id); break;
     case 'step': {
       const t0 = performance.now();
       const substeps = pw.step(msg.dt, msg.character, msg.vehicle);
-      post({ type: 'state', seq: msg.seq, substeps, tick: pw.tick, remainder: pw.remainder, previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState() });
+      post({ type: 'state', seq: msg.seq, substeps, tick: pw.tick, remainder: pw.remainder, previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(), vehicles: pw.vehicleStates() });
       break;
     }
     case 'cameraCast':

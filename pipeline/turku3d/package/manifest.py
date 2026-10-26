@@ -177,6 +177,8 @@ class DistTree:
         if old and (old.get("format") != MANIFEST_FORMAT or old.get("version") != MANIFEST_VERSION):
             raise ValueError(f"{mpath}: not a {MANIFEST_FORMAT} v{MANIFEST_VERSION}")
         self.spawn = old.get("spawn")
+        self.vehicles = old.get("vehicles", [])
+        self.vehicle_models = old.get("vehicle_models", {})
         self.visual: dict = dict(old.get("visual", {}))
         self.collision: dict = dict(old.get("collision", {}))
         self.areas = sorted(set(old.get("areas", [])) | set(areas or []))
@@ -225,6 +227,8 @@ class DistTree:
                 "levels": C.VISUAL_MAX_LEVEL + 1,
             },
             **({"spawn": self.spawn} if self.spawn else {}),
+            "vehicles": self.vehicles,
+            "vehicle_models": self.vehicle_models,
             "materials_version": 1,
             "col_version": [1, 0],
             "areas": self.areas,
@@ -241,7 +245,12 @@ def verify_tree(root: str | Path) -> list[str]:
     root = Path(root)
     m = json.loads((root / "manifest.json").read_text())
     bad = []
-    for e in [m["tileset"], *m["visual"].values(), *m["collision"].values()]:
+    for e in [
+        m["tileset"],
+        *m["visual"].values(),
+        *m["collision"].values(),
+        *m.get("vehicle_models", {}).values(),
+    ]:
         f = root / e["url"]
         if not f.exists():
             bad.append(f"missing {e['url']}")
