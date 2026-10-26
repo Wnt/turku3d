@@ -4,7 +4,8 @@ import type { MissionHudSource, MissionHudState, Router, RouteTarget, TargetKind
 import { EMPTY_HUD_STATE } from './contract';
 import { edgeClass, type RoadGraph, type TravelMode } from './roadGraph';
 
-const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
+/** Marker colour per target kind, shared with the world zones (zones.ts). */
+export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
 /** Recompute the route after the player moves this far from where it started. */
 export const REROUTE_M = 5;
 const SIZE = 240;

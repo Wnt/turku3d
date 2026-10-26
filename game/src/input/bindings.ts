@@ -4,7 +4,8 @@ export type Binding =
   | { kind: 'button'; index: number }
   | { kind: 'key'; code: string; scale?: number };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
-  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'vehicleReset', 'hud', 'map'] as const;
+  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'vehicleReset', 'hud', 'map',
+  'menuUp', 'menuDown', 'menuSelect', 'menuBack'] as const;
 export type Action = typeof ACTIONS[number];
 export type Actions = Record<Action, number>;
 export type Bindings = Record<Action, Binding[]>;
@@ -24,6 +25,11 @@ export const DEFAULT_BINDINGS: Bindings = {
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
   pause: [button(9), key('Escape')], mute: [button(13), key('KeyN')], vehicleReset: [key('KeyR')], hud: [key('KeyH')],
   map: [button(8), key('KeyM')],
+  // Shop menus (ui/shopMenu.ts): D-pad or left stick, A selects, B leaves. Read only while a menu is open.
+  menuUp: [button(12), axis(1, -1), key('ArrowUp'), key('KeyW')],
+  menuDown: [button(13), axis(1), key('ArrowDown'), key('KeyS')],
+  menuSelect: [button(0), key('Enter'), key('NumpadEnter'), key('KeyE')],
+  menuBack: [button(1), key('Escape'), key('Backspace')],
 };
 export const emptyActions = (): Actions => Object.fromEntries(ACTIONS.map(a => [a, 0])) as Actions;
 interface Curve { deadZone: number; exponent: number }

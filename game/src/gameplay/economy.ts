@@ -3,8 +3,23 @@
 export type VehicleOwnership = 'none' | 'bicycle' | 'car';
 
 export const START_MONEY = 120;
-export const LICENCE_PRICE = 80;
+/** A rented courier permit covers this many delivery orders; renting adds to what is left. */
+export const PERMIT_PRICE = 80;
+export const PERMIT_DELIVERIES = 10;
+/** The seller rents at most this many deliveries ahead. */
+export const PERMIT_MAX = 20;
+/** The bought-back expiry warning speaks after a hand-over when at most this many deliveries are left. */
+export const PERMIT_WARN_AT = 2;
+export const WARNING_PRICE = 10;
+export const PLATES_PRICE = 120;
+export const KIDNEY_PAYOUT = 400;
+/** Run and sprint speed after the kidney sale, unless a slice is still giving energy. */
+export const KIDNEY_RUN_FACTOR = 0.85;
+export const SLICE_PRICE = 4;
+export const SLICE_SECONDS = 120;
 export const VEHICLE_PRICE: Record<Exclude<VehicleOwnership, 'none'>, number> = { bicycle: 60, car: 350 };
+/** The dealer buys a vehicle back at half its price, rounded down to whole euros. */
+export const sellBackPrice = (vehicle: Exclude<VehicleOwnership, 'none'>) => Math.floor(VEHICLE_PRICE[vehicle] / 2);
 export const BASE_PAY = 6;
 export const MAX_TIP = 8;
 
@@ -34,10 +49,4 @@ export function tip(elapsed: number, par: number): number {
 
 export function deliveryDeadline(par: number): number {
   return FAIL_AFTER_PAR * par;
-}
-
-/** What the dealer offers: the car once it is affordable or the bicycle is owned, else the bicycle; null after the car. */
-export function nextVehicleOffer(owned: VehicleOwnership, money: number): Exclude<VehicleOwnership, 'none'> | null {
-  if (owned === 'car') return null;
-  return owned === 'bicycle' || money >= VEHICLE_PRICE.car ? 'car' : 'bicycle';
 }

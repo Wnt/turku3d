@@ -26,11 +26,13 @@ import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
+import { ShopMenu } from './ui/shopMenu';
 import { MissionSystem, OWN_VEHICLE_ID, hasSavedGame } from './gameplay/missions/missions';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { BICYCLE_TOP_SPEED } from './gameplay/economy';
 import { createGameplay, compassDeg } from './gameplay';
+import { ZoneMarkers } from './gameplay/zones';
 import { IdPass } from './render/idPass';
 import { MATERIALS } from './shared/col/materials';
 import type { VehicleInput } from './physics/protocol';
@@ -275,6 +277,11 @@ async function runPlay() {
   const missions = new MissionSystem({ router, storage });
   minimap.setSource(missions);
   voice.attach(missions);
+  // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement.
+  const zones = new ZoneMarkers(scene, (x, z, top) => physics.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, top + 60)
+    .then(hit => hit?.point.y ?? null), document.body);
+  zones.setSource(missions);
+  const shopMenu = new ShopMenu(document.body);
   void startScreen.closed.then(() => missions.begin());
   const mapDirection = new THREE.Vector3();
 
@@ -302,9 +309,11 @@ async function runPlay() {
       vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
-      frameMs: frameEma, missions: missions.snapshot(), errors };
+      frameMs: frameEma, missions: missions.snapshot(), zones: zones.snapshot(),
+      shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, ready: true });
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones,
+    shopMenu, orbit, ready: true });
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {
@@ -325,6 +334,13 @@ async function runPlay() {
       }
       input.lookX = input.lookY = input.zoom = 0;
     }
+    // An open shop menu owns the controller: world movement, camera and the other buttons wait until it closes.
+    const menuOpen = shopMenu.open;
+    const menu = menuOpen ? shopMenu.handle(input) : { choose: null, leave: false };
+    if (menuOpen) {
+      for (const action of LOCKED_IN_MENU) input.consume(action);
+      input.lookX = input.lookY = input.zoom = 0;
+    }
     if (input.consume('pause')) paused = !paused;
     if (input.consume('map')) minimap.toggleExpanded();
     if (input.consume('mute')) audio.emit({ type: 'mute' });
@@ -333,7 +349,7 @@ async function runPlay() {
       orbit.input(input.lookX, input.lookY, input.zoom);
       if (resetCamera) { orbit.yaw = player.root.rotation.y - Math.PI; orbit.pitch = -0.12; }
     }
-    const { moveY: fwd, moveX: side } = input.actions;
+    const { moveY: fwd, moveX: side } = menuOpen ? { moveY: 0, moveX: 0 } : input.actions;
 
     const vs = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
     if (!paused && input.consume('interact')) {
@@ -371,7 +387,7 @@ async function runPlay() {
     if (mode === 'foot') {
       const b = orbit.basis();
       const mx = b.fx * fwd + b.rx * side, mz = b.fz * fwd + b.rz * side;
-      const speed = input.sprinting ? SPEED.sprint : input.actions.walk > 0.5 ? SPEED.walk : SPEED.run;
+      const speed = input.actions.walk > 0.5 ? SPEED.walk : (input.sprinting ? SPEED.sprint : SPEED.run) * missions.runFactor;
       const blend = 1 - Math.exp(-dt * (Math.hypot(mx, mz) > 0 ? 14 : 22));
       desiredVelocity.lerp(new THREE.Vector2(mx * speed, mz * speed), blend);
       charIn = { vx: desiredVelocity.x, vz: desiredVelocity.y, jump: input.consume('jump') };
@@ -379,13 +395,16 @@ async function runPlay() {
       desiredVelocity.set(0, 0);
       // The player's own car stands in for a bought bicycle: no throttle above bicycle speed.
       const bicycle = drivenId === OWN_VEHICLE_ID && missions.vehicle === 'bicycle' && (vs?.speed ?? 0) > BICYCLE_TOP_SPEED;
-      carIn = { throttle: bicycle ? 0 : input.actions.throttle, steer: input.actions.steer,
-        brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
+      carIn = menuOpen ? { throttle: 0, steer: 0, brake: 0, handbrake: true }
+        : { throttle: bicycle ? 0 : input.actions.throttle, steer: input.actions.steer,
+          brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
-      vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null,
+      vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
     });
+    shopMenu.render(missions.shop, input);
+    zones.setHidden(missions.shop !== null);
     if (mission.bought && drivenId !== OWN_VEHICLE_ID) {
       // A bought vehicle waits at the dealer's kerb: move the player's own car there.
       const spot = DEALER_VEHICLE_SPOT;
@@ -451,6 +470,7 @@ async function runPlay() {
     const facingDeg = compassDeg(facing.x, facing.z);
     camera.getWorldDirection(mapDirection);
     minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode });
+    zones.update(dt, camera, { x: feet.x, z: feet.z });
 
     const en = engineToEN(feet.x, feet.y, feet.z);
     const tot = physics.totals();
@@ -470,6 +490,9 @@ async function runPlay() {
     perf.end();
   });
 }
+
+/** Actions ignored while a shop menu is open (Escape and D-pad down are also pause and mute). */
+const LOCKED_IN_MENU = ['pause', 'mute', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset'] as const;
 
 /** localStorage, or null where the browser blocks it (the mission system then runs without persistence). */
 function browserStorage(): Storage | null {

@@ -11,21 +11,31 @@ Story, locations, economy and the state machine are specified in
 
 | File | Role |
 |---|---|
-| `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → licence_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, licence, vehicle ownership, dialogue queue; implements `MissionHudSource`; persists to `localStorage` key `turku3d.missions` |
-| `economy.ts` | Prices, base pay, tip formula, par time, deadline |
+| `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; persists to `localStorage` key `turku3d.missions` (format 2, migrates format 1) |
+| `economy.ts` | Prices, permit rental, payouts, base pay, tip formula, par time, deadline |
 | `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
+| `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
+| `zones.ts` | `ZoneMarkers`: glowing ring, light wall and floating label at every HUD target, coloured like the minimap (`KIND_COLOURS`) |
 | `content/deliveries.ts` | Delivery missions in play order (repeat after the last) |
 | `content/dialogue.json` | Every displayed line: intro, hints, prompts, notices, pay lines, character dialogue |
 | `content/dialogue.ts` | Typed lookup by line id (`lineText`, `dialogueLine`) |
 
 `main.ts` constructs the system with the street router (below) and `localStorage`, calls
-`missions.update(dt, { position, interact, input, vehicleId })` every frame (dt 0 while paused or on
-the start screen), asks `missions.mayDrive(id)` before entering a vehicle, caps the player's car at
-bicycle speed when the bicycle is owned, and moves the player's car to the dealer kerb after a
-purchase. The interaction button is the `mission` input action (Xbox A / keyboard E); targets act
-within 3 m. The start screen shows the intro lines unless `hasSavedGame(localStorage)`, and
+`missions.update(dt, { position, interact, input, vehicleId, choose, leave })` every frame (dt 0
+while paused or on the start screen), asks `missions.mayDrive(id)` before entering a vehicle, caps
+the player's car at bicycle speed when the bicycle is owned, scales run and sprint speed by
+`missions.runFactor` (the kidney), and moves the player's car to the dealer kerb after a purchase.
+The interaction button is the `mission` input action (Xbox A / keyboard E); targets act within 3 m.
+At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
+and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,
+`main.ts` feeds no movement, camera or vehicle input (the car holds its handbrake) and swallows the
+other buttons (Escape is pause and D-pad down is mute outside the menu). `ZoneMarkers` follows the
+same HUD source as the minimap and finds each zone's ground with a physics ray once its collision
+tile is resident. The start screen shows the intro lines unless `hasSavedGame(localStorage)`, and
 `missions.begin()` runs when it closes.
-`window.__game.missions` and `__game.state().missions` expose the system and a snapshot for tests.
+`window.__game.missions`, `__game.zones`, `__game.shopMenu` and `__game.orbit` expose the pieces;
+`__game.state()` adds `missions` (with `shop`, `permit`, `runFactor`), `zones` and `shopMenu`
+snapshots for tests.
 
 ### Adding a delivery
 
@@ -44,16 +54,32 @@ within 3 m. The start screen shows the intro lines unless `hasSavedGame(localSto
 
 A saved game stores only the delivery index, so adding deliveries keeps existing saves valid.
 
+### Adding a shop option
+
+Add the id to `OptionId` and the shop's `options` in `content/shops.ts` (with an icon from
+`public/assets/ui/`, see `ui/README.md`), the lines `option_<id>` and `detail_<id>` (unvoiced) and
+any reply (voiced) to `dialogue.json`, its price and availability to `optionState()` and its effect
+to `choose()` in `missions.ts`, and a row to the shop table in `docs/design/story.md`. New state
+that must survive a reload goes into `MissionSave` with a format bump and a migration of the
+previous format.
+
 ### Tests
 
 ```sh
 cd game
-npx vitest run tests/unit/missions.test.ts tests/unit/input.test.ts
-# Chrome check on the real tiles (build the game first: make game-build)
-python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test -c playwright.tile.config.ts tests/e2e-tile/missions.spec.ts
+npx vitest run tests/unit/missions.test.ts tests/unit/shops-ui.test.ts tests/unit/input.test.ts
+# Chrome checks on the real tiles (build the game first: make game-build)
+python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test -c playwright.tile.config.ts \
+  tests/e2e-tile/missions.spec.ts tests/e2e-tile/shops.spec.ts
 ```
 
-The Chrome check writes screenshots of each prompt to `$TURKU3D_WORK/reports/gameplay-missions/`.
+`missions.spec.ts` (WebGPU) plays permit, pickup and a timed delivery through the menus and writes
+screenshots of each prompt to `$TURKU3D_WORK/reports/gameplay-missions/`. `shops.spec.ts` (both
+backends) looks at the pizzeria zone from the street, walks into the black market zone (zone visible,
+prompt shown), opens the menu with E, checks that holding W leaves the player where it was, rents a
+permit (money and permit counter), closes with Escape and checks the player moves again, then opens
+the pizzeria and dealer menus. Screenshots: `$TURKU3D_WORK/reports/gameplay-shops-ui/<backend>-*.png`.
+To run them on the published tiles without building tiles, add `TILE_DIST=$TURKU3D_DATA/dist/tiles`.
 
 ## Map and route guidance
 
