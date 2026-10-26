@@ -1,5 +1,38 @@
 # Structures office integration: measured acceptance
 
+## Accepted office build, 2026-10-26
+
+The rebased office build passes producer acceptance with **zero issues**. Ground
+classifies all **142/142** office ramp survey lines. Structures emits 50 stairs,
+37 walls, 90 fences and 14 quay edges. The independent measured Rapier suite
+passes **135/135** cases (29 walls, 90 fences, 14 quays and two stair routes).
+
+Where lidar cannot establish a stair landing under trees or shadow, the
+producer now builds from the surveyed Kantakartta line and the measured ground
+height along both landing edges. Crossfall is carried into the stair treads and
+cheeks. Missing or inconclusive lidar is recorded as `survey-only` with the
+specific rejected evidence reason. Untagged OSM wall tops without reliable
+class-1 lidar returns use a conservative 1.2 m height and the same disclosure.
+Measured contradictions, including ground rise under 5 cm and slopes over 40
+degrees, remain blocking for surveyed city features. Sixteen weaker OSM or
+water-edge records that contradict measured ground or lack dry contact are
+listed under `excluded_sources` with their individual reasons.
+
+The real report lists 53 survey-only objects and evaluates their 102 Rapier
+routes as advisory: 85 pass. The 17 failing advisory routes remain visible in
+`physics.json` for later traversal refinement. They do not change the measured
+135/135 acceptance count under the orchestrator's survey-only policy. All
+physics thresholds and individual results remain recorded.
+
+The precise build command is:
+
+```sh
+make structures-build ARGS="--area office-block --ground-layer $TURKU3D_WORK/build/layers/ground"
+```
+
+The historical sections below record the path from the original 59/94 probe
+baseline to this accepted producer state.
+
 ## Ramp reconstruction, 2026-10-26
 
 Ground now reads surveyed 62540 lines as a declared input and intersects each

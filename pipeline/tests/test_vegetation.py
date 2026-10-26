@@ -70,7 +70,7 @@ def test_layer_instancing_collision_and_packaged_world_bounds(tmp_path, monkeypa
     assert collision.primitives[0]["center"][0] == 251
     assert collision.primitives[0]["radius"] < trees[0].crown_radius
     out = tmp_path / "dist"
-    assemble(["t0_1_0"], layers=layer.parent, out=out)
+    assemble(["t0_1_0"], layers=layer.parent, out=out, area="work-3x3")
     manifest = json.loads((out / "manifest.json").read_text())
     entry = manifest["visual"]["t0_1_0"]
     assert entry["tris"] == report["tiles"]["t0_1_0"]["triangles_per_color_pass"]

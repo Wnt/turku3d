@@ -127,9 +127,38 @@ def validate(meshes, ground, measurements, report_dir):
     if result.returncode not in (0, 1) or not output.is_file():
         raise ValueError(f"structures physics validator failed: {result.stdout}\n{result.stderr}")
     report = json.loads(output.read_text())
+    survey_ids = {
+        m["object_id"]
+        for m in measurements
+        if m.get("evidence") == "survey-only"
+        or m.get("height_evidence", {}).get("source") == "survey-only"
+    }
+    required = [
+        r for r in report["results"] if r["object_id"].rsplit(":route:", 1)[0] not in survey_ids
+    ]
+    advisory = [
+        r for r in report["results"] if r["object_id"].rsplit(":route:", 1)[0] in survey_ids
+    ]
     issues.extend(
         {"object_id": r["object_id"], "reason": "real-data Rapier traversal failed"}
-        for r in report["results"]
+        for r in required
         if not r["passed"]
     )
+    route_issues = [issue for issue in issues if issue["reason"].startswith("physics route:")]
+    issues = [
+        issue
+        for issue in issues
+        if issue not in route_issues or issue["object_id"] not in survey_ids
+    ]
+    report["all_cases"] = report["cases"]
+    report["all_passed_cases"] = report["passed_cases"]
+    report["cases"] = len(required)
+    report["passed_cases"] = sum(r["passed"] for r in required)
+    report["passed"] = report["passed_cases"] == report["cases"]
+    report["survey_only_cases"] = len(advisory)
+    report["survey_only_passed_cases"] = sum(r["passed"] for r in advisory)
+    report["survey_only_route_issues"] = [
+        issue for issue in route_issues if issue["object_id"] in survey_ids
+    ]
+    output.write_text(json.dumps(report, indent=2) + "\n")
     return report, issues

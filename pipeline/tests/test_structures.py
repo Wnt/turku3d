@@ -29,6 +29,16 @@ def test_stair_endpoints_and_helpers():
     assert stairs("steep", [0, 0, 0], [1, 2, 0], 2)[1]["flagged_steep"]
 
 
+def test_stair_profile_matches_surveyed_crossfall_at_both_landings():
+    profile = [[0.1, 0.2, 0.3], [0.9, 1.0, 1.1]]
+    meshes, meta = stairs("crossfall", [0, 0.2, 0], [4, 1, 0], 2, landing_profile=profile)
+    assert meta["landing_profile_y"] == profile
+    slope = meshes[0]
+    for x, heights in ((0, profile[0]), (4, profile[1])):
+        for z, height in zip((-1, 0, 1), heights, strict=True):
+            assert np.any(np.all(np.isclose(slope.positions, [x, height, z]), axis=1))
+
+
 @pytest.mark.parametrize(
     "bottom,top,width",
     [
@@ -221,6 +231,45 @@ def test_survey_to_layer_join_and_missing_ramps_are_reported(tmp_path):
     )
     _, metrics = build(records, lidar, Ground(ground.root))
     assert metrics["status"] == "READY_FOR_VALIDATION"
+
+
+def test_missing_lidar_uses_surveyed_stair_with_ground_contact(tmp_path):
+    from turku3d.structures.build import build
+
+    ground = ground_fixture(tmp_path)
+    records = [
+        {
+            "object_id": f"nosing-{i}",
+            "geometry": LineString([(i * 0.4, -1), (i * 0.4, 1)]),
+            "code": "66626",
+        }
+        for i in range(11)
+    ]
+    meshes, metrics = build(records, Lidar([[0, 0, 0]], [1]), ground)
+    assert len(meshes) == 4
+    assert metrics["status"] == "READY_FOR_VALIDATION"
+    assert metrics["survey_only"][0]["reason"].startswith("insufficient landing")
+    assert metrics["measurements"][0]["evidence"] == "survey-only"
+    assert not metrics["issues"]
+
+
+def test_inconclusive_osm_wall_top_uses_reported_survey_only_height(tmp_path):
+    from turku3d.structures.build import build
+
+    ground = ground_fixture(tmp_path)
+    records = [
+        {
+            "object_id": "osm:wall",
+            "geometry": LineString([(2, -1), (2, 1)]),
+            "code": "wall",
+            "tags": {"barrier": "wall"},
+        }
+    ]
+    meshes, metrics = build(records, Lidar([[0, 0, 0]], [1]), ground)
+    assert len(meshes) == 1
+    assert metrics["status"] == "READY_FOR_VALIDATION"
+    assert metrics["measurements"][0]["height_evidence"]["source"] == "survey-only"
+    assert metrics["survey_only"][0]["object_id"] == "osm:wall"
 
 
 def test_ground_ramp_material_alone_does_not_claim_survey_coverage(tmp_path):

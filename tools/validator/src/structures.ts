@@ -88,13 +88,17 @@ function walk(scene: StructureCase, route: Traversal) {
     walker.place(x, y, z);
     const frames = Math.ceil((4 * distance / 2 + 2) * 60);
     let progress = 0;
-    for (let i = 0; i < frames && progress < distance - 0.05; i++) {
+    const goal = scene.kind === 'stairs' ? distance : distance - 0.05;
+    for (let i = 0; i < frames && progress < goal; i++) {
       walker.step(2 * ux, 2 * uz);
       progress = (walker.x - x) * ux + (walker.z - z) * uz;
     }
+    if (scene.kind === 'stairs' && progress >= distance) {
+      for (let i = 0; i < 60; i++) walker.step(0, 0);
+    }
     const heightError = Math.abs(walker.feetY - route.target[1]);
     const passed = scene.kind === 'stairs'
-      ? progress >= distance - 0.05 && heightError <= 0.06
+      ? progress >= distance && heightError <= 0.06
       : progress < distance / 2 - 0.25 && progress > 0.1;
     if (!passed && scene.kind === 'wall' && progress <= 0.1 && route.fallback_solid_hit_y !== undefined) {
       const solid = solidHit(scene, route, route.fallback_solid_hit_y);

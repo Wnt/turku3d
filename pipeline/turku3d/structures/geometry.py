@@ -123,7 +123,7 @@ def profile_wall(object_id, xz, bottom, top, *, thickness=0.3, material="wall"):
     return f.mesh(object_id, material)
 
 
-def stairs(object_id, bottom, top, width):
+def stairs(object_id, bottom, top, width, *, landing_profile=None):
     """One incline, matching query-only treads, and two closed cheeks.
 
     bottom/top are measured landing centres (engine xyz); never alter a steep flight
@@ -138,6 +138,18 @@ def stairs(object_id, bottom, top, width):
     if rise <= 0 or run <= 0.05 or width <= 0.3:
         raise ValueError("stairs require positive rise/run and width > 0.3 m")
     side = np.array([-delta[1], delta[0]]) / run
+    if landing_profile is None:
+        profile = np.array([[bottom[1]] * 3, [top[1]] * 3], dtype=float)
+    else:
+        profile = np.asarray(landing_profile, dtype=float)
+        if profile.shape != (2, 3) or not np.isfinite(profile).all():
+            raise ValueError("stairs require two finite landing profiles across their width")
+        if profile[1, 1] <= profile[0, 1] or np.any(
+            profile[1, [0, 2]] - profile[0, [0, 2]] < -0.02
+        ):
+            raise ValueError("stair profile contradicts the measured side heights")
+        if max(abs(profile[0, 1] - bottom[1]), abs(profile[1, 1] - top[1])) > 1e-6:
+            raise ValueError("stair profile centre must match landing centres")
     count = max(1, round(rise / 0.16))
     slope = math.degrees(math.atan2(rise, run))
     meta = dict(
@@ -150,6 +162,7 @@ def stairs(object_id, bottom, top, width):
         risers=count,
         slope_deg=slope,
         flagged_steep=slope > 40,
+        landing_profile_y=profile.tolist(),
     )
 
     def p(t, h, offset):
@@ -157,29 +170,49 @@ def stairs(object_id, bottom, top, width):
         return [xz[0], h, xz[1]]
 
     half = width / 2
-    b0, b1 = p(0, bottom[1], -half), p(0, bottom[1], half)
-    t0, t1 = p(1, top[1], -half), p(1, top[1], half)
+    offsets = (-half, 0, half)
+
+    def edge_point(t, j, h=None):
+        height = profile[0, j] * (1 - t) + profile[1, j] * t if h is None else h
+        return p(t, height, offsets[j])
+
     f = Faces()
-    f.face([b0, b1, t1, t0], [[0, 0], [width, 0], [width, run], [0, run]])
+    for j in range(2):
+        f.face(
+            [edge_point(0, j), edge_point(0, j + 1), edge_point(1, j + 1), edge_point(1, j)],
+            [
+                [width * j / 2, 0],
+                [width * (j + 1) / 2, 0],
+                [width * (j + 1) / 2, run],
+                [width * j / 2, run],
+            ],
+        )
     slope_mesh = f.mesh(object_id + ":slope", "stair_slope", visual=False, metadata=meta)
     f = Faces()
     for k in range(count):
         t, u = k / count, (k + 1) / count
-        lo, hi = bottom[1] + rise * t, bottom[1] + rise * u
-        tread = [p(t, hi, -half), p(t, hi, half), p(u, hi, half), p(u, hi, -half)]
-        f.face(tread, planar_uv(tread))
-        f.face([p(t, lo, -half), p(t, lo, half), p(t, hi, half), p(t, hi, -half)])
+        for j in range(2):
+            low = [edge_point(t, side_index) for side_index in (j, j + 1)]
+            high = [edge_point(u, side_index)[1] for side_index in (j, j + 1)]
+            tread = [
+                edge_point(t, j, high[0]),
+                edge_point(t, j + 1, high[1]),
+                edge_point(u, j + 1, high[1]),
+                edge_point(u, j, high[0]),
+            ]
+            f.face(tread, planar_uv(tread))
+            f.face([low[0], low[1], tread[1], tread[0]])
     tread_mesh = f.mesh(object_id + ":treads", "stair_tread_helper", metadata=meta)
     cheeks = []
-    for sign in (-1, 1):
+    for j, sign in ((0, -1), (2, 1)):
         edge = np.array([bottom[[0, 2]], top[[0, 2]]]) + side * sign * (half + 0.075)
         # Flush with the stair slope; the 2 cm foundation avoids a zero-height prism.
         cheeks.append(
             profile_wall(
                 object_id + f":cheek:{sign}",
                 edge,
-                [bottom[1] - 0.02] * 2,
-                [bottom[1], top[1]],
+                [profile[0, j] - 0.025] * 2,
+                [profile[0, j], profile[1, j]],
                 thickness=0.15,
             )
         )

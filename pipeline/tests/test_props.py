@@ -198,7 +198,7 @@ def test_assembled_shared_prototypes_keep_each_world_transform(tmp_path, monkeyp
     root = tmp_path / "layers/props"
     publish(props, root, {}, {})
     out = tmp_path / "dist"
-    assemble(["t0_0_0"], layers=root.parent, out=out)
+    assemble(["t0_0_0"], layers=root.parent, out=out, area="work-3x3")
     entry = json.loads((out / "manifest.json").read_text())["visual"]["t0_0_0"]
     expected = np.concatenate([model("bench").positions + [p.x, p.y, p.z] for p in props])
     np.testing.assert_allclose(entry["bounds"], [expected.min(0), expected.max(0)], atol=0.002)
