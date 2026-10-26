@@ -21,7 +21,7 @@ async function button(page: Page, index: number, value: number) {
 }
 const state = (page: Page) => page.evaluate(() => (window as any).__game.state());
 
-test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause', { tag: ['@input', '@walk', '@curb', '@character', '@ground', '@synthetic'] }, async ({ page }, info) => {
+test('virtual Xbox: analog walk, sprint, curb, camera, jump, map, hot-plug and pause', { tag: ['@input', '@walk', '@curb', '@character', '@ground', '@synthetic'] }, async ({ page }, info) => {
   await start(page, info.project.name, '23459668,6704260'); // x168,z240, 2m south of curb
   const initial = await state(page);
   // Set input and capture its first matching physics state in the same browser task.
@@ -62,10 +62,14 @@ test('virtual Xbox: analog walk, sprint, curb, camera, jump, hot-plug and pause'
   await button(page, 2, 0);
   await page.waitForFunction(() => (window as any).__game.state().grounded);
   await button(page, 8, 1); await button(page, 8, 0);
+  expect(await page.evaluate(() => (window as any).__game.minimap.expanded)).toBe(true);
+  await button(page, 8, 1); await button(page, 8, 0);
+  expect(await page.evaluate(() => (window as any).__game.minimap.expanded)).toBe(false);
+  await button(page, 9, 1); await button(page, 9, 0);
   const paused = await state(page); expect(paused.paused).toBe(true);
   await axes(page, 0, -1); await frames(page, 12);
   expect((await state(page)).feet).toEqual(paused.feet);
-  await axes(page, 0, 0); await button(page, 8, 1); await button(page, 8, 0);
+  await axes(page, 0, 0); await button(page, 9, 1); await button(page, 9, 0);
   await page.evaluate(() => { (window as any).__virtualPad.connected = false; });
   await expect.poll(async () => (await state(page)).inputSource).toBe('keyboard');
   await page.evaluate(() => { (window as any).__virtualPad.connected = true; });
