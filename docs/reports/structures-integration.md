@@ -14,6 +14,21 @@ The office structures acceptance after this group has **zero ramp issues** and
 **71/107** Rapier probes passing. The remaining failures are stair/wall evidence
 and barrier crossings. Source ground and structures outputs are in this sandbox.
 
+## Retaining wall reconstruction, 2026-10-26
+
+Mapped 66634 and OSM retaining-wall lines now use the lower and upper terrain
+surfaces 0.6 m from the surveyed top line. The ground layer has already passed
+its measured lidar QA, so this avoids sparse or mixed-height top-return samples
+at the wall face. Standalone OSM walls still require their tagged height or
+independent lidar top evidence. The Rapier wall probe now approaches from lower
+terrain: walking off the high side is physically possible and did not test a
+wall's ability to block ascent. Its blocking threshold matches the 35 cm
+character step clearance.
+
+The real run emits 33 walls. **103/135** Rapier cases pass: 26/29 blocking wall
+routes, 61/90 fences, 14/14 quays and 2/2 stair traversals. There are **96**
+remaining issues, mostly rejected stair measurements and short fence crossings.
+
 ## Initial baseline
 
 Measured 2026-10-26 in the `fix-structures-in-main` sandbox against the

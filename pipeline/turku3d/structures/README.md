@@ -70,19 +70,21 @@ the ground layer itself owns ramp collision and visuals.
   per-tread horizontal/vertical query faces, and closed side cheeks. Query faces
   also supply the visible treads. The shared `stair_tread_helper` class prevents
   treads from blocking the KCC or vehicles; foot IK can raycast them.
-- Walls use sampled lower ground and lidar tops, a 0.3 m thickness and mitered
-  bends. Independent top-height quantiles must agree within 10 cm. Fences and
+- Retaining walls use measured ground surfaces 0.6 m on either side of surveyed
+  top lines, a 0.3 m thickness and mitered bends. Standalone OSM walls use
+  tagged heights or independent lidar tops. Fences and
   railings use 0.08 m closed profiles, class-1 p95 heights where supported, and
   1.2 m otherwise. The report counts default-height stations.
 - Each ground-classified quay gets a closed stone wall and a 1.2 m railing.
-  Ramp triangles retain their ground positions exactly.
+  Ground owns ramp collision and visuals.
 
 Real-data accuracy is **not established by the synthetic tests**. Sparse lidar,
 uneven landing crossfall, ambiguous survey grouping, and uncovered ramp lines
 produce explicit blocking issues. The synthetic and real car checks use a 1,500 kg CCD box at 10 m/s; a full
 raycast-vehicle run over the assembled AOI belongs to W1-05. Real probes combine
 the supplied ground with generated solid/query geometry: each emitted flight in
-both directions, representative wall/fence interiors, and quay crossings every
+both directions, retaining walls approached from lower terrain, representative
+fence interiors, and quay crossings every
 10 m. Barrier probes cross segment interiors rather than open endpoints. Failed
 or unplaceable routes are blocking and retain their measured progress/heights.
 `physics-cases.json` and `physics.json` live in the sandbox report directory.

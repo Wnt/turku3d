@@ -97,20 +97,39 @@ def build(records, lidar, ground):
                 tangent = np.gradient(xz, axis=0)
                 side = np.column_stack((-tangent[:, 1], tangent[:, 0]))
                 side /= np.linalg.norm(side, axis=1)[:, None]
-                low = np.array(
-                    [
-                        min(ground.height(p + v * 0.2), ground.height(p - v * 0.2))
-                        for p, v in zip(xz, side, strict=True)
-                    ]
-                )
-                samples = [lidar.wall_top(p) for p in xz]
-                high = np.array([s[0] for s in samples])
+                if code in ("66634", "retaining_wall"):
+                    # The surveyed line is a wall top, separating two measured
+                    # terrain surfaces. Sample beyond the wall face on each side.
+                    sides = np.array(
+                        [
+                            [ground.height(p - v * 0.6), ground.height(p + v * 0.6)]
+                            for p, v in zip(xz, side, strict=True)
+                        ]
+                    )
+                    low, high = sides.min(axis=1), sides.max(axis=1)
+                    evidence = {"source": "ground_sides", "offset_m": 0.6}
+                else:
+                    low = np.array([ground.height(p) for p in xz])
+                    tagged_height = record.get("tags", {}).get("height")
+                    if tagged_height is not None:
+                        height = float(tagged_height)
+                        if not 0.3 <= height <= 12:
+                            raise ValueError("invalid surveyed wall height")
+                        high = low + height
+                        evidence = {"source": "osm_height", "height_m": height}
+                    else:
+                        samples = [lidar.wall_top(p) for p in xz]
+                        high = np.array([s[0] for s in samples])
+                        evidence = {
+                            "source": "lidar_class1_top",
+                            "lidar_height_error_m": max(s[1] for s in samples),
+                        }
                 meshes.append(profile_wall(object_id, xz, low, high))
                 measurements.append(
                     {
                         "object_id": object_id,
                         "kind": "wall",
-                        "lidar_height_error_m": max(s[1] for s in samples),
+                        "height_evidence": evidence,
                         "profile_xz": xz.tolist(),
                         "lower_y": low.tolist(),
                         "upper_y": high.tolist(),

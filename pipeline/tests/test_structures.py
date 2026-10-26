@@ -236,6 +236,21 @@ def test_ground_ramp_material_alone_does_not_claim_survey_coverage(tmp_path):
     assert any("measured ground ramp terrain" in x["reason"] for x in metrics["issues"])
 
 
+def test_retaining_wall_uses_measured_ground_sides(tmp_path):
+    from turku3d.structures.build import build
+
+    ground = ground_fixture(tmp_path)
+    records = [
+        {"object_id": "retaining", "geometry": LineString([(2, -1), (2, 1)]), "code": "66634"}
+    ]
+    meshes, metrics = build(records, Lidar([[0, 0, 0]], [2]), ground)
+    assert len(meshes) == 1
+    assert metrics["status"] == "READY_FOR_VALIDATION"
+    wall = metrics["measurements"][0]
+    assert wall["height_evidence"] == {"source": "ground_sides", "offset_m": 0.6}
+    assert min(np.array(wall["upper_y"]) - wall["lower_y"]) == pytest.approx(0.24)
+
+
 def test_cli_writes_blocking_report_without_false_layer_manifest(tmp_path, monkeypatch):
     from turku3d.structures import __main__ as cli
 
@@ -341,6 +356,25 @@ def test_real_physics_cases_use_ground_and_helpers(tmp_path):
     assert set(cases[0]["material"]) == {2, 16, 17, 19}
     assert cases[0]["routes"][0]["start"] == pytest.approx([-0.6, -0.12, 0])
     assert cases[1]["routes"][0]["target"] == cases[0]["routes"][0]["start"]
+
+
+def test_retaining_wall_probe_approaches_from_lower_ground(tmp_path):
+    from turku3d.structures.acceptance import prepare_cases
+
+    ground = ground_fixture(tmp_path)
+    wall = profile_wall("wall", [[2, -1], [2, 1]], [0, 0], [1, 1])
+    measured = {
+        "object_id": "wall",
+        "kind": "wall",
+        "profile_xz": [[2, -1], [2, 1]],
+        "lower_y": [0, 0],
+        "upper_y": [1, 1],
+    }
+    cases, issues = prepare_cases([wall], ground, [measured])
+    assert not issues
+    assert len(cases) == 1
+    route = cases[0]["routes"][0]
+    assert route["start"][1] < route["target"][1]
 
 
 def test_real_physics_routes_fail_on_missing_ground(tmp_path):

@@ -41,7 +41,7 @@ def prepare_cases(meshes, ground, measurements):
                 lengths = np.linalg.norm(segments, axis=1)
                 distance = np.r_[0, np.cumsum(lengths)]
                 if kind == "wall":
-                    eligible = np.flatnonzero((heights[:-1] + heights[1:]) / 2 > 0.3)
+                    eligible = np.flatnonzero((heights[:-1] + heights[1:]) / 2 > 0.35)
                     if not len(eligible):
                         continue  # Low walls are not required to block the capsule.
                     k = int(eligible[len(eligible) // 2])
@@ -60,9 +60,10 @@ def prepare_cases(meshes, ground, measurements):
                     normal = np.array([-tangent[1], tangent[0]])
                     a, b = centre - normal * 2, centre + normal * 2
                     ah, bh = ground.height(a), ground.height(b)
-                    # Approach the railing from the upper ground side. Both ground
-                    # heights are measured rather than extrapolated from the wall.
-                    if ah < bh:
+                    # Retaining walls block ascent from the lower side; a character
+                    # can step off the upper side. Railings and fences are tested
+                    # from upper ground, using measured contact on both sides.
+                    if (kind == "wall" and ah > bh) or (kind != "wall" and ah < bh):
                         a, b, ah, bh = b, a, bh, ah
                     routes.append({"start": [a[0], ah, a[1]], "target": [b[0], bh, b[1]]})
         except ValueError as error:
