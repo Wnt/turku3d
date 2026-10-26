@@ -59,7 +59,7 @@ def _clone(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     # APFS clones keep a private, writable snapshot without copying asset bytes.
     if subprocess.call(
-        ["cp", "-cR", str(source), str(target)],
+        ["cp", "-cRL", str(source), str(target)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     ):

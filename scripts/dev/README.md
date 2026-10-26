@@ -570,28 +570,36 @@ depends on main's merge count. Live build stages keep APFS-cloned verified artif
 and the preceding stage key.
 
 Before DONE, workers commit and run `scripts/dev/codex-task precheck <name>`. It rebases on main,
-runs the gate and every live build check in the worker sandbox, and saves a report in
-`~/turku3d/tasks/<name>/precheck.json`. A rebase conflict leaves the branch unchanged for the
-worker to resolve. The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon
-polls completed DONE results, rebases each branch, batches up to four ready tasks, verifies one
-combined candidate and publishes it. `queue status` shows task timestamps and median DONE-to-live.
-Conflicts or a bisected failing member are sent back to that worker with route `task_rebase`;
-other ready tasks stay queued. Unread messages do not block the queue. The queue uses
+runs the gate and every live build check in the worker sandbox, saves per-check input hashes in
+`~/turku3d/tasks/<name>/precheck.json`, and prepares a release under
+`$TURKU3D_DATA/live-releases/<tree-and-input-hash>`. A rebase conflict returns to the worker.
+The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon polls DONE results.
+When main still matches the receipt, it verifies the tree, checks and release bytes, fast-forwards
+main, and swaps the live pointer without rebuilding. The landed ledger records merge wall seconds.
+When main moved, it rebases and runs only invalidated cached gate/live stages under a 210-second
+check deadline; broad producer changes and slow checks return to the worker for precheck. Layer
+mesh deltas select changed visual tiles, while texture and assembler changes require all tiles.
+Disjoint affected domains may precheck cumulative prefixes in parallel with `precheck --base <SHA>`.
+Conflicts and failed members return to their workers with route `task_rebase`; the queue keeps
+other ready tasks moving. `queue status` shows task timestamps and median DONE-to-live.
+Unread messages do not block the queue. The queue uses
 `wt/.registry/merge-queue.lock` for single-instance ownership and persists its ledger in
 `wt/.registry/merge-queue.json`.
 When the warm browser tool is installed on main, the queue creates a dedicated
-`merge-queue-service` sandbox and starts its two Chrome backends once. Each candidate's
+`merge-queue-service` sandbox and starts its two Chrome backends once. It waits for both
+preloaded pages before admitting warm checks. Each candidate's
 affected tile specs run through those endpoints on the candidate sandbox ports; a missing
 service or selector uses the full local Chrome suite. The queue stops only the service
 process it started when it exits. `queue status` remains read-only.
 
 The old `codex-task land` command remains for recovery but is no longer the normal path.
 The orchestrator's `land.sh` and `land-quiet.sh` wrappers are unnecessary.
-A concurrent main advance triggers at most three rebase/gate attempts; unchanged stages reuse
-GREEN results. Batches replay member commits in order in a new isolated integration worktree,
-run one combined gate, and fast-forward main only after all members pass final checks. A red
-batch checks the base, then bisects prefixes and reports a bisected failing prefix (including
-interactions with preceding members). Every successful member gets its own landed.jsonl record.
+The old batch integration helper is retained only for recovery. The queue publishes individual
+verified prefixes and records each successful member in `landed.jsonl`.
+After each pointer swap, `queue_sweep.py` checks the full gate and live area from its own sandbox
+in the background. Its status is in `wt/.registry/queue-sweep.json` and `queue status`; a red
+sweep creates a fix task and holds queue members touching the changed source domain until a
+green sweep clears it. The sweep does not delay publication of the verified prefix.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA

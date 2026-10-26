@@ -12,6 +12,18 @@ import live_build
 
 
 class LiveBuildTests(unittest.TestCase):
+    def test_prepared_release_snapshots_nested_symlink_targets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work = root / "work"
+            for relative in ("build/game", "dist/tiles", "build/layers", "textures"):
+                (work / relative).mkdir(parents=True)
+            (work / "textures/asset.bin").write_bytes(b"stable")
+            (work / "textures/link.bin").symlink_to("asset.bin")
+            release = live_build.prepare(work, root / "data", "commit", {}, "key")
+            self.assertFalse((release / "textures/link.bin").is_symlink())
+            self.assertEqual((release / "textures/link.bin").read_bytes(), b"stable")
+
     def test_layer_delta_maps_collision_and_visual_to_only_affected_tiles(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

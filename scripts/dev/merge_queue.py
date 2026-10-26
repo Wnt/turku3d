@@ -59,6 +59,8 @@ def discover(record):
 
 
 def ready(record):
+    import queue_sweep
+
     rows = []
     for name, row in record["tasks"].items():
         if "published" in row or "resumed" in row:
@@ -67,6 +69,11 @@ def ready(record):
             continue
         meta = s.read_json(s.tasks_root() / name / "meta.json", {})
         if meta.get("state") == "done" and meta.get("exit_code") == 0:
+            try:
+                if queue_sweep.blocked(s.sandbox(name) / "repo", record):
+                    continue
+            except ValueError:
+                continue
             rows.append((row["enqueue"], name))
     return [name for _, name in sorted(rows)]
 
@@ -190,6 +197,7 @@ def speculative(names, record, pool):
 
 
 def process(record, limit=4):
+    import queue_sweep
     from landing import fast
 
     discover(record)
@@ -224,6 +232,10 @@ def process(record, limit=4):
                     merge_wall_seconds=result["merge_wall_seconds"],
                     verification=result["verification"],
                 )
+                try:
+                    queue_sweep.start()
+                except OSError as exc:
+                    event(record, name, "sweep_start_failed", reason=str(exc))
     return bool(names)
 
 
@@ -232,9 +244,7 @@ def admitted_process(record, limit):
         return process(record, limit)
     with host_slots.slot("land"):
         prior = os.environ.get("TURKU3D_LAND_OWNER")
-        os.environ["TURKU3D_LAND_OWNER"] = (
-            f"{os.getpid()}:{host_slots.identity(os.getpid())}"
-        )
+        os.environ["TURKU3D_LAND_OWNER"] = f"{os.getpid()}:{host_slots.identity(os.getpid())}"
         try:
             return process(record, limit)
         finally:
@@ -256,6 +266,8 @@ def published(record, name):
 
 
 def status():
+    import queue_sweep
+
     record = state()
     lock = s.root() / ".registry/merge-queue.lock"
     running = False
@@ -272,6 +284,14 @@ def status():
         if row.get("published") and row.get("done")
     )
     median = (times[(len(times) - 1) // 2] + times[len(times) // 2]) / 2 if times else None
+    merges = sorted(
+        row["merge_wall_seconds"]
+        for row in record["tasks"].values()
+        if row.get("merge_wall_seconds") is not None
+    )
+    merge_median = (
+        (merges[(len(merges) - 1) // 2] + merges[len(merges) // 2]) / 2 if merges else None
+    )
     print(
         json.dumps(
             {
@@ -280,7 +300,10 @@ def status():
                 "tasks": record["tasks"],
                 "median_done_to_live_seconds": median,
                 "max_done_to_live_seconds": times[-1] if times else None,
+                "median_merge_wall_seconds": merge_median,
+                "max_merge_wall_seconds": merges[-1] if merges else None,
                 "last_error": record.get("last_error"),
+                "full_sweep": s.read_json(queue_sweep.path(), {}),
             },
             indent=2,
         )

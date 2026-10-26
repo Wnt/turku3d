@@ -13,6 +13,35 @@ import sandbox as s
 NAME = "merge-queue-service"
 
 
+def warmed(log_file, pid):
+    try:
+        rows = [
+            json.loads(line) for line in log_file.read_text().splitlines() if line.startswith("{")
+        ]
+    except (OSError, ValueError):
+        return False
+    for index in range(len(rows) - 1, -1, -1):
+        if rows[index].get("event") == "ready" and rows[index].get("pid") == pid:
+            later = rows[index + 1 :]
+            return {row.get("backend") for row in later if row.get("event") == "warmed"} == {
+                "webgpu",
+                "webgl",
+            }
+    return False
+
+
+def wait_warm(state_file, repo, log_file, seconds=240):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not existing(state_file, repo):
+            return None
+        pid = json.loads(state_file.read_text())["pid"]
+        if warmed(log_file, pid):
+            return state_file
+        time.sleep(0.25)
+    return None
+
+
 def existing(state_file, repo):
     try:
         state = json.loads(state_file.read_text())
@@ -53,10 +82,10 @@ def service():
         return
     env = {**os.environ, **s.read_env(home / "sandbox.env")}
     state_file = home / "work/cache/warm-browser.json"
-    if existing(state_file, repo):
-        yield state_file
-        return
     log_file = home / "work/reports/warm-browser.log"
+    if existing(state_file, repo):
+        yield wait_warm(state_file, repo, log_file)
+        return
     command = [
         "node",
         str(script),
@@ -90,7 +119,7 @@ def service():
                 if existing(state_file, repo):
                     break
                 time.sleep(0.25)
-            yield state_file if existing(state_file, repo) else None
+            yield wait_warm(state_file, repo, log_file) if existing(state_file, repo) else None
         finally:
             if proc.poll() is None:
                 try:

@@ -57,9 +57,11 @@ progress updates and final reports. This overrides personal default language set
   `stop <name>` stops only that task's process group. The runner refuses exhausted or unreadable quota.
 - Rebase on current main at the start of every turn. Before `## Result: DONE`, commit and run
   `scripts/dev/codex-task precheck <name>` in the sandbox. It rebases again, runs the gate and the
-  real live-build checks, and records reusable stage results. Resolve failures before reporting DONE.
-  The merge queue automatically batches DONE tasks, verifies the combined candidate, fast-forwards
-  main and publishes the verified artifacts through `$TURKU3D_DATA/live`. Workers never land main.
+  real live-build checks, records per-check input hashes and prepares a content-addressed release.
+  Resolve failures before reporting DONE. The merge queue verifies that receipt, fast-forwards
+  main and publishes the prepared artifacts through `$TURKU3D_DATA/live`; it never rebuilds in the
+  unchanged-main merge path. When main moves, affected checks have a bounded queue recheck or
+  return to the worker. Workers never land main.
   A facade count below the published baseline requires a `Facade regression reason: ...` line in the task
   result. Workers commit on their own branch.
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.

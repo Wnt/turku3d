@@ -1,6 +1,7 @@
 """Synthetic queue scheduling, failures and shared-cache key tests."""
 
 import concurrent.futures
+import contextlib
 import json
 import os
 import subprocess
@@ -12,14 +13,108 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import landing  # noqa: E402
 import live_cache  # noqa: E402
 import merge_queue  # noqa: E402
+import queue_sweep  # noqa: E402
 import verification  # noqa: E402
 import warm_queue  # noqa: E402
 from gate_cache import cache_root, stage_key  # noqa: E402
 
 
 class QueueTests(unittest.TestCase):
+    def test_full_sweep_holds_only_regressed_domain(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state = root / ".registry/queue-sweep.json"
+            state.parent.mkdir()
+            state.write_text(json.dumps({"blocked_domains": ["game/src"]}))
+            with (
+                patch.object(queue_sweep.s, "root", return_value=root),
+                patch.object(queue_sweep.s, "git", return_value="game/src/car.ts"),
+            ):
+                self.assertTrue(queue_sweep.blocked(root, {}))
+            with (
+                patch.object(queue_sweep.s, "root", return_value=root),
+                patch.object(queue_sweep.s, "git", return_value="pipeline/turku3d/a.py"),
+            ):
+                self.assertFalse(queue_sweep.blocked(root, {}))
+
+    def test_fast_publish_ff_and_pointer_swap_without_build(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main"
+            main.mkdir()
+
+            def git(*args, cwd=main):
+                return subprocess.run(
+                    ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+                ).stdout.strip()
+
+            git("init", "-b", "main")
+            git("config", "user.email", "queue@example.test")
+            git("config", "user.name", "Queue Test")
+            (main / "base.txt").write_text("base")
+            git("add", ".")
+            git("commit", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            home = root / "worker"
+            home.mkdir()
+            repo = home / "repo"
+            git("worktree", "add", "-b", "wt/worker", str(repo))
+            (repo / "change.txt").write_text("change")
+            git("add", ".", cwd=repo)
+            git("commit", "-m", "change", cwd=repo)
+            head = git("rev-parse", "HEAD", cwd=repo)
+            tree = git("rev-parse", "HEAD^{tree}", cwd=repo)
+            data = root / "data"
+            (data / "build").mkdir(parents=True)
+            (data / "dist").mkdir()
+            checks = {"gate": {"unit": "abc"}, "live": {"tile-build": "def"}}
+            release_id = verification.digest({"tree": tree, "checks": checks})
+            release = data / "live-releases" / release_id
+            release.mkdir(parents=True)
+            (release / "game").mkdir()
+            (release / "game/index.html").write_text("ready")
+            (release / "live-build.json").write_text(json.dumps({"commit": head}))
+            task = root / "tasks/worker"
+            task.mkdir(parents=True)
+            (task / "last.md").write_text("## Result: DONE\n")
+            (task / "meta.json").write_text(json.dumps({"state": "done", "exit_code": 0}))
+            (task / "precheck.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "head": head,
+                        "tree": tree,
+                        "main": base,
+                        "checks": checks,
+                        "release_id": release_id,
+                        "artifact_hash": verification.artifact_hash(release),
+                        "live_build": {},
+                    }
+                )
+            )
+            with (
+                patch.dict(os.environ, {"TURKU3D_DATA": str(data)}),
+                patch.object(landing.s, "root", return_value=root),
+                patch.object(landing.s, "sandbox", return_value=home),
+                patch.object(landing.s, "tasks_root", return_value=root / "tasks"),
+                patch("task_runner.task", return_value=task),
+                patch("task_runner.running", return_value=False),
+                patch("task_runner.main_checkout", return_value=main),
+                patch("task_runner.cleanup_landed"),
+                patch.object(landing.coord, "landing_guard", return_value=contextlib.nullcontext()),
+                patch.object(landing.live_build, "build") as rebuild,
+            ):
+                result = landing.fast("worker")
+            self.assertEqual(git("rev-parse", "HEAD"), head)
+            self.assertEqual((data / "live").resolve(), release.resolve())
+            self.assertLess(result["merge_wall_seconds"], 2)
+            if os.environ.get("TURKU3D_BENCH_MERGE"):
+                print(f"synthetic_merge_wall_seconds={result['merge_wall_seconds']}")
+            rebuild.assert_not_called()
+
     def test_disjoint_prefixes_prepare_in_parallel(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -126,6 +221,20 @@ class QueueTests(unittest.TestCase):
                 self.assertIsNone(state)
             create.assert_not_called()
 
+    def test_warm_service_requires_both_preloaded_pages(self):
+        with tempfile.TemporaryDirectory() as temp:
+            log = Path(temp) / "warm.log"
+            rows = [
+                {"event": "ready", "pid": 10},
+                {"event": "warmed", "backend": "webgpu"},
+            ]
+            log.write_text("\n".join(map(json.dumps, rows)) + "\n")
+            self.assertFalse(warm_queue.warmed(log, 10))
+            rows.append({"event": "warmed", "backend": "webgl"})
+            log.write_text("\n".join(map(json.dumps, rows)) + "\n")
+            self.assertTrue(warm_queue.warmed(log, 10))
+            self.assertFalse(warm_queue.warmed(log, 11))
+
     def test_conflicting_branch_is_aborted_and_routed_back(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -181,6 +290,7 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue, "reverify"),
                 patch.object(merge_queue.s, "sandbox", return_value=root),
                 patch.object(merge_queue.s, "git", return_value="main"),
+                patch.object(queue_sweep, "start"),
                 patch("landing.fast") as fast,
             ):
 
@@ -216,6 +326,7 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue, "reverify"),
                 patch.object(merge_queue.s, "sandbox", return_value=root),
                 patch.object(merge_queue.s, "git", return_value="main"),
+                patch.object(queue_sweep, "start"),
                 patch.object(merge_queue, "resume") as resume,
                 patch(
                     "landing.fast",
@@ -257,6 +368,7 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue, "reverify"),
                 patch.object(merge_queue.s, "sandbox", return_value=root),
                 patch.object(merge_queue.s, "git", return_value="main"),
+                patch.object(queue_sweep, "start"),
                 patch.object(merge_queue, "resume") as resume,
                 patch("landing.fast", side_effect=fast),
             ):
