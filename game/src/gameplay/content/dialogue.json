@@ -1,0 +1,83 @@
+{
+  "speakers": {
+    "narrator": { "name": "Narrator", "voice": "calm, mid-40s, documentary tone" },
+    "pizzeria": { "name": "Pizzeria owner", "voice": "warm, impatient, older man, slight Turku accent in English" },
+    "dealer": { "name": "Vehicle dealer", "voice": "fast-talking young salesman" },
+    "market": { "name": "Licence seller", "voice": "quiet, cautious, speaks low" },
+    "customer": { "name": "Customer", "voice": "neutral, varies" }
+  },
+  "lines": [
+    { "id": "intro_1", "speaker": "narrator", "text": "Turku, 2027. Last month you were a software developer. Then came the redundancy talks, and thousands of jobs like yours went to AI." },
+    { "id": "intro_2", "speaker": "narrator", "text": "The austerity package abolished unemployment benefits, earnings-related and basic alike. The only work left is the work robots cannot yet do on their own." },
+    { "id": "intro_3", "speaker": "narrator", "text": "A traditional pizzeria on Linnankatu needs a courier, but first you need a work licence, and the only ones left are sold on the black market. You have 120 euros." },
+
+    { "id": "hint_licence", "speaker": "narrator", "voiced": false, "text": "Buy a work licence on the black market under Auransilta." },
+    { "id": "hint_pizzeria", "speaker": "narrator", "voiced": false, "text": "Go to Pizzeria Linnanportti at Linnankatu 17." },
+    { "id": "hint_deliver_1", "speaker": "narrator", "voiced": false, "text": "Deliver the pizza to Linnankatu 13a." },
+    { "id": "hint_deliver_2", "speaker": "narrator", "voiced": false, "text": "Deliver the pizza to Aurakatu 1." },
+    { "id": "hint_deliver_3", "speaker": "narrator", "voiced": false, "text": "Deliver the pizza to Läntinen Rantakatu 3." },
+    { "id": "hint_deliver_4", "speaker": "narrator", "voiced": false, "text": "Deliver the pizza to Kaskenkatu 4a." },
+
+    { "id": "prompt_buy_licence_pad", "speaker": "narrator", "voiced": false, "text": "Press A to buy a work licence for 80 €." },
+    { "id": "prompt_buy_licence_key", "speaker": "narrator", "voiced": false, "text": "Press E to buy a work licence for 80 €." },
+    { "id": "prompt_take_pizza_pad", "speaker": "narrator", "voiced": false, "text": "Press A to take the pizza." },
+    { "id": "prompt_take_pizza_key", "speaker": "narrator", "voiced": false, "text": "Press E to take the pizza." },
+    { "id": "prompt_hand_over_pad", "speaker": "narrator", "voiced": false, "text": "Press A to hand over the pizza." },
+    { "id": "prompt_hand_over_key", "speaker": "narrator", "voiced": false, "text": "Press E to hand over the pizza." },
+    { "id": "prompt_buy_bicycle_pad", "speaker": "narrator", "voiced": false, "text": "Press A to buy a bicycle for 60 €." },
+    { "id": "prompt_buy_bicycle_key", "speaker": "narrator", "voiced": false, "text": "Press E to buy a bicycle for 60 €." },
+    { "id": "prompt_buy_car_pad", "speaker": "narrator", "voiced": false, "text": "Press A to buy a car for 350 €." },
+    { "id": "prompt_buy_car_key", "speaker": "narrator", "voiced": false, "text": "Press E to buy a car for 350 €." },
+
+    { "id": "notice_licence_price", "speaker": "narrator", "voiced": false, "text": "A work licence costs 80 €. You cannot afford it yet." },
+    { "id": "notice_bicycle_price", "speaker": "narrator", "voiced": false, "text": "A bicycle costs 60 €. Deliver more pizzas first." },
+    { "id": "notice_car_price", "speaker": "narrator", "voiced": false, "text": "A car costs 350 €. Deliver more pizzas first." },
+    { "id": "notice_licence_first", "speaker": "narrator", "voiced": false, "text": "Buy the work licence first. The dealer can wait." },
+    { "id": "notice_own_vehicle_only", "speaker": "narrator", "voiced": false, "text": "Deliveries count only on foot or with your own vehicle." },
+
+    { "id": "paid_tip_0", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, no tip." },
+    { "id": "paid_tip_1", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 1 €." },
+    { "id": "paid_tip_2", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 2 €." },
+    { "id": "paid_tip_3", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 3 €." },
+    { "id": "paid_tip_4", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 4 €." },
+    { "id": "paid_tip_5", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 5 €!" },
+    { "id": "paid_tip_6", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 6 €!" },
+    { "id": "paid_tip_7", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 7 €!" },
+    { "id": "paid_tip_8", "speaker": "narrator", "voiced": false, "text": "Paid 6 €, tip 8 €!" },
+    { "id": "delivery_failed", "speaker": "narrator", "text": "Too slow. The customer cancelled the order." },
+
+    { "id": "market_offer", "speaker": "market", "text": "A licence? Eighty euros. Don't ask whose it was." },
+    { "id": "market_sold", "speaker": "market", "text": "It's yours now. If the platform asks, you've been riding since 2024." },
+    { "id": "market_no_money", "speaker": "market", "text": "Eighty, friend. Come back when you have it." },
+    { "id": "market_done", "speaker": "market", "text": "You already have one. We never met, remember?" },
+
+    { "id": "pizzeria_first", "speaker": "pizzeria", "text": "So you're the new courier? Good. Hot pizza, fast legs, no excuses." },
+    { "id": "pizzeria_no_licence", "speaker": "pizzeria", "text": "No licence, no deliveries. The platform checks everything now." },
+    { "id": "pizzeria_back", "speaker": "pizzeria", "text": "Back already? Good, the next one is coming out of the oven." },
+    { "id": "pizzeria_after_fail", "speaker": "pizzeria", "text": "Cancelled? The robots never get cancelled. Take the next one." },
+    { "id": "pizzeria_handover_1", "speaker": "pizzeria", "text": "Linnankatu 13a, just up the street. Go, before the cheese sets!" },
+    { "id": "pizzeria_handover_2", "speaker": "pizzeria", "text": "Aurakatu 1, by the bridge. Don't stop to look at the river." },
+    { "id": "pizzeria_handover_3", "speaker": "pizzeria", "text": "Läntinen Rantakatu 3, all the way down the river. Move it!" },
+    { "id": "pizzeria_handover_4", "speaker": "pizzeria", "text": "Kaskenkatu 4a, across the river and up the hill. That's a long one." },
+
+    { "id": "dealer_greet", "speaker": "dealer", "text": "Wheels! Bicycles, cars, everything runs. Mostly." },
+    { "id": "dealer_sold_bicycle", "speaker": "dealer", "text": "One bicycle, barely ridden. It's waiting for you right by the kerb." },
+    { "id": "dealer_sold_car", "speaker": "dealer", "text": "Three hundred and fifty, and she's yours. The keys are in it." },
+    { "id": "dealer_no_money", "speaker": "dealer", "text": "Sixty for the bicycle, three-fifty for the car. Cash only, friend." },
+    { "id": "dealer_no_licence", "speaker": "dealer", "text": "No work licence? Then what do you need wheels for? Come back with one." },
+    { "id": "dealer_sold_out", "speaker": "dealer", "text": "You've got the best I have. Come back when I start selling robotaxis." },
+
+    { "id": "customer_1_fast", "speaker": "customer", "text": "Already? It's still steaming. Keep the change!" },
+    { "id": "customer_1_ok", "speaker": "customer", "text": "Thanks. Right on time, more or less." },
+    { "id": "customer_1_slow", "speaker": "customer", "text": "Finally. It's barely warm, you know." },
+    { "id": "customer_2_fast", "speaker": "customer", "text": "That was quick! The app said twenty minutes." },
+    { "id": "customer_2_ok", "speaker": "customer", "text": "Thanks, just put it on the step." },
+    { "id": "customer_2_slow", "speaker": "customer", "text": "The drone next door gets here faster than you." },
+    { "id": "customer_3_fast", "speaker": "customer", "text": "Wow, a human courier, and a fast one. Here, take something extra." },
+    { "id": "customer_3_ok", "speaker": "customer", "text": "Good, I was just about to give up on dinner." },
+    { "id": "customer_3_slow", "speaker": "customer", "text": "Did you walk here from Helsinki?" },
+    { "id": "customer_4_fast", "speaker": "customer", "text": "Up the whole hill already? You deserve a tip." },
+    { "id": "customer_4_ok", "speaker": "customer", "text": "Long climb, huh? Thanks anyway." },
+    { "id": "customer_4_slow", "speaker": "customer", "text": "Cold pizza on a cold evening. Lovely." }
+  ]
+}

@@ -225,8 +225,8 @@ commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
 name = "game-e2e"
 inputs = ["game/*", "pipeline/*", "tools/validator/*", "qa/tests/golden_projection.json"]
 kind = "e2e"
-tile_tags = ["@walk", "@pipeline", "@render", "@qa", "@ground", "@character", "@streaming"]
-triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/ui/*", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/tests/e2e-playtest/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/ground/*"]
+tile_tags = ["@walk", "@pipeline", "@render", "@qa", "@ground", "@character", "@streaming", "@gameplay"]
+triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/ui/*", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/src/gameplay/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/tests/e2e-playtest/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/ground/*"]
 # Subsystem tags are declared on the specs; unmapped e2e triggers select all.
 [[stages.related]]
 paths = ["game/src/render/*", "game/src/world/materials.ts", "qa/tests/golden_projection.json", "game/tests/e2e/render-*.spec.ts"]
@@ -250,6 +250,10 @@ tags = ["@launch"]
 [[stages.related]]
 paths = ["game/src/world/tiles.ts"]
 tags = ["@streaming"]
+
+[[stages.related]]
+paths = ["game/src/gameplay/*"]
+tags = ["@gameplay"]
 
 [[stages.related]]
 paths = ["pipeline/turku3d/ground/*", "pipeline/tests/test_ground.py"]

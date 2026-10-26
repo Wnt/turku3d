@@ -25,6 +25,11 @@ import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
+import { MissionSystem, OWN_VEHICLE_ID } from './gameplay/missions/missions';
+import { straightRouter } from './gameplay/missions/straightRouter';
+import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
+import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
+import { BICYCLE_TOP_SPEED } from './gameplay/economy';
 import { IdPass } from './render/idPass';
 import { MATERIALS } from './shared/col/materials';
 import type { VehicleInput } from './physics/protocol';
@@ -184,7 +189,8 @@ async function runPlay() {
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
   audio.mount(document.body);
   addEventListener('pagehide', () => audio.dispose(), { once: true });
-  const startScreen = new StartScreen(input);
+  const missions = new MissionSystem({ router: straightRouter, storage: browserStorage() });
+  const startScreen = new StartScreen(input, missions.isNewGame ? INTRO_LINE_IDS.map(lineText) : [], () => missions.begin());
   const hud = new Hud(hudEl);
   const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
   if (!params.hud) hud.toggle();
@@ -260,9 +266,9 @@ async function runPlay() {
       vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : true } : null,
       vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
-      visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, errors };
+      visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, missions: missions.snapshot(), errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, parkedVisuals, ready: true });
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, parkedVisuals, missions, ready: true });
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {
@@ -297,7 +303,7 @@ async function runPlay() {
         .map(v => ({ vehicle: v, distance: Math.hypot(v.pos.x - feet.x, v.pos.z - feet.z) }))
         .filter(v => Math.abs(v.vehicle.pos.y - feet.y) < 3)
         .sort((a, b) => a.distance - b.distance)[0] : null;
-      if (mode === 'foot' && nearest && nearest.distance < 4) {
+      if (mode === 'foot' && nearest && nearest.distance < 4 && missions.mayDrive(nearest.vehicle.id ?? OWN_VEHICLE_ID)) {
         drivenId = nearest.vehicle.id ?? 'player';
         if (drivenId !== 'player') parkedVisuals.takeOver(drivenId);
         physics.driveVehicle(drivenId);
@@ -333,8 +339,19 @@ async function runPlay() {
       charIn = { vx: desiredVelocity.x, vz: desiredVelocity.y, jump: input.consume('jump') };
     } else {
       desiredVelocity.set(0, 0);
-      carIn = { throttle: input.actions.throttle, steer: input.actions.steer,
+      // The player's own car stands in for a bought bicycle: no throttle above bicycle speed.
+      const bicycle = drivenId === OWN_VEHICLE_ID && missions.vehicle === 'bicycle' && (vs?.speed ?? 0) > BICYCLE_TOP_SPEED;
+      carIn = { throttle: bicycle ? 0 : input.actions.throttle, steer: input.actions.steer,
         brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
+    }
+    const mission = missions.update(paused || startScreen.active ? 0 : dt, {
+      position: { x: feet.x, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
+      vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null,
+    });
+    if (mission.bought && drivenId !== OWN_VEHICLE_ID) {
+      // A bought vehicle waits at the dealer's kerb: move the player's own car there.
+      const spot = DEALER_VEHICLE_SPOT;
+      void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
     }
     if (!paused) physics.step(dt, charIn, carIn);
 
@@ -406,4 +423,9 @@ async function runPlay() {
       : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('pause')} pause`;
     perf.end();
   });
+}
+
+/** localStorage, or null where the browser blocks it (the mission system then runs without persistence). */
+function browserStorage(): Storage | null {
+  try { return window.localStorage; } catch { return null; }
 }

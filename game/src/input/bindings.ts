@@ -3,7 +3,7 @@ export type Binding =
   | { kind: 'axis'; index: number; scale?: number }
   | { kind: 'button'; index: number }
   | { kind: 'key'; code: string; scale?: number };
-export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact',
+export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
   'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'vehicleReset', 'hud'] as const;
 export type Action = typeof ACTIONS[number];
 export type Actions = Record<Action, number>;
@@ -17,6 +17,8 @@ export const DEFAULT_BINDINGS: Bindings = {
   lookX: [axis(2)], lookY: [axis(3)],
   sprint: [button(0), key('ShiftLeft'), key('ShiftRight')], walk: [key('AltLeft'), key('AltRight')],
   jump: [button(2), key('Space')], interact: [button(3), key('KeyF')],
+  // Mission targets (gameplay/missions): A shares the sprint button, which only acts while moving.
+  mission: [button(0), key('KeyE')],
   throttle: [button(7), key('KeyW'), key('ArrowUp')], brake: [button(6), key('KeyS'), key('ArrowDown')],
   steer: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
