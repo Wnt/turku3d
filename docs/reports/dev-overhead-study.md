@@ -311,3 +311,105 @@ Long sessions raise the average context only a little. The number of calls drive
 - **M4. Slot waits:** add the `host_slots.py` wait log (R6) before raising agent concurrency.
 - **M5. Gate triggers:** collect per-file `gate --paths ... --json` timings for the R2 candidates.
 - **M6. Cache invalidation:** add a guard test for shared inputs (§5, cache-reuse item) before widening any cache.
+## M5 measurements
+
+Collected 2026-10-26 19:50 by `tool-poll-overhead` with `scripts/dev/gate --paths <file> --json` on the
+`wt/tool-poll-overhead` tree, at host load 105–135 (several agents and two queue-sweep fix tasks were
+running). `gate.toml` triggers were not changed.
+
+**Selection.** `task_runner.py`, `sandbox.py` and `coordination.py` each select the same seven stages:
+`policy`, `generated` (always), `python-lint`, `gate-tests`, `tooling-tests`, `queue-tests` and
+`watch-tests`. `host_slots.py` is a `full_triggers` entry, so it selects all 26 stages.
+
+**Cache.** Stage keys hash the stage inputs, not the `--paths` argument, so these runs reused the PASS
+records from this task's earlier gates: each of the three tooling files took 3.4–3.8 s, almost all of
+it `policy`. The "uncached s" column is the time stored in the reused record. Failed stages are never
+cached: `game-e2e` reran every time.
+
+**Uncached cost depends on host load.** The same tooling stages, uncached, across this task's gates:
+
+| gate run (load) | wall s | tooling-tests | watch-tests | gate-tests | queue-tests |
+|---|---:|---:|---:|---:|---:|
+| R1 first run (about 85) | 43.4 | 34.3 | 38.4 | 10.0 | 3.6 |
+| R1 commit (87) | 56.8 | 44.1 | 51.7 | 8.9 | 3.7 |
+| R3 commit (about 100) | 126.9 | 123.7 | 16.4 | 25.8 | 7.7 |
+| R6 full gate (120–180) | 402.2 | 172.3 | cached | 32.4 | 8.1 |
+
+**Full trigger.** The uncached full gate for `host_slots.py` took 402 s wall at load 120–180. The
+longest stages were `game-e2e` 269 s, `tooling-tests` 172 s, `validator-tests` 105 s and
+`pipeline-tests` 105 s. With every other stage cached, the rerun still took 218 s, all of it
+`game-e2e`. That stage was red in both runs. Its 46 Chrome tests passed, but its synthetic tile
+fixture rebuild failed on the main break from 73daff8 ("Missing required office-block layers").
+That fix lands with `tool-live-checks-wide` (d864eec).
+
+Per-file stage tables:
+
+`scripts/dev/task_runner.py`: GREEN, wall 3,63 s, gate total 3.412 s, load at start 104,59 131,81 135,07
+
+| stage | status | this run s | cached | uncached s |
+|---|---|---:|---|---:|
+| env-sync | PASS | 0.001 | no | 0.001 |
+| policy | PASS | 1.889 | no | 1.889 |
+| generated | PASS | 0 | yes | 0.596 |
+| python-lint | PASS | 0.57 | no | 0.57 |
+| gate-tests | PASS | 0 | yes | 14.585 |
+| tooling-tests | PASS | 0 | yes | 172.276 |
+| queue-tests | PASS | 0 | yes | 3.435 |
+| watch-tests | PASS | 0 | yes | 16.423 |
+
+`scripts/dev/sandbox.py`: GREEN, wall 3,76 s, gate total 3.405 s, load at start 109,99 132,48 135,28
+
+| stage | status | this run s | cached | uncached s |
+|---|---|---:|---|---:|
+| env-sync | PASS | 0.002 | no | 0.002 |
+| policy | PASS | 2.146 | no | 2.146 |
+| generated | PASS | 0 | yes | 0.596 |
+| python-lint | PASS | 0.537 | no | 0.537 |
+| gate-tests | PASS | 0 | yes | 14.585 |
+| tooling-tests | PASS | 0 | yes | 172.276 |
+| queue-tests | PASS | 0 | yes | 3.435 |
+| watch-tests | PASS | 0 | yes | 16.423 |
+
+`scripts/dev/coordination.py`: GREEN, wall 4,09 s, gate total 3.77 s, load at start 115,67 133,29 135,55
+
+| stage | status | this run s | cached | uncached s |
+|---|---|---:|---|---:|
+| env-sync | PASS | 0.002 | no | 0.002 |
+| policy | PASS | 2.429 | no | 2.429 |
+| generated | PASS | 0 | yes | 0.596 |
+| python-lint | PASS | 0.533 | no | 0.533 |
+| gate-tests | PASS | 0 | yes | 14.585 |
+| tooling-tests | PASS | 0 | yes | 172.276 |
+| queue-tests | PASS | 0 | yes | 3.435 |
+| watch-tests | PASS | 0 | yes | 16.423 |
+
+`scripts/dev/host_slots.py`: RED, wall 218,05 s, gate total 217.843 s, load at start 115,67 133,29 135,55
+
+| stage | status | this run s | cached | uncached s |
+|---|---|---:|---|---:|
+| env-sync | PASS | 0.002 | no | 0.002 |
+| policy | PASS | 2.041 | no | 2.041 |
+| generated | PASS | 0 | yes | 0.596 |
+| python-lint | PASS | 0.63 | no | 0.63 |
+| pipeline-tests | PASS | 0 | yes | 104.758 |
+| package-js-tests | PASS | 0 | yes | 0.52 |
+| structures-physics | PASS | 0 | yes | 3.072 |
+| qa-python-tests | PASS | 0 | yes | 12.183 |
+| textures-tests | PASS | 0 | yes | 13.342 |
+| gate-tests | PASS | 0 | yes | 14.585 |
+| tooling-tests | PASS | 0 | yes | 172.276 |
+| queue-tests | PASS | 0 | yes | 3.435 |
+| watch-tests | PASS | 0 | yes | 16.423 |
+| js-lint | PASS | 0 | yes | 6.698 |
+| game-types | PASS | 0 | yes | 4.246 |
+| validator-types | PASS | 0 | yes | 8.16 |
+| knip | PASS | 0 | yes | 15.955 |
+| game-unit | PASS | 0 | yes | 18.495 |
+| validator-tests | PASS | 0 | yes | 105.396 |
+| dev-server-tests | PASS | 0 | yes | 2.141 |
+| shell | PASS | 0 | yes | 1.568 |
+| qa-render-tests | PASS | 0 | yes | 19.322 |
+| game-e2e | FAIL | 215.39 | no | 215.39 |
+| vehicle-node-tests | PASS | 0 | yes | 7.22 |
+| dependency-imports | PASS | 0 | yes | 48.865 |
+| playtest-tools | PASS | 0 | yes | 0.709 |
