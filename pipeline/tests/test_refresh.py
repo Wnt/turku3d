@@ -193,11 +193,12 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "structures", node("structures", ("ground",)))
     monkeypatch.setattr(refresh, "bridge_textures", node("bridge-textures"))
     monkeypatch.setattr(refresh, "outer_buildings", node("buildings_outer", ("buildings",)))
+    monkeypatch.setattr(refresh, "roads", node("roads"))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
     second = refresh.refresh(tmp_path)
     assert set(second.values()) == {"cached"}
-    assert len(calls) == 9
+    assert len(calls) == 10
 
 
 def test_structures_refresh_requires_passed_real_acceptance(tmp_path, monkeypatch):

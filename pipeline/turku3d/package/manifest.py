@@ -179,6 +179,7 @@ class DistTree:
         self.spawn = old.get("spawn")
         self.vehicles = old.get("vehicles", [])
         self.vehicle_models = old.get("vehicle_models", {})
+        self.roads = old.get("roads")
         self.visual: dict = dict(old.get("visual", {}))
         self.collision: dict = dict(old.get("collision", {}))
         self.areas = sorted(set(old.get("areas", [])) | set(areas or []))
@@ -229,6 +230,7 @@ class DistTree:
             **({"spawn": self.spawn} if self.spawn else {}),
             "vehicles": self.vehicles,
             "vehicle_models": self.vehicle_models,
+            **({"roads": self.roads} if self.roads else {}),
             "materials_version": 1,
             "col_version": [1, 0],
             "areas": self.areas,
@@ -250,6 +252,7 @@ def verify_tree(root: str | Path) -> list[str]:
         *m["visual"].values(),
         *m["collision"].values(),
         *m.get("vehicle_models", {}).values(),
+        *([m["roads"]] if m.get("roads") else []),
     ]:
         f = root / e["url"]
         if not f.exists():

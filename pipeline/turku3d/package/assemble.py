@@ -20,6 +20,7 @@ from turku3d.package.gltf import GlbMesh, build_glb
 from turku3d.package.manifest import DistTree, _atomic_write, git_sha, verify_tree
 from turku3d.package.seams import edge_equal, verify_tile_seams
 from turku3d.package.spawn import derive_spawn, osm_sources
+from turku3d.roads import publish as publish_roads
 
 BRIDGE = Path(__file__).with_name("visual.mjs")
 HEADROOM_BYTES = 7_600_000
@@ -354,6 +355,7 @@ def assemble(
     build = requested | parents
     tree = DistTree(out, areas=[area])
     tree.spawn = derive_spawn(root, collision)
+    roads_changed = publish_roads(root / "roads", tree)
     parked_path = root / "traffic_static/placements.json"
     tree.vehicles = [
         car for car in tree.vehicles if C.VisualTile.at(car["x"], car["z"]) not in requested
@@ -451,7 +453,11 @@ def assemble(
                 ):
                     inputs.extend(paths)
             terrain = coarse.discover(tile) if tile.level > 0 else None
-            files = inputs + [root / name / "MANIFEST.json" for name in manifests] + osm_sources()
+            # The road graph is published beside the tiles and does not change their content.
+            files = inputs + [
+                root / name / "MANIFEST.json" for name in manifests if name != "roads"
+            ]
+            files += osm_sources()
             if terrain:
                 files += terrain["files"]
             key = digest(files, [code, texture_hash, bindings, tile.id, sorted(available), area])
@@ -486,6 +492,8 @@ def assemble(
                         c, collision, manifests, available, dynamic_traffic=True
                     )
         if not changed:
+            if roads_changed:
+                tree.commit(code=git_sha())
             return {
                 "changed": [],
                 "cached": sorted(t.id for t in build),

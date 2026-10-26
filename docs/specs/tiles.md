@@ -34,6 +34,7 @@ dist/tiles/
 ├── manifest.json                    everything (visual + collision), hashes, sizes
 ├── visual/{L}/t{L}_{i}_{j}.glb      glTF 2.0 + EXT_meshopt_compression + KHR_texture_basisu
 ├── collision/t0_{I}_{J}/c_{i}_{j}.col   grouped by the L0 visual parent (16 per folder)
+├── roads/<sha256[:16]>.json         street routing graph (pipeline/turku3d/roads/README.md)
 └── textures/…                       shared KTX2 (optional; trim sheets / library materials)
 ```
 
@@ -118,6 +119,7 @@ One file for the whole `dist/tiles/` tree. The game reads it at start-up to know
 | `collision[id]` | object | `url`, `sha256`, `bytes`, `tris`, `prims`, `h`, `flags` (= `.col` header flags) |
 | `vehicles` | object[] | Parked vehicle `object_id`, `model`, `color`, engine-local base `x,y,z`, visual `yaw`, and `width,height,length` in metres. These are runtime rigid bodies, so their former `traffic_static` meshes and boxes are omitted from shipped tiles. |
 | `vehicle_models[model/color]` | object | Relative `url`, `sha256`, and `bytes` for the shared glTF model and paint variant. |
+| `roads` | object, optional | Street routing graph for the minimap and route guidance: `url`, `sha256`, `bytes`, `nodes`, `edges`. Format: [roads README](../../pipeline/turku3d/roads/README.md). |
 
 - Keys are tile ids; entries sorted by id for stable diffs.
 - Caching: clients may append `?h=<first 8 hex of sha256>` to URLs for cache busting; the server ignores the query.

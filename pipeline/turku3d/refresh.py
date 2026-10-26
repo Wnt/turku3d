@@ -18,6 +18,7 @@ from turku3d.bridges.__main__ import code_hash as bridges_code_hash
 from turku3d.ground.build import code_hash as ground_code_hash
 from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
+from turku3d.roads import code_hash as roads_code_hash
 from turku3d.structures.layer import code_hash as structures_code_hash
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
@@ -331,6 +332,14 @@ def props(layers):
     return "rebuilt"
 
 
+def roads(layers):
+    if layer_current(layers / "roads/MANIFEST.json", roads_code_hash()):
+        return "cached"
+    local_directory(layers / "roads", layers.parents[1])
+    run("turku3d.roads")
+    return "rebuilt"
+
+
 def timed(name, operation, *args):
     start = time.perf_counter()
     try:
@@ -435,6 +444,7 @@ def refresh(work, target=None):
                 "facades": pool.submit(timed, "facades", facades, layers, textures),
                 "props": pool.submit(timed, "props", props, layers),
                 "bridges": pool.submit(timed, "bridges", bridges, layers),
+                "roads": pool.submit(timed, "roads", roads, layers),
             }
             for name, future in futures.items():
                 result[name] = future.result()
