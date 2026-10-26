@@ -15,6 +15,7 @@ test.beforeEach(async ({ page, context }) => {
 });
 
 test('Auransilta from the west river bank', { tag: ['@pipeline', '@render'] }, async ({ page }, info) => {
+  test.skip(!manifest.visual.t0_1_0 || manifest.visual.t0_1_0.tris < 1000, 'Requires assembled bridge-area tiles');
   test.setTimeout(150000);
   const backend = info.project.name;
   await page.goto(`/?backend=${backend}&tiles=${tiles}&cam=23459755,6704270,5.5,90,-5,60`);
