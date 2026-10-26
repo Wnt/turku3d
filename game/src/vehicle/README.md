@@ -7,12 +7,14 @@ The constructor accepts the Rapier namespace: the browser uses `@dimforge/rapier
 The physics worker now keeps vehicles by ID. The spawn car and every parked car use the same
 `Vehicle` controller and enter/drive/exit path. Parked cars start asleep, wake on contact or
 entry, and skip wheel updates while asleep. Parked glTF model/paint variants are rendered as
-instances, with their transforms following the rigid bodies after exit. `F` or Xbox `Y`
-enters the closest car within 4 m.
+instances until takeover. Entering one removes its static instance and adds a shadow-casting
+mesh directly to the actor scene. That mesh follows the rigid body after exit; remaining
+parked instances refresh their culling bounds as physics moves them. `F` or Xbox `Y` enters
+the closest car within 4 m.
 
 Run `npm test --prefix game -- --run tests/unit/vehicle-fleet.test.ts` for the 20 m
 physics route and `(cd game && npx playwright test tests/e2e/parked-vehicle.spec.ts
---workers=2)` for the Xbox route on WebGPU and WebGL2.
+--workers=2)` for the Xbox takeover, 60 m culling and exit route on WebGPU and WebGL2.
 
 ```ts
 import { Vehicle } from './game/src/vehicle/vehicle.ts';

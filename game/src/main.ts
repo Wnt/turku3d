@@ -262,7 +262,7 @@ async function runPlay() {
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, ready: true });
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, parkedVisuals, ready: true });
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {
@@ -299,6 +299,7 @@ async function runPlay() {
         .sort((a, b) => a.distance - b.distance)[0] : null;
       if (mode === 'foot' && nearest && nearest.distance < 4) {
         drivenId = nearest.vehicle.id ?? 'player';
+        if (drivenId !== 'player') parkedVisuals.takeOver(drivenId);
         physics.driveVehicle(drivenId);
         mode = 'car';
         physics.setCharacterEnabled(false);

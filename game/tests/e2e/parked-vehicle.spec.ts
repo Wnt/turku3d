@@ -1,7 +1,7 @@
 import { isolatedTest as test, expect } from './fixtures';
 import { Document, NodeIO } from '@gltf-transform/core';
 
-test('walk to a parked car, use Xbox Y, drive 20 m, and exit', { tag: ['@drive', '@input'] }, async ({ page }, info) => {
+test('taken parked car stays visible after driving away on both backends', { tag: ['@drive', '@input'] }, async ({ page }, info) => {
   const doc = new Document();
   const buffer = doc.createBuffer();
   const positions = new Float32Array([
@@ -54,14 +54,33 @@ test('walk to a parked car, use Xbox Y, drive 20 m, and exit', { tag: ['@drive',
   await button(3, 0);
   const start = await page.evaluate(() => (window as any).__game.state().vehicle.pos[2]);
   await button(7, 1);
-  await page.waitForFunction(z => (window as any).__game.state().vehicle.pos[2] > z + 20, start, { timeout: 60_000 });
+  await page.waitForFunction(z => (window as any).__game.state().vehicle.pos[2] > z + 60, start, { timeout: 60_000 });
   await button(7, 0);
-  // LT switches to reverse once nearly stopped; RB holds the car still for the stop assertion.
-  await button(5, 1);
-  await page.waitForFunction(() => (window as any).__game.state().vehicle.speed < 0.1);
-  await button(5, 0);
+  const visual = await page.evaluate(() => {
+    const game = (window as any).__game;
+    const camera = (window as any).__render.camera;
+    const origin = new camera.position.constructor(125, 2, 165).project(camera);
+    return { car: game.parkedVisuals.inspect('fixture/parked', camera), originalProjection: [origin.x, origin.y, origin.z] };
+  });
+  expect(visual.car).toMatchObject({ parented: true, visible: true, castShadow: true, staticInstances: 0 });
+  expect(Math.abs(visual.car.projected[0])).toBeLessThan(1);
+  expect(Math.abs(visual.car.projected[1])).toBeLessThan(1);
+  expect(visual.car.projected[2]).toBeGreaterThan(0);
+  expect(visual.car.projected[2]).toBeLessThan(1);
+  expect(visual.originalProjection[2] < 0 || visual.originalProjection[2] > 1
+    || Math.abs(visual.originalProjection[0]) > 1 || Math.abs(visual.originalProjection[1]) > 1).toBe(true);
+  await button(6, 1);
+  await page.waitForFunction(() => (window as any).__game.state().vehicle.speed < 0.5);
+  await button(6, 0);
   await button(3, 1);
   await page.waitForFunction(() => (window as any).__game.state().mode === 'foot');
   await button(3, 0);
-  expect((await page.evaluate(() => (window as any).__game.state().vehicles.find((v: any) => v.id === 'fixture/parked').pos[2]))).toBeGreaterThan(start + 20);
+  const afterExit = await page.evaluate(() => {
+    const game = (window as any).__game;
+    return { physicsZ: game.state().vehicles.find((v: any) => v.id === 'fixture/parked').pos[2],
+      visual: game.parkedVisuals.inspect('fixture/parked', (window as any).__render.camera) };
+  });
+  expect(afterExit.physicsZ).toBeGreaterThan(start + 60);
+  expect(afterExit.visual).toMatchObject({ parented: true, staticInstances: 0 });
+  expect(Math.abs(afterExit.visual.position[2] - afterExit.physicsZ)).toBeLessThan(0.5);
 });

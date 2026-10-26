@@ -72,9 +72,10 @@ export class CarVisual {
   }
 }
 
-/** One draw per parked model/paint combination; instance transforms follow physics after exit. */
+/** Parked cars share draws until one is driven; driven cars keep their own scene-level mesh. */
 export class ParkedCarVisuals {
   private groups = new Map<string, { mesh: THREE.InstancedMesh; cars: ParkedVehicle[] }>();
+  private dynamic = new Map<string, THREE.Mesh>();
   private matrix = new THREE.Matrix4();
   private position = new THREE.Vector3();
   private rotation = new THREE.Quaternion();
@@ -101,6 +102,25 @@ export class ParkedCarVisuals {
     }));
   }
 
+  takeOver(id: string) {
+    if (this.dynamic.has(id)) return;
+    for (const { mesh, cars } of this.groups.values()) {
+      const index = cars.findIndex(car => car.object_id === id);
+      if (index < 0) continue;
+      const actor = new THREE.Mesh(mesh.geometry, mesh.material);
+      actor.name = `driven/${id}`;
+      actor.castShadow = true;
+      actor.receiveShadow = true;
+      this.scene.add(actor);
+      this.dynamic.set(id, actor);
+      cars.splice(index, 1);
+      mesh.count = cars.length;
+      if (!mesh.count) mesh.removeFromParent();
+      mesh.computeBoundingSphere();
+      return;
+    }
+  }
+
   update(states: VehicleState[]) {
     const byId = new Map(states.map(s => [s.id, s]));
     for (const { mesh, cars } of this.groups.values()) {
@@ -113,6 +133,28 @@ export class ParkedCarVisuals {
         mesh.setMatrixAt(i, this.matrix.compose(this.position, this.rotation, this.scale));
       });
       mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
     }
+    for (const [id, actor] of this.dynamic) {
+      const state = byId.get(id);
+      if (!state) continue;
+      actor.position.set(state.pos.x, state.pos.y - 0.75, state.pos.z);
+      actor.quaternion.set(state.rot.x, state.rot.y, state.rot.z, state.rot.w)
+        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2));
+    }
+  }
+
+  inspect(id: string, camera: THREE.Camera) {
+    const actor = this.dynamic.get(id);
+    if (!actor) return null;
+    camera.updateMatrixWorld();
+    actor.updateMatrixWorld();
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(
+      new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const projected = actor.position.clone().project(camera);
+    return { parented: actor.parent === this.scene, visible: actor.visible && frustum.intersectsObject(actor),
+      position: actor.position.toArray(), projected: [projected.x, projected.y, projected.z], castShadow: actor.castShadow,
+      staticInstances: [...this.groups.values()].reduce((count, { cars }) =>
+        count + cars.filter(car => car.object_id === id).length, 0) };
   }
 }
