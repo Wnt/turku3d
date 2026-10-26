@@ -301,7 +301,8 @@ async function runPlay() {
       vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : true } : null,
       vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
-      visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, missions: missions.snapshot(), errors };
+      visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
+      frameMs: frameEma, missions: missions.snapshot(), errors };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, ready: true });
 

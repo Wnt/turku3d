@@ -1,7 +1,7 @@
 # Ground material API (W1-10 → W1-08 / W1-04)
 
 `material.ts` exports `loadGroundLibrary`, `loadGroundTile`, and `createGroundMaterial`.
-`MaterialStyler` delegates assembler-declared ground bindings to `GroundBindings`. QA readiness waits for these loads. The binding owns tile maps, shares library arrays, and disposes late results after a tile unload.
+`MaterialStyler` delegates assembler-declared ground bindings to `GroundBindings`. QA readiness and gameplay `state().tilesSettled` wait for these loads and the resulting batch. The binding owns tile maps, shares library arrays, and disposes late results after a tile unload.
 After binding, ground meshes in the same tile share one world-space geometry and one
 material draw. Their original meshes remain hidden until tile release, so the ID
 pass can still use the unbatched source geometry on its separate QA page. The
