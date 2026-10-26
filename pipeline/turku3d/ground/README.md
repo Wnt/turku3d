@@ -50,6 +50,10 @@ Katualueet polygons supply physical materials; natural-stone paving overrides fu
 road labels. Outside street polygons, an orthophoto RGB vegetation classifier supplies
 grass; remaining unmapped surfaces use paving slabs. This is a conservative fallback,
 not a learned surface classifier. Visual materials use the same keys as collision.
+Measured wall and step breaklines retain their lidar rise instead of being clamped as
+curbs. Terrain faces steeper than 45 degrees with over 35 cm of relief cannot carry
+a walkable pavement material; they use the wall material in both collision and the
+matching visual GLB. This keeps river retaining faces visible as blockers.
 
 Water polygons constrain the shoreline. The separate water sensor/visual surface uses
 median class-9 N2000 elevation; ground heights are not interpolated across the river.

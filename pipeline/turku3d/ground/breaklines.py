@@ -35,7 +35,7 @@ def load_breaklines(path):
         if lengths.sum() < 0.05:
             continue
         kind = record["kind"]
-        if kind not in ("curb", "curb_dropped", "crossing", "quay"):
+        if kind not in ("curb", "curb_dropped", "crossing", "quay", "wall"):
             raise ValueError(f"{object_id}: unsupported kind {kind}")
         d = np.r_[0, np.cumsum(lengths)]
         # QA resamples independent held-out returns; supplied side heights are not truth.

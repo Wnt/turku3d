@@ -31,6 +31,7 @@ BINDINGS = {
     "sand": 6,
     "rock": 2,
     "quay": 7,
+    "wall": 7,
     "stair_slope": 4,
     "stair_tread_helper": 4,
     "ramp": 4,

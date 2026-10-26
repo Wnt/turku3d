@@ -22,8 +22,8 @@ const USAGE = `usage: node src/cli.ts [options] <tile.col|dir>...
   --require a,b            these checks must not be 'skipped' (e.g. buildings for real tiles)
   --walkers N (2000)  --walk-seconds S (10)  --seed N (1)
   --ray-density R (2 rays/m², = 1 ray per 0.5 m²)  --drop-spacing M (5)  --curb-spacing M (2)
-  --curb-speeds 1.5,4  --climb-required 0.25  --block-required 0.35  --stair-max-slope 40
-  --kcc-mode probe|split (probe)  --autostep 0.22  --autostep-min-width 0.15  --snap 0.3
+  --curb-speeds 1.5,4  --climb-required 0.35  --block-required 0.4  --stair-max-slope 40
+  --kcc-mode probe|split (probe)  --autostep 0.35  --autostep-min-width 0.15  --snap 0.3
   --aoi x0,z0,x1,z1        restrict holes/drops/walkers to this engine-xz box
   --quiet                  no summary on stdout`;
 

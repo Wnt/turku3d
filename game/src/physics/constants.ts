@@ -3,7 +3,7 @@ export const CHARACTER = {
   radius: 0.3,
   halfHeight: 0.6, // capsule total height 1.8 m
   skin: 0.02,
-  autostepHeight: 0.22,
+  autostepHeight: 0.35,
   autostepMinWidth: 0.15,
   snap: 0.3,
   maxClimbDeg: 45,
@@ -27,4 +27,3 @@ export const CAR = {
   brakeForce: 100,
   maxSteer: 0.55,
 } as const;
-

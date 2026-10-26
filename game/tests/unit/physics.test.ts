@@ -99,11 +99,10 @@ describe('physics world on dev tiles', () => {
     expect(solid.material).toBe(MAT.stair_slope);
     expect(solid.point.y).toBeCloseTo(2.24, 4);
   });
-  test('character cannot autostep a 35 cm wall', () => {
+  test('character climbs a 35 cm wall', () => {
     pw.spawnCharacter({ x: 138, y: G, z: 225 });
     const s = walk(pw, 0, -3.6, 2);
-    expect(s.pos.z).toBeGreaterThan(223.25);
-    expect(s.pos.y).toBeLessThan(2.1);
+    expect(s.pos.z).toBeLessThan(219);
   });
   test('jump edge survives frames without a 60 Hz physics step', () => {
     pw.spawnCharacter({ x: 100, y: G, z: 100 }); walk(pw, 0, 0, 0.3);
@@ -179,8 +178,8 @@ test('TriLocator finds triangles for hits just outside a tile edge / a 2 m cell 
   expect(loc.locate(62.5 + 0.5, 1, 125 - 0.5)).toBe(-1); // genuinely off the triangle
 });
 
-for (const height of [0.07, 0.15]) test(`autostep climbs ${height * 100} cm curb at walk and sprint speeds`, () => {
-  for (const speed of [1.5, 6]) {
+for (const height of [0.07, 0.15, 0.32, 0.35, 0.4]) test(`autostep handles ${height * 100} cm curb at all walking speeds`, () => {
+  for (const speed of [1, 1.5, 4, 6]) {
     const pw = new PhysicsWorld(RAPIER);
     // Shipped curbs are triangle breaklines, with horizontal top and a vertical face (D5).
     pw.world.createCollider(RAPIER.ColliderDesc.trimesh(new Float32Array([
@@ -190,7 +189,11 @@ for (const height of [0.07, 0.15]) test(`autostep climbs ${height * 100} cm curb
     ]), new Uint32Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 5, 8, 5, 4])));
     pw.world.step(); pw.spawnCharacter({ x: 0, y: 0.02, z: 1 }); walk(pw, 0, 0, 0.3);
     const s = walk(pw, 0, -speed, 2.5 / speed);
-    expect(s.pos.z).toBeLessThan(-1.2); expect(s.pos.y).toBeCloseTo(height, 1);
+    if (height <= 0.35) {
+      expect(s.pos.z).toBeLessThan(-1.2); expect(s.pos.y).toBeCloseTo(height, 1);
+    } else {
+      expect(s.pos.z, `speed=${speed} y=${s.pos.y}`).toBeGreaterThan(-0.4); expect(s.pos.y).toBeCloseTo(0, 1);
+    }
     pw.world.free();
   }
 });

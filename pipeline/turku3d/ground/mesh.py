@@ -223,6 +223,16 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
             shapely.contains_xy(shapely.union_all(upper, grid_size=1e-5), *centers.T)
             & (mids != mat_id("curb"))
         ] = mat_id("sidewalk")
+    # Raw lidar terrain can contain an actual promenade retaining face away from
+    # mapped curb lines. Its collision and visual mesh share vertices, so give any
+    # too-tall walkable face an explicitly visible blocking material.
+    triangles = p[f]
+    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    up = np.abs(normals[:, 1]) / np.maximum(np.linalg.norm(normals, axis=1), 1e-12)
+    tall = (np.ptp(triangles[:, :, 1], axis=1) > 0.35) & (up < np.cos(np.pi / 4))
+    mids[tall & np.isin(mids, [mat_id(k) for k in (
+        "road", "sidewalk", "crossing", "cycleway", "cobblestone", "paving_slab"
+    )])] = mat_id("wall")
     wet = shapely.contains_xy(water, *centers.T)
     # Duplicate shoreline vertices for the sensor: ground-bank height is not water height.
     water_ids, inverse = np.unique(f[wet], return_inverse=True)

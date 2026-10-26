@@ -130,7 +130,7 @@ export class PhysicsWorld {
     if (!this.cc) {
       const cc = this.world.createCharacterController(CHARACTER.skin);
       cc.setUp({ x: 0, y: 1, z: 0 });
-      cc.enableAutostep(CHARACTER.autostepHeight, CHARACTER.autostepMinWidth, false);
+      cc.enableAutostep(0.2, CHARACTER.autostepMinWidth, false);
       cc.enableSnapToGround(CHARACTER.snap);
       cc.setMaxSlopeClimbAngle((CHARACTER.maxClimbDeg * Math.PI) / 180);
       cc.setMinSlopeSlideAngle((CHARACTER.minSlideDeg * Math.PI) / 180);
@@ -166,17 +166,59 @@ export class PhysicsWorld {
     const filter = groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC);
     const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS;
     const p0 = col.translation();
-    // One combined move per 60 Hz step (the tools/engine-probe scheme, also the validator default
-    // tools/validator/src/kcc.ts 'probe'): while grounded the vertical speed is a small constant -0.5 m/s
-    // (-8 mm/frame), full gravity applies only in the air. Measured with Rapier 0.21 + autostep 0.22/0.15:
-    // climbs steps <= 0.27 m and is blocked at >= 0.30 m at 1.5-5 m/s. The literal "horizontal move, then a
-    // separate gravity move" split climbs only <= 0.22 m at 1.5 m/s (a 25 cm curb blocks; Task 1.11c fails).
+    // Rapier's native autostep depends on horizontal speed. A second, height-limited
+    // clearance move below handles slow walks into steps up to 0.35 m.
     if (this.charGrounded && input.jump) this.charVy = CHARACTER.jumpSpeed;
     else if (this.charGrounded && this.charVy <= 0) this.charVy = CHARACTER.groundedVy;
     else this.charVy = Math.max(this.charVy - CHARACTER.gravity * DT, -50);
     const wanted = this.charVy * DT;
     cc.computeColliderMovement(col, { x: input.vx * DT, y: wanted, z: input.vz * DT }, flags, filter);
-    const m = cc.computedMovement();
+    let m = cc.computedMovement();
+    if (this.charGrounded && !input.jump && Math.hypot(input.vx, input.vz) > 0.01) {
+      const requested = Math.hypot(input.vx, input.vz) * DT;
+      const progressed = (m.x * input.vx + m.z * input.vz) / Math.hypot(input.vx, input.vz);
+      if (progressed < requested * 0.5) {
+        const speed = Math.hypot(input.vx, input.vz);
+        const ahead = (CHARACTER.radius + requested) / speed;
+        const feetY = p0.y - CHARACTER.halfHeight - CHARACTER.radius - CHARACTER.skin;
+        const rear = this.raycast(
+          { x: p0.x - input.vx * CHARACTER.radius / speed, y: feetY + 0.2, z: p0.z - input.vz * CHARACTER.radius / speed },
+          { x: 0, y: -1, z: 0 }, 0.7,
+        );
+        const baseY = Math.min(feetY, rear?.point.y ?? feetY);
+        const support = this.raycast(
+          { x: p0.x + input.vx * ahead, y: feetY + CHARACTER.autostepHeight + 0.1, z: p0.z + input.vz * ahead },
+          { x: 0, y: -1, z: 0 }, CHARACTER.autostepHeight + 0.4,
+        );
+        if (support && support.point.y - baseY > CHARACTER.autostepHeight + 0.002) {
+          // The surface ahead is above the climb limit, even if capsule curvature
+          // would let repeated small moves inch up its vertical face.
+          col.setTranslation({ x: p0.x + m.x, y: p0.y + m.y, z: p0.z + m.z });
+          this.charGrounded = cc.computedGrounded();
+          this.charVel = { x: m.x / DT, y: m.y / DT, z: m.z / DT };
+          return;
+        }
+        const raised = CHARACTER.autostepHeight + CHARACTER.skin;
+        cc.computeColliderMovement(col, { x: 0, y: raised, z: 0 }, flags, filter);
+        const up = cc.computedMovement();
+        if (up.y >= raised - CHARACTER.skin) {
+          col.setTranslation({ x: p0.x, y: p0.y + up.y, z: p0.z });
+          cc.computeColliderMovement(col, { x: input.vx * DT, y: 0, z: input.vz * DT }, flags, filter);
+          const across = cc.computedMovement();
+          const advance = (across.x * input.vx + across.z * input.vz) / Math.hypot(input.vx, input.vz);
+          if (advance > progressed + 0.001) {
+            col.setTranslation({ x: p0.x + across.x, y: p0.y + up.y + across.y, z: p0.z + across.z });
+            cc.computeColliderMovement(col, { x: 0, y: -(raised + CHARACTER.snap), z: 0 }, flags, filter);
+            const down = cc.computedMovement();
+            const rise = up.y + across.y + down.y;
+            if (cc.computedGrounded() && rise > -CHARACTER.skin && rise <= CHARACTER.autostepHeight + 0.002) {
+              m = { x: across.x, y: rise, z: across.z };
+            }
+          }
+          col.setTranslation(p0);
+        }
+      }
+    }
     const p = { x: p0.x + m.x, y: p0.y + m.y, z: p0.z + m.z };
     col.setTranslation(p);
     this.charGrounded = cc.computedGrounded();

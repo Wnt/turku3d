@@ -110,8 +110,10 @@ The W1-01 JSON-list interface (agreed on the coordination board) is:
 
 All arrays have equal length >= 2; normals are unit x/z vectors. `side_heights`
 is **minus-normal, plus-normal**. Positive normal `(-tangent_z,tangent_x)` is
-map-right because engine z points south. `kind` stays compatible with ground's
-curb/curb_dropped/crossing/quay enum. `relief_class` adds curb, kerb_drop, step,
+map-right because engine z points south. `kind` uses ground's
+curb/curb_dropped/crossing/quay/wall enum. Measured steps above 18 cm and
+planter/retaining edges use `wall`, so ground preserves their rise and renders
+their solid face. `relief_class` adds curb, kerb_drop, step,
 ramp_edge, wall_planter_edge and quay. These classes are height/slope hypotheses,
 not independent semantic verification. Quays are handed to structures by ground.
 

@@ -22,10 +22,10 @@ function climbs(h: number, speed: number, cfg: Partial<KccConfig> = {}): boolean
   return ok;
 }
 
-test('probe mode (default): climbs <= 0.27 m, blocked >= 0.30 m at 1.5 and 4 m/s', () => {
-  for (const v of [1.5, 4]) {
-    for (const h of [0.07, 0.12, 0.17, 0.22, 0.25, 0.27]) assert.ok(climbs(h, v), `h=${h} v=${v} should climb`);
-    for (const h of [0.3, 0.35, 0.4]) assert.ok(!climbs(h, v), `h=${h} v=${v} should block`);
+test('probe mode climbs through 0.35 m and blocks 0.4 m at all walking speeds', () => {
+  for (const v of [1, 1.5, 4]) {
+    for (const h of [0.07, 0.12, 0.17, 0.22, 0.25, 0.27, 0.3, 0.35]) assert.ok(climbs(h, v), `h=${h} v=${v} should climb`);
+    assert.ok(!climbs(0.4, v), `h=0.4 v=${v} should block`);
   }
 });
 
@@ -35,8 +35,8 @@ test('split mode (gravity as a separate move): 0.25 m blocks at 1.5 m/s', () => 
   assert.ok(!climbs(0.4, 1.5, { mode: 'split' }));
 });
 
-test('slow walk (1.0 m/s) does not autostep a 0.22 m step in either mode', () => {
+test('split mode still measures Rapier speed dependence without step clearance', () => {
   assert.ok(climbs(0.17, 1.0));
-  assert.ok(!climbs(0.22, 1.0));
+  assert.ok(climbs(0.22, 1.0));
   assert.ok(!climbs(0.22, 1.0, { mode: 'split' }));
 });

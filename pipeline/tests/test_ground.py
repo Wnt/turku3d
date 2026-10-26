@@ -169,6 +169,26 @@ def test_constrained_curb_is_sharp_and_visual_is_separate(curb_cloud):
         np.testing.assert_allclose(uv, pos[:, [0, 2]] * [1, -1])
 
 
+def test_measured_wall_keeps_height_and_renders_collision_face(curb_cloud):
+    cloud = curb_cloud.copy()
+    cloud[cloud[:, 0] > 2, 1] += 0.45
+    surface = Surface(cloud)
+    walls = fit_curbs([("wall", LineString([(2.15, 0), (2.15, 12)]))], surface)[0]
+    assert walls
+    walls[0].kind = "wall"
+    original = walls[0].heights.copy()
+    clamp_curb_heights(walls)
+    np.testing.assert_array_equal(walls[0].heights, original)
+    mesh, _ = build_mesh(
+        surface, C.BBoxLocal(-1, -1, 5, 14), [], walls,
+        shapely.Polygon(), 0, ConstantMaterials(),
+    )
+    assert mat_id("wall") in mesh.material
+    assert any(part.extras["material_key"] == "wall" for part in visual_meshes(
+        mesh, C.VisualTile(0, 0, 0), walls
+    ))
+
+
 def test_physical_paving_overrides_road_function():
     assert surface_material("Ajorata", "Nupukivi") == "cobblestone"
     assert surface_material("Jalkakäytävä", "Asfaltti") == "sidewalk"

@@ -229,7 +229,7 @@ def map_issues(
         if sweep:
             for stop in sweep["stops"]:
                 x, _, z = stop["end"]
-                color = "orange" if stop["material"] == 22 else "red"
+                color = "orange" if stop.get("reason") else "red"
                 ax.plot(C.ORIGIN_E + x, C.ORIGIN_N - z, marker="x", color=color, markersize=5)
         ax.plot(C.ORIGIN_E + center[0], C.ORIGIN_N - center[1], "bo", markersize=5)
         ax.set_xlim(xmin, xmax)
@@ -261,8 +261,9 @@ def main() -> None:
     (args.out / "issues.json").write_text(json.dumps(issues, indent=2) + "\n")
     sweep = json.loads(args.sweep.read_text()) if args.sweep else None
     map_issues(issues, center, args.radius, args.out / "map.png", sweep)
-    print(f"collision audit: {len(issues)} candidates; {args.out}")
-    if issues:
+    unexplained = len(sweep.get("unexplained", [])) if sweep else 0
+    print(f"collision audit: {len(issues)} geometry candidates, {unexplained} unexplained stops; {args.out}")
+    if issues or unexplained:
         raise SystemExit(1)
 
 

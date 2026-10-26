@@ -68,13 +68,14 @@ also retain whole flights that cross collision-tile boundaries.
 | `seams` | Every neighboring solid boundary has identical float64 world-coordinate bit patterns after `.col` decode, and identical triangle-edge partitions. Unmatched vertices and segments include exact coordinates; no rounding tolerance or skirts. Matching point sets alone do not excuse T junctions. |
 | `holes` | Two jittered downward rays/m² hit solid trimeshes; primitives and sensors cannot conceal holes |
 | `buildings` | 2,000 seeded walkers over the AOI, ten seconds each; every footprint gets walkers. Entry >5 cm into a footprint at walking height fails, including roofless/missing shells. Untestable footprints fail. |
-| `curbs` | Every ≤25 cm curb climbs at 1.5 and 4 m/s; ≥35 cm blocks. The middle band is informational, but a mismatch with the layer's declared height fails. Missing surfaces or starts fail. |
+| `curbs` | Every ≤35 cm step climbs at 1.5 and 4 m/s; ≥40 cm blocks. The middle band is informational, but a mismatch with the layer's declared height fails. Missing surfaces or starts fail. |
 | `stairs` | Every listed flight climbs up/down, reaches the landing within 10 cm, and has slope ≤40°. Fallback: each stair-slope mesh component. |
 | `cars` | Exact game car coasts across every curb segment at 3/6/10 m/s. For 7–15 cm curbs, ARCHITECTURE 1.14 requires crossing with pitch spike ≥2° and speed loss 5–20%; missing strike events also fail. Steps >25 cm at 2 m/s must stop the chassis centre on the approach side (5 cm tolerance). At 30 m/s it must not cross a building/quay/wall face at any frame. |
 | `belowGround` | Drops on a 5 m grid and samples every tenth frame of all walker trajectories must retain ground under their feet |
 
 The KCC uses one movement per 60 Hz step, grounded vertical speed −0.5 m/s,
-full gravity in air, radius .3, half-height .6, skin .02, autostep .22/.15, snap .3,
+full gravity in air, radius .3, half-height .6, skin .02, native autostep .2/.15,
+bounded step clearance .35 and snap .3,
 max climb 45°, slide 50°. `--kcc-mode split` is retained as an existing diagnostic;
 its known 25 cm climb failure is pinned by the KCC tests.
 

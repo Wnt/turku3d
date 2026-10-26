@@ -127,6 +127,15 @@ def test_edges_and_breakline_contract():
     assert not edge_lines(surfaces(slope, C.BBoxLocal(-2, -2, 2, 2), 0.25))
 
 
+def test_measured_high_step_is_a_visible_wall_not_a_clamped_curb():
+    cloud = step_cloud(step=0.55)
+    features, _ = measured_breaklines(
+        Surface(cloud.points), LineString([[0, -2], [0, 2]]), "wall", "lidar"
+    )
+    assert features
+    assert all(feature["kind"] == "wall" for feature in features)
+
+
 def test_no_bridge_across_unsupported_profile_gap():
     cloud = step_cloud()
     points = cloud.points[np.abs(cloud.points[:, 2]) > 1.5]

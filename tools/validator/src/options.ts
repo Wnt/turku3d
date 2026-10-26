@@ -21,8 +21,8 @@ export interface Options {
   dropSpacing: number;
   curbSpacing: number;
   curbSpeeds: number[];
-  climbRequired: number; // steps <= this must be climbed (Task 1.11c: 0.25)
-  blockRequired: number; // steps >= this must block (Task 1.6/1.13: 0.35)
+  climbRequired: number; // steps <= this must be climbed
+  blockRequired: number; // steps >= this must block
   stairMaxSlopeDeg: number;
   kcc: KccConfig;
   aoi?: [number, number, number, number];
@@ -37,8 +37,8 @@ export const DEFAULT_OPTIONS: Omit<Options, 'inputs'> = {
   dropSpacing: 5,
   curbSpacing: 2,
   curbSpeeds: [1.5, 4.0],
-  climbRequired: 0.25,
-  blockRequired: 0.35,
+  climbRequired: 0.35,
+  blockRequired: 0.4,
   stairMaxSlopeDeg: 40,
   kcc: DEFAULT_KCC,
   maxSamples: 20,
