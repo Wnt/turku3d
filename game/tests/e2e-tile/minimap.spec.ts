@@ -2,7 +2,7 @@ import { cachedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
-import { frames } from '../e2e/waits';
+import { frames, open, untilSim } from '../e2e/waits';
 
 const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json'), 'utf8'));
 const out = path.join(reportsRoot, 'gameplay-map-route');
@@ -13,12 +13,12 @@ test('minimap routes along published streets to an injected mission target', { t
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   const backend = info.project.name;
-  await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json`);
+  await open(page, `/?backend=${backend}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
-  await page.waitForFunction(() => {
+  await untilSim(page, () => {
     const s = (window as any).__game?.state?.();
     return s?.grounded && s.tilesSettled && s.visTris > 0;
-  }, null, { timeout: 90_000 });
+  }, null, 90);
   // A street node about 300 m from the player along the walkable network becomes the active pickup.
   const setup = await page.evaluate(() => {
     const game = (window as any).__game;
