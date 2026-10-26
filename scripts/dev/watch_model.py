@@ -435,13 +435,13 @@ class Monitor:
         overdue = sum(c.overtime() for c in tasks)
         queue = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})
         pending = sum(
-            not any(key in row for key in ("published", "resumed", "returned", "failed"))
+            not any(key in row for key in ("landed", "returned"))
             for row in queue.get("tasks", {}).values()
         )
         latencies = sorted(
-            row["published"] - row["done"]
+            row["landed"] - row["done"]
             for row in queue.get("tasks", {}).values()
-            if row.get("published") and row.get("done")
+            if row.get("landed") and row.get("done")
         )
         median = f"{latencies[len(latencies) // 2] / 60:.1f}m" if latencies else "-"
         maximum = f"{latencies[-1] / 60:.1f}m" if latencies else "-"
@@ -454,7 +454,7 @@ class Monitor:
         merge_max = f"{merge_times[-1]:.1f}s" if merge_times else "-"
         return (
             f"[all] {len(tasks)} tasks, {sum(c.live for c in tasks)} live"
-            f" | queue {pending} ready, done-live {median}/{maximum}"
+            f" | queue {pending} ready, done-main {median}/{maximum}"
             f" merge {merge_median}/{merge_max}"
             f" | {overdue} OVER 30m | {sum(c.tokens for c in tasks):,} tok"
             " | arrows 0-9 PgUp/PgDn End l q"

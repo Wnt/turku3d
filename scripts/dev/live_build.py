@@ -1,4 +1,4 @@
-"""Build, check and publish the real office distribution during landing."""
+"""Build, check and publish the real office distribution for the integrator."""
 
 import filecmp
 import json
@@ -10,22 +10,17 @@ from pathlib import Path
 
 import live_cache
 import sandbox as s
-from host_slots import identity, land_jobs, slot
+from host_slots import integration_jobs
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
-QUEUE_STAGE_BUDGETS = {
-    "refresh": 75,
-    "tile-build": 150,
-    "tile-validate": 120,
-    "car-report": 120,
-    "facade-ground-audit": 15,
-    "game-build": 30,
-    "collision-sweep": 30,
-    "collision-audit": 30,
-    "chrome": 90,
-    "chrome-webgpu": 60,
-    "chrome-webgl": 60,
-}
+
+
+class StageFailed(ValueError):
+    """A live stage failed; `stage` names it so the integrator can rerun Chrome once."""
+
+    def __init__(self, stage, message):
+        super().__init__(message)
+        self.stage = stage
 
 
 def affected_tiles(previous, work):
@@ -238,69 +233,12 @@ def inspect_car_report(path, returncode):
     }
 
 
-def warm_checks(repo, work, env):
-    """Use the queue-owned Chrome for affected tile specs when available."""
-    service = env.get("TURKU3D_WARM_BROWSER_STATE")
-    script = repo / "scripts/dev/warm_browser.mjs"
-    selector = repo / "scripts/dev/affected_browser.py"
-    if not service or not Path(service).is_file() or not script.is_file() or not selector.is_file():
-        return [], {}
-    selected = subprocess.run(
-        [
-            env.get("PIPELINE_PY", "python3"),
-            str(selector),
-            "--base",
-            env.get("TURKU3D_VERIFY_BASE", "main"),
-        ],
-        cwd=repo,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    specs = json.loads(selected.stdout)["tile"]
-    if not specs:
-        return [], {}
-    commands = []
-    scopes = {}
-    for backend in ("webgpu", "webgl"):
-        stage = "chrome-" + backend
-        command = [
-            "node",
-            str(script),
-            "run",
-            "--repo",
-            str(repo),
-            "--work",
-            str(work),
-            "--profile",
-            env["TURKU3D_BROWSER_DIR"],
-            "--port",
-            env["TURKU3D_PORT_BASE"],
-            "--service-state",
-            service,
-            "--backend",
-            backend,
-        ]
-        for spec in specs:
-            command.extend(("--spec", spec))
-        commands.append((stage, command, repo))
-        scopes[stage] = specs
-    return commands, scopes
+def build(repo, work, published, env, log_path, reason=None, previous_release=None):
+    """Run every live stage on repo; the caller holds the integration host reservation.
 
-
-def build(repo, work, published, env, log_path, reason=None):
-    with slot("land") as inherited:
-        owner = (
-            os.environ["TURKU3D_LAND_OWNER"]
-            if inherited
-            else f"{os.getpid()}:{identity(os.getpid())}"
-        )
-        reserved_env = {**env, "TURKU3D_LAND_OWNER": owner, "TURKU3D_JOBS": str(land_jobs())}
-        return _build(repo, work, published, reserved_env, log_path, reason)
-
-
-def _build(repo, work, published, env, log_path, reason=None):
+    previous_release is the published release directory the batch starts from; tile-build
+    and collision checks then only rebuild what the layer delta affects.
+    """
     seed(work, published)
     minimum = baseline(published)
     durations = {}
@@ -349,15 +287,12 @@ def _build(repo, work, published, env, log_path, reason=None):
             repo / "game",
         ),
     ]
-    warm, scopes = warm_checks(repo, work, env)
-    if warm:
-        commands[-1:] = warm
+    scopes = {}
     with log_path.open("w") as log:
         for stage, command, cwd in commands:
             if stage == "tile-build":
-                previous_id = env.get("TURKU3D_PREVIOUS_RELEASE_ID")
-                if previous_id:
-                    prior = published / "live-releases" / previous_id
+                prior = previous_release
+                if prior:
                     selected = affected_tiles(prior, work)
                     # Facade and library texture changes affect tile packing globally.
                     if selected and same_tree(prior / "textures", work / "textures"):
@@ -365,9 +300,7 @@ def _build(repo, work, published, env, log_path, reason=None):
                         scopes[stage] = selected
             if stage in ("tile-validate", "car-report"):
                 selected = scopes.get("tile-build") or TILES
-                previous_id = env.get("TURKU3D_PREVIOUS_RELEASE_ID")
-                prior = published / "live-releases" / previous_id if previous_id else None
-                files = affected_collision_files(prior, work, selected)
+                files = affected_collision_files(previous_release, work, selected)
                 if stage == "tile-validate":
                     command[2] = "T=" + " ".join(selected)
                     if files:
@@ -410,17 +343,10 @@ def _build(repo, work, published, env, log_path, reason=None):
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
             load_before = os.getloadavg()
             if stage.startswith("chrome"):
-                run_env["TURKU3D_JOBS"] = str(land_jobs("browser"))
+                run_env["TURKU3D_JOBS"] = str(integration_jobs("browser"))
                 load_rows.parent.mkdir(parents=True, exist_ok=True)
                 load_rows.unlink(missing_ok=True)
                 run_env["TURKU3D_BROWSER_LOAD_LOG"] = str(load_rows)
-            if "TURKU3D_CHECK_DEADLINE" in env:
-                run_env["TURKU3D_CHECK_DEADLINE"] = str(
-                    min(
-                        float(env["TURKU3D_CHECK_DEADLINE"]),
-                        start + QUEUE_STAGE_BUDGETS.get(stage, 60),
-                    )
-                )
             proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             durations[stage] = round(time.monotonic() - start, 3)
@@ -439,8 +365,9 @@ def _build(repo, work, published, env, log_path, reason=None):
                 report["car_validation"] = car_report
             elif proc.returncode:
                 conditions = load_summary(load) if load else f"host load {s.host_load()}"
-                raise ValueError(
-                    f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; {conditions}: {log_path}; main unchanged"
+                raise StageFailed(
+                    stage,
+                    f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; {conditions}: {log_path}",
                 )
             if stage == "tile-build":
                 facade_count = None
@@ -478,7 +405,7 @@ def _build(repo, work, published, env, log_path, reason=None):
 
 
 def prepare(work, published, commit, report, release_id=None):
-    """Copy the verified release before advancing main."""
+    """Copy the verified release into live-releases; publish() then moves the live link."""
     releases = published / "live-releases"
     releases.mkdir(parents=True, exist_ok=True)
     release = releases / (release_id or commit)

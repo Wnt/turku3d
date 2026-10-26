@@ -329,21 +329,7 @@ acknowledges messages nor bypasses the result, clean-tree or green-gate requirem
 
 Dated verification logs from 2026-10-25 are in `docs/reports/dev-tooling-verification-2026-10-25.md`.
 
-The browser spec selector uses the same changed-path to subsystem map as the gate:
-
-```bash
-python3 scripts/dev/affected_browser.py --base main
-python3 scripts/dev/affected_browser.py game/src/vehicle/vehicle.ts
-```
-
-The real-tile specs share one HTTP-caching browser context per worker, with a fresh page per test. Browser suites default to 960×540; pixel-detail and performance checks set their required viewports explicitly. The landing queue can also keep Chrome processes and one loaded tile page per backend in a dedicated service sandbox. The service writes loopback WebSocket endpoints to a mode-0600 state file; its owner stops the process with SIGTERM. Run the check against an integration worktree's built game and tiles, using that worktree's sandbox port and browser profile:
-
-```bash
-node scripts/dev/warm_browser.mjs serve --repo "$PWD" --work "$TURKU3D_WORK" --profile "$TURKU3D_BROWSER_DIR" --port "$TURKU3D_PORT_BASE"
-node scripts/dev/warm_browser.mjs run --repo "$PWD" --work "$TURKU3D_WORK" --profile "$TURKU3D_BROWSER_DIR" --port "$TURKU3D_PORT_BASE" --service-state /path/to/service/work/cache/warm-browser.json --backend webgpu --spec tests/e2e-tile/tile.spec.ts
-```
-
-`run` returns JSON with the checked specs, result counts, elapsed seconds, and report path. Its `--service-state` file can live in a separate queue-service sandbox. The ordinary Playwright configs still launch their own Chrome when no warm endpoint is provided.
+The real-tile specs share one HTTP-caching browser context per worker, with a fresh page per test. Browser suites default to 960×540; pixel-detail and performance checks set their required viewports explicitly.
 
 ```bash
 make tooling-test game-dev-tools-test
@@ -571,25 +557,30 @@ See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limit
 ### Host slots
 
 `make refresh`, `make tile-build`, `make game-build`, the game, tile and render
-Playwright suites, playtest, the gate's e2e stage, and landing's live build use
-`scripts/dev/host_slots.py`.
-The shared state is `~/turku3d/host-slots/` (override with `TURKU3D_SLOT_DIR` only
-for synthetic tests). Up to three `build` jobs and two `browser` jobs run at once;
-each build gets at most two `TURKU3D_JOBS`, and each browser suite one. A queued
-`land` reservation stops new build/browser admissions, then holds exclusive capacity
-through refresh, four-tile assembly, game build, collision checks, and Chrome. Because
-nothing else runs, the reservation and every build nested in it get
-`TURKU3D_JOBS` = all logical cores instead of the shared caps; its Chrome suites get
-four workers (`LAND_BROWSER_JOBS`), because they share one GPU.
-Commands started under a running `land` reservation (`TURKU3D_LAND_OWNER`) reuse it,
-including nested `land` requests: the merge queue holds one reservation per round, and
-the queue-run prechecks and their live builds run inside it instead of waiting on it.
+Playwright suites, playtest, the gate's e2e stage and the integrator's live build use
+`scripts/dev/host_slots.py`. The shared state is `~/turku3d/host-slots/` (override with
+`TURKU3D_SLOT_DIR` only for synthetic tests).
+
+Admission is budgeted, not exclusive. The host has 10 CPU job units and 6 browser (GPU)
+workers (`BUDGET`). A `build` costs 2 job units (at most three at once, each with
+`TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (at most two, `TURKU3D_JOBS` = 1), and the
+single `integration` reservation 6 job units plus one 4-worker browser (`COST`). Builds and
+browser suites keep being admitted beside a running integration within the remaining
+capacity: two builds and both browser suites. A waiting integration is not starved: later
+admissions are taken only if the integration still fits after them, so at most the
+builds already running finish first. The integration and every build or browser command nested
+in it (`TURKU3D_INTEGRATION_OWNER`) use its budget: `TURKU3D_JOBS` = 6 for builds and 4 Chrome
+workers, because the Chrome suites share one GPU (the 20-test real-tile suite passed in 1.9 min
+with four workers; ten workers timed out on 9 tests). Nested commands are not admissions.
 Refresh divides its job budget between independent steps and passes it to Roofer.
 Dead owner PIDs are removed on the next admission or status read. Waiting appears
 in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
 
+The whole-host `land` class is deleted: it made every precheck's live build freeze all other
+gates (merge latency study, R2), and nothing on the landing path builds any more.
+
 Every admission appends `{"time", "kind", "name", "wait_seconds"}` (name is the sandbox) to
-`~/turku3d/host-slots/waits.jsonl`; jobs inheriting a land reservation are not admissions.
+`~/turku3d/host-slots/waits.jsonl`.
 `python3 scripts/dev/host_slots.py stats [--hours 24]` prints admissions, median and p90 wait
 seconds per kind. Raise agent concurrency only while the median wait stays low (study R6/M4).
 
@@ -607,7 +598,6 @@ scripts/dev/wt sync-env                 # current checkout
 scripts/dev/wt sync-env example         # named sandbox (or --all)
 scripts/dev/gate --all
 scripts/dev/gate --paths game/src/core/origin.ts --json
-scripts/dev/codex-task precheck example
 scripts/dev/codex-task queue status
 # Explicit budgets, on an unloaded machine:
 TURKU3D_JOBS=1 make streaming-perf
@@ -631,92 +621,77 @@ depends on main's merge count. Live build stages keep APFS-cloned verified artif
 `$TURKU3D_DATA/cache/tool-stages/live`; keys include declared source paths, input manifests
 and the preceding stage key.
 
-Before DONE, workers commit and run `scripts/dev/codex-task precheck <name>`. It rebases on main,
-runs the gate and every live build check in the worker sandbox, saves per-check input hashes in
-`~/turku3d/tasks/<name>/precheck.json`, and prepares a release under
-`$TURKU3D_DATA/live-releases/<tree-input-and-commit-hash>`. A rebase conflict returns to the worker.
-The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon polls DONE results.
-When the receipt is current (its `main` is main, its `head` is the branch HEAD and that head is
-on main), the queue does not touch the branch: it verifies the tree, checks and release bytes,
-fast-forwards main, and swaps the live pointer without rebuilding. Precheck records the main
-commit it rebased onto, not main at the end, so a main move during a precheck makes the receipt
-stale instead of claiming a base the head is not on. The landed ledger records merge wall seconds.
-Otherwise it rebases, and a rebase is always followed by the recheck of the new head: it runs
-only invalidated cached gate/live stages under a 210-second
-check deadline. Gate checks have a 120-second default queue budget; live stages have declared
-30–150-second budgets. A slow recheck is retried; after two consecutive slow rechecks the task
-returns to its worker for a fix and new precheck. Broad producer changes also return to the worker. Layer
-mesh deltas select changed visual tiles, while texture and assembler changes require all tiles.
-Disjoint affected domains may precheck cumulative prefixes in parallel with `precheck --base <SHA>`.
-Conflicts and failed members return to their workers; the queue keeps other ready tasks moving.
-`queue status` shows task timestamps and median DONE-to-live.
+### Merge queue
 
-Returning a task depends on its worker. A Codex task resumes through Codex with route
-`task_rebase` (event `resumed`). A task registered with `codex-task adopt` and finished with
-`codex-task finish` has `worker: external` in `meta.json`; the queue never calls Codex for it.
-It records event `returned` with the reason in `merge-queue.json`, and posts a `request` to the
-task inbox: rebase onto main, run `codex-task precheck`, ack the request, then `finish` again.
-The queue leaves that sandbox alone until the new `finish` (a new `meta.finished`) re-enqueues it.
-`codex-task ls`/`status`, the board's idle list and the orchestrator sentinel show
-`returned: <reason>` for such a task.
+Main only requires the fast gate; the live build and Chrome run once per batch after the merge.
+Main may be red for one integration cycle; live only ever points to a release built and
+verified from exactly the commit it names.
 
-Each round takes the task lock (`~/turku3d/tasks/<name>/lock`) non-blocking before it rebases or
-rechecks. A held lock means a worker precheck is in flight: the round skips that task with one
-`busy` event and retries on a later poll. The queue holds the lock through rebase, recheck and
-publish; its recheck child (`codex-task precheck --base`) inherits the lock fd
-(`run_group(hand_over=...)`), so a worker precheck started meanwhile waits instead of interleaving.
-
-Queue-side failures retry with a growing delay: event `failed` records `retry_seconds`
-of 300, 600, 1200 and then 1800 for each further attempt. They are a slow recheck before the
-second consecutive one, main moving during a recheck, and a Codex resume that could not start.
-The task's state transitions are:
-
-| From | Condition | To |
-|---|---|---|
-| (DONE) | a new `meta.finished` | `enqueued` |
-| `enqueued` / `failed` (delay elapsed) | task lock held by a worker precheck | `busy` (skipped this round) |
-| `enqueued` / `failed` (delay elapsed) | lock taken | `started` |
-| `started` | receipt current (no rebase), or rebase plus green recheck, publish ok | `published` |
-| `started` | first slow recheck, main moved, failed Codex resume | `failed` (retry after the delay) |
-| `started` | second consecutive slow recheck, red recheck, rebase conflict, dirty tree, missing receipt, all-tile producer change | `resumed` (Codex) or `returned` (external) |
-| `started` | unacknowledged request/warning in the inbox | `held` |
-Unread messages do not block the queue. The queue uses
-`wt/.registry/merge-queue.lock` for single-instance ownership and persists its ledger in
-`wt/.registry/merge-queue.json`.
-When the warm browser tool is installed on main, the queue creates a dedicated
-`merge-queue-service` sandbox and starts its two Chrome backends once. It waits for both
-preloaded pages before admitting warm checks. Each candidate's
-affected tile specs run through those endpoints on the candidate sandbox ports; a missing
-service or selector uses the full local Chrome suite. The queue stops only the service
-process it started when it exits. `queue status` remains read-only.
-
-To publish one prechecked task without starting the daemon (for example an orchestrator
-integration sandbox), run the same fast path directly. `--dry-run` runs every receipt,
-release-byte, main and guard check and prints the head and release without moving anything:
-
-```sh
-scripts/dev/codex-task land <name> --prechecked --dry-run
-scripts/dev/codex-task land <name> --prechecked
+```
+worker: commit → codex-task finish (no precheck, no polling)
+lander (serial, seconds, no host slot): validate → rebase (conflict → inbox) → gate --fast
+        → git merge --ff-only → landed.jsonl row
+integrator (asynchronous, one run at a time, integration host reservation):
+        batch = landings from the published commit G up to main M
+        docs/tooling only → record skipped, publish nothing
+        → live_build.build(M) in the `integration` sandbox (cached stages reused)
+        green: live_build.prepare + publish(M); G := M
+        red:   rerun a red Chrome stage once (flake guard) → bisect G..M over landed heads
+               → git revert culprit through land.lock + gate --fast → request to its author
+               → live stays at G; the next run integrates the rest plus the revert
 ```
 
-The old `codex-task land` command remains for recovery but is no longer the normal path.
-The orchestrator's `land.sh` and `land-quiet.sh` wrappers are unnecessary.
-The old batch integration helper is retained only for recovery. The queue publishes individual
-verified prefixes and records each successful member in `landed.jsonl`.
-After each pointer swap, `queue_sweep.py` checks the full gate and live area from its own sandbox
-in the background. Its status is in `wt/.registry/queue-sweep.json` and `queue status`; a red
-sweep creates a fix task and holds queue members touching the changed source domain until a
-green sweep clears it. While a hold covers a branch, `codex-task precheck` runs `gate --all`
-and records `full_gate: true` in the receipt; the queue admits a held branch whose receipt is a
-green full gate and live build on its current head over current main, so the fix lands and
-its own sweep clears the hold. The sweep does not delay publication of the verified prefix.
-A sweep covers the diff since the last swept commit. It is skipped, with `status: "skipped"` and
-`reason: "sweep skipped: no affected domain"`, when no path is a declared live-stage input
-(`live_cache.INPUTS`) and every path is gate prose (`gate.toml` `prose`) or under `scripts/dev/`,
-`docs/` or `.githooks/`; precheck already gated those on the same diff. Unknown paths count as
-affected. A skip keeps the held domains, and the next sweep's diff starts at the last swept commit.
-Sweeps hold one lock and coalesce to the latest main. While a `fix-queue-sweep-*` task runs, a new
-red sweep sends it a note with the newer commit instead of starting a second fix task.
+```sh
+scripts/dev/codex-task queue run          # one daemon, started by the orchestrator
+scripts/dev/codex-task queue status       # read-only JSON
+python3 scripts/dev/integrator.py status  # running integration and last ledger row
+# One integration by hand, e.g. against a copy of the published root:
+python3 scripts/dev/integrator.py run --published /path/to/data-copy --main-repo /path/to/clone --sandbox integration-measure
+```
+
+`queue run` (`merge_queue.run`) polls every 5 s. Each round it (a) discovers DONE results
+(exact `## Result: DONE`, a new `meta.finished`) and lands them in `first_finished` order by
+calling the lander, `landing.land(name)`; and (b) when no integration is running and main has
+moved past both the live commit and the last integration's `to`, it starts
+`integrator.py run` as a detached child (log `wt/.registry/integration.log`). The queue never
+resumes a worker. A failed landing records event `returned` with the reason in
+`merge-queue.json` and posts a `request` to the task inbox (a rebase conflict is returned by the
+lander, which already posted it); the worker rebases, fixes, acks and runs `codex-task finish`
+again, which re-enqueues it. An unacknowledged request/warning records `held` and retries after
+60 s; a held task lock records `busy` and retries next round. `codex-task ls`/`status`, the
+board's idle list and the sentinel show `returned: <reason>`. `queue status` shows the tasks
+waiting to land, the last landing, the integration in progress (from → to, stage, elapsed),
+the live and main commits, how far live is behind, and red culprits awaiting a fix.
+
+`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json` and M
+from main. The diff G..M is classified by the live stage inputs (`live_cache.INPUTS`): when no
+path is a declared input and every path is gate prose or under `scripts/dev/`, `docs/` or
+`.githooks/`, the batch is `skipped`. Unknown paths count as affected. Otherwise it takes the
+`integration` host slot, resets the reused `integration` sandbox to M and runs
+`live_build.build` with the published release as the previous release: refresh and tile-build
+hit the shared cache for game-only batches, and changed layer meshes select only the affected
+tiles. A batch facade count below the published baseline is red unless a `landed.jsonl` row in
+the batch carries `facade_regression_reason` (the lander copies it from the result's
+`Facade regression reason:` line). Green runs `prepare` and `publish` (main is already at M, so
+only the `live` link moves; `publish` restores the previous link if any stable path fails to
+resolve into the new release). Red bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further
+builds), reverts `parent..culprit` on current main under `wt/.registry/land.lock` after
+`gate --fast` in the integration sandbox, appends a `revert-<sha8>` row to `landed.jsonl`, and
+posts a `request` with the failing stage and log to the culprit's task (from `landed.jsonl`).
+A revert conflict or red revert gate is reported in the same request and leaves main alone.
+Each run appends one row to `wt/.registry/integrations.jsonl`: `published`, `from`, `to`,
+`result` (`green`, `skipped`, `red`, `failed`), `seconds` per stage, `cache_hits`,
+`facades_bound`, `builds`, `wall_seconds`, `culprit`, `culprit_task`, `failure`, `revert`.
+`wt/.registry/integration.json` names the running integration and its stage log.
+
+Deleted with this design (merge latency study, §2–§5): precheck receipts and the queue's
+`reverify`/`run_precheck` recheck under a 210 s deadline, `speculative` prefixes and the live
+`QUEUE_STAGE_BUDGETS` (they did not fit measured stage times and produced the SLOW loop);
+Codex resume from the queue (adopted workers have no session); `queue_sweep.py` with its held and
+blocked domains and fix tasks (the integrator's bisect and revert replace them, and it built
+the same tree a second time); `warm_queue.py`, `warm_browser.mjs` and `affected_browser.py`
+(the warm Chrome service only served queue rechecks; the integrator runs the real-tile suite once
+per batch).
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA

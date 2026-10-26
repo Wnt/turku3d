@@ -58,32 +58,37 @@ class HostSlotsTest(unittest.TestCase):
             time.sleep(0.03)
         self.fail(f"slot state did not converge: {self.snapshot()}")
 
-    def test_capacity_and_land_priority(self):
+    def kinds(self, child):
+        return [(e["kind"], e["state"]) for e in self.snapshot() if e["pid"] == child.pid]
+
+    def test_integration_reservation_leaves_build_budget(self):
+        integration = self.start("integration")
+        self.until(lambda: self.kinds(integration) == [("integration", "running")])
+        builds = [self.start("build") for _ in range(3)]
+        self.until(lambda: len(self.snapshot()) == 4)
+        # 6 integration jobs + 2 builds of 2 jobs fill the 10-job budget; the third waits.
+        self.until(lambda: sum(e["state"] == "running" for e in self.snapshot()) == 3)
+        browser = self.start("browser")
+        self.until(lambda: self.kinds(browser) == [("browser", "running")])
+        waiting = [c for c in builds if self.kinds(c) == [("build", "waiting")]]
+        self.assertEqual(len(waiting), 1)
+        os.killpg(integration.pid, signal.SIGTERM)
+        integration.wait(timeout=3)
+        self.until(lambda: self.kinds(waiting[0]) == [("build", "running")])
+
+    def test_waiting_integration_is_not_starved(self):
         builds = [self.start("build") for _ in range(3)]
         self.until(lambda: sum(e["state"] == "running" for e in self.snapshot()) == 3)
-        land = self.start("land")
-        self.until(lambda: any(e["kind"] == "land" for e in self.snapshot()))
+        integration = self.start("integration")
+        self.until(lambda: self.kinds(integration) == [("integration", "waiting")])
+        os.killpg(builds[0].pid, signal.SIGTERM)
+        builds[0].wait(timeout=3)
         extra = self.start("build")
-        self.until(lambda: len(self.snapshot()) == 5)
-        self.assertEqual(
-            [(e["kind"], e["state"]) for e in self.snapshot() if e["pid"] == extra.pid],
-            [("build", "waiting")],
-        )
-        for child in builds:
-            os.killpg(child.pid, signal.SIGTERM)
-            child.wait(timeout=3)
-        self.until(
-            lambda: any(e["kind"] == "land" and e["state"] == "running" for e in self.snapshot())
-        )
-        self.assertEqual(
-            [(e["kind"], e["state"]) for e in self.snapshot() if e["pid"] == extra.pid],
-            [("build", "waiting")],
-        )
-        os.killpg(land.pid, signal.SIGTERM)
-        land.wait(timeout=3)
-        self.until(
-            lambda: any(e["pid"] == extra.pid and e["state"] == "running" for e in self.snapshot())
-        )
+        self.until(lambda: self.kinds(integration) == [("integration", "running")])
+        self.until(lambda: self.kinds(extra) == [("build", "waiting")])
+        os.killpg(integration.pid, signal.SIGTERM)
+        integration.wait(timeout=3)
+        self.until(lambda: self.kinds(extra) == [("build", "running")])
 
     def test_dead_owner_reclaimed_and_browser_cap(self):
         browsers = [self.start("browser") for _ in range(3)]
@@ -115,20 +120,17 @@ class HostSlotsTest(unittest.TestCase):
             )
             self.assertEqual(result.stdout.strip(), expected)
 
-    def test_land_reservation_children_use_whole_host(self):
-        # The exclusive reservation and the build/browser commands nested in it share all cores.
+    def test_integration_children_use_its_budget(self):
         for kind in ("build", "browser"):
             with self.subTest(kind=kind):
                 self.assertEqual(
                     self.nested(kind, "import os; print(os.environ['TURKU3D_JOBS'])"),
-                    str(host_slots.land_jobs(kind)),
+                    str(host_slots.integration_jobs(kind)),
                 )
 
-    def test_landing_children_reuse_exclusive_reservation(self):
-        # A queue-run precheck builds under the queue's own landing reservation.
-        for kind in ("build", "land"):
-            with self.subTest(kind=kind):
-                self.assertEqual(self.nested(kind), "42")
+    def test_integration_children_reuse_reservation(self):
+        # Make targets nested in the integrator's live build do not queue behind it.
+        self.assertEqual(self.nested("build"), "42")
 
     def nested(self, kind, inner="print(42)"):
         script = (
@@ -140,7 +142,7 @@ class HostSlotsTest(unittest.TestCase):
             [
                 sys.executable,
                 str(Path(host_slots.__file__)),
-                "land",
+                "integration",
                 "--",
                 sys.executable,
                 "-c",
@@ -157,15 +159,15 @@ class HostSlotsTest(unittest.TestCase):
         return result.stdout.strip()
 
     def test_admissions_log_waits_and_stats_report_median_and_p90(self):
-        first = self.start("land")
+        first = self.start("integration")
         self.until(lambda: [e["state"] for e in self.snapshot()] == ["running"])
-        queued = self.start("build", seconds=0)
+        queued = self.start("integration", seconds=0)
         self.until(lambda: len(self.snapshot()) == 2)
         os.killpg(first.pid, signal.SIGTERM)
         queued.wait(timeout=6)
         path = Path(self.directory.name) / "waits.jsonl"
         rows = [json.loads(line) for line in path.read_text().splitlines()]
-        self.assertEqual([row["kind"] for row in rows], ["land", "build"])
+        self.assertEqual([row["kind"] for row in rows], ["integration", "integration"])
         self.assertEqual({row["name"] for row in rows}, {self.env.get("TURKU3D_SANDBOX", "main")})
         self.assertGreater(rows[1]["wait_seconds"], 0)
         now = time.time()
@@ -179,7 +181,8 @@ class HostSlotsTest(unittest.TestCase):
             log.write("not json\n")
         stats = host_slots.wait_stats(24, now, self.directory.name)
         self.assertEqual(stats["browser"], {"admissions": 10, "median": 5.5, "p90": 9.0})
-        self.assertEqual(stats["build"]["admissions"], 1)
+        self.assertEqual(stats["integration"]["admissions"], 2)
+        self.assertNotIn("build", stats)
         done = subprocess.run(
             [sys.executable, str(Path(host_slots.__file__)), "stats"],
             env=self.env,

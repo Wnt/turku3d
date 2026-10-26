@@ -1,10 +1,8 @@
 """Small, offline fixtures for live artifact verification and publication."""
 
-import contextlib
 import json
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -96,30 +94,6 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(
                 live_build.affected_tiles(root / "release", root / "work"), live_build.TILES
             )
-
-    def test_warm_checks_select_both_backends(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            scripts = repo / "scripts/dev"
-            scripts.mkdir(parents=True)
-            (scripts / "warm_browser.mjs").touch()
-            (scripts / "affected_browser.py").touch()
-            state = root / "warm-browser.json"
-            state.write_text("{}")
-            env = {
-                "TURKU3D_WARM_BROWSER_STATE": str(state),
-                "TURKU3D_BROWSER_DIR": str(root / "browser"),
-                "TURKU3D_PORT_BASE": "5200",
-            }
-            result = type(
-                "Result", (), {"stdout": json.dumps({"tile": ["tests/e2e-tile/office.spec.ts"]})}
-            )()
-            with patch.object(live_build.subprocess, "run", return_value=result):
-                commands, scopes = live_build.warm_checks(repo, root / "work", env)
-            self.assertEqual([row[0] for row in commands], ["chrome-webgpu", "chrome-webgl"])
-            self.assertEqual(scopes["chrome-webgpu"], ["tests/e2e-tile/office.spec.ts"])
-            self.assertIn("--service-state", commands[0][1])
 
     def test_browser_load_summarizes_frame_time_and_load_retries(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -232,7 +206,6 @@ class LiveBuildTests(unittest.TestCase):
                 )
             )
             calls = []
-            started = time.monotonic()
 
             def run(command, **kwargs):
                 load_log = kwargs["env"].get("TURKU3D_BROWSER_LOAD_LOG")
@@ -256,7 +229,7 @@ class LiveBuildTests(unittest.TestCase):
                         command,
                         kwargs["cwd"],
                         kwargs["env"]["TILE_DIST"],
-                        float(kwargs["env"]["TURKU3D_CHECK_DEADLINE"]),
+                        kwargs["env"].get("TURKU3D_JOBS"),
                     )
                 )
                 if "--checks" in command and "cars" in command:
@@ -280,17 +253,9 @@ class LiveBuildTests(unittest.TestCase):
                     output = "passed\n"
                 return type("Completed", (), {"returncode": 0, "stdout": output})()
 
-            with (
-                patch.object(live_build.s, "run_group", side_effect=run),
-                patch.object(live_build, "slot", return_value=contextlib.nullcontext()),
-                patch.object(live_build, "identity", return_value="test-process"),
-            ):
+            with patch.object(live_build.s, "run_group", side_effect=run):
                 report = live_build.build(
-                    repo,
-                    work,
-                    published,
-                    {"TURKU3D_WORK": str(work), "TURKU3D_CHECK_DEADLINE": str(started + 1000)},
-                    root / "build.log",
+                    repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log"
                 )
             self.assertEqual(
                 [stage for stage in report["seconds"]],
@@ -317,10 +282,9 @@ class LiveBuildTests(unittest.TestCase):
             )
             self.assertEqual(report["car_validation"]["status"], "fail")
             self.assertEqual(report["car_validation"]["failed_tiles"], 1)
-            self.assertLess(calls[2][3] - started, 121)
             self.assertEqual(calls[-1][1], repo / "game")
-            self.assertLess(calls[0][3] - started, 76)
-            self.assertGreater(calls[0][3] - started, 74)
+            # Chrome runs with the integration reservation's four browser workers.
+            self.assertEqual(calls[-1][3], "4")
             self.assertEqual(report["facades_bound"], 2)
             self.assertEqual(list(report["browser_load"]), ["chrome"])
             self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)

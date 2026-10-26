@@ -14,18 +14,51 @@ import sys
 import time
 from pathlib import Path
 
-LIMITS = {"build": 3, "browser": 2, "land": 1}
+LIMITS = {"build": 3, "browser": 2, "integration": 1}
+
+# Host budget in CPU job units and browser (GPU) workers. One integration reserves a
+# fixed share; build and browser admissions continue within what remains.
+BUDGET = {"jobs": 10, "gpu": 6}
+COST = {
+    "build": {"jobs": 2},
+    "browser": {"gpu": 1},
+    # Chrome suites share one GPU. On the M1 Max the 20-test real-tile suite passed in
+    # 1.9 min with four workers; ten workers timed out on 9 tests.
+    "integration": {"jobs": 6, "gpu": 4},
+}
 
 
-# Chrome suites share one GPU. On the M1 Max the 20-test real-tile suite passed in
-# 1.9 min with four workers; ten workers timed out on 9 tests.
-LAND_BROWSER_JOBS = 4
+def integration_jobs(kind="build"):
+    """TURKU3D_JOBS for commands nested in an integration reservation."""
+    return COST["integration"]["gpu" if kind == "browser" else "jobs"]
 
 
-def land_jobs(kind="land"):
-    """An admitted land reservation excludes every other slot, so it owns the whole host."""
-    cores = os.cpu_count() or 1
-    return min(cores, LAND_BROWSER_JOBS) if kind == "browser" else cores
+def fits(entries, kind):
+    """Whether `kind` fits beside the running entries within every budgeted resource."""
+    running = [e for e in entries if e["state"] == "running"]
+    if sum(e["kind"] == kind for e in running) >= LIMITS[kind]:
+        return False
+    return all(
+        sum(COST[e["kind"]].get(resource, 0) for e in running) + COST[kind].get(resource, 0)
+        <= budget
+        for resource, budget in BUDGET.items()
+    )
+
+
+def admissible(entries, entry):
+    """Admit within budget; later admissions never starve a waiting integration."""
+    if not fits(entries, entry["kind"]):
+        return False
+    older = any(
+        e["kind"] == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]
+        for e in entries
+    )
+    if not older:
+        return True
+    # Admit only what still leaves room for the waiting integration.
+    return entry["kind"] != "integration" and fits(
+        [*entries, {**entry, "state": "running"}], "integration"
+    )
 
 
 def root():
@@ -91,14 +124,13 @@ def waiting(sandbox):
 def slot(kind):
     if kind not in LIMITS:
         raise ValueError(f"unknown slot class: {kind}")
-    owner = os.environ.get("TURKU3D_LAND_OWNER", "")
-    # Children of a running landing reservation, including a nested landing
-    # build such as a queue-run precheck, reuse its exclusive capacity.
+    owner = os.environ.get("TURKU3D_INTEGRATION_OWNER", "")
+    # Build and browser commands nested in a running integration use its reservation.
     if owner:
         pid, _, started = owner.partition(":")
         with state() as data:
             inherited = any(
-                entry["kind"] == "land"
+                entry["kind"] == "integration"
                 and entry["state"] == "running"
                 and str(entry["pid"]) == pid
                 and entry["identity"] == started
@@ -126,21 +158,7 @@ def slot(kind):
                 entries = data["entries"]
                 if entry not in entries:
                     entries.append(entry)
-                running = [e for e in entries if e["state"] == "running"]
-                older_land = any(
-                    e["kind"] == "land"
-                    and e["state"] == "waiting"
-                    and (kind != "land" or e["since"] < entry["since"])
-                    for e in entries
-                )
-                if kind == "land":
-                    admitted = not running and not older_land
-                else:
-                    admitted = (
-                        not any(e["kind"] == "land" for e in running)
-                        and not older_land
-                        and sum(e["kind"] == kind for e in running) < LIMITS[kind]
-                    )
+                admitted = admissible(entries, entry)
                 if admitted:
                     entries[entries.index(entry)]["state"] = "running"
                     entry["state"] = "running"
@@ -209,12 +227,12 @@ def main():
         parser.error("command required")
     with slot(args.kind) as inherited:
         env = os.environ.copy()
-        if args.kind == "land" and not inherited:
-            env["TURKU3D_JOBS"] = str(land_jobs())
-            env["TURKU3D_LAND_OWNER"] = f"{os.getpid()}:{identity(os.getpid())}"
+        if args.kind == "integration" and not inherited:
+            env["TURKU3D_JOBS"] = str(integration_jobs())
+            env["TURKU3D_INTEGRATION_OWNER"] = f"{os.getpid()}:{identity(os.getpid())}"
         else:
-            # Children of a land reservation keep its whole-host budget, GPU-bounded for Chrome.
-            cap = land_jobs(args.kind) if inherited else 1 if args.kind == "browser" else 2
+            # Children of an integration keep its budget, GPU-bounded for Chrome.
+            cap = integration_jobs(args.kind) if inherited else 1 if args.kind == "browser" else 2
             env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))
         return subprocess.call(command, env=env)
 
