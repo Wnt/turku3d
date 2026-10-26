@@ -31,6 +31,10 @@ def build(root, out):
             str(inputs / "ground-preview"),
             "--facades",
             str(inputs / "facades"),
+            # Synthetic layers are not the office block; its real-layer
+            # acceptance gate does not apply to them.
+            "--area",
+            "playable-tiles",
             "--tile",
             "t0_0_0",
             "t0_0_1",
