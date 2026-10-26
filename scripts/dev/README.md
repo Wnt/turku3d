@@ -78,7 +78,8 @@ scripts/dev/codex-task log stairs 30
 scripts/dev/codex-task result stairs
 scripts/dev/codex-task resume stairs --reason unblock 'Fix the failing seam test and rerun the gate.'
 scripts/dev/codex-task stop stairs
-scripts/dev/codex-task precheck stairs
+scripts/dev/codex-task land stairs          # rebase, gate --fast, fast-forward main (<= 180 s)
+scripts/dev/codex-task land --batch a b c  # in order; a red batch lands its green prefix
 scripts/dev/codex-task queue status
 scripts/dev/codex-task queue run          # one daemon, started by the orchestrator
 ```
@@ -111,10 +112,49 @@ The quota guard reuses `textures/turkutex/codex/usage.py` (`codex app-server` JS
 It refuses when any usage window reaches 100%, or usage is unknown. `run/resume --force` bypasses a known 100%
 reading only. Tests use a fake `codex` on PATH and synthetic repositories; no real calls occur in `tooling-test`.
 
-Landing is serialized with `wt/.registry/land.lock`. It requires a successful completed task, an exact
-`## Result: DONE` line and clean worker/main worktrees. It rebases on main (aborting a conflicting rebase),
-runs `scripts/dev/gate --base <old-main-sha>` in the worker environment, then seeds private APFS copies
-of the published layers, textures and tile dist. It runs `make refresh`, `make tile-build
+### Landing (`codex-task land`, `landing.land`)
+
+Landing is serialized with `wt/.registry/land.lock` and the task lock. It requires a successful
+completed task (`finish` for external workers), an exact `## Result: DONE` line, clean worker and main
+worktrees and no unacknowledged inbox request or warning (`--force` overrides only the messages). The
+lander rebases the worker branch onto main. A conflict aborts the rebase, posts a `request` to the task
+inbox naming the conflicting files, sets `state: returned` and `returned_reason` in `meta.json` (shown
+by `ls`/`status`) and leaves main unchanged; the worker acks it, rebases, and runs `finish` again. It then
+runs `scripts/dev/gate --fast --base <main>` in the sandbox environment (output in `gate.log`) and
+`git merge --ff-only` in the main checkout (a compare-and-swap `git update-ref` when main has no
+checkout). If main moved during the gate it rebases and gates again, at most three times. A red gate
+leaves main unchanged and names the failing stage, host load and log. There is no host slot, live
+build or receipt. `merge_queue.run` calls the same `landing.land(name, force=False)`, which returns
+the ledger row.
+
+The whole landing has a hard budget of 180 s (`landing.BUDGET_SECONDS`); the gate's process group is
+terminated at the deadline. Over budget the landing raises `merge_slow`, records `merge_slow` (seconds,
+step) in `meta.json`, and leaves main unchanged. Each landing appends one row per task to
+`wt/.registry/landed.jsonl`: `name`, `before`, `commit` (the new main head), `source`, `time`,
+`merge_wall_seconds`, `merge_slow`, `fast_gate_seconds`, `fast_gate_stages`, `first_done_time` (the
+first `finish`, kept in `meta.first_finished` and never overwritten), `done_time` and
+`facade_regression_reason` (from the result's `Facade regression reason:` line; the integrator reads
+it from here), plus `batch` for batch members. `land --batch a b c` cherry-picks the members in order
+into a temporary integration sandbox and runs one fast gate over the batch. A red batch is bisected
+by prefix; the green prefix lands, the first red member is returned with a request, and members after
+it stay DONE for the next landing. A batch gets 180 s per member. After a fast-forward, `land` and
+each landed batch member remove clean, stopped sandboxes and report the bytes freed. A retained
+sandbox prints the reason; remove it later with `scripts/dev/wt rm <name>` or
+`scripts/dev/wt prune-landed`.
+
+Deleted on 2026-10-27, because a finished branch waited a median of 80 minutes (worst 147) for main
+although the merge takes a second (`~/turku3d/logs/merge-latency-study/report.md`): the precheck
+receipt as a landing prerequisite (`codex-task precheck`, `task_runner.precheck`, `verification.py`
+with its main-equality check, `landing.fast`, `land --prechecked`/`--dry-run`), the `--all` gate
+escalation while the post-merge sweep was red, the live build inside `land` and `land --batch`, and
+`facade_reason` read from `last.md` at landing. Each precheck ran 15–47 minutes of gate e2e and live
+build on a whole-host slot, and every landing invalidated every other waiting receipt. Main now only
+requires the fast gate; the integrator builds, Chrome-verifies and publishes the live release once
+per batch after the merge, so main may be red for one integration cycle while live never is.
+
+### Live build (`live_build.build`, run by the integrator)
+
+The live build seeds private APFS copies of the published layers, textures and tile dist. It runs `make refresh`, `make tile-build
 T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'`, a bounded `make tile-validate` on changed collision tiles
 (all selected tiles when only validator code changed), followed by a separate
 known-red car report over the same collision tiles. The release gate requires
@@ -130,8 +170,8 @@ The facade audit reports all approved facades, including buried bases on slopes,
 blocks floating or missing walls and incorrect photo UVs. The manifest check requires ground textures on all four L0
 tiles and each tile below 8 MB on the wire. The assembler's `facades_bound` count must meet the current
 published release's count. A task may report an intentional reduction with `Facade regression reason:
-<specific reason>` in `last.md`; the exception is recorded in the landing ledger. Stage times and output
-are in `live-build.log` and `meta.json`.
+<specific reason>` in its result; the lander copies it into the ledger row. Stage times and output
+are in `live-build.log`.
 Each gate and live-build command runs in its own process group, which is terminated on exit.
 Failures name the failing stage or test and include the host load and log path. For a Playwright
 suite the detail is the first failing test and its first error, so a test timeout reads as
@@ -144,11 +184,8 @@ regression at a glance. Browser specs wait on game time and retry once only abov
 For the first landing, the baseline comes from the legacy `deploy-once.log` assembler result (164 on
 2026-10-26); later landings read the previous release's `live-build.json`.
 
-After verifying the tested HEAD/tree, unchanged main, prepared release, and stable live paths,
-landing fast-forwards main. A publication failure resets main to its previous head under the
-landing lock and restores the previous live link. If main has no
-checkout, a compare-and-swap `git update-ref` is used. The verified game, tiles, layers and textures
-are APFS-copied into `$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
+Publication APFS-copies the verified game, tiles, layers and textures into
+`$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
 swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
 that link, so the existing :5171 static server serves the verified files without a process restart.
 Preparation dereferences sandbox links and rejects any link left inside a release. Publication checks
@@ -156,12 +193,8 @@ all four stable paths after the swap and restores the previous `live` link if a 
 to its directory in the prepared release.
 `~/turku3d/logs/live-version.txt` records the published commit. Do not run `deploy-once.sh`
 or `autodeploy.sh` on main; `make refresh` refuses the published data root. Run refresh in a sandbox.
-Do not update main outside this orchestrator while landing. A missing gate fails closed; there is no
-legacy Make fallback. The landing record goes to
-`wt/.registry/landed.jsonl`. A red gate leaves main unchanged; inspect `gate.log`, fix and resume the task.
-After a successful fast-forward, `land` and each batch member remove clean, stopped sandboxes
-and report allocated bytes freed. A retained sandbox prints the reason; remove it later with
-`scripts/dev/wt rm <name>` or `scripts/dev/wt prune-landed`.
+Do not update main outside the lander while landing. A missing gate fails closed; there is no
+legacy Make fallback.
 
 ### Long commands (agents)
 
@@ -169,7 +202,8 @@ Run anything that can take longer than 30 s as one blocking call instead of poll
 
 ```bash
 scripts/dev/codex-task wait-cmd -- scripts/dev/gate
-scripts/dev/codex-task wait-cmd --tail 80 -- scripts/dev/codex-task precheck stairs
+scripts/dev/codex-task wait-cmd --tail 80 -- scripts/dev/codex-task land stairs          # rebase, gate --fast, fast-forward main (<= 180 s)
+scripts/dev/codex-task land --batch a b c  # in order; a red batch lands its green prefix
 scripts/dev/codex-task wait-cmd --timeout 1800 -- make tile-build T='t0_0_0'
 scripts/dev/codex-task wait-cmd -- make game-e2e
 ```
@@ -318,7 +352,13 @@ make game-e2e
 ```
 
 `tooling-test` runs up to TURKU3D_JOBS independent synthetic-repository tests at a time and covers concurrent port claims, adoption, shell-safe environment generation, fake run/resume,
-quota refusal/override, process-group stop, landing success/refusals, removal and orientation from both checkouts.
+quota refusal/override, process-group stop, removal and orientation from both checkouts.
+`scripts/dev/tests/test_lander.py` (in `tooling-tests`) covers the lander on synthetic repositories:
+a branch lands after main moved in under 5 s without importing the live builder; a rebase conflict
+posts an inbox request, marks the task `returned` and leaves main unchanged; `land --batch` with a
+red member lands the green prefix; the ledger keeps `first_done_time` across a second `finish`;
+DONE/dirty/red-gate/missing-gate refusals, open-message blocking, main moving during the gate and
+the `merge_slow` budget.
 Coordination coverage includes two sandbox environments exchanging requests and acknowledgements,
 board announcements, concurrent CLI readers/writers, append-only/idempotent acknowledgements,
 unread counts, landing refusal/override (including arrivals during the gate), and run/resume prompts.
@@ -375,8 +415,19 @@ scripts/dev/gate                         # merge-base(main, HEAD) + index + work
 scripts/dev/gate --base HEAD             # only local changes
 scripts/dev/gate --base main --list      # selection and explicit reasons, without executing
 scripts/dev/gate --all                   # every stage, including both browser backends
+scripts/dev/gate --fast --base main      # the lander's pre-merge gate: selective, no browser stages
+scripts/dev/gate --fast --base main --list   # what the lander would run, and why each stage is skipped
 scripts/dev/gate --json                  # JSON report, including command output and durations
 ```
+
+`--fast` is the selective gate without browser stages: `kind = "e2e"` (`game-e2e`) and any stage
+marked `browser = true` (`qa-render-tests`, which launches Chrome) are skipped with the reason
+`--fast: browser stages run in the integrator`. Everything else stays selective, including the
+full-trigger widening; a gate test fails if a stage that starts Playwright or Chrome is not marked.
+Workers run it before `finish`, and the lander runs it again after rebasing. Target: at most 60 s on
+a typical change and about 2 s when every stage is cached. `full_triggers` are only the gate's own
+`gate.toml`, `gate_lib.py`, `gate_fixtures.py` and `gate_cache.py`; `host_slots.py`, `env_sync.py`
+and `resources.py` select `gate-tests`, `tooling-tests` and `python-lint` like other tooling.
 
 Exit codes: **0 green, 1 red, 2 usage/invalid base**. Deleted paths still select their owning
 stages. Ignored untracked files do not count. JSON goes to stdout with no progress chatter;

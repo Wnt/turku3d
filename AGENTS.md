@@ -58,14 +58,13 @@ progress updates and final reports. This overrides personal default language set
 - The orchestrator starts work with `scripts/dev/codex-task run <name> --brief docs/briefs/X.md`.
   Inspect with `ls`, `status <name>`, `log <name>`, and `result <name>`; follow up with `resume <name> "text"`.
   `stop <name>` stops only that task's process group. The runner refuses exhausted or unreadable quota.
-- Rebase on current main at the start of every turn. Before `## Result: DONE`, commit and run
-  `scripts/dev/codex-task precheck <name>` in the sandbox. It rebases again, runs the gate and the
-  real live-build checks, records per-check input hashes and prepares a content-addressed release.
-  Resolve failures before reporting DONE. The merge queue verifies that receipt, fast-forwards
-  main and publishes the prepared artifacts through `$TURKU3D_DATA/live`; it never rebuilds in the
-  unchanged-main merge path. When main moves, affected checks have a bounded queue recheck or
-  return to the worker. Workers never land main.
-  Finish and precheck each coherent slice as soon as it is green, so queue candidates stay small.
+- Rebase on current main at the start of every turn. DONE means: committed on your branch,
+  `scripts/dev/gate --fast --base main` green, a result file with the headings below, and
+  `scripts/dev/codex-task finish <name> --result <file>` (Codex runs record the result themselves).
+  Finish each coherent slice as soon as it is green, so landings stay small. Workers never land main.
+  The lander runs the fast gate and fast-forwards main within three minutes. The integrator builds and
+  verifies the live release asynchronously; a red batch is bisected and the culprit reverted with an
+  inbox message to its author. Live only ever points to a verified release.
   A facade count below the published baseline requires a `Facade regression reason: ...` line in the task
   result. Workers commit on their own branch.
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.
