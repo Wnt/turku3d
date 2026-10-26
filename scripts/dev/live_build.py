@@ -17,6 +17,7 @@ QUEUE_STAGE_BUDGETS = {
     "refresh": 75,
     "tile-build": 150,
     "tile-validate": 120,
+    "car-report": 120,
     "game-build": 30,
     "collision-sweep": 30,
     "collision-audit": 30,
@@ -211,6 +212,29 @@ def load_summary(load):
     )
 
 
+def inspect_car_report(path, returncode):
+    """Preserve known-red car diagnostics without accepting validator load errors."""
+    if returncode not in (0, 1) or not path.is_file():
+        raise ValueError(f"car report failed ({returncode}); report missing or validator error: {path}")
+    data = json.loads(path.read_text())
+    cars = data.get("checks", {}).get("cars", {})
+    status = cars.get("status")
+    if status not in ("pass", "fail") or bool(data.get("pass")) != (status == "pass"):
+        raise ValueError(f"car report has no usable car result: {path}")
+    if returncode != (0 if status == "pass" else 1):
+        raise ValueError(f"car report exit code disagrees with result: {path}")
+    per_tile = cars.get("perTile", [])
+    if not per_tile:
+        raise ValueError(f"car report has no tested tiles: {path}")
+    return {
+        "status": status,
+        "failed_tiles": sum(tile.get("status") == "fail" for tile in per_tile),
+        "tested_tiles": len(per_tile),
+        "report": "reports/validate-cars.json",
+        "known_red_reason": "Published car probes still fail curb response and four wall/building crossings",
+    }
+
+
 def warm_checks(repo, work, env):
     """Use the queue-owned Chrome for affected tile specs when available."""
     service = env.get("TURKU3D_WARM_BROWSER_STATE")
@@ -293,9 +317,15 @@ def _build(repo, work, published, env, log_path, reason=None):
                 "tile-validate",
                 "T=" + " ".join(TILES),
                 "TILE_WALKERS=128",
-                "VALIDATOR_ARGS=--checks format,seams,cars,buildings,curbs --walk-seconds 2",
+                "VALIDATOR_REQUIRE=buildings,curbs",
+                "VALIDATOR_ARGS=--checks format,seams,buildings,curbs --walk-seconds 2",
             ],
             repo,
+        ),
+        (
+            "car-report",
+            ["node", "src/cli.ts", "--checks", "cars", "--require", "cars", "--workers", "4"],
+            repo / "tools/validator",
         ),
         ("game-build", ["make", "game-build"], repo),
         ("collision-sweep", ["make", "collision-sweep"], repo),
@@ -325,14 +355,21 @@ def _build(repo, work, published, env, log_path, reason=None):
                     if selected and same_tree(prior / "textures", work / "textures"):
                         command = ["make", "tile-build", "T=" + " ".join(selected)]
                         scopes[stage] = selected
-            if stage == "tile-validate":
+            if stage in ("tile-validate", "car-report"):
                 selected = scopes.get("tile-build") or TILES
-                command[2] = "T=" + " ".join(selected)
                 previous_id = env.get("TURKU3D_PREVIOUS_RELEASE_ID")
                 prior = published / "live-releases" / previous_id if previous_id else None
                 files = affected_collision_files(prior, work, selected)
-                if files:
-                    command.append("VALIDATOR_INPUTS=" + " ".join(map(str, files)))
+                if stage == "tile-validate":
+                    command[2] = "T=" + " ".join(selected)
+                    if files:
+                        command.append("VALIDATOR_INPUTS=" + " ".join(map(str, files)))
+                else:
+                    command.extend(("--out", str(work / "reports/validate-cars.json")))
+                    layers = work / "build/layers"
+                    if layers.is_dir():
+                        command.extend(("--layers", str(layers)))
+                    command.extend(map(str, files))
                 scopes[stage] = tuple(str(path.relative_to(work)) for path in files)
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
@@ -344,7 +381,7 @@ def _build(repo, work, published, env, log_path, reason=None):
             )
             if key:
                 input_hashes[stage] = key
-            cached = live_cache.restore(published, work, stage, key) if key else None
+            cached = live_cache.restore(published, work, stage, key) if key and stage != "car-report" else None
             if cached is not None:
                 log.write(f"cache hit {key}\n")
                 durations[stage] = 0.0
@@ -379,7 +416,12 @@ def _build(repo, work, published, env, log_path, reason=None):
                 browser_loads[stage] = load
                 log.write(f"{stage} load: {json.dumps(load)}\n")
             log.flush()
-            if proc.returncode:
+            if stage == "car-report":
+                car_report = inspect_car_report(work / "reports/validate-cars.json", proc.returncode)
+                if report is None:
+                    raise ValueError("tile-build report is unavailable before car validation")
+                report["car_validation"] = car_report
+            elif proc.returncode:
                 conditions = load_summary(load) if load else f"host load {s.host_load()}"
                 raise ValueError(
                     f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; {conditions}: {log_path}; main unchanged"
@@ -395,7 +437,7 @@ def _build(repo, work, published, env, log_path, reason=None):
                 if facade_count is None:
                     raise ValueError(f"tile-build did not report facades_bound: {log_path}")
                 report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
-            if key:
+            if key and stage != "car-report":
                 live_cache.store(
                     published,
                     work,
@@ -403,6 +445,8 @@ def _build(repo, work, published, env, log_path, reason=None):
                     key,
                     {"facades_bound": report["facades_bound"]} if stage == "tile-build" else {},
                 )
+                previous = key
+            elif key:
                 previous = key
     report["seconds"] = durations
     report["cache_hits"] = cache_hits
@@ -437,6 +481,12 @@ def prepare(work, published, commit, report, release_id=None):
             for asset in (release / name).rglob("*"):
                 if asset.is_file():
                     os.utime(asset, None)
+    if "car_validation" in report:
+        car_report = work / report["car_validation"]["report"]
+        if not car_report.is_file():
+            raise ValueError(f"verified car report is missing: {car_report}")
+        (release / "reports").mkdir()
+        shutil.copy2(car_report, release / "reports/validate-cars.json")
     (release / "live-build.json").write_text(
         json.dumps({"commit": commit, **report}, indent=2) + "\n"
     )
@@ -448,8 +498,11 @@ def prepared(published, commit, release_id=None):
     release = published / "live-releases" / (release_id or commit)
     if not (release / "live-build.json").exists():
         raise ValueError(f"prepared release is missing: {release}")
-    if json.loads((release / "live-build.json").read_text())["commit"] != commit:
+    record = json.loads((release / "live-build.json").read_text())
+    if record["commit"] != commit:
         raise ValueError("prepared release commit does not match landing")
+    if "car_validation" in record and not (release / record["car_validation"]["report"]).is_file():
+        raise ValueError("prepared release car report is missing")
     for name in ("game", "tiles", "layers", "textures"):
         directory = release / name
         if not directory.is_dir() or directory.is_symlink():

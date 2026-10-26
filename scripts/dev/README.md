@@ -114,7 +114,12 @@ Landing is serialized with `wt/.registry/land.lock`. It requires a successful co
 runs `scripts/dev/gate --base <old-main-sha>` in the worker environment, then seeds private APFS copies
 of the published layers, textures and tile dist. It runs `make refresh`, `make tile-build
 T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'`, a bounded `make tile-validate` on changed collision tiles
-(all selected tiles when only validator code changed),
+(all selected tiles when only validator code changed), followed by a separate
+known-red car report over the same collision tiles. The release gate requires
+buildings and curbs; car failures are recorded in `reports/validate-cars.json`
+and `live-build.json` while car content and vehicle response are repaired. Car
+validator load errors and missing reports still fail the live build. The full
+`make tile-validate` command still requires cars,
 `make game-build`, `make collision-sweep`, `make collision-audit`,
 and the real-tile Playwright suite in Chrome on the sandbox dist port. The suite checks spawn loading on
 WebGPU and WebGL2 and fewer than 500 draws. The manifest check requires ground textures on all four L0

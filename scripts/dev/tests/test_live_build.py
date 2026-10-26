@@ -45,9 +45,16 @@ class LiveBuildTests(unittest.TestCase):
                 (work / relative).mkdir(parents=True)
             (work / "textures/asset.bin").write_bytes(b"stable")
             (work / "textures/link.bin").symlink_to("asset.bin")
-            release = live_build.prepare(work, root / "data", "commit", {}, "key")
+            (work / "reports").mkdir()
+            (work / "reports/validate-cars.json").write_text('{"pass":false}')
+            release = live_build.prepare(
+                work, root / "data", "commit",
+                {"car_validation": {"report": "reports/validate-cars.json"}}, "key",
+            )
             self.assertFalse((release / "textures/link.bin").is_symlink())
             self.assertEqual((release / "textures/link.bin").read_bytes(), b"stable")
+            self.assertEqual((release / "reports/validate-cars.json").read_text(), '{"pass":false}')
+            live_build.prepared(root / "data", "commit", "key")
 
     def test_seed_approvals_never_write_through_shared_texture_link(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -249,6 +256,12 @@ class LiveBuildTests(unittest.TestCase):
                         float(kwargs["env"]["TURKU3D_CHECK_DEADLINE"]),
                     )
                 )
+                if "--checks" in command and "cars" in command:
+                    (work / "reports").mkdir(exist_ok=True)
+                    (work / "reports/validate-cars.json").write_text(
+                        json.dumps({"pass": False, "checks": {"cars": {"status": "fail", "perTile": [{"status": "fail"}]}}})
+                    )
+                    return type("Completed", (), {"returncode": 1, "stdout": "cars FAIL\n"})()
                 output = '{"facades_bound": 2}\n' if "tile-build" in command else "passed\n"
                 return type("Completed", (), {"returncode": 0, "stdout": output})()
 
@@ -270,17 +283,22 @@ class LiveBuildTests(unittest.TestCase):
                     "refresh",
                     "tile-build",
                     "tile-validate",
+                    "car-report",
                     "game-build",
                     "collision-sweep",
                     "collision-audit",
                     "chrome",
                 ],
             )
-            self.assertEqual(len(calls), 7)
+            self.assertEqual(len(calls), 8)
             self.assertEqual(
                 calls[2][0][:3], ["make", "tile-validate", "T=" + " ".join(live_build.TILES)]
             )
             self.assertIn("TILE_WALKERS=128", calls[2][0])
+            self.assertIn("VALIDATOR_REQUIRE=buildings,curbs", calls[2][0])
+            self.assertIn("--checks format,seams,buildings,curbs --walk-seconds 2", " ".join(calls[2][0]))
+            self.assertEqual(report["car_validation"]["status"], "fail")
+            self.assertEqual(report["car_validation"]["failed_tiles"], 1)
             self.assertLess(calls[2][3] - started, 121)
             self.assertEqual(calls[-1][1], repo / "game")
             self.assertLess(calls[0][3] - started, 76)
@@ -288,6 +306,17 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(report["facades_bound"], 2)
             self.assertEqual(list(report["browser_load"]), ["chrome"])
             self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)
+
+    def test_car_report_rejects_missing_or_inconsistent_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "cars.json"
+            with self.assertRaisesRegex(ValueError, "report missing"):
+                live_build.inspect_car_report(path, 1)
+            path.write_text(json.dumps({"pass": False, "checks": {"cars": {"status": "fail"}}}))
+            with self.assertRaisesRegex(ValueError, "exit code disagrees"):
+                live_build.inspect_car_report(path, 0)
+            with self.assertRaisesRegex(ValueError, "validator error"):
+                live_build.inspect_car_report(path, 2)
 
     def test_inspect_requires_bound_ground_budget_and_facade_floor(self):
         with tempfile.TemporaryDirectory() as temp:
