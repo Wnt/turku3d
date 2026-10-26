@@ -21,10 +21,10 @@ describe('action mapping', () => {
     expect(radial(NaN, Infinity)).toEqual([0, 0]);
   });
   test('fake Xbox covers every standard action and analog triggers', () => {
-    const a = mapActions(pad([1, -1, 0.8, -0.7], { 0: 1, 2: 1, 3: 1, 5: 1, 6: 0.25, 7: 0.8, 8: 1, 9: 1, 11: 1 }), new Set(), bindings());
+    const a = mapActions(pad([1, -1, 0.8, -0.7], { 0: 1, 2: 1, 3: 1, 5: 1, 6: 0.25, 7: 0.8, 8: 1, 9: 1, 11: 1, 13: 1 }), new Set(), bindings());
     expect(a.moveX).toBeCloseTo(Math.SQRT1_2); expect(a.moveY).toBeCloseTo(Math.SQRT1_2);
     expect(a.lookX).toBeGreaterThan(0); expect(a.lookY).toBeLessThan(0);
-    for (const action of ['sprint', 'jump', 'interact', 'mission', 'handbrake', 'cameraReset', 'pause', 'mute'] as const) expect(a[action]).toBe(1);
+    for (const action of ['sprint', 'jump', 'interact', 'mission', 'handbrake', 'cameraReset', 'pause', 'mute', 'map'] as const) expect(a[action]).toBe(1);
     expect(glyph('mission', bindings(), true)).toBe('Ⓐ'); expect(glyph('mission', bindings(), false)).toBe('E');
     expect(a.throttle).toBe(0.8); expect(a.brake).toBe(0.25); expect(a.steer).toBe(a.moveX);
   });

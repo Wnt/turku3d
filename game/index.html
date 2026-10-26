@@ -23,6 +23,15 @@
       .start-hint { font-size: 12px; }
       .start-intro { font-size: 14px; color: #cfe0dd; border-left: 3px solid #a1ebd3; padding-left: 12px; }
       body.qa #hud, body.qa #help { display: none; }
+      #minimap { position: fixed; left: 16px; bottom: 16px; z-index: 5; display: flex; flex-direction: column; gap: 6px; pointer-events: none; color: #f1f4f5; font: 600 14px/1.3 system-ui, sans-serif; text-shadow: 0 1px 2px #000c; }
+      #minimap canvas { display: block; filter: drop-shadow(0 2px 6px #0008); }
+      #minimap.expanded { left: 50%; bottom: auto; top: 50%; transform: translate(-50%, -50%); }
+      .minimap-status { display: flex; flex-direction: column; gap: 2px; max-width: 240px; }
+      .minimap-message { background: #0009; padding: 4px 8px; border-radius: 4px; }
+      .minimap-row { display: flex; gap: 12px; align-items: baseline; }
+      .minimap-timer { font-size: 18px; font-variant-numeric: tabular-nums; }
+      .minimap-timer.urgent { color: #ff6b6b; }
+      .minimap-money { color: #8fe3a0; font-size: 18px; font-variant-numeric: tabular-nums; }
     </style>
   </head>
   <body>

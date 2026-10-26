@@ -22,7 +22,7 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
 - City bed, wind and distant traffic mix with a positional river/gull pair. River position is the
   nearest point on an approximate Aura centreline in engine coordinates; the water/gull mix fades
   to zero over 140 m. This is an office-area approximation, not measured water geometry.
-- Menu/M toggles mute; View/Escape pauses. The Audio panel has master, footsteps, vehicle, ambience
+- D-pad down/N toggles mute; Menu/Escape pauses (View/M is the map). The Audio panel has master, footsteps, vehicle, ambience
   and UI sliders. Settings are session-local. Pause fades loops and suppresses gameplay one-shots.
 
 The context is created and resumed synchronously on the first key/pointer input. Gamepad activity

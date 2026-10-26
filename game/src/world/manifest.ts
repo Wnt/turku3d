@@ -12,6 +12,7 @@ export interface Manifest {
   spawn?: { position: [number, number, number]; headingDeg: number; vehicle: { position: [number, number, number]; yaw: number } };
   vehicles?: ParkedVehicle[];
   vehicle_models?: Record<string, { url: string; sha256: string; bytes: number }>;
+  roads?: { url: string; sha256: string; bytes: number; nodes: number; edges: number };
   baseUrl: string;
 }
 

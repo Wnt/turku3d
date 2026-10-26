@@ -26,10 +26,10 @@ import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
 import { MissionSystem, OWN_VEHICLE_ID, hasSavedGame } from './gameplay/missions/missions';
-import { straightRouter } from './gameplay/missions/straightRouter';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { BICYCLE_TOP_SPEED } from './gameplay/economy';
+import { createGameplay, compassDeg } from './gameplay';
 import { IdPass } from './render/idPass';
 import { MATERIALS } from './shared/col/materials';
 import type { VehicleInput } from './physics/protocol';
@@ -242,8 +242,12 @@ async function runPlay() {
         halfExt: { x: parked.length / 2 - 0.18, y: Math.min(0.55, parked.height * 0.32), z: parked.width / 2 - 0.05 } });
   }
   await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
-  const missions = new MissionSystem({ router: straightRouter, storage });
+  // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
+  const { router, minimap } = await createGameplay(manifest, document.body);
+  const missions = new MissionSystem({ router, storage });
+  minimap.setSource(missions);
   void startScreen.closed.then(() => missions.begin());
+  const mapDirection = new THREE.Vector3();
 
   let mode: 'foot' | 'car' = 'foot';
   let drivenId: string | null = null;
@@ -270,7 +274,7 @@ async function runPlay() {
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, missions: missions.snapshot(), errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, parkedVisuals, missions, ready: true });
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, parkedVisuals, missions, router, minimap, ready: true });
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {
@@ -291,6 +295,7 @@ async function runPlay() {
       input.lookX = input.lookY = input.zoom = 0;
     }
     if (input.consume('pause')) paused = !paused;
+    if (input.consume('map')) minimap.toggleExpanded();
     if (input.consume('mute')) audio.emit({ type: 'mute' });
     const resetCamera = !paused && input.consume('cameraReset');
     if (mode === 'foot' && !paused) {
@@ -408,6 +413,13 @@ async function runPlay() {
     renderFrame();
     window.__render?.afterFrame?.();
 
+    router.mode = mode;
+    const facing = mode === 'car' && vs ? mapDirection.set(1, 0, 0).applyQuaternion(carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w))
+      : mapDirection.set(Math.sin(player.root.rotation.y), 0, Math.cos(player.root.rotation.y));
+    const facingDeg = compassDeg(facing.x, facing.z);
+    camera.getWorldDirection(mapDirection);
+    minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode });
+
     const en = engineToEN(feet.x, feet.y, feet.z);
     const tot = physics.totals();
     const ct = collisionTileAt(feet.x, feet.z);
@@ -421,8 +433,8 @@ async function runPlay() {
     });
     const help = document.getElementById('help')!;
     help.textContent = paused ? `${input.prompt('pause')} Resume` : mode === 'foot'
-      ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter car · ${input.prompt('cameraReset')} camera · ${input.prompt('pause')} pause`
-      : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('pause')} pause`;
+      ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter car · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
+      : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`;
     perf.end();
   });
 }

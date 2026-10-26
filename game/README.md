@@ -62,7 +62,7 @@ The same commands are available from the repo root through `mk/game.mk`: `make g
 ## Audio
 
 Game audio v1 adds material footsteps, positional car/impact/door effects, city/river/gull/traffic/wind ambience,
-and a connection blip. The Audio panel controls master and channel volumes. Menu/M mutes; View/Escape pauses.
+and a connection blip. The Audio panel controls master and channel volumes. D-pad down/N mutes; Menu/Escape pauses.
 Audio unlocks on first input; if Chrome keeps it suspended after gamepad input, click once or press a key.
 See [audio setup and tests](src/audio/README.md) and [CC0 sources](public/assets/audio/LICENSES.md).
 
@@ -83,14 +83,15 @@ Chrome on macOS exposes Xbox Elite Series 2 as **Xbox Wireless Controller**, sta
 | Look | Right stick | Right stick | Click canvas for mouse lock, move mouse |
 | Reset camera | R3 | R3 | C |
 | Zoom | — | — | Mouse wheel |
-| Pause / resume | View | View | Escape |
-| Mute / unmute | Menu | Menu | M |
+| Map: minimap ↔ large map | View | View | M |
+| Pause / resume | Menu | Menu | Escape |
+| Mute / unmute | D-pad down | D-pad down | N |
 | Reset car upright | — | — | R |
 | Toggle debug HUD | — | — | H |
 
 Full stick = 3.6 m/s jog; sprint = 6 m/s; keyboard slow walk = 1.5 m/s. Input magnitude is preserved after a radial dead zone (left 0.16, right 0.12) and power response curves (1.35 / 1.6). Acceleration and deceleration are smoothed. Jump is a press edge, retained across worker latency and frames without a physics tick. Holding jump does not auto-jump on landing. Blur clears held input. Dual-rumble is feature-detected and used on landing and curb strikes; unsupported actuators fail silently. Trigger rumble is not required.
 
-`src/input/` is the sole owner of browser input. Gameplay reads named actions (`moveX/Y`, `lookX/Y`, `sprint`, `jump`, `interact`, `throttle`, `brake`, `steer`, `handbrake`, `cameraReset`, `pause`, plus keyboard utilities). `Input.rebind(action, bindings)` replaces one action's serializable descriptors; `Input.bindings` can be saved as JSON by a settings client. No settings UI/storage is added. For example, `input.rebind('jump', [{kind:'button', index:1}, {kind:'key', code:'KeyJ'}])` binds B/J and updates the HUD glyph. Mouse look is accumulated as radians; right-stick look is frame-rate independent. The unit gate scans gameplay sources for direct browser input reads outside this directory.
+`src/input/` is the sole owner of browser input. Gameplay reads named actions (`moveX/Y`, `lookX/Y`, `sprint`, `jump`, `interact`, `throttle`, `brake`, `steer`, `handbrake`, `cameraReset`, `pause`, `map`, plus keyboard utilities). `Input.rebind(action, bindings)` replaces one action's serializable descriptors; `Input.bindings` can be saved as JSON by a settings client. No settings UI/storage is added. For example, `input.rebind('jump', [{kind:'button', index:1}, {kind:'key', code:'KeyJ'}])` binds B/J and updates the HUD glyph. Mouse look is accumulated as radians; right-stick look is frame-rate independent. The unit gate scans gameplay sources for direct browser input reads outside this directory.
 
 ## Character locomotion and verification
 

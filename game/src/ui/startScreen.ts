@@ -24,13 +24,13 @@ export class StartScreen {
       <p>Explore on foot. Your car is parked nearby.</p>
       <p id="gamepad-status" role="status"></p>
       <dl id="start-bindings"></dl>
-      <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · Esc pause</p>
+      <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · M map · Esc pause</p>
       <button type="button" disabled>Start playing</button>
       <p class="start-hint">Loading the world…</p>
     </div>`;
     const actions: [Action, string][] = [['moveY', 'Move / steer'], ['lookX', 'Look'], ['sprint', 'Sprint / start'],
       ['jump', 'Jump'], ['mission', 'Interact'], ['interact', 'Enter / exit car'], ['throttle', 'Accelerate'], ['brake', 'Brake / reverse'],
-      ['handbrake', 'Handbrake'], ['cameraReset', 'Reset camera'], ['pause', 'Pause / resume']];
+      ['handbrake', 'Handbrake'], ['cameraReset', 'Reset camera'], ['map', 'Map'], ['pause', 'Pause / resume']];
     for (const [action, label] of actions) {
       const dt = document.createElement('dt'), dd = document.createElement('dd');
       dt.textContent = glyph(action, input.bindings, true); dd.textContent = label;

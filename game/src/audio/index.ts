@@ -71,7 +71,7 @@ export class GameAudio {
     if (this.disposed) return;
     if (event.type === 'mute') {
       this.muted = !this.muted; this.applyVolumes();
-      if (this.muteButton) this.muteButton.textContent = this.muted ? 'Unmute (M / Menu)' : 'Mute (M / Menu)';
+      if (this.muteButton) this.muteButton.textContent = this.muted ? 'Unmute (N / D-pad down)' : 'Mute (N / D-pad down)';
       return;
     }
     if (event.type === 'volume') { this.volumes[event.channel] = clamp(event.value); this.applyVolumes(); return; }
@@ -152,7 +152,7 @@ export class GameAudio {
     panel.style.cssText = 'position:fixed;right:12px;bottom:44px;color:white;background:#18212b;padding:8px;z-index:5;font:12px sans-serif';
     const summary = this.summary = document.createElement('summary');
     summary.textContent = 'Audio · click to enable'; summary.onclick = () => { void this.unlock(); }; panel.append(summary);
-    this.muteButton = document.createElement('button'); this.muteButton.textContent = 'Mute (M / Menu)';
+    this.muteButton = document.createElement('button'); this.muteButton.textContent = 'Mute (N / D-pad down)';
     this.muteButton.onclick = () => this.emit({ type: 'mute' }); panel.append(this.muteButton);
     for (const channel of CHANNELS) {
       const label = document.createElement('label'); label.style.display = 'block'; label.textContent = channel;
