@@ -8,7 +8,7 @@ import time
 import pytest
 from turku3d import config as C
 from turku3d.region.areas import load_area
-from turku3d.region.cache import atomic_target, collect, import_cache
+from turku3d.region.cache import atomic_target, collect, enforce_limit, import_cache
 from turku3d.region.estimate import estimate, guard_quota
 from turku3d.region.runner import Step, execute
 
@@ -104,6 +104,36 @@ def test_atomic_cache_and_safe_gc(tmp_path):
     assert not old.exists()
     assert (root / "a.jpg").read_bytes() == b"same-image"
     assert json.loads(json.dumps(collect(root)))["files"] == 3
+
+
+def test_shared_cache_content_hash_and_lru(tmp_path):
+    root = tmp_path / "shared"
+    older, newer = root / "google/a/pano.jpg", root / "google/b/pano.jpg"
+    with atomic_target(older, root) as temp:
+        temp.write_bytes(b"old")
+    with atomic_target(newer, root) as temp:
+        temp.write_bytes(b"newer")
+    (older.parent / "meta.json").write_text('{"source":"google"}')
+    assert (root / ".objects").is_dir()
+    os.utime(older, (1, 1))
+    os.utime(older.parent / "meta.json", (1, 1))
+    enforce_limit(root, 5)
+    assert not older.exists()
+    assert not (older.parent / "meta.json").exists()
+    assert newer.read_bytes() == b"newer"
+    assert len(list((root / ".objects").iterdir())) == 1
+
+
+def test_import_preserves_metadata_and_source(tmp_path):
+    old, shared = tmp_path / "old", tmp_path / "shared"
+    (old / "google/a").mkdir(parents=True)
+    (old / "google/a/pano.jpg").write_bytes(b"image")
+    (old / "google/a/meta.json").write_text('{"copyright":"source"}')
+    import_cache(old, shared)
+    import_cache(old, shared)
+    assert (shared / "google/a/meta.json").read_text() == '{"copyright":"source"}'
+    assert (old / "google/a/pano.jpg").read_bytes() == b"image"
+    assert (old / "google/a/pano.jpg").stat().st_ino == (shared / "google/a/pano.jpg").stat().st_ino
 
 
 def test_inventory_ignores_survey_lines_and_duplicate_polygons(tmp_path, monkeypatch):

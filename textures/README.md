@@ -160,8 +160,6 @@ approved assets still stop the refresh. The no-image-generation path is:
 
 ```sh
 T="$TURKU3D_WORK/textures"
-TURKUTEX_STREETVIEW="$TURKU3D_WORK/cache/streetlevel" \
-TURKUTEX_READ_CACHE="$TURKU3D_DATA/cache/streetlevel" \
 textures/.venv/bin/python -m turkutex facade-batch refs "$T/refresh-new.geojson" \
   --run "$T/refresh-new-run" --refs "$T/refresh-refs" --output "$T" \
   --sources google,lookaround,mapillary --ref-workers 3
@@ -181,9 +179,8 @@ is recorded by ID; source scores remain intact. To inspect older Street View
 dates, use `--sources google,google_history --ref-max-views 8` in a separate
 reference directory, then add `--older-than-newest` to
 `turkutex.facade_alternates` to choose a rendered historical view. Keep
-`TURKUTEX_STREETVIEW` under `$TURKU3D_WORK/cache`
-and set `TURKUTEX_READ_CACHE=$TURKU3D_DATA/cache/streetlevel` to reuse the
-shared panorama cache while isolating new writes.
+the default shared cache for panorama downloads; keep crops and run outputs in
+the sandbox reference directory.
 
 The direct contact sheet defaults to 120 m around the spawn. For the four-tile
 run, combine resumed batches with:
@@ -414,7 +411,9 @@ uses a 128×128 two-colour fixture; noisy seam and normal-quality tests remain s
 ## Shared download cache
 
 New panorama downloads use `$TURKU3D_DATA/cache/streetlevel` with locking and atomic writes.
-`TURKUTEX_STREETVIEW` overrides that root. Existing caches are not migrated. `make cache-gc`
+`TURKUTEX_STREETVIEW` overrides that root. Existing WORK/cache/streetlevel files are imported
+on first default `PanoCache` use without deleting their source. `TURKU3D_STREETLEVEL_CACHE_GB`
+caps the shared LRU cache (60 by default). `make cache-gc`
 reports sizes; `make cache-gc APPLY=1` removes only old partial downloads.
 See [region cache details](../pipeline/turku3d/region/README.md).
 

@@ -85,10 +85,17 @@ def check_disk():
     while not path.exists():
         path = path.parent
     free = shutil.disk_usage(path).free
+    shared = (
+        Path(os.environ.get("TURKU3D_DATA", str(Path.home() / "turku3d/data")))
+        / "cache/streetlevel"
+    )
+    shared_size = s.disk_bytes(shared) if shared.exists() else 0
+    print(f"disk: free={s.format_bytes(free)} shared-streetlevel={s.format_bytes(shared_size)}")
     required = 30 * 1024**3
     if free < required:
         raise ValueError(
-            f"free disk {s.format_bytes(free)} is below 30 GiB; "
+            f"free disk {s.format_bytes(free)} is below 30 GiB "
+            f"(shared streetlevel cache {s.format_bytes(shared_size)}); "
             "launch refused. Run scripts/dev/wt du and scripts/dev/wt prune-landed"
         )
 

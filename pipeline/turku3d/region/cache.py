@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import shutil
 import threading
 import time
 from contextlib import contextmanager
@@ -32,6 +33,7 @@ def synchronized(method):
                     return method(self, *args, **kwargs)
                 finally:
                     _DEPTH.value = depth
+                    _enforce_limit(self.root, cache_limit())
 
     return wrapped
 
@@ -41,23 +43,87 @@ def cache_root():
 
 
 @contextmanager
-def cache_lock(root: Path):
+def cache_lock(root: Path, key: str | None = None):
     root.mkdir(parents=True, exist_ok=True)
-    with (root / ".cache.lock").open("a") as lock:
+    name = ".cache.lock" if key is None else f".lock-{hashlib.sha256(key.encode()).hexdigest()}"
+    with (root / name).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield
 
 
 @contextmanager
-def atomic_target(path: Path):
+def atomic_target(path: Path, root: Path | None = None):
     """Publish a complete download, keeping the final image suffix for encoders."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f".{path.stem}.{os.getpid()}.part{path.suffix}")
     try:
         yield temp
-        os.replace(temp, path)
+        if root is None:
+            os.replace(temp, path)
+        else:
+            with cache_lock(root, str(path.relative_to(root))):
+                with temp.open("rb") as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                blob = root / ".objects" / digest
+                blob.parent.mkdir(exist_ok=True)
+                if not blob.exists():
+                    os.link(temp, blob)
+                temp.unlink()
+                link = path.with_name(f".{path.name}.{os.getpid()}.link")
+                try:
+                    os.link(blob, link)
+                    os.replace(link, path)
+                finally:
+                    link.unlink(missing_ok=True)
     finally:
         temp.unlink(missing_ok=True)
+
+
+def _payloads(root: Path):
+    return [
+        p
+        for p in root.rglob("*")
+        if p.is_file()
+        and not p.is_symlink()
+        and not p.name.startswith(".")
+        and ".objects" not in p.parts
+    ]
+
+
+def cache_limit():
+    return int(float(os.environ.get("TURKU3D_STREETLEVEL_CACHE_GB", "60")) * 1024**3)
+
+
+def enforce_limit(root: Path, limit: int | None = None):
+    """Evict least recently used keys; retain provenance metadata alongside live keys."""
+    limit = cache_limit() if limit is None else limit
+    with cache_lock(root):
+        _enforce_limit(root, limit)
+
+
+def _enforce_limit(root: Path, limit: int):
+    files = _payloads(root)
+    size = sum(p.stat().st_size for p in files)
+    groups = {}
+    for path in files:
+        relative = path.relative_to(root)
+        key = (
+            relative.parent
+            if relative.parts[0] in {"google", "lookaround", "mapillary"}
+            else relative
+        )
+        groups.setdefault(key, []).append(path)
+    for group in sorted(groups.values(), key=lambda items: max(p.stat().st_mtime for p in items)):
+        if size <= limit:
+            break
+        for path in group:
+            size -= path.stat().st_size
+            path.unlink()
+    blobs = root / ".objects"
+    if blobs.exists():
+        for blob in blobs.iterdir():
+            if blob.is_file() and blob.stat().st_nlink == 1:
+                blob.unlink()
 
 
 def collect(root: Path, apply=False, age_seconds=86400):
@@ -83,6 +149,7 @@ def collect(root: Path, apply=False, age_seconds=86400):
             "stale_partials": len(stale),
             "reclaimable_bytes": sum(p.stat().st_size for p in stale),
             "applied": apply,
+            "limit_bytes": cache_limit(),
         }
         if apply:
             for path in stale:
@@ -95,8 +162,8 @@ def import_cache(source: Path, root: Path):
 
     Metadata/layout is retained. Never overwrite a different existing key or delete sources.
     """
-    import shutil
-
+    if not source.is_dir():
+        return
     if root.resolve().is_relative_to(source.resolve()):
         raise ValueError("import source must not contain the destination cache")
     with cache_lock(root):
@@ -117,10 +184,14 @@ def import_cache(source: Path, root: Path):
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()
             blob = blobs / digest
             if not blob.exists():
-                with atomic_target(blob) as temp:
-                    shutil.copyfile(path, temp)
+                try:
+                    os.link(path, blob)
+                except OSError:
+                    with atomic_target(blob) as temp:
+                        shutil.copyfile(path, temp)
             dest.parent.mkdir(parents=True, exist_ok=True)
             os.link(blob, dest)
+        _enforce_limit(root, cache_limit())
 
 
 def main():

@@ -382,6 +382,20 @@ def test_sandbox_paths_and_read_only_cache(tmp_path, monkeypatch):
     assert not (cache.root / "google/p/pano_z5.jpg").exists()
 
 
+def test_default_cache_imports_sandbox_downloads(tmp_path, monkeypatch):
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "shared"))
+    monkeypatch.delenv("TURKUTEX_STREETVIEW", raising=False)
+    old = tmp_path / "work/cache/streetlevel/google/p"
+    old.mkdir(parents=True)
+    (old / "pano_z5.jpg").write_bytes(b"old-image")
+    (old / "meta.json").write_text('{"copyright":"original"}')
+    cache = PanoCache()
+    assert cache.google_image("p") == cache.root / "google/p/pano_z5.jpg"
+    assert (cache.root / "google/p/meta.json").read_text() == '{"copyright":"original"}'
+    assert (old / "pano_z5.jpg").exists()
+
+
 def test_corrupt_shared_metadata_is_repaired_only_in_sandbox(tmp_path, monkeypatch):
     from turkutex.streetview import sl
     from turkutex.streetview.panos import z17_tile

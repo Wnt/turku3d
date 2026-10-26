@@ -491,7 +491,21 @@ def sandbox_rows(measure=True):
 
 def du():
     for name, size, status in sandbox_rows():
-        print(f"{name:24} {format_bytes(size) if size is not None else '-':>12} {status}")
+        cache = root() / name / "work/cache"
+        cache_size = disk_bytes(cache) if cache.exists() else 0
+        warning = " BUG: sandbox cache > 5 GiB" if cache_size > 5 * 1024**3 else ""
+        print(
+            f"{name:24} {format_bytes(size) if size is not None else '-':>12} "
+            f"{status} cache={format_bytes(cache_size)}{warning}"
+        )
+    shared = (
+        Path(os.environ.get("TURKU3D_DATA", str(Path.home() / "turku3d/data")))
+        / "cache/streetlevel"
+    )
+    print(
+        f"{'shared streetlevel':24} {format_bytes(disk_bytes(shared)) if shared.exists() else '0 B':>12} "
+        "shared (limit: TURKU3D_STREETLEVEL_CACHE_GB, default 60 GiB)"
+    )
 
 
 def prune_landed():

@@ -47,7 +47,8 @@ The registry protects against cooperating tools; it cannot prevent an unrelated 
 `browser/`; run it before `wt rm` if an interrupted Playwright run left a profile behind.
 `gc` releases only entries whose sandbox directory no longer exists; it never deletes files.
 `du` lists allocated bytes per sandbox, largest first, with `landed`, `unmerged`, `dirty` and
-`live` status. `prune-landed` applies the ordinary `wt rm` checks to each clean, merged,
+`live` status. It reports the shared streetlevel cache separately and flags any sandbox
+`work/cache` above 5 GiB. `prune-landed` applies the ordinary `wt rm` checks to each clean, merged,
 stopped sandbox.
 
 Disk probe (2026-10-26): a fresh `wt new facade-measure --from main` under this task's work root
@@ -86,7 +87,8 @@ Use an actual brief path from `docs/briefs/`. `run` creates the sandbox if absen
 starts `codex exec -m gpt-6-astra --sandbox danger-full-access -C <repo>` in a new process group. It returns
 immediately. The prompt contains COMMON plus the brief. `resume` uses the recorded `thread.started` session ID,
 not the most recent global session. The model and effort remain the same. Codex is responsible for committing work.
-`run` refuses to create a sandbox below 30 GiB free on the sandbox filesystem. Check with
+`run` reports free disk and shared streetlevel cache size, and refuses to create a sandbox
+below 30 GiB free on the sandbox filesystem. Check with
 `scripts/dev/wt du`, then remove safe candidates with `scripts/dev/wt prune-landed`.
 CLI behavior is checked against the installed CLI and [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 

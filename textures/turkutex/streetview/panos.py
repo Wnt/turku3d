@@ -31,7 +31,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from turku3d import config
-from turku3d.region.cache import atomic_target, cache_lock, synchronized
+from turku3d.region.cache import atomic_target, cache_lock, import_cache, synchronized
 
 from ..paths import streetview_dir
 
@@ -147,14 +147,17 @@ class PanoMeta:
         )
 
 
-def atomic_json(path: Path, value):
-    with atomic_target(path) as temporary:
+def atomic_json(path: Path, value, root: Path | None = None):
+    with atomic_target(path, root) as temporary:
         temporary.write_text(json.dumps(value, ensure_ascii=False))
 
 
 class PanoCache:
     def __init__(self, root: Path | None = None, sleep: float = 0.2):
         self.root = Path(root) if root else streetview_dir()
+        legacy = config.work_root() / "cache/streetlevel"
+        if root is None and legacy.is_dir() and legacy.resolve() != self.root.resolve():
+            import_cache(legacy, self.root)
         self.decoded_root = self.root / "decoded"
         self.read_roots = [config.cache_dir("streetview"), config.raw_dir("streetview")]
         self.read_roots += [
@@ -170,6 +173,7 @@ class PanoCache:
         """Read through shared caches; all new data is written under self.root."""
         own = self.root / relative
         if own.exists():
+            os.utime(own, None)
             return own
         return next((r / relative for r in self.read_roots if (r / relative).is_file()), own)
 
@@ -178,6 +182,8 @@ class PanoCache:
             path = root / relative
             if path.is_file():
                 try:
+                    if root == self.root:
+                        os.utime(path, None)
                     return json.loads(path.read_text())
                 except json.JSONDecodeError:
                     warnings.warn(
@@ -198,7 +204,7 @@ class PanoCache:
                 if not target.is_file():
                     with Image.open(source) as image:
                         pixels = np.asarray(image.convert("RGB"))
-                    with atomic_target(target) as temporary:
+                    with atomic_target(target, self.root) as temporary:
                         with temporary.open("wb") as stream:
                             np.save(stream, pixels, allow_pickle=False)
         return np.load(target, mmap_mode="r", allow_pickle=False)
@@ -215,7 +221,7 @@ class PanoCache:
             return cached
         panos = streetview.get_coverage_tile(x, y)
         res = [{"id": p.id, "lat": p.lat, "lon": p.lon, "date": _date_str(p.date)} for p in panos]
-        atomic_json(f, res)
+        atomic_json(f, res, self.root)
         time.sleep(self.sleep)
         return res
 
@@ -233,7 +239,7 @@ class PanoCache:
             qlat, qlon = config.en_to_wgs84(gx * 50, gy * 50)
             p = streetview.find_panorama(qlat, qlon, radius=60, search_third_party=True)
             ids = [p.id] if p and streetview.is_third_party_panoid(p.id) else []
-            atomic_json(path, ids)
+            atomic_json(path, ids, self.root)
         return [m for pid in ids if (m := self.google_meta(pid)) is not None]
 
     @synchronized
@@ -260,7 +266,7 @@ class PanoCache:
             and getattr(pano.depth, "data", None) is not None
         )
         if has_depth:
-            with atomic_target(d / "depth.npy") as temp:
+            with atomic_target(d / "depth.npy", self.root) as temp:
                 np.save(temp, np.asarray(pano.depth.data, dtype=np.float32))
         E, N = config.wgs84_to_en(pano.lat, pano.lon)
         hist = [{"id": h.id, "date": _date_str(h.date)} for h in (pano.historical or [])]
@@ -287,7 +293,7 @@ class PanoCache:
                 "copyright": pano.copyright_message,
             },
         )
-        atomic_json(f, m.to_dict())
+        atomic_json(f, m.to_dict(), self.root)
         return m
 
     @synchronized
@@ -317,7 +323,7 @@ class PanoCache:
         pano = streetview.find_panorama_by_id(pid, download_depth=False)
         img = streetview.get_panorama(pano, zoom=zoom)
         f.parent.mkdir(parents=True, exist_ok=True)
-        with atomic_target(f) as temp:
+        with atomic_target(f, self.root) as temp:
             img.save(temp, quality=93)
         time.sleep(self.sleep)
         return f
@@ -381,7 +387,7 @@ class PanoCache:
                     },
                 )
             )
-        atomic_json(f, [m.to_dict() for m in res])
+        atomic_json(f, [m.to_dict() for m in res], self.root)
         time.sleep(self.sleep)
         return res
 
@@ -391,7 +397,7 @@ class PanoCache:
 
         d = self.root / "lookaround" / m.id
         d.mkdir(parents=True, exist_ok=True)
-        atomic_json(d / "meta.json", m.to_dict())
+        atomic_json(d / "meta.json", m.to_dict(), self.root)
         out = []
         for k in range(4):  # side faces only; top/bottom are not needed for facades
             f = d / f"face{k}_z{zoom}.heic"
@@ -399,13 +405,14 @@ class PanoCache:
             if not cached.exists():
                 if self._auth is None:
                     self._auth = lookaround.Authenticator()
-                with atomic_target(f) as temp:
+                with atomic_target(f, self.root) as temp:
                     temp.write_bytes(
                         lookaround.get_panorama_face(
                             (int(m.id), int(m.extra["build_id"])), k, zoom, self._auth
                         )
                     )
                 time.sleep(self.sleep)
+                cached = f
             out.append(cached)
         return out
 
@@ -437,6 +444,6 @@ class PanoCache:
             st.paste(sc, (math.ceil(x), math.ceil(y)))
             if x + sc.width > full_w:
                 st.paste(sc, (math.ceil(x - full_w), math.ceil(y)))
-        with atomic_target(f) as temp:
+        with atomic_target(f, self.root) as temp:
             st.save(temp, quality=93)
         return f

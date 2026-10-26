@@ -88,10 +88,13 @@ New `PanoCache` downloads default to `$TURKU3D_DATA/cache/streetlevel`, keyed by
 panorama ID and resolution. Processes lock the shared cache and atomically publish complete
 files, so identical requests reuse the same image. `TURKUTEX_STREETVIEW` remains an explicit
 cache-root override. Derived reference crops, generated textures and jobs remain in WORK.
-Existing W1-09 caches are neither moved nor deleted. Legacy WORK/cache/streetview, shared
+Existing WORK/cache/streetlevel files are imported automatically on first default
+`PanoCache` use; the source is retained. Legacy WORK/cache/streetview, shared
 raw/streetview and colon-separated TURKUTEX_READ_CACHE roots are reused read-only. The optional administrative import
 `python -m turku3d.region.cache --import-cache /path/to/old/cache` preserves source files and
-uses content-addressed hardlinks to deduplicate imported images. Do not import an active
-writer's cache. Conflicting existing keys are retained. GC never deletes complete images;
-it only removes stale partials while holding the same cache lock. Size reports count unique
-inodes separately from logical paths.
+uses content-addressed hardlinks to deduplicate imported images. Conflicting existing keys
+are retained. Downloads use SHA256 object storage, per-key publication locks and atomic
+links. `TURKU3D_STREETLEVEL_CACHE_GB` sets the LRU limit (default 60 GiB); the cache evicts
+oldest complete keys after writes and imports. Metadata JSON is retained with imported keys.
+`make cache-gc APPLY=1` removes only stale partials. Size reports count unique inodes
+separately from logical paths.

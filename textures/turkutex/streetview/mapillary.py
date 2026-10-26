@@ -62,7 +62,7 @@ def coverage(cache, lat: float, lon: float) -> list[PanoMeta]:
             if not page.get("paging", {}).get("next") or not after:
                 break
             params["after"] = after
-        atomic_json(path, rows)
+        atomic_json(path, rows, cache.root)
     out = []
     for row in rows:
         kind = row.get("camera_type")
@@ -129,6 +129,6 @@ def image(cache, meta: PanoMeta) -> Path:
         with urllib.request.urlopen(req, timeout=120) as response:
             body = response.read()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with atomic_target(path) as temporary:
+        with atomic_target(path, cache.root) as temporary:
             temporary.write_bytes(body)
     return path
