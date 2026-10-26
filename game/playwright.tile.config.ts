@@ -21,7 +21,7 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}/`,
     channel: 'chrome',
     headless: process.env.HEADED ? false : true,
-    viewport: { width: 1280, height: 720 },
+    viewport: { width: 960, height: 540 },
     launchOptions: { args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist'] },
   },
   projects: [

@@ -242,7 +242,7 @@ python3 scripts/dev/affected_browser.py --base main
 python3 scripts/dev/affected_browser.py game/src/vehicle/vehicle.ts
 ```
 
-The landing queue can keep Chrome processes and one loaded tile page per backend in a dedicated service sandbox. The service writes loopback WebSocket endpoints to a mode-0600 state file; its owner stops the process with SIGTERM. Run the check against an integration worktree's built game and tiles, using that worktree's sandbox port and browser profile:
+The real-tile specs share one HTTP-caching browser context per worker, with a fresh page per test. Browser suites default to 960×540; pixel-detail and performance checks set their required viewports explicitly. The landing queue can also keep Chrome processes and one loaded tile page per backend in a dedicated service sandbox. The service writes loopback WebSocket endpoints to a mode-0600 state file; its owner stops the process with SIGTERM. Run the check against an integration worktree's built game and tiles, using that worktree's sandbox port and browser profile:
 
 ```bash
 node scripts/dev/warm_browser.mjs serve --repo "$PWD" --work "$TURKU3D_WORK" --profile "$TURKU3D_BROWSER_DIR" --port "$TURKU3D_PORT_BASE"

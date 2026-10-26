@@ -3,7 +3,7 @@ import { settled } from '../e2e/waits';
 // `make tile`, built locally) and the character walks on its collision. Also checks the qa/README.md §2
 // render contract on the real tile: pose echo, __qaProject, and the object-ID pass.
 // Run: npx playwright test -c playwright.tile.config.ts   (after `npm run build`; TILE_DIST=<dir> optional)
-import { isolatedTest as test, expect, type Page, type ConsoleMessage } from '../e2e/fixtures';
+import { cachedTest as test, expect, type Page, type ConsoleMessage } from '../e2e/fixtures';
 import fs from 'node:fs';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import path from 'node:path';

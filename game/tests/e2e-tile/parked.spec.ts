@@ -1,4 +1,4 @@
-import { isolatedTest as test, expect } from '../e2e/fixtures';
+import { cachedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tileDist } from '../../../tools/dev/environment.mjs';
@@ -8,7 +8,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json')
 test('published parked car enters with F and drives on both backends', { tag: ['@drive', '@pipeline'] }, async ({ page }, info) => {
   test.setTimeout(240_000);
   test.skip(!manifest.vehicles?.length, 'No published parked vehicles');
-  const car = manifest.vehicles.find((v: any) => v.model === 'van' && Math.abs(v.x - 140) < 2) ?? manifest.vehicles[0];
+  const car = manifest.vehicles.find((v: any) => v.model === 'van' && Math.abs(v.x - 69) < 2) ?? manifest.vehicles[0];
   await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(count => {

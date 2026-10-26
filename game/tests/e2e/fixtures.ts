@@ -17,21 +17,7 @@ declare global {
   }
 }
 export const gameState = (page: Page) => page.evaluate(() => (window.__game!.state as () => GameState)());
-export const isolatedTest = base.extend<{ isolatedInput: void }, { cachedContext: BrowserContext }>({
-  cachedContext: [async ({ browser }, use, workerInfo) => {
-    const context = await browser.newContext({
-      baseURL: workerInfo.project.use.baseURL,
-      viewport: workerInfo.project.use.viewport ?? { width: 1280, height: 720 },
-      deviceScaleFactor: workerInfo.project.use.deviceScaleFactor ?? 1,
-    });
-    await use(context);
-    await context.close();
-  }, { scope: 'worker' }],
-  page: async ({ cachedContext }, use) => {
-    const page = await cachedContext.newPage();
-    await use(page);
-    await page.close();
-  },
+export const isolatedTest = base.extend<{ isolatedInput: void }>({
   isolatedInput: [async ({ page }, use) => {
     // Parallel Chrome windows must not steal focus or expose a host controller to a test.
     const session = await page.context().newCDPSession(page);
@@ -42,6 +28,22 @@ export const isolatedTest = base.extend<{ isolatedInput: void }, { cachedContext
     });
     await use();
   }, { auto: true }],
+});
+export const cachedTest = isolatedTest.extend<object, { cachedContext: BrowserContext }>({
+  cachedContext: [async ({ browser }, use, workerInfo) => {
+    const context = await browser.newContext({
+      baseURL: workerInfo.project.use.baseURL,
+      viewport: workerInfo.project.use.viewport ?? { width: 960, height: 540 },
+      deviceScaleFactor: workerInfo.project.use.deviceScaleFactor ?? 1,
+    });
+    await use(context);
+    await context.close();
+  }, { scope: 'worker' }],
+  page: async ({ cachedContext }, use) => {
+    const page = await cachedContext.newPage();
+    await use(page);
+    await page.close();
+  },
 });
 export async function installPad(page: Page) {
   await page.addInitScript(() => {

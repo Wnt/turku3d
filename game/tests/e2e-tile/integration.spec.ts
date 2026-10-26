@@ -1,4 +1,4 @@
-import { isolatedTest as test, expect } from '../e2e/fixtures';
+import { cachedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
