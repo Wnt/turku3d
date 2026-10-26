@@ -21,6 +21,8 @@ class FixtureCacheTests(unittest.TestCase):
             commands[1][commands[1].index("--ground") + 1],
             "/repo/.cache/gate-inputs/ground-preview",
         )
+        # Synthetic layers are not the office block; never subject them to its real-layer contract.
+        self.assertEqual(commands[1][commands[1].index("--area") + 1], "playable-tiles")
         self.assertEqual(commands[1][-4:], ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"])
 
         with tempfile.TemporaryDirectory() as temporary:
