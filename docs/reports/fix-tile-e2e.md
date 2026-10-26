@@ -56,8 +56,9 @@ cd game && npx vitest run tests/unit/shadow-batch.test.ts
 scripts/dev/gate --base main
 ```
 
-The selected gate passed in 607.925 s, including the game browser stage in
-579.225 s. The tile Playwright result was `passed` with no failed tests.
+The final `scripts/dev/gate --base main` run was GREEN in 269.268 s;
+its game browser stage passed in 233.252 s. The fresh-tile Playwright run
+passed all 16 tests in 2.6 minutes.
 
 ## Growing facade export
 
