@@ -104,6 +104,24 @@ def git(*args, cwd=REPO, check=True):
     return run("git", *args, cwd=cwd, check=check).stdout.strip()
 
 
+def rebase(base, cwd):
+    """Rebase HEAD onto base, aborting on conflict.
+
+    A branch that already contains base is left alone: git would otherwise replay and
+    linearize its merge commits, which turns an integrated merge into fresh conflicts.
+    """
+    if (
+        run("git", "merge-base", "--is-ancestor", base, "HEAD", cwd=cwd, check=False).returncode
+        == 0
+    ):
+        return
+    try:
+        git("rebase", base, cwd=cwd)
+    except subprocess.CalledProcessError:
+        git("rebase", "--abort", cwd=cwd, check=False)
+        raise
+
+
 def root():
     return (
         Path(os.environ.get("TURKU3D_WT_ROOT", Path.home() / "turku3d/wt")).expanduser().resolve()

@@ -480,11 +480,7 @@ def land(name, force=False):
         build_report = None
         for _attempt in range(3):
             base = s.git("rev-parse", "main", cwd=repo)
-            try:
-                s.git("rebase", "main", cwd=repo)
-            except subprocess.CalledProcessError:
-                s.git("rebase", "--abort", cwd=repo, check=False)
-                raise
+            s.rebase("main", repo)
             head = s.git("rev-parse", "HEAD", cwd=repo)
             env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
             gate = repo / "scripts/dev/gate"
@@ -568,11 +564,7 @@ def precheck(name, base="main"):
     with s.lock(path / "lock"):
         if s.git("status", "--porcelain", cwd=repo):
             raise ValueError("commit changes before precheck")
-        try:
-            s.git("rebase", base, cwd=repo)
-        except subprocess.CalledProcessError:
-            s.git("rebase", "--abort", cwd=repo, check=False)
-            raise
+        s.rebase(base, repo)
         head = s.git("rev-parse", "HEAD", cwd=repo)
         env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
         env["TURKU3D_VERIFY_BASE"] = base

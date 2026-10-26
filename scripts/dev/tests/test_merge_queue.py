@@ -318,6 +318,37 @@ class QueueTests(unittest.TestCase):
             self.assertTrue(warm_queue.warmed(log, 10))
             self.assertFalse(warm_queue.warmed(log, 11))
 
+    def test_rebase_keeps_merge_history_already_on_main(self):
+        # An integration branch merges two branches that each touch line.txt; replaying
+        # its commits linearly would conflict, so an up-to-date branch must not move.
+        with tempfile.TemporaryDirectory() as temp:
+            origin = Path(temp)
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", *args], cwd=origin, check=True, text=True, capture_output=True
+                ).stdout.strip()
+
+            git("init", "-b", "main")
+            git("config", "user.email", "queue@example.test")
+            git("config", "user.name", "Queue Test")
+            (origin / "line.txt").write_text("base\n")
+            git("add", ".")
+            git("commit", "-m", "base")
+            git("checkout", "-b", "left")
+            (origin / "line.txt").write_text("left\n")
+            git("commit", "-am", "left")
+            git("checkout", "-b", "integration", "main")
+            (origin / "line.txt").write_text("right\n")
+            git("commit", "-am", "right")
+            subprocess.run(["git", "merge", "left"], cwd=origin, capture_output=True)
+            (origin / "line.txt").write_text("both\n")
+            git("commit", "-am", "merge left")
+            head = git("rev-parse", "HEAD")
+            merge_queue.s.rebase("main", origin)
+            self.assertEqual(git("rev-parse", "HEAD"), head)
+            self.assertEqual(git("status", "--porcelain"), "")
+
     def test_conflicting_branch_is_aborted_and_routed_back(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

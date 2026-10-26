@@ -103,9 +103,8 @@ def rebase(name, record):
         resume(name, "worktree is dirty", record)
         return False
     try:
-        s.git("rebase", "main", cwd=repo)
+        s.rebase("main", repo)
     except subprocess.CalledProcessError as exc:
-        s.git("rebase", "--abort", cwd=repo, check=False)
         resume(name, f"rebase conflict: {exc.stderr.strip()[-500:]}", record)
         return False
     return True
