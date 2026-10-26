@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import { batchVisual } from './batch.mjs';
 import { createMaterialBinder } from './materials.mjs';
+import { atlasFacades } from './facade_atlas.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
@@ -131,6 +132,10 @@ async function assembleVisual(request) {
       bindMaterial(material, prim, e);
     }
     if (!mesh.listPrimitives().length) node.setMesh(null);
+  }
+  fs.mkdirSync(request.textureCache, { recursive:true });
+  if (request.level === 0) {
+    await atlasFacades(doc, request, { sharp, run, KHRTextureBasisu });
   }
   await batchVisual(doc, scene, request.tile, { dedup, joinPrimitives, transformPrimitive });
   await doc.transform(prune({ keepLeaves: false, keepSolidTextures: true, keepAttributes: true, keepIndices: true }), unpartition());

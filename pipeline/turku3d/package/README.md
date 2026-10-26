@@ -75,8 +75,13 @@ that set, then uses 2 or 1 pixels per metre only if measured wire bytes still ex
 the limit. The source files and QA hashes remain intact;
 encoded variants are cached outside the export. The manifest records each tile's wire
 size before and after adaptation as `budget_before_bytes` and `wire_bytes`.
-`uv.scale`/`uv.offset` apply through `KHR_texture_transform` to albedo, normal, occlusion
-and metallic/roughness, with clamped sampling. Library `material.json` `uv_scale` applies
+For L0 tiles with multiple unique facade maps, the packager resizes maps directly
+from their source KTX2 files and packs them into per-tile 2048-pixel atlas pages.
+Each page has aligned albedo, normal and ORM rectangles, a four-pixel copied-edge
+gutter, and one shared material. It bakes `uv.scale`/`uv.offset` with clamped
+sampling into mesh UVs before geometry batching. `extras.objects` retains each
+facade's ID and index range for the QA pass. Single-map tiles retain the
+individual `KHR_texture_transform` binding. Library `material.json` `uv_scale` applies
 to all library maps with repeating sampling; its default is `[1,1]`. Embedded source maps
 retain their own UVs and transforms when no replacement map exists.
 
