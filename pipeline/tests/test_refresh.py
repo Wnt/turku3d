@@ -147,7 +147,9 @@ def test_ground_target_ignores_unrelated_stale_buildings(monkeypatch, tmp_path):
     assert list(result) == calls == ["ground", "ground-textures"]
 
 
-def test_stage_ground_library_uses_shared_assets_without_replacing_local_build(monkeypatch, tmp_path):
+def test_stage_ground_library_uses_shared_assets_without_replacing_local_build(
+    monkeypatch, tmp_path
+):
     source = tmp_path / "data/textures/library"
     source.mkdir(parents=True)
     for name in ("albedo", "normal", "orm"):
