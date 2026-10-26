@@ -76,8 +76,13 @@ export async function untilSim<A>(page: Page, predicate: (arg: A) => unknown, ar
   })(${predicate.toString()}, ${JSON.stringify(arg) ?? 'undefined'}, ${start}, ${simSeconds})`;
   const result = await (await page.waitForFunction(expression, undefined, { timeout: 0 })).jsonValue() as { met: boolean; elapsed?: number };
   if (!result.met) {
+    const state = await page.evaluate(() => {
+      const s = (window as any).__game?.state?.();
+      return s && { mode: s.mode, feet: s.feet, grounded: s.grounded, vehicle: s.vehicle && { id: s.vehicle.id, pos: s.vehicle.pos, speed: s.vehicle.speed },
+        frameMs: s.frameMs };
+    });
     throw new Error(`condition not met within ${simSeconds} simulated s (${result.elapsed!.toFixed(1)} simulated s, `
-      + `${((Date.now() - wallStart) / 1000).toFixed(1)} wall s): ${predicate.toString()}`);
+      + `${((Date.now() - wallStart) / 1000).toFixed(1)} wall s): ${predicate.toString()}; state ${JSON.stringify(state)}`);
   }
 }
 
