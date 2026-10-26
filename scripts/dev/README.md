@@ -52,6 +52,11 @@ started with an empty `work/`. Decoding one existing 16384×8192 Street View pan
 one 1536×768 facade crop used 402,755,584 allocated bytes in the former sandbox cache layout:
 402,657,280 bytes were the decoded array. The shared layout left 98,304 bytes in that sandbox's
 `work/` for the crop and wrote the array once to the shared cache. The probe sandbox was removed.
+The same fresh-worktree probe ran local `turkutex post` on the crop with `--tile none
+--size 1024x512 --material facade_mixed --sobel`, producing albedo, ORM and normal KTX2.
+With identical post outputs, allocated sandbox `work/` space was 404,434,944 bytes before
+and 1,777,664 bytes after the shared cache change. The post outputs themselves used
+1,679,360 bytes in both runs. No image-generation call was used.
 The historical `w1-09d-facades` sandbox had already been removed, so its exact 128 GB breakdown
 could not be recovered. The prior per-sandbox decoded arrays and per-sandbox Roofer/class-6 caches
 were repeatable bulk copies. `dist/`, facade outputs and browser profiles remain sandbox-specific
