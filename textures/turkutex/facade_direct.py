@@ -344,9 +344,11 @@ def main(argv=None):
             with export_lock(a.output):
                 manifest = a.output / "MANIFEST.json"
                 current = json.loads(manifest.read_text())
-                authoritative = (
-                    Path(os.environ["TURKU3D_DATA"]) / "build/layers/buildings/facades.geojson"
-                )
+                authoritative = a.output / "APPROVED_INVENTORY.geojson"
+                if not authoritative.exists():
+                    authoritative = (
+                        Path(os.environ["TURKU3D_WORK"]) / "build/layers/buildings/facades.geojson"
+                    )
                 if current["inventory_sha256"] != sha(authoritative):
                     raise ValueError("assembly inventory changed")
                 staged = asset_path(f, a.staging)

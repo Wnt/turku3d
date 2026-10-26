@@ -128,4 +128,5 @@ def export_assets(a):
         "library": sorted(set(previous.get("library", [])) | set(library)),
     }
     write_json(a.output / "MANIFEST.json", result)
+    copy(a.facades, a.output / "APPROVED_INVENTORY.geojson")
     return result

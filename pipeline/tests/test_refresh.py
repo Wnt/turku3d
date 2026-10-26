@@ -49,15 +49,33 @@ def test_texture_source_hash_cache_detects_changes(tmp_path, monkeypatch):
     assert not refresh.texture_sources_current(manifest, cache)
 
 
-def test_buildings_refresh_preserves_approved_facades(tmp_path, monkeypatch):
+def test_buildings_refresh_requires_source_inventory_for_approved_facades(tmp_path, monkeypatch):
     layers = tmp_path / "build/layers"
     layers.mkdir(parents=True)
     export = tmp_path / "textures/assembly/MANIFEST.json"
     export.parent.mkdir(parents=True)
     export.write_text(json.dumps({"bound": ["building_0"]}))
     monkeypatch.setattr(refresh, "run", lambda *args: pytest.fail("producer ran"))
-    with pytest.raises(RuntimeError, match="approved facade bindings"):
+    with pytest.raises(RuntimeError, match="source inventory is unavailable"):
         refresh.buildings(layers)
+
+
+def test_buildings_refresh_snapshots_approved_geometry_before_rebuild(tmp_path, monkeypatch):
+    layers = tmp_path / "build/layers"
+    inventory = layers / "buildings/facades.geojson"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text('{"features":[]}')
+    export = tmp_path / "textures/assembly"
+    export.mkdir(parents=True)
+    (export / "MANIFEST.json").write_text(
+        json.dumps({"bound": ["building_0"], "inventory_sha256": refresh.sha(inventory)})
+    )
+    monkeypatch.setattr(refresh, "manifest_current", lambda *args: False)
+    calls = []
+    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
+    assert refresh.buildings(layers) == "rebuilt"
+    assert (export / "APPROVED_INVENTORY.geojson").read_bytes() == inventory.read_bytes()
+    assert calls == [("turku3d.buildings",)]
 
 
 def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
@@ -98,3 +116,15 @@ def test_ground_target_ignores_unrelated_stale_buildings(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "buildings", lambda layers: pytest.fail("buildings ran"))
     result = refresh.refresh(tmp_path, "ground-textures")
     assert list(result) == calls == ["ground", "ground-textures"]
+
+
+def test_facade_target_runs_buildings_before_migration(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(refresh, "buildings", lambda layers: calls.append("buildings") or "cached")
+    monkeypatch.setattr(
+        refresh, "facades", lambda layers, textures: calls.append("facades") or "rebuilt"
+    )
+    monkeypatch.setattr(refresh, "ground", lambda layers: pytest.fail("ground ran"))
+    result = refresh.refresh(tmp_path, "facades")
+    assert calls == ["buildings", "facades"]
+    assert result == {"buildings": "cached", "facades": "rebuilt"}

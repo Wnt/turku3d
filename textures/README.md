@@ -100,6 +100,22 @@ textures/.venv/bin/python -m turkutex.facade_repair "$NEAR" \
 The assembly manifest retains earlier bindings; direct staging and reports stay
 in the current sandbox. The bundled label schema records uncertainty explicitly.
 
+After a building rebuild, `make refresh REFRESH_TARGET=facades` reuses approved
+maps and writes `textures/refresh-new.geojson` under `$TURKU3D_WORK`. Only walls
+in that inventory need new reference photos. The no-image-generation path is:
+
+```sh
+T="$TURKU3D_WORK/textures"
+TURKUTEX_STREETVIEW="$TURKU3D_WORK/cache/streetlevel" \
+TURKUTEX_READ_CACHE="$TURKU3D_DATA/cache/streetlevel" \
+textures/.venv/bin/python -m turkutex facade-batch refs "$T/refresh-new.geojson" \
+  --run "$T/refresh-new-run" --refs "$T/refresh-refs" --output "$T" \
+  --sources google,lookaround,mapillary --ref-workers 3
+textures/.venv/bin/python -m turkutex.facade_direct "$T/refresh-new.geojson" \
+  --refs "$T/refresh-refs" --staging "$T/refresh-direct-staging" \
+  --output "$T/assembly" --library "$T/library-png"
+```
+
 For rejected walls, run `python -m turkutex facade-batch refs` again into a
 separate sandbox reference directory with
 `--sources google,lookaround,mapillary`. Run

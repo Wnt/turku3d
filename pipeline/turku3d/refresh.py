@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -126,10 +127,16 @@ def buildings(layers):
         return "cached"
     facade_manifest = layers.parents[1] / "textures/assembly/MANIFEST.json"
     if facade_manifest.exists() and json.loads(facade_manifest.read_text()).get("bound"):
-        raise RuntimeError(
-            "buildings are stale, but approved facade bindings depend on their wall IDs; "
-            "regenerate and QA the facade export before rebuilding buildings"
-        )
+        export = facade_manifest.parent
+        snapshot = export / "APPROVED_INVENTORY.geojson"
+        inventory = layers / "buildings/facades.geojson"
+        old_hash = json.loads(facade_manifest.read_text()).get("inventory_sha256")
+        if not snapshot.exists():
+            if not inventory.exists() or sha(inventory) != old_hash:
+                raise RuntimeError("approved facade source inventory is unavailable")
+            shutil.copy2(inventory, snapshot)
+        if sha(snapshot) != old_hash:
+            raise RuntimeError("approved facade source inventory hash mismatch")
     run("turku3d.buildings")
     return "rebuilt"
 
@@ -193,13 +200,35 @@ def facades(layers, textures):
     manifest = export / "MANIFEST.json"
     if not manifest.exists():
         return "absent"
-    bound = json.loads(manifest.read_text()).get("bound", [])
+    export_record = json.loads(manifest.read_text())
+    bound = export_record.get("bound", [])
     current = facade_bindings(export / "facades", layers)
-    if set(current) != set(bound):
-        raise RuntimeError(
-            f"{len(set(bound) - set(current))} facade bindings changed; refresh the QA-approved "
-            "facade export before make tile-build"
+    if set(current) != set(bound) or export_record.get("inventory_sha256") != sha(
+        layers / "buildings/facades.geojson"
+    ):
+        report = textures.parent / "reports/facade-refresh.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        run(
+            "turkutex.facade_rebind",
+            "--source-inventory",
+            str(export / "APPROVED_INVENTORY.geojson"),
+            "--inventory",
+            str(layers / "buildings/facades.geojson"),
+            "--assembly",
+            str(export),
+            "--report",
+            str(report),
+            "--new-inventory",
+            str(textures / "refresh-new.geojson"),
+            extra_path=C.REPO_ROOT / "textures",
         )
+        bound = json.loads(manifest.read_text()).get("bound", [])
+        current = facade_bindings(export / "facades", layers)
+        if set(current) != set(bound):
+            raise RuntimeError(
+                f"{len(set(bound) - set(current))} migrated facade bindings failed validation"
+            )
+        return "rebuilt"
     return "cached"
 
 
@@ -221,6 +250,12 @@ def refresh(work, target=None):
                 "ground": ground(layers),
                 "ground-textures": ground_textures(layers, textures),
             }
+            for name, status in result.items():
+                print(f"{name}: {status}", flush=True)
+            return result
+        if target == "facades":
+            result = {"buildings": buildings(layers)}
+            result["facades"] = facades(layers, textures)
             for name, status in result.items():
                 print(f"{name}: {status}", flush=True)
             return result
@@ -248,7 +283,7 @@ def refresh(work, target=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work", type=Path, default=C.work_root())
-    parser.add_argument("--target", choices=["ground-textures"])
+    parser.add_argument("--target", choices=["ground-textures", "facades"])
     args = parser.parse_args(argv)
     refresh(args.work, args.target)
 

@@ -56,3 +56,11 @@ Wave 1 structures: [turku3d/structures/README.md](turku3d/structures/README.md).
 `make -j2 structures-test` checks synthetic geometry, layer seams and Rapier traversal;
 `make structures-build` consumes the completed ground layer and writes intermediate
 structures plus an explicit acceptance report.
+`make refresh REFRESH_TARGET=facades` rebuilds stale building shells and migrates
+approved facade maps by building ID and wall geometry. The assembly export keeps
+`APPROVED_INVENTORY.geojson` as the approved source geometry; the first refresh
+captures it from the existing building layer before rebuilding. Reindexed, moved,
+and split walls reuse their KTX2 maps with UVs projected onto the new baseline.
+The migration report is `$TURKU3D_WORK/reports/facade-refresh.json` and lists
+genuinely new street walls and ambiguous matches for follow-up. Approved maps
+without a safe successor are retained under `textures/assembly/retired/<inventory-hash>/`.

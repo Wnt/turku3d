@@ -34,8 +34,12 @@ Courtyard rings follow, sorted by their start coordinate. Each planar wall polyg
 assigned to the closest edge; polygons on that edge sort by along-edge midpoint,
 base height, then horizontal midpoint. Indexing starts at zero. This does not depend
 on CityGML surface order or triangulation order. A changed footprint or selected
-roof model may change indices: consumers must use the manifest code/input hashes
-to invalidate generated bindings, rather than keeping an index across geometry revisions.
+roof model may change indices. The facade export stores its source inventory as
+`APPROVED_INVENTORY.geojson`. `make refresh` matches approved walls by building ID,
+outward direction and overlapping baseline with geometric tolerance, then projects
+the approved texture UVs onto rebuilt walls. Ambiguous matches and approved walls
+without a safe successor are recorded in `$TURKU3D_WORK/reports/facade-refresh.json`.
+Genuinely new street walls are written to `$TURKU3D_WORK/textures/refresh-new.geojson`.
 Roof step walls also receive indices after matching to the closest footprint edge.
 
 The baseline starts at the wall's lowest projected u along that footprint edge.
