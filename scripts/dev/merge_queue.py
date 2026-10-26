@@ -79,6 +79,10 @@ def ready(record):
         if time.time() - row.get("held", 0) < HELD_SECONDS:
             continue
         meta = s.read_json(s.tasks_root() / name / "meta.json", {})
+        if meta.get("landed"):
+            # Landed outside the daemon (a manual `codex-task land`): close the row.
+            row["landed"] = meta["landed"].get("commit", True)
+            continue
         if meta.get("state") == "done" and meta.get("exit_code") == 0:
             rows.append((row.get("first_finished") or row["enqueue"], row["enqueue"], name))
     return [name for *_, name in sorted(rows)]

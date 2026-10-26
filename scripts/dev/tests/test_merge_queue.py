@@ -65,6 +65,18 @@ class QueueTests(unittest.TestCase):
         self.assertEqual([row["commit"] for row in landed], ["late", "early"])
         self.assertEqual(landed[0]["fast_gate_seconds"], 2.0)
 
+    def test_task_landed_by_hand_leaves_the_ready_list(self):
+        self.task("manual", finished=20)
+        record = {"tasks": {}, "events": []}
+        merge_queue.discover(record)
+        self.assertEqual(merge_queue.ready(record), ["manual"])
+        path = self.tasks / "manual" / "meta.json"
+        meta = json.loads(path.read_text())
+        meta["landed"] = {"commit": "abc123"}
+        path.write_text(json.dumps(meta))
+        self.assertEqual(merge_queue.ready(record), [])
+        self.assertEqual(record["tasks"]["manual"]["landed"], "abc123")
+
     def test_integration_starts_only_when_main_moved_past_last_integration(self):
         record = {"tasks": {}, "events": []}
         published = self.root / "data"
