@@ -331,9 +331,13 @@ def generate_jobs(
 def visual_qa_jobs(facades_path: Path, refs_root: Path, generate_out: Path, generated: Path):
     """One strict-schema review per generated wall, comparing its exact bytes to references.
 
-    The reviewed image is copied to ``generated/<facade_id>.png``; the acceptance audit
-    later proves that the review saw those bytes.
+    The reviewed wall content (the primary image without layout-guide margins) is written to
+    ``generated/<facade_id>.png``; the acceptance audit later proves that the review saw it.
     """
+    from PIL import Image
+
+    from .post.frame import facade_content_box
+
     records = latest(generate_out)
     result = []
     for f in load_facades(facades_path):
@@ -347,7 +351,13 @@ def visual_qa_jobs(facades_path: Path, refs_root: Path, generate_out: Path, gene
             continue
         image = generated / f"{f.id}.png"
         image.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(record["primary"], image)
+        with Image.open(record["primary"]) as primary:
+            box = facade_content_box(primary)
+            if box == (0, 0, *primary.size):
+                shutil.copyfile(record["primary"], image)
+            else:
+                # Review the wall that post-processing textures, not the layout guide's canvas.
+                primary.crop(box).save(image)
         result.append(
             {
                 "id": f"{f.id}.visualqa",

@@ -117,6 +117,12 @@ def test_visual_qa_reviews_exact_generated_bytes_against_used_references(tmp_pat
         str(refs / "wall_a/wall_a_view_rectified.jpg"),
     ]
     assert qa[0]["schema"].endswith("facade_visual_qa.schema.json")
+    guided = Image.new("RGB", (400, 300), "white")
+    guided.paste(Image.new("RGB", (360, 60), "#a05030"), (20, 120))
+    guided.save(primary)
+    jobs.visual_qa_jobs(path, refs, out, generated)
+    with Image.open(generated / "wall_a.png") as reviewed:
+        assert reviewed.size == (360, 60)
     assert qa[0]["meta"] == {
         "kind": "generated_visual_qa",
         "facade_id": "wall_a",

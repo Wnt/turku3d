@@ -27,3 +27,6 @@ effort = "low"
 [light]
 model = "gpt-6-luna"
 effort = "low"
+[generated_visual_qa]
+model = "gpt-6-astra"
+effort = "low"
