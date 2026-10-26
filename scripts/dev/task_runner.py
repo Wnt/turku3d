@@ -427,6 +427,33 @@ def stop(name):
     s.reap_browsers(name)
 
 
+def adopt(name, brief):
+    """Register an existing sandbox as a task worked by a non-Codex worker."""
+    s.name_ok(name)
+    home = s.sandbox(name)
+    if not (home / "sandbox.env").exists():
+        raise ValueError(f"no sandbox: {name}; create it with wt new first")
+    path = s.tasks_root() / name
+    if (path / "meta.json").exists():
+        raise ValueError(f"task exists: {name}")
+    brief_path = Path(brief).resolve()
+    if not brief_path.is_file():
+        raise ValueError(f"no brief: {brief_path}")
+    path.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    meta = {
+        "name": name,
+        "repo": str(home / "repo"),
+        "brief": str(brief_path),
+        "created": now,
+        "started": now,
+        "state": "external",
+        "worker": "external",
+    }
+    s.write_json(path / "meta.json", meta)
+    print(f"{name}: adopted; record the result with codex-task finish")
+
+
 def finish(name, result_path):
     """Record a result produced by a non-Codex worker so the merge queue can land the task."""
     path = task(name)
@@ -658,6 +685,9 @@ def main():
     p = subs.add_parser("precheck")
     p.add_argument("name", nargs="?", default=os.environ.get("TURKU3D_SANDBOX"))
     p.add_argument("--base", default="main")
+    p = subs.add_parser("adopt", help="register an existing sandbox as an externally worked task")
+    p.add_argument("name")
+    p.add_argument("--brief", required=True)
     p = subs.add_parser("finish", help="record a DONE result written by a non-Codex worker")
     p.add_argument("name")
     p.add_argument("--result", required=True, help="markdown file with the run result headings")
@@ -703,6 +733,8 @@ def main():
         list_tasks()
     elif a.cmd == "precheck":
         precheck(a.name, a.base)
+    elif a.cmd == "adopt":
+        adopt(a.name, a.brief)
     elif a.cmd == "finish":
         finish(a.name, a.result)
     elif a.cmd == "queue":

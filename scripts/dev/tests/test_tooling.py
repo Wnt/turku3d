@@ -364,6 +364,24 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
         self.assertTrue(repo.is_dir())
 
+    def test_adopt_registers_external_sandbox(self):
+        self.assertIn(
+            "no sandbox",
+            self.cli("codex-task", "adopt", "ext", "--brief", "brief.md", ok=False).stderr,
+        )
+        self.cli("wt", "new", "ext")
+        self.cli("codex-task", "adopt", "ext", "--brief", "brief.md")
+        self.assertIn(
+            "task exists",
+            self.cli("codex-task", "adopt", "ext", "--brief", "brief.md", ok=False).stderr,
+        )
+        self.assertIn("external", self.cli("codex-task", "status", "ext").stdout)
+        result = self.base / "result.md"
+        result.write_text("## Result: DONE\n")
+        self.cli("codex-task", "finish", "ext", "--result", str(result))
+        meta = json.loads((self.base / "tasks/ext/meta.json").read_text())
+        self.assertEqual((meta["state"], meta["exit_code"]), ("done", 0))
+
     def test_land_success(self):
         repo = self.start()
         self.commit(repo)
