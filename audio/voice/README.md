@@ -41,8 +41,9 @@ loaded host); unchanged lines cost nothing.
 - `voices.toml`: engine pin and seed, output settings and one preset per speaker (`voice` = Kokoro voice
   pack, `"a,b"` blends packs; `speed`). Every speaker that has a voiced line needs a preset.
 - `[lexicon]` maps Finnish names to phonemes. Before synthesis each whole-word match becomes misaki
-  inline markup `[Linnankatu](/lˈinːɑŋkˌɑtu/)`, so street names get first-syllable stress and Finnish
-  vowels instead of the English G2P guess. The displayed text is unchanged.
+  inline markup `[Kristiinankatu](/kɹˈistiːnɑŋkˌɑtu/)`; the displayed text is unchanged. Add an entry only
+  when a Finnish ASR check beats the G2P (see the report): use English `ɹ`, because misaki maps the
+  Finnish tap `ɾ` to an American flap that is heard as "d".
 - Lines with `"voiced": false` (HUD prompts) get no clip.
 - Post-processing: trim silence below -50 dB of peak (50 ms margin, 5 ms fades), normalize to
   -18 LUFS integrated (ITU-R BS.1770-4, `loudness.py`) with a -1 dBFS peak ceiling, encode Opus

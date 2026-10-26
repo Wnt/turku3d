@@ -26,6 +26,7 @@ export class VoicePlayer {
   private shown: string | null = null;
   private pending: VoiceClip | null = null;
   private playing: Playing | null = null;
+  private queue: string[] = [];
   private request = 0;
   private unsubscribe: (() => void) | null = null;
   private disposed = false;
@@ -41,12 +42,14 @@ export class VoicePlayer {
       .then((manifest: VoiceManifest) => {
         for (const clip of manifest.lines) this.clips.set(clip.text, clip);
         if (this.shown !== null) this.show(this.shown, true);
+        if (!this.playing) this.advance();
       })
       .catch(error => { this.errors.push(`manifest: ${String(error)}`); });
     output.onRunning(() => {
       const clip = this.pending;
       this.pending = null;
       if (clip) void this.start(clip);
+      else if (!this.playing) this.advance();
     });
   }
 
@@ -62,7 +65,26 @@ export class VoicePlayer {
     this.shown = message;
     this.pending = null; // a line waiting for unlock only plays while it is still the shown message
     const clip = message === null ? undefined : this.clips.get(message);
-    if (clip) void this.start(clip);
+    if (clip) { this.queue = []; void this.start(clip); }
+  }
+
+  /** Speaks texts one after another (the start screen's story intro). A newly shown voiced HUD message
+   *  cuts the narration; unvoiced messages do not. Waits for the manifest and for unlock. */
+  narrate(texts: readonly string[]) {
+    if (this.disposed) return;
+    this.queue = [...texts];
+    if (!this.playing) this.advance();
+  }
+
+  /** Starts the next narration clip; false when nothing could start (empty queue, locked or no manifest). */
+  private advance() {
+    const ctx = this.output.context();
+    if (!this.clips.size || !ctx || ctx.state !== 'running') return false;
+    while (this.queue.length) {
+      const clip = this.clips.get(this.queue.shift()!);
+      if (clip) { void this.start(clip); return true; }
+    }
+    return false;
   }
 
   private load(clip: VoiceClip, ctx: AudioContext) {
@@ -93,7 +115,9 @@ export class VoicePlayer {
     const playing: Playing = { clip, source, gain };
     source.onended = () => {
       source.disconnect(); gain.disconnect();
-      if (this.playing === playing) { this.playing = null; this.output.duck(false); }
+      if (this.playing !== playing) return;
+      this.playing = null;
+      if (!this.advance()) this.output.duck(false);
     };
     this.playing = playing;
     this.output.duck(true);
@@ -111,11 +135,12 @@ export class VoicePlayer {
 
   snapshot() {
     return { clips: this.clips.size, shown: this.shown, playing: this.playing?.clip.id ?? null,
-      pending: this.pending?.id ?? null, played: [...this.played], errors: [...this.errors] };
+      pending: this.pending?.id ?? null, queued: this.queue.length, played: [...this.played], errors: [...this.errors] };
   }
 
   dispose() {
     this.disposed = true;
+    this.queue = [];
     this.unsubscribe?.();
     if (this.playing) { this.playing.source.stop(); this.playing = null; }
   }

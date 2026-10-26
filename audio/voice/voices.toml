@@ -27,26 +27,23 @@ speed = 1.05
 
 # Fast-talking young salesman.
 [speakers.dealer]
-voice = "am_puck"
+voice = "am_puck,am_fenrir"
 speed = 1.15
 
-# Quiet, cautious, speaks low.
+# Quiet, cautious, speaks low (af_nicole's whisper scored UTMOS 3.3; af_sarah 4.5).
 [speakers.market]
-voice = "af_nicole"
-speed = 0.9
+voice = "af_sarah"
+speed = 0.88
 
 # Neutral customer.
 [speakers.customer]
 voice = "af_heart"
 speed = 1.0
 
-# Finnish names spoken with Finnish phonemes (first-syllable stress, pure vowels, tapped r)
-# instead of the English G2P guess. misaki writes the tap ɾ as its flap token.
+# Finnish names the English G2P gets wrong, as phonemes. Kept only where a Finnish ASR check
+# (Whisper small, language=fi; docs/reports/audio-voice-tts.md) beat the G2P: Turku, Linnankatu,
+# Läntinen Rantakatu and Kaskenkatu sound right without an entry. Use English ɹ, not the Finnish tap
+# ɾ: misaki turns ɾ into an American flap that is heard as "d".
 [lexicon]
-"Turku" = "tˈuɾku"
-"Linnankatu" = "lˈinːɑŋkˌɑtu"
-"Aurakatu" = "ˈɑuɾɑkˌɑtu"
-"Läntinen Rantakatu" = "lˈæntinen ɾˈɑntɑkˌɑtu"
-"Kristiinankatu" = "kɾˈistiːnɑŋkˌɑtu"
-"Kaskenkatu" = "kˈɑskeŋkˌɑtu"
-"Auransilta" = "ˈɑuɾɑnsˌiltɑ"
+"Kristiinankatu" = "kɹˈistiːnɑŋkˌɑtu"
+"Aurakatu" = "ˈɑuɹɑkˌɑtuː"

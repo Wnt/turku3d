@@ -86,7 +86,7 @@ test('plays the clip whose text equals the shown message, once per change', asyn
   set(null); set(OFFER); await settle(); // shown again later: plays again, buffer reused
   expect(ctx.sources).toHaveLength(2);
   expect(fetched.filter(url => url.endsWith('market_offer.ogg'))).toHaveLength(1);
-  expect(player.snapshot()).toMatchObject({ clips: 2, playing: 'market_offer', played: ['market_offer', 'market_offer'], errors: [] });
+  expect(player.snapshot()).toMatchObject({ clips: 2, playing: 'market_offer', queued: 0, played: ['market_offer', 'market_offer'], errors: [] });
 });
 
 test('a new line fades the previous out over 100 ms and starts after it; ducking spans both', async () => {
@@ -131,6 +131,24 @@ test('only the newest of overlapping requests starts; a message shown before the
   player.show(SOLD); player.show(OFFER); // both decode concurrently
   await settle(); await settle();
   expect(player.snapshot().played).toEqual(['market_offer', 'market_offer']);
+});
+
+test('narration plays in order, waits for unlock, survives prompts and is cut by a voiced line', async () => {
+  const { ctx, ducks, player, unlock } = rig();
+  player.narrate([OFFER, 'Not in the manifest.', SOLD, OFFER]);
+  await player.ready;
+  expect(ctx.sources).toHaveLength(0);
+  await unlock();
+  expect(player.snapshot()).toMatchObject({ playing: 'market_offer', queued: 3 });
+  player.show(PROMPT); // unvoiced: narration continues
+  ctx.sources[0].end(); await settle();
+  expect(player.snapshot()).toMatchObject({ playing: 'market_sold', queued: 1 });
+  expect(ducks).toEqual([true, true]); // stays ducked between narration lines
+  player.show(SOLD); await settle(); // a voiced HUD line cuts the narration and clears the queue
+  expect(ctx.sources[1].stoppedAt).not.toBeNull();
+  ctx.sources[1].end(); ctx.sources[2].end(); await settle();
+  expect(player.snapshot()).toMatchObject({ playing: null, queued: 0, played: ['market_offer', 'market_sold', 'market_sold'] });
+  expect(ducks.at(-1)).toBe(false);
 });
 
 test('attach replaces the subscription; missing manifest is contained', async () => {

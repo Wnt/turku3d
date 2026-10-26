@@ -39,8 +39,10 @@ that was just shown, so the mission system needs no audio API. Rules:
 - Clips play on the `voice` bus (own volume slider). While a line plays, ambience passes through a
   ducker at -6 dB (`VOICE_DUCK_DB`); the ambience volume slider is independent of the duck.
 - A line shown before the audio context runs waits for unlock, unless another message replaces it first.
+- `narrate(texts)` speaks a sequence back to back (the start screen's story intro), keeping ambience
+  ducked between lines. Unvoiced messages leave it running; a newly shown voiced HUD line cuts it.
 - Clips are fetched and decoded on first use and cached. Manifest or clip failures are contained in
-  `voice.snapshot().errors`. `window.__game.voice` exposes `attach`, `show`, `snapshot`.
+  `voice.snapshot().errors`. `window.__game.voice` exposes `attach`, `show`, `narrate`, `snapshot`.
 
 The context is created and resumed synchronously on the first key/pointer input. Gamepad activity
 also attempts unlock; Chrome may still require a click or key under its user-activation policy.
