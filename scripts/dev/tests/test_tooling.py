@@ -358,7 +358,9 @@ class ToolingTests(unittest.TestCase):
         self.cli("codex-task", "finish", "demo", "--result", str(result))
         self.assertIn("External worker edit", self.cli("codex-task", "result", "demo").stdout)
         meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
-        self.assertEqual((meta["state"], meta["exit_code"], meta["worker"]), ("done", 0, "external"))
+        self.assertEqual(
+            (meta["state"], meta["exit_code"], meta["worker"]), ("done", 0, "external")
+        )
         self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
         self.assertTrue(repo.is_dir())
 
