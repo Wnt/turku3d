@@ -490,6 +490,7 @@ The test runner accepts file patterns, for example:
 
 ```sh
 .venv/bin/python scripts/dev/tests/run.py test_tooling.py test_environment.py
+.venv/bin/python -m unittest scripts/dev/tests/test_merge_queue.py
 ```
 
 ### Frozen-main gate verification (2026-10-25)
