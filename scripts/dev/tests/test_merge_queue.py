@@ -140,6 +140,7 @@ class QueueTests(unittest.TestCase):
             head = git("rev-parse", "HEAD", cwd=repo)
             tree = git("rev-parse", "HEAD^{tree}", cwd=repo)
             data = root / "data"
+            (home / "sandbox.env").write_text(f"export TURKU3D_DATA={data}\n")
             (data / "build").mkdir(parents=True)
             (data / "dist").mkdir()
             checks = {"gate": {"unit": "abc"}, "live": {"tile-build": "def"}}
@@ -169,7 +170,7 @@ class QueueTests(unittest.TestCase):
                 )
             )
             with (
-                patch.dict(os.environ, {"TURKU3D_DATA": str(data)}),
+                patch.dict(os.environ, {"TURKU3D_DATA": ""}),
                 patch.object(landing.s, "root", return_value=root),
                 patch.object(landing.s, "sandbox", return_value=home),
                 patch.object(landing.s, "tasks_root", return_value=root / "tasks"),

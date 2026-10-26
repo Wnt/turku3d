@@ -60,7 +60,13 @@ def fast(name, dry_run=False):
             raise ValueError(f"{name}: branch is dirty or unexpected")
         before = s.git("rev-parse", "main", cwd=repo)
         receipt = s.read_json(path / "precheck.json", {})
-        published = Path(os.environ["TURKU3D_DATA"])
+        sandbox_env = s.read_env(s.sandbox(name) / "sandbox.env")
+        data_root = sandbox_env.get("TURKU3D_DATA") or os.environ.get("TURKU3D_DATA")
+        if not data_root:
+            raise ValueError(
+                f"{name}: TURKU3D_DATA is missing from sandbox.env and queue environment"
+            )
+        published = Path(data_root)
         release = verification.validate(receipt, repo, published)
         if receipt["main"] != before or s.git("merge-base", "HEAD", "main", cwd=repo) != before:
             raise ValueError(f"{name}: precheck is stale; worker must recheck")
