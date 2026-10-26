@@ -20,6 +20,7 @@ single policy file and this document keeps only the layer contracts (§3–§4).
 
 The single policy source is [AGENTS.md](../../AGENTS.md), including the English-language rule,
 isolation, verification, commits and run results. Tool commands: [scripts/dev/README.md](../../scripts/dev/README.md).
+Send a progress message only when a stage finishes or the plan changes, not while polling or waiting.
 
 ## 3. Coordinates and tiles (from `pipeline/turku3d/config.py`, do not redefine)
 
