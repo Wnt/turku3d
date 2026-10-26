@@ -15,6 +15,11 @@ from pathlib import Path
 LIMITS = {"build": 3, "browser": 2, "land": 1}
 
 
+def land_jobs():
+    """An admitted land reservation excludes every other slot, so it owns the whole host."""
+    return os.cpu_count() or 1
+
+
 def root():
     return Path(os.environ.get("TURKU3D_SLOT_DIR", Path.home() / "turku3d/host-slots"))
 
@@ -154,10 +159,13 @@ def main():
         parser.error("command required")
     with slot(args.kind) as inherited:
         env = os.environ.copy()
-        cap = 1 if args.kind in ("browser", "land") else 2
-        env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))
         if args.kind == "land" and not inherited:
+            env["TURKU3D_JOBS"] = str(land_jobs())
             env["TURKU3D_LAND_OWNER"] = f"{os.getpid()}:{identity(os.getpid())}"
+        elif not inherited:
+            # Children of a land reservation keep its whole-host budget.
+            cap = 1 if args.kind == "browser" else 2
+            env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))
         return subprocess.call(command, env=env)
 
 

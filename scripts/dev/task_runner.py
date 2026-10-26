@@ -655,6 +655,12 @@ def main():
         p.add_argument("name", nargs="?" if cmd == "land" else None)
         if cmd == "land":
             p.add_argument("--batch", nargs="+")
+            p.add_argument(
+                "--prechecked",
+                action="store_true",
+                help="publish the task's precheck receipt and prepared release without a rebuild",
+            )
+            p.add_argument("--dry-run", action="store_true", help="with --prechecked: check only")
         if cmd == "log":
             p.add_argument("n", type=int, default=20, nargs="?")
         if cmd == "resume":
@@ -700,6 +706,18 @@ def main():
             from landing import batch
 
             batch(a.batch, a.force)
+        elif a.prechecked:
+            if not a.name or a.force:
+                ap.error("--prechecked takes one name and no --force")
+            from landing import fast
+
+            result = fast(a.name, dry_run=a.dry_run)
+            if not a.dry_run:
+                print(
+                    f"{a.name}: landed {result['commit'][:12]} in {result['merge_wall_seconds']}s"
+                )
+        elif a.dry_run:
+            ap.error("--dry-run requires --prechecked")
         elif a.name:
             land(a.name, a.force)
         else:

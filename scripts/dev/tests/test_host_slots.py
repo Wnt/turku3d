@@ -114,17 +114,26 @@ class HostSlotsTest(unittest.TestCase):
             )
             self.assertEqual(result.stdout.strip(), expected)
 
+    def test_land_reservation_children_use_whole_host(self):
+        # The exclusive reservation and the build/browser commands nested in it share all cores.
+        expected = str(host_slots.land_jobs())
+        for kind in ("build", "browser"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    self.nested(kind, "import os; print(os.environ['TURKU3D_JOBS'])"), expected
+                )
+
     def test_landing_children_reuse_exclusive_reservation(self):
         # A queue-run precheck builds under the queue's own landing reservation.
         for kind in ("build", "land"):
             with self.subTest(kind=kind):
                 self.assertEqual(self.nested(kind), "42")
 
-    def nested(self, kind):
+    def nested(self, kind, inner="print(42)"):
         script = (
             "import os, subprocess, sys; "
             f"subprocess.run([sys.executable, sys.argv[1], '{kind}', '--', "
-            "sys.executable, '-c', 'print(42)'], check=True)"
+            "sys.executable, '-c', sys.argv[2]], check=True)"
         )
         result = subprocess.run(
             [
@@ -136,6 +145,7 @@ class HostSlotsTest(unittest.TestCase):
                 "-c",
                 script,
                 str(Path(host_slots.__file__)),
+                inner,
             ],
             env=self.env,
             capture_output=True,

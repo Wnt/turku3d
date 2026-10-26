@@ -14,8 +14,12 @@ import live_build
 import sandbox as s
 
 
-def fast(name):
-    """Publish an unchanged-main, fully prechecked branch without running a build."""
+def fast(name, dry_run=False):
+    """Publish an unchanged-main, fully prechecked branch without running a build.
+
+    With dry_run, run every check (receipt, prepared release bytes, main, guards) and
+    return what would be published without moving main or the live link.
+    """
     import verification
     from task_runner import cleanup_landed, main_checkout, running, task
 
@@ -40,7 +44,7 @@ def fast(name):
         before = s.git("rev-parse", "main", cwd=repo)
         receipt = s.read_json(path / "precheck.json", {})
         published = Path(os.environ["TURKU3D_DATA"])
-        verification.validate(receipt, repo, published)
+        release = verification.validate(receipt, repo, published)
         if receipt["main"] != before or s.git("merge-base", "HEAD", "main", cwd=repo) != before:
             raise ValueError(f"{name}: precheck is stale; worker must recheck")
         main = main_checkout(repo)
@@ -48,6 +52,12 @@ def fast(name):
             raise ValueError("main worktree is dirty")
         if time.monotonic() - started > 110:
             raise ValueError("merge verification is slow; 2-minute budget would be exceeded")
+        if dry_run:
+            with coord.landing_guard(name, force=False):
+                pass
+            plan = {"name": name, "main": before, "head": receipt["head"], "release": str(release)}
+            print(json.dumps({"dry_run": True, **plan}))
+            return plan
         with coord.landing_guard(name, force=False):
             if main:
                 s.git("merge", "--ff-only", receipt["head"], cwd=main)

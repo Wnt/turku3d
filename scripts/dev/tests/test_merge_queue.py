@@ -180,6 +180,10 @@ class QueueTests(unittest.TestCase):
                 patch.object(landing.coord, "landing_guard", return_value=contextlib.nullcontext()),
                 patch.object(landing.live_build, "build") as rebuild,
             ):
+                plan = landing.fast("worker", dry_run=True)
+                self.assertEqual(git("rev-parse", "HEAD"), base)
+                self.assertFalse((data / "live").exists())
+                self.assertEqual(Path(plan["release"]), release)
                 result = landing.fast("worker")
             self.assertEqual(git("rev-parse", "HEAD"), head)
             self.assertEqual((data / "live").resolve(), release.resolve())

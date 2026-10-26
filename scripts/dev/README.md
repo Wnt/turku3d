@@ -567,7 +567,9 @@ The shared state is `~/turku3d/host-slots/` (override with `TURKU3D_SLOT_DIR` on
 for synthetic tests). Up to three `build` jobs and two `browser` jobs run at once;
 each build gets at most two `TURKU3D_JOBS`, and each browser suite one. A queued
 `land` reservation stops new build/browser admissions, then holds exclusive capacity
-through refresh, four-tile assembly, game build, collision checks, and Chrome.
+through refresh, four-tile assembly, game build, collision checks, and Chrome. Because
+nothing else runs, the reservation and every command nested in it get
+`TURKU3D_JOBS` = all logical cores instead of the shared caps.
 Commands started under a running `land` reservation (`TURKU3D_LAND_OWNER`) reuse it,
 including nested `land` requests: the merge queue holds one reservation per round, and
 the queue-run prechecks and their live builds run inside it instead of waiting on it.
@@ -637,6 +639,15 @@ preloaded pages before admitting warm checks. Each candidate's
 affected tile specs run through those endpoints on the candidate sandbox ports; a missing
 service or selector uses the full local Chrome suite. The queue stops only the service
 process it started when it exits. `queue status` remains read-only.
+
+To publish one prechecked task without starting the daemon (for example an orchestrator
+integration sandbox), run the same fast path directly. `--dry-run` runs every receipt,
+release-byte, main and guard check and prints the head and release without moving anything:
+
+```sh
+scripts/dev/codex-task land <name> --prechecked --dry-run
+scripts/dev/codex-task land <name> --prechecked
+```
 
 The old `codex-task land` command remains for recovery but is no longer the normal path.
 The orchestrator's `land.sh` and `land-quiet.sh` wrappers are unnecessary.

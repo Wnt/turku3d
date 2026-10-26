@@ -10,7 +10,7 @@ from pathlib import Path
 
 import live_cache
 import sandbox as s
-from host_slots import identity, slot
+from host_slots import identity, land_jobs, slot
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 QUEUE_STAGE_BUDGETS = {
@@ -211,7 +211,7 @@ def build(repo, work, published, env, log_path, reason=None):
             if inherited
             else f"{os.getpid()}:{identity(os.getpid())}"
         )
-        reserved_env = {**env, "TURKU3D_LAND_OWNER": owner, "TURKU3D_JOBS": "1"}
+        reserved_env = {**env, "TURKU3D_LAND_OWNER": owner, "TURKU3D_JOBS": str(land_jobs())}
         return _build(repo, work, published, reserved_env, log_path, reason)
 
 
