@@ -586,6 +586,9 @@ def precheck(name, base="main"):
     with s.lock(path / "lock"):
         if s.git("status", "--porcelain", cwd=repo):
             raise ValueError("commit changes before precheck")
+        # Pin the base: the receipt must name the main this head was rebased onto and checked
+        # against, even when main moves while the gate and live build run.
+        base = s.git("rev-parse", base, cwd=repo)
         s.rebase(base, repo)
         head = s.git("rev-parse", "HEAD", cwd=repo)
         env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}

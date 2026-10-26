@@ -206,6 +206,80 @@ class QueueReturnTests(unittest.TestCase):
                 self.record["tasks"]["codex"]["failed"] = 0
         self.assertNotIn("resumed", self.record["tasks"]["codex"])
 
+    def git(self, *args, cwd):
+        return subprocess.run(
+            ["git", *args], cwd=cwd, check=True, text=True, capture_output=True
+        ).stdout.strip()
+
+    def worker_branch(self):
+        """A real main checkout and a `wt/ext` worktree one commit ahead of it."""
+        origin = self.root / "origin"
+        origin.mkdir()
+        self.git("init", "-b", "main", cwd=origin)
+        self.git("config", "user.email", "queue@example.test", cwd=origin)
+        self.git("config", "user.name", "Queue Test", cwd=origin)
+        (origin / "a.txt").write_text("base\n")
+        self.git("add", ".", cwd=origin)
+        self.git("commit", "-m", "base", cwd=origin)
+        self.task("ext", worker="external")
+        repo = self.root / "ext/repo"
+        self.git("worktree", "add", "-b", "wt/ext", str(repo), cwd=origin)
+        (repo / "b.txt").write_text("worker\n")
+        self.git("add", ".", cwd=repo)
+        self.git("commit", "-m", "worker", cwd=repo)
+        return origin, repo
+
+    def round(self, repo):
+        """One real-git queue round; returns the HEAD seen by the recheck and by publish."""
+        seen = {}
+
+        def reverify(name, record):
+            seen["recheck"] = self.git("rev-parse", "HEAD", cwd=repo)
+
+        def fast(name):
+            seen["publish"] = self.git("rev-parse", "HEAD", cwd=repo)
+            return {"commit": seen["publish"], "merge_wall_seconds": 0.1, "verification": "v"}
+
+        with (
+            patch.object(merge_queue.s, "sandbox", side_effect=lambda n: self.root / n),
+            patch.object(merge_queue, "reverify", side_effect=reverify),
+            patch.object(queue_sweep, "start"),
+            patch("landing.fast", side_effect=fast),
+            patch.object(task_runner, "launch", side_effect=AssertionError("Codex resume")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertTrue(merge_queue.process(self.record))
+        return seen
+
+    def test_current_receipt_lands_without_rebasing(self):
+        # A receipt proving this head on current main is validated first; the branch,
+        # its commits and its reflog stay untouched and the fast path publishes it.
+        origin, repo = self.worker_branch()
+        head = self.git("rev-parse", "HEAD", cwd=repo)
+        receipt = {"main": self.git("rev-parse", "main", cwd=origin), "head": head}
+        (self.tasks / "ext/precheck.json").write_text(json.dumps(receipt))
+        reflog = self.git("reflog", "wt/ext", cwd=repo)
+        self.assertEqual(self.round(repo), {"publish": head})
+        self.assertEqual(self.git("reflog", "wt/ext", cwd=repo), reflog)
+        self.assertEqual(self.kinds("ext"), ["enqueued", "started", "published"])
+
+    def test_rebase_that_rewrites_branch_is_rechecked_before_publish(self):
+        # Observed 22:47 on gameplay-map-route: the receipt named current main, but main had
+        # moved during the worker precheck so the head was not on it. The queue rebased
+        # (re-stamping every commit), skipped the recheck and then rejected the receipt for a
+        # different head. A rebase that rewrites the branch is now always rechecked.
+        origin, repo = self.worker_branch()
+        old = self.git("rev-parse", "HEAD", cwd=repo)
+        (origin / "a.txt").write_text("main moved\n")
+        self.git("commit", "-am", "main moved", cwd=origin)
+        receipt = {"main": self.git("rev-parse", "main", cwd=origin), "head": old}
+        (self.tasks / "ext/precheck.json").write_text(json.dumps(receipt))
+        seen = self.round(repo)
+        new = self.git("rev-parse", "HEAD", cwd=repo)
+        self.assertNotEqual(new, old)
+        self.assertEqual(seen, {"recheck": new, "publish": new})
+        self.assertEqual(self.kinds("ext"), ["enqueued", "started", "published"])
+
     def test_recheck_classifies_deadline_as_slow(self):
         repo = self.root / "ext/repo"
         repo.mkdir(parents=True)

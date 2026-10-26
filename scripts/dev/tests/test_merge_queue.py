@@ -41,6 +41,8 @@ class QueueTests(unittest.TestCase):
                     return ""
                 if args == ("rev-parse", "HEAD"):
                     return "head"
+                if args == ("rev-parse", "main"):
+                    return "base-sha"
                 raise AssertionError(args)
 
             with (
@@ -84,7 +86,10 @@ class QueueTests(unittest.TestCase):
                     task_runner.precheck("worker")
                 self.assertIn("--all", run.call_args.args[0])
             self.assertEqual(run.call_args.args[0][-1], "--json")
+            # The gate, live checks and receipt use the main the head was rebased onto.
+            self.assertEqual(run.call_args.args[0][1:3], ["--base", "base-sha"])
             self.assertEqual(create.call_args.args[3], gate)
+            self.assertEqual(create.call_args.args[5], "base-sha")
             self.assertEqual(json.loads((task / "precheck.json").read_text())["release_id"], "key")
 
     def test_full_sweep_holds_only_regressed_domain(self):
@@ -329,10 +334,12 @@ class QueueTests(unittest.TestCase):
             for name in ("one", "two", "three"):
                 path = tasks / name
                 path.mkdir(parents=True)
-                (path / "precheck.json").write_text('{"main":"base"}')
+                (path / "precheck.json").write_text(
+                    json.dumps({"main": "base", "head": name + "-head"})
+                )
 
             def git(*args, cwd=None):
-                if args == ("rev-parse", "main"):
+                if args == ("rev-parse", "main") or args == ("merge-base", "HEAD", "main"):
                     return "base"
                 if args[:2] == ("diff", "--name-only"):
                     return {
@@ -351,7 +358,6 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue.s, "tasks_root", return_value=tasks),
                 patch.object(merge_queue.s, "sandbox", side_effect=lambda n: root / n),
                 patch.object(merge_queue.s, "git", side_effect=git),
-                patch.object(merge_queue, "rebase", return_value=True),
                 patch.object(merge_queue, "run_precheck", return_value={}) as precheck,
             ):
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:

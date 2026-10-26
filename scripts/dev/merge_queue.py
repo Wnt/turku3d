@@ -177,6 +177,17 @@ def claim(name, record, held):
     return True
 
 
+def current(name, receipt):
+    """Whether the receipt proves this exact head on current main; then the branch stays as is."""
+    repo = s.sandbox(name) / "repo"
+    main = s.git("rev-parse", "main", cwd=repo)
+    return (
+        receipt.get("main") == main
+        and receipt.get("head") == s.git("rev-parse", "HEAD", cwd=repo)
+        and s.git("merge-base", "HEAD", "main", cwd=repo) == main
+    )
+
+
 def rebase(name, record):
     repo = s.sandbox(name) / "repo"
     if s.git("status", "--porcelain", cwd=repo):
@@ -261,9 +272,8 @@ def speculative(names, record, pool):
         ):
             return {}
         domains.update(touched)
-    for name in names:
-        if not rebase(name, record):
-            return {}
+    if not all(current(name, receipts[name]) for name in names):
+        return {}
     previous = s.git("rev-parse", "HEAD", cwd=s.sandbox(names[0]) / "repo")
     futures = {}
     for name in names[1:]:
@@ -301,16 +311,14 @@ def integrate(names, record, fast):
             if any(key in record["tasks"].get(name, {}) for key in TERMINAL):
                 continue
             event(record, name, "started")
-            if name not in futures and not rebase(name, record):
-                continue
             try:
                 if name in futures:
                     futures[name].result()
-                else:
-                    receipt = s.read_json(s.tasks_root() / name / "precheck.json", {})
-                    repo = s.sandbox(name) / "repo"
-                    if receipt.get("main") != s.git("rev-parse", "main", cwd=repo):
-                        reverify(name, record)
+                elif not current(name, s.read_json(s.tasks_root() / name / "precheck.json", {})):
+                    # A rebase may rewrite the branch, so the new head is always rechecked.
+                    if not rebase(name, record):
+                        continue
+                    reverify(name, record)
                 record["tasks"][name].pop("slow_streak", None)
                 result = fast(name)
             except Slow as exc:

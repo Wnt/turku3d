@@ -679,9 +679,13 @@ runs the gate and every live build check in the worker sandbox, saves per-check 
 `~/turku3d/tasks/<name>/precheck.json`, and prepares a release under
 `$TURKU3D_DATA/live-releases/<tree-input-and-commit-hash>`. A rebase conflict returns to the worker.
 The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon polls DONE results.
-When main still matches the receipt, it verifies the tree, checks and release bytes, fast-forwards
-main, and swaps the live pointer without rebuilding. The landed ledger records merge wall seconds.
-When main moved, it rebases and runs only invalidated cached gate/live stages under a 210-second
+When the receipt is current (its `main` is main, its `head` is the branch HEAD and that head is
+on main), the queue does not touch the branch: it verifies the tree, checks and release bytes,
+fast-forwards main, and swaps the live pointer without rebuilding. Precheck records the main
+commit it rebased onto, not main at the end, so a main move during a precheck makes the receipt
+stale instead of claiming a base the head is not on. The landed ledger records merge wall seconds.
+Otherwise it rebases, and a rebase is always followed by the recheck of the new head: it runs
+only invalidated cached gate/live stages under a 210-second
 check deadline. Gate checks have a 120-second default queue budget; live stages have declared
 30–150-second budgets. A slow recheck is retried; after two consecutive slow rechecks the task
 returns to its worker for a fix and new precheck. Broad producer changes also return to the worker. Layer
@@ -715,7 +719,7 @@ The task's state transitions are:
 | (DONE) | a new `meta.finished` | `enqueued` |
 | `enqueued` / `failed` (delay elapsed) | task lock held by a worker precheck | `busy` (skipped this round) |
 | `enqueued` / `failed` (delay elapsed) | lock taken | `started` |
-| `started` | receipt current or recheck green, publish ok | `published` |
+| `started` | receipt current (no rebase), or rebase plus green recheck, publish ok | `published` |
 | `started` | first slow recheck, main moved, failed Codex resume | `failed` (retry after the delay) |
 | `started` | second consecutive slow recheck, red recheck, rebase conflict, dirty tree, missing receipt, all-tile producer change | `resumed` (Codex) or `returned` (external) |
 | `started` | unacknowledged request/warning in the inbox | `held` |
