@@ -126,17 +126,20 @@ def buildings(layers):
     if manifest_current(layers / "buildings/MANIFEST.json", expected):
         return "cached"
     facade_manifest = layers.parents[1] / "textures/assembly/MANIFEST.json"
-    if facade_manifest.exists() and json.loads(facade_manifest.read_text()).get("bound"):
+    if facade_manifest.exists():
         export = facade_manifest.parent
-        snapshot = export / "APPROVED_INVENTORY.geojson"
-        inventory = layers / "buildings/facades.geojson"
-        old_hash = json.loads(facade_manifest.read_text()).get("inventory_sha256")
-        if not snapshot.exists():
-            if not inventory.exists() or sha(inventory) != old_hash:
-                raise RuntimeError("approved facade source inventory is unavailable")
-            shutil.copy2(inventory, snapshot)
-        if sha(snapshot) != old_hash:
-            raise RuntimeError("approved facade source inventory hash mismatch")
+        with (export / ".export.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if json.loads(facade_manifest.read_text()).get("bound"):
+                snapshot = export / "APPROVED_INVENTORY.geojson"
+                inventory = layers / "buildings/facades.geojson"
+                old_hash = json.loads(facade_manifest.read_text()).get("inventory_sha256")
+                if not snapshot.exists():
+                    if not inventory.exists() or sha(inventory) != old_hash:
+                        raise RuntimeError("approved facade source inventory is unavailable")
+                    shutil.copy2(inventory, snapshot)
+                if sha(snapshot) != old_hash:
+                    raise RuntimeError("approved facade source inventory hash mismatch")
     run("turku3d.buildings")
     return "rebuilt"
 
