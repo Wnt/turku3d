@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { atlasUv } from './facade_atlas.mjs';
+import { atlasUv, sourceUvInside } from './facade_atlas.mjs';
+
+test('source UV edge tolerance is limited to one source pixel', () => {
+  const size = [2048, 1024];
+  assert.equal(sourceUvInside(0.003, -0.00022, size), true);
+  assert.equal(sourceUvInside(0.003, -0.002, size), false);
+  assert.equal(sourceUvInside(1.002, 0.5, size), false);
+  assert.equal(sourceUvInside(Number.NaN, 0.5, size), false);
+});
 
 test('a two-metre door stays at ground level in every atlas row', () => {
   const wallHeight = 10;

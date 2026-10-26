@@ -8,6 +8,11 @@ const slots = ['albedo', 'normal', 'orm'];
 const clamp = (v) => Math.max(0, Math.min(1, v));
 const align4 = (v) => Math.ceil(v / 4) * 4;
 
+export function sourceUvInside(u, v, sourceSize) {
+  return [u, v].every((value, axis) =>
+    Number.isFinite(value) && value >= -1 / sourceSize[axis] && value <= 1 + 1 / sourceSize[axis]);
+}
+
 export function atlasUv(u, v, scale, offset, entry, pageHeight) {
   // glTF/KTX coordinates have v=0 at the image's top row. Keep that origin
   // when moving a source image into an atlas row.
@@ -99,7 +104,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
       entry = { id:info.id, width, height, maps };
       byId.set(key, entry);
     }
-    primitives.push({ prim, transform, entry });
+    primitives.push({ prim, transform, entry, sourceSize });
   }
   if (byId.size < 2) return { pages:0, facades:byId.size };
 
@@ -152,7 +157,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
     materials.push(material);
   }
   doc.createExtension(KHRTextureBasisu).setRequired(true);
-  for (const { prim, transform, entry } of primitives) {
+  for (const { prim, transform, entry, sourceSize } of primitives) {
     const page = pages[entry.page];
     const uv = prim.getAttribute('TEXCOORD_0').clone();
     const array = uv.getArray();
@@ -160,7 +165,9 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
     for (let i = 0; i < array.length; i += 2) {
       const sourceU = array[i] * scale[0] + offset[0];
       const sourceV = array[i+1] * scale[1] + offset[1];
-      if (![sourceU, sourceV].every(v => Number.isFinite(v) && v >= -1e-4 && v <= 1 + 1e-4)) {
+      // A source wall may extend by a subpixel at a cropped edge. The
+      // packaged coordinates are clamped below; reject larger excursions.
+      if (!sourceUvInside(sourceU, sourceV, sourceSize)) {
         throw new Error(`${entry.id}: facade UV leaves its source atlas region at vertex ${i / 2}: ${sourceU},${sourceV}`);
       }
       [array[i], array[i+1]] = atlasUv(array[i], array[i+1], scale, offset, entry, page.height);
