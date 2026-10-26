@@ -36,9 +36,9 @@ elevations. Approach strips connect the lidar deck profile to those contacts and
 clear the intervening ground mesh. The three short mapped gangways terminate in
 the river and have one land contact each. `reports/bridges/report.json` lists
 every contact, waterline station, measured lidar/ground residual and ramp join
-error. Teatterisilta requires the lidar tile immediately west of the L0 area;
-its west contact is lidar-supported while the current published ground collision
-has no x<0 tile. The report marks that contact `ground_available: false`.
+error. Teatterisilta requires the lidar tile immediately west of the L0 area.
+The ground producer publishes the adjoining collision tile for its west contact,
+and the package manifest includes that tile for physics streaming.
 
 Auransilta has separate road and raised sidewalk surfaces, a 12 cm kerb, edge
 railings and piers down to the measured water elevation. All deck triangles carry
@@ -46,7 +46,8 @@ collision material 24 (`bridge_deck`); railings and kerbs have their own solid
 materials. `make bridges-textures` stages read-only, shared ground library
 textures: asphalt road, granite stone walks and a smooth painted finish for
 steel railings. It also stages the ground splats and array maps for live tile
-assembly. The ground and water layers are never modified. Complete bridge
+assembly. The ground producer cuts land collision at the river edge under the
+deck while preserving the water surface. Complete bridge
 objects follow the layer v1 `seams=objects` ownership rule.
 
 The model is an initial geometric reconstruction. Railing subdivisions follow

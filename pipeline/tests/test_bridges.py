@@ -4,8 +4,9 @@ from types import SimpleNamespace
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 from shapely.geometry import LineString, box
-from turku3d.bridges.build import Crossing, crossings, geometry, profile
+from turku3d.bridges.build import Crossing, _triangles, crossings, geometry, profile
 from turku3d.bridges.shore import Shore, approaches
 from turku3d.col.materials import mat_id
 
@@ -29,6 +30,15 @@ def test_city_footprint_and_osm_bridge_semantics():
     assert len(result) == 1
     assert result[0].footprint.equals(city.geometry_local.iloc[0])
     assert result[0].road
+
+
+def test_concave_deck_with_hole_has_complete_triangles():
+    polygon = box(0, 0, 10, 10).difference(box(3, 0, 7, 7)).difference(box(1, 8, 2, 9))
+    faces = np.asarray(list(_triangles(polygon)))
+    triangles = shapely.polygons(faces)
+    assert np.isclose(shapely.area(triangles).sum(), polygon.area, atol=1e-8)
+    assert np.all(shapely.covers(polygon, shapely.point_on_surface(triangles)))
+    assert shapely.covers(triangles, shapely.Point(8, 5)).any()
 
 
 def test_deck_profile_prefers_class17_and_generates_walk_drive_surfaces():

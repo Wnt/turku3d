@@ -6,12 +6,39 @@ import numpy as np
 import pytest
 from fixtures import ground as G
 from fixtures.stub_tile import CELLS_PER_COL, STEP, build
+from test_assemble import fixture as assemble_fixture
 from turku3d import config as C
 from turku3d.col import read_col
 from turku3d.col.materials import mat_id
 from turku3d.ground.materials import surface_material as katualue_material
+from turku3d.layers import CollisionLayer, read_collision, write_collision, write_manifest
 from turku3d.package import gltf
+from turku3d.package.assemble import assemble
 from turku3d.package.manifest import DistTree, build_tileset, verify_tree
+
+
+def test_collision_margin_is_published_beyond_l0_edge(tmp_path, monkeypatch):
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    layers, out = tmp_path / "layers", tmp_path / "dist"
+    assemble_fixture(layers)
+    ground = layers / "ground"
+    source = read_collision(ground / "c_0_0.col.npz")
+    positions = source.positions.copy()
+    positions[:, 0] -= C.COLLISION_TILE_SIZE
+    write_collision(
+        ground / "c_-1_0.col.npz", CollisionLayer(positions, source.indices, source.material)
+    )
+    write_manifest(
+        ground,
+        inputs={"synthetic": "v1"},
+        params={},
+        code="test",
+        tiles=[p.name for p in ground.glob("*.col.npz")] + ["t0_0_0.vis.glb"],
+    )
+    assemble(["t0_0_0"], layers=layers, out=out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert "c_-1_0" in manifest["collision"]
 
 
 def test_glb_roundtrip_and_root_translation():

@@ -1,7 +1,9 @@
 # Ground layer
 
 The default build produces plain lidar terrain for the four Phase 1 visual tiles and
-64 collision tiles. To add measured curbs around the office, run the lidar relief
+their collision tiles plus a 50 m contact margin (100 collision tiles). This gives
+bridge ends outside the visual grid, including Teatterisilta's west shore, ground
+collision. To add measured curbs around the office, run the lidar relief
 producer and pass its complete breakline file to the ground builder:
 
 ```sh
@@ -55,7 +57,12 @@ curbs. Terrain faces steeper than 45 degrees with over 35 cm of relief cannot ca
 a walkable pavement material; they use the wall material in both collision and the
 matching visual GLB. This keeps river retaining faces visible as blockers.
 
-Water polygons constrain the shoreline. The separate water sensor/visual surface uses
+Water polygons constrain the shoreline. Unsupported shoreline constraint heights are
+bounded to nearby observed ground returns, preventing a fitted bank plane from creating
+high pavement where the nearest lidar support is several metres away. Mapped bridge
+footprints cut land triangles within 2 m of the water under decks, retaining
+ground at surveyed abutments and the water surface beneath.
+The separate water sensor/visual surface uses
 median class-9 N2000 elevation; ground heights are not interpolated across the river.
 The solid river bed required by `materials.md` is an explicitly synthetic collision-only
 fallback 3 m below that water level, with closed bank faces. It is not measured bathymetry

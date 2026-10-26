@@ -135,6 +135,32 @@ def test_cdt_seams_water_and_materials(built_mesh, tmp_path):
     assert seam_errors(meshes)
 
 
+def test_unsupported_shore_is_bounded_and_bridge_cuts_land():
+    x, z = np.meshgrid(np.arange(0, 6, 0.5), np.arange(0, 6, 0.5))
+    surface = Surface(np.c_[x.ravel(), 1 + x.ravel(), z.ravel()])
+    water = box(-4, 1, -1, 4)
+    bridge = box(-2, 1.5, 4, 3.5)
+    mesh, _ = build_mesh(
+        surface,
+        C.BBoxLocal(-4, 0, 5, 5),
+        [],
+        [],
+        water,
+        0,
+        ConstantMaterials(),
+        bridges=bridge,
+    )
+    unsupported = mesh.positions[:, 0] < -2
+    assert mesh.positions[unsupported, 1].min() >= 0
+    centers = mesh.positions[mesh.indices].mean(axis=1)
+    cut = bridge.intersection(water.buffer(2))
+    inside_cut = shapely.contains_xy(cut, centers[:, 0], centers[:, 2])
+    landward = shapely.contains_xy(box(2, 2, 4, 3), centers[:, 0], centers[:, 2])
+    assert not np.any(inside_cut & (mesh.material != mat_id("water")))
+    assert np.any(inside_cut & (mesh.material == mat_id("water")))
+    assert np.any(landward & (mesh.material != mat_id("water")))
+
+
 def test_constrained_curb_is_sharp_and_visual_is_separate(curb_cloud):
     curbs = fit_curbs([("curb", LineString([(2.15, 0), (2.15, 12)]))], Surface(curb_cloud))[0]
     mesh, _ = build_mesh(

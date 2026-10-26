@@ -377,9 +377,12 @@ def assemble(
         if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
     ]
     texture_hash = digest(textures)
+    area_visuals = set(C.AREAS[area].visual_tiles)
     available = set(tree.collision)
     for t in requested:
-        for c in t.collision_tiles():
+        for c in C.collision_tiles_for_bbox(t.bbox.buffered(C.MESH_MARGIN)):
+            if c.visual_parent() in area_visuals and c.visual_parent() not in requested:
+                continue
             available.discard(c.id)
             if any(c.id in v for v in collision.values()):
                 available.add(c.id)
@@ -423,6 +426,16 @@ def assemble(
                         pending_collision[c] = collision_tile(
                             c, collision, manifests, available, dynamic_traffic=True
                         )
+        # The ground layer covers the meshing margin too. Publish its adjacent
+        # collision tiles so bridges crossing an L0 edge have a supported shore.
+        for tile in requested:
+            for c in C.collision_tiles_for_bbox(tile.bbox.buffered(C.MESH_MARGIN)):
+                if c.visual_parent() in area_visuals and c.visual_parent() not in requested:
+                    continue
+                if c.id in available and c not in pending_collision:
+                    pending_collision[c] = collision_tile(
+                        c, collision, manifests, available, dynamic_traffic=True
+                    )
         if not changed:
             return {
                 "changed": [],

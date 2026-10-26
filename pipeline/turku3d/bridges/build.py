@@ -6,10 +6,11 @@ import json
 from dataclasses import dataclass
 
 import numpy as np
+import triangle as triangle_lib
 from scipy.spatial import cKDTree
 from shapely import contains_xy
-from shapely.geometry import LineString, Point, box
-from shapely.ops import triangulate, unary_union
+from shapely.geometry import LineString, Point, Polygon, box
+from shapely.ops import unary_union
 
 from turku3d import config as C
 from turku3d.structures.geometry import Faces, planar_uv, profile_wall
@@ -159,15 +160,23 @@ def profile(crossing, points, classes):
 def _triangles(polygon):
     parts = list(polygon.geoms) if polygon.geom_type == "MultiPolygon" else [polygon]
     for part in parts:
-        for rough in triangulate(part):
-            clipped = rough.intersection(part)
-            fragments = list(clipped.geoms) if clipped.geom_type == "MultiPolygon" else [clipped]
-            for fragment in fragments:
-                if fragment.geom_type != "Polygon" or fragment.area < 1e-5:
-                    continue
-                verts = np.asarray(fragment.exterior.coords[:-1], float)
-                for i in range(1, len(verts) - 1):
-                    yield verts[[0, i, i + 1]]
+        if part.is_empty or part.area < 1e-5:
+            continue
+        rings = [part.exterior, *part.interiors]
+        vertices, segments, holes = [], [], []
+        for index, ring in enumerate(rings):
+            coords = np.asarray(ring.coords[:-1], float)
+            start = len(vertices)
+            vertices.extend(coords)
+            segments.extend((start + i, start + (i + 1) % len(coords)) for i in range(len(coords)))
+            if index:
+                holes.append(np.asarray(Polygon(ring).representative_point().coords[0]))
+        source = {"vertices": np.asarray(vertices), "segments": np.asarray(segments)}
+        if holes:
+            source["holes"] = np.asarray(holes)
+        result = triangle_lib.triangulate(source, "p")
+        for face in result.get("triangles", []):
+            yield result["vertices"][face]
 
 
 def _box(object_id, centre, half, material):

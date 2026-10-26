@@ -48,6 +48,8 @@ checked against the source within 2 mm, and limited to 1 MB. Continuous-layer se
 checked bitwise before and after conversion, including neighbouring previously shipped tiles.
 Complete objects are not clipped or duplicated. `AOI_BORDER` follows the available collision
 inventory, and changes on existing neighbours when new tiles are added.
+Available collision tiles in the 50 m margin around each requested L0 tile are also
+published. This includes the west Teatterisilta shore outside the four visual tiles.
 
 Visuals preserve L0 topology and source object IDs. Compatible primitives are batched per tile, layer and material.
 Batches carry `extras.objects` with source metadata and index `start`/`count` ranges; the QA ID

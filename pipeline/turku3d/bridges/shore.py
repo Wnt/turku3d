@@ -94,8 +94,7 @@ class Survey:
         try:
             ground = self.ground.height(xz, reference=lidar)
         except ValueError:
-            # The published four-tile ground stops at x=0; full Teatterisilta
-            # crosses that edge. Its far abutment is measured from lidar.
+            # Keep the lidar contact when a requested area has no published ground.
             return lidar, 0.0
         return ground, abs(ground - lidar)
 

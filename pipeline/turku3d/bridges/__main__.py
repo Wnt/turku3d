@@ -53,6 +53,14 @@ def main():
         midpoint = sum(report["water_span_s"]) / 2
         owner = at(crossing.axis, midpoint)
         owners.extend([owner] * len(built))
+    missing = [
+        f"{report['name']}:{shore['side']}"
+        for report in reports
+        for shore in report["shores"]
+        if not shore["ground_available"]
+    ]
+    if missing:
+        raise ValueError(f"Bridge shore contacts lack ground collision: {', '.join(missing)}")
     out = C.work_root() / "build/layers/bridges"
     out.mkdir(parents=True, exist_ok=True)
     collisions, visuals = defaultdict(list), defaultdict(list)

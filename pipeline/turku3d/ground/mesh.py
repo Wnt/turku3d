@@ -87,13 +87,17 @@ class HeightQuery:
         return np.asarray(self.interpolator(xz[:, 0], xz[:, 1]).filled(np.nan))
 
 
-def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tolerance=0.01):
+def build_mesh(
+    surface, bounds, tiles, curbs, water, water_level, materials, tolerance=0.01, bridges=None
+):
     """Build with 50 m support, then extract tiles by constrained triangle ownership.
 
     All neighbouring tiles use the SAME vertex array before compaction; no rounding or
     independent interpolation can change a seam. Triangle `pc` retains the convex hull.
     """
     envelope = box(*bounds.as_tuple())
+    bridges = shapely.Polygon() if bridges is None else bridges.intersection(envelope)
+    deck_cut = bridges.intersection(water.buffer(2.0))
     constraints = [envelope.boundary]
     for tile in tiles:
         constraints.append(box(*tile.bbox.as_tuple()).boundary)
@@ -110,6 +114,8 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
         constraints.extend([LineString([sides[0][i, :2], sides[1][i, :2]]) for i in (0, -1)])
     if not water.is_empty:
         constraints.extend(parts(water.intersection(envelope).boundary))
+    if not deck_cut.is_empty:
+        constraints.extend(parts(deck_cut.boundary))
     # Node intersections once, before Triangle, including curb/tile crossings.
     clipped = [g.intersection(envelope) for g in constraints]
     # City vectors can meet a lidar-snapped endpoint a few millimetres apart.
@@ -130,6 +136,15 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
         segments.extend((a, b) for a, b in zip(chain, chain[1:], strict=False) if a != b)
     xy = np.array(vertices)
     h = surface.sample(xy)[0]
+    # A shoreline constraint may be metres from the nearest ground return. Its
+    # unconstrained local plane can then project a river-bank point above the deck.
+    support, nearest = surface.tree.query(xy)
+    unsupported = support > 2.0
+    h[unsupported] = np.clip(
+        h[unsupported],
+        surface.points[nearest[unsupported], 1] - 0.3,
+        surface.points[nearest[unsupported], 1] + 0.3,
+    )
     if curb_lines:
         tree = shapely.STRtree(curb_lines)
         ids, distances = tree.query_nearest(
@@ -152,6 +167,8 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
         exclusion = shapely.union_all(curb_lines).buffer(0.25)
         inside &= ~shapely.contains_xy(exclusion, *cxz.T)
     inside &= ~shapely.contains_xy(water, *cxz.T)
+    if not deck_cut.is_empty:
+        inside &= ~shapely.contains_xy(deck_cut, *cxz.T)
     # Do not add vertices on a constraint (Triangle would split them again).
     constraint_tree = shapely.STRtree(lines)
     nearest, distances = constraint_tree.query_nearest(
@@ -241,14 +258,15 @@ def build_mesh(surface, bounds, tiles, curbs, water, water_level, materials, tol
         )
     ] = mat_id("wall")
     wet = shapely.contains_xy(water, *centers.T)
+    bridged_land = ~wet & shapely.contains_xy(deck_cut, *centers.T)
     # Duplicate shoreline vertices for the sensor: ground-bank height is not water height.
     water_ids, inverse = np.unique(f[wet], return_inverse=True)
     wp = p[water_ids].copy()
     wp[:, 1] = water_level
     wf = inverse.reshape(-1, 3) + len(p)
     positions = np.r_[p, wp]
-    indices = np.r_[f[~wet], wf].astype(np.uint32)
-    material = np.r_[mids[~wet], np.full(wet.sum(), mat_id("water"), np.uint8)]
+    indices = np.r_[f[~wet & ~bridged_land], wf].astype(np.uint32)
+    material = np.r_[mids[~wet & ~bridged_land], np.full(wet.sum(), mat_id("water"), np.uint8)]
     return Mesh(positions, indices, material), {
         "adaptive_added": refinement_counts,
         "triangles": len(indices),

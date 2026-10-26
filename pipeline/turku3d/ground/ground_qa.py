@@ -8,8 +8,11 @@ from turku3d.col.materials import mat_id
 from .mesh import seam_errors
 
 
-def evaluate_ground(meshes, accepted, water, buildings, bounds):
-    forbidden = shapely.union_all([g for g in (water, buildings.buffer(0.5)) if not g.is_empty])
+def evaluate_ground(meshes, accepted, water, buildings, bounds, bridges=None):
+    bridges = shapely.Polygon() if bridges is None else bridges
+    forbidden = shapely.union_all(
+        [g for g in (water, buildings.buffer(0.5), bridges) if not g.is_empty]
+    )
     gx, gz = np.meshgrid(
         np.arange(bounds.xmin + 0.5, bounds.xmax), np.arange(bounds.zmin + 0.5, bounds.zmax)
     )
@@ -39,6 +42,10 @@ def evaluate_ground(meshes, accepted, water, buildings, bounds):
     midpoints = p[exposed].mean(axis=1)[:, [0, 2]]
     domain = shapely.box(*bounds.as_tuple())
     unexpected = shapely.distance(shapely.points(midpoints), domain.boundary) > 1e-7
+    if not bridges.is_empty:
+        # At a bridge bank the river-bed wall ends inside the deck footprint.
+        # Its exposed edge is intentional; all other interior holes still fail.
+        unexpected &= ~shapely.covers(bridges.buffer(0.01), shapely.points(midpoints))
     internal_open_edges = int(unexpected.sum())
     seams = seam_errors(meshes)
     metrics = {

@@ -8,10 +8,12 @@ import json
 import time
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import shapely
 
 from turku3d import config as C
+from turku3d.bridges.build import crossings as bridge_crossings
 from turku3d.col.materials import mat_id, table
 from turku3d.layers import CollisionLayer, write_collision, write_manifest, write_visual
 from turku3d.package.gltf import GlbMesh
@@ -38,6 +40,7 @@ def code_hash():
         Path(__file__).parents[1] / "col/materials_v1.json",
         Path(__file__).parents[1] / "layers.py",
         Path(__file__).parents[1] / "package/manifest.py",
+        Path(__file__).parents[1] / "bridges/build.py",
     ]
     return hashlib.sha256(b"".join(p.read_bytes() for p in files)).hexdigest()
 
@@ -129,14 +132,21 @@ def run(args):
     visual = [C.VisualTile.parse(t) for t in args.tiles]
     if any(t.level != 0 for t in visual):
         raise ValueError("Ground builds accept only L0 tiles")
-    tiles = sorted({t for v in visual for t in v.collision_tiles()})
+    core_tiles = sorted({t for v in visual for t in v.collision_tiles()})
     core = C.BBoxLocal(
+        min(t.bbox.xmin for t in core_tiles),
+        min(t.bbox.zmin for t in core_tiles),
+        max(t.bbox.xmax for t in core_tiles),
+        max(t.bbox.zmax for t in core_tiles),
+    )
+    tiles = C.collision_tiles_for_bbox(core.buffered(C.MESH_MARGIN))
+    tile_bounds = C.BBoxLocal(
         min(t.bbox.xmin for t in tiles),
         min(t.bbox.zmin for t in tiles),
         max(t.bbox.xmax for t in tiles),
         max(t.bbox.zmax for t in tiles),
     )
-    bounds = core.buffered(C.MESH_MARGIN)
+    bounds = tile_bounds.buffered(C.MESH_MARGIN)
     output = C.work_root() / "build/layers/ground"
     reports = C.work_root() / "reports/ground"
     paths = source_paths(bounds, args.source_area)
@@ -206,6 +216,16 @@ def run(args):
     with np.load(raw_cache) as data:
         water_heights = data["water_heights"]
     lines, water, buildings, _crossings, streets = vectors(paths, bounds)
+    bridges = (
+        shapely.union_all(
+            [
+                crossing.footprint
+                for crossing in bridge_crossings(streets, gpd.read_parquet(paths["osm"]))
+            ]
+        )
+        if streets is not None
+        else shapely.Polygon()
+    )
 
     def training_returns():
         # Cache repair/report changes must not decompress and split all 16M returns.
@@ -272,6 +292,7 @@ def run(args):
             + repr(params)
             + Path(__file__).with_name("mesh.py").read_text()
             + Path(__file__).with_name("materials.py").read_text()
+            + bridges.wkb_hex
             + json.dumps(inputs, sort_keys=True)
         ).encode()
     ).hexdigest()
@@ -284,7 +305,15 @@ def run(args):
     else:
         log("Building canonical adaptive CDT")
         mesh, mesh_info = build_mesh(
-            Surface(accepted), bounds, tiles, curbs, water, water_level, materials, tolerance=0.02
+            Surface(accepted),
+            bounds,
+            tiles,
+            curbs,
+            water,
+            water_level,
+            materials,
+            tolerance=0.02,
+            bridges=bridges,
         )
         mesh.save(mesh_cache)
         info_cache.write_text(json.dumps(mesh_info))
@@ -316,7 +345,14 @@ def run(args):
         (output / name).write_text(json.dumps(data, indent=2) + "\n")
         artifacts.append(name)
     log("Evaluating coverage, topology, water, materials and seams")
-    report = evaluate_ground(meshes, accepted, water, buildings, core)
+    report = evaluate_ground(
+        {tile: meshes[tile] for tile in core_tiles},
+        accepted,
+        water,
+        buildings,
+        core,
+        bridges.intersection(water.buffer(2.0)),
+    )
     if curbs:
         report["acceptance"] = (
             "Measured curb ground; topology and budget checks. Mesh-step coverage is reported separately."
