@@ -16,6 +16,7 @@ TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 QUEUE_STAGE_BUDGETS = {
     "refresh": 75,
     "tile-build": 150,
+    "tile-validate": 120,
     "game-build": 30,
     "collision-sweep": 30,
     "collision-audit": 30,
@@ -51,6 +52,22 @@ def affected_tiles(previous, work):
         else:
             return TILES
     return tuple(tile for tile in TILES if tile in changed)
+
+
+def affected_collision_files(previous, work, selected):
+    """Validate changed shipped colliders; a validator-only change checks the whole selection."""
+    current = work / "dist/tiles/collision"
+    old = previous / "tiles/collision" if previous else None
+    files = tuple(sorted(path for tile in selected for path in (current / tile).glob("*.col")))
+    if not old or not old.is_dir():
+        return files
+    changed = tuple(
+        path
+        for path in files
+        if not (old / path.parent.name / path.name).is_file()
+        or not filecmp.cmp(old / path.parent.name / path.name, path, shallow=False)
+    )
+    return changed or files
 
 
 def same_tree(old, new):
@@ -269,6 +286,17 @@ def _build(repo, work, published, env, log_path, reason=None):
     commands = [
         ("refresh", ["make", "refresh"], repo),
         ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
+        (
+            "tile-validate",
+            [
+                "make",
+                "tile-validate",
+                "T=" + " ".join(TILES),
+                "TILE_WALKERS=128",
+                "VALIDATOR_ARGS=--checks format,seams,cars,buildings,curbs --walk-seconds 2",
+            ],
+            repo,
+        ),
         ("game-build", ["make", "game-build"], repo),
         ("collision-sweep", ["make", "collision-sweep"], repo),
         ("collision-audit", ["make", "collision-audit"], repo),
@@ -297,6 +325,15 @@ def _build(repo, work, published, env, log_path, reason=None):
                     if selected and same_tree(prior / "textures", work / "textures"):
                         command = ["make", "tile-build", "T=" + " ".join(selected)]
                         scopes[stage] = selected
+            if stage == "tile-validate":
+                selected = scopes.get("tile-build") or TILES
+                command[2] = "T=" + " ".join(selected)
+                previous_id = env.get("TURKU3D_PREVIOUS_RELEASE_ID")
+                prior = published / "live-releases" / previous_id if previous_id else None
+                files = affected_collision_files(prior, work, selected)
+                if files:
+                    command.append("VALIDATOR_INPUTS=" + " ".join(map(str, files)))
+                scopes[stage] = tuple(str(path.relative_to(work)) for path in files)
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()

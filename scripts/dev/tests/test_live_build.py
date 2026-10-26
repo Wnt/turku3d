@@ -14,6 +14,29 @@ import live_build
 
 
 class LiveBuildTests(unittest.TestCase):
+    def test_changed_collision_tiles_are_selected_individually(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root / "prior/tiles/collision/t0_0_0"
+            new = root / "work/dist/tiles/collision/t0_0_0"
+            old.mkdir(parents=True)
+            new.mkdir(parents=True)
+            for name in ("c_0_0.col", "c_0_1.col"):
+                (old / name).write_bytes(b"same")
+                (new / name).write_bytes(b"same")
+            (new / "c_0_1.col").write_bytes(b"changed")
+            self.assertEqual(
+                live_build.affected_collision_files(root / "prior", root / "work", ("t0_0_0",)),
+                (new / "c_0_1.col",),
+            )
+            (new / "c_0_1.col").write_bytes(b"same")
+            self.assertEqual(
+                len(
+                    live_build.affected_collision_files(root / "prior", root / "work", ("t0_0_0",))
+                ),
+                2,
+            )
+
     def test_prepared_release_snapshots_nested_symlink_targets(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -246,13 +269,19 @@ class LiveBuildTests(unittest.TestCase):
                 [
                     "refresh",
                     "tile-build",
+                    "tile-validate",
                     "game-build",
                     "collision-sweep",
                     "collision-audit",
                     "chrome",
                 ],
             )
-            self.assertEqual(len(calls), 6)
+            self.assertEqual(len(calls), 7)
+            self.assertEqual(
+                calls[2][0][:3], ["make", "tile-validate", "T=" + " ".join(live_build.TILES)]
+            )
+            self.assertIn("TILE_WALKERS=128", calls[2][0])
+            self.assertLess(calls[2][3] - started, 121)
             self.assertEqual(calls[-1][1], repo / "game")
             self.assertLess(calls[0][3] - started, 76)
             self.assertGreater(calls[0][3] - started, 74)

@@ -17,6 +17,15 @@ OUTPUTS = {
 INPUTS = {
     "refresh": ("pipeline/*", "textures/*", "Makefile", "scripts/dev/live*"),
     "tile-build": ("pipeline/*", "textures/*", "Makefile", "scripts/dev/live*"),
+    "tile-validate": (
+        "pipeline/*",
+        "tools/validator/*",
+        "game/src/shared/col/*",
+        "game/src/vehicle/*",
+        "mk/tile.mk",
+        "Makefile",
+        "scripts/dev/live*",
+    ),
     "game-build": ("game/*", "Makefile", "scripts/dev/live*"),
     "collision-sweep": ("pipeline/*", "game/*", "Makefile", "scripts/dev/live*"),
     "collision-audit": ("pipeline/*", "game/*", "Makefile", "scripts/dev/live*"),

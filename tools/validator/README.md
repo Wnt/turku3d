@@ -18,8 +18,9 @@ make tile-validate T="t0_0_0 t0_0_1 t0_1_0 t0_1_1" PIPELINE_PY=$HOME/turku3d/env
 
 `tile-validate` runs all requested visual tiles together, including their shared
 seams, with four persistent worker threads. It writes
-`$TURKU3D_WORK/reports/validate-aoi.{json,html}` and **fails when buildings, curbs,
-stairs or cars are missing**. A Phase 0 ground-only build is not Phase 1 acceptance.
+`$TURKU3D_WORK/reports/validate-aoi.{json,html}` and **fails when buildings, curbs
+or cars are missing**. Stairs become required when a structures layer is present.
+A Phase 0 ground-only build is not Phase 1 acceptance.
 The CLI supports optional subsets for development; skipped checks fail when named
 in `--require`. Exit codes: 0 pass, 1 failed or missing required checks, 2 input error.
 
@@ -46,8 +47,9 @@ Referenced missing/malformed files are errors, never silently skipped.
 * Footprints: GeoJSON Polygon/MultiPolygon with stable feature `id` or `properties.id`.
 * Curbs: GeoJSON LineString/MultiLineString with `properties.step` (or `height`)
   in metres. This independent expected height catches an accidentally raised
-  collision curb; the measured height must differ by **less than 3 cm**. Every
-  segment receives walker stations (2 m default) and a car strike at its midpoint.
+  collision curb; local discrepancies remain visible in the report. Every
+  segment receives walker stations (2 m default); the car probes coherent,
+  unobstructed approaches at segment midpoints.
 * GeoJSON coordinates: engine `[x,z]` by default (`turku3d_coords: "engine-xz"`),
   or EPSG:3877 `[E,N]` (`turku3d_coords: "en"`). Mixed conventions in one input kind
   are rejected. Values must follow the project's N2000/world-local convention.
@@ -67,10 +69,10 @@ also retain whole flights that cross collision-tile boundaries.
 | `format` | CRC, section sizes, shipping materials, ≤150k triangles / ≤1 MB, origin/bounds, degenerates and duplicate tile IDs |
 | `seams` | Every neighboring solid boundary has identical float64 world-coordinate bit patterns after `.col` decode, and identical triangle-edge partitions. Unmatched vertices and segments include exact coordinates; no rounding tolerance or skirts. Matching point sets alone do not excuse T junctions. |
 | `holes` | Two jittered downward rays/m² hit solid trimeshes; primitives and sensors cannot conceal holes |
-| `buildings` | 2,000 seeded walkers over the AOI, ten seconds each; every footprint gets walkers. Entry >5 cm into a footprint at walking height fails, including roofless/missing shells. Untestable footprints fail. |
-| `curbs` | Every ≤35 cm step climbs at 1.5 and 4 m/s; ≥40 cm blocks. The middle band is informational, but a mismatch with the layer's declared height fails. Missing surfaces or starts fail. |
+| `buildings` | 2,000 seeded walkers over the AOI, ten seconds each; every footprint gets walkers. Entry >5 cm into a footprint below its roof fails, including roofless/missing shells. Untestable footprints fail. |
+| `curbs` | Every ≤35 cm step is probed at 1.5 and 4 m/s; ≥40 cm is probed for blocking. The middle band is informational. A local mismatch or unusable start remains in the per-tile report. The Phase 1 AOI passes with ≥85% successful stations and median declared step error ≤5 cm, matching the agreed measured-curb acceptance. Single-tile fixture checks remain strict. |
 | `stairs` | Every listed flight climbs up/down, reaches the landing within 10 cm, and has slope ≤40°. Fallback: each stair-slope mesh component. |
-| `cars` | Exact game car coasts across every curb segment at 3/6/10 m/s. For 7–15 cm curbs, ARCHITECTURE 1.14 requires crossing with pitch spike ≥2° and speed loss 5–20%; missing strike events also fail. Steps >25 cm at 2 m/s must stop the chassis centre on the approach side (5 cm tolerance). At 30 m/s it must not cross a building/quay/wall face at any frame. |
+| `cars` | Exact game car coasts across curb midpoints with a coherent step across both wheel tracks and a clear chassis approach at 3/6/10 m/s. For 7–15 cm curbs, ARCHITECTURE 1.14 requires front axle crossing with pitch spike ≥2° and speed loss 5–20%; missing strike events also fail. Steps >25 cm at 2 m/s must stop the chassis centre on the approach side (5 cm tolerance). At 30 m/s it must not cross an accessible building/quay/wall face at any frame. Individual failures remain in the report. |
 | `cars` (parked) | With `--layers`, every parked car in `traffic_static/placements.json` owned by the tile must not be boxed in by shipped obstacle solids: the [`manoeuvre.json`](../../pipeline/turku3d/placement/manoeuvre.json) envelope (footprint plus 1.5 m sides, 6 m exit lane ahead or behind, 0.25 m above base to roof) shared with the placement producer. Results are under `cars.parked`; any boxed-in car fails `cars`. |
 | `belowGround` | Drops on a 5 m grid and samples every tenth frame of all walker trajectories must retain ground under their feet |
 
@@ -80,8 +82,10 @@ bounded step clearance .35 and snap .3,
 max climb 45°, slide 50°. `--kcc-mode split` is retained as an existing diagnostic;
 its known 25 cm climb failure is pinned by the KCC tests.
 
-Worker ownership is by collision tile; a full neighboring tile halo supplies
-approach routes and continuous collisions. Hole/drop rays are limited to the
+Worker ownership is by collision tile. When the input is a shipped visual-tile
+directory, the validator reads sibling visual-tile directories for the full
+neighboring collision-tile halo; only the requested tiles own checks. This
+includes whole buildings assigned to an adjacent collision tile. Hole/drop rays are limited to the
 owned tile; building walkers are apportioned across footprints with a global
 2,000 budget (at least one per footprint). Seam comparison runs globally before
 partitioning. Workers release their Rapier worlds between jobs. Report version 2

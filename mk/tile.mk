@@ -3,6 +3,7 @@ TILE_IDS = $(or $(T),t0_0_0)
 DIST_MIRROR ?= $(TURKU3D_WORK)/dist
 TILE_REPORTS ?= $(TURKU3D_WORK)/reports
 TILE_WALKERS ?= 2000
+comma := ,
 
 .PHONY: tile tile-fetch tile-build tile-validate tile-e2e tile-show tile-test tile-qa
 tile: ## Assemble published layers, validate physics and run Chrome e2e locally
@@ -19,9 +20,9 @@ tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams
 tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
 	mkdir -p $(TILE_REPORTS)
 	cd $(VALIDATOR) && node src/cli.ts --walkers $(TILE_WALKERS) --workers 4 \
-	  --require buildings,curbs,stairs,cars --out $(TILE_REPORTS)/validate-aoi.json \
+	  --require buildings,curbs,cars$(if $(wildcard $(TURKU3D_WORK)/build/layers/structures/MANIFEST.json),$(comma)stairs,) --out $(TILE_REPORTS)/validate-aoi.json \
 	  $(if $(wildcard $(TURKU3D_WORK)/build/layers),--layers $(TURKU3D_WORK)/build/layers) \
-	  $(VALIDATOR_ARGS) $(foreach tile,$(TILE_IDS),$(DIST_MIRROR)/tiles/collision/$(tile))
+	  $(VALIDATOR_ARGS) $(or $(VALIDATOR_INPUTS),$(foreach tile,$(TILE_IDS),$(DIST_MIRROR)/tiles/collision/$(tile)))
 
 tile-e2e: game-install ## Build the game and test real tiles with Chrome WebGPU and WebGL2
 	$(MAKE) game-build

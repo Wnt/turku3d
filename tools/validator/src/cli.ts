@@ -117,7 +117,9 @@ async function main(): Promise<number> {
   if (!v.quiet) {
     console.log(`tiles: ${report.tiles.map((t: any) => t.id ?? t.file).join(' ')}  rapier ${report.rapier}  ${report.elapsedMs} ms`);
     for (const [k, c] of Object.entries(report.checks) as [string, any][]) {
-      const extra = c.originalStatus ? c.reason : c.perTile ? `${c.perTile.filter((t: any) => t.status === 'fail').length}/${c.perTile.length} tiles failed`
+      const extra = c.originalStatus ? c.reason : k === 'curbs' && c.coverage !== undefined
+        ? `coverage ${(c.coverage * 100).toFixed(1)}% (${c.passed}/${c.expected}), median step error ${((c.medianStepError ?? 0) * 100).toFixed(1)} cm`
+        : c.perTile ? `${c.perTile.filter((t: any) => t.status === 'fail').length}/${c.perTile.length} tiles failed`
         : k === 'holes' ? `rays=${c.rays} misses=${c.misses}`
         : k === 'buildings' ? (c.status === 'skipped' ? c.reason : `walkers=${c.walkers} insideAnyFrame=${c.insideAnyFrame} insideAtEnd=${c.insideAtEnd}`)
         : k === 'curbs' ? `stations=${c.stations} climb ${c.climbed}/${c.climbExpected} block ${c.blocked}/${c.blockExpected} info=${c.infoBand}`

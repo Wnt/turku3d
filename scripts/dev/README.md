@@ -113,7 +113,9 @@ Landing is serialized with `wt/.registry/land.lock`. It requires a successful co
 `## Result: DONE` line and clean worker/main worktrees. It rebases on main (aborting a conflicting rebase),
 runs `scripts/dev/gate --base <old-main-sha>` in the worker environment, then seeds private APFS copies
 of the published layers, textures and tile dist. It runs `make refresh`, `make tile-build
-T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'`, `make game-build`, `make collision-sweep`, `make collision-audit`,
+T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'`, a bounded `make tile-validate` on changed collision tiles
+(all selected tiles when only validator code changed),
+`make game-build`, `make collision-sweep`, `make collision-audit`,
 and the real-tile Playwright suite in Chrome on the sandbox dist port. The suite checks spawn loading on
 WebGPU and WebGL2 and fewer than 500 draws. The manifest check requires ground textures on all four L0
 tiles and each tile below 8 MB on the wire. The assembler's `facades_bound` count must meet the current

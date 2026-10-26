@@ -15,6 +15,7 @@ import { checkCars } from '../src/car.ts';
 import { DEFAULT_OPTIONS, validate } from '../src/validate.ts';
 import { htmlReport } from '../src/report.ts';
 import { resolveInputs } from '../src/inputs.ts';
+import { aggregateCurbs, shippedHaloFiles } from '../src/parallel.ts';
 
 const fixture = resolve(import.meta.dirname, '../fixtures/good');
 await R.init();
@@ -37,6 +38,28 @@ test('seams catch a height gap, a missing seam, and T junctions with identical v
   assert.equal(t.status, 'fail'); assert.equal(t.failures[0].onlyA.length + t.failures[0].onlyB.length, 0);
   const missing = tile(1); missing.positions[0] += 0.01; missing.positions[3] += 0.01;
   assert.equal(checkSeams([tile(0), missing], 62.5).status, 'fail');
+});
+
+test('a visual-tile request loads neighboring shipped collision files as physics halo', () => {
+  const root = mkdtempSync(join(tmpdir(), 'validator-halo-'));
+  try {
+    for (const tile of ['t0_0_0', 't0_0_1']) mkdirSync(join(root, 'collision', tile), { recursive: true });
+    const owned = join(root, 'collision/t0_0_0/c_1_3.col');
+    const neighbor = join(root, 'collision/t0_0_1/c_1_4.col');
+    writeFileSync(owned, ''); writeFileSync(neighbor, '');
+    assert.deepEqual(shippedHaloFiles([owned]).sort(), [owned, neighbor].sort());
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('AOI curb acceptance keeps local failures visible and enforces coverage and height error', () => {
+  const good = { status: 'pass', climbExpected: 90, climbed: 90, blockExpected: 0, blocked: 0,
+    invalid: 0, heightErrors: Array(90).fill(0.02) };
+  const local = { status: 'fail', climbExpected: 10, climbed: 0, blockExpected: 0, blocked: 0,
+    invalid: 0, heightErrors: Array(10).fill(0.2) };
+  assert.equal(aggregateCurbs([good, local]).status, 'pass');
+  assert.equal(aggregateCurbs([good, local]).perTile[1].status, 'fail');
+  assert.equal(aggregateCurbs([{ ...good, climbed: 70 }, local]).status, 'fail');
+  assert.equal(aggregateCurbs([{ ...good, heightErrors: Array(90).fill(0.06) }, local]).status, 'fail');
 });
 
 test('game car stops at a 0.1 m wall at 30 m/s; a planted non-colliding wall is caught', () => {
