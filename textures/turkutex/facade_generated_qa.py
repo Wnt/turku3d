@@ -14,7 +14,16 @@ from .post.pipeline import sha
 from .streetview.facades import load_facades
 
 
-def audit(facades: Path, refs: Path, generated: Path, staging: Path, visual_qa: Path) -> list[dict]:
+def audit(
+    facades: Path,
+    refs: Path,
+    generated: Path,
+    staging: Path,
+    visual_qa: Path,
+    min_ppm: int = 0,
+) -> list[dict]:
+    if min_ppm and not 4 <= min_ppm <= 72:
+        raise ValueError("Minimum facade density must be 4–72 pixels per metre")
     answers = latest(visual_qa)
     rows = []
     for facade in load_facades(facades):
@@ -56,6 +65,8 @@ def audit(facades: Path, refs: Path, generated: Path, staging: Path, visual_qa: 
                 problems.append("large foreground or foreign object detected")
             if not problems:
                 meta["source_mode"] = "generate"
+                if min_ppm:
+                    meta["min_pixels_per_metre"] = min_ppm
                 meta["generated_qa"] = {
                     "source_sha256": sha(source),
                     "aspect_error": aspect_error,
@@ -71,8 +82,11 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("facades", "refs", "generated", "staging", "visual-qa", "output"):
         parser.add_argument(f"--{name}", type=Path, required=True)
+    parser.add_argument("--min-ppm", type=int, default=0)
     args = parser.parse_args(argv)
-    rows = audit(args.facades, args.refs, args.generated, args.staging, args.visual_qa)
+    rows = audit(
+        args.facades, args.refs, args.generated, args.staging, args.visual_qa, args.min_ppm
+    )
     write_json(args.output, {"rows": rows, "accepted": sum(r["accepted"] for r in rows)})
     print(json.dumps(rows))
     return 0 if all(r["accepted"] for r in rows) else 1
