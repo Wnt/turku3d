@@ -238,6 +238,22 @@ acknowledges messages nor bypasses the result, clean-tree or green-gate requirem
 
 ## Verification
 
+The browser spec selector uses the same changed-path to subsystem map as the gate:
+
+```bash
+python3 scripts/dev/affected_browser.py --base main
+python3 scripts/dev/affected_browser.py game/src/vehicle/vehicle.ts
+```
+
+The real-tile specs share one HTTP-caching browser context per worker, with a fresh page per test. Browser suites default to 960×540; pixel-detail and performance checks set their required viewports explicitly. The landing queue can also keep Chrome processes and one loaded tile page per backend in a dedicated service sandbox. The service writes loopback WebSocket endpoints to a mode-0600 state file; its owner stops the process with SIGTERM. Run the check against an integration worktree's built game and tiles, using that worktree's sandbox port and browser profile:
+
+```bash
+node scripts/dev/warm_browser.mjs serve --repo "$PWD" --work "$TURKU3D_WORK" --profile "$TURKU3D_BROWSER_DIR" --port "$TURKU3D_PORT_BASE"
+node scripts/dev/warm_browser.mjs run --repo "$PWD" --work "$TURKU3D_WORK" --profile "$TURKU3D_BROWSER_DIR" --port "$TURKU3D_PORT_BASE" --service-state /path/to/service/work/cache/warm-browser.json --backend webgpu --spec tests/e2e-tile/tile.spec.ts
+```
+
+`run` returns JSON with the checked specs, result counts, elapsed seconds, and report path. Its `--service-state` file can live in a separate queue-service sandbox. The ordinary Playwright configs still launch their own Chrome when no warm endpoint is provided.
+
 ```bash
 make tooling-test game-dev-tools-test
 make -j 4 foundation-test game-test qa-test textures-test

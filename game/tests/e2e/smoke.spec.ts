@@ -138,6 +138,7 @@ test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json:
   const backend = info.project.name;
   const golden = JSON.parse(fs.readFileSync(new URL('../../../qa/tests/golden_projection.json', import.meta.url), 'utf8'));
   const ctx = await browser.newContext({ viewport: { width: golden.width, height: golden.height }, deviceScaleFactor: 1 });
+  await ctx.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
   const page = await ctx.newPage();
   const byPose = new Map<string, { pose: any; cases: any[] }>();
   for (const c of golden.cases) {

@@ -3,7 +3,7 @@ import { settled } from '../e2e/waits';
 // `make tile`, built locally) and the character walks on its collision. Also checks the qa/README.md §2
 // render contract on the real tile: pose echo, __qaProject, and the object-ID pass.
 // Run: npx playwright test -c playwright.tile.config.ts   (after `npm run build`; TILE_DIST=<dir> optional)
-import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
+import { cachedTest as test, expect, type Page, type ConsoleMessage } from '../e2e/fixtures';
 import fs from 'node:fs';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import path from 'node:path';
@@ -12,15 +12,6 @@ const TILE_DIST = tileDist;
 const SHOTS = path.join(reportsRoot, 'screenshots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
-// Keyboard routes must be independent of physical controllers connected to the shared host.
-// Controller routes provide their own virtual gamepad in gamepad.spec.ts.
-test.beforeEach(async ({ context, page }) => {
-  const session = await context.newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'getGamepads', { value: () => [] });
-  });
-});
 const manifest = JSON.parse(fs.readFileSync(path.join(TILE_DIST, 'manifest.json'), 'utf8'));
 const TILES = '/tiles/tileset.json';
 // The address point lies inside the office footprint under its roof. Walk on the
@@ -101,6 +92,7 @@ test('assembled tile from the pipeline renders and the character walks on its co
 test('QA render contract on the assembled tile: pose echo, projection, ID pass', { tag: ['@qa', '@render', '@aoi'] }, async ({ browser }, info) => {
   const backend = info.project.name;
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h }, deviceScaleFactor: 1 });
+  await ctx.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
   const page = await ctx.newPage();
   const bad = watchConsole(page);
   const cam = `cam=${VIEW.E},${VIEW.N},${VIEW.H},${VIEW.yaw},${VIEW.pitch},${VIEW.fov}`;
