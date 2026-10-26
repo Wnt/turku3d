@@ -72,14 +72,13 @@ engine x305/z230. Ground/building materials in these previews are unassembled.
   position means omission; a grid search is not a proof that no continuous solution exists.
 - Missing bridge-deck objects are omitted without relocation. A ground triangle with
   material 24 from a 2D street polygon does not count: a deck must be an actual
-  `structures` collision triangle carrying `bridge_deck`.
+  `structures` or `bridges` collision triangle carrying `bridge_deck`.
 - Semantic completeness is bounded by the cached maps. Unmapped driveway/tree-pit
   evidence and tilted suspension fitting remain outside this validator. Cross-layer
   inventories must be rebuilt sequentially; concurrent publication is unsupported.
 
-Follow-up: model Auransilta, Teatterisilta and other mapped bridge decks in structures,
-then rebuild the recorded omitted bridge objects. The validator must keep rejecting
-those objects until actual support is present.
+After publishing bridge decks, rebuild the recorded omitted bridge objects. The
+validator keeps rejecting them until actual support is present.
 
 The assembler preserves existing GPU-instanced tree nodes and clones shared prop
 primitives before baking each node transform. Reusing the mutable primitive caused

@@ -12,3 +12,9 @@ structures-test-physics: $(VALIDATOR)/node_modules/.package-lock.json ## Generat
 structures-test: structures-test-py structures-test-physics ## All structures tests (use make -j2)
 structures-build: ## Build structures using raw surveys and the completed ground layer
 	$(PIPELINE_RUN) python -m turku3d.structures $(ARGS)
+
+.PHONY: bridges-build bridges-test
+bridges-build: ## Build mapped bridge decks in the four Phase 1 L0 tiles
+	$(PIPELINE_RUN) python -m turku3d.bridges
+bridges-test: ## Synthetic bridge geometry and layer contract checks
+	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q tests/test_bridges.py

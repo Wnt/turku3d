@@ -20,9 +20,9 @@ def digest(path):
 def context(bounds, inputs, source_area="work-3x3", layer="props"):
     envelope = box(*bounds.as_tuple()).buffer(20)
     triangles, materials, decks = [], [], []
-    for name in ("ground", "structures"):
+    for name in ("ground", "structures", "bridges"):
         root = layer_root() / name
-        if not root.exists() and name == "structures":
+        if not root.exists() and name in ("structures", "bridges"):
             continue
         manifest = read_manifest(root)
         inputs[str(root / "MANIFEST.json")] = digest(root / "MANIFEST.json")
@@ -36,7 +36,7 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
             t = data.positions[data.indices]
             triangles.extend(t)
             materials.extend(data.material)
-            decks.extend((data.material == 24) & (name == "structures"))
+            decks.extend((data.material == 24) & (name in ("structures", "bridges")))
     if not triangles:
         raise ValueError("Placement requires published ground collision triangles")
     zones = {
