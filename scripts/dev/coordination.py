@@ -203,29 +203,15 @@ def display(rows, as_json=False):
 def landing_guard(name, force=False):
     """Keep the final check and main update atomic with respect to inbox writers."""
     path = inbox_path(name)
-    meta = s.read_json(s.tasks_root() / name / "meta.json", {})
-    cutoff = meta.get("started", float("inf"))
     with log_lock(path):
         pending = [
             row
             for row in messages(records(path), name)
-            if row["ack"] is None
-            and row["kind"] in ("request", "warning")
-            and row["time"] <= cutoff
-        ]
-        late = [
-            row
-            for row in messages(records(path), name)
-            if row["ack"] is None and row["kind"] in ("request", "warning") and row["time"] > cutoff
+            if row["ack"] is None and row["kind"] in ("request", "warning")
         ]
         if pending and not force:
             ids = ", ".join(row["id"] for row in pending)
             raise ValueError(f"unacknowledged request/warning messages: {ids}; ack or use --force")
-        if late:
-            print(
-                "late request/warning messages for orchestrator: "
-                + ", ".join(row["id"] for row in late)
-            )
         yield
 
 

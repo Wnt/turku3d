@@ -433,8 +433,29 @@ class Monitor:
             return channel.title() + (" | last.md (l: events)" if channel.show_last else "")
         tasks = [c for c in self.channels if c.role == "task"]
         overdue = sum(c.overtime() for c in tasks)
+        queue = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})
+        pending = sum(
+            "published" not in row and "resumed" not in row and "failed" not in row
+            for row in queue.get("tasks", {}).values()
+        )
+        latencies = sorted(
+            row["published"] - row["done"]
+            for row in queue.get("tasks", {}).values()
+            if row.get("published") and row.get("done")
+        )
+        median = f"{latencies[len(latencies) // 2] / 60:.1f}m" if latencies else "-"
+        maximum = f"{latencies[-1] / 60:.1f}m" if latencies else "-"
+        merge_times = sorted(
+            row["merge_wall_seconds"]
+            for row in queue.get("tasks", {}).values()
+            if row.get("merge_wall_seconds") is not None
+        )
+        merge_median = f"{merge_times[len(merge_times) // 2]:.1f}s" if merge_times else "-"
+        merge_max = f"{merge_times[-1]:.1f}s" if merge_times else "-"
         return (
             f"[all] {len(tasks)} tasks, {sum(c.live for c in tasks)} live"
+            f" | queue {pending} ready, done-live {median}/{maximum}"
+            f" merge {merge_median}/{merge_max}"
             f" | {overdue} OVER 30m | {sum(c.tokens for c in tasks):,} tok"
             " | arrows 0-9 PgUp/PgDn End l q"
         )

@@ -1,5 +1,6 @@
 """Build, check and publish the real office distribution during landing."""
 
+import filecmp
 import json
 import os
 import shutil
@@ -7,10 +8,61 @@ import subprocess
 import time
 from pathlib import Path
 
+import live_cache
 import sandbox as s
 from host_slots import identity, slot
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+QUEUE_STAGE_BUDGETS = {
+    "refresh": 75,
+    "tile-build": 150,
+    "game-build": 30,
+    "collision-sweep": 30,
+    "collision-audit": 30,
+    "chrome": 90,
+    "chrome-webgpu": 60,
+    "chrome-webgl": 60,
+}
+
+
+def affected_tiles(previous, work):
+    """Map changed layer meshes to visual tiles; ambiguous changes rebuild all tiles."""
+    old = previous / "layers"
+    new = work / "build/layers"
+    if not old.is_dir() or not new.is_dir():
+        return TILES
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return TILES
+    changed = set()
+    names = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    names |= {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    for name in names:
+        before, after = old / name, new / name
+        if before.is_file() and after.is_file() and filecmp.cmp(before, after, shallow=False):
+            continue
+        stem = name.name
+        if stem.endswith(".vis.glb") and stem.split(".vis.glb")[0] in TILES:
+            changed.add(stem.split(".vis.glb")[0])
+        elif stem.endswith(".col.npz") and stem.startswith("c_"):
+            _, i, j = stem.split(".")[0].split("_")
+            changed.add(f"t0_{int(i) // 4}_{int(j) // 4}")
+        elif stem == "MANIFEST.json":
+            continue
+        else:
+            return TILES
+    return tuple(tile for tile in TILES if tile in changed)
+
+
+def same_tree(old, new):
+    if not old.is_dir() or not new.is_dir():
+        return False
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return False
+    before = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    after = {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    return before == after and all(
+        filecmp.cmp(old / name, new / name, shallow=False) for name in before
+    )
 
 
 def _clone(source, target):
@@ -34,6 +86,10 @@ def _clone(source, target):
 def seed(work, published):
     for relative in ("build/layers", "textures", "dist/tiles"):
         _clone(published / relative, work / relative)
+    approvals = published / "facade-approvals/assembly"
+    if approvals.is_dir():
+        with s.lock(approvals / ".export.lock"):
+            shutil.copytree(approvals, work / "textures/assembly", dirs_exist_ok=True)
 
 
 def baseline(published):
@@ -80,6 +136,57 @@ def inspect(manifest_path, facade_count, minimum, reason=None):
     }
 
 
+def warm_checks(repo, work, env):
+    """Use the queue-owned Chrome for affected tile specs when available."""
+    service = env.get("TURKU3D_WARM_BROWSER_STATE")
+    script = repo / "scripts/dev/warm_browser.mjs"
+    selector = repo / "scripts/dev/affected_browser.py"
+    if not service or not Path(service).is_file() or not script.is_file() or not selector.is_file():
+        return [], {}
+    selected = subprocess.run(
+        [
+            env.get("PIPELINE_PY", "python3"),
+            str(selector),
+            "--base",
+            env.get("TURKU3D_VERIFY_BASE", "main"),
+        ],
+        cwd=repo,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    specs = json.loads(selected.stdout)["tile"]
+    if not specs:
+        return [], {}
+    commands = []
+    scopes = {}
+    for backend in ("webgpu", "webgl"):
+        stage = "chrome-" + backend
+        command = [
+            "node",
+            str(script),
+            "run",
+            "--repo",
+            str(repo),
+            "--work",
+            str(work),
+            "--profile",
+            env["TURKU3D_BROWSER_DIR"],
+            "--port",
+            env["TURKU3D_PORT_BASE"],
+            "--service-state",
+            service,
+            "--backend",
+            backend,
+        ]
+        for spec in specs:
+            command.extend(("--spec", spec))
+        commands.append((stage, command, repo))
+        scopes[stage] = specs
+    return commands, scopes
+
+
 def build(repo, work, published, env, log_path, reason=None):
     with slot("land"):
         reserved_env = {
@@ -94,8 +201,12 @@ def _build(repo, work, published, env, log_path, reason=None):
     seed(work, published)
     minimum = baseline(published)
     durations = {}
+    cache_hits = []
+    input_hashes = {}
     report = None
-    commands = (
+    previous = ""
+    cache_enabled = (repo / ".git").exists()
+    commands = [
         ("refresh", ["make", "refresh"], repo),
         ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
         ("game-build", ["make", "game-build"], repo),
@@ -111,13 +222,50 @@ def _build(repo, work, published, env, log_path, reason=None):
             ],
             repo / "game",
         ),
-    )
+    ]
+    warm, scopes = warm_checks(repo, work, env)
+    if warm:
+        commands[-1:] = warm
     with log_path.open("w") as log:
         for stage, command, cwd in commands:
+            if stage == "tile-build":
+                previous_id = env.get("TURKU3D_PREVIOUS_RELEASE_ID")
+                if previous_id:
+                    prior = published / "live-releases" / previous_id
+                    selected = affected_tiles(prior, work)
+                    # Facade and library texture changes affect tile packing globally.
+                    if selected and same_tree(prior / "textures", work / "textures"):
+                        command = ["make", "tile-build", "T=" + " ".join(selected)]
+                        scopes[stage] = selected
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()
+            key = (
+                live_cache.digest(repo, work, published, stage, previous, scopes.get(stage))
+                if cache_enabled
+                else None
+            )
+            if key:
+                input_hashes[stage] = key
+            cached = live_cache.restore(published, work, stage, key) if key else None
+            if cached is not None:
+                log.write(f"cache hit {key}\n")
+                durations[stage] = 0.0
+                cache_hits.append(stage)
+                if stage == "tile-build":
+                    report = inspect(
+                        work / "dist/tiles/manifest.json", cached["facades_bound"], minimum, reason
+                    )
+                previous = key
+                continue
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            if "TURKU3D_CHECK_DEADLINE" in env:
+                run_env["TURKU3D_CHECK_DEADLINE"] = str(
+                    min(
+                        float(env["TURKU3D_CHECK_DEADLINE"]),
+                        start + QUEUE_STAGE_BUDGETS.get(stage, 60),
+                    )
+                )
             proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             log.flush()
@@ -137,15 +285,26 @@ def _build(repo, work, published, env, log_path, reason=None):
                 if facade_count is None:
                     raise ValueError(f"tile-build did not report facades_bound: {log_path}")
                 report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
+            if key:
+                live_cache.store(
+                    published,
+                    work,
+                    stage,
+                    key,
+                    {"facades_bound": report["facades_bound"]} if stage == "tile-build" else {},
+                )
+                previous = key
     report["seconds"] = durations
+    report["cache_hits"] = cache_hits
+    report["input_hashes"] = input_hashes
     return report
 
 
-def prepare(work, published, commit, report):
+def prepare(work, published, commit, report, release_id=None):
     """Copy the verified release before advancing main."""
     releases = published / "live-releases"
     releases.mkdir(parents=True, exist_ok=True)
-    release = releases / commit
+    release = releases / (release_id or commit)
     if release.exists():
         if (published / "live").is_symlink() and (published / "live").resolve() == release:
             raise ValueError(f"release is already live: {release}")
@@ -176,9 +335,9 @@ def prepare(work, published, commit, report):
     return release
 
 
-def publish(published, commit):
+def publish(published, commit, release_id=None):
     """Swap one release link; stable game/tile paths resolve through that link."""
-    release = published / "live-releases" / commit
+    release = published / "live-releases" / (release_id or commit)
     if not (release / "live-build.json").exists():
         raise ValueError(f"prepared release is missing: {release}")
     if json.loads((release / "live-build.json").read_text())["commit"] != commit:

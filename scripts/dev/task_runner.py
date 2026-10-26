@@ -561,6 +561,75 @@ def land(name, force=False):
         cleanup_landed(name)
 
 
+def precheck(name, base="main"):
+    """Rebase and run the landing gate and live checks in the worker sandbox."""
+    path = task(name)
+    repo = s.sandbox(name) / "repo"
+    with s.lock(path / "lock"):
+        if s.git("status", "--porcelain", cwd=repo):
+            raise ValueError("commit changes before precheck")
+        try:
+            s.git("rebase", base, cwd=repo)
+        except subprocess.CalledProcessError:
+            s.git("rebase", "--abort", cwd=repo, check=False)
+            raise
+        head = s.git("rev-parse", "HEAD", cwd=repo)
+        env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
+        env["TURKU3D_VERIFY_BASE"] = base
+        gate_log = path / "precheck-gate.log"
+        start = time.monotonic()
+        result = s.run_group(
+            [str(repo / "scripts/dev/gate"), "--base", base, "--json"], cwd=repo, env=env
+        )
+        gate_log.write_text(result.stdout)
+        if result.returncode:
+            raise ValueError(f"precheck gate failed: {s.failure_detail(result.stdout)}: {gate_log}")
+        gate_report = json.loads(result.stdout)
+        if not gate_report["ok"]:
+            raise ValueError(f"precheck gate reported failure: {gate_log}")
+        gate_seconds = round(time.monotonic() - start, 3)
+        reason = (
+            next(
+                (
+                    line.partition(":")[2].strip()
+                    for line in (path / "last.md").read_text().splitlines()
+                    if line.startswith("Facade regression reason:")
+                ),
+                None,
+            )
+            if (path / "last.md").exists()
+            else None
+        )
+        build = live_build.build(
+            repo,
+            Path(env["TURKU3D_WORK"]),
+            Path(env["TURKU3D_DATA"]),
+            env,
+            path / "precheck-live.log",
+            reason,
+        )
+        if s.git("status", "--porcelain", cwd=repo) or s.git("rev-parse", "HEAD", cwd=repo) != head:
+            raise ValueError("precheck changed the worker checkout")
+        import verification
+
+        receipt = verification.create(
+            repo,
+            Path(env["TURKU3D_DATA"]),
+            Path(env["TURKU3D_WORK"]),
+            gate_report,
+            build,
+            base,
+        )
+        report = {
+            **receipt,
+            "gate_seconds": gate_seconds,
+            "live_build": build,
+            "time": time.time(),
+        }
+        s.write_json(path / "precheck.json", report)
+        print(json.dumps(report, indent=2))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     subs = ap.add_subparsers(dest="cmd", required=True)
@@ -574,6 +643,13 @@ def main():
     p.add_argument("--route", choices=("task", "task_rebase", "light"))
     p.add_argument("--force", action="store_true")
     subs.add_parser("ls")
+    p = subs.add_parser("precheck")
+    p.add_argument("name", nargs="?", default=os.environ.get("TURKU3D_SANDBOX"))
+    p.add_argument("--base", default="main")
+    queue = subs.add_parser("queue")
+    queue.add_argument("action", choices=("run", "status"))
+    queue.add_argument("--once", action="store_true")
+    queue.add_argument("--limit", type=int, default=4)
     for cmd in ("status", "log", "result", "resume", "stop", "land", "_worker"):
         p = subs.add_parser(cmd)
         p.add_argument("name", nargs="?" if cmd == "land" else None)
@@ -604,6 +680,15 @@ def main():
         )
     elif a.cmd == "ls":
         list_tasks()
+    elif a.cmd == "precheck":
+        precheck(a.name, a.base)
+    elif a.cmd == "queue":
+        import merge_queue
+
+        if a.action == "status":
+            merge_queue.status()
+        else:
+            merge_queue.run(once=a.once, limit=a.limit)
     elif a.cmd == "status":
         status(a.name)
     elif a.cmd == "stop":
