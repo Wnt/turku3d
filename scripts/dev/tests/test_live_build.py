@@ -12,6 +12,27 @@ import live_build
 
 
 class LiveBuildTests(unittest.TestCase):
+    def test_layer_delta_maps_collision_and_visual_to_only_affected_tiles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root / "release/layers/ground"
+            new = root / "work/build/layers/ground"
+            old.mkdir(parents=True)
+            new.mkdir(parents=True)
+            for directory in (old, new):
+                (directory / "t0_0_0.vis.glb").write_bytes(b"same")
+                (directory / "t0_1_0.vis.glb").write_bytes(b"same")
+                (directory / "c_4_1.col.npz").write_bytes(b"same")
+            (new / "t0_1_0.vis.glb").write_bytes(b"changed")
+            (new / "c_4_1.col.npz").write_bytes(b"changed")
+            self.assertEqual(
+                live_build.affected_tiles(root / "release", root / "work"), ("t0_1_0",)
+            )
+            (new / "unmapped.bin").write_bytes(b"unknown")
+            self.assertEqual(
+                live_build.affected_tiles(root / "release", root / "work"), live_build.TILES
+            )
+
     def test_warm_checks_select_both_backends(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

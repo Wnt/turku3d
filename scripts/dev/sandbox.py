@@ -40,7 +40,19 @@ def run_group(command, *, cwd, env):
             start_new_session=True,
         )
         try:
-            rc = proc.wait()
+            deadline = env.get("TURKU3D_CHECK_DEADLINE")
+            timeout = max(0.001, float(deadline) - time.monotonic()) if deadline else None
+            try:
+                rc = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+                rc = 124
+                output.write("\nSLOW: check exceeded queue deadline\n")
         finally:
 
             def members():

@@ -1,9 +1,11 @@
 """Synthetic queue scheduling, failures and shared-cache key tests."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +19,22 @@ from gate_cache import cache_root, stage_key  # noqa: E402
 
 
 class QueueTests(unittest.TestCase):
+    def test_check_deadline_stops_slow_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            start = time.monotonic()
+            result = merge_queue.s.run_group(
+                [sys.executable, "-c", "import time; time.sleep(5)"],
+                cwd=Path(temp),
+                env={
+                    **os.environ,
+                    "TURKU3D_WORK": temp,
+                    "TURKU3D_CHECK_DEADLINE": str(start + 0.05),
+                },
+            )
+            self.assertEqual(result.returncode, 124)
+            self.assertIn("SLOW", result.stdout)
+            self.assertLess(time.monotonic() - start, 3)
+
     def test_receipt_checks_tree_inputs_and_release_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -119,6 +137,9 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue.s, "root", return_value=root),
                 patch.object(merge_queue.s, "tasks_root", return_value=tasks),
                 patch.object(merge_queue, "rebase", return_value=True),
+                patch.object(merge_queue, "reverify"),
+                patch.object(merge_queue.s, "sandbox", return_value=root),
+                patch.object(merge_queue.s, "git", return_value="main"),
                 patch("landing.fast") as fast,
             ):
 
@@ -151,6 +172,9 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue.s, "root", return_value=root),
                 patch.object(merge_queue.s, "tasks_root", return_value=tasks),
                 patch.object(merge_queue, "rebase", return_value=True),
+                patch.object(merge_queue, "reverify"),
+                patch.object(merge_queue.s, "sandbox", return_value=root),
+                patch.object(merge_queue.s, "git", return_value="main"),
                 patch.object(merge_queue, "resume") as resume,
                 patch(
                     "landing.fast",
@@ -189,6 +213,9 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue.s, "root", return_value=root),
                 patch.object(merge_queue.s, "tasks_root", return_value=tasks),
                 patch.object(merge_queue, "rebase", return_value=True),
+                patch.object(merge_queue, "reverify"),
+                patch.object(merge_queue.s, "sandbox", return_value=root),
+                patch.object(merge_queue.s, "git", return_value="main"),
                 patch.object(merge_queue, "resume") as resume,
                 patch("landing.fast", side_effect=fast),
             ):

@@ -1,5 +1,6 @@
 """Build, check and publish the real office distribution during landing."""
 
+import filecmp
 import json
 import os
 import shutil
@@ -11,6 +12,42 @@ import live_cache
 import sandbox as s
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+
+
+def affected_tiles(previous, work):
+    """Map changed layer meshes to visual tiles; ambiguous changes rebuild all tiles."""
+    old = previous / "layers"
+    new = work / "build/layers"
+    if not old.is_dir() or not new.is_dir():
+        return TILES
+    changed = set()
+    names = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    names |= {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    for name in names:
+        before, after = old / name, new / name
+        if before.is_file() and after.is_file() and filecmp.cmp(before, after, shallow=False):
+            continue
+        stem = name.name
+        if stem.endswith(".vis.glb") and stem.split(".vis.glb")[0] in TILES:
+            changed.add(stem.split(".vis.glb")[0])
+        elif stem.endswith(".col.npz") and stem.startswith("c_"):
+            _, i, j = stem.split(".")[0].split("_")
+            changed.add(f"t0_{int(i) // 4}_{int(j) // 4}")
+        elif stem == "MANIFEST.json":
+            continue
+        else:
+            return TILES
+    return tuple(tile for tile in TILES if tile in changed)
+
+
+def same_tree(old, new):
+    if not old.is_dir() or not new.is_dir():
+        return False
+    before = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    after = {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    return before == after and all(
+        filecmp.cmp(old / name, new / name, shallow=False) for name in before
+    )
 
 
 def _clone(source, target):
@@ -164,6 +201,15 @@ def build(repo, work, published, env, log_path, reason=None):
         commands[-1:] = warm
     with log_path.open("w") as log:
         for stage, command, cwd in commands:
+            if stage == "tile-build":
+                previous_id = env.get("TURKU3D_PREVIOUS_RELEASE_ID")
+                if previous_id:
+                    prior = published / "live-releases" / previous_id
+                    selected = affected_tiles(prior, work)
+                    # Facade and library texture changes affect tile packing globally.
+                    if selected and same_tree(prior / "textures", work / "textures"):
+                        command = ["make", "tile-build", "T=" + " ".join(selected)]
+                        scopes[stage] = selected
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()

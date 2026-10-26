@@ -98,6 +98,43 @@ def rebase(name, record):
     return True
 
 
+def reverify(name, record):
+    """Refresh a stale receipt using shared check caches under the queue deadline."""
+    repo = s.sandbox(name) / "repo"
+    path = s.tasks_root() / name
+    old = s.read_json(path / "precheck.json", {})
+    if not old:
+        raise ValueError("missing worker precheck; return to worker")
+    previous = old.get("main")
+    changed = s.git("diff", "--name-only", previous, "HEAD", cwd=repo).splitlines()
+    # Code/data producers invalidate every tile and can exceed the queue budget.
+    if any(p.startswith(("pipeline/", "textures/")) for p in changed):
+        raise ValueError("all-tile producer changed; worker precheck required")
+    env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
+    started = time.monotonic()
+    deadline = started + 210
+    env["TURKU3D_CHECK_DEADLINE"] = str(deadline)
+    if old.get("release_id"):
+        env["TURKU3D_PREVIOUS_RELEASE_ID"] = old["release_id"]
+    result = s.run_group(
+        [str(repo / "scripts/dev/codex-task"), "precheck", name], cwd=repo, env=env
+    )
+    if result.returncode or time.monotonic() > deadline:
+        detail = s.failure_detail(result.stdout)
+        raise ValueError(f"affected recheck failed or slow ({result.returncode}): {detail}")
+    refreshed = s.read_json(path / "precheck.json", {})
+    if refreshed.get("main") != s.git("rev-parse", "main", cwd=repo):
+        raise ValueError("main moved during affected recheck")
+    event(
+        record,
+        name,
+        "reverified",
+        seconds=round(time.monotonic() - started, 3),
+        cache_hits=refreshed.get("live_build", {}).get("cache_hits", []),
+    )
+    return refreshed
+
+
 def process(record, limit=4):
     from landing import fast
 
@@ -110,6 +147,10 @@ def process(record, limit=4):
         if not rebase(name, record):
             continue
         try:
+            receipt = s.read_json(s.tasks_root() / name / "precheck.json", {})
+            repo = s.sandbox(name) / "repo"
+            if receipt.get("main") != s.git("rev-parse", "main", cwd=repo):
+                reverify(name, record)
             result = fast(name)
         except (ValueError, OSError, subprocess.CalledProcessError, KeyError) as exc:
             resume(name, str(exc)[-1000:], record)
