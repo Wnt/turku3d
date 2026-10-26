@@ -105,9 +105,13 @@ def measured_breaklines(
                 "normals_xz": normals[run].tolist(),
                 "side_heights": [list(p.heights) for p in profiles],
                 "kind": (
-                    "quay" if kind == "quay" else
-                    "wall" if kind in ("wall_planter_edge", "step") else
-                    "curb_dropped" if kind in ("kerb_drop", "ramp_edge") else "curb"
+                    "quay"
+                    if kind == "quay"
+                    else "wall"
+                    if kind in ("wall_planter_edge", "step")
+                    else "curb_dropped"
+                    if kind in ("kerb_drop", "ramp_edge")
+                    else "curb"
                 ),
                 "relief_class": kind,
                 "provenance": provenance,

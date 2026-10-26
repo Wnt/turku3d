@@ -1,4 +1,6 @@
-.PHONY: collision-audit collision-sweep collision-audit-test
+.PHONY: collision-audit collision-sweep collision-audit-test playtest
+
+playtest: collision-sweep
 
 collision-audit: ## Compare published layer collision and visuals within 40 m of spawn
 	$(PIPELINE_RUN) python -m turku3d.collision_audit

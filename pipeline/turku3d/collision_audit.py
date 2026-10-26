@@ -262,7 +262,9 @@ def main() -> None:
     sweep = json.loads(args.sweep.read_text()) if args.sweep else None
     map_issues(issues, center, args.radius, args.out / "map.png", sweep)
     unexplained = len(sweep.get("unexplained", [])) if sweep else 0
-    print(f"collision audit: {len(issues)} geometry candidates, {unexplained} unexplained stops; {args.out}")
+    print(
+        f"collision audit: {len(issues)} geometry candidates, {unexplained} unexplained stops; {args.out}"
+    )
     if issues or unexplained:
         raise SystemExit(1)
 

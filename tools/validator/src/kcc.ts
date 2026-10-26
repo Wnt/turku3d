@@ -47,6 +47,7 @@ export class Walker {
   collider: any;
   vy = 0;
   grounded = false;
+  private lastGrounded = false;
   x = 0;
   y = 0;
   z = 0;
@@ -87,6 +88,7 @@ export class Walker {
     const flags = this.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
     this.cc.computeColliderMovement(this.collider, { x: dx, y: dy, z: dz }, flags, CHARACTER_FILTER);
     let m = this.cc.computedMovement();
+    let grounded = this.cc.computedGrounded();
     if (this.cfg.mode === 'probe' && this.grounded && Math.hypot(dx, dz) > 0.001) {
       const requested = Math.hypot(dx, dz);
       const progressed = (m.x * dx + m.z * dz) / requested;
@@ -123,6 +125,7 @@ export class Walker {
               const rise = up.y + across.y + down.y;
               if (this.cc.computedGrounded() && rise > -this.cfg.offset && rise <= this.cfg.autostepMaxHeight + 0.002) {
                 m = { x: across.x, y: rise, z: across.z };
+                grounded = true;
               }
             }
             this.collider.setTranslation(p0);
@@ -134,6 +137,7 @@ export class Walker {
     this.y += m.y;
     this.z += m.z;
     this.collider.setTranslation({ x: this.x, y: this.y, z: this.z });
+    this.lastGrounded = grounded;
   }
 
   /** One 60 Hz frame: horizontal velocity (vx, vz) in m/s, then gravity. */
@@ -145,7 +149,7 @@ export class Walker {
       if (vx !== 0 || vz !== 0) this.move(vx * DT, 0, vz * DT);
       this.move(0, this.vy * DT, 0);
     }
-    this.grounded = this.cc.computedGrounded();
+    this.grounded = this.lastGrounded;
   }
 
   free(): void {

@@ -40,7 +40,8 @@ function worldFor(scene: Scene) {
 }
 
 for (const [name, scene] of Object.entries(scenes)) {
-  test(`${name}: generated collision ${scene.meta.top ? 'climbs and descends' : 'blocks the character'}`, () => {
+  const climbableWall = name === 'wall-0.31' || name === 'wall-0.35';
+  test(`${name}: generated collision ${scene.meta.top || climbableWall ? 'climbs and descends' : 'blocks the character'}`, () => {
     const world = worldFor(scene);
     try {
       const walker = new Walker(RAPIER, world);
@@ -52,6 +53,9 @@ for (const [name, scene] of Object.entries(scenes)) {
         assert.ok(Math.abs(walker.feetY - top[1]) < 0.06, `${name}: feet ${walker.feetY} expected ${top[1]}`);
         for (let i = 0; i < 600 && walker.x > -1; i++) walker.step(-2, 0);
         assert.ok(walker.x < -0.8 && Math.abs(walker.feetY) < 0.06, `${name}: descent failed`);
+      } else if (climbableWall) {
+        assert.ok(walker.x >= 5, `${name}: failed the required 0.35 m step at ${walker.x}`);
+        assert.ok(Math.abs(walker.feetY) < 0.06, `${name}: failed to descend`);
       } else {
         assert.ok(walker.x < 1.7, `${name}: passed blocker at ${walker.x}`);
         assert.ok(walker.feetY < 0.06, `${name}: stepped onto blocker`);

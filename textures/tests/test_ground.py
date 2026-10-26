@@ -9,7 +9,17 @@ from turkutex.ground.splat import pack_weights, rasterize_triangles, weights
 
 def test_semantics_override_green_colour_and_unknown_uses_segmentation():
     ids = np.array(
-        [[mat_id("road"), mat_id("curb"), 0, mat_id("cobblestone"), mat_id("quay"), mat_id("wall")]], np.uint8
+        [
+            [
+                mat_id("road"),
+                mat_id("curb"),
+                0,
+                mat_id("cobblestone"),
+                mat_id("quay"),
+                mat_id("wall"),
+            ]
+        ],
+        np.uint8,
     )
     rgb = np.broadcast_to([35, 110, 40], (*ids.shape, 3))
     w = weights(ids, rgb)

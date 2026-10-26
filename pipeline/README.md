@@ -33,7 +33,9 @@ as walkable pavement. It exits nonzero when candidates remain. `collision-sweep`
 published `.col` files and the game's Rapier character controller to walk a 5 m grid
 through the 40 m spawn circle, with a 2 m grid within 12 m. Its `sweep.json` records
 movement stops; `map.png` overlays them on the 2025 ortho. Red marks need inspection,
-orange marks hit a building shell. Run `make collision-audit-test` for the synthetic fixture.
+orange marks a visible wall, building, curb or street prop. Unexplained stops make the
+sweep fail. `make playtest` includes this real-tile sweep; run `make collision-audit-test`
+for the synthetic fixture.
 
 `turku3d.config` is the only coordinate/grid definition: EPSG:3877 + N2000, engine origin
 E=23459500, N=6704500, H=0; x=east, y=up, z=south. Visual L0 is 250 m, collision is 62.5 m.

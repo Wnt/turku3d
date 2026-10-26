@@ -180,13 +180,19 @@ def test_measured_wall_keeps_height_and_renders_collision_face(curb_cloud):
     clamp_curb_heights(walls)
     np.testing.assert_array_equal(walls[0].heights, original)
     mesh, _ = build_mesh(
-        surface, C.BBoxLocal(-1, -1, 5, 14), [], walls,
-        shapely.Polygon(), 0, ConstantMaterials(),
+        surface,
+        C.BBoxLocal(-1, -1, 5, 14),
+        [],
+        walls,
+        shapely.Polygon(),
+        0,
+        ConstantMaterials(),
     )
     assert mat_id("wall") in mesh.material
-    assert any(part.extras["material_key"] == "wall" for part in visual_meshes(
-        mesh, C.VisualTile(0, 0, 0), walls
-    ))
+    assert any(
+        part.extras["material_key"] == "wall"
+        for part in visual_meshes(mesh, C.VisualTile(0, 0, 0), walls)
+    )
 
 
 def test_physical_paving_overrides_road_function():

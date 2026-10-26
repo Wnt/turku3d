@@ -174,6 +174,7 @@ export class PhysicsWorld {
     const wanted = this.charVy * DT;
     cc.computeColliderMovement(col, { x: input.vx * DT, y: wanted, z: input.vz * DT }, flags, filter);
     let m = cc.computedMovement();
+    let grounded = cc.computedGrounded();
     if (this.charGrounded && !input.jump && Math.hypot(input.vx, input.vz) > 0.01) {
       const requested = Math.hypot(input.vx, input.vz) * DT;
       const progressed = (m.x * input.vx + m.z * input.vz) / Math.hypot(input.vx, input.vz);
@@ -213,6 +214,7 @@ export class PhysicsWorld {
             const rise = up.y + across.y + down.y;
             if (cc.computedGrounded() && rise > -CHARACTER.skin && rise <= CHARACTER.autostepHeight + 0.002) {
               m = { x: across.x, y: rise, z: across.z };
+              grounded = true;
             }
           }
           col.setTranslation(p0);
@@ -221,7 +223,7 @@ export class PhysicsWorld {
     }
     const p = { x: p0.x + m.x, y: p0.y + m.y, z: p0.z + m.z };
     col.setTranslation(p);
-    this.charGrounded = cc.computedGrounded();
+    this.charGrounded = grounded;
     if (this.charVy > 0 && m.y < wanted * 0.5) this.charVy = 0; // bumped head
     this.charVel = { x: (p.x - p0.x) / DT, y: (p.y - p0.y) / DT, z: (p.z - p0.z) / DT };
   }
