@@ -22,6 +22,8 @@ def snapshot_ground(source):
     )
     if (source / "quays.json").is_file():
         paths.append(source / "quays.json")
+    if (source / "ramps.json").is_file():
+        paths.append(source / "ramps.json")
     if not paths:
         raise ValueError("ground snapshot has no collision tiles")
     contents = {p.name: p.read_bytes() for p in paths}

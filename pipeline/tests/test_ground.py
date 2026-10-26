@@ -10,14 +10,58 @@ from turku3d.ground.breaklines import clamp_curb_heights
 from turku3d.ground.build import visual_meshes
 from turku3d.ground.curbs import fit_curbs, fit_profile
 from turku3d.ground.materials import surface_material
-from turku3d.ground.mesh import HeightQuery, Mesh, build_mesh, seam_errors, tile_mesh
+from turku3d.ground.mesh import (
+    HeightQuery,
+    Mesh,
+    build_mesh,
+    seam_errors,
+    tile_mesh,
+)
 from turku3d.ground.points import Surface, select_ground, split_points
+from turku3d.ground.ramps import classify_ramps
 from turku3d.package.gltf import accessor_array, build_glb, read_glb
 
 
 class ConstantMaterials:
     def lookup(self, xz):
         return np.full(len(xz), mat_id("road"), np.uint8)
+
+
+def test_surveyed_ramp_uses_existing_ground_triangles_without_relabelling_water():
+    positions = np.array(
+        [[0, 0, 0], [2, 0.2, 0], [0, 0, 2], [2, 0.2, 2], [4, 0.2, 0], [4, 0.2, 2]],
+        dtype=np.float64,
+    )
+    indices = np.array([[0, 2, 1], [1, 2, 3], [1, 3, 4], [4, 3, 5]], dtype=np.uint32)
+    mesh = Mesh(
+        positions.copy(),
+        indices.copy(),
+        np.array(
+            [mat_id("sidewalk"), mat_id("sidewalk"), mat_id("water"), mat_id("water")], np.uint8
+        ),
+    )
+    before = (mesh.positions.copy(), mesh.indices.copy())
+    result, records = classify_ramps(mesh, [("survey:1", LineString([(0.5, 0.5), (3.5, 0.5)]))])
+    assert result == {"survey_lines": 1, "covered_lines": 0, "triangles": 2}
+    assert records[0]["object_id"] == "survey:1"
+    np.testing.assert_array_equal(mesh.positions, before[0])
+    np.testing.assert_array_equal(mesh.indices, before[1])
+    np.testing.assert_array_equal(
+        mesh.material, [mat_id("ramp"), mat_id("ramp"), mat_id("water"), mat_id("water")]
+    )
+
+
+def test_steep_surveyed_slope_is_visible_blocking_wall():
+    mesh = Mesh(
+        np.array([[0, 0, 0], [1, 1, 0], [0, 0, 1]], np.float64),
+        np.array([[0, 2, 1]], np.uint32),
+        np.array([mat_id("paving_slab")], np.uint8),
+    )
+    summary, records = classify_ramps(mesh, [("survey:wall", LineString([(0.1, 0.1), (0.7, 0.1)]))])
+    assert summary["covered_lines"] == 1
+    assert records[0]["classification"] == "wall"
+    assert records[0]["wall_triangles"] == 1
+    assert mesh.material.tolist() == [mat_id("wall")]
 
 
 @pytest.fixture(scope="module")
@@ -292,7 +336,7 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
     monkeypatch.setattr(
         builder,
         "vectors",
-        lambda *args: ([], shapely.Polygon(), shapely.Polygon(), shapely.Polygon(), None),
+        lambda *args: ([], shapely.Polygon(), shapely.Polygon(), shapely.Polygon(), None, []),
     )
     monkeypatch.setattr(builder, "Materials", lambda *args: ConstantMaterials())
     calls = []

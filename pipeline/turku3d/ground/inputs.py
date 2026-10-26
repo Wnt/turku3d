@@ -19,6 +19,7 @@ WFS_NAMES = (
     "GIS_Katualueet",
     "GIS_Rakennukset",
     "kanta_Vesikohde",
+    "kanta_Rakenne",
 )
 
 
@@ -131,4 +132,10 @@ def vectors(paths, bounds):
     crossings = shapely.union_all([shapely.force_2d(g) for g in semantic.geometry_local]).buffer(
         1.5
     )
-    return list(unique.values()), water, buildings, crossings, frames["GIS_Katualueet"]
+    ramp_lines = []
+    for _, row in frames["kanta_Rakenne"][frames["kanta_Rakenne"].kplkoodi == "62540"].iterrows():
+        clipped = shapely.force_2d(row.geometry_local).intersection(envelope)
+        ramp_lines.extend(
+            (f"city:{row.feature_key}:{i}", line) for i, line in enumerate(parts(clipped))
+        )
+    return list(unique.values()), water, buildings, crossings, frames["GIS_Katualueet"], ramp_lines

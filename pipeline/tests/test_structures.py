@@ -182,6 +182,7 @@ def test_ground_barycentric_contact_no_extrapolation(tmp_path):
 
 def test_survey_to_layer_join_and_missing_ramps_are_reported(tmp_path):
     from turku3d.structures.build import build
+    from turku3d.structures.inputs import Ground
 
     ground = ground_fixture(tmp_path)
     x, z = np.meshgrid(np.arange(-1, 6, 0.06), np.arange(-2, 2, 0.06))
@@ -206,9 +207,23 @@ def test_survey_to_layer_join_and_missing_ramps_are_reported(tmp_path):
     _, metrics = build(records, lidar, ground)
     assert metrics["status"] == "BLOCKED"
     assert metrics["issues"][0]["object_id"] == "uncovered-ramp"
+    (ground.root / "ramps.json").write_text(
+        json.dumps(
+            [
+                {
+                    "object_id": "uncovered-ramp",
+                    "line_xz": [[0, 2], [4, 2]],
+                    "length_m": 4,
+                    "covered_length_m": 4,
+                }
+            ]
+        )
+    )
+    _, metrics = build(records, lidar, Ground(ground.root))
+    assert metrics["status"] == "READY_FOR_VALIDATION"
 
 
-def test_preserved_ground_ramp_covers_survey(tmp_path):
+def test_ground_ramp_material_alone_does_not_claim_survey_coverage(tmp_path):
     from turku3d.structures.build import build
 
     ground = ground_fixture(tmp_path, material="ramp")
@@ -216,9 +231,9 @@ def test_preserved_ground_ramp_covers_survey(tmp_path):
         {"object_id": "ramp-edge", "geometry": LineString([(0, 2), (4, 2)]), "code": "62540"}
     ]
     meshes, metrics = build(records, Lidar([[0, 0, 0]], [2]), ground)
-    assert metrics["status"] == "READY_FOR_VALIDATION"
-    assert meshes[0].material == "ramp"
-    np.testing.assert_array_equal(meshes[0].positions[meshes[0].indices], ground.triangles)
+    assert metrics["status"] == "BLOCKED"
+    assert not meshes
+    assert any("measured ground ramp terrain" in x["reason"] for x in metrics["issues"])
 
 
 def test_cli_writes_blocking_report_without_false_layer_manifest(tmp_path, monkeypatch):

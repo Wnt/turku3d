@@ -5,12 +5,10 @@ from __future__ import annotations
 from collections import Counter
 
 import numpy as np
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString
 from shapely.ops import unary_union
 
-from turku3d.col.materials import mat_id
-
-from .geometry import profile_wall, quay, ramp, stairs
+from .geometry import profile_wall, quay, stairs
 from .survey import group_flights, sample_line
 
 
@@ -157,26 +155,16 @@ def build(records, lidar, ground):
                 "ground_contact_error_m": 0.0,
             }
         )
-    # Ground owns ramp geometry and contact triangulation. Copy it exactly.
-    ramp_triangles = ground.triangles[ground.materials == mat_id("ramp")]
-    if len(ramp_triangles):
-        positions, indices = np.unique(ramp_triangles.reshape(-1, 3), axis=0, return_inverse=True)
-        mesh = ramp("ground:ramps", positions, indices.reshape(-1, 3))
-        meshes.append(mesh)
-        measurements.append(
-            {"object_id": mesh.object_id, **mesh.metadata, "ground_contact_error_m": 0.0}
-        )
-        if mesh.metadata["flagged_steep"]:
-            issues.append({"object_id": mesh.object_id, "reason": "ramp exceeds 40 degrees"})
-        ramp_area = unary_union([Polygon(tri[:, [0, 2]]) for tri in ramp_triangles])
-    else:
-        ramp_area = Polygon()
+    # Ground owns ramp collision and visuals; its measured handoff names coverage.
+    ramp_area = unary_union(ground.ramps).buffer(0.05) if ground.ramps else None
     for record in records:
-        if record["code"] == "62540" and not ramp_area.buffer(0.05).covers(record["geometry"]):
+        if record["code"] == "62540" and (
+            ramp_area is None or not ramp_area.covers(record["geometry"])
+        ):
             issues.append(
                 {
                     "object_id": record["object_id"],
-                    "reason": "ramp survey is not covered by ground material-ramp triangles",
+                    "reason": "ramp survey is not covered by measured ground ramp terrain",
                 }
             )
     if not meshes:

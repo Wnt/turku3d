@@ -1,4 +1,20 @@
-# Structures office integration: blocked acceptance
+# Structures office integration: measured acceptance
+
+## Ramp reconstruction, 2026-10-26
+
+Ground now reads surveyed 62540 lines as a declared input and intersects each
+with the canonical lidar terrain mesh. Its `ramps.json` records surveyed length,
+walkable coverage, solid coverage, wall-face evidence and classification. Paved
+slopes up to 40 degrees use ramp material; grass retains grass material. Steep
+faces over 35 cm become visible walls. Ground QA passes, with **421/421** surveyed
+lines classified in the build envelope, including all **142/142** in the office
+core. Structures no longer duplicates ground ramp geometry.
+
+The office structures acceptance after this group has **zero ramp issues** and
+**71/107** Rapier probes passing. The remaining failures are stair/wall evidence
+and barrier crossings. Source ground and structures outputs are in this sandbox.
+
+## Initial baseline
 
 Measured 2026-10-26 in the `fix-structures-in-main` sandbox against the
 checksum-verified shared ground layer. `make structures-build` produced 18

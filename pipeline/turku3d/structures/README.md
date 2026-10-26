@@ -32,7 +32,7 @@ Raw inputs are read-only:
 - Point clouds in `raw/laz/pistepilvi` or `raw/laz-3x3`: cropped on read to `config.OFFICE_BLOCK.core` (250 m, collision tiles
   c_1_2 through c_4_5); `--area` selects another configured area. No CRS is inferred from LAZ.
 - `$TURKU3D_WORK/build/layers/ground/MANIFEST.json` and `*.col.npz`: authoritative
-  ground contacts and ramp triangles (`material=ramp`). Water is excluded from
+  ground contacts and ramp coverage. Water is excluded from
   ground contact queries; missing coverage is an error, not a nearest fill.
 
 The reader consumes W1-01's `ground/quays.json` directly. Each entry contains
@@ -52,11 +52,10 @@ A changed or partially published producer output fails closed. Snapshot evidence
 records the source path, manifest/code hashes and upstream acceptance status.
 All collision/visual output and reports stay in this sandbox.
 
-Ramp survey lines currently require coverage by ramp-labelled ground triangles.
-The real input contains no material-18 triangles, so these lines remain blocking;
-reconstructing their footprints from survey edges or agreeing an explicit ramp
-mask with W1-01 is still needed. The code does not invent a footprint around an
-ambiguous line merely to make coverage pass.
+Ramp survey lines use ground's `ramps.json` measured coverage handoff. The ground
+producer distinguishes traversable slopes from steep wall faces and keeps grassy
+surfaces as grass. Structures checks each office survey line against that handoff;
+the ground layer itself owns ramp collision and visuals.
 
 ## Geometry and evidence
 
@@ -109,7 +108,7 @@ or unplaceable routes are blocking and retain their measured progress/heights.
 its layer and report for diagnosis but cannot be shipped.
 
 Material keys are `stone_stairs`, `concrete_wall`, `metal_fence`, `metal_railing`,
-`granite_quay`, and `concrete_ramp`. Their texture-library assets are a downstream
+`granite_quay`. Their texture-library assets are a downstream
 integration requirement; the layer GLBs currently use neutral base colours.
 
 Complete objects belong to the collision and visual tiles containing their footprint

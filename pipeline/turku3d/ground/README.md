@@ -27,6 +27,10 @@ Outputs are under `$TURKU3D_WORK/build/layers/ground/`, following the shared
   cache identities and acceptance status.
 - `breaklines.json`, `quays.json`, `curbs.geojson`: measured breakline handoff and
   validation sidecars; empty in the default plain build.
+- `ramps.json`: each surveyed 62540 line, its length covered by measured ground
+  triangles, and whether those triangles form a walkable ramp or a blocking wall.
+  Grass slopes retain grass material; paved slopes up to 40 degrees use ramp
+  material. Taller steep faces keep visible wall material.
 
 QA is written to `$TURKU3D_WORK/reports/ground/ground-qa.{json,md}`. Acceptance checks
 point coverage, materials, triangle budget, bitwise seams, interior open edges and
@@ -47,6 +51,9 @@ No independently rounded edge heights can introduce seams.
 Constraint intersections use a 5 mm precision grid to merge nearly coincident
 lidar/vector endpoints before triangulation; this prevents sub-mm faces rejected
 by the shipped collision format.
+Ramp classification runs on that canonical mesh after triangulation. The 62540
+WFS source is included in the ground manifest, while unchanged lidar selection
+and CDT geometry caches remain reusable.
 
 Katualueet polygons supply physical materials; natural-stone paving overrides functional
 road labels. Outside street polygons, an orthophoto RGB vegetation classifier supplies

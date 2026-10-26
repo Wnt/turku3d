@@ -26,6 +26,7 @@ from .materials import Materials
 from .mesh import Mesh, build_mesh, parts, tile_mesh
 from .points import Surface, select_ground, split_points
 from .qa import write_report
+from .ramps import classify_ramps
 from .water import add_river_bed
 
 
@@ -215,7 +216,7 @@ def run(args):
         del points, classes
     with np.load(raw_cache) as data:
         water_heights = data["water_heights"]
-    lines, water, buildings, _crossings, streets = vectors(paths, bounds)
+    lines, water, buildings, _crossings, streets, ramp_lines = vectors(paths, bounds)
     bridges = (
         shapely.union_all(
             [
@@ -293,7 +294,7 @@ def run(args):
             + Path(__file__).with_name("mesh.py").read_text()
             + Path(__file__).with_name("materials.py").read_text()
             + bridges.wkb_hex
-            + json.dumps(inputs, sort_keys=True)
+            + json.dumps({k: v for k, v in inputs.items() if k != "kanta_Rakenne"}, sort_keys=True)
         ).encode()
     ).hexdigest()
     mesh_cache = cache / f"mesh-{mesh_key}.npz"
@@ -318,6 +319,8 @@ def run(args):
         mesh.save(mesh_cache)
         info_cache.write_text(json.dumps(mesh_info))
     log(f"CDT: {mesh_info}")
+    ramp_coverage, ramp_records = classify_ramps(mesh, ramp_lines)
+    log(f"Surveyed ramps: {ramp_coverage}")
     visual_source = mesh
     mesh = add_river_bed(mesh, water_level)
     meshes = {tile: tile_mesh(mesh, tile) for tile in tiles}
@@ -341,6 +344,7 @@ def run(args):
         ("quays.json", handoff),
         ("breaklines.json", records(curbs)),
         ("curbs.geojson", validation_geojson(curbs)),
+        ("ramps.json", ramp_records),
     ]:
         (output / name).write_text(json.dumps(data, indent=2) + "\n")
         artifacts.append(name)
@@ -363,6 +367,7 @@ def run(args):
             "mesh_build": mesh_info,
             "rejected_curb_lines": rejected,
             "source_lines": len(lines),
+            "ramp_coverage": ramp_coverage,
             "curb_fitting": "measured lidar breaklines; raised curb heights clamped to 6-20 cm"
             if curbs
             else "plain lidar ground",

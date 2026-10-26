@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from shapely import STRtree, from_wkb, from_wkt
 from shapely import box as boxes
-from shapely.geometry import Point, box
+from shapely.geometry import LineString, Point, box
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
@@ -208,6 +208,7 @@ class Ground:
             boxes(low[:, 0] - 1e-8, low[:, 1] - 1e-8, high[:, 0] + 1e-8, high[:, 1] + 1e-8)
         )
         self.quays = self._quays()
+        self.ramps = self._ramps()
 
     def height(self, xz, *, reference=None):
         xz = np.asarray(xz)
@@ -248,3 +249,32 @@ class Ground:
                 result.append((profile["object_id"], xz, heights.min(axis=1), heights.max(axis=1)))
             return result
         return []  # Plain ground has no classified quay features; do not invent them.
+
+    def _ramps(self):
+        path = self.root / "ramps.json"
+        if not path.is_file():
+            return []
+        self.paths.append(path)
+        records = json.loads(path.read_text())
+        result = []
+        for record in records:
+            line = LineString(record["line_xz"])
+            length = float(record["length_m"])
+            covered = float(record["covered_length_m"])
+            solid = float(record.get("solid_covered_length_m", covered))
+            classification = record.get("classification", "ramp")
+            if not line.is_valid or line.length <= 0 or abs(line.length - length) > 1e-5:
+                raise ValueError(f"invalid ground ramp survey: {record['object_id']}")
+            if not 0 <= covered <= solid + 1e-5 or solid > length + 1e-5:
+                raise ValueError(f"invalid ground ramp coverage: {record['object_id']}")
+            if classification not in ("ramp", "wall", "missing"):
+                raise ValueError(f"invalid ground ramp classification: {record['object_id']}")
+            if classification == "ramp" and covered >= length - 0.01:
+                result.append(line)
+            elif (
+                classification == "wall"
+                and solid >= length - 0.01
+                and record.get("wall_triangles", 0)
+            ):
+                result.append(line)
+        return result
