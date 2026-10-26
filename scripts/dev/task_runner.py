@@ -315,7 +315,6 @@ def status(name):
     if kind := host_slots.waiting(name):
         state = f"waiting for {kind} slot"
     last = deque(read_events(path), maxlen=1)
-    # Orchestrator-written records (integration batches) have no runner start.
     elapsed = (meta.get("finished") or time.time()) - meta.get("started", meta["created"])
     commit = (
         s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
