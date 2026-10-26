@@ -34,7 +34,8 @@ def seed(work, published):
         _clone(published / relative, work / relative)
     approvals = published / "facade-approvals/assembly"
     if approvals.is_dir():
-        shutil.copytree(approvals, work / "textures/assembly", dirs_exist_ok=True)
+        with s.lock(approvals / ".export.lock"):
+            shutil.copytree(approvals, work / "textures/assembly", dirs_exist_ok=True)
 
 
 def baseline(published):

@@ -34,7 +34,7 @@ def digest(repo, work, published, stage, previous):
             h.update(name.encode() + b"\0" + (repo / name).read_bytes() + b"\0")
     # Source manifests contain hashes for the large immutable data products. A
     # changed inventory also invalidates the cache, including missing files.
-    data_roots = [published / "data-manifests", published / "facade-approvals"]
+    data_roots = [published / "data-manifests", work / "textures/assembly"]
     if stage != "refresh":
         data_roots.extend((work / "build/layers", work / "textures"))
     for root in data_roots:

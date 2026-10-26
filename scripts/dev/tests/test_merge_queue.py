@@ -188,7 +188,7 @@ class QueueTests(unittest.TestCase):
             textures = work / "textures"
             textures.mkdir()
             (textures / "asset.ktx2").write_bytes(b"verified")
-            approvals = published / "facade-approvals"
+            approvals = textures / "assembly"
             approvals.mkdir(parents=True)
             (approvals / "MANIFEST.json").write_text('{"source":"one"}')
             with patch.object(live_cache.s, "git", return_value="tree"):
