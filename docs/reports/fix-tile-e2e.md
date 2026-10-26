@@ -53,7 +53,7 @@ changed height from 3.780 to 3.839 m. The existing `<2 m` assertion is intact.
 make tile-build T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'
 TURKU3D_JOBS=1 make tile-e2e
 cd game && npx vitest run tests/unit/shadow-batch.test.ts
-scripts/dev/gate --base HEAD
+scripts/dev/gate --base main
 ```
 
 The selected gate passed in 607.925 s, including the game browser stage in
@@ -114,13 +114,16 @@ directly from the source KTX2 and encoded once per page, avoiding individual
 variant encodes that the atlas would discard. ETC1S is used for albedo and ORM,
 and UASTC for normals, as in the measured choice above.
 
-The office view now makes **405 draws** on WebGPU and **405 on WebGL2** at
-2560 × 1440. Its three visible tiles have three `buildings/facade_atlas`
+The office view now makes **407 draws** on WebGPU and **407 on WebGL2** at
+2560 × 1440 after rebasing onto main `2998058`. Its three visible tiles have three `buildings/facade_atlas`
 colour meshes. The `<500` assertion and facade ID-pixel assertion are unchanged.
 The initial three-worker browser run passed 11/12 cases but timed out on the
-WebGL2 aerial QA navigation under host contention. With
-`TURKU3D_JOBS=1 make tile-e2e`, all **12/12 tests passed in 4.8 minutes**,
-including that aerial view, walking and tile seams on both backends.
+WebGL2 aerial QA navigation under host contention. Main subsequently added two
+ground-texture QA views to the same test, causing the final screenshot to hit
+its 120-second limit. The independent ground QA views are now a separate test
+with all image and pixel assertions intact. On the rebased code,
+`TURKU3D_JOBS=1 make tile-e2e` passed **14/14 cases in 7.1 minutes**,
+including facade IDs, ground texture detail, walking and tile seams on both backends.
 
 The rebuilt 316-facade tiles, including ground PBR bytes, remain under the
 unchanged 8,000,000-byte limit:

@@ -116,7 +116,19 @@ test('office facades keep visible ID pixels and QA views', { tag: ['@pipeline', 
   await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError);
   expect(await page.evaluate(() => (window as any).__qaError)).toBeFalsy();
   await page.screenshot({ path: path.join(shots, `integration-${backend}-aerial.png`) });
+  expect(bad).toEqual([]);
+});
 
+test('office ground texture keeps detail in QA views', { tag: ['@pipeline', '@qa', '@render'] }, async ({ page }, info) => {
+  test.skip(!manifest.visual.t0_0_0 || manifest.visual.t0_0_0.tris < 1000, 'Requires the assembled office layers');
+  expect(manifest.spawn).toBeTruthy();
+  const bad: string[] = [];
+  page.on('pageerror', e => bad.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') bad.push(m.text()); });
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  const backend = info.project.name;
+  const [x, y, z] = manifest.spawn.position;
+  const heading = manifest.spawn.headingDeg;
   const groundCamera = `${23459500 + x},${6704500 - z},${y + 5},${heading},-80,60`;
   const captures: Record<string, Buffer> = {};
   let groundIds: Record<string, { kind?: string }> = {};
