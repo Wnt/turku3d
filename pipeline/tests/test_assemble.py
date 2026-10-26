@@ -415,6 +415,7 @@ def test_region_batch_cli_and_manifest(tmp_path):
     assert verify_tree(out) == verify_seams(out) == []
     cached = json.loads(subprocess.check_output(cmd, text=True))
     assert cached["changed"] == [] and cached["manifest"] == result["manifest"]
+    assert cached["facades_bound"] == result["facades_bound"]
     # Consume the published manifest exactly as the region runner does: independent jobs
     # only after assembly succeeds. Format checks keep this small fixture fast.
     directories = sorted({(out / v["url"]).parent for v in manifest["collision"].values()})

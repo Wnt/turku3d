@@ -440,6 +440,7 @@ def assemble(
             return {
                 "changed": [],
                 "cached": sorted(t.id for t in build),
+                "facades_bound": len(bindings),
                 "manifest": str(out / "manifest.json"),
             }
         pending_visual = visual_tiles(
