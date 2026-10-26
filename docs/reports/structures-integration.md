@@ -77,6 +77,9 @@ and using class 2 alone all left one accepted flight and 64 issues. Those
 experiments were reverted; neither the 5 cm lidar nor 2 cm contact limit was
 relaxed. Four OSM wall/fence/retaining-wall records lack dry ground contact;
 four untagged OSM walls on near-level ground have no reliable lidar top.
+The existing office lidar breakline reports contain curb and quay records only
+(476 vector/ground records and 63 added lidar records); they provide no stair
+landing or riser evidence to resolve these residuals.
 
 The layer currently adds 22–55 visual meshes per L0 tile and 22–58 kB of
 brotli-compressed GLB bytes per tile. Combined draw and 8 MB tile budgets,
