@@ -125,8 +125,8 @@ def author(commit):
     )
 
 
-def checkout(commit, name):
-    """The reused integration sandbox, reset to commit."""
+def checkout(commit, name, published):
+    """The reused integration sandbox, reset to commit with its dependencies in sync."""
     try:
         repo = s.sandbox(name) / "repo"
     except ValueError:
@@ -134,6 +134,12 @@ def checkout(commit, name):
     if s.git("status", "--porcelain", "--untracked-files=no", cwd=repo):
         raise ValueError(f"integration sandbox has tracked changes: {repo}")
     s.git("reset", "--hard", commit, cwd=repo)
+    # A fresh or reset checkout may need new npm/Python dependencies; the sync is stamped.
+    sync = s.run_group(
+        [str(repo / "scripts/dev/wt"), "sync-env"], cwd=repo, env=environment(repo, published)
+    )
+    if sync.returncode:
+        raise ValueError(f"environment sync failed: {s.failure_detail(sync.stdout)}")
     return repo
 
 
@@ -165,7 +171,7 @@ class Run:
 
     def build(self, start, commit):
         """(report, None) when commit builds green, else (None, failure)."""
-        repo = checkout(commit, self.name)
+        repo = checkout(commit, self.name, self.published)
         env = environment(repo, self.published)
         work = Path(env["TURKU3D_WORK"])
         reason = facade_reason(start, commit, repo)
@@ -197,8 +203,7 @@ class Run:
 
 def bisect(run, start, end, failure):
     """First landing in start..end whose build is red, with its failure (end is red)."""
-    repo = checkout(end, run.name)
-    points = landings(start, end, repo)
+    points = landings(start, end, run.main_repo)
     low, high = -1, len(points) - 1
     failures = {high: failure}
     while high - low > 1:
@@ -218,7 +223,7 @@ def revert(run, parent, culprit):
         before = s.git("rev-parse", "main", cwd=run.main_repo)
         if s.git("status", "--porcelain", "--untracked-files=no", cwd=run.main_repo):
             return {"error": "main worktree is dirty"}
-        repo = checkout(before, run.name)
+        repo = checkout(before, run.name, run.published)
         try:
             s.git("revert", "--no-edit", f"{parent}..{culprit}", cwd=repo)
         except subprocess.CalledProcessError as exc:
@@ -284,6 +289,45 @@ def record(run, row):
     return row
 
 
+def integrate(run, base, start, end):
+    """Build M; publish when green, otherwise bisect, revert and notify."""
+    published = run.published
+    report, failure = run.build(start, end)
+    if report is None:
+        parent, culprit, failure = bisect(run, start, end, failure)
+        task = author(culprit)
+        reverted = revert(run, parent, culprit)
+        return record(
+            run,
+            {
+                **base,
+                "result": "red",
+                "culprit": culprit,
+                "culprit_task": task,
+                "failure": failure,
+                "revert": reverted,
+                "notified": notify(task, culprit, failure, reverted),
+            },
+        )
+    row = {
+        **base,
+        "seconds": report["seconds"],
+        "cache_hits": report["cache_hits"],
+        "facades_bound": report["facades_bound"],
+        "facades_baseline": report["facades_baseline"],
+        "culprit": None,
+    }
+    work = Path(report.pop("work"))
+    try:
+        live_build.prepare(work, published, end, report)
+        # Main is already at M; only the live link moves, and publish rolls it
+        # back to G if any stable path does not resolve into the new release.
+        live_build.publish(published, end)
+    except (ValueError, OSError) as exc:
+        return record(run, {**row, "result": "failed", "failure": {"detail": str(exc)}})
+    return record(run, {**row, "result": "green"})
+
+
 def run_once(published, main_repo=s.REPO, name=NAME):
     """Integrate the batch from the published commit G to main head M; returns the row."""
     published = Path(published)
@@ -310,40 +354,11 @@ def run_once(published, main_repo=s.REPO, name=NAME):
                 f"{os.getpid()}:{host_slots.identity(os.getpid())}"
             )
         try:
-            report, failure = run.build(start, end)
-            if report is None:
-                parent, culprit, failure = bisect(run, start, end, failure)
-                task = author(culprit)
-                reverted = revert(run, parent, culprit)
-                return record(
-                    run,
-                    {
-                        **base,
-                        "result": "red",
-                        "culprit": culprit,
-                        "culprit_task": task,
-                        "failure": failure,
-                        "revert": reverted,
-                        "notified": notify(task, culprit, failure, reverted),
-                    },
-                )
-            row = {
-                **base,
-                "seconds": report["seconds"],
-                "cache_hits": report["cache_hits"],
-                "facades_bound": report["facades_bound"],
-                "facades_baseline": report["facades_baseline"],
-                "culprit": None,
-            }
-            work = Path(report.pop("work"))
-            try:
-                live_build.prepare(work, published, end, report)
-                # Main is already at M; only the live link moves, and publish rolls it
-                # back to G if any stable path does not resolve into the new release.
-                live_build.publish(published, end)
-            except (ValueError, OSError) as exc:
-                return record(run, {**row, "result": "failed", "failure": {"detail": str(exc)}})
-            return record(run, {**row, "result": "green"})
+            return integrate(run, base, start, end)
+        except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+            # Infrastructure failures (sandbox, env sync, git) name no culprit.
+            failure = {"detail": str(exc)[-1000:]}
+            return record(run, {**base, "result": "failed", "failure": failure})
         finally:
             if not inherited:
                 os.environ.pop("TURKU3D_INTEGRATION_OWNER", None)

@@ -43,6 +43,8 @@ class IntegratorTests(unittest.TestCase):
         (self.main / "scripts/dev").mkdir(parents=True)
         (self.main / "scripts/dev/gate").write_text(GATE)
         (self.main / "scripts/dev/gate").chmod(0o755)
+        (self.main / "scripts/dev/wt").write_text("#!/bin/sh\necho env in sync\n")
+        (self.main / "scripts/dev/wt").chmod(0o755)
         (self.main / "game").mkdir()
         (self.main / "game/facades.txt").write_text("2\n")
         self.git("add", ".")
@@ -206,6 +208,15 @@ class IntegratorTests(unittest.TestCase):
             (self.published / "build/game").resolve(),
             (self.published / "live-releases" / self.base / "game").resolve(),
         )
+
+    def test_environment_sync_failure_is_failed_without_culprit(self):
+        # The executable bit survives the rewrite, so the sandbox's sync now fails.
+        self.land("sync", "scripts/dev/wt", "#!/bin/sh\necho FAIL npm ci\nexit 1\n")
+        self.land("game", "game/a.ts", "a")
+        row = self.integrate()
+        self.assertEqual((row["result"], self.builds), ("failed", []))
+        self.assertIn("environment sync failed", row["failure"]["detail"])
+        self.assertEqual(integrator.live_commit(self.published), self.base)
 
     def test_status_reports_running_stage(self):
         self.assertIsNone(integrator.running())
