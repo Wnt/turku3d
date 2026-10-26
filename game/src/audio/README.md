@@ -22,8 +22,25 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
 - City bed, wind and distant traffic mix with a positional river/gull pair. River position is the
   nearest point on an approximate Aura centreline in engine coordinates; the water/gull mix fades
   to zero over 140 m. This is an office-area approximation, not measured water geometry.
-- D-pad down/N toggles mute; Menu/Escape pauses (View/M is the map). The Audio panel has master, footsteps, vehicle, ambience
-  and UI sliders. Settings are session-local. Pause fades loops and suppresses gameplay one-shots.
+- D-pad down/N toggles mute; Menu/Escape pauses (View/M is the map). The Audio panel has master, footsteps, vehicle, ambience,
+  voice and UI sliders. Settings are session-local. Pause fades loops and suppresses gameplay one-shots.
+
+## Voice lines
+
+`VoicePlayer` (`voice.ts`) loads `public/assets/voice/manifest.json`, written by the voice pipeline
+([`audio/voice`](../../../audio/voice/README.md), `make voice-build`). It subscribes to a
+`MissionHudSource` (`gameplay/contract.ts`) and plays the clip whose manifest `text` equals the message
+that was just shown, so the mission system needs no audio API. Rules:
+
+- A message change starts its clip; repeated states with the same message (timer ticks) do not restart it.
+  Messages without a clip (HUD-only prompts, `"voiced": false` in `dialogue.json`) leave the current line alone.
+- Lines never overlap. A new voiced line fades the previous out over 100 ms (`VOICE_CUT_SECONDS`) and
+  starts when the fade ends. Of overlapping requests that are still loading, only the newest starts.
+- Clips play on the `voice` bus (own volume slider). While a line plays, ambience passes through a
+  ducker at -6 dB (`VOICE_DUCK_DB`); the ambience volume slider is independent of the duck.
+- A line shown before the audio context runs waits for unlock, unless another message replaces it first.
+- Clips are fetched and decoded on first use and cached. Manifest or clip failures are contained in
+  `voice.snapshot().errors`. `window.__game.voice` exposes `attach`, `show`, `snapshot`.
 
 The context is created and resumed synchronously on the first key/pointer input. Gamepad activity
 also attempts unlock; Chrome may still require a click or key under its user-activation policy.
@@ -43,9 +60,9 @@ From the repository root, with sandbox environment loaded:
 
 ```sh
 source ../sandbox.env
-npm test --prefix game -- --run tests/unit/audio.test.ts tests/unit/input.test.ts tests/unit/vehicle.test.ts
+npm test --prefix game -- --run tests/unit/audio.test.ts tests/unit/voice.test.ts tests/unit/input.test.ts tests/unit/vehicle.test.ts
 npm run build --prefix game
-(cd game && npx playwright test tests/e2e/audio.spec.ts)
+(cd game && npx playwright test tests/e2e/audio.spec.ts tests/e2e/voice.spec.ts)
 GATE_PYTHON="$HOME/turku3d/envs/pipeline/bin/python" scripts/dev/gate --base main
 ```
 

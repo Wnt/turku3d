@@ -5,7 +5,7 @@ export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel'
   'engine', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
   'city', 'river', 'gulls', 'traffic', 'wind', 'connect'] as const;
 export type Sound = typeof SOUNDS[number];
-export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'ui';
+export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
 export const clamp = (v: number, max = 1) => Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
 
 export function footstep(material: number): Sound | null {
@@ -64,3 +64,9 @@ export function oneShot(event: AudioEvent): { sound: Sound; channel: Channel; ga
     default: return null;
   }
 }
+
+/** Voice lines: a new line fades the previous out over this long, then starts. */
+export const VOICE_CUT_SECONDS = 0.1;
+/** Ambience is ducked by this much while a voice line plays. */
+export const VOICE_DUCK_DB = -6;
+export const duckGain = (active: boolean) => (active ? 10 ** (VOICE_DUCK_DB / 20) : 1);

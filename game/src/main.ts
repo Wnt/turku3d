@@ -8,6 +8,7 @@ import { enToEngine, engineToEN, collisionTileAt, headingToYaw, yawToHeading } f
 import { Input } from './input';
 import { GameAudio } from './audio';
 import { GameplayAudio } from './audio/gameplay';
+import { VoicePlayer } from './audio/voice';
 import { createRenderer } from './render/renderer';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
@@ -198,9 +199,12 @@ async function runPlay() {
   const audioGameplay = new GameplayAudio(event => audio.emit(event));
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
   audio.mount(document.body);
-  addEventListener('pagehide', () => audio.dispose(), { once: true });
+  const voice = new VoicePlayer(audio.voiceOutput());
+  addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true });
   const storage = browserStorage();
-  const startScreen = new StartScreen(input, hasSavedGame(storage) ? [] : INTRO_LINE_IDS.map(lineText));
+  const intro = hasSavedGame(storage) ? [] : INTRO_LINE_IDS.map(lineText);
+  const startScreen = new StartScreen(input, intro);
+  voice.narrate(intro);
   const hud = new Hud(hudEl);
   const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
   if (!params.hud) hud.toggle();
@@ -256,6 +260,7 @@ async function runPlay() {
   const { router, minimap } = await createGameplay(manifest, document.body);
   const missions = new MissionSystem({ router, storage });
   minimap.setSource(missions);
+  voice.attach(missions);
   void startScreen.closed.then(() => missions.begin());
   const mapDirection = new THREE.Vector3();
 
@@ -284,7 +289,7 @@ async function runPlay() {
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled, frameMs: frameEma, missions: missions.snapshot(), errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, parkedVisuals, missions, router, minimap, ready: true });
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, ready: true });
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {

@@ -37,7 +37,7 @@ name = "python-lint"
 kind = "python-lint"
 configs = ["ruff.toml", "*/pyproject.toml", "scripts/dev/gate.toml"]
 triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
-sources = ["tools/validator/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
+sources = ["tools/validator/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
 
 [[stages]]
 name = "pipeline-tests"
@@ -144,6 +144,14 @@ tests = ["tests/test_post.py"]
 [[stages.related]]
 paths = ["textures/turkutex/streetview/*", "textures/tests/test_streetview_geometry.py"]
 tests = ["tests/test_streetview_geometry.py"]
+
+# Synthetic voice pipeline tests plus the check that committed clips match dialogue.json and voices.toml.
+[[stages]]
+name = "voice-tests"
+kind = "pytest"
+triggers = ["audio/voice/*", "game/src/gameplay/content/dialogue.json", "game/public/assets/voice/*"]
+cwd = "audio/voice"
+tests = ["tests"]
 
 [[stages]]
 name = "gate-tests"

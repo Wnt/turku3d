@@ -1,13 +1,17 @@
 import type { V3 } from '../core/origin';
-import { SOUNDS, ambience, carMix, clamp, oneShot, type AudioEvent, type Channel, type Sound } from './mix';
+import { SOUNDS, ambience, carMix, clamp, duckGain, oneShot, type AudioEvent, type Channel, type Sound } from './mix';
+import type { VoiceOutput } from './voice';
 
 type Voice = { source: AudioBufferSourceNode; gain: GainNode; panner?: PannerNode };
-const CHANNELS: Channel[] = ['master', 'footsteps', 'vehicle', 'ambience', 'ui'];
+const CHANNELS: Channel[] = ['master', 'footsteps', 'vehicle', 'ambience', 'voice', 'ui'];
 
 /** Owns all Web Audio nodes; gameplay only emits semantic events. No renderer dependency. */
 export class GameAudio {
   private context: AudioContext | null = null;
   private channels = new Map<Channel, GainNode>();
+  private ducker: GainNode | null = null;
+  private ducked = false;
+  private running: (() => void)[] = [];
   private buffers = new Map<Sound, AudioBuffer>();
   private loops = new Map<Sound, Voice>();
   private voices = new Set<Voice>();
@@ -20,7 +24,7 @@ export class GameAudio {
   private panel?: HTMLElement;
   private muteButton?: HTMLButtonElement;
   private summary?: HTMLElement;
-  readonly volumes: Record<Channel, number> = { master: 0.65, footsteps: 0.8, vehicle: 0.8, ambience: 0.7, ui: 0.6 };
+  readonly volumes: Record<Channel, number> = { master: 0.65, footsteps: 0.8, vehicle: 0.8, ambience: 0.7, voice: 0.9, ui: 0.6 };
   muted = false;
   readonly errors: string[] = [];
   readonly played: Partial<Record<Sound, number>> = {};
@@ -40,8 +44,11 @@ export class GameAudio {
         limiter.threshold.value = -6; limiter.ratio.value = 12;
         master.connect(limiter); limiter.connect(ctx.destination);
         this.channels.set('master', master);
+        // Ambience passes through a ducker that voice lines pull down; its volume slider stays independent.
+        const ducker = this.ducker = ctx.createGain();
+        ducker.connect(master);
         for (const name of CHANNELS.slice(1)) {
-          const bus = ctx.createGain(); bus.connect(master); this.channels.set(name, bus);
+          const bus = ctx.createGain(); bus.connect(name === 'ambience' ? ducker : master); this.channels.set(name, bus);
         }
         this.applyVolumes();
       }
@@ -63,6 +70,7 @@ export class GameAudio {
         if (this.disposed || ctx.state !== 'running') return;
         if (this.summary) this.summary.textContent = 'Audio';
         if (this.pendingConnect) { this.pendingConnect = false; this.emit({ type: 'gamepad-connected' }); }
+        for (const callback of this.running) callback();
       }).catch(error => { this.errors.push(String(error)); });
     } catch (error) { this.errors.push(String(error)); return Promise.resolve(); }
   }
@@ -90,6 +98,16 @@ export class GameAudio {
     if (this.paused && event.type !== 'gamepad-connected') return;
     const shot = oneShot(event);
     if (shot && shot.gain > 0) this.start(shot.sound, shot.channel, shot.gain, false, shot.position);
+  }
+
+  /** Voice lines (VoicePlayer) play on the voice bus and duck ambience while they play. */
+  voiceOutput(): VoiceOutput {
+    return {
+      context: () => (this.disposed ? null : this.context),
+      bus: () => this.channels.get('voice') ?? null,
+      duck: active => { this.ducked = active; if (this.ducker) this.param(this.ducker.gain, duckGain(active)); },
+      onRunning: callback => { this.running.push(callback); },
+    };
   }
 
   private applyVolumes() {
@@ -165,12 +183,12 @@ export class GameAudio {
   }
 
   snapshot() { return { state: this.context?.state ?? 'locked', loaded: this.buffers.size, loops: this.loops.size,
-    voices: this.voices.size, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors] }; }
+    voices: this.voices.size, ducked: this.ducked, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors] }; }
 
   dispose() {
     this.disposed = true;
     for (const voice of this.voices) { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); voice.panner?.disconnect(); }
-    this.voices.clear(); this.loops.clear(); this.buffers.clear(); this.channels.clear(); this.panel?.remove();
+    this.voices.clear(); this.loops.clear(); this.buffers.clear(); this.channels.clear(); this.running = []; this.panel?.remove();
     void this.context?.close().catch(() => {});
   }
 }
