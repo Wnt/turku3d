@@ -20,7 +20,6 @@ from pathlib import Path
 
 import coordination as coord
 import host_slots
-import live_build
 import live_cache
 import sandbox as s
 from gate_lib import matches
@@ -171,6 +170,10 @@ class Run:
 
     def build(self, start, commit):
         """(report, None) when commit builds green, else (None, failure)."""
+        # Imported here: the daemon imports this module, and the lander path must not
+        # load the live build.
+        import live_build
+
         repo = checkout(commit, self.name, self.published)
         env = environment(repo, self.published)
         work = Path(env["TURKU3D_WORK"])
@@ -291,6 +294,8 @@ def record(run, row):
 
 def integrate(run, base, start, end):
     """Build M; publish when green, otherwise bisect, revert and notify."""
+    import live_build
+
     published = run.published
     report, failure = run.build(start, end)
     if report is None:
