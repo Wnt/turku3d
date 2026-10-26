@@ -166,9 +166,23 @@ def outer_buildings(layers):
     return "rebuilt"
 
 
+def stage_ground_library(textures):
+    library = textures / "library"
+    shared = C.data_root() / "textures/library"
+    for name in ("albedo", "normal", "orm"):
+        target = library / f"{name}.array.ktx2"
+        source = shared / target.name
+        if not target.exists() and source.is_file():
+            library.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(".tmp")
+            shutil.copy2(source, temporary)
+            temporary.replace(target)
+
+
 def ground_textures(layers, textures):
     from turku3d.package.ground_textures import publish_ground
 
+    stage_ground_library(textures)
     root = textures / "ground"
     code = ground_texture_code_hash()
     manifest = root / "MANIFEST.json"

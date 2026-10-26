@@ -147,6 +147,21 @@ def test_ground_target_ignores_unrelated_stale_buildings(monkeypatch, tmp_path):
     assert list(result) == calls == ["ground", "ground-textures"]
 
 
+def test_stage_ground_library_uses_shared_assets_without_replacing_local_build(monkeypatch, tmp_path):
+    source = tmp_path / "data/textures/library"
+    source.mkdir(parents=True)
+    for name in ("albedo", "normal", "orm"):
+        (source / f"{name}.array.ktx2").write_bytes(name.encode())
+    local = tmp_path / "work/textures/library"
+    local.mkdir(parents=True)
+    (local / "normal.array.ktx2").write_bytes(b"local")
+    monkeypatch.setattr(refresh.C, "data_root", lambda: tmp_path / "data")
+    refresh.stage_ground_library(local.parent)
+    assert (local / "albedo.array.ktx2").read_bytes() == b"albedo"
+    assert (local / "normal.array.ktx2").read_bytes() == b"local"
+    assert (local / "orm.array.ktx2").read_bytes() == b"orm"
+
+
 def test_facade_target_runs_buildings_before_migration(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(refresh, "buildings", lambda layers: calls.append("buildings") or "cached")
