@@ -2,17 +2,19 @@ import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 import { expect, test } from './fixtures';
 
-// Injects a fake MissionHudSource whose message is a voiced dialogue line and checks that the clip starts
-// on the voice bus with ambience ducked, then that a second line cuts the first.
-test('a voiced HUD message starts its clip, ducks ambience and a new line cuts it', { tag: ['@audio', '@voice'] }, async ({ page }, info) => {
+// A new game narrates the start-screen intro once audio unlocks. Then a fake MissionHudSource shows a voiced
+// line: its clip cuts the narration on the voice bus with ambience ducked, and a second line cuts the first.
+test('intro narration plays; a voiced HUD message starts its clip, ducks ambience and a new line cuts it', { tag: ['@audio', '@voice'] }, async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`/?backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready);
   const manifest = await (await page.request.get('assets/voice/manifest.json')).json();
-  const [first, second] = manifest.lines as { id: string; text: string; seconds: number }[];
+  const lines = manifest.lines as { id: string; speaker: string; text: string; seconds: number }[];
+  const first = lines.find(line => line.speaker === 'market')!, second = lines.find(line => line.speaker === 'pizzeria')!;
   await page.getByRole('button', { name: 'Start playing' }).click(); // pointerdown unlocks the audio context
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot().state), { timeout: 30_000 }).toBe('running');
+  await expect.poll(() => page.evaluate(() => (window as any).__game.voice.snapshot().playing), { timeout: 10_000 }).toBe('intro_1');
   await page.evaluate(text => {
     const game = (window as any).__game;
     const listeners: ((state: unknown) => void)[] = [];
@@ -26,12 +28,12 @@ test('a voiced HUD message starts its clip, ducks ambience and a new line cuts i
     document.body.append(hud);
   }, first.text);
   await expect.poll(() => page.evaluate(() => (window as any).__game.voice.snapshot()), { timeout: 10_000 })
-    .toMatchObject({ playing: first.id, played: [first.id], errors: [] });
+    .toMatchObject({ playing: first.id, queued: 0, played: ['intro_1', first.id], errors: [] });
   const audio = await page.evaluate(() => (window as any).__game.audio.snapshot());
   expect(audio).toMatchObject({ state: 'running', ducked: true, errors: [] });
   await page.screenshot({ path: path.join(reportsRoot, 'audio-voice-tts', `voice-${info.project.name}.png`) });
   await page.evaluate(text => (window as any).__game.fakeHud.set(text), second.text);
-  await expect.poll(() => page.evaluate(() => (window as any).__game.voice.snapshot().played)).toEqual([first.id, second.id]);
+  await expect.poll(() => page.evaluate(() => (window as any).__game.voice.snapshot().played)).toEqual(['intro_1', first.id, second.id]);
   await expect.poll(() => page.evaluate(() => (window as any).__game.voice.snapshot().playing),
     { timeout: (second.seconds + 5) * 1000 }).toBeNull();
   expect(await page.evaluate(() => (window as any).__game.audio.snapshot().ducked)).toBe(false);
