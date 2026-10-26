@@ -63,6 +63,9 @@ pass expands these ranges into draw groups only while capturing IDs. Normal rend
 draw per batch. Texture and material deduplication prevents repeated glTF texture transforms
 from exhausting the streaming cache before L0 can load. The assembler binds library albedo/normal/ORM
 maps and unique building facades, falling back to the library material when a facade is absent.
+An approved facade sidecar may request `min_pixels_per_metre` (4–72). The
+7.6 MB headroom planner first reduces other facades, then reduces that map only as far as
+its declared minimum. If the tile cannot meet the fixed 8 MB wire cap, assembly fails.
 Both texture defaults are under `$TURKU3D_WORK/textures/assembly`. The assembler prints
 `facades_bound` in its JSON result, including on a cache hit. For assets exported to a
 different work root, pass its `library` and `facades` paths explicitly.
