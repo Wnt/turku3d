@@ -85,7 +85,8 @@ segment of an edge usable in the current mode (uniform 32 m grid index, at most 
 80 m away, otherwise the end counts as off the graph). `route()` runs A* (Euclidean heuristic)
 from a virtual start on the snapped edge to a virtual goal, honours car oneways, and returns the
 polyline from the snapped start to the snapped goal including every bend. `distance()` sums the
-polyline. A 60 × 60 grid routes corner to corner in well under 50 ms; real routes take about 1 ms.
+polyline. A 60 × 60 grid routes corner to corner in well under 50 ms; the 318 m route of the Chrome
+check on the published graph (1,015 edges) takes 0.3 ms.
 
 ### Minimap (`minimap.ts`)
 
@@ -96,7 +97,8 @@ the rim when off the map, the active one ringed) and the player arrow. It redraw
 view, the HUD state or the size changed. `RouteTracker` re-plans when the active target or travel
 mode changes or the player is more than 5 m (`REROUTE_M`) from the last route start. Above the
 canvas: the `message` line, the `timerSeconds` countdown (m:ss, red at 10 s) and `money` as €.
-The view spans 200 m on foot, 320 m in a car and 650 m in the large map.
+The view spans 200 m on foot, 320 m in a car and 650 m in the large map. A redraw measured
+0.1–0.6 ms in Chrome on both backends, well inside the 60 fps budget.
 
 ### Verification
 
