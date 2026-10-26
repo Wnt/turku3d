@@ -38,6 +38,9 @@ within 3 m. The start screen shows the intro lines unless `hasSavedGame(localSto
    the list ordered by route distance, and add the row to the table in `docs/design/story.md`.
 4. Run `npx vitest run tests/unit/missions.test.ts` from `game/`: it checks that every referenced
    line exists and that prices quoted in lines match `economy.ts`.
+5. Voice the new lines: `make voice-setup` (once) and `make voice-build` from the repo root, then
+   commit the clips in `game/public/assets/voice/` (see `audio/voice/README.md`). The gate fails on a
+   voiced line without a current clip. The game plays a clip when the HUD shows its exact text.
 
 A saved game stores only the delivery index, so adding deliveries keeps existing saves valid.
 
