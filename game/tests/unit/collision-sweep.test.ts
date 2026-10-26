@@ -57,7 +57,7 @@ test.skipIf(!process.env.COLLISION_SWEEP_DIST)('published spawn grid walking swe
         const ray = rays.filter((item) => item !== null).sort((a, b) => a!.toi - b!.toi)[0];
         const nearby = [[1, 0], [-1, 0], [0, 1], [0, -1]].flatMap(([nx, nz]) =>
           [0.4, 0.8].map((h) => world.raycast({ x: end.x, y: end.y + h, z: end.z }, { x: nx, y: 0, z: nz }, 1.2)));
-        const blocker = [ray, ...nearby].find((item) => item && [3, 15, 19, 22, 25, 26, 27, 28, 29, 30, 31].includes(item.material));
+        const blocker = [ray, ...nearby].find((item) => item && [3, 15, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31].includes(item.material));
         const reason = distanceToBuilding(end.x, end.z) < 0.42 ? 'building' : blocker ? `visible_material_${blocker.material}` : null;
         stops.push({ start: [x, hit.point.y, z], end: [end.x, end.y, end.z],
           direction: [vx / 2, vz / 2],
