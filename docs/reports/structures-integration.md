@@ -118,7 +118,7 @@ Reproduce from this worktree with its sandbox environment exported:
 
 ```sh
 make -j2 structures-test
-make structures-build ARGS="--area office-block --ground-layer $TURKU3D_DATA/build/layers/ground"
+make structures-build ARGS="--area office-block --ground-layer $TURKU3D_WORK/build/layers/ground"
 scripts/dev/gate --paths pipeline/turku3d/refresh.py pipeline/turku3d/package/assemble.py pipeline/turku3d/structures/layer.py pipeline/tests/test_refresh.py pipeline/tests/test_assemble.py
 ```
 
