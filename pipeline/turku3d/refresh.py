@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from turku3d import config as C
@@ -243,6 +244,17 @@ def props(layers):
     return "rebuilt"
 
 
+def timed(name, operation, *args):
+    start = time.perf_counter()
+    try:
+        status = operation(*args)
+    except Exception:
+        print(f"{name}: failed ({time.perf_counter() - start:.3f}s)", flush=True)
+        raise
+    print(f"{name}: {status} ({time.perf_counter() - start:.3f}s)", flush=True)
+    return status
+
+
 def refresh(work, target=None):
     work.mkdir(parents=True, exist_ok=True)
     layers, textures = work / "build/layers", work / "textures"
@@ -250,36 +262,32 @@ def refresh(work, target=None):
         fcntl.flock(lock, fcntl.LOCK_EX)
         if target == "ground-textures":
             result = {
-                "ground": ground(layers),
-                "ground-textures": ground_textures(layers, textures),
+                "ground": timed("ground", ground, layers),
+                "ground-textures": timed("ground-textures", ground_textures, layers, textures),
             }
-            for name, status in result.items():
-                print(f"{name}: {status}", flush=True)
             return result
         if target == "facades":
-            result = {"buildings": buildings(layers)}
-            result["facades"] = facades(layers, textures)
-            for name, status in result.items():
-                print(f"{name}: {status}", flush=True)
+            result = {"buildings": timed("buildings", buildings, layers)}
+            result["facades"] = timed("facades", facades, layers, textures)
             return result
         result = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             futures = {
-                "ground": pool.submit(ground, layers),
-                "buildings": pool.submit(buildings, layers),
+                "ground": pool.submit(timed, "ground", ground, layers),
+                "buildings": pool.submit(timed, "buildings", buildings, layers),
             }
             for name, future in futures.items():
                 result[name] = future.result()
-                print(f"{name}: {result[name]}", flush=True)
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
             futures = {
-                "ground-textures": pool.submit(ground_textures, layers, textures),
-                "facades": pool.submit(facades, layers, textures),
-                "props": pool.submit(props, layers),
+                "ground-textures": pool.submit(
+                    timed, "ground-textures", ground_textures, layers, textures
+                ),
+                "facades": pool.submit(timed, "facades", facades, layers, textures),
+                "props": pool.submit(timed, "props", props, layers),
             }
             for name, future in futures.items():
                 result[name] = future.result()
-                print(f"{name}: {result[name]}", flush=True)
     return result
 
 

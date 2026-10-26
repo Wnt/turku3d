@@ -104,7 +104,10 @@ in the current sandbox. The bundled label schema records uncertainty explicitly.
 
 After a building rebuild, `make refresh REFRESH_TARGET=facades` reuses approved
 maps and writes `textures/refresh-new.geojson` under `$TURKU3D_WORK`. Only walls
-in that inventory need new reference photos. The no-image-generation path is:
+in that inventory need new reference photos. Walls that exceed the approved photo
+bounds are left on their library material and listed in
+`$TURKU3D_WORK/reports/facade-refresh.json` under `rejected`. Missing or corrupt
+approved assets still stop the refresh. The no-image-generation path is:
 
 ```sh
 T="$TURKU3D_WORK/textures"

@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 from turkutex.facade_rebind import match_score, migrate, reproject_uv, sha
 from turkutex.streetview.facades import Facade, save_facades
 
@@ -23,6 +24,13 @@ def test_split_and_shift_use_same_source_photo_coordinates():
     uv = reproject_uv({"uv": {"scale": [0.05, -0.1], "offset": [0, 1]}}, old, split)
     assert np.allclose(uv["scale"], [0.05, -0.1 * 10 / 9.8])
     assert np.allclose(uv["offset"], [0.25, 1])
+
+
+def test_small_wall_expansion_fits_photo_for_reversed_uv():
+    old = wall("a_0", [0, 0], [5.63, 0])
+    rebuilt = wall("a_1", [-0.08, 0], [5.70, 0])
+    uv = reproject_uv({"uv": {"scale": [-1 / old.length, -0.1], "offset": [1, 1]}}, old, rebuilt)
+    assert np.allclose([uv["offset"][0], uv["offset"][0] + uv["scale"][0] * rebuilt.length], [1, 0])
 
 
 def test_different_wall_or_building_is_not_reused():
@@ -92,4 +100,47 @@ def test_unmatched_approval_is_archived_for_later_review(tmp_path):
     result = migrate(old_inventory, new_inventory, assembly)
     assert result["failed_ids"] == ["a_0"]
     assert result["new_ids"] == ["a_7"]
+    assert (assembly / "retired" / sha(old_inventory)[:16] / "a/0.ktx2").read_bytes() == b"approved"
+
+
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_wall_too_wide_for_approved_photo_is_left_unbound(tmp_path, corrupt):
+    original = wall("a_0", [0, 0], [20, 0])
+    replacement = wall("a_1", [-1.5, 0], [21.5, 0])
+    replacement.props.update(facade_index=1, street_facing=True)
+    old_inventory, new_inventory = tmp_path / "old.geojson", tmp_path / "new.geojson"
+    save_facades([original], old_inventory)
+    save_facades([replacement], new_inventory)
+    assembly = tmp_path / "assembly"
+    directory = assembly / "facades/a"
+    directory.mkdir(parents=True)
+    (directory / "0.ktx2").write_bytes(b"approved")
+    (directory / "0.json").write_text(
+        json.dumps(
+            {
+                "uv": {"scale": [0.05, -0.1], "offset": [0, 1]},
+                "files": {"albedo": "0.ktx2"},
+                "hashes": {"0.ktx2": sha(directory / "0.ktx2")},
+            }
+        )
+    )
+    (assembly / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "bound": ["a_0"],
+                "inventory_sha256": sha(old_inventory),
+            }
+        )
+    )
+    if corrupt:
+        (directory / "0.ktx2").write_bytes(b"tampered")
+        with pytest.raises(ValueError, match="approved map hash mismatch"):
+            migrate(old_inventory, new_inventory, assembly)
+        assert json.loads((assembly / "MANIFEST.json").read_text())["bound"] == ["a_0"]
+        return
+    result = migrate(old_inventory, new_inventory, assembly)
+    assert result["failed_ids"] == ["a_0"]
+    assert result["new_ids"] == ["a_1"]
+    assert result["rejected"][0]["new"] == "a_1"
+    assert json.loads((assembly / "MANIFEST.json").read_text())["bound"] == []
     assert (assembly / "retired" / sha(old_inventory)[:16] / "a/0.ktx2").read_bytes() == b"approved"

@@ -22,6 +22,10 @@ from .streetview.facades import load_facades, save_facades
 INVENTORY_NAME = "APPROVED_INVENTORY.geojson"
 
 
+class PhotoBoundsError(ValueError):
+    """A valid rebuilt wall cannot use the approved photo without extrapolation."""
+
+
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -88,6 +92,8 @@ def match_score(old, new):
 
 def reproject_uv(meta, old, new):
     """Map rebuilt metre UVs into the original photo, including split wall offsets."""
+    if new.length > old.length * 1.1:
+        raise PhotoBoundsError(f"{new.id}: rebuilt wall exceeds approved photo width")
     uv = dict(meta["uv"])
     scale = meta["uv"]["scale"]
     offset = meta["uv"]["offset"]
@@ -102,21 +108,23 @@ def reproject_uv(meta, old, new):
         offset[1],
     ]
     horizontal_range = sorted((uv["offset"][0], uv["offset"][0] + uv["scale"][0] * new.length))
-    if horizontal_range[0] < 0 and horizontal_range[1] <= 1:
-        uv["offset"][0] -= horizontal_range[0]
-    elif horizontal_range[1] > 1 and horizontal_range[0] >= 0:
-        uv["offset"][0] -= horizontal_range[1] - 1
-    elif horizontal_range[0] < 0 and horizontal_range[1] > 1:
+    if horizontal_range[1] - horizontal_range[0] > 1:
         uv["scale"][0] /= horizontal_range[1] - horizontal_range[0]
         uv["offset"][0] = 0 if uv["scale"][0] > 0 else 1
+    elif horizontal_range[0] < 0:
+        uv["offset"][0] -= horizontal_range[0]
+    elif horizontal_range[1] > 1:
+        uv["offset"][0] -= horizontal_range[1] - 1
     return uv
 
 
 def validate_uv(uv, facade):
     for axis, extent in enumerate((facade.length, facade.height_m)):
         bounds = (uv["offset"][axis], uv["offset"][axis] + uv["scale"][axis] * extent)
-        if not all(math.isfinite(value) and -0.02 <= value <= 1.02 for value in bounds):
-            raise ValueError(f"{facade.id}: reprojected UV exceeds approved photo bounds")
+        if not all(math.isfinite(value) for value in bounds):
+            raise ValueError(f"{facade.id}: non-finite reprojected UV")
+        if not all(-0.02 <= value <= 1.02 for value in bounds):
+            raise PhotoBoundsError(f"{facade.id}: reprojected UV exceeds approved photo bounds")
 
 
 def plan(source_inventory, inventory, assembly):
@@ -172,16 +180,28 @@ def migrate(source_inventory, inventory, assembly):
             kept = reprojected = 0
             bindings = []
             provenance = []
+            rejected = []
             for old, new in matched:
                 origin = asset_path(old, assembly)
                 meta = json.loads(origin.with_suffix(".json").read_text())
+                validate_uv(meta["uv"], old)
+                for name in meta["files"].values():
+                    source = origin.parent / name
+                    if sha(source) != meta["hashes"][name]:
+                        raise ValueError(f"approved map hash mismatch: {source}")
+                try:
+                    uv = reproject_uv(meta, old, new)
+                    validate_uv(uv, new)
+                except PhotoBoundsError as error:
+                    rejected.append({"old": old.id, "new": new.id, "reason": str(error)})
+                    if new.props.get("street_facing"):
+                        unmatched.append(new)
+                    continue
                 target = asset_path(new, Path(temp))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 files = {}
                 for kind, name in meta["files"].items():
                     source = origin.parent / name
-                    if sha(source) != meta["hashes"][name]:
-                        raise ValueError(f"approved map hash mismatch: {source}")
                     suffix = ".ktx2" if kind == "albedo" else f".{kind}.ktx2"
                     destination = target.parent / (target.name + suffix)
                     shutil.copy2(source, destination)
@@ -193,8 +213,6 @@ def migrate(source_inventory, inventory, assembly):
                     and abs(old.base_h - new.base_h) <= 0.001
                     and abs(old.height_m - new.height_m) <= 0.001
                 )
-                uv = reproject_uv(meta, old, new)
-                validate_uv(uv, new)
                 meta.update(
                     facade_id=new.id,
                     building_id=new.props["building_id"],
@@ -215,6 +233,13 @@ def migrate(source_inventory, inventory, assembly):
                 provenance.append(
                     {"old": old.id, "new": new.id, "status": "kept" if unchanged else "reprojected"}
                 )
+            reused_ids = {item["old"] for item in provenance}
+            failed = sorted(
+                set(failed) | {item["old"] for item in rejected if item["old"] not in reused_ids}
+            )
+            unmatched.sort(
+                key=lambda facade: np.linalg.norm(facade.centre - (C.OFFICE_E, C.OFFICE_N))
+            )
             archive = assembly / "retired" / source_hash[:16]
             for identity in failed:
                 if identity not in manifest["bound"]:
@@ -242,6 +267,7 @@ def migrate(source_inventory, inventory, assembly):
         "new_ids": [facade.id for facade in unmatched],
         "failed": len(failed),
         "failed_ids": failed,
+        "rejected": rejected,
         "matches": provenance,
     }
 

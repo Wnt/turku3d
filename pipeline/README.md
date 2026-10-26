@@ -76,5 +76,8 @@ approved facade maps by building ID and wall geometry. The assembly export keeps
 captures it from the existing building layer before rebuilding. Reindexed, moved,
 and split walls reuse their KTX2 maps with UVs projected onto the new baseline.
 The migration report is `$TURKU3D_WORK/reports/facade-refresh.json` and lists
-genuinely new street walls and ambiguous matches for follow-up. Approved maps
+genuinely new street walls, ambiguous matches, and maps rejected because the
+rebuilt wall no longer fits the approved photo. Approved maps
 without a safe successor are retained under `textures/assembly/retired/<inventory-hash>/`.
+`make refresh` prints the cached/rebuilt status and elapsed seconds for each step.
+Rerunning it after a failure reuses products whose declared inputs and code are unchanged.
