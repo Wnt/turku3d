@@ -68,5 +68,5 @@ export function oneShot(event: AudioEvent): { sound: Sound; channel: Channel; ga
 /** Voice lines: a new line fades the previous out over this long, then starts. */
 export const VOICE_CUT_SECONDS = 0.1;
 /** Ambience is ducked by this much while a voice line plays. */
-export const VOICE_DUCK_DB = -6;
+const VOICE_DUCK_DB = -6;
 export const duckGain = (active: boolean) => (active ? 10 ** (VOICE_DUCK_DB / 20) : 1);
