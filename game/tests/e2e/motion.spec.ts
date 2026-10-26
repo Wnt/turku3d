@@ -76,8 +76,17 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
   await axis(2, 0);
 
   for (const [name, samples] of [['car', car], ['walker', walker]] as const) {
-    const jumps = samples.slice(2).map((s, i) => Math.hypot(s.x - 2 * samples[i + 1].x + samples[i].x,
-      s.y - 2 * samples[i + 1].y + samples[i].y));
+    const nominalFrameMs = 1000 / 60;
+    const jumps = samples.slice(2).map((next, i) => {
+      const previous = samples[i], current = samples[i + 1];
+      const beforeMs = current.time - previous.time, afterMs = next.time - current.time;
+      expect(beforeMs).toBeGreaterThan(0);
+      expect(afterMs).toBeGreaterThan(0);
+      const factor = 2 * nominalFrameMs ** 2 / (beforeMs + afterMs);
+      return Math.hypot(
+        ((next.x - current.x) / afterMs - (current.x - previous.x) / beforeMs) * factor,
+        ((next.y - current.y) / afterMs - (current.y - previous.y) / beforeMs) * factor);
+    });
     const p95 = jumps.sort((a, b) => a - b)[Math.ceil(jumps.length * 0.95) - 1];
     console.log(info.project.name, name, 'p95 acceleration', p95, 'max horizontal offset', Math.max(...samples.map(s => Math.abs(s.x - 640))));
     expect(p95, `${name} screen-position acceleration`).toBeLessThan(name === 'car' ? 3 : 10);
