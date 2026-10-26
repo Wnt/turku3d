@@ -109,16 +109,22 @@ def test_ramp_preserves_positions_and_quay_is_closed():
         assert (np.linalg.norm(normals, axis=1) > 0).all()
 
 
-def test_whole_object_crosses_grid_without_clipping_or_duplicate_faces(tmp_path):
+def test_whole_object_reaches_each_collision_cell_without_clipping(tmp_path):
     mesh = stairs("corner", [60.1234, 2.718, 60.234], [65.567, 4.8, 65.897], 3)[0][0]
     out = tmp_path / "structures"
     write_layer([mesh], out, inputs={}, params={}, metrics={})
     files = list(out.glob("*.col.npz"))
-    assert len(files) == 1
-    exported = read_collision(files[0])
-    np.testing.assert_array_equal(
-        exported.positions[exported.indices], mesh.positions[mesh.indices]
-    )
+    assert {path.stem.removesuffix(".col") for path in files} == {
+        "c_0_0",
+        "c_0_1",
+        "c_1_0",
+        "c_1_1",
+    }
+    for path in files:
+        exported = read_collision(path)
+        np.testing.assert_array_equal(
+            exported.positions[exported.indices], mesh.positions[mesh.indices]
+        )
     assert read_manifest(out)["params"]["seams"] == "objects"
 
 

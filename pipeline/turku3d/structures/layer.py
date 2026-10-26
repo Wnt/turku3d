@@ -89,7 +89,7 @@ def cached_manifest(out, inputs, params):
 
 
 def write_layer(meshes, out, *, inputs, params, metrics):
-    """Publish complete objects once, then atomically publish the v1 inventory."""
+    """Publish complete objects in every collision cell they touch."""
     out = Path(out)
     previous = cached_manifest(out, inputs, params)
     if previous is not None:
@@ -97,7 +97,10 @@ def write_layer(meshes, out, *, inputs, params, metrics):
     collision, visuals = defaultdict(list), defaultdict(list)
     for mesh in meshes:
         centre = MultiPoint(mesh.positions[:, [0, 2]]).convex_hull.centroid
-        collision[C.CollisionTile.at(centre.x, centre.y).id].append(mesh)
+        xz = mesh.positions[:, [0, 2]]
+        bounds = C.BBoxLocal(*xz.min(axis=0), *xz.max(axis=0)).buffered(1e-6)
+        for tile in C.collision_tiles_for_bbox(bounds):
+            collision[tile.id].append(mesh)
         if mesh.visual:
             visuals[C.VisualTile.at(centre.x, centre.y).id].append(mesh)
     out.mkdir(parents=True, exist_ok=True)

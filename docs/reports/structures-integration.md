@@ -30,6 +30,23 @@ The precise build command is:
 make structures-build ARGS="--area office-block --ground-layer $TURKU3D_WORK/build/layers/ground"
 ```
 
+After rebasing onto `7688c5c`, `make refresh` and four-tile `make tile-build`
+completed in this sandbox. The assembled L0 wire sizes were 7,446,779,
+7,565,035, 7,469,218 and 7,631,713 bytes for `t0_0_0` through `t0_1_1`.
+Each is below 8 MB. The four L0 GLBs contain 23, 24, 27 and 25 mesh
+primitives, respectively. The collision sweep attempted 640 routes and
+reported zero unexplained stops. Its visibility classification now recognizes
+solid fence and railing materials as blockers.
+
+Street-level stair and wall screenshots were rendered successfully on WebGPU
+and WebGL2 from the assembled tiles. They are under
+`$TURKU3D_WORK/reports/screenshots/structures-{webgpu,webgl}/` with the names
+`office-stair-street.png` and `office-wall-street.png`; exact camera poses are in
+`$TURKU3D_WORK/qa/structure-views.jsonl`. The separate AOI-wide validator still
+reports unrelated car, curb and building routes, plus advisory survey-only
+stairs, as failures; its result is preserved in
+`$TURKU3D_WORK/reports/validate-aoi.json` for the collision-validation owner.
+
 The historical sections below record the path from the original 59/94 probe
 baseline to this accepted producer state.
 
