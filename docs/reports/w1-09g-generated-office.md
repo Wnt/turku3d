@@ -11,6 +11,11 @@ tokens, quota before/after; per wall: calls, automated problems, reviewer answer
   distance to the player spawn (E 23459673.3, N 6704247.5). The first 24 with a full-wall reference were
   split into three batches of eight. Each batch got a similar mix of near-spawn timber walls, 20 m stone
   blocks, small walls and extreme-aspect (> 3:1, layout-guide) walls. Total wall area was 1,348 / 1,503 / 1,372 m².
+  Two batch-1 walls turned out to have unusable Look Around references: black or motion-blurred.
+  Luna therefore also generated the next two ranked walls (`103295899S_368`, `1032958849_50`).
+  The same screening replaced two batch-3 walls before their run, `gis-103295886B_4` with
+  `1032958849_47` and `gis-103577006R_17` with `103277348B_344`, so each model saw eight walls with
+  readable references.
 - **Models.** Batch 1 `gpt-6-luna`/low, batch 2 `gpt-6-sol`/medium, batch 3 `gpt-6-astra`/medium.
   `TURKU3D_CODEX_MODEL`/`TURKU3D_CODEX_EFFORT` were set only for `facade-batch generate`, with `-j 4 --max-pct 60`.
   No other Codex job ran: zero `codex exec` processes before every batch and no running `codex-task`.
