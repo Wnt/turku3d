@@ -56,9 +56,10 @@ test('walk to a parked car, use Xbox Y, drive 20 m, and exit', { tag: ['@drive',
   await button(7, 1);
   await page.waitForFunction(z => (window as any).__game.state().vehicle.pos[2] > z + 20, start, { timeout: 60_000 });
   await button(7, 0);
-  await button(6, 1);
+  // LT switches to reverse once nearly stopped; RB holds the car still for the stop assertion.
+  await button(5, 1);
   await page.waitForFunction(() => (window as any).__game.state().vehicle.speed < 0.1);
-  await button(6, 0);
+  await button(5, 0);
   await button(3, 1);
   await page.waitForFunction(() => (window as any).__game.state().mode === 'foot');
   await button(3, 0);
