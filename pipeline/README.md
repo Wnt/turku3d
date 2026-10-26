@@ -16,12 +16,24 @@ make refresh                              # rebuild stale derived layers and bin
 make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-show                            # sandbox port base + 1
 make qa-refs                              # regenerate crops with corrected grid heading
+make collision-audit                      # layer collider/visual check near published spawn
+make collision-sweep                      # headless KCC grid sweep + ortho overlay
 ```
 
 `make tile` checks the cached input registry without network access, builds locally, verifies
 manifest hashes and every shared collision seam, runs the Node/Rapier validator and Chrome e2e
 on WebGPU and WebGL2. Missing inputs fail with the exact preparation command.
 The four office tiles stay the playable Phase 1 target; `work-3x3` is the larger input reservoir.
+
+`collision-audit` reads `$TURKU3D_WORK/build/layers` and the spawn in
+`$TURKU3D_WORK/dist/tiles/manifest.json`; it writes `reports/collision-audit/issues.json`
+and `map.png`. It compares sampled solid wall triangles and every solid primitive against
+their layer GLB, including GPU-instanced vegetation, and flags steep geometry labelled
+as walkable pavement. It exits nonzero when candidates remain. `collision-sweep` uses the same
+published `.col` files and the game's Rapier character controller to walk a 5 m grid
+through the 40 m spawn circle, with a 2 m grid within 12 m. Its `sweep.json` records
+movement stops; `map.png` overlays them on the 2025 ortho. Red marks need inspection,
+orange marks hit a building shell. Run `make collision-audit-test` for the synthetic fixture.
 
 `turku3d.config` is the only coordinate/grid definition: EPSG:3877 + N2000, engine origin
 E=23459500, N=6704500, H=0; x=east, y=up, z=south. Visual L0 is 250 m, collision is 62.5 m.

@@ -78,6 +78,10 @@ paths = ["pipeline/turku3d/parked/*", "pipeline/tests/test_parked.py"]
 tests = ["tests/test_parked.py"]
 
 [[stages.related]]
+paths = ["pipeline/turku3d/collision_audit.py", "pipeline/tests/test_collision_audit.py"]
+tests = ["tests/test_collision_audit.py"]
+
+[[stages.related]]
 paths = ["pipeline/turku3d/props/*", "pipeline/tests/test_props.py"]
 tests = ["tests/test_props.py"]
 
