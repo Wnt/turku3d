@@ -40,6 +40,24 @@ class QueueTests(unittest.TestCase):
             ):
                 self.assertFalse(queue_sweep.blocked(root, {}))
 
+    def test_red_full_sweep_opens_fix_once_and_holds_area(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with (
+                patch.object(queue_sweep.s, "root", return_value=root),
+                patch.object(queue_sweep.s, "git", return_value="abc123"),
+                patch.object(queue_sweep, "verify", side_effect=ValueError("regression")) as verify,
+                patch.object(queue_sweep, "fix_task", return_value="fix-queue-sweep-abc123") as fix,
+            ):
+                queue_sweep.run()
+                queue_sweep.run()
+            row = json.loads((root / ".registry/queue-sweep.json").read_text())
+            self.assertEqual(row["status"], "red")
+            self.assertEqual(row["blocked_domains"], ["*"])
+            self.assertEqual(row["fix_task"], "fix-queue-sweep-abc123")
+            verify.assert_called_once()
+            fix.assert_called_once()
+
     def test_fast_publish_ff_and_pointer_swap_without_build(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
