@@ -1,5 +1,5 @@
 import { cachedTest as test, expect, type Page } from '../e2e/fixtures';
-import { frames } from '../e2e/waits';
+import { frames, open, untilSim } from '../e2e/waits';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
@@ -70,10 +70,11 @@ test('shop zones glow in the world and the black market menu locks movement whil
   const backend = info.project.name;
   const shot = async (name: string) => fs.writeFileSync(path.join(shots, `${backend}-${name}.png`), await page.screenshot());
 
-  await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json`);
+  const { scale } = await open(page, `/?backend=${backend}&tiles=/tiles/tileset.json`);
   await page.evaluate(key => localStorage.removeItem(key), SAVE_KEY);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 });
+  // Loading precedes the game clock, so this bound stays wall-clock, scaled by the measured frame time.
+  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 * scale });
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => {
     const s = (window.__game!.state as () => { collision: { tiles: number }; tilesSettled: boolean })();
@@ -82,23 +83,23 @@ test('shop zones glow in the world and the black market menu locks movement whil
 
   // The pizzeria's zone seen from the street, about 14 m away.
   await placeFacing(page, await approachFrom(page, PIZZERIA.point, 14, 40), PIZZERIA.point);
-  await page.waitForFunction(() => (window.__game!.state as () => Snapshot)().zones.some(z => z.id === 'pizzeria' && z.visible && z.labelShown));
+  await untilSim(page, () => (window.__game!.state as () => Snapshot)().zones.some(z => z.id === 'pizzeria' && z.visible && z.labelShown), null, 10);
   await expect(page.locator('.zone-label', { hasText: lineText('zone_pizzeria') })).toBeVisible();
   await frames(page, 20);
   await shot('01-zone-from-street');
 
   // Walk into the black market zone on the quay under Auransilta.
   await placeFacing(page, await approachFrom(page, MARKET.point, 7, 4), MARKET.point);
-  await page.waitForFunction(() => (window.__game!.state as () => Snapshot)().zones.some(z => z.id === 'market' && z.visible && z.labelShown));
+  await untilSim(page, () => (window.__game!.state as () => Snapshot)().zones.some(z => z.id === 'market' && z.visible && z.labelShown), null, 10);
   await expect(page.locator('.zone-label', { hasText: lineText('zone_market') })).toBeVisible();
   await page.keyboard.down('KeyW');
-  await page.waitForFunction(p => {
+  await untilSim(page, p => {
     const s = (window.__game!.state as () => Snapshot)();
     return Math.hypot(s.feet[0] - p.x, s.feet[2] - p.z) < 2.2;
-  }, MARKET.point);
+  }, MARKET.point, 20);
   await page.keyboard.up('KeyW');
-  await page.waitForFunction(text => (window.__game!.state as () => Snapshot)().missions.hud.message === text,
-    lineText('prompt_enter_market_key'));
+  await untilSim(page, text => (window.__game!.state as () => Snapshot)().missions.hud.message === text,
+    lineText('prompt_enter_market_key'), 20);
   expect((await state(page)).zones.find(z => z.id === 'market')).toMatchObject({ visible: true });
   await shot('02-market-zone-prompt');
 
@@ -130,10 +131,10 @@ test('shop zones glow in the world and the black market menu locks movement whil
   expect((await state(page)).missions.shop).toBeNull();
   const free = await state(page);
   await page.keyboard.down('KeyS');
-  await page.waitForFunction(f => {
+  await untilSim(page, f => {
     const s = (window.__game!.state as () => Snapshot)();
     return Math.hypot(s.feet[0] - f[0], s.feet[2] - f[2]) > 1;
-  }, free.feet);
+  }, free.feet, 10);
   await page.keyboard.up('KeyS');
 
   // The other two menus, as the player sees them with a permit.
