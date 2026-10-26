@@ -108,7 +108,7 @@ are absent. See `game/src/render/ground/README.md` for the renderer API and inte
 reads and hashes when only ground semantics change. Pass `--ground-layer` to the published ground
 directory. Water-bed collision triangles are excluded by the shared material ID; real surface
 triangles determine all core splats in the current four-tile build.
-Runtime ortho uses ETC1S quality 16 at the same 4 cm output sampling to leave room for building
+Runtime ortho uses ETC1S quality 4 at the same 4 cm output sampling to leave room for building
 geometry under the 8 MB wire budget; the archived year products retain quality 128.
 The assembler verifies semantic input hashes and runtime-map hashes before binding. It reports
 geometry plus ground texture transfer bytes, while the ground manifest reports block-compressed

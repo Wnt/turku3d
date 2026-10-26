@@ -22,6 +22,7 @@ from turku3d.package.seams import edge_equal, verify_tile_seams
 from turku3d.package.spawn import derive_spawn, osm_sources
 
 BRIDGE = Path(__file__).with_name("visual.mjs")
+HEADROOM_BYTES = 7_600_000
 
 
 def digest(files: list[Path], extra=None) -> str:
@@ -494,18 +495,18 @@ def assemble(
             wire_bytes = budget_before[tile.id]
             ranked = priorities.get(tile.id, [])
             plan = facade_density.setdefault(tile.id, {})
-            if wire_bytes > 8_000_000 and ranked:
+            if wire_bytes >= HEADROOM_BYTES and ranked:
                 # KTX headers and tiny mips limit savings from resampling. The
                 # estimate selects a first batch; measured wire bytes decide
                 # whether to extend it. Near-spawn facades retain source detail.
-                needed = wire_bytes - 7_750_000
+                needed = wire_bytes - (HEADROOM_BYTES - 100_000)
                 predicted = 0
                 for facade_id in ranked:
                     plan[facade_id] = 4
                     predicted += facade_source_bytes(facades, facade_id) * 0.94
                     if predicted >= needed:
                         break
-            while wire_bytes > 8_000_000 and ranked and plan:
+            while wire_bytes >= HEADROOM_BYTES and ranked and plan:
                 data, stats = visual_tiles(
                     {tile: pending_inputs[tile]},
                     stage,
@@ -521,7 +522,7 @@ def assemble(
                 wire_bytes = stats["brotli_bytes"] + ground_bindings.get(tile.id, {}).get(
                     "texture_bytes", 0
                 )
-                if wire_bytes <= 8_000_000:
+                if wire_bytes < HEADROOM_BYTES:
                     break
                 remaining = [facade_id for facade_id in ranked if facade_id not in plan]
                 if remaining:

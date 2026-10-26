@@ -117,12 +117,17 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
       const png = await sharp({ create:{ width:PAGE, height:page.height, channels:3,
         background:slot === 'normal' ? '#8080ff' : slot === 'orm' ? '#ffffff' : '#808080' } })
         .composite(overlays).png().toBuffer();
-      const hash = createHash('sha256').update('facade-atlas-v1').update(slot).update(png).digest('hex');
+      // The normal map uses the same normalized atlas UVs at half resolution.
+      // Keep the photographed colour and ORM maps at their authored density.
+      const image = slot === 'normal'
+        ? await sharp(png).resize(PAGE / 2, Math.max(4, align4(page.height / 2)), { fit:'fill' }).png().toBuffer()
+        : png;
+      const hash = createHash('sha256').update('facade-atlas-v1').update(slot).update(image).digest('hex');
       const dest = path.join(request.textureCache, `${hash}.ktx2`);
       if (!fs.existsSync(dest)) {
         const source = path.join(request.textureCache, `${hash}.${process.pid}.png`);
         const temp = path.join(request.textureCache, `${hash}.${process.pid}.ktx2`);
-        fs.writeFileSync(source, png);
+        fs.writeFileSync(source, image);
         try {
           const codec = slot === 'normal' ? 'uastc' : 'etc1s';
           run('toktx', ['--t2', '--genmipmap', '--threads', '2', '--assign_oetf', slot === 'albedo' ? 'srgb' : 'linear',

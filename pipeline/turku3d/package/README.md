@@ -76,11 +76,11 @@ Sidecars must identify the building/index, declare metre UVs, pass `qa.gltf_basi
 and supply all three `files` and matching SHA-256 `hashes`. Changed exported maps fail assembly.
 Facade maps have a package-time texel density cap: 48 pixels per metre for full-height
 walls and 72 pixels per metre for short, ground-floor walls, never exceeding the source
-dimensions. When a tile exceeds the fixed 8 MB wire limit including ground maps, the
+dimensions. When a tile reaches the 7.6 MB headroom target including ground maps, the
 assembler estimates the savings from each facade's exported map bytes and reduces the
 farthest bound facades from the office spawn to 4 pixels per metre first. It extends
 that set, then uses 2 or 1 pixels per metre only if measured wire bytes still exceed
-the limit. The source files and QA hashes remain intact;
+the target. The fixed 8 MB wire limit remains enforced. The source files and QA hashes remain intact;
 encoded variants are cached outside the export. The manifest records each tile's wire
 size before and after adaptation as `budget_before_bytes` and `wire_bytes`.
 For L0 tiles with multiple unique facade maps, the packager resizes maps directly
@@ -93,7 +93,9 @@ samples approved walls within 75 m of the office
 against ground collision triangles at the street side, requiring the photo's
 lower edge to be within 0.3 m of surveyed ground.
 Each page has aligned albedo, normal and ORM rectangles, a four-pixel copied-edge
-gutter, and one shared material. It bakes `uv.scale`/`uv.offset` with clamped
+gutter, and one shared material. The UASTC normal page is encoded at half the
+albedo resolution with the same normalized UVs; albedo and ORM keep full resolution.
+It bakes `uv.scale`/`uv.offset` with clamped
 sampling into mesh UVs before geometry batching. `extras.objects` retains each
 facade's ID and index range for the QA pass. Single-map tiles retain the
 individual `KHR_texture_transform` binding. Library `material.json` `uv_scale` applies
