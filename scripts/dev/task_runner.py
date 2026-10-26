@@ -391,20 +391,23 @@ def kill_members(members):
 
 def stop(name):
     path = task(name)
+    # A worker's own precheck holds the task lock for the whole gate and live build,
+    # so signal the group first; the lock is only needed for the state update.
+    meta = s.read_json(path / "meta.json")
+    if not running(meta):
+        s.reap_browsers(name)
+        print(f"{name}: not running")
+        return
+    pid = meta["pid"]
+    try:
+        if os.getpgid(pid) != pid:
+            raise ValueError("task no longer owns its process group; refusing signal")
+    except ProcessLookupError:
+        print(f"{name}: not running")
+        return
+    members = signal_group(meta)
     with s.lock(path / "lock"):
         meta = s.read_json(path / "meta.json")
-        if not running(meta):
-            s.reap_browsers(name)
-            print(f"{name}: not running")
-            return
-        pid = meta["pid"]
-        try:
-            if os.getpgid(pid) != pid:
-                raise ValueError("task no longer owns its process group; refusing signal")
-        except ProcessLookupError:
-            print(f"{name}: not running")
-            return
-        members = signal_group(meta)
         meta.update(state="stopped", finished=time.time())
         s.write_json(path / "meta.json", meta)
     deadline = time.monotonic() + 3
@@ -422,6 +425,23 @@ def stop(name):
             time.sleep(0.05)
     print(f"{name}: stopped")
     s.reap_browsers(name)
+
+
+def finish(name, result_path):
+    """Record a result produced by a non-Codex worker so the merge queue can land the task."""
+    path = task(name)
+    text = Path(result_path).read_text()
+    if [line for line in text.splitlines() if line.startswith("## Result:")] != ["## Result: DONE"]:
+        raise ValueError("result must contain an exact ## Result: DONE heading")
+    with s.lock(path / "lock"):
+        meta = s.read_json(path / "meta.json")
+        if running(meta):
+            raise ValueError("task is still running; stop it first")
+        (path / "last.md").write_text(text)
+        meta.update(state="done", exit_code=0, finished=time.time(), worker="external")
+        meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
+        s.write_json(path / "meta.json", meta)
+    print(f"{name}: DONE result recorded; the merge queue lands it after precheck")
 
 
 def main_checkout(repo):
@@ -638,6 +658,9 @@ def main():
     p = subs.add_parser("precheck")
     p.add_argument("name", nargs="?", default=os.environ.get("TURKU3D_SANDBOX"))
     p.add_argument("--base", default="main")
+    p = subs.add_parser("finish", help="record a DONE result written by a non-Codex worker")
+    p.add_argument("name")
+    p.add_argument("--result", required=True, help="markdown file with the run result headings")
     queue = subs.add_parser("queue")
     queue.add_argument("action", choices=("run", "status"))
     queue.add_argument("--once", action="store_true")
@@ -680,6 +703,8 @@ def main():
         list_tasks()
     elif a.cmd == "precheck":
         precheck(a.name, a.base)
+    elif a.cmd == "finish":
+        finish(a.name, a.result)
     elif a.cmd == "queue":
         import merge_queue
 

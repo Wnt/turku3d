@@ -326,6 +326,23 @@ class ToolingTests(unittest.TestCase):
         ).stdout.strip()
         self.assertTrue(not state or state.startswith("Z"), f"child still running: {state}")
 
+    def test_finish_records_external_result(self):
+        repo = self.start()
+        self.cli("codex-task", "stop", "demo")
+        result = self.base / "result.md"
+        result.write_text("## Result: BLOCKED\n")
+        self.assertIn(
+            "exact ## Result: DONE",
+            self.cli("codex-task", "finish", "demo", "--result", str(result), ok=False).stderr,
+        )
+        result.write_text("## Result: DONE\n\n## What changed\nExternal worker edit.\n")
+        self.cli("codex-task", "finish", "demo", "--result", str(result))
+        self.assertIn("External worker edit", self.cli("codex-task", "result", "demo").stdout)
+        meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
+        self.assertEqual((meta["state"], meta["exit_code"], meta["worker"]), ("done", 0, "external"))
+        self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
+        self.assertTrue(repo.is_dir())
+
     def test_land_success(self):
         repo = self.start()
         self.commit(repo)
