@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateBuildings } from '../src/buildings.ts';
+import { facadeBaseAt, validateBuildings } from '../src/buildings.ts';
+
+test('walker uses the local facade base at an elevated wall', () => {
+  const walls = [[0, 0, 10, 0, 15], [0, 10, 10, 10, 28], [0, 10, 10, 10, 27]];
+  assert.equal(facadeBaseAt(walls, 5, 10, 15), 27);
+  assert.equal(facadeBaseAt(walls, 5, 0, 15), 15);
+  assert.equal(facadeBaseAt(walls, 5, 5, 15), 15);
+});
 
 function fixture(open = false) {
   const p = [0, 0, 0, 10, 0, 0, 10, 0, 10, 0, 0, 10,

@@ -157,6 +157,15 @@ def buildings(layers):
     return "rebuilt"
 
 
+def outer_buildings(layers):
+    from turku3d.buildings.outer import code_hash
+
+    if manifest_current(layers / "buildings_outer/MANIFEST.json", code_hash()):
+        return "cached"
+    run("turku3d.buildings.outer")
+    return "rebuilt"
+
+
 def ground_textures(layers, textures):
     from turku3d.package.ground_textures import publish_ground
 
@@ -335,6 +344,7 @@ def refresh(work, target=None):
             for name, future in futures.items():
                 result[name] = future.result()
         result["bridge-textures"] = timed("bridge-textures", bridge_textures, textures)
+        result["buildings_outer"] = timed("buildings_outer", outer_buildings, layers)
     return result
 
 

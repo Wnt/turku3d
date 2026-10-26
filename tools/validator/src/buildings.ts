@@ -7,6 +7,20 @@ import { Walker } from './kcc.ts';
 import { loadFootprints, mulberry32, FootprintIndex } from './geo.ts';
 import { GROUP, groups } from '../../../game/src/shared/col/index.ts';
 
+export function facadeBaseAt(segments: number[][] | undefined, x: number, z: number, fallback: number): number {
+  let nearest = Infinity, base = fallback;
+  for (const [ax, az, bx, bz, height] of segments ?? []) {
+    const dx = bx - ax, dz = bz - az;
+    const length2 = dx * dx + dz * dz;
+    if (length2 <= 1e-12) continue;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / length2));
+    const distance = Math.hypot(x - ax - t * dx, z - az - t * dz);
+    if (distance < nearest - .05) { nearest = distance; base = height; }
+    else if (distance < nearest + .05) base = Math.min(base, height);
+  }
+  return nearest <= 1.5 ? base : fallback;
+}
+
 export async function validateBuildings(data: any, walkers = 2000) {
   const started = performance.now();
   await RAPIER.init();
@@ -63,7 +77,7 @@ export async function validateBuildings(data: any, walkers = 2000) {
     if (index.containing(x + nx * .05, z + nz * .05)) { nx = -nx; nz = -nz; }
     const sx = x + nx * 1.2, sz = z + nz * 1.2;
     if (index.containing(sx, sz)) { rejectedStarts++; continue; }
-    const base = data.base_heights[fp.id];
+    const base = facadeBaseAt(data.facade_segments?.[fp.id], x, z, data.base_heights[fp.id]);
     if (!Number.isFinite(base)) throw new Error(`missing shell/base height for ${fp.id}`);
     pad.setTranslation({ x: sx, y: base - .5, z: sz });
     walker.place(sx, base, sz);

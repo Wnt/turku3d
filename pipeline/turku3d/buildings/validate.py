@@ -19,13 +19,31 @@ def main():
     footprints = json.loads((layer / "footprints.geojson").read_text())
     facets = json.loads((layer / "facades.geojson").read_text())
     bases = {}
+    facade_segments = {}
     for f in facets["features"]:
         p = f["properties"]
         bases[p["building_id"]] = min(bases.get(p["building_id"], float("inf")), p["base_height"])
+        a, b = f["geometry"]["coordinates"]
+        facade_segments.setdefault(p["building_id"], []).append(
+            [
+                a[0] - C.ORIGIN_E,
+                C.ORIGIN_N - a[1],
+                b[0] - C.ORIGIN_E,
+                C.ORIGIN_N - b[1],
+                p["base_height"],
+            ]
+        )
+    for record in report["buildings"]:
+        if not record.get("shell_valid") or record["building_id"] in bases:
+            continue
+        evidence = record.get("fallback", {}).get("height_evidence", {})
+        if "base_m" in evidence:
+            bases[record["building_id"]] = evidence["base_m"]
     data = {
         "tiles": [],
         "footprints": footprints,
         "base_heights": bases,
+        "facade_segments": facade_segments,
         "building_ids": report["collision_building_ids"],
     }
     for name in sorted(manifest["tiles"]):

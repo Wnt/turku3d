@@ -24,6 +24,20 @@ from .shells import make_shell
 from .tiles import ownership_point
 
 
+def code_hash():
+    files = [
+        Path(__file__),
+        *[
+            Path(__file__).with_name(name + ".py")
+            for name in ("fallback", "inputs", "shells", "tiles")
+        ],
+        Path(C.__file__),
+        C.REPO_ROOT / "pipeline/turku3d/layers.py",
+        C.REPO_ROOT / "pipeline/turku3d/package/gltf.py",
+    ]
+    return hashlib.sha256(b"".join(path.read_bytes() for path in files)).hexdigest()
+
+
 def lidar_points(paths):
     """Read only ground and building returns into bounded local arrays."""
     ground, roofs = [], []
@@ -156,12 +170,20 @@ def main():
                 value.update(chunk)
         return value.hexdigest()
 
-    inputs = {str(p): digest(p) for p in [source, *laz]}
+    inputs = {
+        str(p): {
+            "path": str(p),
+            "size": p.stat().st_size,
+            "mtime_ns": p.stat().st_mtime_ns,
+            "sha256": digest(p),
+        }
+        for p in [source, *laz]
+    }
     write_manifest(
         output,
         inputs=inputs,
         params={"area": area.name, "core_excluded": core.as_tuple(), "visual_only": True},
-        code=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        code=code_hash(),
         tiles=files,
     )
     print(json.dumps({k: v for k, v in result.items() if k != "records"}))

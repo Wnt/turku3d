@@ -168,7 +168,7 @@ def test_walker_validation_preserves_shared_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(C, "work_root", lambda: tmp_path)
     layer = tmp_path / "build/layers/buildings"
     layer.mkdir(parents=True)
-    (layer / "metrics.json").write_text(json.dumps({"collision_building_ids": []}))
+    (layer / "metrics.json").write_text(json.dumps({"collision_building_ids": [], "buildings": []}))
     for name in ("footprints.geojson", "facades.geojson"):
         (layer / name).write_text(json.dumps({"features": []}))
     write_manifest(layer, inputs={"fixture": "source-hash"}, params={}, code="test", tiles=[])

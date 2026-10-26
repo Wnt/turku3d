@@ -79,6 +79,10 @@ lookup. The reference camera poses have medium confidence and are not lidar-regi
 
 ## Buildings layer (W1-03)
 
+The current playable-tile inventory and skyline extension are measured in
+[the W1-20b report](reports/w1-20b-all-buildings.md). The W1-03 numbers below
+describe the earlier office-block-plus-margin producer scope.
+
 The buildings layer and [facade contract](specs/facades.md) cover all 81 source footprints
 with validated closed shells, including 19 explicit footprint fallbacks. Exact shell-distance
 scoring fixes three of the five former residual failures; 63/81 now meet the unchanged

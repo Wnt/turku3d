@@ -407,7 +407,7 @@ def main(argv=None):
                 source_dir=C.raw_dir("laz") / "pistepilvi", cache_dir=C.cache_dir("lidar")
             )
             ground_points = store.query(
-                C.BBoxLocal(x0 - 15, z0 - 15, x1 + 15, z1 + 15), classes=[2]
+                C.BBoxLocal(x0 - 30, z0 - 30, x1 + 30, z1 + 30), classes=[2]
             ).points
             surfaces, evidence = placeholder_extrusion(building, {}, ground_points)
             shell, record = choose(building, {"placeholder": surfaces}, points[keep])

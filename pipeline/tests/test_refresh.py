@@ -100,11 +100,12 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "props", node("props", ("ground", "buildings")))
     monkeypatch.setattr(refresh, "bridges", node("bridges", ("ground",)))
     monkeypatch.setattr(refresh, "bridge_textures", node("bridge-textures"))
+    monkeypatch.setattr(refresh, "outer_buildings", node("buildings_outer", ("buildings",)))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
     second = refresh.refresh(tmp_path)
     assert set(second.values()) == {"cached"}
-    assert len(calls) == 7
+    assert len(calls) == 8
 
 
 def test_bridge_refresh_rebuilds_for_stale_ground_or_code(tmp_path, monkeypatch):

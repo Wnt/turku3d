@@ -17,7 +17,8 @@ make game-test
 
 `make refresh` locks `$TURKU3D_WORK/.refresh.lock`, checks producer manifest input and
 code hashes, and rebuilds changed ground and buildings in parallel. It then checks
-ground splats, the filtered facade export, and props placement. Ground splats reuse
+ground splats, the filtered facade export, props placement, and surrounding building
+massing. Ground splats reuse
 the fused orthos when the ground layer changes. A second run with unchanged inputs
 prints `cached` for every present product. It reads shared raw inputs and writes
 only derived products under `$TURKU3D_WORK`. Run it before `make tile-build` after

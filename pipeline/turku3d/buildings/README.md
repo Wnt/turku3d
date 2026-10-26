@@ -125,6 +125,9 @@ Enclosing neighbours cannot hide an open wall. It runs 2,000 seeded 10-second wa
 any entry, not just final positions inside a footprint. A horizontal support pad at each
 shell base isolates building blocking from ground availability. The integrated ground,
 vehicle and streaming checks remain the assembler/game validator's responsibility.
+For buildings with stepped or elevated foundations, each trial starts at the nearest
+facade base at its sampled perimeter edge. Labelled placeholders have no photo facade
+inventory, so their recorded fallback base supplies the walker pad height.
 
 Tests use a two-building fixture with a concavity, courtyard, grid crossings, plus a
 negative open-wall Rapier fixture. They do not read real city data. Node dependencies:
