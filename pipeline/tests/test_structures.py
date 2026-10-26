@@ -375,6 +375,11 @@ def test_retaining_wall_probe_approaches_from_lower_ground(tmp_path):
     assert len(cases) == 1
     route = cases[0]["routes"][0]
     assert route["start"][1] < route["target"][1]
+    assert np.linalg.norm(
+        np.array(route["target"])[[0, 2]] - np.array(route["start"])[[0, 2]]
+    ) == pytest.approx(1.7)
+    assert route["fallback_solid_hit_y"] == pytest.approx(0.5)
+    assert len(cases[0]["solid_triangles"]) == len(wall.indices)
 
 
 def test_real_physics_routes_fail_on_missing_ground(tmp_path):

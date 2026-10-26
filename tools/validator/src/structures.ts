@@ -8,6 +8,7 @@ interface Traversal {
   start: number[];
   target: number[];
   solid_hit_y?: number;
+  fallback_solid_hit_y?: number;
 }
 export interface StructureCase {
   object_id: string;
@@ -53,28 +54,36 @@ function createWorld(scene: StructureCase) {
   return world;
 }
 
-function walk(scene: StructureCase, route: Traversal) {
-  if (route.solid_hit_y !== undefined && !scene.solid_triangles?.length) {
+function solidHit(scene: StructureCase, route: Traversal, hitY: number) {
+  const distance = Math.hypot(route.target[0] - route.start[0], route.target[2] - route.start[2]);
+  if (!scene.solid_triangles?.length) {
     return { passed: false, progress_m: 0, distance_m: Math.hypot(
       route.target[0] - route.start[0], route.target[2] - route.start[2]),
-      final_feet_y: route.start[1], height_error_m: 0, solid_hit_y: route.solid_hit_y };
+      final_feet_y: route.start[1], height_error_m: 0, solid_hit_y: hitY };
   }
-  const world = createWorld(route.solid_hit_y === undefined ? scene : {
-    ...scene, triangles: scene.solid_triangles ?? [], material: scene.solid_material ?? [],
+  const world = createWorld({
+    ...scene, triangles: scene.solid_triangles, material: scene.solid_material ?? [],
   });
+  try {
+    const [x, , z] = route.start;
+    const dx = route.target[0] - x, dz = route.target[2] - z;
+    const ray = new RAPIER.Ray({ x, y: hitY, z }, { x: dx / distance, y: 0, z: dz / distance });
+    const hit = world.castRay(ray, distance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+      groups(GROUP.CHARACTER, GROUP.STATIC_SOLID));
+    const progress = hit?.timeOfImpact ?? distance;
+    return { passed: hit != null && Math.abs(progress - distance / 2) < 0.35,
+      progress_m: progress, distance_m: distance, final_feet_y: route.start[1],
+      height_error_m: 0, solid_hit_y: hitY };
+  } finally { world.free(); }
+}
+
+function walk(scene: StructureCase, route: Traversal) {
+  if (route.solid_hit_y !== undefined) return solidHit(scene, route, route.solid_hit_y);
+  const world = createWorld(scene);
   try {
     const [x, y, z] = route.start;
     const dx = route.target[0] - x, dz = route.target[2] - z;
     const distance = Math.hypot(dx, dz), ux = dx / distance, uz = dz / distance;
-    if (route.solid_hit_y !== undefined) {
-      const ray = new RAPIER.Ray({ x, y: route.solid_hit_y, z }, { x: ux, y: 0, z: uz });
-      const hit = world.castRay(ray, distance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
-        groups(GROUP.CHARACTER, GROUP.STATIC_SOLID));
-      const progress = hit?.timeOfImpact ?? distance;
-      const passed = hit != null && Math.abs(progress - distance / 2) < 0.35;
-      return { passed, progress_m: progress, distance_m: distance, final_feet_y: y,
-        height_error_m: 0, solid_hit_y: route.solid_hit_y };
-    }
     const walker = new Walker(RAPIER, world);
     walker.place(x, y, z);
     const frames = Math.ceil((4 * distance / 2 + 2) * 60);
@@ -87,6 +96,10 @@ function walk(scene: StructureCase, route: Traversal) {
     const passed = scene.kind === 'stairs'
       ? progress >= distance - 0.05 && heightError <= 0.06
       : progress < distance / 2 - 0.25 && progress > 0.1;
+    if (!passed && scene.kind === 'wall' && progress <= 0.1 && route.fallback_solid_hit_y !== undefined) {
+      const solid = solidHit(scene, route, route.fallback_solid_hit_y);
+      return { ...solid, terrain_blocked_progress_m: progress };
+    }
     return { passed, progress_m: progress, distance_m: distance, final_feet_y: walker.feetY, height_error_m: heightError };
   } finally { world.free(); }
 }

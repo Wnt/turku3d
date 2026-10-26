@@ -10,7 +10,7 @@ from turku3d.col.materials import mat_id
 
 
 def prepare_cases(meshes, ground, measurements):
-    solids = {m.object_id: m for m in meshes if m.material in ("fence", "railing")}
+    solids = {m.object_id: m for m in meshes if m.material in ("fence", "railing", "wall")}
     triangles = np.concatenate([ground.triangles, *(m.positions[m.indices] for m in meshes)])
     material = np.concatenate(
         [
@@ -59,7 +59,8 @@ def prepare_cases(meshes, ground, measurements):
                     centre = points[k] + segments[k] * (station - distance[k]) / lengths[k]
                     tangent = segments[k] / lengths[k]
                     normal = np.array([-tangent[1], tangent[0]])
-                    a, b = centre - normal * 2, centre + normal * 2
+                    approach = 0.85 if kind == "wall" else 2.0
+                    a, b = centre - normal * approach, centre + normal * approach
                     ah, bh = ground.height(a), ground.height(b)
                     # Retaining walls block ascent from the lower side; a character
                     # can step off the upper side. Railings and fences are tested
@@ -70,7 +71,7 @@ def prepare_cases(meshes, ground, measurements):
                     # A fragment narrower than the character capsule can be
                     # walked around. Verify its solid collider at the surveyed
                     # centre instead of treating it as a continuous barrier.
-                    if kind in ("fence", "railing") and distance[-1] < 0.7:
+                    if kind == "wall" or (kind in ("fence", "railing") and distance[-1] < 0.7):
                         fraction = (station - distance[k]) / lengths[k]
                         foot = (
                             measured["lower_y"][k] * (1 - fraction)
@@ -80,7 +81,8 @@ def prepare_cases(meshes, ground, measurements):
                             measured["upper_y"][k] * (1 - fraction)
                             + measured["upper_y"][k + 1] * fraction
                         )
-                        route["solid_hit_y"] = float(foot + min(0.6, (top - foot) / 2))
+                        hit_y = float(foot + min(0.6, (top - foot) / 2))
+                        route["fallback_solid_hit_y" if kind == "wall" else "solid_hit_y"] = hit_y
                     routes.append(route)
         except ValueError as error:
             issues.append({"object_id": measured["object_id"], "reason": f"physics route: {error}"})
@@ -96,7 +98,9 @@ def prepare_cases(meshes, ground, measurements):
                 "material": material[mask].tolist(),
                 "routes": [route],
             }
-            if "solid_hit_y" in route and measured["object_id"] in solids:
+            if ("solid_hit_y" in route or "fallback_solid_hit_y" in route) and measured[
+                "object_id"
+            ] in solids:
                 mesh = solids[measured["object_id"]]
                 case["solid_triangles"] = mesh.positions[mesh.indices].tolist()
                 case["solid_material"] = [mat_id(mesh.material)] * len(mesh.indices)

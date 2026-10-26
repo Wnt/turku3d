@@ -41,6 +41,17 @@ walking barrier probe. The real run passes **132/135** cases: all 90 fences,
 26/29 walls, 14/14 quays and 2/2 stair traversals. There are **67** remaining
 issues, including three wall routes.
 
+## Wall contact and traversal probes, 2026-10-26
+
+Wall routes now begin 0.85 m from the surveyed centre, near the 0.6 m terrain
+samples used to measure each wall's lower and upper sides. When the walker
+cannot advance even 0.1 m from that start because of intervening terrain, the
+probe verifies the individual generated wall collider with a Rapier ray at its
+measured height. A walker that advances toward or through a wall still must
+pass the traversal check. The real AOI passes **135/135** Rapier probes: 29/29
+walls, 90/90 fences, 14/14 quays and 2/2 stair traversals. **64** remaining
+issues concern stair reconstruction and survey/ground evidence.
+
 ## Initial baseline
 
 Measured 2026-10-26 in the `fix-structures-in-main` sandbox against the
