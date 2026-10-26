@@ -5,7 +5,7 @@ import type { CurbQueries } from '../../../game/src/vehicle/curbQueries.ts';
 import { Walker } from './kcc.ts';
 import type { Options } from './options.ts';
 import { TILE } from './tileChecks.ts';
-import { FootprintIndex, loadFootprints, loadLines, mulberry32, ringOrientation } from './geo.ts';
+import { FootprintIndex, loadLines, mulberry32, ringOrientation } from './geo.ts';
 import type { Footprint } from './geo.ts';
 import { checkCars } from './car.ts';
 import { roofSurface } from './roof.ts';
@@ -258,7 +258,7 @@ export class Ctx {
 
   // ------------------------------------------------------------------------------ curbs
   curbStationsFromTiles(midpoints = false, barriers = false): Station[] {
-    const mats = new Set<number>(barriers ? [MAT.quay, MAT.wall] : [MAT.curb]);
+    const mats = new Set<number>(barriers ? [MAT.quay, MAT.wall, MAT.building] : [MAT.curb]);
     const out: Station[] = [];
     const seen = new Set<string>();
     const sp = this.o.curbSpacing;
@@ -530,8 +530,11 @@ export class Ctx {
   checkCars(surfaces: CurbQueries) {
     const lines = this.o.metadata!.curbs;
     const stations = lines.features.length ? this.curbStationsFromLines(lines, true) : this.curbStationsFromTiles(true);
+    const onRoof = roofSurface(this.loaded);
     const coherent = (s: Station) => {
       if (s.expectedStep !== undefined && Math.abs(s.step - s.expectedStep) > 0.03) return false;
+      const ax = s.x + s.nx * 3.6, az = s.z + s.nz * 3.6;
+      if (onRoof(ax, this.surfaceY(ax, az), az)) return false;
       const tx = -s.nz, tz = s.nx;
       for (const side of [-0.8, 0.8]) {
         const low = this.surfaceY(s.x + tx * side + s.nx * 0.6, s.z + tz * side + s.nz * 0.6);
@@ -541,21 +544,12 @@ export class Ctx {
       return true;
     };
     const curbs = stations.filter(s => this.owns(s.x, s.z) && this.inside(s.x, s.z) && (!Number.isFinite(s.step) || s.step <= 1) && coherent(s));
-    const barriers = [...this.curbStationsFromTiles(true, true), ...stations.filter(s => s.step > 1)].filter(s => this.owns(s.x, s.z) && this.inside(s.x, s.z) && s.step > 0.35);
-    for (const f of loadFootprints(this.o.metadata!.footprints)) {
-      const ring = f.rings[0], orient = ringOrientation(ring);
-      for (let i = 0; i < ring.length; i++) {
-        const a = ring[i], b = ring[(i + 1) % ring.length];
-        const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        if (!length) continue;
-        const x = (a[0] + b[0]) / 2, z = (a[1] + b[1]) / 2;
-        if (!this.owns(x, z) || !this.inside(x, z)) continue;
-        barriers.push(this.measureStation(f.id, x, z, orient * (b[1] - a[1]) / length, -orient * (b[0] - a[0]) / length));
-      }
-    }
+    const barriers = [...this.curbStationsFromTiles(true, true), ...stations.filter(s => s.step > 1)]
+      .filter(s => this.owns(s.x, s.z) && this.inside(s.x, s.z) && s.step > 0.35);
     const accessibleBarriers = barriers.filter(s => {
       const x = s.x + s.nx * 3.6, z = s.z + s.nz * 3.6;
-      return Math.abs(this.surfaceY(x, z) - s.low) <= 0.4;
+      const ground = this.surfaceY(x, z);
+      return Math.abs(ground - s.low) <= 0.4 && !onRoof(x, ground, z);
     });
     return checkCars(this.RAPIER, this.world, curbs, accessibleBarriers, (x, z) => this.surfaceY(x, z), surfaces, true);
   }
