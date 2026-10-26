@@ -109,7 +109,14 @@ def write_layer(meshes, out, *, inputs, params, metrics):
         positions, indices, materials = [], [], []
         count = 0
         for mesh in parts:
-            positions.append(mesh.positions)
+            position = mesh.positions.copy()
+            for axis in (0, 2):
+                boundary = (
+                    np.rint(position[:, axis] / C.COLLISION_TILE_SIZE) * C.COLLISION_TILE_SIZE
+                )
+                near = np.abs(position[:, axis] - boundary) < 1e-8
+                position[near, axis] = boundary[near]
+            positions.append(position)
             indices.append(mesh.indices + count)
             materials.append(np.full(len(mesh.indices), mat_id(mesh.material), np.uint8))
             count += len(mesh.positions)

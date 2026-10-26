@@ -36,14 +36,16 @@ completed in this sandbox. The assembled L0 wire sizes were 7,446,779,
 Each is below 8 MB. The four L0 GLBs contain 23, 24, 27 and 25 mesh
 primitives, respectively. The collision sweep attempted 640 routes and
 reported zero unexplained stops. Its visibility classification now recognizes
-solid fence and railing materials as blockers.
+solid fence and railing materials as blockers. The shipped 64-tile seam
+validator passes after complete structure colliders were published into every
+touched cell and edge coordinates were snapped to exact grid lines.
 
 Street-level stair and wall screenshots were rendered successfully on WebGPU
 and WebGL2 from the assembled tiles. They are under
 `$TURKU3D_WORK/reports/screenshots/structures-{webgpu,webgl}/` with the names
 `office-stair-street.png` and `office-wall-street.png`; exact camera poses are in
 `$TURKU3D_WORK/qa/structure-views.jsonl`. The separate AOI-wide validator still
-reports unrelated car, curb and building routes, plus advisory survey-only
+reports car, curb and building routes, plus advisory survey-only
 stairs, as failures; its result is preserved in
 `$TURKU3D_WORK/reports/validate-aoi.json` for the collision-validation owner.
 

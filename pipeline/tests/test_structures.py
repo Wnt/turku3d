@@ -128,6 +128,17 @@ def test_whole_object_reaches_each_collision_cell_without_clipping(tmp_path):
     assert read_manifest(out)["params"]["seams"] == "objects"
 
 
+def test_collision_edge_coordinates_are_exact_in_both_tiles(tmp_path):
+    mesh = stairs("edge", [3, 0, 60], [3, 1, 62.5 - 5e-14], 2)[0][0]
+    out = tmp_path / "structures"
+    write_layer([mesh], out, inputs={}, params={}, metrics={})
+    for tile in ("c_0_0", "c_0_1"):
+        points = read_collision(out / f"{tile}.col.npz").positions
+        edge = points[np.abs(points[:, 2] - 62.5) < 1e-8, 2]
+        assert len(edge) > 0
+        assert np.all(edge == 62.5)
+
+
 def test_layer_contract_glb_cache_and_stale_output(tmp_path):
     meshes, metrics = stairs("cross-tile", [247, 2, 247], [253, 4, 253], 3)
     out = tmp_path / "structures"
