@@ -89,6 +89,14 @@ tests = ["tests/test_props.py"]
 paths = ["pipeline/turku3d/structures/*", "pipeline/tests/test_structures.py"]
 tests = ["tests/test_structures.py"]
 
+[[stages.related]]
+paths = ["pipeline/turku3d/bridges/*", "pipeline/tests/test_bridges.py"]
+tests = ["tests/test_bridges.py", "tests/test_assemble.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/refresh.py", "pipeline/tests/test_refresh.py"]
+tests = ["tests/test_refresh.py", "tests/test_ground_textures.py", "tests/test_assemble.py"]
+
 [[stages]]
 name = "structures-physics"
 kind = "command"
