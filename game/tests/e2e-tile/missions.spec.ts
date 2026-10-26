@@ -1,7 +1,7 @@
 import { cachedTest as test, expect, type Page } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
-import { reportsRoot } from '../../../tools/dev/environment.mjs';
+import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import { BASE_PAY, LICENCE_PRICE, MAX_TIP, START_MONEY } from '../../src/gameplay/economy';
 import { lineText } from '../../src/gameplay/content/dialogue';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
@@ -10,6 +10,7 @@ import { SAVE_KEY } from '../../src/gameplay/missions/missions';
 import type { WorldPoint } from '../../src/gameplay/contract';
 
 const shots = path.join(reportsRoot, 'gameplay-missions');
+const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json'), 'utf8'));
 
 interface Missions { phase: string; money: number; licence: boolean; elapsed: number;
   hud: { message: string | null; timerSeconds: number | null; activeTargetId: string | null; money: number } }
@@ -35,6 +36,7 @@ const showsMessage = (page: Page, text: string) => page.waitForFunction(t =>
 
 test('licence, pickup and a timed delivery pay on the published tiles', { tag: ['@gameplay', '@walk'] }, async ({ page }, info) => {
   test.skip(info.project.name !== 'webgpu', 'mission logic is backend-independent; one backend keeps the check fast');
+  test.skip(!manifest.visual.t0_0_0 || manifest.visual.t0_0_0.tris < 1000, 'Mission targets need the assembled office layers');
   test.setTimeout(180_000);
   fs.mkdirSync(shots, { recursive: true });
   const shot = async (name: string) => fs.writeFileSync(path.join(shots, `${name}.png`), await page.screenshot());
