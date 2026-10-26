@@ -88,8 +88,25 @@ def seed(work, published):
         _clone(published / relative, work / relative)
     approvals = published / "facade-approvals/assembly"
     if approvals.is_dir():
+        target = work / "textures/assembly"
+        _detach(target, work)
         with s.lock(approvals / ".export.lock"):
-            shutil.copytree(approvals, work / "textures/assembly", dirs_exist_ok=True)
+            shutil.copytree(approvals, target, dirs_exist_ok=True)
+
+
+def _detach(path, work):
+    """Replace linked components below work with private clones before writing through them."""
+    current = work
+    for part in path.relative_to(work).parts:
+        current = current / part
+        if not current.is_symlink():
+            continue
+        private = current.with_name(current.name + ".seed-local")
+        if private.exists() or private.is_symlink():
+            shutil.rmtree(private)
+        _clone(current, private)
+        current.unlink()
+        private.rename(current)
 
 
 def baseline(published):
@@ -336,8 +353,8 @@ def prepare(work, published, commit, report, release_id=None):
     return release
 
 
-def publish(published, commit, release_id=None):
-    """Swap one release link; stable game/tile paths resolve through that link."""
+def prepared(published, commit, release_id=None):
+    """Return a complete, link-free prepared release for commit, or raise."""
     release = published / "live-releases" / (release_id or commit)
     if not (release / "live-build.json").exists():
         raise ValueError(f"prepared release is missing: {release}")
@@ -349,6 +366,12 @@ def publish(published, commit, release_id=None):
             raise ValueError(f"prepared release directory is missing or linked: {directory}")
         if any(asset.is_symlink() for asset in directory.rglob("*")):
             raise ValueError(f"prepared release contains a symlink: {directory}")
+    return release
+
+
+def publish(published, commit, release_id=None):
+    """Swap one release link; stable game/tile paths resolve through that link."""
+    release = prepared(published, commit, release_id)
     # Migrate the old service's paths once. Its existing server resolves these paths
     # for each request, so it serves the new release without killing an owned process.
     live = published / "live"

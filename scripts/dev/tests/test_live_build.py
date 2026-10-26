@@ -26,6 +26,23 @@ class LiveBuildTests(unittest.TestCase):
             self.assertFalse((release / "textures/link.bin").is_symlink())
             self.assertEqual((release / "textures/link.bin").read_bytes(), b"stable")
 
+    def test_seed_approvals_never_write_through_shared_texture_link(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            published = root / "data"
+            shared = published / "textures"
+            (shared / "assembly").mkdir(parents=True)
+            (shared / "assembly/MANIFEST.json").write_text("shared")
+            (published / "facade-approvals/assembly").mkdir(parents=True)
+            (published / "facade-approvals/assembly/MANIFEST.json").write_text("approved")
+            work = root / "work"
+            work.mkdir()
+            (work / "textures").symlink_to(shared, target_is_directory=True)
+            live_build.seed(work, published)
+            self.assertFalse((work / "textures").is_symlink())
+            self.assertEqual((work / "textures/assembly/MANIFEST.json").read_text(), "approved")
+            self.assertEqual((shared / "assembly/MANIFEST.json").read_text(), "shared")
+
     def test_layer_delta_maps_collision_and_visual_to_only_affected_tiles(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

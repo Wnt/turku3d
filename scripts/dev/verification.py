@@ -74,9 +74,8 @@ def validate(record, repo, published):
         {"tree": record["tree"], "checks": record["checks"], "head": record["head"]}
     ):
         raise ValueError("precheck input hash record changed")
-    release = published / "live-releases" / record["release_id"]
-    if not release.is_dir() or artifact_hash(release) != record["artifact_hash"]:
-        raise ValueError("prechecked release is missing or changed")
-    if json.loads((release / "live-build.json").read_text())["commit"] != record["head"]:
-        raise ValueError("prechecked release names another commit")
+    # Check completeness before the queue advances main, not only at the pointer swap.
+    release = live_build.prepared(published, record["head"], record["release_id"])
+    if artifact_hash(release) != record["artifact_hash"]:
+        raise ValueError("prechecked release changed")
     return release

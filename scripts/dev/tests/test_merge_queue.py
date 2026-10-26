@@ -146,7 +146,8 @@ class QueueTests(unittest.TestCase):
             release_id = verification.digest({"tree": tree, "checks": checks, "head": head})
             release = data / "live-releases" / release_id
             release.mkdir(parents=True)
-            (release / "game").mkdir()
+            for name in ("game", "tiles", "layers", "textures"):
+                (release / name).mkdir()
             (release / "game/index.html").write_text("ready")
             (release / "live-build.json").write_text(json.dumps({"commit": head}))
             task = root / "tasks/worker"
@@ -251,6 +252,8 @@ class QueueTests(unittest.TestCase):
             release = published / "live-releases" / "key"
             release.mkdir(parents=True)
             (release / "live-build.json").write_text('{"commit":"head"}')
+            for name in ("game", "tiles", "layers", "textures"):
+                (release / name).mkdir()
             (release / "asset.bin").write_bytes(b"original")
             record = {
                 "version": 1,
@@ -279,6 +282,10 @@ class QueueTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "changed"):
                     verification.validate(record, repo, published)
                 (release / "asset.bin").write_bytes(b"original")
+                (release / "tiles").rmdir()
+                with self.assertRaisesRegex(ValueError, "missing or linked"):
+                    verification.validate(record, repo, published)
+                (release / "tiles").mkdir()
                 record["checks"]["gate"]["python"] = "other"
                 with self.assertRaisesRegex(ValueError, "input hash"):
                     verification.validate(record, repo, published)
