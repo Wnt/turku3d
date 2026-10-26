@@ -112,6 +112,13 @@ def reproject_uv(meta, old, new):
     return uv
 
 
+def validate_uv(uv, facade):
+    for axis, extent in enumerate((facade.length, facade.height_m)):
+        bounds = (uv["offset"][axis], uv["offset"][axis] + uv["scale"][axis] * extent)
+        if not all(math.isfinite(value) and -0.02 <= value <= 1.02 for value in bounds):
+            raise ValueError(f"{facade.id}: reprojected UV exceeds approved photo bounds")
+
+
 def plan(source_inventory, inventory, assembly):
     old = load_facades(source_inventory)
     new = load_facades(inventory)
@@ -186,13 +193,15 @@ def migrate(source_inventory, inventory, assembly):
                     and abs(old.base_h - new.base_h) <= 0.001
                     and abs(old.height_m - new.height_m) <= 0.001
                 )
+                uv = reproject_uv(meta, old, new)
+                validate_uv(uv, new)
                 meta.update(
                     facade_id=new.id,
                     building_id=new.props["building_id"],
                     facade_index=new.props["facade_index"],
                     width_m=new.length,
                     height_m=new.height_m,
-                    uv=reproject_uv(meta, old, new),
+                    uv=uv,
                     files=files,
                     hashes={name: sha(target.parent / name) for name in files.values()},
                 )
