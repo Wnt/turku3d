@@ -4,6 +4,7 @@
 |---|---|---|---|
 | `character/player.glb` | MakeHuman assets exported by [Kasper Olesen / CharacterCreator](https://github.com/kblood/CharacterCreator/tree/852e48f316b90a0937234886630e4fb4cdfd1f78/output), plus Quaternius *Universal Animation Library [Standard]* | **CC0 1.0** | Textured autumn player; offline skin retarget to UAL, KTX2 and meshopt. [Licence, provenance and exact rebuild](character/README.md). |
 | `car/sedan.glb` | Kenney, *Car Kit 3.1*, `Models/GLB format/sedan.glb` + its `Textures/colormap.png` from [Car Kit](https://kenney.nl/assets/car-kit) | **CC0 1.0** ([original license](car/KENNEY-LICENSE.txt)) | Embedded palette with `scripts/prepare-car.mjs`; body/wheel transforms adapted at runtime to the physics dimensions. Separate authored wheel meshes follow suspension, steering and rotation. |
+| `ui/*.webp` | Generated for this project with the Codex image runner (`gpt-6-astra`), 2026-10-27 | Project-owned | Shop menu backgrounds and icons; prompts, job ids and the rebuild in [`src/ui/README.md`](../../src/ui/README.md). Not third-party. |
 
 Car source archive: `https://kenney.nl/media/pages/assets/car-kit/1a312ec241-1775131960/kenney_car-kit.zip`, downloaded 2026-10-25,
 SHA-256 `fac7dacac5c7874348cf19729af3ef205f3d366493edaf0a827d93f4fdf3d0c4`.

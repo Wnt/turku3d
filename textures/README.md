@@ -300,6 +300,9 @@ textures/.venv/bin/python -m turkutex codex run JOBS.jsonl --out RUN_DIR -j 6 --
 textures/.venv/bin/python -m turkutex codex collect THREAD_ID --copy OUTPUT_DIR
 ```
 
+The same runner makes the shop menu art: `turkutex.ui_art` writes its jobs and encodes the results
+to WebP for `game/public/assets/ui/` ([commands and prompts](../game/src/ui/README.md#menu-art)).
+
 ### Outputs and QA
 
 Sandbox staging mirrors the assembler contract:
