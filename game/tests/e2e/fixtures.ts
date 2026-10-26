@@ -1,5 +1,6 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import type { PhysicsClient } from '../../src/physics/client';
+import { frames } from './waits';
 
 interface GameState {
   mode: 'foot' | 'car'; paused: boolean; feet: number[]; vel: number[]; grounded: boolean;
@@ -43,7 +44,7 @@ export async function padAxes(page: Page, x: number, y: number, rx = 0, ry = 0) 
 }
 export async function padButton(page: Page, index: number, value: number) {
   await page.evaluate(([i, v]) => { window.__virtualPad.buttons[i] = v; }, [index, value]);
-  await page.waitForTimeout(80);
+  await frames(page, 2);
 }
 
 /** Per-frame positions catch transient falls; worker raycasts sample the ground at 10 Hz. */

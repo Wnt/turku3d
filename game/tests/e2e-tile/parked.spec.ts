@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { isolatedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tileDist } from '../../../tools/dev/environment.mjs';
@@ -18,7 +18,7 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   await page.evaluate(c => (window as any).__game.physics.setCharacterEnabled(true,
     { x: c.x - 2.5, y: c.y, z: c.z }), car);
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(250);
+  await page.waitForFunction(c => Math.abs((window as any).__game.state().feet[2] - c.z) > 0.1, car);
   await page.keyboard.up('KeyW');
   await page.waitForFunction(id => {
     const s = (window as any).__game.state();
@@ -39,7 +39,7 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   });
   const start = await page.evaluate(() => (window as any).__game.state().vehicle.pos);
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(4500);
+  await page.waitForFunction(() => (window as any).drivenMeters > 1, null, { timeout: 60_000 });
   await page.keyboard.up('KeyW');
   await page.keyboard.down('KeyS');
   await page.waitForFunction(() => (window as any).drivenMeters > 20, null, { timeout: 60_000 });

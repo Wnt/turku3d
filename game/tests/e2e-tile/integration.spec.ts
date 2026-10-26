@@ -1,7 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { isolatedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
+import { frames } from '../e2e/waits';
 
 const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json'), 'utf8'));
 const shots = path.join(reportsRoot, 'screenshots');
@@ -16,7 +17,7 @@ function inside(point: number[], ring: number[][]) {
   return result;
 }
 
-test('office integration: street spawn, L0, batched draws and visible facade pixels', { tag: ['@pipeline', '@render', '@walk'] }, async ({ page, context }, info) => {
+test('office integration: street spawn, L0, batched draws and visible facade pixels', { tag: ['@pipeline', '@render', '@walk'] }, async ({ page }, info) => {
   // Synthetic ground-only tile suites do not claim office/building acceptance.
   test.skip(!manifest.visual.t0_0_0 || manifest.visual.t0_0_0.tris < 1000, 'Requires the assembled office layers');
   expect(manifest.visual.t0_0_0.ground_texture_bytes, 'office ground must have a published texture binding').toBeGreaterThan(0);
@@ -24,9 +25,6 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   const bad: string[] = [];
   page.on('pageerror', e => bad.push(e.message));
   page.on('console', m => { if (m.type() === 'error') bad.push(m.text()); });
-  await context.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
-  const session = await context.newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.setViewportSize({ width: 2560, height: 1440 });
   const backend = info.project.name;
   await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json`);
@@ -47,7 +45,7 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   const visible = await page.evaluate(() => [...(window as any).__game.tiles.tiles.visibleTiles].map((t: any) => t.extras?.id));
   expect(visible.some((id: string) => id.startsWith('t0_'))).toBe(true);
   await page.evaluate(() => (window as any).__render.perf.reset());
-  await page.waitForTimeout(4000);
+  await frames(page, 30);
   const perf = await page.evaluate(() => (window as any).__perf);
   const draws = await page.evaluate(() => {
     const rows: Record<string, number> = {};
@@ -74,10 +72,13 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
     const p = game.state().vehicle.pos;
     game.physics.setCharacterEnabled(true, { x: p[0], y: p[1], z: p[2] + 2 });
   });
-  await page.waitForTimeout(300);
+  await page.waitForFunction(() => {
+    const s = (window as any).__game.state();
+    return Math.hypot(s.feet[0] - s.vehicle.pos[0], s.feet[2] - s.vehicle.pos[2]) < 3;
+  });
   await page.keyboard.press('KeyF');
   await page.waitForFunction(() => (window as any).__game.state().mode === 'car');
-  await page.waitForTimeout(1000);
+  await frames(page, 10);
   await page.screenshot({ path: path.join(shots, `integration-${backend}-car.png`) });
   expect(bad).toEqual([]);
 });
