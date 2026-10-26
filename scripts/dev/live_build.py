@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import sandbox as s
+from host_slots import identity, slot
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 
@@ -78,6 +79,16 @@ def inspect(manifest_path, facade_count, minimum, reason=None):
 
 
 def build(repo, work, published, env, log_path, reason=None):
+    with slot("land"):
+        reserved_env = {
+            **env,
+            "TURKU3D_LAND_OWNER": f"{os.getpid()}:{identity(os.getpid())}",
+            "TURKU3D_JOBS": "1",
+        }
+        return _build(repo, work, published, reserved_env, log_path, reason)
+
+
+def _build(repo, work, published, env, log_path, reason=None):
     seed(work, published)
     minimum = baseline(published)
     durations = {}

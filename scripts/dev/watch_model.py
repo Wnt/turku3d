@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import coordination as coord
+import host_slots
 import sandbox as s
 import task_runner
 from watch_events import (
@@ -96,6 +97,8 @@ class Channel:
         if self.state.get("landed"):
             return "landed"
         state = self.state.get("state", "inbox only")
+        if kind := host_slots.waiting(self.name):
+            return f"waiting for {kind} slot"
         return "interrupted" if state in ("starting", "running") and not self.live else state
 
     def seconds(self, now=None):

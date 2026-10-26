@@ -14,7 +14,7 @@ tile-fetch: ## Check cached work-3x3 inputs without network or writes to shared 
 	$(PIPELINE_RUN) python -m turku3d.fetch.cached --area work-3x3
 
 tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams
-	$(PIPELINE_RUN) python -m turku3d.package.assemble --area $(AREA) --tile $(TILE_IDS)
+	python3 $(REPO)/scripts/dev/host_slots.py build -- $(PIPELINE_RUN) python -m turku3d.package.assemble --area $(AREA) --tile $(TILE_IDS)
 
 tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
 	mkdir -p $(TILE_REPORTS)
@@ -24,7 +24,8 @@ tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
 	  $(VALIDATOR_ARGS) $(foreach tile,$(TILE_IDS),$(DIST_MIRROR)/tiles/collision/$(tile))
 
 tile-e2e: game-install ## Build the game and test real tiles with Chrome WebGPU and WebGL2
-	cd $(GAME_DIR) && npm run build && E2E_TILE_PORT=$(DIST_PORT) TILE_DIST=$(DIST_MIRROR)/tiles npx playwright test -c playwright.tile.config.ts
+	$(MAKE) game-build
+	cd $(GAME_DIR) && E2E_TILE_PORT=$(DIST_PORT) TILE_DIST=$(DIST_MIRROR)/tiles python3 $(REPO)/scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test -c playwright.tile.config.ts
 
 tile-show: game-build ## Serve the local result on the sandbox dist port
 	@echo "open http://localhost:$(DIST_PORT)/?tiles=/tiles/tileset.json"

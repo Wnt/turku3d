@@ -536,6 +536,27 @@ See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limit
 
 ## Load-robust gates and environment sync
 
+### Host slots
+
+`make refresh`, `make tile-build`, `make game-build`, the game, tile and render
+Playwright suites, playtest, the gate's e2e stage, and landing's live build use
+`scripts/dev/host_slots.py`.
+The shared state is `~/turku3d/host-slots/` (override with `TURKU3D_SLOT_DIR` only
+for synthetic tests). Up to three `build` jobs and two `browser` jobs run at once;
+each build gets at most two `TURKU3D_JOBS`, and each browser suite one. A queued
+`land` reservation stops new build/browser admissions, then holds exclusive capacity
+through refresh, four-tile assembly, game build, collision checks, and Chrome.
+Refresh divides its job budget between independent steps and passes it to Roofer.
+Dead owner PIDs are removed on the next admission or status read. Waiting appears
+in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
+
+Direct heavy commands should use the same wrapper, for example:
+
+```sh
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.refresh
+cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test
+```
+
 ```sh
 source ../sandbox.env
 export TURKU3D_JOBS=3

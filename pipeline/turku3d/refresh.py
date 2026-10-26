@@ -153,7 +153,7 @@ def buildings(layers):
                     shutil.copy2(inventory, snapshot)
                 if sha(snapshot) != old_hash:
                     raise RuntimeError("approved facade source inventory hash mismatch")
-    run("turku3d.buildings")
+    run("turku3d.buildings", "--jobs", os.environ.get("TURKU3D_JOBS", "3"))
     return "rebuilt"
 
 
@@ -339,14 +339,15 @@ def refresh(work, target=None):
             result["facades"] = timed("facades", facades, layers, textures)
             return result
         result = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        workers = max(1, int(os.environ.get("TURKU3D_JOBS", "3")) // 2)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, workers)) as pool:
             futures = {
                 "ground": pool.submit(timed, "ground", ground, layers),
                 "buildings": pool.submit(timed, "buildings", buildings, layers),
             }
             for name, future in futures.items():
                 result[name] = future.result()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, workers)) as pool:
             futures = {
                 "ground-textures": pool.submit(
                     timed, "ground-textures", ground_textures, layers, textures

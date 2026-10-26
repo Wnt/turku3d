@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 
 import pytest
 from turku3d import refresh
@@ -75,7 +76,7 @@ def test_buildings_refresh_snapshots_approved_geometry_before_rebuild(tmp_path, 
     monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
     assert refresh.buildings(layers) == "rebuilt"
     assert (export / "APPROVED_INVENTORY.geojson").read_bytes() == inventory.read_bytes()
-    assert calls == [("turku3d.buildings",)]
+    assert calls == [("turku3d.buildings", "--jobs", os.environ.get("TURKU3D_JOBS", "3"))]
 
 
 def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):

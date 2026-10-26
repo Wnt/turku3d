@@ -152,8 +152,23 @@ def e2e(root, stage, changed, full, env):
     tags = None if full else related(stage, changed, "tags")
     grep = ["--grep", "|".join(tags)] if tags else []
     commands = [
-        ["game/node_modules/.bin/vite", "build"],
-        ["game/node_modules/.bin/playwright", "test", *grep],
+        [
+            "python3",
+            str(root / "scripts/dev/host_slots.py"),
+            "build",
+            "--",
+            str(root / "game/node_modules/.bin/vite"),
+            "build",
+        ],
+        [
+            "python3",
+            str(root / "scripts/dev/host_slots.py"),
+            "browser",
+            "--",
+            str(root / "game/node_modules/.bin/playwright"),
+            "test",
+            *grep,
+        ],
     ]
     code, output = run_commands(root, commands, env, "game")
     if code:
@@ -164,6 +179,10 @@ def e2e(root, stage, changed, full, env):
         root,
         [
             [
+                "python3",
+                str(root / "scripts/dev/host_slots.py"),
+                "build",
+                "--",
                 env["PIPELINE_PY"],
                 str(root / "scripts/dev/gate_fixtures.py"),
                 env["TILE_DIST"],
@@ -182,7 +201,19 @@ def e2e(root, stage, changed, full, env):
         return code, output
     code, more = run_commands(
         root,
-        [["game/node_modules/.bin/playwright", "test", "-c", "playwright.tile.config.ts", *grep]],
+        [
+            [
+                "python3",
+                str(root / "scripts/dev/host_slots.py"),
+                "browser",
+                "--",
+                str(root / "game/node_modules/.bin/playwright"),
+                "test",
+                "-c",
+                "playwright.tile.config.ts",
+                *grep,
+            ]
+        ],
         env,
         "game",
     )

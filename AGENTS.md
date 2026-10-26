@@ -32,6 +32,7 @@ progress updates and final reports. This overrides personal default language set
    `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`. Do not merge to `main`: the orchestrator lands branches.
 7. **Isolation.** Use only your sandbox's ports, data/build/cache dirs and browser profile. Never kill processes you
    did not start, and never use `pkill -f` / `pgrep -f` with a pattern that appears in your own command line.
+   Run heavy builds and Chrome suites through the host slot scheduler (`scripts/dev/host_slots.py`).
 8. **No paid services** and no new API keys. Secrets live in `~/.config/turku3d/`, are never copied into the repo and
    are never printed. Codex image calls may use the weekly quota up to 100 %; the runners already check it.
 9. **Language: English for everything in this project**: code, comments, docs, commit messages, progress updates

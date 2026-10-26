@@ -18,13 +18,14 @@ game-dev: game-install ## Vite dev server http://localhost:$(TURKU3D_PORT_BASE) 
 	$(GAME_NPM) run dev
 
 game-build: game-install ## Typecheck + production build into $(GAME_DIST)
-	$(GAME_NPM) run build
+	cd $(GAME_DIR) && python3 $(REPO)/scripts/dev/host_slots.py build -- npm run build
 
 game-test: game-install ## Node unit tests (vitest: .col reader, Rapier character/car on the dev tiles, origin, sun)
 	$(GAME_NPM) test
 
 game-e2e: game-install ## Build + Playwright smoke test in Chrome (WebGPU and WebGL2), screenshots in $(TURKU3D_WORK)/reports/screenshots
-	$(GAME_NPM) run test:e2e
+	$(MAKE) game-build
+	cd $(GAME_DIR) && python3 $(REPO)/scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test
 
 game-test-all: game-test game-e2e game-dev-tools-test ## All game + tools/dev tests
 

@@ -14,6 +14,7 @@ from collections import deque
 from pathlib import Path
 
 import coordination as coord
+import host_slots
 import live_build
 import sandbox as s
 
@@ -305,6 +306,8 @@ def status(name):
     state = meta["state"]
     if state in ("starting", "running") and not running(meta):
         state = "interrupted"
+    if kind := host_slots.waiting(name):
+        state = f"waiting for {kind} slot"
     last = deque(read_events(path), maxlen=1)
     elapsed = (meta.get("finished") or time.time()) - meta["started"]
     commit = (

@@ -50,6 +50,9 @@ function run(command, args, options = {}) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed (${result.status ?? result.signal})`);
 }
+function heavy(kind, command, args, options = {}) {
+  run('python3', [path.join(repo, 'scripts/dev/host_slots.py'), kind, '--', command, ...args], options);
+}
 function prepare(s) {
   fs.mkdirSync(s.cache, { recursive: true });
   const env = { ...process.env, TURKU3D_WORK: s.work, TURKU3D_PORT_BASE: String(s.port), npm_config_cache: path.join(s.work, 'cache/npm') };
@@ -77,7 +80,7 @@ function prepare(s) {
   try { cached = JSON.parse(fs.readFileSync(stamp, 'utf8')); } catch { /* First build. */ }
   const intact = cached?.source === sourceHash && fs.existsSync(s.game) && fingerprint(s.game, ['.']) === cached.output;
   if (!intact) {
-    run('npm', ['run', 'build', '--', '--outDir', s.game, '--emptyOutDir'], { cwd: game, env });
+    heavy('build', 'npm', ['run', 'build', '--', '--outDir', s.game, '--emptyOutDir'], { cwd: game, env });
     fs.writeFileSync(stamp, JSON.stringify({ source: sourceHash, output: fingerprint(s.game, ['.']) }));
   } else console.log('Reusing verified game build.');
 }
@@ -98,7 +101,7 @@ async function main() {
       fs.mkdirSync(path.dirname(archive), { recursive: true });
       fs.renameSync(s.report, archive);
     }
-    const result = spawnSync(path.join(repo, 'game/node_modules/.bin/playwright'), ['test', '-c', 'playwright.playtest.config.ts', ...process.argv.slice(3)], {
+    const result = spawnSync('python3', [path.join(repo, 'scripts/dev/host_slots.py'), 'browser', '--', path.join(repo, 'game/node_modules/.bin/playwright'), 'test', '-c', 'playwright.playtest.config.ts', ...process.argv.slice(3)], {
       cwd: path.join(repo, 'game'), stdio: 'inherit', env: { ...process.env, TURKU3D_WORK: s.work, TURKU3D_PORT_BASE: String(s.port),
         PLAY_GAME_DIST: s.game, TILE_DIST: s.tiles, PLAYTEST_REPORT: s.report },
     });
