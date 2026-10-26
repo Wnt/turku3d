@@ -123,7 +123,7 @@ WebGL2 aerial QA navigation under host contention. Main subsequently added two
 ground-texture QA views to the same test, causing the final screenshot to hit
 its 120-second limit. The independent ground QA views are now a separate test
 with all image and pixel assertions intact. On the rebased code,
-`TURKU3D_JOBS=1 make tile-e2e` passed **16/16 cases in 6.8 minutes** against
+`TURKU3D_JOBS=1 make tile-e2e` passed **16/16 cases in 2.6 minutes** against
 the refreshed ground and all 316 facade bindings. The office and walking tests
 wait for the requested L0 geometry before sampling asynchronous tile state;
 the parked-car test waits for nearby collision tiles before driving. Facade IDs,
@@ -134,7 +134,7 @@ unchanged 8,000,000-byte limit:
 
 | L0 tile | Before adaptive scaling and atlas | Shipped with atlas |
 |---|---:|---:|
-| `t0_0_0` | 19,182,772 | 7,753,391 |
-| `t0_0_1` | 11,567,545 | 7,864,885 |
-| `t0_1_0` | 11,037,020 | 7,628,024 |
-| `t0_1_1` | 13,358,186 | 7,844,544 |
+| `t0_0_0` | 19,192,172 | 7,762,486 |
+| `t0_0_1` | 11,565,815 | 7,862,962 |
+| `t0_1_0` | 11,029,141 | 7,620,146 |
+| `t0_1_1` | 13,360,623 | 7,846,973 |
