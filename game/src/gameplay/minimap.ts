@@ -137,7 +137,7 @@ export class Minimap {
   snapshot() {
     return { route: this.routes.route, routeLength: this.routes.length, routeComputeMs: this.routes.computeMs,
       drawMs: this.drawMs, draws: this.draws, expanded: this.expanded, cssSize: this.cssSize, state: this.state,
-      streets: this.graph.edges.length };
+      streets: this.graph.edges.length, view: this.last };
   }
 
   dispose() { this.unsubscribe(); this.element.remove(); }

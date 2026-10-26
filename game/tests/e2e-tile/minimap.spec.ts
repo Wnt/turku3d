@@ -15,7 +15,10 @@ test('minimap routes along published streets to an injected mission target', { t
   const backend = info.project.name;
   await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
-  await page.waitForFunction(() => (window as any).__game?.state?.().grounded && (window as any).__game.minimap);
+  await page.waitForFunction(() => {
+    const s = (window as any).__game?.state?.();
+    return s?.grounded && s.tilesSettled && s.visTris > 0;
+  }, null, { timeout: 90_000 });
   // A street node about 300 m from the player along the walkable network becomes the active pickup.
   const setup = await page.evaluate(() => {
     const game = (window as any).__game;
@@ -51,6 +54,13 @@ test('minimap routes along published streets to an injected mission target', { t
   await expect(page.locator('#minimap .minimap-message')).toHaveText('Pick up the pizza from the pizzeria');
   await expect(page.locator('#minimap .minimap-timer')).toHaveText('1:35');
   await expect(page.locator('#minimap .minimap-money')).toHaveText('€1,250');
+  // Walking forward turns the player along the camera, so the centre arrow points up the map.
+  await page.keyboard.down('KeyW');
+  await page.waitForFunction(() => Math.hypot(...(window as any).__game.state().vel.filter((_: number, i: number) => i !== 1)) > 2);
+  await frames(page, 30);
+  await page.keyboard.up('KeyW');
+  const view = (await page.evaluate(() => (window as any).__game.minimap.snapshot())).view;
+  expect(Math.abs(((view.facingDeg - view.headingDeg + 540) % 360) - 180)).toBeLessThan(25);
   await page.locator('#minimap').screenshot({ path: path.join(out, `minimap-${backend}.png`) });
   await page.screenshot({ path: path.join(out, `game-${backend}.png`) });
 
