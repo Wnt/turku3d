@@ -33,6 +33,7 @@ import { createGameplay, compassDeg } from './gameplay';
 import { IdPass } from './render/idPass';
 import { MATERIALS } from './shared/col/materials';
 import type { VehicleInput } from './physics/protocol';
+import { DT } from './physics/constants';
 
 declare global {
   interface Window {
@@ -100,7 +101,11 @@ addEventListener('resize', () => {
   env.resize();
 });
 
-window.__game = { backend, params, errors, tiles, three: THREE.REVISION };
+// Test clock: rendered frames and simulated seconds (60 Hz physics steps in play mode, frame time clamped like the
+// play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
+// slower instead of failing it (tests/e2e/waits.ts).
+const clock = { frames: 0, simSeconds: 0 };
+window.__game = { backend, params, errors, tiles, clock, three: THREE.REVISION };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
@@ -150,8 +155,13 @@ async function runQa() {
   let idleEmptySince: number | null = null;
   const bounds = new THREE.Box3();
   const t0 = performance.now();
+  let last = t0;
   renderer.setAnimationLoop(() => {
     if (window.__render?.beforeFrame?.() === false) return;
+    const now = performance.now();
+    clock.frames++;
+    clock.simSeconds += Math.min(0.1, (now - last) / 1000); // the play loop's dt clamp
+    last = now;
     perf.begin();
     tiles.update(camera);
     renderFrame();
@@ -178,7 +188,7 @@ async function runQa() {
       window.__qaReady = true;
       window.__game!.qa = { loadMs: Math.round(performance.now() - t0), visTris: tiles.residentTris, models: tiles.residentModels, sunElevation: env.sunElevation, sunAzimuth: env.sunAzimuth };
     }
-    if (performance.now() - t0 > 120000) window.__qaError = 'timeout: tiles did not settle in 120 s';
+    if (clock.simSeconds > 120) window.__qaError = 'timeout: tiles did not settle in 120 s of frame time';
   });
 }
 
@@ -278,6 +288,7 @@ async function runPlay() {
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {
+    clock.frames++;
     perf.begin();
     const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -363,6 +374,7 @@ async function runPlay() {
     if (!paused) physics.step(dt, charIn, carIn);
 
     const st = physics.latest;
+    clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000);
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;

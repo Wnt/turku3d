@@ -88,6 +88,61 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(scopes["chrome-webgpu"], ["tests/e2e-tile/office.spec.ts"])
             self.assertIn("--service-state", commands[0][1])
 
+    def test_browser_load_summarizes_frame_time_and_load_retries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            rows = Path(temp) / "chrome.jsonl"
+            pace = {"p95FrameMs": 16.7, "scale": 1}
+            rows.write_text(
+                "\n".join(
+                    json.dumps(row)
+                    for row in (
+                        {"project": "webgl", "file": "parked.spec.ts", "title": "drives",
+                         "retry": 0, "status": "timedOut", "hostLoad": 63.2,
+                         "pace": {**pace, "p95FrameMs": 3046.1}},
+                        {"project": "webgl", "file": "parked.spec.ts", "title": "drives",
+                         "retry": 1, "status": "passed", "hostLoad": 41.0, "pace": pace},
+                        {"project": "webgpu", "file": "tile.spec.ts", "title": "walks",
+                         "retry": 0, "status": "passed", "hostLoad": 12.0, "pace": None},
+                    )
+                )
+                + "\nnot json\n"
+            )
+            with patch.object(live_build.os, "getloadavg", return_value=(50.0, 40.0, 30.0)):
+                load = live_build.browser_load(rows, (60.0, 45.0, 20.0))
+            self.assertEqual(load["host_load_start"], [60.0, 45.0, 20.0])
+            self.assertEqual(load["frame_p95_ms"], {"median": 3046.1, "max": 3046.1})
+            self.assertEqual(load["attempts"], 3)
+            self.assertEqual(
+                load["retried"],
+                [{"test": "[webgl] parked.spec.ts drives", "status": "passed", "host_load": 41.0}],
+            )
+            summary = live_build.load_summary(load)
+            self.assertIn("host load 50.00, 40.00, 30.00 (start 60.00)", summary)
+            self.assertIn("max 3046.1 ms; 1 load retries", summary)
+            missing = live_build.browser_load(Path(temp) / "missing.jsonl", (1.0, 1.0, 1.0))
+            self.assertIsNone(missing["frame_p95_ms"])
+            self.assertIn("frame p95 unmeasured", live_build.load_summary(missing))
+
+    def test_failure_detail_reports_playwright_timeout_not_closed_page(self):
+        output = """
+  2 failed
+  1) [webgl] › tests/e2e-tile/integration.spec.ts:86:1 › office facades
+
+    Test timeout of 120000ms exceeded.
+
+    Error: page.waitForFunction: Target page, context or browser has been closed
+
+  2) [webgl] › tests/e2e-tile/parked.spec.ts:8:1 › parked car
+
+    TimeoutError: page.waitForFunction: Timeout 60000ms exceeded.
+"""
+        self.assertEqual(
+            live_build.s.failure_detail(output),
+            "1) [webgl] › tests/e2e-tile/integration.spec.ts:86:1 › office facades: "
+            "Test timeout of 120000ms exceeded.",
+        )
+        self.assertEqual(live_build.s.failure_detail("ok\nFAILED test_x\n"), "FAILED test_x")
+
     def test_legacy_baseline_uses_last_published_assembler_result(self):
         with tempfile.TemporaryDirectory() as temp:
             published = Path(temp) / "data"
@@ -127,6 +182,13 @@ class LiveBuildTests(unittest.TestCase):
             started = time.monotonic()
 
             def run(command, **kwargs):
+                load_log = kwargs["env"].get("TURKU3D_BROWSER_LOAD_LOG")
+                if load_log:
+                    Path(load_log).write_text(
+                        json.dumps({"project": "webgpu", "file": "tile.spec.ts", "title": "walks",
+                                    "retry": 0, "status": "passed", "hostLoad": 1.0,
+                                    "pace": {"p95FrameMs": 20.0}}) + "\n"
+                    )
                 calls.append(
                     (
                         command,
@@ -166,6 +228,8 @@ class LiveBuildTests(unittest.TestCase):
             self.assertLess(calls[0][3] - started, 76)
             self.assertGreater(calls[0][3] - started, 74)
             self.assertEqual(report["facades_bound"], 2)
+            self.assertEqual(list(report["browser_load"]), ["chrome"])
+            self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)
 
     def test_inspect_requires_bound_ground_budget_and_facade_floor(self):
         with tempfile.TemporaryDirectory() as temp:

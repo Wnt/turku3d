@@ -5,15 +5,14 @@ import type { V3 } from '../core/origin';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
-import { CHARACTER } from './constants';
+import { CHARACTER, DT } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
-export { CHARACTER };
+export { CHARACTER, DT };
 import type { CharacterInput, CharacterState, RayFilter, RayHit, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
 
 type R = typeof RAPIER_NS;
-export const DT = 1 / 60;
 const MAX_SUBSTEPS = 5;
 
 /** Rapier interaction groups: high 16 bits membership, low 16 bits filter. */

@@ -1,4 +1,5 @@
 import { isolatedTest as test, expect } from './fixtures';
+import { open, untilSim } from './waits';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
@@ -21,7 +22,7 @@ test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', { 
   const button = (i: number, value: number) => page.evaluate(([i, value]) => {
     (window as any).pad.buttons[i] = { value, pressed: value > 0.5, touched: value > 0 };
   }, [i, value]);
-  await page.goto(`/?backend=${info.project.name}`);
+  await open(page, `/?backend=${info.project.name}`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
   await axis(0, 1);
@@ -34,9 +35,9 @@ test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', { 
   expect(start.vehicle.modelLoaded).toBe(true);
   expect(start.inputSource).toBe('gamepad');
   await button(7, 0.65);
-  await page.waitForFunction(() => !!(window as any).__game.state().vehicle.curbStrike, null, { timeout: 60_000 });
+  await untilSim(page, () => !!(window as any).__game.state().vehicle.curbStrike, null, 60);
   await button(7, 0);
-  await page.waitForFunction(() => (window as any).__game.state().vehicle.pos[2] < 236, null, { timeout: 60_000 });
+  await untilSim(page, () => (window as any).__game.state().vehicle.pos[2] < 236, null, 60);
   const driven = await page.evaluate(() => (window as any).__game.state());
   expect(driven.vehicle.curbStrike.height).toBeCloseTo(0.12, 2);
   expect(driven.vehicle.curbStrike.blocked).toBe(false);
@@ -47,11 +48,11 @@ test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', { 
   expect(await page.evaluate(() => (window as any).rumbles.some((r: any) => r.strongMagnitude > 0))).toBe(true);
   // The right stick can orbit through the rear view without changing the car's heading.
   await axis(2, 1);
-  await page.waitForFunction((yaw) => Math.abs((window as any).__game.state().camera.yaw - yaw) > 2.6, driven.camera.yaw, { timeout: 60_000 });
+  await untilSim(page, (yaw) => Math.abs((window as any).__game.state().camera.yaw - yaw) > 2.6, driven.camera.yaw, 60);
   await axis(2, 0);
   const beforeBrake = await page.evaluate(() => (window as any).__game.state().vehicle.speed);
   await button(6, 1);
-  await page.waitForFunction((speed) => (window as any).__game.state().vehicle.speed < speed * 0.5, beforeBrake, { timeout: 60_000 });
+  await untilSim(page, (speed) => (window as any).__game.state().vehicle.speed < speed * 0.5, beforeBrake, 60);
   await button(6, 0);
   await button(5, 1);
   fs.mkdirSync(SHOTS, { recursive: true });

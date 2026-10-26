@@ -153,6 +153,47 @@ def inspect(manifest_path, facade_count, minimum, reason=None):
     }
 
 
+def browser_load(rows_path, load_before):
+    """Summarize host load and per-test frame p95 (tests/e2e/fixtures.ts rows) for one Chrome stage."""
+    rows = []
+    if rows_path.is_file():
+        for line in rows_path.read_text().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    paces = sorted(row["pace"]["p95FrameMs"] for row in rows if row.get("pace"))
+    return {
+        "host_load_start": [round(value, 2) for value in load_before],
+        "host_load_end": [round(value, 2) for value in os.getloadavg()],
+        "frame_p95_ms": (
+            {"median": round(paces[len(paces) // 2], 1), "max": round(paces[-1], 1)}
+            if paces
+            else None
+        ),
+        "attempts": len(rows),
+        "retried": [
+            {
+                "test": f"[{row['project']}] {row['file']} {row['title']}",
+                "status": row["status"],
+                "host_load": round(row["hostLoad"], 2),
+            }
+            for row in rows
+            if row.get("retry")
+        ],
+    }
+
+
+def load_summary(load):
+    frame = load["frame_p95_ms"]
+    return (
+        f"host load {', '.join(f'{value:.2f}' for value in load['host_load_end'])}"
+        f" (start {load['host_load_start'][0]:.2f}); frame p95 "
+        + (f"median {frame['median']} ms, max {frame['max']} ms" if frame else "unmeasured")
+        + f"; {len(load['retried'])} load retries"
+    )
+
+
 def warm_checks(repo, work, env):
     """Use the queue-owned Chrome for affected tile specs when available."""
     service = env.get("TURKU3D_WARM_BROWSER_STATE")
@@ -221,6 +262,7 @@ def _build(repo, work, published, env, log_path, reason=None):
     durations = {}
     cache_hits = []
     input_hashes = {}
+    browser_loads = {}
     report = None
     previous = ""
     cache_enabled = (repo / ".git").exists()
@@ -277,8 +319,13 @@ def _build(repo, work, published, env, log_path, reason=None):
                 previous = key
                 continue
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
+            load_before = os.getloadavg()
             if stage.startswith("chrome"):
                 run_env["TURKU3D_JOBS"] = str(land_jobs("browser"))
+                load_rows.parent.mkdir(parents=True, exist_ok=True)
+                load_rows.unlink(missing_ok=True)
+                run_env["TURKU3D_BROWSER_LOAD_LOG"] = str(load_rows)
             if "TURKU3D_CHECK_DEADLINE" in env:
                 run_env["TURKU3D_CHECK_DEADLINE"] = str(
                     min(
@@ -288,11 +335,17 @@ def _build(repo, work, published, env, log_path, reason=None):
                 )
             proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
-            log.flush()
             durations[stage] = round(time.monotonic() - start, 3)
+            load = None
+            if stage.startswith("chrome"):
+                load = browser_load(load_rows, load_before)
+                browser_loads[stage] = load
+                log.write(f"{stage} load: {json.dumps(load)}\n")
+            log.flush()
             if proc.returncode:
+                conditions = load_summary(load) if load else f"host load {s.host_load()}"
                 raise ValueError(
-                    f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; host load {s.host_load()}: {log_path}; main unchanged"
+                    f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; {conditions}: {log_path}; main unchanged"
                 )
             if stage == "tile-build":
                 facade_count = None
@@ -317,6 +370,7 @@ def _build(repo, work, published, env, log_path, reason=None):
     report["seconds"] = durations
     report["cache_hits"] = cache_hits
     report["input_hashes"] = input_hashes
+    report["browser_load"] = browser_loads
     return report
 
 

@@ -1,6 +1,13 @@
-import { test as base, expect, type BrowserContext, type Page } from '@playwright/test';
+import { test as base, expect, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { PhysicsClient } from '../../src/physics/client';
 import { frames } from './waits';
+
+/** 1-minute host load above which a failed test gets its one retry (configs set `retries: 1`). */
+const RETRY_LOAD = 40;
+const failureMarker = (info: TestInfo) => path.join(info.project.outputDir, '.failure-load', `${info.testId}.json`);
 
 interface GameState {
   mode: 'foot' | 'car'; paused: boolean; feet: number[]; vel: number[]; grounded: boolean;
@@ -17,7 +24,37 @@ declare global {
   }
 }
 export const gameState = (page: Page) => page.evaluate(() => (window.__game!.state as () => GameState)());
-export const isolatedTest = base.extend<{ isolatedInput: void }>({
+export const isolatedTest = base.extend<{ loadRetry: void; isolatedInput: void }>({
+  // Retry policy: a failure is retried once in the same run only when the host was loaded when it failed (the
+  // 1-minute load at teardown). A failure on a quieter host fails its retry at once. TURKU3D_BROWSER_LOAD_LOG,
+  // when set, receives one JSON row per attempt for the live-build report.
+  // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument
+  loadRetry: [async ({}, use, info) => {
+    const marker = failureMarker(info);
+    const started = Date.now();
+    if (info.retry > 0) {
+      let failedAt: number;
+      try { failedAt = JSON.parse(fs.readFileSync(marker, 'utf8')).hostLoad; } catch { failedAt = os.loadavg()[0]; }
+      info.annotations.push({ type: 'load-retry', description: `attempt ${info.retry} after a failure at host load ${failedAt.toFixed(1)}` });
+      console.log(`[retry] ${info.project.name} ${info.title}: attempt ${info.retry} after a failure at host load ${failedAt.toFixed(1)}`);
+      if (failedAt <= RETRY_LOAD) {
+        throw new Error(`not retried: the previous attempt failed at host load ${failedAt.toFixed(1)} <= ${RETRY_LOAD}, so it is not a load failure`);
+      }
+    }
+    await use();
+    const hostLoad = os.loadavg()[0];
+    const failed = info.status !== info.expectedStatus;
+    if (failed) {
+      fs.mkdirSync(path.dirname(marker), { recursive: true });
+      fs.writeFileSync(marker, JSON.stringify({ hostLoad }));
+    }
+    const log = process.env.TURKU3D_BROWSER_LOAD_LOG;
+    if (log) {
+      const pace = info.annotations.find(row => row.type === 'pace')?.description;
+      fs.appendFileSync(log, JSON.stringify({ project: info.project.name, file: path.basename(info.file), title: info.title,
+        retry: info.retry, status: info.status, seconds: (Date.now() - started) / 1000, hostLoad, pace: pace ? JSON.parse(pace) : null }) + '\n');
+    }
+  }, { auto: true }],
   isolatedInput: [async ({ page }, use) => {
     // Parallel Chrome windows must not steal focus or expose a host controller to a test.
     const session = await page.context().newCDPSession(page);

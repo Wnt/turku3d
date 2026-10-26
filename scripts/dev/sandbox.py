@@ -135,6 +135,20 @@ def wait_cmd(command, tail=40, timeout=None):
 
 def failure_detail(output):
     lines = output.splitlines()
+    # Playwright lists failures as "  1) [project] > file > title". Its first error line is the cause:
+    # a timed-out test also prints a later "Target page, context or browser has been closed" error,
+    # because Playwright closes the page at the timeout.
+    for index, line in enumerate(lines):
+        if re.match(r"\s+1\) \[", line):
+            cause = next(
+                (
+                    row.strip()
+                    for row in lines[index + 1 :]
+                    if row.strip().startswith("Test timeout of") or "Error:" in row
+                ),
+                "",
+            )
+            return f"{line.strip()}: {cause}"[:240]
     for line in reversed(lines):
         if any(mark in line for mark in ("FAILED ", "FAIL ", "Error:", "error:")):
             return line.strip()[:240]

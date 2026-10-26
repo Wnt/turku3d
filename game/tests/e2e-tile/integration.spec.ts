@@ -2,7 +2,7 @@ import { cachedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
-import { frames } from '../e2e/waits';
+import { frames, open, pace, untilSim } from '../e2e/waits';
 
 const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json'), 'utf8'));
 const shots = path.join(reportsRoot, 'screenshots');
@@ -27,15 +27,15 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   page.on('console', m => { if (m.type() === 'error') bad.push(m.text()); });
   await page.setViewportSize({ width: 2560, height: 1440 });
   const backend = info.project.name;
-  await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json`);
+  await open(page, `/?backend=${backend}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
-  await page.waitForFunction(() => {
+  await untilSim(page, () => {
     const game = (window as any).__game;
     const s = game?.state?.();
     const visible = game?.tiles.tiles.visibleTiles;
     return s?.grounded && s.tilesSettled && s.visTris > 100_000 &&
       [...(visible ?? [])].some((tile: any) => tile.extras?.id?.startsWith('t0_'));
-  }, null, { timeout: 60_000 });
+  }, null, 60);
   const state = await page.evaluate(() => (window as any).__game.state());
   for (const footprint of manifest.spawn.footprints) {
     expect(inside([state.feet[0], state.feet[2]], footprint.coordinates[0])).toBe(false);
@@ -97,6 +97,7 @@ test('office facades keep visible ID pixels and QA views', { tag: ['@pipeline', 
   const viewX = x - Math.sin(bearing) * 10, viewZ = z + Math.cos(bearing) * 10;
   for (const pass of ['color', 'id']) {
     await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json&qa=1&pass=${pass}&cam=${23459500 + viewX},${6704500 - viewZ},${y + 1.7},${heading},5,60`);
+    await pace(page);
     await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError);
     expect(await page.evaluate(() => (window as any).__qaError)).toBeFalsy();
     const png = await page.screenshot({ path: path.join(shots, `integration-${backend}-facade-${pass}.png`) });
@@ -139,6 +140,7 @@ test('office ground texture keeps detail in QA views', { tag: ['@pipeline', '@qa
   let groundIds: Record<string, { kind?: string }> = {};
   for (const pass of ['id', 'color']) {
     await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json&qa=1&pass=${pass}&cam=${groundCamera}`);
+    await pace(page);
     await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError);
     expect(await page.evaluate(() => (window as any).__qaError)).toBeFalsy();
     if (pass === 'id') groundIds = await page.evaluate(() => (window as any).__qaIdTable);

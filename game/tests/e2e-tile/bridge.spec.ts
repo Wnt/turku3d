@@ -2,6 +2,7 @@ import { expect, cachedTest as test } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
+import { open, untilSim } from '../e2e/waits';
 
 const shots = path.join(reportsRoot, 'bridges');
 fs.mkdirSync(shots, { recursive: true });
@@ -12,8 +13,8 @@ test('Auransilta from the west river bank', { tag: ['@pipeline', '@render'] }, a
   test.skip(!manifest.visual.t0_1_0 || manifest.visual.t0_1_0.tris < 1000, 'Requires assembled bridge-area tiles');
   test.setTimeout(240000);
   const backend = info.project.name;
-  await page.goto(`/?backend=${backend}&tiles=${tiles}&cam=23459755,6704270,5.5,90,-5,60`);
-  await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError, null, { timeout: 210000 });
+  await open(page, `/?backend=${backend}&tiles=${tiles}&cam=23459755,6704270,5.5,90,-5,60`);
+  await untilSim(page, () => (window as any).__qaReady || (window as any).__qaError, null, 210);
   expect(await page.evaluate(() => (window as any).__qaError)).toBeFalsy();
   await page.screenshot({ path: path.join(shots, `auransilta-river-bank-${backend}.png`) });
 });
@@ -25,11 +26,11 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   const browserErrors: string[] = [];
   page.on('pageerror', error => browserErrors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()); });
-  await page.goto(`/?backend=${backend}&quality=low&tiles=${tiles}&spawn=23459785.5,6704302.7,145`);
-  await page.waitForFunction(() => {
+  await open(page, `/?backend=${backend}&quality=low&tiles=${tiles}&spawn=23459785.5,6704302.7,145`);
+  await untilSim(page, () => {
     const s = (window as any).__game?.state?.();
     return s?.grounded && s.collision.tiles >= 9;
-  }, null, { timeout: 120000 });
+  }, null, 120);
   await page.getByRole('button', { name: 'Start playing' }).click();
   const start = await page.evaluate(() => (window as any).__game.state());
   expect(start.H).toBeGreaterThan(4.9);
@@ -37,10 +38,10 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   await page.keyboard.down('KeyW');
   await page.keyboard.down('ShiftLeft');
   try {
-    await page.waitForFunction(() => {
+    await untilSim(page, () => {
       const s = (window as any).__game.state();
       return s.feet[0] > 305 && s.feet[2] > 228;
-    }, null, { timeout: 60000 });
+    }, null, 60);
   } catch (error) {
     console.log(`[${backend}] stalled walker ${JSON.stringify(await page.evaluate(() => (window as any).__game.state()))}`);
     await page.screenshot({ path: path.join(shots, `auransilta-walk-stall-${backend}.png`) });
@@ -49,10 +50,10 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   const middle = await page.evaluate(() => (window as any).__game.state());
   expect(middle.groundMaterial).toBe(24);
   await page.screenshot({ path: path.join(shots, `auransilta-deck-${backend}.png`) });
-  await page.waitForFunction(() => {
+  await untilSim(page, () => {
     const s = (window as any).__game.state();
     return s.feet[0] > 325 && s.feet[2] > 254;
-  }, null, { timeout: 60000 });
+  }, null, 60);
   await page.keyboard.up('KeyW');
   await page.keyboard.up('ShiftLeft');
   const walked = await page.evaluate(() => (window as any).__game.state());
@@ -73,7 +74,7 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   await page.waitForFunction(() => (window as any).__game.state().mode === 'car');
   await page.keyboard.down('KeyW');
   try {
-    await page.waitForFunction(() => (window as any).__game.state().vehicle.pos[2] > 254, null, { timeout: 60000 });
+    await untilSim(page, () => (window as any).__game.state().vehicle.pos[2] > 254, null, 60);
   } catch (error) {
     console.log(`[${backend}] stalled vehicle ${JSON.stringify((await page.evaluate(() => (window as any).__game.state())).vehicle)}`);
     await page.screenshot({ path: path.join(shots, `auransilta-drive-stall-${backend}.png`) });

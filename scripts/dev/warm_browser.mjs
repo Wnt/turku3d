@@ -110,13 +110,13 @@ async function run() {
     for (const spec of suite.specs ?? []) for (const test of spec.tests ?? []) {
       tests.push({ file: spec.file, title: spec.title, backend: test.projectName,
         seconds: ((test.results ?? []).at(-1)?.duration ?? 0) / 1000,
-        status: (test.results ?? []).at(-1)?.status ?? 'not-run' });
+        status: (test.results ?? []).at(-1)?.status ?? 'not-run', retries: Math.max(0, (test.results ?? []).length - 1) });
     }
     for (const childSuite of suite.suites ?? []) collect(childSuite);
   };
   for (const suite of report.suites ?? []) collect(suite);
   process.stdout.write(JSON.stringify({ backend: args.backend, checked: args.spec, seconds: (performance.now() - start) / 1000,
-    expected: report.stats.expected, unexpected: report.stats.unexpected, tests, report: output }) + '\n');
+    expected: report.stats.expected, unexpected: report.stats.unexpected, flaky: report.stats.flaky, tests, report: output }) + '\n');
   process.exitCode = code || report.stats.unexpected || !tests.length ? 1 : 0;
 }
 

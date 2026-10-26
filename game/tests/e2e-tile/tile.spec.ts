@@ -1,4 +1,4 @@
-import { settled } from '../e2e/waits';
+import { open, pace, settled, untilSim } from '../e2e/waits';
 // Tile packaging acceptance (ARCHITECTURE §4): Chrome shows the pipeline-assembled tile (dist/tiles from
 // `make tile`, built locally) and the character walks on its collision. Also checks the qa/README.md §2
 // render contract on the real tile: pose echo, __qaProject, and the object-ID pass.
@@ -52,15 +52,16 @@ test('assembled tile from the pipeline renders and the character walks on its co
   const backend = info.project.name;
   const bad = watchConsole(page);
   expect(Object.keys(manifest.visual).length).toBeGreaterThan(0);
-  await page.goto(`/?backend=${backend}&tiles=${TILES}&spawn=${WALK_START.E},${WALK_START.N},0`);
+  const { scale } = await open(page, `/?backend=${backend}&tiles=${TILES}&spawn=${WALK_START.E},${WALK_START.N},0`);
   await page.getByRole('button', { name: 'Start playing' }).click();
-  await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 });
+  // Loading precedes the game clock, so this bound stays wall-clock, scaled by the measured frame time.
+  await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 * scale });
   const vis = manifest.visual.t0_0_0;
-  await page.waitForFunction((tris) => {
+  await untilSim(page, (tris) => {
     const game = (window as any).__game;
     const s = game.state();
     return s.tilesSettled && s.collision.tiles > 0 && s.grounded && s.visTris >= tris;
-  }, vis.tris, { timeout: 90_000 });
+  }, vis.tris, 90);
   const start = await page.evaluate(() => (window as any).__game.state());
   expect(start.visTris).toBeGreaterThanOrEqual(vis.tris);
   expect(start.collision.tiles).toBeGreaterThan(0); // streaming continues in the background (4 in flight)
@@ -72,7 +73,7 @@ test('assembled tile from the pipeline renders and the character walks on its co
   await page.screenshot({ path: `${SHOTS}/tile-${backend}-start.png` });
 
   await page.keyboard.down('KeyW');
-  await page.waitForFunction((s0) => { const s = (window as any).__game.state(); return Math.hypot(s.feet[0] - s0[0], s.feet[2] - s0[2]) >= 8; }, start.feet, { timeout: 60_000 });
+  await untilSim(page, (s0) => { const s = (window as any).__game.state(); return Math.hypot(s.feet[0] - s0[0], s.feet[2] - s0[2]) >= 8; }, start.feet, 60);
   await page.keyboard.up('KeyW');
   await settled(page);
   const end = await page.evaluate(() => (window as any).__game.state());
@@ -81,7 +82,7 @@ test('assembled tile from the pipeline renders and the character walks on its co
     + `vis tris ${end.visTris}, col tiles ${end.collision.tiles}, frame ${end.frameMs.toFixed(1)} ms`);
   expect(end.N - start.N).toBeGreaterThan(7);
   // every collision tile within the 200 m streaming radius gets loaded (>= 9 around the office)
-  await page.waitForFunction(() => (window as any).__game.state().collision.tiles >= 9, null, { timeout: 15_000 });
+  await untilSim(page, () => (window as any).__game.state().collision.tiles >= 9, null, 15);
   expect(end.grounded).toBe(true);
   expect(Math.abs(end.H - start.H)).toBeLessThan(2); // terrain follows the source ground, no fall-through
   await page.screenshot({ path: `${SHOTS}/tile-${backend}-walked.png` });
@@ -102,7 +103,8 @@ test('QA render contract on the assembled tile: pose echo, projection, ID pass',
   const behind = [VIEW.E - 5 * f[0], VIEW.N - 5 * f[1], VIEW.H];
   for (const pass of ['color', 'id'] as const) {
     await page.goto(`/?backend=${backend}&tiles=${TILES}&${cam}&qa=1&pass=${pass}&time=2019-06-15T14:00:00%2B03:00`);
-    await page.waitForFunction(() => (window as any).__qaReady === true || (window as any).__qaError, null, { timeout: 60_000 });
+    await pace(page);
+    await untilSim(page, () => (window as any).__qaReady === true || (window as any).__qaError, null, 60);
     const st = await page.evaluate(([ahead, behind]) => ({ err: (window as any).__qaError, pose: (window as any).__qaPose, info: (window as any).__qaInfo,
       ids: (window as any).__qaIdTable, inner: [innerWidth, innerHeight], canvas: [document.querySelector('canvas')!.width, document.querySelector('canvas')!.height],
       // a point straight ahead must project to the image centre; a point behind the camera to null
@@ -150,21 +152,21 @@ test('character crosses all four L0 seams without a height step', { tag: ['@walk
   const bad = watchConsole(page);
   // A 12 m square around the four-tile junction, on the coarse river heightfield.
   // Start east of the junction so the car parked 6 m east stays outside the route.
-  await page.goto(`/?backend=${info.project.name}&tiles=${TILES}&spawn=23459756,6704256,0`);
+  await open(page, `/?backend=${info.project.name}&tiles=${TILES}&spawn=23459756,6704256,0`);
   await page.getByRole('button', { name: 'Start playing' }).click();
-  await page.waitForFunction(() => {
+  await untilSim(page, () => {
     const s = (window as any).__game?.state?.();
     return s?.tilesSettled && s.grounded && s.collision.tiles >= 16;
-  }, null, { timeout: 60_000 });
+  }, null, 60);
   const visited = new Set<string>();
   const heights: number[] = [];
   for (const [key, axis, direction] of [['KeyS', 2, 1], ['KeyA', 0, -1], ['KeyW', 2, -1], ['KeyD', 0, 1]] as const) {
     const start = await page.evaluate(() => (window as any).__game.state());
     await page.keyboard.down(key);
-    await page.waitForFunction(({ axis, direction, from }) => {
+    await untilSim(page, ({ axis, direction, from }) => {
       const s = (window as any).__game.state();
       return direction * (s.feet[axis] - from) >= 12;
-    }, { axis, direction, from: start.feet[axis] }, { timeout: 60_000 });
+    }, { axis, direction, from: start.feet[axis] }, 60);
     await page.keyboard.up(key);
     await settled(page);
     const end = await page.evaluate(() => (window as any).__game.state());
@@ -182,7 +184,7 @@ test('character crosses all four L0 seams without a height step', { tag: ['@walk
 test('coarse terrain remains visible outside the four-tile AOI', { tag: ['@pipeline', '@qa', '@render'] }, async ({ page }, info) => {
   test.skip(!manifest.visual.t1_1_1?.coarse_dtm, 'Requires cached DTM/ortho coverage outside the AOI');
   const bad = watchConsole(page);
-  await page.goto(`/?backend=${info.project.name}&tiles=${TILES}&cam=23460250,6703750,70,0,-45,60&qa=1&pass=id`);
+  await open(page, `/?backend=${info.project.name}&tiles=${TILES}&cam=23460250,6703750,70,0,-45,60&qa=1&pass=id`);
   await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError);
   const state = await page.evaluate(() => ({ error:(window as any).__qaError, info:(window as any).__qaInfo, ids:(window as any).__qaIdTable }));
   expect(state.error).toBeFalsy();

@@ -121,7 +121,14 @@ published release's count. A task may report an intentional reduction with `Faca
 <specific reason>` in `last.md`; the exception is recorded in the landing ledger. Stage times and output
 are in `live-build.log` and `meta.json`.
 Each gate and live-build command runs in its own process group, which is terminated on exit.
-Failures name the failing stage or test and include the host load and log path.
+Failures name the failing stage or test and include the host load and log path. For a Playwright
+suite the detail is the first failing test and its first error, so a test timeout reads as
+`Test timeout of ... exceeded` rather than the secondary `Target page ... has been closed`.
+Each Chrome stage also records `browser_load` in `live-build.json` and the log: the 1/5/15-minute
+host load at its start and end, the median and maximum per-test frame p95, and every load retry.
+A failed Chrome stage prints the same summary, so a failure under load is distinguishable from a
+regression at a glance. Browser specs wait on game time and retry once only above host load 40
+(see `game/README.md`, "Character locomotion and verification").
 For the first landing, the baseline comes from the legacy `deploy-once.log` assembler result (164 on
 2026-10-26); later landings read the previous release's `live-build.json`.
 

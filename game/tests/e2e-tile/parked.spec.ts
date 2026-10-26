@@ -2,6 +2,7 @@ import { cachedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tileDist } from '../../../tools/dev/environment.mjs';
+import { open, untilSim } from '../e2e/waits';
 
 const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json'), 'utf8'));
 
@@ -11,7 +12,7 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   // The placement report measures each car's straight clear distance behind it; the test reverses 19+ m.
   const car = [...manifest.vehicles].sort((a: any, b: any) => b.clear_rear_m - a.clear_rear_m || a.object_id.localeCompare(b.object_id))[0];
   expect(car.clear_rear_m, `${car.object_id} has room to reverse`).toBeGreaterThan(21);
-  await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
+  await open(page, `/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(count => {
     const s = (window as any).__game?.state?.();
@@ -41,10 +42,10 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   });
   const start = await page.evaluate(() => (window as any).__game.state().vehicle.pos);
   await page.keyboard.down('KeyW');
-  await page.waitForFunction(() => (window as any).drivenMeters > 1, null, { timeout: 60_000 });
+  await untilSim(page, () => (window as any).drivenMeters > 1, null, 60);
   await page.keyboard.up('KeyW');
   await page.keyboard.down('KeyS');
-  await page.waitForFunction(() => (window as any).drivenMeters > 20, null, { timeout: 60_000 });
+  await untilSim(page, () => (window as any).drivenMeters > 20, null, 60);
   await page.keyboard.up('KeyS');
   await page.keyboard.down('KeyW');
   await page.waitForFunction(() => (window as any).__game.state().vehicle.speed < 0.1);

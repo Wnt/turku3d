@@ -1,4 +1,8 @@
 // Character and car tuning shared by the worker (physics/world.ts) and the visuals.
+
+/** Fixed physics substep (60 Hz). `__game.clock.simSeconds` counts these steps. */
+export const DT = 1 / 60;
+
 export const CHARACTER = {
   radius: 0.3,
   halfHeight: 0.6, // capsule total height 1.8 m

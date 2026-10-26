@@ -12,6 +12,8 @@ const TILE_DIST = tileDist;
 export default defineConfig({
   testDir: 'tests/e2e-tile',
   timeout: 120_000,
+  // One retry, used only after a failure on a loaded host (loadRetry in tests/e2e/fixtures.ts).
+  retries: 1,
   workers: jobs,
   expect: { timeout: 60_000 },
   fullyParallel: true,

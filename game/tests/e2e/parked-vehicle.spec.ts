@@ -1,4 +1,5 @@
 import { isolatedTest as test, expect } from './fixtures';
+import { open, untilSim } from './waits';
 import { Document, NodeIO } from '@gltf-transform/core';
 
 test('taken parked car stays visible after driving away on both backends', { tag: ['@drive', '@input'] }, async ({ page }, info) => {
@@ -37,7 +38,7 @@ test('taken parked car stays visible after driving away on both backends', { tag
   const button = (index: number, value: number) => page.evaluate(([i, v]) => {
     (window as any).pad.buttons[i] = { value: v, pressed: v > 0.5, touched: v > 0 };
   }, [index, value]);
-  await page.goto(`/?backend=${info.project.name}`);
+  await open(page, `/?backend=${info.project.name}`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => (window as any).__game?.state?.().grounded);
   await page.evaluate(() => (window as any).__game.physics.setCharacterEnabled(true, { x: 125, y: 2, z: 167.8 }));
@@ -54,7 +55,7 @@ test('taken parked car stays visible after driving away on both backends', { tag
   await button(3, 0);
   const start = await page.evaluate(() => (window as any).__game.state().vehicle.pos[2]);
   await button(7, 1);
-  await page.waitForFunction(z => (window as any).__game.state().vehicle.pos[2] > z + 60, start, { timeout: 60_000 });
+  await untilSim(page, z => (window as any).__game.state().vehicle.pos[2] > z + 60, start, 60);
   await button(7, 0);
   const visual = await page.evaluate(() => {
     const game = (window as any).__game;
