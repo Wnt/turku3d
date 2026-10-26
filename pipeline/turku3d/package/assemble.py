@@ -22,6 +22,7 @@ from turku3d.package.seams import edge_equal, verify_tile_seams
 from turku3d.package.spawn import derive_spawn, osm_sources
 
 BRIDGE = Path(__file__).with_name("visual.mjs")
+HEADROOM_BYTES = 7_600_000
 
 
 def digest(files: list[Path], extra=None) -> str:
@@ -274,6 +275,15 @@ def facade_source_bytes(facades: Path, facade_id: str) -> int:
     return sum((directory / filename).stat().st_size for filename in meta["files"].values())
 
 
+def facade_density_floor(facades: Path, facade_id: str) -> int:
+    building_id, index = facade_id.rsplit("_", 1)
+    meta = json.loads((facades / building_id / f"{index}.json").read_text())
+    floor = meta.get("min_pixels_per_metre", 0)
+    if not isinstance(floor, int) or isinstance(floor, bool) or floor not in (0, *range(4, 73)):
+        raise ValueError(f"{facade_id}: invalid minimum facade density {floor!r}")
+    return floor
+
+
 def assemble(
     tile_ids: list[str],
     *,
@@ -487,6 +497,11 @@ def assemble(
             if data is not None and tile.level == 0
         }
         priorities = facade_priorities(root / "buildings/facades.geojson", bindings, tree.spawn)
+        floors = {
+            facade_id: facade_density_floor(facades, facade_id)
+            for ranked in priorities.values()
+            for facade_id in ranked
+        }
         facade_density: dict[str, dict[str, int]] = {}
         for tile, (data, stats) in pending_visual.items():
             if data is None or tile.level != 0:
@@ -494,45 +509,61 @@ def assemble(
             wire_bytes = budget_before[tile.id]
             ranked = priorities.get(tile.id, [])
             plan = facade_density.setdefault(tile.id, {})
-            if wire_bytes > 8_000_000 and ranked:
+            if wire_bytes >= HEADROOM_BYTES and ranked:
                 # KTX headers and tiny mips limit savings from resampling. The
                 # estimate selects a first batch; measured wire bytes decide
                 # whether to extend it. Near-spawn facades retain source detail.
-                needed = wire_bytes - 7_750_000
+                needed = wire_bytes - (HEADROOM_BYTES - 100_000)
                 predicted = 0
                 for facade_id in ranked:
+                    if floors[facade_id]:
+                        continue
                     plan[facade_id] = 4
                     predicted += facade_source_bytes(facades, facade_id) * 0.94
                     if predicted >= needed:
                         break
-            while wire_bytes > 8_000_000 and ranked and plan:
-                data, stats = visual_tiles(
-                    {tile: pending_inputs[tile]},
-                    stage,
-                    library,
-                    facades,
-                    out.parent / ".texture-cache",
-                    coarse_ids,
-                    bindings,
-                    ground_bindings,
-                    facade_density,
-                )[tile]
-                pending_visual[tile] = (data, stats)
-                wire_bytes = stats["brotli_bytes"] + ground_bindings.get(tile.id, {}).get(
-                    "texture_bytes", 0
-                )
-                if wire_bytes <= 8_000_000:
-                    break
-                remaining = [facade_id for facade_id in ranked if facade_id not in plan]
+            while wire_bytes >= HEADROOM_BYTES and ranked:
+                if plan:
+                    data, stats = visual_tiles(
+                        {tile: pending_inputs[tile]},
+                        stage,
+                        library,
+                        facades,
+                        out.parent / ".texture-cache",
+                        coarse_ids,
+                        bindings,
+                        ground_bindings,
+                        facade_density,
+                    )[tile]
+                    pending_visual[tile] = (data, stats)
+                    wire_bytes = stats["brotli_bytes"] + ground_bindings.get(tile.id, {}).get(
+                        "texture_bytes", 0
+                    )
+                    if wire_bytes < HEADROOM_BYTES:
+                        break
+                remaining = [
+                    facade_id
+                    for facade_id in ranked
+                    if facade_id not in plan and not floors[facade_id]
+                ]
                 if remaining:
                     for facade_id in remaining[: max(1, math.ceil(len(ranked) * 0.1))]:
                         plan[facade_id] = 4
-                elif all(density == 4 for density in plan.values()):
-                    plan.update({facade_id: 2 for facade_id in ranked})
-                elif all(density == 2 for density in plan.values()):
-                    plan.update({facade_id: 1 for facade_id in ranked})
                 else:
-                    break
+                    four = [fid for fid in ranked if plan.get(fid) == 4 and not floors[fid]]
+                    two = [fid for fid in ranked if plan.get(fid) == 2 and not floors[fid]]
+                    protected = [fid for fid in ranked if fid not in plan and floors[fid]]
+                    if four:
+                        plan.update(
+                            {fid: 2 for fid in four[: max(1, math.ceil(len(ranked) * 0.1))]}
+                        )
+                    elif two:
+                        plan.update({fid: 1 for fid in two[: max(1, math.ceil(len(ranked) * 0.1))]})
+                    elif protected:
+                        for facade_id in protected[: max(1, math.ceil(len(ranked) * 0.1))]:
+                            plan[facade_id] = floors[facade_id]
+                    else:
+                        break
             if wire_bytes > 8_000_000:
                 raise ValueError(
                     f"{tile.id}: visual plus ground textures exceeds 8 MB after facade scaling: {wire_bytes}"

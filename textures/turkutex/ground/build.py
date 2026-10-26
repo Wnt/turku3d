@@ -183,7 +183,7 @@ def build_tile(
         for name, rgb in [("ortho2022", p), ("ortho2025", matched), ("ortho", combined)]:
             png = out / f"{name}.png"
             Image.fromarray(rgb).save(png, compress_level=2)
-            maps.append((name, png, {"quality": 16 if name == "ortho" else None}))
+            maps.append((name, png, {"quality": 4 if name == "ortho" else None}))
         Image.fromarray(uncertain).save(out / "uncertainty.png")
     ids, sources = semantic_raster(layer, tile, SPLAT_PX, SPLAT_HALO)
     s = SPLAT_PX + 2 * SPLAT_HALO
