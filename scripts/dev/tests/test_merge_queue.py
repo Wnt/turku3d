@@ -192,6 +192,46 @@ class QueueTests(unittest.TestCase):
                 print(f"synthetic_merge_wall_seconds={result['merge_wall_seconds']}")
             rebuild.assert_not_called()
 
+    def test_publish_preflight_and_post_merge_failure_leave_main_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main"
+            main.mkdir()
+
+            def git(*args, cwd=main):
+                return subprocess.run(
+                    ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+                ).stdout.strip()
+
+            git("init", "-b", "main")
+            git("config", "user.email", "queue@example.test")
+            git("config", "user.name", "Queue Test")
+            (main / "base.txt").write_text("base")
+            git("add", ".")
+            git("commit", "-m", "base")
+            before = git("rev-parse", "HEAD")
+            repo = root / "worker"
+            git("worktree", "add", "-b", "wt/worker", str(repo))
+            (repo / "change.txt").write_text("change")
+            git("add", ".", cwd=repo)
+            git("commit", "-m", "change", cwd=repo)
+            head = git("rev-parse", "HEAD", cwd=repo)
+            published = root / "data"
+            with patch.object(
+                landing.live_build, "publication_preflight", side_effect=ValueError("stable path")
+            ):
+                with self.assertRaisesRegex(ValueError, "stable path"):
+                    landing.advance_and_publish(repo, main, before, head, published)
+            self.assertEqual(git("rev-parse", "HEAD"), before)
+            with (
+                patch.object(landing.live_build, "publication_preflight"),
+                patch.object(landing.live_build, "publish", side_effect=OSError("disk error")),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "publication failed; main restored"):
+                    landing.advance_and_publish(repo, main, before, head, published)
+            self.assertEqual(git("rev-parse", "HEAD"), before)
+            self.assertFalse((main / "change.txt").exists())
+
     def test_disjoint_prefixes_prepare_in_parallel(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

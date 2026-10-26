@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+_detach_lock = threading.Lock()
 
 
 def sha(path):
@@ -116,36 +118,39 @@ def run(*args, extra_path=None):
 
 def local_directory(path, work):
     """Detach linked sandbox directories before a producer can write through them."""
-    relative = path.relative_to(work)
-    current = work
-    for part in relative.parts:
-        current = current / part
-        if not current.is_symlink():
-            continue
-        source = current.resolve(strict=True)
-        if not source.is_dir():
-            raise ValueError(f"sandbox directory link is invalid: {current}")
-        temporary = current.with_name(current.name + ".refresh-local")
-        if temporary.exists() or temporary.is_symlink():
-            raise FileExistsError(temporary)
-        if subprocess.call(
-            ["cp", "-cRL", str(source), str(temporary)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ):
-            if temporary.exists():
-                shutil.rmtree(temporary)
-            shutil.copytree(source, temporary)
-        previous = current.with_name(current.name + ".refresh-link")
-        if previous.exists() or previous.is_symlink():
-            raise FileExistsError(previous)
-        os.replace(current, previous)
-        try:
-            os.replace(temporary, current)
-        except Exception:
-            os.replace(previous, current)
-            raise
-        previous.unlink()
+    if work.resolve() == C.data_root().resolve():
+        raise RuntimeError("refresh runs in sandboxes; the published data root is read-only")
+    with _detach_lock:
+        relative = path.relative_to(work)
+        current = work
+        for part in relative.parts:
+            current = current / part
+            if not current.is_symlink():
+                continue
+            source = current.resolve(strict=True)
+            if not source.is_dir():
+                raise ValueError(f"sandbox directory link is invalid: {current}")
+            temporary = current.with_name(current.name + ".refresh-local")
+            if temporary.exists() or temporary.is_symlink():
+                raise FileExistsError(temporary)
+            if subprocess.call(
+                ["cp", "-cRL", str(source), str(temporary)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ):
+                if temporary.exists():
+                    shutil.rmtree(temporary)
+                shutil.copytree(source, temporary)
+            previous = current.with_name(current.name + ".refresh-link")
+            if previous.exists() or previous.is_symlink():
+                raise FileExistsError(previous)
+            os.replace(current, previous)
+            try:
+                os.replace(temporary, current)
+            except Exception:
+                os.replace(previous, current)
+                raise
+            previous.unlink()
 
 
 def ground(layers):
@@ -163,14 +168,7 @@ def ground(layers):
 
 
 def buildings(layers):
-    base = C.REPO_ROOT / "pipeline/turku3d"
-    sources = sorted((base / "buildings").glob("*.py")) + [
-        base / "config.py",
-        base / "layers.py",
-        base / "package/gltf.py",
-        base / "col/materials_v1.json",
-    ]
-    expected = hashlib.sha256("".join(sha(p) for p in sources).encode()).hexdigest()
+    expected = buildings_code_hash()
     if manifest_current(layers / "buildings/MANIFEST.json", expected):
         return "cached"
     local_directory(layers / "buildings", layers.parents[1])
@@ -192,6 +190,17 @@ def buildings(layers):
                     raise RuntimeError("approved facade source inventory hash mismatch")
     run("turku3d.buildings", "--jobs", os.environ.get("TURKU3D_JOBS", "3"))
     return "rebuilt"
+
+
+def buildings_code_hash():
+    base = C.REPO_ROOT / "pipeline/turku3d"
+    sources = sorted((base / "buildings").glob("*.py")) + [
+        base / "config.py",
+        base / "layers.py",
+        base / "package/gltf.py",
+        base / "col/materials_v1.json",
+    ]
+    return hashlib.sha256("".join(sha(p) for p in sources).encode()).hexdigest()
 
 
 def outer_buildings(layers):
@@ -342,12 +351,17 @@ def bridges(layers):
 
 def bridge_textures(textures):
     library = textures / "assembly/library"
-    local_directory(library, textures.parent)
     aliases = {
         "bridge_asphalt": "ground_asphalt",
         "bridge_stone": "ground_granite",
         "painted_steel": "roof_standing_seam_metal",
     }
+    if all(
+        (library / alias).is_dir() and (library / original).is_dir()
+        for alias, original in aliases.items()
+    ):
+        return "cached"
+    local_directory(library, textures.parent)
     changed = False
     for alias, original in aliases.items():
         source, target = library / original, library / alias
@@ -368,6 +382,8 @@ def bridge_textures(textures):
 
 
 def refresh(work, target=None):
+    if work.resolve() == C.data_root().resolve():
+        raise RuntimeError("refresh runs in sandboxes; use a sandbox work directory")
     work.mkdir(parents=True, exist_ok=True)
     layers, textures = work / "build/layers", work / "textures"
     with (work / ".refresh.lock").open("a") as lock:
@@ -383,7 +399,14 @@ def refresh(work, target=None):
             result["facades"] = timed("facades", facades, layers, textures)
             return result
         result = {}
-        workers = max(1, int(os.environ.get("TURKU3D_JOBS", "3")) // 2)
+        # Ground and buildings may share a linked layers ancestor. Detach it once
+        # before either producer starts, but leave a fully cached tree linked.
+        if layers.is_symlink() and (
+            not manifest_current(layers / "ground/MANIFEST.json", ground_code_hash())
+            or not manifest_current(layers / "buildings/MANIFEST.json", buildings_code_hash())
+        ):
+            local_directory(layers, work)
+        workers = max(1, int(os.environ.get("TURKU3D_JOBS", "3")))
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, workers)) as pool:
             futures = {
                 "ground": pool.submit(timed, "ground", ground, layers),

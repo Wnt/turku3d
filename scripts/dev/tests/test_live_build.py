@@ -256,6 +256,8 @@ class LiveBuildTests(unittest.TestCase):
             )
             live_build.prepare(work, published, "abc", {"facades_bound": 1})
             with self.assertRaisesRegex(ValueError, "stable path"):
+                live_build.publication_preflight(published, "abc")
+            with self.assertRaisesRegex(ValueError, "stable path"):
                 live_build.publish(published, "abc")
             self.assertEqual((published / "live").resolve(), previous.resolve())
 

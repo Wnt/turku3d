@@ -340,9 +340,6 @@ def prepare(work, published, commit, report, release_id=None):
         if not source.is_dir():
             raise ValueError(f"verified {name} is missing: {source}")
         _clone(source, release / name)
-        for asset in (release / name).rglob("*"):
-            if asset.is_symlink():
-                raise ValueError(f"verified release contains a symlink: {asset}")
         if name in ("game", "tiles"):
             # The existing server caches Brotli by path and mtime. Give each
             # release fresh mtimes so the same stable URL cannot reuse old bytes.
@@ -371,9 +368,41 @@ def prepared(published, commit, release_id=None):
     return release
 
 
+def publication_preflight(published, commit, release_id=None):
+    """Check release and stable path layout before advancing main."""
+    release = prepared(published, commit, release_id)
+    live = published / "live"
+    if live.exists() and not live.is_symlink():
+        raise ValueError(f"live path is not a symlink: {live}")
+    if live.is_symlink() and not live.resolve().is_dir():
+        raise ValueError(f"live link is invalid: {live}")
+    for target, name in (
+        (published / "build/game", "game"),
+        (published / "dist/tiles", "tiles"),
+        (published / "build/layers", "layers"),
+        (published / "textures", "textures"),
+    ):
+        if target.is_symlink():
+            expected = os.path.abspath(live / name)
+            actual = os.path.abspath(target.parent / os.readlink(target))
+            if actual != expected:
+                raise ValueError(f"stable path does not point through live: {target}")
+        elif live.is_symlink():
+            raise ValueError(f"stable path is not a link: {target}")
+        elif target.exists() and not target.is_dir():
+            raise ValueError(f"legacy stable path is not a directory: {target}")
+        if (
+            not live.is_symlink()
+            and target.exists()
+            and (published / "live-releases/legacy" / name).exists()
+        ):
+            raise ValueError(f"legacy release target already exists: {target}")
+    return release
+
+
 def publish(published, commit, release_id=None):
     """Swap one release link; stable game/tile paths resolve through that link."""
-    release = prepared(published, commit, release_id)
+    release = publication_preflight(published, commit, release_id)
     # Migrate the old service's paths once. Its existing server resolves these paths
     # for each request, so it serves the new release without killing an owned process.
     live = published / "live"
@@ -406,12 +435,12 @@ def publish(published, commit, release_id=None):
         ):
             if not target.is_dir() or target.resolve() != (release / name).resolve():
                 raise ValueError(f"stable path does not resolve into release: {target}")
+        version = published.parent / "logs/live-version.txt"
+        version.parent.mkdir(parents=True, exist_ok=True)
+        pending = version.with_suffix(".tmp")
+        pending.write_text(commit + "\n")
+        os.replace(pending, version)
     except Exception:
         temporary.symlink_to(previous, target_is_directory=True)
         os.replace(temporary, live)
         raise
-    version = published.parent / "logs/live-version.txt"
-    version.parent.mkdir(parents=True, exist_ok=True)
-    pending = version.with_suffix(".tmp")
-    pending.write_text(commit + "\n")
-    os.replace(pending, version)

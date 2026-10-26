@@ -14,6 +14,23 @@ import live_build
 import sandbox as s
 
 
+def advance_and_publish(repo, main, before, head, published, release_id=None):
+    """Keep main at the published commit, including on post-merge errors."""
+    live_build.publication_preflight(published, head, release_id)
+    if main:
+        s.git("merge", "--ff-only", head, cwd=main)
+    else:
+        s.git("update-ref", "refs/heads/main", head, before, cwd=repo)
+    try:
+        live_build.publish(published, head, release_id)
+    except Exception as error:
+        if main:
+            s.git("reset", "--hard", before, cwd=main)
+        else:
+            s.git("update-ref", "refs/heads/main", before, head, cwd=repo)
+        raise RuntimeError(f"publication failed; main restored to {before}: {error}") from error
+
+
 def fast(name, dry_run=False):
     """Publish an unchanged-main, fully prechecked branch without running a build.
 
@@ -53,17 +70,16 @@ def fast(name, dry_run=False):
         if time.monotonic() - started > 110:
             raise ValueError("merge verification is slow; 2-minute budget would be exceeded")
         if dry_run:
+            live_build.publication_preflight(published, receipt["head"], receipt["release_id"])
             with coord.landing_guard(name, force=False):
                 pass
             plan = {"name": name, "main": before, "head": receipt["head"], "release": str(release)}
             print(json.dumps({"dry_run": True, **plan}))
             return plan
         with coord.landing_guard(name, force=False):
-            if main:
-                s.git("merge", "--ff-only", receipt["head"], cwd=main)
-            else:
-                s.git("update-ref", "refs/heads/main", receipt["head"], before, cwd=repo)
-            live_build.publish(published, receipt["head"], receipt["release_id"])
+            advance_and_publish(
+                repo, main, before, receipt["head"], published, receipt["release_id"]
+            )
         elapsed = round(time.monotonic() - started, 3)
         queued = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})["tasks"].get(
             name, {}
@@ -256,13 +272,11 @@ def batch(names, force=False):
                         raise ValueError(f"{name}: member changed during gate")
                 if s.git("rev-parse", "main", cwd=integration) != before:
                     raise ValueError("main changed during batch gate; retry batch")
-                if main:
-                    if s.git("status", "--porcelain", cwd=main):
-                        raise ValueError("main became dirty during gate")
-                    s.git("merge", "--ff-only", commits[-1], cwd=main)
-                else:
-                    s.git("update-ref", "refs/heads/main", commits[-1], before, cwd=integration)
-                live_build.publish(Path(env["TURKU3D_DATA"]), commits[-1])
+                if main and s.git("status", "--porcelain", cwd=main):
+                    raise ValueError("main became dirty during gate")
+                advance_and_publish(
+                    integration, main, before, commits[-1], Path(env["TURKU3D_DATA"])
+                )
                 with (s.root() / ".registry/landed.jsonl").open("a") as ledger:
                     queue_rows = s.read_json(
                         s.root() / ".registry/merge-queue.json", {"tasks": {}}

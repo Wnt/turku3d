@@ -88,5 +88,6 @@ The migration report is `$TURKU3D_WORK/reports/facade-refresh.json` and lists
 genuinely new street walls, ambiguous matches, and maps rejected because the
 rebuilt wall no longer fits the approved photo. Approved maps
 without a safe successor are retained under `textures/assembly/retired/<inventory-hash>/`.
-`make refresh` prints the cached/rebuilt status and elapsed seconds for each step.
+`make refresh` runs only in a sandbox, detaches linked output directories when a producer
+needs to rebuild them, and prints the cached/rebuilt status and elapsed seconds for each step.
 Rerunning it after a failure reuses products whose declared inputs and code are unchanged.

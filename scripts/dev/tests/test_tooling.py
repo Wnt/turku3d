@@ -35,9 +35,11 @@ class ToolingTests(unittest.TestCase):
             "    return {'facades_bound': 1, 'seconds': {'refresh': 0.001}}\n"
             "def prepare(work, published, commit, report):\n"
             "    pass\n"
-            "def publish(published, commit):\n"
+            "def publish(published, commit, release_id=None):\n"
             "    published.mkdir(parents=True, exist_ok=True)\n"
             "    (published / 'published-commit').write_text(commit)\n"
+            "def publication_preflight(published, commit, release_id=None):\n"
+            "    pass\n"
         )
         shutil.copytree(SOURCE / "textures/turkutex/codex", self.repo / "textures/turkutex/codex")
         # Use the production routing table and always-on checks for landing, without models
@@ -638,6 +640,26 @@ class ToolingTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in records], ["batch-a", "batch-b"])
         self.assertFalse((self.base / "wt/batch-a").exists())
         self.assertFalse((self.base / "wt/batch-b").exists())
+
+    def test_batch_publish_failure_restores_main_without_ledger_row(self):
+        builder = self.repo / "scripts/dev/live_build.py"
+        builder.write_text(
+            builder.read_text()
+            + "\ndef publish(published, commit, release_id=None):\n    raise OSError('disk error')\n"
+        )
+        self.git("add", ".")
+        self.git("commit", "-qm", "Fail publication fixture")
+        repo = self.start("batch-failure")
+        (repo / "change.md").write_text("change")
+        self.git("add", ".", cwd=repo)
+        self.git("commit", "-qm", "change", cwd=repo)
+        before = self.git("rev-parse", "main")
+        result = self.cli("codex-task", "land", "--batch", "batch-failure", ok=False)
+        self.assertIn("publication failed; main restored", result.stderr)
+        self.assertEqual(self.git("rev-parse", "main"), before)
+        self.assertFalse((self.repo / "change.md").exists())
+        ledger = self.base / "wt/.registry/landed.jsonl"
+        self.assertFalse(ledger.exists() and ledger.read_text().strip())
 
     def test_batch_red_bisects_without_updating_main(self):
         a = self.start("batch-a")

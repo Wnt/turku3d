@@ -42,6 +42,47 @@ def test_rebuild_detaches_linked_layer_without_writing_shared_data(tmp_path, mon
     assert (shared / "MANIFEST.json").read_text() == '{"code":"old"}'
 
 
+def test_refresh_refuses_published_root_without_detaching_links(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    (data / "live/layers").mkdir(parents=True)
+    (data / "build").mkdir()
+    (data / "build/layers").symlink_to(data / "live/layers", target_is_directory=True)
+    (data / "textures").symlink_to(data / "live/textures", target_is_directory=True)
+    monkeypatch.setattr(refresh.C, "data_root", lambda: data)
+    with pytest.raises(RuntimeError, match="refresh runs in sandboxes"):
+        refresh.refresh(data)
+    with pytest.raises(RuntimeError, match="refresh runs in sandboxes"):
+        refresh.local_directory(data / "build/layers/ground", data)
+    assert (data / "build/layers").is_symlink()
+    assert (data / "textures").is_symlink()
+
+
+def test_parallel_rebuilds_detach_shared_layers_ancestor_once(tmp_path, monkeypatch):
+    shared = tmp_path / "data/layers"
+    for name in ("ground", "buildings"):
+        (shared / name).mkdir(parents=True)
+    work = tmp_path / "work"
+    (work / "build").mkdir(parents=True)
+    (work / "build/layers").symlink_to(shared, target_is_directory=True)
+    monkeypatch.setattr(refresh, "manifest_current", lambda *args: False)
+    monkeypatch.setattr(refresh, "ground_code_hash", lambda: "new")
+    monkeypatch.setattr(refresh, "buildings_code_hash", lambda: "new")
+    for name in (
+        "ground",
+        "buildings",
+        "ground_textures",
+        "facades",
+        "props",
+        "bridges",
+        "bridge_textures",
+        "outer_buildings",
+    ):
+        monkeypatch.setattr(refresh, name, lambda *args: "rebuilt")
+    refresh.refresh(work)
+    assert not (work / "build/layers").is_symlink()
+    assert (shared / "ground").is_dir()
+
+
 def test_texture_source_hash_cache_detects_changes(tmp_path, monkeypatch):
     source = tmp_path / "ortho.tif"
     source.write_bytes(b"source")

@@ -116,7 +116,9 @@ Failures name the failing stage or test and include the host load and log path.
 For the first landing, the baseline comes from the legacy `deploy-once.log` assembler result (164 on
 2026-10-26); later landings read the previous release's `live-build.json`.
 
-After verifying the tested HEAD/tree and unchanged main, landing fast-forwards main. If main has no
+After verifying the tested HEAD/tree, unchanged main, prepared release, and stable live paths,
+landing fast-forwards main. A publication failure resets main to its previous head under the
+landing lock and restores the previous live link. If main has no
 checkout, a compare-and-swap `git update-ref` is used. The verified game, tiles, layers and textures
 are APFS-copied into `$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
 swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
@@ -124,8 +126,8 @@ that link, so the existing :5171 static server serves the verified files without
 Preparation dereferences sandbox links and rejects any link left inside a release. Publication checks
 all four stable paths after the swap and restores the previous `live` link if a path does not resolve
 to its directory in the prepared release.
-`~/turku3d/logs/live-version.txt` records the published commit. Do not run `deploy-once.sh`,
-`autodeploy.sh`, or `make refresh` on main after landing: those rebuild unverified artifacts.
+`~/turku3d/logs/live-version.txt` records the published commit. Do not run `deploy-once.sh`
+or `autodeploy.sh` on main; `make refresh` refuses the published data root. Run refresh in a sandbox.
 Do not update main outside this orchestrator while landing. A missing gate fails closed; there is no
 legacy Make fallback. The landing record goes to
 `wt/.registry/landed.jsonl`. A red gate leaves main unchanged; inspect `gate.log`, fix and resume the task.
