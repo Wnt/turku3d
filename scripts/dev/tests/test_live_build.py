@@ -12,6 +12,30 @@ import live_build
 
 
 class LiveBuildTests(unittest.TestCase):
+    def test_warm_checks_select_both_backends(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            scripts = repo / "scripts/dev"
+            scripts.mkdir(parents=True)
+            (scripts / "warm_browser.mjs").touch()
+            (scripts / "affected_browser.py").touch()
+            state = root / "warm-browser.json"
+            state.write_text("{}")
+            env = {
+                "TURKU3D_WARM_BROWSER_STATE": str(state),
+                "TURKU3D_BROWSER_DIR": str(root / "browser"),
+                "TURKU3D_PORT_BASE": "5200",
+            }
+            result = type(
+                "Result", (), {"stdout": json.dumps({"tile": ["tests/e2e-tile/office.spec.ts"]})}
+            )()
+            with patch.object(live_build.subprocess, "run", return_value=result):
+                commands, scopes = live_build.warm_checks(repo, root / "work", env)
+            self.assertEqual([row[0] for row in commands], ["chrome-webgpu", "chrome-webgl"])
+            self.assertEqual(scopes["chrome-webgpu"], ["tests/e2e-tile/office.spec.ts"])
+            self.assertIn("--service-state", commands[0][1])
+
     def test_legacy_baseline_uses_last_published_assembler_result(self):
         with tempfile.TemporaryDirectory() as temp:
             published = Path(temp) / "data"

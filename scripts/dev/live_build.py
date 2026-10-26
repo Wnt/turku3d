@@ -82,6 +82,57 @@ def inspect(manifest_path, facade_count, minimum, reason=None):
     }
 
 
+def warm_checks(repo, work, env):
+    """Use the queue-owned Chrome for affected tile specs when available."""
+    service = env.get("TURKU3D_WARM_BROWSER_STATE")
+    script = repo / "scripts/dev/warm_browser.mjs"
+    selector = repo / "scripts/dev/affected_browser.py"
+    if not service or not Path(service).is_file() or not script.is_file() or not selector.is_file():
+        return [], {}
+    selected = subprocess.run(
+        [
+            env.get("PIPELINE_PY", "python3"),
+            str(selector),
+            "--base",
+            env.get("TURKU3D_VERIFY_BASE", "main"),
+        ],
+        cwd=repo,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    specs = json.loads(selected.stdout)["tile"]
+    if not specs:
+        return [], {}
+    commands = []
+    scopes = {}
+    for backend in ("webgpu", "webgl"):
+        stage = "chrome-" + backend
+        command = [
+            "node",
+            str(script),
+            "run",
+            "--repo",
+            str(repo),
+            "--work",
+            str(work),
+            "--profile",
+            env["TURKU3D_BROWSER_DIR"],
+            "--port",
+            env["TURKU3D_PORT_BASE"],
+            "--service-state",
+            service,
+            "--backend",
+            backend,
+        ]
+        for spec in specs:
+            command.extend(("--spec", spec))
+        commands.append((stage, command, repo))
+        scopes[stage] = specs
+    return commands, scopes
+
+
 def build(repo, work, published, env, log_path, reason=None):
     seed(work, published)
     minimum = baseline(published)
@@ -90,7 +141,7 @@ def build(repo, work, published, env, log_path, reason=None):
     report = None
     previous = ""
     cache_enabled = (repo / ".git").exists()
-    commands = (
+    commands = [
         ("refresh", ["make", "refresh"], repo),
         ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
         ("game-build", ["make", "game-build"], repo),
@@ -106,14 +157,19 @@ def build(repo, work, published, env, log_path, reason=None):
             ],
             repo / "game",
         ),
-    )
+    ]
+    warm, scopes = warm_checks(repo, work, env)
+    if warm:
+        commands[-1:] = warm
     with log_path.open("w") as log:
         for stage, command, cwd in commands:
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()
             key = (
-                live_cache.digest(repo, work, published, stage, previous) if cache_enabled else None
+                live_cache.digest(repo, work, published, stage, previous, scopes.get(stage))
+                if cache_enabled
+                else None
             )
             cached = live_cache.restore(published, work, stage, key) if key else None
             if cached is not None:

@@ -50,6 +50,7 @@ def batch(names, force=False):
         gate_base = before
         integration = s.new("land-batch-" + uuid.uuid4().hex[:10], before)
         env = {**os.environ, **s.read_env(integration.parent / "sandbox.env")}
+        env["TURKU3D_VERIFY_BASE"] = before
         log_path = s.tasks_root() / ("batch-" + integration.parent.name + ".log")
         started = time.monotonic()
         commits = []

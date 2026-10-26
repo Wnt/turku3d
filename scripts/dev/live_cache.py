@@ -24,9 +24,11 @@ INPUTS = {
 }
 
 
-def digest(repo, work, published, stage, previous):
+def digest(repo, work, published, stage, previous, scope=None):
     h = hashlib.sha256(
-        json.dumps({"v": 2, "stage": stage, "previous": previous}, sort_keys=True).encode()
+        json.dumps(
+            {"v": 2, "stage": stage, "previous": previous, "scope": scope}, sort_keys=True
+        ).encode()
     )
     patterns = INPUTS.get(stage, ("pipeline/*", "game/*", "qa/*", "Makefile", "scripts/dev/live*"))
     for name in sorted(s.git("ls-files", cwd=repo).splitlines()):

@@ -194,6 +194,8 @@ def status():
 
 
 def run(interval=5, once=False, limit=4):
+    import warm_queue
+
     if limit < 1:
         raise ValueError("queue limit must be positive")
     lock = s.root() / ".registry/merge-queue.lock"
@@ -207,13 +209,19 @@ def run(interval=5, once=False, limit=4):
         file.truncate()
         file.write(f"{os.getpid()}\n")
         file.flush()
-        while True:
-            record = state()
+        with warm_queue.service() as browser_state:
+            if browser_state:
+                os.environ["TURKU3D_WARM_BROWSER_STATE"] = str(browser_state)
             try:
-                process(record, limit)
-            except (ValueError, OSError, subprocess.CalledProcessError) as exc:
-                record["last_error"] = {"time": time.time(), "detail": str(exc)}
-                save(record)
-            if once:
-                return
-            time.sleep(interval)
+                while True:
+                    record = state()
+                    try:
+                        process(record, limit)
+                    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+                        record["last_error"] = {"time": time.time(), "detail": str(exc)}
+                        save(record)
+                    if once:
+                        return
+                    time.sleep(interval)
+            finally:
+                os.environ.pop("TURKU3D_WARM_BROWSER_STATE", None)

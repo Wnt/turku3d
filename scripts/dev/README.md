@@ -579,6 +579,11 @@ Conflicts or a bisected failing member are sent back to that worker with route `
 other ready tasks stay queued. Unread messages do not block the queue. The queue uses
 `wt/.registry/merge-queue.lock` for single-instance ownership and persists its ledger in
 `wt/.registry/merge-queue.json`.
+When the warm browser tool is installed on main, the queue creates a dedicated
+`merge-queue-service` sandbox and starts its two Chrome backends once. Each candidate's
+affected tile specs run through those endpoints on the candidate sandbox ports; a missing
+service or selector uses the full local Chrome suite. The queue stops only the service
+process it started when it exits. `queue status` remains read-only.
 
 The old `codex-task land` command remains for recovery but is no longer the normal path.
 The orchestrator's `land.sh` and `land-quiet.sh` wrappers are unnecessary.
