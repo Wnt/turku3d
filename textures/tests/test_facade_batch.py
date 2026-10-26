@@ -73,6 +73,14 @@ def test_generate_jobs_use_metric_wall_and_reference_without_labels(tmp_path):
     assert generated[1]["meta"]["kind"] == "generate"
 
 
+def test_generate_skips_views_outside_panorama_coverage(tmp_path):
+    _, path, refs = inventory(tmp_path)
+    blank = Image.new("RGB", (32, 16), "black")
+    blank.paste(Image.new("RGB", (32, 2), "#bcbaba"))
+    blank.save(refs / "wall_b" / "wall_b_view_rectified.jpg")
+    assert [job["id"] for job in jobs.generate_jobs(path, refs)] == ["wall_a.generate"]
+
+
 def test_generate_feedback_regenerates_only_rejected_walls_with_reason(tmp_path):
     _, path, refs = inventory(tmp_path)
     first = jobs.generate_jobs(path, refs)

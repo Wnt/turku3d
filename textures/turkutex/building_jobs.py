@@ -42,6 +42,16 @@ def reference_matches(facade, root: Path) -> bool:
     )
 
 
+def has_wall_pixels(path: Path, max_blank: float = 0.2) -> bool:
+    """False for a rectified view that is mostly pure black, i.e. outside panorama coverage."""
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(path) as image:
+        pixels = np.asarray(image.convert("RGB"))
+    return float((pixels.max(-1) <= 2).mean()) <= max_blank
+
+
 def groups(facades):
     result = {}
     for f in facades:
@@ -256,7 +266,11 @@ def generate_jobs(
         if feedback is not None and f.id not in feedback:
             continue
         d = refs_root / f.id
-        views = [v for v in _views(d) if v.get("part") == "full"][:3]
+        views = [
+            v
+            for v in _views(d)
+            if v.get("part") == "full" and has_wall_pixels(d / v["files"]["rectified"])
+        ][:3]
         if not views:
             continue
         best = max(views, key=lambda v: v.get("score") or 0)
