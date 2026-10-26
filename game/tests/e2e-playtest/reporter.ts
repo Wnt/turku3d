@@ -46,11 +46,14 @@ export default class PlaytestReporter implements Reporter {
     const buildingIds = ['103295893K', '103295888D', '103295899S', '103295889E', '1032958849'];
     const buildingsCovered = ['webgpu', 'webgl'].every(backend => buildingIds.every(id => this.rows.some(row =>
       row.backend === backend && row.title.startsWith(`AOI building ${id}:`) && row.status === 'passed')));
+    const curbsCovered = ['webgpu', 'webgl'].every(backend => ['AOI curb: Xbox walks', 'AOI curb: Xbox car'].every(title =>
+      this.rows.some(row => row.backend === backend && row.title.startsWith(title) && row.status === 'passed')));
     const report = { provenance, date: new Date().toISOString(), status: result.status, duration: result.duration, commit, dirty,
       selection: [this.config.grep].flat().map(String), rows: this.rows, errors: this.errors,
-      gaps: ['Real-AOI walk around the office block over curbs', 'Real-AOI stair ascent and descent',
+      gaps: ['Real-AOI full walk around the office block', 'Real-AOI stair ascent and descent',
+        ...(!curbsCovered ? ['Real-AOI measured curb crossing and car strike'] : []),
         ...(!buildingsCovered ? ['Walk into five distinct real buildings and remain outside'] : []),
-        'Drive the office block, strike a curb, collide with a building and the quay wall'],
+        'Drive the office block and collide with a building and the quay wall'],
     };
     fs.writeFileSync(path.join(this.options.outputDir, 'report.json'), JSON.stringify(report, null, 2));
     fs.writeFileSync(path.join(this.options.outputDir, 'index.html'), renderReport(report));

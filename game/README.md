@@ -37,9 +37,9 @@ ports base+8 and base+9, separate isolated Chrome contexts, and one route at a t
 backend. The two backend workers still run in parallel.
 Select subsystems with `make playtest PLAYTEST_ARGS='--grep @vehicle'`.
 
-**Current limitation:** the assembled AOI supports ground and five-building routes. Full street-loop,
-real stair, curb-strike and quay-wall acceptance awaits measured curb and structures
-layers. The HTML report distinguishes real-AOI routes from synthetic controller
+**Current limitation:** the assembled AOI supports ground and five-building routes, plus
+measured foot/car curb crossings once the rebuilt curb tiles are published. Full street-loop,
+real stair and quay-wall acceptance awaits structures and route surveys. The HTML report distinguishes real-AOI routes from synthetic controller
 checks and lists these gaps even when the baseline suite is green. See
 [playtest coverage and gate tags](tests/e2e-playtest/README.md).
 

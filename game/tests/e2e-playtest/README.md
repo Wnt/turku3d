@@ -15,6 +15,7 @@ silently skipped or counted as passing.
 | Start screen | Synthetic dev tiles | Xbox connected/disconnected/reconnected, glyphs, A to start, office spawn and nearby car | `@launch @input @synthetic` |
 | Audio startup | Synthetic dev tiles | Start dialog dismissal, audio unlock, bank decode, mute, footsteps and spatial effects | `@audio @input` |
 | Four-seam loop | Real-data AOI | 48 m loop, four distinct L0 tiles, final position, speed bounds, continuous finite positions, sampled ground clearance | `@ground @streaming @character @aoi` |
+| Surveyed curb | Assembled AOI with measured curb ground | Foot crosses road to sidewalk and gains the measured 13.6 cm; car strikes the step with a non-blocking curb event | `@walk @drive @curb @ground @aoi` |
 | Office buildings | Assembled AOI with building shells | Five distinct facades approached with virtual Xbox input, each blocking the character before penetration; grounded and framewise safety | `@walk @character @buildings @aoi` |
 | Office drive | Real-data AOI | Y enter beside mapped parking, RT drives 15 m south, speed/lateral bounds, RB stops, Y exit, ground clearance | `@vehicle @ground @input @aoi` |
 | Existing Xbox controls | Synthetic dev tiles | Analog walk, sprint, 12 cm curb, jump, camera, pause, hot-plug | `@input @character @ground @synthetic` |
@@ -54,13 +55,13 @@ Never overlap two invocations that use the same ports/report directory.
 
 ## Remaining acceptance work
 
-The published AOI currently has building shells but no structures layer, and its ground
-curb and quay inventories are empty. Once those layers are rebuilt, survey and commit:
+The curb routes run when the published AOI contains the measured ground layer. If an older
+assembled AOI is selected, they are explicitly skipped and the report retains the curb gap.
+The published AOI still has no structures layer or quay wall. Once those layers land, survey and commit:
 
-- Walk the street loop around the office and cross its measured curbs.
+- Walk the full street loop around the office.
 - Ascend and descend a real stair flight, with measured bottom/top heights.
-- Drive the street loop, measure the curb-strike speed/pitch response, and strike a
-  building and the quay wall without penetration or falling.
+- Drive the street loop, and strike a building and the quay wall without penetration or falling.
 
 The synthetic stair route cannot certify the AOI.
 Do not remove the report's real-AOI follow-up notice until these routes pass on both backends.
