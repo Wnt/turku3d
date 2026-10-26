@@ -683,12 +683,42 @@ When main still matches the receipt, it verifies the tree, checks and release by
 main, and swaps the live pointer without rebuilding. The landed ledger records merge wall seconds.
 When main moved, it rebases and runs only invalidated cached gate/live stages under a 210-second
 check deadline. Gate checks have a 120-second default queue budget; live stages have declared
-30–150-second budgets. A slow check returns to its worker for a fix and new precheck. Broad
-producer changes also return to the worker. Layer
+30–150-second budgets. A slow recheck is retried; after two consecutive slow rechecks the task
+returns to its worker for a fix and new precheck. Broad producer changes also return to the worker. Layer
 mesh deltas select changed visual tiles, while texture and assembler changes require all tiles.
 Disjoint affected domains may precheck cumulative prefixes in parallel with `precheck --base <SHA>`.
-Conflicts and failed members return to their workers with route `task_rebase`; the queue keeps
-other ready tasks moving. `queue status` shows task timestamps and median DONE-to-live.
+Conflicts and failed members return to their workers; the queue keeps other ready tasks moving.
+`queue status` shows task timestamps and median DONE-to-live.
+
+Returning a task depends on its worker. A Codex task resumes through Codex with route
+`task_rebase` (event `resumed`). A task registered with `codex-task adopt` and finished with
+`codex-task finish` has `worker: external` in `meta.json`; the queue never calls Codex for it.
+It records event `returned` with the reason in `merge-queue.json`, and posts a `request` to the
+task inbox: rebase onto main, run `codex-task precheck`, ack the request, then `finish` again.
+The queue leaves that sandbox alone until the new `finish` (a new `meta.finished`) re-enqueues it.
+`codex-task ls`/`status`, the board's idle list and the orchestrator sentinel show
+`returned: <reason>` for such a task.
+
+Each round takes the task lock (`~/turku3d/tasks/<name>/lock`) non-blocking before it rebases or
+rechecks. A held lock means a worker precheck is in flight: the round skips that task with one
+`busy` event and retries on a later poll. The queue holds the lock through rebase, recheck and
+publish; its recheck child (`codex-task precheck --base`) inherits the lock fd
+(`run_group(hand_over=...)`), so a worker precheck started meanwhile waits instead of interleaving.
+
+Queue-side failures retry with a growing delay: event `failed` records `retry_seconds`
+of 300, 600, 1200 and then 1800 for each further attempt. They are a slow recheck before the
+second consecutive one, main moving during a recheck, and a Codex resume that could not start.
+The task's state transitions are:
+
+| From | Condition | To |
+|---|---|---|
+| (DONE) | a new `meta.finished` | `enqueued` |
+| `enqueued` / `failed` (delay elapsed) | task lock held by a worker precheck | `busy` (skipped this round) |
+| `enqueued` / `failed` (delay elapsed) | lock taken | `started` |
+| `started` | receipt current or recheck green, publish ok | `published` |
+| `started` | first slow recheck, main moved, failed Codex resume | `failed` (retry after the delay) |
+| `started` | second consecutive slow recheck, red recheck, rebase conflict, dirty tree, missing receipt, all-tile producer change | `resumed` (Codex) or `returned` (external) |
+| `started` | unacknowledged request/warning in the inbox | `held` |
 Unread messages do not block the queue. The queue uses
 `wt/.registry/merge-queue.lock` for single-instance ownership and persists its ledger in
 `wt/.registry/merge-queue.json`.

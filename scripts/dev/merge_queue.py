@@ -1,8 +1,9 @@
-"""Durable, single-owner merge queue for completed Codex tasks."""
+"""Durable, single-owner merge queue for completed Codex and external-worker tasks."""
 
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import fcntl
 import json
 import os
@@ -10,12 +11,33 @@ import re
 import subprocess
 import time
 
+import coordination as coord
 import sandbox as s
 
 try:
     import host_slots
 except ImportError:  # The host scheduler lands independently of this tool.
     host_slots = None
+
+
+# Retry delays after a queue-side failure (slow recheck, failed Codex resume), by attempt.
+RETRY_SECONDS = (300, 600, 1200, 1800)
+# Consecutive slow rechecks after which the task goes back to its worker.
+SLOW_LIMIT = 2
+# Rows in these states wait for a new DONE (a new meta.finished) before the queue acts again.
+TERMINAL = ("published", "resumed", "returned")
+
+
+class Retry(ValueError):
+    """A queue-side failure the queue retries with backoff instead of returning the task."""
+
+
+class Slow(Retry):
+    """A bounded recheck exceeded its deadline."""
+
+
+def backoff(retries):
+    return RETRY_SECONDS[min(max(retries, 1), len(RETRY_SECONDS)) - 1]
 
 
 def state_path():
@@ -63,9 +85,9 @@ def ready(record):
 
     rows = []
     for name, row in record["tasks"].items():
-        if "published" in row or "resumed" in row:
+        if any(key in row for key in TERMINAL):
             continue
-        if "failed" in row and time.time() - row["failed"] < 300:
+        if "failed" in row and time.time() - row["failed"] < backoff(row.get("retries", 1)):
             continue
         meta = s.read_json(s.tasks_root() / name / "meta.json", {})
         if meta.get("state") == "done" and meta.get("exit_code") == 0:
@@ -79,9 +101,50 @@ def ready(record):
     return [name for _, name in sorted(rows)]
 
 
-def resume(name, reason, record):
+def retry(name, reason, record):
+    row = record["tasks"].setdefault(name, {})
+    row["retries"] = row.get("retries", 0) + 1
+    event(record, name, "failed", reason=reason, retry_seconds=backoff(row["retries"]))
+
+
+def slow(name, reason, record):
+    row = record["tasks"].setdefault(name, {})
+    row["slow_streak"] = row.get("slow_streak", 0) + 1
+    if row["slow_streak"] >= SLOW_LIMIT:
+        return_to_worker(name, f"{SLOW_LIMIT} consecutive slow rechecks: {reason}", record)
+    else:
+        retry(name, reason, record)
+
+
+def returned(name, record=None):
+    """Why the queue returned an external worker's task, or None."""
+    row = (record or state())["tasks"].get(name, {})
+    if "returned" not in row:
+        return None
+    reason = (row.get("returned_reason") or "").strip().splitlines()
+    return (reason[0][:160] if reason else "") or "see merge queue events"
+
+
+def return_to_worker(name, reason, record):
+    """Codex tasks resume through Codex; an external worker gets a request and `returned`."""
     from task_runner import launch
 
+    if s.read_json(s.tasks_root() / name / "meta.json", {}).get("worker") == "external":
+        record["tasks"].setdefault(name, {})["returned_reason"] = reason
+        event(record, name, "returned", reason=reason)
+        try:
+            coord.send(
+                name,
+                "request",
+                f"merge queue returned {name}",
+                f"The merge queue cannot land this branch: {reason}\n"
+                "Rebase onto current main, run scripts/dev/codex-task precheck in the sandbox, "
+                "ack this message, then run codex-task finish again. Until that new finish "
+                "the queue leaves the sandbox alone.",
+            )
+        except (ValueError, OSError) as exc:
+            event(record, name, "notify_failed", reason=str(exc))
+        return
     try:
         launch(
             name,
@@ -94,20 +157,35 @@ def resume(name, reason, record):
             resume_reason="main-moved",
         )
     except (ValueError, OSError) as exc:
-        event(record, name, "failed", reason=f"resume failed: {exc}; {reason}")
+        retry(name, f"resume failed: {exc}; {reason}", record)
     else:
         event(record, name, "resumed", reason=reason)
+
+
+def last_kind(record, name):
+    return next((row["kind"] for row in reversed(record["events"]) if row["task"] == name), None)
+
+
+def claim(name, record, held):
+    """Hold the task lock for the round; a worker precheck in flight holds it already."""
+    try:
+        held.enter_context(s.lock(s.tasks_root() / name / "lock", wait=False))
+    except s.Busy:
+        if last_kind(record, name) != "busy":
+            event(record, name, "busy")
+        return False
+    return True
 
 
 def rebase(name, record):
     repo = s.sandbox(name) / "repo"
     if s.git("status", "--porcelain", cwd=repo):
-        resume(name, "worktree is dirty", record)
+        return_to_worker(name, "worktree is dirty", record)
         return False
     try:
         s.rebase("main", repo)
     except subprocess.CalledProcessError as exc:
-        resume(name, f"rebase conflict: {exc.stderr.strip()[-500:]}", record)
+        return_to_worker(name, f"rebase conflict: {exc.stderr.strip()[-500:]}", record)
         return False
     return True
 
@@ -145,17 +223,21 @@ def run_precheck(name, base, old):
     env["TURKU3D_CHECK_DEADLINE"] = str(deadline)
     if old.get("release_id"):
         env["TURKU3D_PREVIOUS_RELEASE_ID"] = old["release_id"]
+    # The child precheck holds the queue's task lock, so a worker precheck cannot interleave.
     result = s.run_group(
         [str(repo / "scripts/dev/codex-task"), "precheck", name, "--base", base],
         cwd=repo,
         env=env,
+        hand_over=[path / "lock"],
     )
-    if result.returncode or time.monotonic() > deadline:
-        detail = s.failure_detail(result.stdout)
-        raise ValueError(f"affected recheck failed or slow ({result.returncode}): {detail}")
+    detail = s.failure_detail(result.stdout)
+    if result.returncode == 124 or "\nSLOW: " in result.stdout or time.monotonic() > deadline:
+        raise Slow(f"affected recheck slow (over {deadline - started:.0f} s): {detail}")
+    if result.returncode:
+        raise ValueError(f"affected recheck failed ({result.returncode}): {detail}")
     refreshed = s.read_json(path / "precheck.json", {})
     if refreshed.get("main") != s.git("rev-parse", base, cwd=repo):
-        raise ValueError("base moved during affected recheck")
+        raise Retry("base moved during affected recheck")
     return refreshed
 
 
@@ -190,7 +272,7 @@ def speculative(names, record, pool):
             s.git("rebase", "--onto", previous, base, cwd=repo)
         except subprocess.CalledProcessError as exc:
             s.git("rebase", "--abort", cwd=repo, check=False)
-            resume(name, f"speculative prefix conflict: {exc.stderr[-500:]}", record)
+            return_to_worker(name, f"speculative prefix conflict: {exc.stderr[-500:]}", record)
             break
         futures[name] = pool.submit(run_precheck, name, previous, receipts[name])
         previous = s.git("rev-parse", "HEAD", cwd=repo)
@@ -198,17 +280,25 @@ def speculative(names, record, pool):
 
 
 def process(record, limit=4):
-    import queue_sweep
     from landing import fast
 
     discover(record)
     if record.get("last_error") and time.time() - record["last_error"]["time"] < 300:
         return False
-    names = ready(record)[:limit]
+    with contextlib.ExitStack() as held:
+        names = [name for name in ready(record)[:limit] if claim(name, record, held)]
+        integrate(names, record, fast)
+    return bool(names)
+
+
+def integrate(names, record, fast):
+    """Rebase, recheck and publish claimed tasks; the caller holds their task locks."""
+    import queue_sweep
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(names) - 1)) as pool:
         futures = speculative(names, record, pool)
         for name in names:
-            if "resumed" in record["tasks"].get(name, {}):
+            if any(key in record["tasks"].get(name, {}) for key in TERMINAL):
                 continue
             event(record, name, "started")
             if name not in futures and not rebase(name, record):
@@ -221,12 +311,17 @@ def process(record, limit=4):
                     repo = s.sandbox(name) / "repo"
                     if receipt.get("main") != s.git("rev-parse", "main", cwd=repo):
                         reverify(name, record)
+                record["tasks"][name].pop("slow_streak", None)
                 result = fast(name)
+            except Slow as exc:
+                slow(name, str(exc)[-1000:], record)
+            except Retry as exc:
+                retry(name, str(exc)[-1000:], record)
             except (ValueError, OSError, subprocess.CalledProcessError, KeyError) as exc:
                 if "unacknowledged request/warning" in str(exc):
                     event(record, name, "held", reason=str(exc)[-1000:])
                 else:
-                    resume(name, str(exc)[-1000:], record)
+                    return_to_worker(name, str(exc)[-1000:], record)
             else:
                 event(
                     record,
@@ -240,7 +335,6 @@ def process(record, limit=4):
                     queue_sweep.start()
                 except OSError as exc:
                     event(record, name, "sweep_start_failed", reason=str(exc))
-    return bool(names)
 
 
 def admitted_process(record, limit):

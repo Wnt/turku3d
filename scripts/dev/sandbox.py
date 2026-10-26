@@ -13,6 +13,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -25,12 +26,16 @@ def run(*args, cwd=REPO, check=True, **kwargs):
     return subprocess.run(args, cwd=cwd, check=check, text=True, capture_output=True, **kwargs)
 
 
-def run_group(command, *, cwd, env, log=None, timeout=None):
+def run_group(command, *, cwd, env, log=None, timeout=None, hand_over=()):
     """Own the entire command tree, including a Playwright server and Chrome.
 
     Output streams to `log` when given (readable while the command runs), else to a
     private temporary file. `timeout` seconds bound the run like a queue deadline.
+    `hand_over` lists lock paths this process holds; the command holds them too.
     """
+    fds = {str(Path(path).resolve()): held_fd(path) for path in hand_over}
+    if fds:
+        env = {**env, HANDOVER_ENV: json.dumps(fds)}
     temp_dir = Path(env.get("TURKU3D_WORK", cwd)) / "cache"
     temp_dir.mkdir(parents=True, exist_ok=True)
     with (
@@ -44,6 +49,7 @@ def run_group(command, *, cwd, env, log=None, timeout=None):
             stdout=output,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            pass_fds=tuple(fds.values()),
         )
         try:
             deadline = env.get("TURKU3D_CHECK_DEADLINE")
@@ -206,12 +212,78 @@ def name_ok(name):
     return name
 
 
+# Locks this process holds: resolved path -> (thread ident, fd). A holder may hand the fd
+# to a child (run_group(hand_over=...)), which then holds the same open file description.
+HANDOVER_ENV = "TURKU3D_HELD_LOCKS"
+_held = {}
+_held_guard = threading.Lock()
+
+
+class Busy(ValueError):
+    """A non-blocking lock() found the lock held elsewhere."""
+
+
+def _inherited(key, path):
+    """The handed-over fd for this lock when it still refers to the same file."""
+    fd = json.loads(os.environ.get(HANDOVER_ENV, "{}")).get(key)
+    if fd is None:
+        return None
+    try:
+        held, current = os.fstat(fd), path.stat()
+        if (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
+            return None
+        # The same open file description: succeeds at once while the parent holds it.
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return None
+    return fd
+
+
 @contextlib.contextmanager
-def lock(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+def _register(key, fd):
+    with _held_guard:
+        _held[key] = (threading.get_ident(), fd)
+    try:
         yield
+    finally:
+        with _held_guard:
+            _held.pop(key, None)
+
+
+@contextlib.contextmanager
+def lock(path, wait=True):
+    """Exclusive flock, re-entrant in the holding thread and in a child it was handed to.
+
+    With wait=False a lock held by another process raises Busy instead of blocking.
+    """
+    path = Path(path)
+    key = str(path.resolve())
+    with _held_guard:
+        reentrant = _held.get(key, (None,))[0] == threading.get_ident()
+    if reentrant:
+        yield
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if (fd := _inherited(key, path)) is not None:
+        with _register(key, fd):
+            yield
+        return
+    with path.open("a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except BlockingIOError:
+            raise Busy(f"lock is held: {path}") from None
+        with _register(key, f.fileno()):
+            yield
+
+
+def held_fd(path):
+    """The fd of a lock this process holds, for run_group(hand_over=...)."""
+    with _held_guard:
+        _, fd = _held.get(str(Path(path).resolve()), (None, None))
+    if fd is None:
+        raise ValueError(f"lock is not held by this process: {path}")
+    return fd
 
 
 def read_json(path, default=None):

@@ -237,6 +237,9 @@ def idle_minutes(path, meta):
 
 def idle_tasks():
     """Stopped, unlanded tasks whose sandbox still exists: work waiting on the orchestrator."""
+    import merge_queue
+
+    queue = merge_queue.state()
     rows = []
     for meta_path in sorted(s.tasks_root().glob("*/meta.json")):
         meta = s.read_json(meta_path)
@@ -244,7 +247,9 @@ def idle_tasks():
         if meta.get("landed") or not (s.root() / name / "sandbox.env").exists():
             continue
         if (idle := idle_minutes(meta_path.parent, meta)) is not None:
-            rows.append(f"{name}: {meta.get('state')}, idle {idle} min")
+            reason = merge_queue.returned(name, queue)
+            state = f"returned: {reason}" if reason else meta.get("state")
+            rows.append(f"{name}: {state}, idle {idle} min")
     return rows
 
 

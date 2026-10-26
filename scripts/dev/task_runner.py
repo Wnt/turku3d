@@ -14,8 +14,10 @@ from collections import deque
 from pathlib import Path
 
 import coordination as coord
+import external_worker
 import host_slots
 import live_build
+import merge_queue
 import queue_sweep
 import sandbox as s
 
@@ -321,6 +323,8 @@ def status(name):
         state = "interrupted"
     if kind := host_slots.waiting(name):
         state = f"waiting for {kind} slot"
+    if reason := merge_queue.returned(name):
+        state = f"returned: {reason}"
     last = deque(read_events(path), maxlen=1)
     elapsed = (meta.get("finished") or time.time()) - meta.get("started", meta["created"])
     commit = (
@@ -440,50 +444,6 @@ def stop(name):
             time.sleep(0.05)
     print(f"{name}: stopped")
     s.reap_browsers(name)
-
-
-def adopt(name, brief):
-    """Register an existing sandbox as a task worked by a non-Codex worker."""
-    s.name_ok(name)
-    home = s.sandbox(name)
-    if not (home / "sandbox.env").exists():
-        raise ValueError(f"no sandbox: {name}; create it with wt new first")
-    path = s.tasks_root() / name
-    if (path / "meta.json").exists():
-        raise ValueError(f"task exists: {name}")
-    brief_path = Path(brief).resolve()
-    if not brief_path.is_file():
-        raise ValueError(f"no brief: {brief_path}")
-    path.mkdir(parents=True, exist_ok=True)
-    now = time.time()
-    meta = {
-        "name": name,
-        "repo": str(home / "repo"),
-        "brief": str(brief_path),
-        "created": now,
-        "started": now,
-        "state": "external",
-        "worker": "external",
-    }
-    s.write_json(path / "meta.json", meta)
-    print(f"{name}: adopted; record the result with codex-task finish")
-
-
-def finish(name, result_path):
-    """Record a result produced by a non-Codex worker so the merge queue can land the task."""
-    path = task(name)
-    text = Path(result_path).read_text()
-    if [line for line in text.splitlines() if line.startswith("## Result:")] != ["## Result: DONE"]:
-        raise ValueError("result must contain an exact ## Result: DONE heading")
-    with s.lock(path / "lock"):
-        meta = s.read_json(path / "meta.json")
-        if running(meta):
-            raise ValueError("task is still running; stop it first")
-        (path / "last.md").write_text(text)
-        meta.update(state="done", exit_code=0, finished=time.time(), worker="external")
-        meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
-        s.write_json(path / "meta.json", meta)
-    print(f"{name}: DONE result recorded; the merge queue lands it after precheck")
 
 
 def facade_reason(path):
@@ -745,16 +705,14 @@ def main():
     elif a.cmd == "precheck":
         precheck(a.name, a.base)
     elif a.cmd == "adopt":
-        adopt(a.name, a.brief)
+        external_worker.adopt(a.name, a.brief)
     elif a.cmd == "finish":
-        finish(a.name, a.result)
+        external_worker.finish(a.name, a.result)
     elif a.cmd == "wait-cmd":
         # A cancelled tool call must still tear down the command's process group.
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
         sys.exit(s.wait_cmd(a.command, a.tail, a.timeout))
     elif a.cmd == "queue":
-        import merge_queue
-
         if a.action == "status":
             merge_queue.status()
         else:

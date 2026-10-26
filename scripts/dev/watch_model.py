@@ -435,7 +435,7 @@ class Monitor:
         overdue = sum(c.overtime() for c in tasks)
         queue = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})
         pending = sum(
-            "published" not in row and "resumed" not in row and "failed" not in row
+            not any(key in row for key in ("published", "resumed", "returned", "failed"))
             for row in queue.get("tasks", {}).values()
         )
         latencies = sorted(

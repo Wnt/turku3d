@@ -508,7 +508,7 @@ class QueueTests(unittest.TestCase):
             git("commit", "-m", "main")
             with (
                 patch.object(merge_queue.s, "sandbox", return_value=home),
-                patch.object(merge_queue, "resume") as resume,
+                patch.object(merge_queue, "return_to_worker") as resume,
             ):
                 self.assertFalse(merge_queue.rebase("worker", {"tasks": {}, "events": []}))
                 self.assertIn("rebase conflict", resume.call_args.args[1])
@@ -551,7 +551,7 @@ class QueueTests(unittest.TestCase):
                 self.assertFalse(merge_queue.process(record))
                 self.assertEqual(fast.call_count, 2)
 
-    def test_failing_member_is_resumed_and_other_member_retries(self):
+    def test_failing_member_is_returned_and_other_member_retries(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             tasks = root / "tasks"
@@ -571,7 +571,7 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue.s, "sandbox", return_value=root),
                 patch.object(merge_queue.s, "git", return_value="main"),
                 patch.object(queue_sweep, "start"),
-                patch.object(merge_queue, "resume") as resume,
+                patch.object(merge_queue, "return_to_worker") as resume,
                 patch(
                     "landing.fast",
                     side_effect=[
@@ -613,7 +613,7 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue.s, "sandbox", return_value=root),
                 patch.object(merge_queue.s, "git", return_value="main"),
                 patch.object(queue_sweep, "start"),
-                patch.object(merge_queue, "resume") as resume,
+                patch.object(merge_queue, "return_to_worker") as resume,
                 patch("landing.fast", side_effect=fast),
             ):
                 self.assertTrue(merge_queue.process(record))
