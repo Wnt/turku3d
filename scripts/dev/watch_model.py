@@ -430,8 +430,21 @@ class Monitor:
             return channel.title() + (" | last.md (l: events)" if channel.show_last else "")
         tasks = [c for c in self.channels if c.role == "task"]
         overdue = sum(c.overtime() for c in tasks)
+        queue = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})
+        pending = sum(
+            "published" not in row and "resumed" not in row and "failed" not in row
+            for row in queue.get("tasks", {}).values()
+        )
+        latencies = sorted(
+            row["published"] - row["done"]
+            for row in queue.get("tasks", {}).values()
+            if row.get("published") and row.get("done")
+        )
+        median = f"{latencies[len(latencies) // 2] / 60:.1f}m" if latencies else "-"
+        maximum = f"{latencies[-1] / 60:.1f}m" if latencies else "-"
         return (
             f"[all] {len(tasks)} tasks, {sum(c.live for c in tasks)} live"
+            f" | queue {pending} ready, median {median}, max {maximum}"
             f" | {overdue} OVER 30m | {sum(c.tokens for c in tasks):,} tok"
             " | arrows 0-9 PgUp/PgDn End l q"
         )

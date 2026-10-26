@@ -55,10 +55,11 @@ progress updates and final reports. This overrides personal default language set
 - The orchestrator starts work with `scripts/dev/codex-task run <name> --brief docs/briefs/X.md`.
   Inspect with `ls`, `status <name>`, `log <name>`, and `result <name>`; follow up with `resume <name> "text"`.
   `stop <name>` stops only that task's process group. The runner refuses exhausted or unreadable quota.
-- Only the orchestrator runs `scripts/dev/codex-task land <name>`. It requires `## Result: DONE`, clean
-  worktrees, rebase on current main, a green gate, a successful sandbox `make refresh`, four-tile build,
-  game build, collision checks and Chrome WebGPU/WebGL2 live checks before a fast-forward. The verified
-  sandbox artifacts are published through `$TURKU3D_DATA/live` after the merge; main does not rebuild them.
+- Rebase on current main at the start of every turn. Before `## Result: DONE`, commit and run
+  `scripts/dev/codex-task precheck <name>` in the sandbox. It rebases again, runs the gate and the
+  real live-build checks, and records reusable stage results. Resolve failures before reporting DONE.
+  The merge queue automatically batches DONE tasks, verifies the combined candidate, fast-forwards
+  main and publishes the verified artifacts through `$TURKU3D_DATA/live`. Workers never land main.
   A facade count below the published baseline requires a `Facade regression reason: ...` line in the task
   result. Workers commit on their own branch.
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.

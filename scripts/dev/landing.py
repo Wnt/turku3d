@@ -55,6 +55,7 @@ def batch(names, force=False):
         commits = []
         build_report = None
         gate_failure = ""
+        gate_cache_hits = []
 
         def assemble(count):
             s.git("reset", "--hard", before, cwd=integration)
@@ -87,6 +88,11 @@ def batch(names, force=False):
             )
             log.write(result.stdout)
             log.flush()
+            gate_cache_hits[:] = [
+                line.split()[2]
+                for line in result.stdout.splitlines()
+                if line.startswith("cached PASS") and len(line.split()) > 2
+            ]
             code = result.returncode
             if (
                 s.git("status", "--porcelain", cwd=integration)
@@ -167,7 +173,11 @@ def batch(names, force=False):
                     s.git("update-ref", "refs/heads/main", commits[-1], before, cwd=integration)
                 live_build.publish(Path(env["TURKU3D_DATA"]), commits[-1])
                 with (s.root() / ".registry/landed.jsonl").open("a") as ledger:
+                    queue_rows = s.read_json(
+                        s.root() / ".registry/merge-queue.json", {"tasks": {}}
+                    ).get("tasks", {})
                     for (name, path, meta, source), commit in zip(members, commits, strict=True):
+                        queued = queue_rows.get(name, {})
                         record = {
                             "name": name,
                             "before": before,
@@ -176,7 +186,11 @@ def batch(names, force=False):
                             "batch": names,
                             "time": time.time(),
                             "gate_seconds": round(time.monotonic() - started, 3),
+                            "gate_cache_hits": gate_cache_hits,
                             "live_build": build_report,
+                            "done_time": queued.get("done", meta.get("finished")),
+                            "enqueue_time": queued.get("enqueue"),
+                            "start_time": queued.get("started"),
                         }
                         meta["landed"] = record
                         s.write_json(path / "meta.json", meta)

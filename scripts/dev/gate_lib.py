@@ -320,7 +320,7 @@ def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False
             else:
                 scope = None
             key = stage_key(root, stage, files, scope, env, tools)
-            return cached_execute(root, stage, key, action)
+            return cached_execute(root, stage, key, action, env)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=jobs()) as pool:
             futures = [pool.submit(run_stage, s) for s in chosen]

@@ -7,6 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import live_cache
 import sandbox as s
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
@@ -31,6 +32,9 @@ def _clone(source, target):
 def seed(work, published):
     for relative in ("build/layers", "textures", "dist/tiles"):
         _clone(published / relative, work / relative)
+    approvals = published / "facade-approvals/assembly"
+    if approvals.is_dir():
+        shutil.copytree(approvals, work / "textures/assembly", dirs_exist_ok=True)
 
 
 def baseline(published):
@@ -81,7 +85,10 @@ def build(repo, work, published, env, log_path, reason=None):
     seed(work, published)
     minimum = baseline(published)
     durations = {}
+    cache_hits = []
     report = None
+    previous = ""
+    cache_enabled = (repo / ".git").exists()
     commands = (
         ("refresh", ["make", "refresh"], repo),
         ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
@@ -104,6 +111,20 @@ def build(repo, work, published, env, log_path, reason=None):
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()
+            key = (
+                live_cache.digest(repo, work, published, stage, previous) if cache_enabled else None
+            )
+            cached = live_cache.restore(published, work, stage, key) if key else None
+            if cached is not None:
+                log.write(f"cache hit {key}\n")
+                durations[stage] = 0.0
+                cache_hits.append(stage)
+                if stage == "tile-build":
+                    report = inspect(
+                        work / "dist/tiles/manifest.json", cached["facades_bound"], minimum, reason
+                    )
+                previous = key
+                continue
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
             proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
@@ -124,7 +145,17 @@ def build(repo, work, published, env, log_path, reason=None):
                 if facade_count is None:
                     raise ValueError(f"tile-build did not report facades_bound: {log_path}")
                 report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
+            if key:
+                live_cache.store(
+                    published,
+                    work,
+                    stage,
+                    key,
+                    {"facades_bound": report["facades_bound"]} if stage == "tile-build" else {},
+                )
+                previous = key
     report["seconds"] = durations
+    report["cache_hits"] = cache_hits
     return report
 
 

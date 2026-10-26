@@ -77,7 +77,9 @@ scripts/dev/codex-task log stairs 30
 scripts/dev/codex-task result stairs
 scripts/dev/codex-task resume stairs 'Fix the failing seam test and rerun the gate.'
 scripts/dev/codex-task stop stairs
-scripts/dev/codex-task land stairs
+scripts/dev/codex-task precheck stairs
+scripts/dev/codex-task queue status
+scripts/dev/codex-task queue run          # one daemon, started by the orchestrator
 ```
 
 Use an actual brief path from `docs/briefs/`. `run` creates the sandbox if absent, exports its environment and
@@ -543,9 +545,8 @@ scripts/dev/wt sync-env                 # current checkout
 scripts/dev/wt sync-env example         # named sandbox (or --all)
 scripts/dev/gate --all
 scripts/dev/gate --paths game/src/core/origin.ts --json
-# Orchestrator only:
-scripts/dev/codex-task land example
-scripts/dev/codex-task land --batch a b c
+scripts/dev/codex-task precheck example
+scripts/dev/codex-task queue status
 # Explicit budgets, on an unloaded machine:
 TURKU3D_JOBS=1 make streaming-perf
 TURKU3D_JOBS=1 make tooling-perf
@@ -559,21 +560,32 @@ Node uses npm ci. It does not mutate linked hook dependencies: sync the source c
 first. A fresh-environment import stage checks dependency declarations when manifests change.
 Native test tools resolve from the same prepared directories as pipeline/env/run.sh.
 
-Successful stages are stored by content hash under `.cache/gate-results`. The key includes
+Successful stages are stored by content hash under `$TURKU3D_DATA/cache/tool-stages/gate`.
+The key includes
 routed source/dependency domains, inventory (including deletions), selected test/lint scope,
-configuration, tools and installed Python versions, and sandbox settings. Only GREEN stages
+configuration, tools and installed Python versions. Sandbox paths and ports are excluded. Only GREEN stages
 can report `cached PASS`; failures are never cached. Policy runs every time because flag expiry
-depends on main's merge count. Remove `.cache/gate-results` to force re-execution.
+depends on main's merge count. Live build stages keep APFS-cloned verified artifacts under
+`$TURKU3D_DATA/cache/tool-stages/live`; keys include the Git tree and input manifests.
 
-Landing checks completion, messages, branch, cleanliness and the gate before verification.
+Before DONE, workers commit and run `scripts/dev/codex-task precheck <name>`. It rebases on main,
+runs the gate and every live build check in the worker sandbox, and saves a report in
+`~/turku3d/tasks/<name>/precheck.json`. A rebase conflict leaves the branch unchanged for the
+worker to resolve. The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon
+polls completed DONE results, rebases each branch, batches up to four ready tasks, verifies one
+combined candidate and publishes it. `queue status` shows task timestamps and median DONE-to-live.
+Conflicts or a bisected failing member are sent back to that worker with route `task_rebase`;
+other ready tasks stay queued. Unread messages do not block the queue. The queue uses
+`wt/.registry/merge-queue.lock` for single-instance ownership and persists its ledger in
+`wt/.registry/merge-queue.json`.
+
+The old `codex-task land` command remains for recovery but is no longer the normal path.
+The orchestrator's `land.sh` and `land-quiet.sh` wrappers are unnecessary.
 A concurrent main advance triggers at most three rebase/gate attempts; unchanged stages reuse
 GREEN results. Batches replay member commits in order in a new isolated integration worktree,
 run one combined gate, and fast-forward main only after all members pass final checks. A red
 batch checks the base, then bisects prefixes and reports a bisected failing prefix (including
-interactions with preceding members). No member is landed on red. Every successful member
-gets its own landed.jsonl record with original and integrated commits. Integration logs remain
-under the task root; member worktrees are unchanged. Conflicts and repeated main advances fail
-without updating main.
+interactions with preceding members). Every successful member gets its own landed.jsonl record.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA
