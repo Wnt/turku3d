@@ -118,7 +118,6 @@ export class MissionSystem implements MissionHudSource {
   /** True until begin() starts a new game: the start screen shows the intro then. */
   get isNewGame(): boolean { return this.s.phase === 'idle'; }
   get currentDelivery(): Delivery { return DELIVERIES[this.s.delivery % DELIVERIES.length]; }
-  get state(): MissionHudState { return this.hud; }
   snapshot() {
     return { ...this.s, address: this.currentDelivery.address, dialogue: this.queue.map(q => q.id), hud: this.hud };
   }

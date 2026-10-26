@@ -1,6 +1,6 @@
 // Typed access to dialogue.json (~/turku3d/briefs/dialogue-contract.md). Code references lines by id only; the
 // displayed text is exactly the line text, so the voice player can match the clip by text.
-import data from './dialogue.json';
+import data from './dialogue.json' with { type: 'json' };
 
 interface DialogueLine {
   id: string;
