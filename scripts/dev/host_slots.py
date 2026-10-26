@@ -6,7 +6,9 @@ import argparse
 import contextlib
 import fcntl
 import json
+import math
 import os
+import statistics
 import subprocess
 import sys
 import time
@@ -149,18 +151,60 @@ def slot(kind):
             time.sleep(0.2)
         if announced:
             print(f"acquired {kind} slot", file=sys.stderr, flush=True)
+        record_wait(kind, entry["sandbox"], time.time() - entry["since"])
         yield False
     finally:
         with state() as data:
             data["entries"] = [e for e in data["entries"] if e != entry]
 
 
+def record_wait(kind, name, seconds):
+    """One O_APPEND line per admission; `stats` reads them back before agents are added."""
+    row = {"time": time.time(), "kind": kind, "name": name, "wait_seconds": round(seconds, 3)}
+    fd = os.open(root() / "waits.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (json.dumps(row) + "\n").encode())
+    finally:
+        os.close(fd)
+
+
+def wait_stats(hours=24, now=None, directory=None):
+    """Admissions, median and p90 (nearest rank) wait seconds per slot kind in the window."""
+    since = (time.time() if now is None else now) - hours * 3600
+    waits = {}
+    try:
+        lines = (Path(directory or root()) / "waits.jsonl").read_text().splitlines()
+    except FileNotFoundError:
+        lines = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            if row["time"] >= since:
+                waits.setdefault(row["kind"], []).append(float(row["wait_seconds"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+    return {
+        kind: {
+            "admissions": len(values),
+            "median": statistics.median(values),
+            "p90": sorted(values)[math.ceil(0.9 * len(values)) - 1],
+        }
+        for kind, values in sorted(waits.items())
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=LIMITS)
+    parser.add_argument("kind", choices=(*LIMITS, "stats"), help="slot class, or stats")
+    parser.add_argument("--hours", type=float, default=24, help="stats window (default 24)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if args.kind == "stats":
+        print(f"slot waits, last {args.hours:g} h: kind admissions median_s p90_s")
+        for kind, row in wait_stats(args.hours).items():
+            print(f"{kind:8} {row['admissions']:6} {row['median']:9.1f} {row['p90']:8.1f}")
+        return 0
     if not command:
         parser.error("command required")
     with slot(args.kind) as inherited:

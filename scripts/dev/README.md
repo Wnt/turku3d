@@ -612,6 +612,11 @@ Refresh divides its job budget between independent steps and passes it to Roofer
 Dead owner PIDs are removed on the next admission or status read. Waiting appears
 in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
 
+Every admission appends `{"time", "kind", "name", "wait_seconds"}` (name is the sandbox) to
+`~/turku3d/host-slots/waits.jsonl`; jobs inheriting a land reservation are not admissions.
+`python3 scripts/dev/host_slots.py stats [--hours 24]` prints admissions, median and p90 wait
+seconds per kind. Raise agent concurrency only while the median wait stays low (study R6/M4).
+
 Direct heavy commands should use the same wrapper, for example:
 
 ```sh

@@ -1,5 +1,6 @@
 """Small process-level tests of host admission and crash recovery."""
 
+import json
 import os
 import signal
 import subprocess
@@ -154,6 +155,39 @@ class HostSlotsTest(unittest.TestCase):
             check=True,
         )
         return result.stdout.strip()
+
+    def test_admissions_log_waits_and_stats_report_median_and_p90(self):
+        first = self.start("land")
+        self.until(lambda: [e["state"] for e in self.snapshot()] == ["running"])
+        queued = self.start("build", seconds=0)
+        self.until(lambda: len(self.snapshot()) == 2)
+        os.killpg(first.pid, signal.SIGTERM)
+        queued.wait(timeout=6)
+        path = Path(self.directory.name) / "waits.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertEqual([row["kind"] for row in rows], ["land", "build"])
+        self.assertEqual({row["name"] for row in rows}, {self.env.get("TURKU3D_SANDBOX", "main")})
+        self.assertGreater(rows[1]["wait_seconds"], 0)
+        now = time.time()
+        old = {"time": now - 25 * 3600, "kind": "build", "name": "x", "wait_seconds": 999}
+        with path.open("a") as log:
+            for row in [old] + [
+                {"time": now, "kind": "browser", "name": "x", "wait_seconds": float(s)}
+                for s in range(1, 11)
+            ]:
+                log.write(json.dumps(row) + "\n")
+            log.write("not json\n")
+        stats = host_slots.wait_stats(24, now, self.directory.name)
+        self.assertEqual(stats["browser"], {"admissions": 10, "median": 5.5, "p90": 9.0})
+        self.assertEqual(stats["build"]["admissions"], 1)
+        done = subprocess.run(
+            [sys.executable, str(Path(host_slots.__file__)), "stats"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertRegex(done.stdout, r"browser +10 +5\.5 +9\.0")
 
 
 if __name__ == "__main__":
