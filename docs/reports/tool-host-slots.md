@@ -54,3 +54,12 @@ landing measurement. Landing priority reserves capacity against commands that
 use the scheduler, so it covers the intended role of `quiet.sh` once active
 worktrees run their heavy commands through slots. It cannot prevent an external
 SIGSTOP or reserve capacity against commands that bypass the scheduler.
+
+The post-rebase gate ran for **1255.026 seconds**. Twenty-three of 24 stages
+passed, including the scheduler tooling tests. `game-e2e` failed after
+**878.488 seconds** with 44/46 tests passing: WebGPU car exit/settling and
+virtual gamepad driving timed out. The failing stage output is in
+`$TURKU3D_WORK/reports/tool-host-gate-rebased.json`. Host load reached
+**244.22/188.23/133.54** during this gate. Both the gate and the real tile
+Chrome suite need green reruns without process stopping and severe contention
+before landing acceptance can be claimed.
