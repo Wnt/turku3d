@@ -209,3 +209,43 @@ def test_native_normal_encoding_preserves_rgb_xyz(tmp_path):
     )
     actual = np.asarray(Image.open(decoded).convert("RGB")).astype(int)
     assert np.max(np.abs(actual - expected)) <= 2  # catches toktx's default RGB=X / A=Y repack
+
+
+def test_ground_raster_cache_and_unchanged_tile_skip(tmp_path, monkeypatch):
+    import hashlib
+
+    from turku3d.config import VisualTile
+    from turkutex.ground import build
+
+    monkeypatch.setattr(build, "CORE_PX", 8)
+    monkeypatch.setattr(build, "HALO_PX", 2)
+    monkeypatch.setattr(build, "SPLAT_PX", 4)
+    monkeypatch.setattr(build, "SPLAT_HALO", 1)
+    reads = []
+    encodes = []
+
+    def read(path, *_args):
+        reads.append(path)
+        return np.full((12, 12, 3), 80, np.uint8), np.ones((12, 12), bool)
+
+    def encode(_inputs, output, **_kwargs):
+        encodes.append(output.name)
+        output.write_bytes(b"ktx")
+        return {"bytes": 3, "sha256": hashlib.sha256(b"ktx").hexdigest()}
+
+    monkeypatch.setattr(build, "read_ortho", read)
+    monkeypatch.setattr(build, "encode", encode)
+    monkeypatch.setattr(
+        build, "fuse", lambda p, r, *_args, **_kwargs: (p, r, np.zeros(p.shape[:2], np.uint8))
+    )
+    tile = VisualTile(0, 0, 0)
+    args = (tile, tmp_path / "primary", tmp_path / "recent", {}, tmp_path / "out", None)
+    extra = {"raster_cache": tmp_path / "cache", "input_key": "source-a", "tile_key": "tile-a"}
+    first = build.build_tile(*args, **extra)
+    assert len(reads) == 2 and len(encodes) == 5
+    assert build.build_tile(*args, **extra) == first
+    assert len(reads) == 2 and len(encodes) == 5
+    build.build_tile(*args, **{**extra, "tile_key": "tile-b"})
+    assert len(reads) == 2 and len(encodes) == 10
+    build.build_tile(*args, **{**extra, "input_key": "source-b", "tile_key": "tile-c"})
+    assert len(reads) == 4

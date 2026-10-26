@@ -53,10 +53,18 @@ The 6250-pixel core has a 65-pixel gutter on each side: **6380×6380** images, b
 The splat core is 1024 pixels with an eight-pixel gutter: **1040×1040**. Splat weights use
 largest-remainder quantization (sum exactly 255), then the shader renormalizes decoded values.
 Albedo is sRGB ETC1S; splats are linear UASTC+zstd. All products have full mip chains.
-Native toktx uses four threads. Large ortho images use quality 128 / compression effort 0;
+`TURKU3D_JOBS` bounds concurrent tile and map work. Each `toktx` process uses its
+assigned CPU threads (`floor(logical cores / TURKU3D_JOBS)`). Large ortho images use quality 128 / compression effort 0;
 small library materials use quality 160 / effort 2. Compression effort affects build time;
 texture sampling and mip allocation are unchanged. Encoder sidecars provide content-hash caching
 and outputs are atomically renamed after successful encoding.
+The builder caches the area calibration and each tile's two source rasters under
+`$TURKU3D_WORK/cache/ground-textures` using source content hashes. The source hash
+index uses file size and modification time to avoid hashing unchanged raw TIFFs again.
+An unchanged tile with all five KTX2 products is skipped before raster or codec work.
+Changing ground collision inputs rebuilds the affected tile splats; changing an ortho
+input rebuilds the tile rasters and textures. To measure a cold build, use a fresh
+`TURKU3D_WORK` sandbox; rerun the same command to measure the cached path.
 
 The shared library has eight 1024² PBR sets and three eight-layer array textures. Each source is
 an actual image_gen result from the quota-aware runner, with job key, thread ID, source hash and

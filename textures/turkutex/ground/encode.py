@@ -1,6 +1,7 @@
 """Native KTX-Software encoder: 2D products and shared library array textures."""
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -10,7 +11,14 @@ from ..post.pipeline import ktx2_header, sha
 
 
 def encode(
-    inputs: list[Path], output: Path, *, linear=False, uastc=False, normal=False, quality=None
+    inputs: list[Path],
+    output: Path,
+    *,
+    linear=False,
+    uastc=False,
+    normal=False,
+    quality=None,
+    threads=None,
 ) -> dict:
     if not inputs:
         raise ValueError("at least one image required")
@@ -23,7 +31,7 @@ def encode(
         "--t2",
         "--genmipmap",
         "--threads",
-        "4",
+        str(threads or max(1, int(os.environ.get("TURKU3D_JOBS", "4")))),
         "--assign_oetf",
         "linear" if linear else "srgb",
         "--encode",
