@@ -23,8 +23,10 @@ export default defineConfig({
     launchOptions: { args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist'] },
   },
   projects: [
-    { name: 'webgpu', use: { backendParam: 'webgpu' } as never },
-    { name: 'webgl', use: { backendParam: 'webgl' } as never },
+    { name: 'webgpu', use: { backendParam: 'webgpu',
+      ...(process.env.TURKU3D_BROWSER_WS_WEBGPU ? { connectOptions: { wsEndpoint: process.env.TURKU3D_BROWSER_WS_WEBGPU } } : {}) } as never },
+    { name: 'webgl', use: { backendParam: 'webgl',
+      ...(process.env.TURKU3D_BROWSER_WS_WEBGL ? { connectOptions: { wsEndpoint: process.env.TURKU3D_BROWSER_WS_WEBGL } } : {}) } as never },
   ],
   webServer: {
     command: `node scripts/make-render-fixture.mjs && ./node_modules/.bin/vite preview --port ${PORT} --strictPort`,

@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type BrowserContext, type Page } from '@playwright/test';
 import type { PhysicsClient } from '../../src/physics/client';
 import { frames } from './waits';
 
@@ -17,7 +17,21 @@ declare global {
   }
 }
 export const gameState = (page: Page) => page.evaluate(() => (window.__game!.state as () => GameState)());
-export const isolatedTest = base.extend<{ isolatedInput: void }>({
+export const isolatedTest = base.extend<{ isolatedInput: void }, { cachedContext: BrowserContext }>({
+  cachedContext: [async ({ browser }, use, workerInfo) => {
+    const context = await browser.newContext({
+      baseURL: workerInfo.project.use.baseURL,
+      viewport: workerInfo.project.use.viewport ?? { width: 1280, height: 720 },
+      deviceScaleFactor: workerInfo.project.use.deviceScaleFactor ?? 1,
+    });
+    await use(context);
+    await context.close();
+  }, { scope: 'worker' }],
+  page: async ({ cachedContext }, use) => {
+    const page = await cachedContext.newPage();
+    await use(page);
+    await page.close();
+  },
   isolatedInput: [async ({ page }, use) => {
     // Parallel Chrome windows must not steal focus or expose a host controller to a test.
     const session = await page.context().newCDPSession(page);

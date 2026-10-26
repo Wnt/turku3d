@@ -25,8 +25,10 @@ export default defineConfig({
     launchOptions: { args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist'] },
   },
   projects: [
-    { name: 'webgpu', use: { backendParam: 'webgpu' } as never },
-    { name: 'webgl', use: { backendParam: 'webgl' } as never },
+    { name: 'webgpu', use: { backendParam: 'webgpu',
+      ...(process.env.TURKU3D_BROWSER_WS_WEBGPU ? { connectOptions: { wsEndpoint: process.env.TURKU3D_BROWSER_WS_WEBGPU } } : {}) } as never },
+    { name: 'webgl', use: { backendParam: 'webgl',
+      ...(process.env.TURKU3D_BROWSER_WS_WEBGL ? { connectOptions: { wsEndpoint: process.env.TURKU3D_BROWSER_WS_WEBGL } } : {}) } as never },
   ],
   webServer: {
     command: `node ../tools/dev/serve-dist.mjs --root ${JSON.stringify(gameDist)} --port ${PORT} --mount ${JSON.stringify(`/tiles=${TILE_DIST}`)}`,
