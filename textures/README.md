@@ -60,8 +60,26 @@ FACADES="$TURKU3D_WORK/textures/pilot/facades.geojson"
 RUN="$TURKU3D_WORK/textures/pilot"
 textures/.venv/bin/python -m turkutex facade-batch refs "$FACADES" --refs "$TURKU3D_WORK/textures/refs"
 textures/.venv/bin/python -m turkutex facade-batch generate "$FACADES" --run "$RUN" --refs "$TURKU3D_WORK/textures/refs" -j 2 --max-pct 60
+textures/.venv/bin/python -m turkutex facade-batch visualqa "$FACADES" --run "$RUN" --refs "$TURKU3D_WORK/textures/refs" --output "$RUN/staging" -j 4 --max-pct 60
 textures/.venv/bin/python -m turkutex facade-batch post "$FACADES" --mode generate --run "$RUN" --refs "$TURKU3D_WORK/textures/refs" --output "$RUN/staging" --ppm 32
+textures/.venv/bin/python -m turkutex.facade_generated_qa --facades "$FACADES" --refs "$TURKU3D_WORK/textures/refs" \
+  --generated "$RUN/generated" --staging "$RUN/staging" --visual-qa "$RUN/run_visualqa/out.jsonl" \
+  --output "$RUN/acceptance.json" --min-ppm 32
 ```
+
+Generate jobs skip rectified views that are more than 20% pure black (Look Around
+crops outside panorama coverage); a wall with no other full view gets no job.
+`TURKU3D_CODEX_MODEL` and `TURKU3D_CODEX_EFFORT` select the image model for one
+run. The `visualqa` stage writes the reviewed wall content, without layout-guide
+margins, to `$RUN/generated/<facade_id>.png` and asks the fixed reviewer
+(`generated_visual_qa` in `codex-routing.toml`, gpt-6-astra/low) to compare it with the
+used references under `schemas/facade_visual_qa.schema.json`. Run it without the
+model override so every image model is judged by the same reviewer. For one retry
+of rejected walls, write `{facade_id: reason}` to a JSON file and pass it to
+`generate --feedback FILE`; only those walls are regenerated, the reason goes into
+the prompt, and their latest record replaces the old one. Then rerun `visualqa`,
+`post` and the audit. The model comparison is in
+`docs/reports/w1-09g-generated-office.md`.
 
 The office pilot used the built-in image generator and put its three chosen
 images in `$RUN/generated`, with equivalent per-image records in
