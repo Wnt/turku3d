@@ -230,3 +230,69 @@ def improve_jobs(facades_path: Path, refs_root: Path, labels_out: Path) -> list[
             }
         )
     return jobs
+
+
+def generate_jobs(
+    facades_path: Path, refs_root: Path, labels_out: Path | None = None
+) -> list[dict]:
+    """Build reference-led, fully generated elevations without depending on a label pass."""
+    specs = labels(labels_out) if labels_out is not None else {}
+    fragments = {
+        k: (PROMPTS_DIR / "fragments" / f"{k}.md").read_text().strip()
+        for k in ("style", "albedo_rules")
+    }
+    result = []
+    for f in load_facades(facades_path):
+        if not f.props.get("street_facing", True) or not reference_matches(f, refs_root):
+            continue
+        d = refs_root / f.id
+        views = [v for v in _views(d) if v.get("part") == "full"][:3]
+        if not views:
+            continue
+        best = max(views, key=lambda v: v.get("score") or 0)
+        ratio = f.length / f.height_m
+        guide = layout_guide(f, d) if ratio > 3 or ratio < 1 / 3 else None
+        images = [str(d / v["files"]["rectified"]) for v in views]
+        images.append(str(d / best["files"]["outline"]))
+        if guide:
+            images.append(str(guide))
+        count = f.props.get("bay_count")
+        result.append(
+            {
+                "id": f"{f.id}.generate",
+                "prompt_file": str(PROMPTS_DIR / "facade_generate.md"),
+                "vars": {
+                    "width_m": f"{f.length:.3f}",
+                    "height_m": f"{f.height_m:.3f}",
+                    "aspect": f"{ratio:.4f}:1",
+                    "bay_instruction": (
+                        f"The authoritative geometry calls for {int(count)} bays."
+                        if count is not None
+                        else "Infer the opening grid from the references; do not invent a geometry bay count."
+                    ),
+                    "view_list": "\n".join(v["files"]["rectified"] for v in views),
+                    "label_instruction": json.dumps(specs[f.id]) if f.id in specs else "",
+                    "layout_instruction": (
+                        f"The last attachment is a layout guide, not a photo. Put the complete wall "
+                        f"inside its grey rectangle at {ratio:.4f}:1 and leave the white canvas outside."
+                        if guide
+                        else ""
+                    ),
+                    **fragments,
+                },
+                "images": images,
+                "expect_images": 1,
+                "timeout": 900,
+                "prompt_version": "facade-generate-v1",
+                "meta": {
+                    "kind": "generate",
+                    "facade_id": f.id,
+                    "building_id": str(f.props.get("building_id", f.id)),
+                    "width_m": f.length,
+                    "height_m": f.height_m,
+                    "bay_count": count,
+                    "views_used": [v["view_id"] for v in views],
+                },
+            }
+        )
+    return result

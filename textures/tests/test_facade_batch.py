@@ -61,6 +61,43 @@ def inventory(tmp_path):
     return fs, path, tmp_path / "refs"
 
 
+def test_generate_jobs_use_metric_wall_and_reference_without_labels(tmp_path):
+    _, path, refs = inventory(tmp_path)
+    generated = jobs.generate_jobs(path, refs)
+    assert [job["id"] for job in generated] == ["wall_a.generate", "wall_b.generate"]
+    assert generated[0]["vars"]["width_m"] == "40.000"
+    assert "11 bays" in generated[0]["vars"]["bay_instruction"]
+    assert len(generated[0]["images"]) == 3  # rectified, outline, extreme-aspect guide
+    assert generated[1]["meta"]["kind"] == "generate"
+
+
+def test_generated_report_requires_opening_and_foreign_object_review(tmp_path):
+    fs, path, refs = inventory(tmp_path)
+    run, output = tmp_path / "run", tmp_path / "out"
+    record = {"id": "wall_a.generate", "ok": True, "key": "k", "meta": {"kind": "generate"}}
+    (run / "run_generate").mkdir(parents=True)
+    (run / "run_generate/out.jsonl").write_text(json.dumps(record) + "\n")
+    sidecar = asset_path(fs[0], output).with_suffix(".json")
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text(
+        json.dumps(
+            {
+                "width_m": fs[0].length,
+                "height_m": fs[0].height_m,
+                "references": [{"pano_id": "p"}],
+                "hashes": {},
+                "qa": {
+                    "scale_relative_error": 0,
+                    "content_aspect_error": 0,
+                    "gltf_basisu_valid": True,
+                },
+            }
+        )
+    )
+    rows = report(path, refs, run, output)["rows"]
+    assert "generated image lacks opening and foreign-object QA" in rows[0]["problems"]
+
+
 def test_one_label_per_building_geometry_overrides_photo_priors(tmp_path):
     fs, path, refs = inventory(tmp_path)
     label = jobs.label_jobs(path, refs)

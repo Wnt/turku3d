@@ -265,6 +265,7 @@ def thumbnail(path: Path | None) -> str:
 def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
     facades = validate_inventory(facades_path, output)
     improvements = jobs.latest(run / "run_improve/out.jsonl")
+    improvements.update(jobs.latest(run / "run_generate/out.jsonl"))
     labels = jobs.labels(run / "run_label/out.jsonl")
     rows, cards = [], []
     from .library_batch import material_valid
@@ -282,7 +283,9 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
         for line in lines:
             attempt = json.loads(line)
             meta = attempt.get("meta", {})
-            stage = {"building_label": "label", "improve": "improve"}.get(meta.get("kind"))
+            stage = {"building_label": "label", "improve": "improve", "generate": "generate"}.get(
+                meta.get("kind")
+            )
             identity = attempt.get("thread_id") or hashlib.sha256(line.encode()).hexdigest()
             if stage is None or identity in seen:
                 continue
@@ -290,7 +293,7 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
             ids = meta.get("facade_ids", [meta.get("facade_id")])
             for fid in ids:
                 counts = calls.setdefault(fid, {"label": 0, "improve": 0, "imagegen": 0})
-                counts[stage] += 1
+                counts[stage] = counts.get(stage, 0) + 1
                 counts["imagegen"] += len(attempt.get("imagegen_calls", []))
     for f in facades:
         target = asset_path(f, output)
@@ -300,7 +303,7 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
             if target.with_suffix(".json").exists()
             else None
         )
-        record = improvements.get(f.id + ".improve", {})
+        record = improvements.get(f.id + ".generate", improvements.get(f.id + ".improve", {}))
         problems = []
         if f.props.get("street_facing", True):
             if not views:
@@ -317,6 +320,10 @@ def report(facades_path: Path, refs: Path, run: Path, output: Path) -> dict:
                     problems.append("processed texture does not match latest generation")
                 if not metadata.get("references"):
                     problems.append("no logged usable reference")
+                if record.get("meta", {}).get("kind") == "generate" and not metadata.get(
+                    "generated_qa"
+                ):
+                    problems.append("generated image lacks opening and foreign-object QA")
                 if (
                     abs(metadata["width_m"] - f.length) > 1e-6
                     or abs(metadata["height_m"] - f.height_m) > 1e-6
@@ -480,7 +487,9 @@ def log_usage(run: Path, stage: str):
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("stage", choices=["refs", "label", "improve", "post", "report", "all"])
+    ap.add_argument(
+        "stage", choices=["refs", "label", "improve", "generate", "post", "report", "all"]
+    )
     ap.add_argument("facades", type=Path)
     ap.add_argument("--run", type=Path, default=textures_data_dir("aoi"))
     ap.add_argument("--refs", type=Path, default=textures_data_dir("refs"))
@@ -493,12 +502,13 @@ def main(argv=None) -> int:
     ap.add_argument("--max-pct", type=float, default=100)
     ap.add_argument("--max-side", type=int, default=2048)
     ap.add_argument("--ppm", type=float, default=64)
+    ap.add_argument("--mode", choices=["improve", "generate"], default="improve")
     a = ap.parse_args(argv)
     if not 1 <= a.ref_max_views <= 12:
         ap.error("--ref-max-views must be between 1 and 12")
     facades = validate_inventory(a.facades, a.output)
     a.run.mkdir(parents=True, exist_ok=True)
-    stages = ["refs", "label", "improve", "post", "report"] if a.stage == "all" else [a.stage]
+    stages = ["refs", "label", a.mode, "post", "report"] if a.stage == "all" else [a.stage]
     errors = []
     for stage in stages:
         if stage == "refs":
@@ -536,11 +546,18 @@ def main(argv=None) -> int:
                             }
                         )
                         print(f"{f.id}: reference failed ({type(exc).__name__})", flush=True)
-        elif stage in ("label", "improve"):
-            builder = jobs.label_jobs if stage == "label" else jobs.improve_jobs
+        elif stage in ("label", "improve", "generate"):
+            builder = {
+                "label": jobs.label_jobs,
+                "improve": jobs.improve_jobs,
+                "generate": jobs.generate_jobs,
+            }[stage]
             args = [a.facades, a.refs] + (
                 [a.run / "run_label/out.jsonl"] if stage == "improve" else []
             )
+            if stage == "generate":
+                label_path = a.run / "run_label/out.jsonl"
+                args.append(label_path if label_path.exists() else None)
             job_path = a.run / f"{stage}_jobs.jsonl"
             _write(builder(*args), job_path)
             log_usage(a.run, stage + "_before")
@@ -566,20 +583,20 @@ def main(argv=None) -> int:
                             raise ValueError(f"{bid}: label returned mismatched facade IDs")
                         write_json(a.output / "facades" / bid / "spec.json", answer)
         elif stage == "post":
-            records = jobs.latest(a.run / "run_improve/out.jsonl")
+            records = jobs.latest(a.run / f"run_{a.mode}/out.jsonl")
             with cf.ThreadPoolExecutor(max_workers=a.post_workers) as pool:
                 futures = {
                     pool.submit(
                         post_facade,
                         f,
-                        records[f.id + ".improve"],
+                        records[f.id + f".{a.mode}"],
                         a.refs,
                         a.output,
                         ppm=a.ppm,
                         max_side=a.max_side,
                     ): f
                     for f in facades
-                    if records.get(f.id + ".improve", {}).get("ok")
+                    if records.get(f.id + f".{a.mode}", {}).get("ok")
                 }
                 for future in cf.as_completed(futures):
                     f = futures[future]
