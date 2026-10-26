@@ -119,10 +119,13 @@ known-red car report over the same collision tiles. The release gate requires
 buildings and curbs; car failures are recorded in `reports/validate-cars.json`
 and `live-build.json` while car content and vehicle response are repaired. Car
 validator load errors and missing reports still fail the live build. The full
-`make tile-validate` command still requires cars,
-`make game-build`, `make collision-sweep`, `make collision-audit`,
+`make tile-validate` command still requires cars. Then `bash pipeline/env/run.sh python -m
+turku3d.package.facade_ground_audit`, `make game-build`, `make collision-sweep`, `make collision-audit`,
 and the real-tile Playwright suite in Chrome on the sandbox dist port. The suite checks spawn loading on
-WebGPU and WebGL2 and fewer than 500 draws. The manifest check requires ground textures on all four L0
+WebGPU and WebGL2, sweeps 24 street poses in all four L0 tiles plus an aerial view,
+and requires fewer than 500 draws at every street pose and the bridge gameplay pose.
+The facade audit reports all approved facades, including buried bases on slopes, and
+blocks floating or missing walls and incorrect photo UVs. The manifest check requires ground textures on all four L0
 tiles and each tile below 8 MB on the wire. The assembler's `facades_bound` count must meet the current
 published release's count. A task may report an intentional reduction with `Facade regression reason:
 <specific reason>` in `last.md`; the exception is recorded in the landing ledger. Stage times and output

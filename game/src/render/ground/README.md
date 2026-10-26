@@ -2,6 +2,11 @@
 
 `material.ts` exports `loadGroundLibrary`, `loadGroundTile`, and `createGroundMaterial`.
 `MaterialStyler` delegates assembler-declared ground bindings to `GroundBindings`. QA readiness waits for these loads. The binding owns tile maps, shares library arrays, and disposes late results after a tile unload.
+After binding, ground meshes in the same tile share one world-space geometry and one
+material draw. Their original meshes remain hidden until tile release, so the ID
+pass can still use the unbatched source geometry on its separate QA page. The
+four-tile Chrome sweep in `game/tests/e2e-tile/area.spec.ts` checks the resulting
+draw budget at street poses and at the bridge gameplay spawn.
 The office integration spec checks the published binding, applied runtime material, and distinct
 ground pixels near the spawn on WebGPU and WebGL. Run it after `make tile-build` with
 `cd game && npx playwright test -c playwright.tile.config.ts integration.spec.ts --workers=1`.
