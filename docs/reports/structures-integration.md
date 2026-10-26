@@ -29,6 +29,18 @@ The real run emits 33 walls. **103/135** Rapier cases pass: 26/29 blocking wall
 routes, 61/90 fences, 14/14 quays and 2/2 stair traversals. There are **96**
 remaining issues, mostly rejected stair measurements and short fence crossings.
 
+## Short fence collision probes, 2026-10-26
+
+All 29 fence routes still failing after wall reconstruction corresponded to
+surveyed fragments only 0.20–0.65 m long. A 0.6 m diameter character capsule
+can slide around their ends, so a straight walking route does not establish
+whether those fragments have solid collision. For these fragments, acceptance
+now casts a Rapier ray through the individual generated fence collider at its
+measured height. A missing collider fails the test. Longer fences retain the
+walking barrier probe. The real run passes **132/135** cases: all 90 fences,
+26/29 walls, 14/14 quays and 2/2 stair traversals. There are **67** remaining
+issues, including three wall routes.
+
 ## Initial baseline
 
 Measured 2026-10-26 in the `fix-structures-in-main` sandbox against the

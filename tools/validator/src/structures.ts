@@ -7,6 +7,7 @@ import { Walker } from './kcc.ts';
 interface Traversal {
   start: number[];
   target: number[];
+  solid_hit_y?: number;
 }
 export interface StructureCase {
   object_id: string;
@@ -14,6 +15,8 @@ export interface StructureCase {
   triangles: number[][][];
   material: number[];
   routes: Traversal[];
+  solid_triangles?: number[][][];
+  solid_material?: number[];
 }
 
 function createWorld(scene: StructureCase) {
@@ -51,11 +54,27 @@ function createWorld(scene: StructureCase) {
 }
 
 function walk(scene: StructureCase, route: Traversal) {
-  const world = createWorld(scene);
+  if (route.solid_hit_y !== undefined && !scene.solid_triangles?.length) {
+    return { passed: false, progress_m: 0, distance_m: Math.hypot(
+      route.target[0] - route.start[0], route.target[2] - route.start[2]),
+      final_feet_y: route.start[1], height_error_m: 0, solid_hit_y: route.solid_hit_y };
+  }
+  const world = createWorld(route.solid_hit_y === undefined ? scene : {
+    ...scene, triangles: scene.solid_triangles ?? [], material: scene.solid_material ?? [],
+  });
   try {
     const [x, y, z] = route.start;
     const dx = route.target[0] - x, dz = route.target[2] - z;
     const distance = Math.hypot(dx, dz), ux = dx / distance, uz = dz / distance;
+    if (route.solid_hit_y !== undefined) {
+      const ray = new RAPIER.Ray({ x, y: route.solid_hit_y, z }, { x: ux, y: 0, z: uz });
+      const hit = world.castRay(ray, distance, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+        groups(GROUP.CHARACTER, GROUP.STATIC_SOLID));
+      const progress = hit?.timeOfImpact ?? distance;
+      const passed = hit != null && Math.abs(progress - distance / 2) < 0.35;
+      return { passed, progress_m: progress, distance_m: distance, final_feet_y: y,
+        height_error_m: 0, solid_hit_y: route.solid_hit_y };
+    }
     const walker = new Walker(RAPIER, world);
     walker.place(x, y, z);
     const frames = Math.ceil((4 * distance / 2 + 2) * 60);

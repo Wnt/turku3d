@@ -10,6 +10,7 @@ from turku3d.col.materials import mat_id
 
 
 def prepare_cases(meshes, ground, measurements):
+    solids = {m.object_id: m for m in meshes if m.material in ("fence", "railing")}
     triangles = np.concatenate([ground.triangles, *(m.positions[m.indices] for m in meshes)])
     material = np.concatenate(
         [
@@ -65,7 +66,22 @@ def prepare_cases(meshes, ground, measurements):
                     # from upper ground, using measured contact on both sides.
                     if (kind == "wall" and ah > bh) or (kind != "wall" and ah < bh):
                         a, b, ah, bh = b, a, bh, ah
-                    routes.append({"start": [a[0], ah, a[1]], "target": [b[0], bh, b[1]]})
+                    route = {"start": [a[0], ah, a[1]], "target": [b[0], bh, b[1]]}
+                    # A fragment narrower than the character capsule can be
+                    # walked around. Verify its solid collider at the surveyed
+                    # centre instead of treating it as a continuous barrier.
+                    if kind in ("fence", "railing") and distance[-1] < 0.7:
+                        fraction = (station - distance[k]) / lengths[k]
+                        foot = (
+                            measured["lower_y"][k] * (1 - fraction)
+                            + measured["lower_y"][k + 1] * fraction
+                        )
+                        top = (
+                            measured["upper_y"][k] * (1 - fraction)
+                            + measured["upper_y"][k + 1] * fraction
+                        )
+                        route["solid_hit_y"] = float(foot + min(0.6, (top - foot) / 2))
+                    routes.append(route)
         except ValueError as error:
             issues.append({"object_id": measured["object_id"], "reason": f"physics route: {error}"})
             continue
@@ -73,15 +89,18 @@ def prepare_cases(meshes, ground, measurements):
             ends = np.asarray([route["start"], route["target"]])[:, [0, 2]]
             pmin, pmax = ends.min(axis=0) - 2, ends.max(axis=0) + 2
             mask = np.all(high >= pmin, axis=1) & np.all(low <= pmax, axis=1)
-            cases.append(
-                {
-                    "object_id": f"{measured['object_id']}:route:{k}",
-                    "kind": kind,
-                    "triangles": triangles[mask].tolist(),
-                    "material": material[mask].tolist(),
-                    "routes": [route],
-                }
-            )
+            case = {
+                "object_id": f"{measured['object_id']}:route:{k}",
+                "kind": kind,
+                "triangles": triangles[mask].tolist(),
+                "material": material[mask].tolist(),
+                "routes": [route],
+            }
+            if "solid_hit_y" in route and measured["object_id"] in solids:
+                mesh = solids[measured["object_id"]]
+                case["solid_triangles"] = mesh.positions[mesh.indices].tolist()
+                case["solid_material"] = [mat_id(mesh.material)] * len(mesh.indices)
+            cases.append(case)
     return cases, issues
 
 

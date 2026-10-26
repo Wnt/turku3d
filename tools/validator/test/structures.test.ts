@@ -112,4 +112,15 @@ test('real-ground acceptance detects missing colliders and checks actual landing
   const missingFence = await checkStructures([{ object_id: 'missing-fence', kind: 'fence',
     triangles: ground, material: [MAT.sidewalk, MAT.sidewalk], routes: [{ start: [0, 0, 0], target: [4, 0, 0] }] }]);
   assert.equal(missingFence.passed, false, 'an unobstructed route must not pass a barrier test');
+  const shortFence = scenes.fence.meshes.find(m => m.material === MAT.fence)!;
+  const fragmentTriangles = [...ground, ...shortFence.indices.map(indices => indices.map(i => shortFence.positions[i]))];
+  const fragmentMaterials = [MAT.sidewalk, MAT.sidewalk, ...shortFence.indices.map(() => MAT.fence)];
+  const fragment = { object_id: 'short-fence', kind: 'fence' as const, triangles: fragmentTriangles,
+    material: fragmentMaterials, solid_triangles: fragmentTriangles.slice(2), solid_material: fragmentMaterials.slice(2),
+    routes: [{ start: [0, 0, 0], target: [4, 0, 0], solid_hit_y: 0.6 }] };
+  const hit = await checkStructures([fragment]);
+  assert.equal(hit.passed, true, 'a short solid fence must register at its surveyed centre');
+  const missingFragment = await checkStructures([{ ...fragment, triangles: ground, material: [MAT.sidewalk, MAT.sidewalk],
+    solid_triangles: [], solid_material: [] }]);
+  assert.equal(missingFragment.passed, false, 'ground alone cannot satisfy a short fence collision probe');
 });
