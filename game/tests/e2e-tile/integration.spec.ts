@@ -30,6 +30,7 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   await page.setViewportSize({ width: 2560, height: 1440 });
   const backend = info.project.name;
   await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => {
     const s = (window as any).__game?.state?.();
     return s?.grounded && s.tilesSettled && s.visTris > 100_000;
