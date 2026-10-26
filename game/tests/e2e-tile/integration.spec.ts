@@ -32,8 +32,11 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => {
-    const s = (window as any).__game?.state?.();
-    return s?.grounded && s.tilesSettled && s.visTris > 100_000;
+    const game = (window as any).__game;
+    const s = game?.state?.();
+    const visible = game?.tiles.tiles.visibleTiles;
+    return s?.grounded && s.tilesSettled && s.visTris > 100_000 &&
+      [...(visible ?? [])].some((tile: any) => tile.extras?.id?.startsWith('t0_'));
   }, null, { timeout: 60_000 });
   const state = await page.evaluate(() => (window as any).__game.state());
   for (const footprint of manifest.spawn.footprints) {

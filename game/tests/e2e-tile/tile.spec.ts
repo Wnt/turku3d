@@ -64,9 +64,13 @@ test('assembled tile from the pipeline renders and the character walks on its co
   await page.goto(`/?backend=${backend}&tiles=${TILES}&spawn=${WALK_START.E},${WALK_START.N},0`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 });
-  await page.waitForFunction(() => { const s = (window as any).__game.state(); return s.tilesSettled && s.collision.tiles > 0 && s.grounded; }, null, { timeout: 90_000 });
-  const start = await page.evaluate(() => (window as any).__game.state());
   const vis = manifest.visual.t0_0_0;
+  await page.waitForFunction((tris) => {
+    const game = (window as any).__game;
+    const s = game.state();
+    return s.tilesSettled && s.collision.tiles > 0 && s.grounded && s.visTris >= tris;
+  }, vis.tris, { timeout: 90_000 });
+  const start = await page.evaluate(() => (window as any).__game.state());
   expect(start.visTris).toBeGreaterThanOrEqual(vis.tris);
   expect(start.collision.tiles).toBeGreaterThan(0); // streaming continues in the background (4 in flight)
   expect(Math.abs(start.E - WALK_START.E)).toBeLessThan(0.5);

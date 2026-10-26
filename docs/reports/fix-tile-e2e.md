@@ -84,7 +84,7 @@ share one encoded KTX2; that key allows at most 3/255 source difference per
 channel. The final tile manifest records `budget_before_bytes` and
 `wire_bytes`, both including each tile's ground texture bytes.
 
-The final build used all 316 bound facades and the published ground PBR arrays.
+The pre-refresh build used all 316 bound facades and the published ground PBR arrays.
 Each total is the Brotli GLB plus its ground texture bytes:
 
 | L0 tile | Before scaling | After scaling | Ground included |
@@ -114,23 +114,27 @@ directly from the source KTX2 and encoded once per page, avoiding individual
 variant encodes that the atlas would discard. ETC1S is used for albedo and ORM,
 and UASTC for normals, as in the measured choice above.
 
-The office view now makes **407 draws** on WebGPU and **407 on WebGL2** at
-2560 × 1440 after rebasing onto main `2998058`. Its three visible tiles have three `buildings/facade_atlas`
+The office view now makes **457 draws** on WebGPU and **457 on WebGL2** at
+2560 × 1440 after refreshing the derived ground layer on the rebased branch.
+The ground refresh adds a `ground/wall` material; the three visible tiles still have three `buildings/facade_atlas`
 colour meshes. The `<500` assertion and facade ID-pixel assertion are unchanged.
 The initial three-worker browser run passed 11/12 cases but timed out on the
 WebGL2 aerial QA navigation under host contention. Main subsequently added two
 ground-texture QA views to the same test, causing the final screenshot to hit
 its 120-second limit. The independent ground QA views are now a separate test
 with all image and pixel assertions intact. On the rebased code,
-`TURKU3D_JOBS=1 make tile-e2e` passed **14/14 cases in 7.1 minutes**,
-including facade IDs, ground texture detail, walking and tile seams on both backends.
+`TURKU3D_JOBS=1 make tile-e2e` passed **16/16 cases in 6.8 minutes** against
+the refreshed ground and all 316 facade bindings. The office and walking tests
+wait for the requested L0 geometry before sampling asynchronous tile state;
+the parked-car test waits for nearby collision tiles before driving. Facade IDs,
+ground detail, parked driving, walking and tile seams pass on both backends.
 
 The rebuilt 316-facade tiles, including ground PBR bytes, remain under the
 unchanged 8,000,000-byte limit:
 
 | L0 tile | Before adaptive scaling and atlas | Shipped with atlas |
 |---|---:|---:|
-| `t0_0_0` | 19,717,004 | 7,575,516 |
-| `t0_0_1` | 11,581,724 | 7,885,313 |
-| `t0_1_0` | 10,961,562 | 7,559,196 |
-| `t0_1_1` | 13,301,024 | 7,788,094 |
+| `t0_0_0` | 19,182,772 | 7,753,391 |
+| `t0_0_1` | 11,567,545 | 7,864,885 |
+| `t0_1_0` | 11,037,020 | 7,628,024 |
+| `t0_1_1` | 13,358,186 | 7,844,544 |
