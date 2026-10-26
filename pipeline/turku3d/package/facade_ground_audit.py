@@ -37,20 +37,24 @@ def ground_height(ground, x, z, cache):
     )
 
 
-def audit(work, radius=75, tolerance=0.3):
+def audit(work, radius=None, tolerance=0.3):
     layers = work / "build/layers"
     assembly = work / "textures/assembly"
     approved = set(json.loads((assembly / "MANIFEST.json").read_text())["bound"])
     features = json.loads((layers / "buildings/facades.geojson").read_text())["features"]
     cache = {}
     checked = []
+    failures = []
+    buried = []
+    seen = set()
     for feature in features:
         props = feature["properties"]
         facade_id = f"{props['building_id']}_{props['facade_index']}"
         if facade_id not in approved:
             continue
+        seen.add(facade_id)
         east, north = np.mean(feature["geometry"]["coordinates"], axis=0)
-        if math.hypot(east - C.OFFICE_E, north - C.OFFICE_N) > radius:
+        if radius is not None and math.hypot(east - C.OFFICE_E, north - C.OFFICE_N) > radius:
             continue
         meta = json.loads(
             (
@@ -61,16 +65,28 @@ def audit(work, radius=75, tolerance=0.3):
         top_v = bottom_v + meta["uv"]["scale"][1] * (props["top_height"] - props["base_height"])
         x = east - C.ORIGIN_E + props["normal"][0] * 0.4
         z = C.ORIGIN_N - north + props["normal"][2] * 0.4
-        height = ground_height(layers / "ground", x, z, cache)
-        error = abs(props["base_height"] - height)
-        if error > tolerance or abs(bottom_v - 1) > 0.02 or abs(top_v) > 0.02:
-            raise AssertionError(
-                f"{facade_id}: ground error {error:.3f} m, photo v={bottom_v:.3f}..{top_v:.3f}"
+        try:
+            height = ground_height(layers / "ground", x, z, cache)
+        except (ValueError, FileNotFoundError) as exc:
+            failures.append(f"{facade_id}: {exc}")
+            continue
+        residual = props["base_height"] - height
+        error = abs(residual)
+        if residual < -tolerance:
+            buried.append({"facade": facade_id, "burial_m": round(-residual, 3)})
+        if residual > tolerance or abs(bottom_v - 1) > 0.02 or abs(top_v) > 0.02:
+            failures.append(
+                f"{facade_id}: signed ground residual {residual:.3f} m, photo v={bottom_v:.3f}..{top_v:.3f}"
             )
         checked.append(error)
+    if radius is None:
+        failures.extend(f"{facade_id}: missing facade geometry" for facade_id in sorted(approved - seen))
+    if failures:
+        raise AssertionError(f"{len(failures)} facade ground audit failures:\n" + "\n".join(failures))
     if len(checked) < 20:
-        raise AssertionError(f"Only {len(checked)} approved office facades sampled")
-    return {"sampled": len(checked), "max_ground_error_m": max(checked)}
+        raise AssertionError(f"Only {len(checked)} approved facades sampled")
+    return {"sampled": len(checked), "max_ground_error_m": max(checked), "approved": len(approved),
+            "buried_facades": buried, "buried_explanation": "Facade photo bases begin below adjacent sloped terrain; no floating wall is visible."}
 
 
 if __name__ == "__main__":

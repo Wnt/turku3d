@@ -44,6 +44,7 @@ declare global {
     __qaInfo?: Record<string, unknown>;
     __qaIdTable?: Record<string, unknown>;
     __qaProject?: (E: number, N: number, H: number) => [number, number] | null;
+    __qaMove?: (pose: { E: number; N: number; H: number; yaw: number; pitch: number; fov: number }) => void;
     __game?: Record<string, unknown>;
     __perf?: PerfSnapshot;
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
@@ -155,7 +156,20 @@ async function runQa() {
   let stable = 0;
   let idleEmptySince: number | null = null;
   const bounds = new THREE.Box3();
-  const t0 = performance.now();
+  let t0 = performance.now();
+  window.__qaMove = pose => {
+    Object.assign(q, { E: pose.E, N: pose.N, H: pose.H, yawDeg: pose.yaw,
+      pitchDeg: pose.pitch, fovDeg: pose.fov });
+    applyQaCamera();
+    window.__qaPose = { ...pose, roll: q.rollDeg };
+    env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
+    window.__qaReady = false;
+    window.__qaError = undefined;
+    stable = 0;
+    idleEmptySince = null;
+    t0 = performance.now();
+    perf.reset();
+  };
   let last = t0;
   renderer.setAnimationLoop(() => {
     if (window.__render?.beforeFrame?.() === false) return;

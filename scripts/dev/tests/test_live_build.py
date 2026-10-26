@@ -272,7 +272,12 @@ class LiveBuildTests(unittest.TestCase):
                         )
                     )
                     return type("Completed", (), {"returncode": 1, "stdout": "cars FAIL\n"})()
-                output = '{"facades_bound": 2}\n' if "tile-build" in command else "passed\n"
+                if "tile-build" in command:
+                    output = '{"facades_bound": 2}\n'
+                elif any(part.endswith("facade_ground_audit") for part in command):
+                    output = '{"sampled": 2, "buried_facades": []}\n'
+                else:
+                    output = "passed\n"
                 return type("Completed", (), {"returncode": 0, "stdout": output})()
 
             with (
@@ -294,13 +299,14 @@ class LiveBuildTests(unittest.TestCase):
                     "tile-build",
                     "tile-validate",
                     "car-report",
+                    "facade-ground-audit",
                     "game-build",
                     "collision-sweep",
                     "collision-audit",
                     "chrome",
                 ],
             )
-            self.assertEqual(len(calls), 8)
+            self.assertEqual(len(calls), 9)
             self.assertEqual(
                 calls[2][0][:3], ["make", "tile-validate", "T=" + " ".join(live_build.TILES)]
             )
@@ -318,6 +324,7 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(report["facades_bound"], 2)
             self.assertEqual(list(report["browser_load"]), ["chrome"])
             self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)
+            self.assertEqual(report["facade_ground_audit"]["sampled"], 2)
 
     def test_car_report_rejects_missing_or_inconsistent_result(self):
         with tempfile.TemporaryDirectory() as temp:

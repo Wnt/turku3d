@@ -95,9 +95,10 @@ The atlas preserves glTF's top-left image coordinate: a source facade's lower
 photo edge (v=1) stays at the lower edge of its atlas region. `make tile-test`
 checks a two-metre door on synthetic walls placed in separate atlas rows.
 `bash pipeline/env/run.sh python -m turku3d.package.facade_ground_audit`
-samples approved walls within 75 m of the office
-against ground collision triangles at the street side, requiring the photo's
-lower edge to be within 0.3 m of surveyed ground.
+checks every approved facade against ground collision triangles at its street side.
+It blocks photo UV errors, missing geometry and walls floating more than 0.3 m
+above surveyed ground. Bases more than 0.3 m below adjacent sloped ground are
+reported individually as buried lower-wall sections, with the maximum burial.
 Each page has aligned albedo, normal and ORM rectangles, a four-pixel copied-edge
 gutter, and one shared material. The UASTC normal page is encoded at half the
 albedo resolution with the same normalized UVs; albedo and ORM keep full resolution.

@@ -18,6 +18,7 @@ QUEUE_STAGE_BUDGETS = {
     "tile-build": 150,
     "tile-validate": 120,
     "car-report": 120,
+    "facade-ground-audit": 15,
     "game-build": 30,
     "collision-sweep": 30,
     "collision-audit": 30,
@@ -329,6 +330,7 @@ def _build(repo, work, published, env, log_path, reason=None):
             ["node", "src/cli.ts", "--checks", "cars", "--require", "cars", "--workers", "4"],
             repo / "tools/validator",
         ),
+        ("facade-ground-audit", ["bash", "pipeline/env/run.sh", "python", "-m", "turku3d.package.facade_ground_audit"], repo),
         ("game-build", ["make", "game-build"], repo),
         ("collision-sweep", ["make", "collision-sweep"], repo),
         ("collision-audit", ["make", "collision-audit"], repo),
@@ -396,6 +398,8 @@ def _build(repo, work, published, env, log_path, reason=None):
                     report = inspect(
                         work / "dist/tiles/manifest.json", cached["facades_bound"], minimum, reason
                     )
+                if stage == "facade-ground-audit":
+                    report["facade_ground_audit"] = cached["facade_ground_audit"]
                 previous = key
                 continue
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
@@ -445,13 +449,17 @@ def _build(repo, work, published, env, log_path, reason=None):
                 if facade_count is None:
                     raise ValueError(f"tile-build did not report facades_bound: {log_path}")
                 report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
+            if stage == "facade-ground-audit":
+                report["facade_ground_audit"] = json.loads(proc.stdout.splitlines()[-1])
             if key and stage != "car-report":
                 live_cache.store(
                     published,
                     work,
                     stage,
                     key,
-                    {"facades_bound": report["facades_bound"]} if stage == "tile-build" else {},
+                    {"facades_bound": report["facades_bound"]} if stage == "tile-build"
+                    else {"facade_ground_audit": report["facade_ground_audit"]}
+                    if stage == "facade-ground-audit" else {},
                 )
                 previous = key
             elif key:

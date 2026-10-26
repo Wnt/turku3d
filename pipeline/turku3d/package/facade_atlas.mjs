@@ -158,7 +158,17 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
     const array = uv.getArray();
     const scale = transform.getScale(); const offset = transform.getOffset();
     for (let i = 0; i < array.length; i += 2) {
+      const sourceU = array[i] * scale[0] + offset[0];
+      const sourceV = array[i+1] * scale[1] + offset[1];
+      if (![sourceU, sourceV].every(v => Number.isFinite(v) && v >= -1e-4 && v <= 1 + 1e-4)) {
+        throw new Error(`${entry.id}: facade UV leaves its source atlas region at vertex ${i / 2}: ${sourceU},${sourceV}`);
+      }
       [array[i], array[i+1]] = atlasUv(array[i], array[i+1], scale, offset, entry, page.height);
+      const left = (entry.x + GUTTER) / PAGE, right = (entry.x + GUTTER + entry.width) / PAGE;
+      const top = (entry.y + GUTTER) / page.height, bottom = (entry.y + GUTTER + entry.height) / page.height;
+      if (array[i] < left - 1e-6 || array[i] > right + 1e-6 || array[i+1] < top - 1e-6 || array[i+1] > bottom + 1e-6) {
+        throw new Error(`${entry.id}: packaged UV leaves its atlas region at vertex ${i / 2}`);
+      }
     }
     prim.setAttribute('TEXCOORD_0', uv).setMaterial(materials[entry.page]);
   }
