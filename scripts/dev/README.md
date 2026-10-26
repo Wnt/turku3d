@@ -572,7 +572,7 @@ and the preceding stage key.
 Before DONE, workers commit and run `scripts/dev/codex-task precheck <name>`. It rebases on main,
 runs the gate and every live build check in the worker sandbox, saves per-check input hashes in
 `~/turku3d/tasks/<name>/precheck.json`, and prepares a release under
-`$TURKU3D_DATA/live-releases/<tree-and-input-hash>`. A rebase conflict returns to the worker.
+`$TURKU3D_DATA/live-releases/<tree-input-and-commit-hash>`. A rebase conflict returns to the worker.
 The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon polls DONE results.
 When main still matches the receipt, it verifies the tree, checks and release bytes, fast-forwards
 main, and swaps the live pointer without rebuilding. The landed ledger records merge wall seconds.

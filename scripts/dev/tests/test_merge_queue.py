@@ -143,7 +143,7 @@ class QueueTests(unittest.TestCase):
             (data / "build").mkdir(parents=True)
             (data / "dist").mkdir()
             checks = {"gate": {"unit": "abc"}, "live": {"tile-build": "def"}}
-            release_id = verification.digest({"tree": tree, "checks": checks})
+            release_id = verification.digest({"tree": tree, "checks": checks, "head": head})
             release = data / "live-releases" / release_id
             release.mkdir(parents=True)
             (release / "game").mkdir()
@@ -260,7 +260,7 @@ class QueueTests(unittest.TestCase):
                 "checks": {"gate": {"python": "hash"}, "live": {"tile-build": "hash"}},
             }
             record["release_id"] = verification.digest(
-                {"tree": record["tree"], "checks": record["checks"]}
+                {"tree": record["tree"], "checks": record["checks"], "head": record["head"]}
             )
             release.rename(release.parent / record["release_id"])
             release = release.parent / record["release_id"]

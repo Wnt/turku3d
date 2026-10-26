@@ -39,7 +39,7 @@ def create(repo, published, work, gate, build, base="main"):
         },
         "live": build["input_hashes"],
     }
-    release_id = digest({"tree": tree, "checks": checks})
+    release_id = digest({"tree": tree, "checks": checks, "head": head})
     release = live_build.prepare(work, published, head, build, release_id)
     return {
         "version": 1,
@@ -49,6 +49,15 @@ def create(repo, published, work, gate, build, base="main"):
         "checks": checks,
         "release_id": release_id,
         "artifact_hash": artifact_hash(release),
+        "gate_stages": {
+            row["name"]: {
+                "seconds": row["seconds"],
+                "cached": row.get("cached", False),
+                "input_hash": row.get("input_hash"),
+            }
+            for row in gate["stages"]
+            if row["status"] == "PASS"
+        },
     }
 
 
@@ -61,7 +70,9 @@ def validate(record, repo, published):
         raise ValueError("precheck tree differs from worker branch")
     if record["main"] != s.git("rev-parse", "main", cwd=repo):
         raise ValueError("main moved since precheck")
-    if record["release_id"] != digest({"tree": record["tree"], "checks": record["checks"]}):
+    if record["release_id"] != digest(
+        {"tree": record["tree"], "checks": record["checks"], "head": record["head"]}
+    ):
         raise ValueError("precheck input hash record changed")
     release = published / "live-releases" / record["release_id"]
     if not release.is_dir() or artifact_hash(release) != record["artifact_hash"]:
