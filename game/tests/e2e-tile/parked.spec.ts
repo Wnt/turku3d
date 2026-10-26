@@ -10,6 +10,7 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   test.skip(!manifest.vehicles?.length, 'No published parked vehicles');
   const car = manifest.vehicles.find((v: any) => v.model === 'van' && Math.abs(v.x - 140) < 2) ?? manifest.vehicles[0];
   await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(count => (window as any).__game?.state?.().vehicles?.length === count + 1, manifest.vehicles.length);
   await page.evaluate(c => (window as any).__game.physics.setCharacterEnabled(true,
     { x: c.x - 2.5, y: c.y, z: c.z }), car);

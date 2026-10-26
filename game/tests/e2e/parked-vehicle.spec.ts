@@ -38,6 +38,7 @@ test('walk to a parked car, use Xbox Y, drive 20 m, and exit', { tag: ['@drive',
     (window as any).pad.buttons[i] = { value: v, pressed: v > 0.5, touched: v > 0 };
   }, [index, value]);
   await page.goto(`/?backend=${info.project.name}`);
+  await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(() => (window as any).__game?.state?.().grounded);
   await page.evaluate(() => (window as any).__game.physics.setCharacterEnabled(true, { x: 125, y: 2, z: 167.8 }));
   await page.waitForFunction(() => Math.abs((window as any).__game.state().feet[2] - 167.8) < 0.2);
