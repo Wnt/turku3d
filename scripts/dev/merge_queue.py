@@ -99,55 +99,30 @@ def rebase(name, record):
 
 
 def process(record, limit=4):
-    from landing import batch
+    from landing import fast
 
     discover(record)
     if record.get("last_error") and time.time() - record["last_error"]["time"] < 300:
         return False
-    names = []
-    for name in ready(record):
-        if rebase(name, record):
-            names.append(name)
-        if len(names) >= limit:
-            break
-    if not names:
-        return False
+    names = ready(record)[:limit]
     for name in names:
         event(record, name, "started")
-    try:
-        batch(names, force=True)
-    except (ValueError, subprocess.CalledProcessError) as exc:
-        detail = str(exc)
-        if "base gate fails" in detail or "main changed" in detail:
-            record["last_error"] = {"time": time.time(), "detail": detail}
-            save(record)
-            return True
-        # Existing batch landing identifies the first conflicting or failing-prefix task.
-        match = re.search(r"([a-z0-9_-]+): integration conflict", detail)
-        if not match:
-            match = re.search(r"batch bisected failing prefix ends at ([a-z0-9_-]+)", detail)
-        if match and match.group(1) in names:
-            culprit = match.group(1)
-            resume(culprit, detail[-1000:], record)
-            for name in names:
-                if name != culprit:
-                    event(record, name, "retry", reason=detail[-300:])
-            return True
-        # A live-build failure has no gate prefix. Run members independently so
-        # successful work still publishes and the actual failing member resumes.
-        for name in names:
-            try:
-                batch([name], force=True)
-            except (ValueError, subprocess.CalledProcessError) as member_error:
-                resume(name, str(member_error)[-1000:], record)
-            else:
-                published(record, name)
-        return True
-    for name in names:
-        published(record, name)
-    record.pop("last_error", None)
-    save(record)
-    return True
+        if not rebase(name, record):
+            continue
+        try:
+            result = fast(name)
+        except (ValueError, OSError, subprocess.CalledProcessError, KeyError) as exc:
+            resume(name, str(exc)[-1000:], record)
+        else:
+            event(
+                record,
+                name,
+                "published",
+                commit=result["commit"],
+                merge_wall_seconds=result["merge_wall_seconds"],
+                verification=result["verification"],
+            )
+    return bool(names)
 
 
 def published(record, name):

@@ -138,6 +138,7 @@ def build(repo, work, published, env, log_path, reason=None):
     minimum = baseline(published)
     durations = {}
     cache_hits = []
+    input_hashes = {}
     report = None
     previous = ""
     cache_enabled = (repo / ".git").exists()
@@ -171,6 +172,8 @@ def build(repo, work, published, env, log_path, reason=None):
                 if cache_enabled
                 else None
             )
+            if key:
+                input_hashes[stage] = key
             cached = live_cache.restore(published, work, stage, key) if key else None
             if cached is not None:
                 log.write(f"cache hit {key}\n")
@@ -213,14 +216,15 @@ def build(repo, work, published, env, log_path, reason=None):
                 previous = key
     report["seconds"] = durations
     report["cache_hits"] = cache_hits
+    report["input_hashes"] = input_hashes
     return report
 
 
-def prepare(work, published, commit, report):
+def prepare(work, published, commit, report, release_id=None):
     """Copy the verified release before advancing main."""
     releases = published / "live-releases"
     releases.mkdir(parents=True, exist_ok=True)
-    release = releases / commit
+    release = releases / (release_id or commit)
     if release.exists():
         if (published / "live").is_symlink() and (published / "live").resolve() == release:
             raise ValueError(f"release is already live: {release}")
@@ -250,9 +254,9 @@ def prepare(work, published, commit, report):
     return release
 
 
-def publish(published, commit):
+def publish(published, commit, release_id=None):
     """Swap one release link; stable game/tile paths resolve through that link."""
-    release = published / "live-releases" / commit
+    release = published / "live-releases" / (release_id or commit)
     if not (release / "live-build.json").exists():
         raise ValueError(f"prepared release is missing: {release}")
     if json.loads((release / "live-build.json").read_text())["commit"] != commit:

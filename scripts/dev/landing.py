@@ -14,6 +14,71 @@ import live_build
 import sandbox as s
 
 
+def fast(name):
+    """Publish an unchanged-main, fully prechecked branch without running a build."""
+    import verification
+    from task_runner import cleanup_landed, main_checkout, running, task
+
+    started = time.monotonic()
+    path = task(name)
+    repo = s.sandbox(name) / "repo"
+    with s.lock(s.root() / ".registry/land.lock"), s.lock(path / "lock"):
+        meta = s.read_json(path / "meta.json")
+        if running(meta) or meta.get("state") != "done" or meta.get("exit_code") != 0:
+            raise ValueError(f"{name}: task is not DONE")
+        if not (path / "last.md").is_file() or [
+            line
+            for line in (path / "last.md").read_text().splitlines()
+            if line.startswith("## Result:")
+        ] != ["## Result: DONE"]:
+            raise ValueError(f"{name}: DONE result is missing")
+        if (
+            s.git("status", "--porcelain", cwd=repo)
+            or s.git("branch", "--show-current", cwd=repo) != f"wt/{name}"
+        ):
+            raise ValueError(f"{name}: branch is dirty or unexpected")
+        before = s.git("rev-parse", "main", cwd=repo)
+        receipt = s.read_json(path / "precheck.json", {})
+        published = Path(os.environ["TURKU3D_DATA"])
+        verification.validate(receipt, repo, published)
+        if receipt["main"] != before or s.git("merge-base", "HEAD", "main", cwd=repo) != before:
+            raise ValueError(f"{name}: precheck is stale; worker must recheck")
+        main = main_checkout(repo)
+        if main and s.git("status", "--porcelain", cwd=main):
+            raise ValueError("main worktree is dirty")
+        with coord.landing_guard(name, force=True):
+            if main:
+                s.git("merge", "--ff-only", receipt["head"], cwd=main)
+            else:
+                s.git("update-ref", "refs/heads/main", receipt["head"], before, cwd=repo)
+            live_build.publish(published, receipt["head"], receipt["release_id"])
+        elapsed = round(time.monotonic() - started, 3)
+        if elapsed > 120:
+            raise ValueError(f"merge wall budget exceeded: {elapsed}s")
+        queued = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})["tasks"].get(
+            name, {}
+        )
+        record = {
+            "name": name,
+            "before": before,
+            "commit": receipt["head"],
+            "source": receipt["head"],
+            "time": time.time(),
+            "merge_wall_seconds": elapsed,
+            "verification": receipt["release_id"],
+            "live_build": receipt["live_build"],
+            "done_time": queued.get("done", meta.get("finished")),
+            "enqueue_time": queued.get("enqueue"),
+            "start_time": queued.get("started"),
+        }
+        meta["landed"] = record
+        s.write_json(path / "meta.json", meta)
+        with (s.root() / ".registry/landed.jsonl").open("a") as ledger:
+            ledger.write(json.dumps(record) + "\n")
+        cleanup_landed(name, receipt["head"])
+        return record
+
+
 def batch(names, force=False):
     from task_runner import cleanup_landed, main_checkout, running, task
 

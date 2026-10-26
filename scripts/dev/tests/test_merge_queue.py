@@ -11,11 +11,52 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import live_cache  # noqa: E402
 import merge_queue  # noqa: E402
+import verification  # noqa: E402
 import warm_queue  # noqa: E402
 from gate_cache import cache_root, stage_key  # noqa: E402
 
 
 class QueueTests(unittest.TestCase):
+    def test_receipt_checks_tree_inputs_and_release_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, published = root / "repo", root / "published"
+            repo.mkdir()
+            release = published / "live-releases" / "key"
+            release.mkdir(parents=True)
+            (release / "live-build.json").write_text('{"commit":"head"}')
+            (release / "asset.bin").write_bytes(b"original")
+            record = {
+                "version": 1,
+                "head": "head",
+                "tree": "tree",
+                "main": "base",
+                "checks": {"gate": {"python": "hash"}, "live": {"tile-build": "hash"}},
+            }
+            record["release_id"] = verification.digest(
+                {"tree": record["tree"], "checks": record["checks"]}
+            )
+            release.rename(release.parent / record["release_id"])
+            release = release.parent / record["release_id"]
+            record["artifact_hash"] = verification.artifact_hash(release)
+
+            def git(*args, cwd):
+                return {
+                    ("rev-parse", "HEAD"): "head",
+                    ("rev-parse", "HEAD^{tree}"): "tree",
+                    ("rev-parse", "main"): "base",
+                }[args]
+
+            with patch.object(verification.s, "git", side_effect=git):
+                self.assertEqual(verification.validate(record, repo, published), release)
+                (release / "asset.bin").write_bytes(b"changed")
+                with self.assertRaisesRegex(ValueError, "changed"):
+                    verification.validate(record, repo, published)
+                (release / "asset.bin").write_bytes(b"original")
+                record["checks"]["gate"]["python"] = "other"
+                with self.assertRaisesRegex(ValueError, "input hash"):
+                    verification.validate(record, repo, published)
+
     def test_queue_runs_without_optional_warm_browser(self):
         result = type("Result", (), {"returncode": 1})()
         with (
@@ -78,23 +119,21 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue.s, "root", return_value=root),
                 patch.object(merge_queue.s, "tasks_root", return_value=tasks),
                 patch.object(merge_queue, "rebase", return_value=True),
-                patch("landing.batch") as batch,
+                patch("landing.fast") as fast,
             ):
 
-                def landed(names, force):
-                    self.assertEqual(names, ["one", "two"])
-                    self.assertTrue(force)
-                    for name in names:
-                        path = tasks / name / "meta.json"
-                        meta = json.loads(path.read_text())
-                        meta["landed"] = {"commit": name, "live_build": {}}
-                        path.write_text(json.dumps(meta))
+                def landed(name):
+                    path = tasks / name / "meta.json"
+                    meta = json.loads(path.read_text())
+                    meta["landed"] = {"commit": name, "live_build": {}}
+                    path.write_text(json.dumps(meta))
+                    return {"commit": name, "merge_wall_seconds": 0.01, "verification": name}
 
-                batch.side_effect = landed
+                fast.side_effect = landed
                 self.assertTrue(merge_queue.process(record))
                 self.assertEqual(merge_queue.ready(record), [])
                 self.assertFalse(merge_queue.process(record))
-                batch.assert_called_once()
+                self.assertEqual(fast.call_count, 2)
 
     def test_failing_member_is_resumed_and_other_member_retries(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -114,20 +153,19 @@ class QueueTests(unittest.TestCase):
                 patch.object(merge_queue, "rebase", return_value=True),
                 patch.object(merge_queue, "resume") as resume,
                 patch(
-                    "landing.batch",
-                    side_effect=ValueError(
-                        "batch bisected failing prefix ends at two; failing test"
-                    ),
+                    "landing.fast",
+                    side_effect=[
+                        {"commit": "one", "merge_wall_seconds": 0.01, "verification": "one"},
+                        ValueError("two: verification failed"),
+                    ],
                 ),
             ):
                 self.assertTrue(merge_queue.process(record))
                 resume.assert_called_once()
                 self.assertEqual(resume.call_args.args[0], "two")
-                self.assertEqual(
-                    [r["task"] for r in record["events"] if r["kind"] == "retry"], ["one"]
-                )
+                self.assertIn("published", record["tasks"]["one"])
 
-    def test_live_failure_falls_back_to_individual_landings(self):
+    def test_verification_failure_does_not_block_next_task(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             tasks = root / "tasks"
@@ -141,26 +179,23 @@ class QueueTests(unittest.TestCase):
             record = {"tasks": {}, "events": []}
             calls = []
 
-            def batch(names, force):
-                calls.append(names)
-                if names != ["one"]:
-                    raise ValueError("tile-build failed")
-                path = tasks / "one/meta.json"
-                meta = json.loads(path.read_text())
-                meta["landed"] = {"commit": "one"}
-                path.write_text(json.dumps(meta))
+            def fast(name):
+                calls.append(name)
+                if name == "one":
+                    raise ValueError("stale precheck")
+                return {"commit": name, "merge_wall_seconds": 0.01, "verification": name}
 
             with (
                 patch.object(merge_queue.s, "root", return_value=root),
                 patch.object(merge_queue.s, "tasks_root", return_value=tasks),
                 patch.object(merge_queue, "rebase", return_value=True),
                 patch.object(merge_queue, "resume") as resume,
-                patch("landing.batch", side_effect=batch),
+                patch("landing.fast", side_effect=fast),
             ):
                 self.assertTrue(merge_queue.process(record))
-                self.assertEqual(calls, [["one", "two"], ["one"], ["two"]])
-                self.assertEqual(resume.call_args.args[0], "two")
-                self.assertIn("published", record["tasks"]["one"])
+                self.assertEqual(calls, ["one", "two"])
+                self.assertEqual(resume.call_args.args[0], "one")
+                self.assertIn("published", record["tasks"]["two"])
 
     def test_gate_cache_key_is_sandbox_independent(self):
         with tempfile.TemporaryDirectory() as temp:

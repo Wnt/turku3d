@@ -574,10 +574,15 @@ def precheck(name):
         env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
         gate_log = path / "precheck-gate.log"
         start = time.monotonic()
-        result = s.run_group([str(repo / "scripts/dev/gate"), "--base", "main"], cwd=repo, env=env)
+        result = s.run_group(
+            [str(repo / "scripts/dev/gate"), "--base", "main", "--json"], cwd=repo, env=env
+        )
         gate_log.write_text(result.stdout)
         if result.returncode:
             raise ValueError(f"precheck gate failed: {s.failure_detail(result.stdout)}: {gate_log}")
+        gate_report = json.loads(result.stdout)
+        if not gate_report["ok"]:
+            raise ValueError(f"precheck gate reported failure: {gate_log}")
         gate_seconds = round(time.monotonic() - start, 3)
         reason = (
             next(
@@ -601,9 +606,13 @@ def precheck(name):
         )
         if s.git("status", "--porcelain", cwd=repo) or s.git("rev-parse", "HEAD", cwd=repo) != head:
             raise ValueError("precheck changed the worker checkout")
+        import verification
+
+        receipt = verification.create(
+            repo, Path(env["TURKU3D_DATA"]), Path(env["TURKU3D_WORK"]), gate_report, build
+        )
         report = {
-            "head": head,
-            "main": s.git("rev-parse", "main", cwd=repo),
+            **receipt,
             "gate_seconds": gate_seconds,
             "live_build": build,
             "time": time.time(),
