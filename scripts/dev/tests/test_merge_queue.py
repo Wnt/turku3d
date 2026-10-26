@@ -11,10 +11,21 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import live_cache  # noqa: E402
 import merge_queue  # noqa: E402
+import warm_queue  # noqa: E402
 from gate_cache import cache_root, stage_key  # noqa: E402
 
 
 class QueueTests(unittest.TestCase):
+    def test_queue_runs_without_optional_warm_browser(self):
+        result = type("Result", (), {"returncode": 1})()
+        with (
+            patch.object(warm_queue.s, "run", return_value=result),
+            patch.object(warm_queue.s, "new") as create,
+        ):
+            with warm_queue.service() as state:
+                self.assertIsNone(state)
+            create.assert_not_called()
+
     def test_conflicting_branch_is_aborted_and_routed_back(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

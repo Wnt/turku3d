@@ -209,19 +209,25 @@ def run(interval=5, once=False, limit=4):
         file.truncate()
         file.write(f"{os.getpid()}\n")
         file.flush()
-        with warm_queue.service() as browser_state:
-            if browser_state:
-                os.environ["TURKU3D_WARM_BROWSER_STATE"] = str(browser_state)
-            try:
-                while True:
-                    record = state()
-                    try:
-                        process(record, limit)
-                    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
-                        record["last_error"] = {"time": time.time(), "detail": str(exc)}
-                        save(record)
-                    if once:
-                        return
-                    time.sleep(interval)
-            finally:
-                os.environ.pop("TURKU3D_WARM_BROWSER_STATE", None)
+        while True:
+            with warm_queue.service() as browser_state:
+                if browser_state:
+                    os.environ["TURKU3D_WARM_BROWSER_STATE"] = str(browser_state)
+                try:
+                    while True:
+                        record = state()
+                        try:
+                            process(record, limit)
+                        except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+                            record["last_error"] = {"time": time.time(), "detail": str(exc)}
+                            save(record)
+                        if once:
+                            return
+                        if not browser_state or not warm_queue.alive(browser_state):
+                            break
+                        time.sleep(interval)
+                finally:
+                    os.environ.pop("TURKU3D_WARM_BROWSER_STATE", None)
+            if once:
+                return
+            time.sleep(interval)

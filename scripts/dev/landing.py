@@ -57,6 +57,7 @@ def batch(names, force=False):
         build_report = None
         gate_failure = ""
         gate_cache_hits = []
+        gate_stages = {}
 
         def assemble(count):
             s.git("reset", "--hard", before, cwd=integration)
@@ -94,6 +95,16 @@ def batch(names, force=False):
                 for line in result.stdout.splitlines()
                 if line.startswith("cached PASS") and len(line.split()) > 2
             ]
+            gate_stages.clear()
+            for line in result.stdout.splitlines():
+                fields = line.split()
+                if fields and fields[0] == "cached":
+                    fields = fields[1:]
+                if len(fields) >= 3 and fields[0] in ("PASS", "FAIL") and fields[2].endswith("s"):
+                    try:
+                        gate_stages[fields[1]] = float(fields[2][:-1])
+                    except ValueError:
+                        pass
             code = result.returncode
             if (
                 s.git("status", "--porcelain", cwd=integration)
@@ -188,6 +199,7 @@ def batch(names, force=False):
                             "time": time.time(),
                             "gate_seconds": round(time.monotonic() - started, 3),
                             "gate_cache_hits": gate_cache_hits,
+                            "gate_stages": gate_stages,
                             "live_build": build_report,
                             "done_time": queued.get("done", meta.get("finished")),
                             "enqueue_time": queued.get("enqueue"),

@@ -6,6 +6,7 @@ import signal
 import subprocess
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 import sandbox as s
 
@@ -22,6 +23,13 @@ def existing(state_file, repo):
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return None
+
+
+def alive(state_file):
+    try:
+        return bool(existing(state_file, Path(json.loads(state_file.read_text())["repo"])))
+    except (OSError, ValueError, KeyError):
+        return False
 
 
 @contextmanager
@@ -85,7 +93,10 @@ def service():
             yield state_file if existing(state_file, repo) else None
         finally:
             if proc.poll() is None:
-                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
