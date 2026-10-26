@@ -124,6 +124,52 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(live_build.baseline(published), 7)
             self.assertEqual((root / "logs/live-version.txt").read_text(), "abc\n")
 
+    def test_prepare_dereferences_nested_shared_links(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work, published = root / "work", root / "data"
+            for relative in ("build/game", "dist/tiles", "build/layers", "textures"):
+                (work / relative).mkdir(parents=True)
+            shared_ground = published / "shared-ground"
+            shared_ground.mkdir(parents=True)
+            (published / "build").mkdir()
+            (published / "dist").mkdir()
+            (shared_ground / "mesh").write_text("ground")
+            (work / "build/layers/ground").symlink_to(shared_ground, target_is_directory=True)
+            (work / "textures/ground").symlink_to(shared_ground, target_is_directory=True)
+            release = live_build.prepare(work, published, "abc", {"facades_bound": 1})
+            self.assertFalse((release / "layers/ground").is_symlink())
+            self.assertFalse((release / "textures/ground").is_symlink())
+            self.assertEqual((release / "layers/ground/mesh").read_text(), "ground")
+            live_build.publish(published, "abc")
+            self.assertEqual((published / "build/layers/ground/mesh").read_text(), "ground")
+
+    def test_publish_rolls_back_when_stable_path_does_not_resolve_to_release(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work, published = root / "work", root / "data"
+            for relative in ("build/game", "dist/tiles", "build/layers", "textures"):
+                (work / relative).mkdir(parents=True)
+            previous = published / "live-releases/old"
+            previous.mkdir(parents=True)
+            (published / "live").symlink_to(previous, target_is_directory=True)
+            (published / "build").mkdir()
+            (published / "build/game").symlink_to(published / "live/game", target_is_directory=True)
+            (published / "build/layers").symlink_to(
+                published / "build/layers", target_is_directory=True
+            )
+            (published / "dist").mkdir()
+            (published / "dist/tiles").symlink_to(
+                published / "live/tiles", target_is_directory=True
+            )
+            (published / "textures").symlink_to(
+                published / "live/textures", target_is_directory=True
+            )
+            live_build.prepare(work, published, "abc", {"facades_bound": 1})
+            with self.assertRaisesRegex(ValueError, "stable path"):
+                live_build.publish(published, "abc")
+            self.assertEqual((published / "live").resolve(), previous.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,7 @@ TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 
 
 def _clone(source, target):
-    if target.exists():
+    if target.exists() or target.is_symlink():
         return
     if not source.exists():
         return
@@ -22,10 +22,12 @@ def _clone(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     # APFS clones keep a private, writable snapshot without copying asset bytes.
     if subprocess.call(
-        ["cp", "-cR", str(source), str(target)],
+        ["cp", "-cRL", str(source), str(target)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     ):
+        if target.exists():
+            shutil.rmtree(target)
         shutil.copytree(source, target)
 
 
@@ -159,12 +161,13 @@ def prepare(work, published, commit, report):
         if not source.is_dir():
             raise ValueError(f"verified {name} is missing: {source}")
         _clone(source, release / name)
+        for asset in (release / name).rglob("*"):
+            if asset.is_symlink():
+                raise ValueError(f"verified release contains a symlink: {asset}")
         if name in ("game", "tiles"):
             # The existing server caches Brotli by path and mtime. Give each
             # release fresh mtimes so the same stable URL cannot reuse old bytes.
             for asset in (release / name).rglob("*"):
-                if asset.is_symlink():
-                    raise ValueError(f"verified distribution contains a symlink: {asset}")
                 if asset.is_file():
                     os.utime(asset, None)
     (release / "live-build.json").write_text(
@@ -180,6 +183,12 @@ def publish(published, commit):
         raise ValueError(f"prepared release is missing: {release}")
     if json.loads((release / "live-build.json").read_text())["commit"] != commit:
         raise ValueError("prepared release commit does not match landing")
+    for name in ("game", "tiles", "layers", "textures"):
+        directory = release / name
+        if not directory.is_dir() or directory.is_symlink():
+            raise ValueError(f"prepared release directory is missing or linked: {directory}")
+        if any(asset.is_symlink() for asset in directory.rglob("*")):
+            raise ValueError(f"prepared release contains a symlink: {directory}")
     # Migrate the old service's paths once. Its existing server resolves these paths
     # for each request, so it serves the new release without killing an owned process.
     live = published / "live"
@@ -199,9 +208,23 @@ def publish(published, commit):
         temporary = published / ".live-next"
         temporary.symlink_to(legacy, target_is_directory=True)
         os.replace(temporary, live)
+    previous = live.readlink()
     temporary = published / ".live-next"
     temporary.symlink_to(release, target_is_directory=True)
     os.replace(temporary, live)
+    try:
+        for target, name in (
+            (published / "build/game", "game"),
+            (published / "dist/tiles", "tiles"),
+            (published / "build/layers", "layers"),
+            (published / "textures", "textures"),
+        ):
+            if not target.is_dir() or target.resolve() != (release / name).resolve():
+                raise ValueError(f"stable path does not resolve into release: {target}")
+    except Exception:
+        temporary.symlink_to(previous, target_is_directory=True)
+        os.replace(temporary, live)
+        raise
     version = published.parent / "logs/live-version.txt"
     version.parent.mkdir(parents=True, exist_ok=True)
     pending = version.with_suffix(".tmp")
