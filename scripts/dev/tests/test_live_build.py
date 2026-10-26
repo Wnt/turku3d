@@ -48,8 +48,11 @@ class LiveBuildTests(unittest.TestCase):
             (work / "reports").mkdir()
             (work / "reports/validate-cars.json").write_text('{"pass":false}')
             release = live_build.prepare(
-                work, root / "data", "commit",
-                {"car_validation": {"report": "reports/validate-cars.json"}}, "key",
+                work,
+                root / "data",
+                "commit",
+                {"car_validation": {"report": "reports/validate-cars.json"}},
+                "key",
             )
             self.assertFalse((release / "textures/link.bin").is_symlink())
             self.assertEqual((release / "textures/link.bin").read_bytes(), b"stable")
@@ -259,7 +262,14 @@ class LiveBuildTests(unittest.TestCase):
                 if "--checks" in command and "cars" in command:
                     (work / "reports").mkdir(exist_ok=True)
                     (work / "reports/validate-cars.json").write_text(
-                        json.dumps({"pass": False, "checks": {"cars": {"status": "fail", "perTile": [{"status": "fail"}]}}})
+                        json.dumps(
+                            {
+                                "pass": False,
+                                "checks": {
+                                    "cars": {"status": "fail", "perTile": [{"status": "fail"}]}
+                                },
+                            }
+                        )
                     )
                     return type("Completed", (), {"returncode": 1, "stdout": "cars FAIL\n"})()
                 output = '{"facades_bound": 2}\n' if "tile-build" in command else "passed\n"
@@ -296,7 +306,9 @@ class LiveBuildTests(unittest.TestCase):
             )
             self.assertIn("TILE_WALKERS=128", calls[2][0])
             self.assertIn("VALIDATOR_REQUIRE=buildings,curbs", calls[2][0])
-            self.assertIn("--checks format,seams,buildings,curbs --walk-seconds 2", " ".join(calls[2][0]))
+            self.assertIn(
+                "--checks format,seams,buildings,curbs --walk-seconds 2", " ".join(calls[2][0])
+            )
             self.assertEqual(report["car_validation"]["status"], "fail")
             self.assertEqual(report["car_validation"]["failed_tiles"], 1)
             self.assertLess(calls[2][3] - started, 121)

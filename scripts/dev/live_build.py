@@ -215,7 +215,9 @@ def load_summary(load):
 def inspect_car_report(path, returncode):
     """Preserve known-red car diagnostics without accepting validator load errors."""
     if returncode not in (0, 1) or not path.is_file():
-        raise ValueError(f"car report failed ({returncode}); report missing or validator error: {path}")
+        raise ValueError(
+            f"car report failed ({returncode}); report missing or validator error: {path}"
+        )
     data = json.loads(path.read_text())
     cars = data.get("checks", {}).get("cars", {})
     status = cars.get("status")
@@ -381,7 +383,11 @@ def _build(repo, work, published, env, log_path, reason=None):
             )
             if key:
                 input_hashes[stage] = key
-            cached = live_cache.restore(published, work, stage, key) if key and stage != "car-report" else None
+            cached = (
+                live_cache.restore(published, work, stage, key)
+                if key and stage != "car-report"
+                else None
+            )
             if cached is not None:
                 log.write(f"cache hit {key}\n")
                 durations[stage] = 0.0
@@ -417,7 +423,9 @@ def _build(repo, work, published, env, log_path, reason=None):
                 log.write(f"{stage} load: {json.dumps(load)}\n")
             log.flush()
             if stage == "car-report":
-                car_report = inspect_car_report(work / "reports/validate-cars.json", proc.returncode)
+                car_report = inspect_car_report(
+                    work / "reports/validate-cars.json", proc.returncode
+                )
                 if report is None:
                     raise ValueError("tile-build report is unavailable before car validation")
                 report["car_validation"] = car_report
