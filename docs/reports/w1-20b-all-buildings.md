@@ -38,6 +38,12 @@ archives 14 old approvals with no safe successor and lists 253 new unbound walls
 new buildings use library materials. No new imagery was generated. The requested
 344-map inventory is not present in the current shared export.
 
+The facade/ground audit passes all 61 approved walls within 75 m of Läntinen
+Rantakatu 15 (maximum gap 0.281 m). Across all 318 approved walls, 124 bases
+are more than 0.3 m below adjacent terrain, with a maximum buried base of
+5.441 m; no approved facade base is above adjacent terrain. Clipping these
+distant lower wall sections to terrain remains a geometry refinement.
+
 The point-only placeholder bases use nearby class-2 ground returns at 4.339,
 29.173 and 3.711 m N2000. Their outlines remain explicitly inferred.
 The exported collision layer passed 2,000 seeded ten-second Rapier walkers with
