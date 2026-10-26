@@ -95,9 +95,7 @@ class ToolingTests(unittest.TestCase):
             "TURKU3D_COORD_ROOT": str(self.base / "coord"),
             # Launch integration tests use a synthetic filesystem independent of host disk pressure.
             "TURKU3D_TEST_DISK_FREE_BYTES": str(40 * 1024**3),
-            "PYTHONPATH": str(self.python_support)
-            + os.pathsep
-            + os.environ.get("PYTHONPATH", ""),
+            "PYTHONPATH": str(self.python_support) + os.pathsep + os.environ.get("PYTHONPATH", ""),
         }
         self.env.pop("TURKUTEX_USAGE_CMD", None)
         # Synthetic registries must still avoid the caller's real, concurrently running stacks.
