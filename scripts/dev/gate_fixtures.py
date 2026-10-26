@@ -27,6 +27,8 @@ def build(root, out):
             str(inputs / "library"),
             "--facades",
             str(inputs / "facades"),
+            "--ground",
+            str(inputs / "ground"),
             "--tile",
             "t0_0_0",
             "t0_0_1",
