@@ -1,5 +1,6 @@
 // Validator thresholds and CLI options (ARCHITECTURE Task 1.11).
 import { DEFAULT_KCC, type KccConfig } from './kcc.ts';
+import type { ParkedCar } from './parked.ts';
 
 export const CHECKS = ['format', 'seams', 'cars', 'holes', 'buildings', 'curbs', 'stairs', 'belowGround'] as const;
 export type CheckName = (typeof CHECKS)[number];
@@ -12,7 +13,7 @@ export interface Options {
   layers?: string;
   workers?: number;
   coreTile?: [number, number];
-  metadata?: { footprints: any; curbs: any; stairs: any[]; sources: any[] };
+  metadata?: { footprints: any; curbs: any; stairs: any[]; parked?: ParkedCar[]; sources: any[] };
   checks?: CheckName[];
   seed: number;
   walkers: number;

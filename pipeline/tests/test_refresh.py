@@ -104,6 +104,7 @@ def test_parallel_rebuilds_detach_shared_layers_ancestor_once(tmp_path, monkeypa
         "bridges",
         "bridge_textures",
         "outer_buildings",
+        "parked",
     ):
         monkeypatch.setattr(refresh, name, lambda *args: "rebuilt")
     refresh.refresh(work)
@@ -194,11 +195,13 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "bridge_textures", node("bridge-textures"))
     monkeypatch.setattr(refresh, "outer_buildings", node("buildings_outer", ("buildings",)))
     monkeypatch.setattr(refresh, "roads", node("roads"))
+    solid = ("ground", "buildings", "structures", "props", "bridges", "buildings_outer")
+    monkeypatch.setattr(refresh, "parked", node("traffic_static", solid))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
     second = refresh.refresh(tmp_path)
     assert set(second.values()) == {"cached"}
-    assert len(calls) == 10
+    assert len(calls) == 11
 
 
 def test_structures_refresh_requires_passed_real_acceptance(tmp_path, monkeypatch):
@@ -257,6 +260,31 @@ def test_bridge_refresh_rebuilds_for_stale_ground_or_code(tmp_path, monkeypatch)
     monkeypatch.setattr(refresh, "bridges_code_hash", lambda: "changed-code")
     assert refresh.bridges(layers) == "rebuilt"
     assert calls == [("turku3d.bridges",)]
+
+
+def test_parked_refresh_rebuilds_when_structures_change(tmp_path, monkeypatch):
+    from turku3d.layers import write_manifest
+
+    layers = tmp_path / "build/layers"
+    structures = layers / "structures/MANIFEST.json"
+    structures.parent.mkdir(parents=True)
+    structures.write_text('{"version": 1}')
+    write_manifest(
+        layers / "traffic_static",
+        inputs={
+            str(structures): refresh.sha(structures),
+            "placements.json": "own audit output, not an input",
+        },
+        params={},
+        code=refresh.code_hash([refresh.C.REPO_ROOT / "pipeline/turku3d/parked"]),
+        tiles=[],
+    )
+    calls = []
+    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
+    assert refresh.parked(layers) == "cached"
+    structures.write_text('{"version": 2}')
+    assert refresh.parked(layers) == "rebuilt"
+    assert calls == [("turku3d.parked",)]
 
 
 def test_ground_target_ignores_unrelated_stale_buildings(monkeypatch, tmp_path):

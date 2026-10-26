@@ -42,7 +42,7 @@ sources = ["tools/validator/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", 
 [[stages]]
 name = "pipeline-tests"
 kind = "pytest"
-triggers = ["pipeline/*.py", "pipeline/turku3d/package/*.mjs", "pipeline/pyproject.toml", "docs/specs/*", "game/src/shared/col/*", "tools/validator/src/*"]
+triggers = ["pipeline/*.py", "pipeline/turku3d/package/*.mjs", "pipeline/turku3d/placement/manoeuvre.json", "pipeline/pyproject.toml", "docs/specs/*", "game/src/shared/col/*", "tools/validator/src/*"]
 cwd = "pipeline"
 tests = ["tests", "turku3d/col/tests"]
 # Unmapped modules conservatively select the whole package.
@@ -76,6 +76,10 @@ tests = ["tests/test_region.py"]
 [[stages.related]]
 paths = ["pipeline/turku3d/parked/*", "pipeline/tests/test_parked.py"]
 tests = ["tests/test_parked.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/placement/*", "pipeline/tests/test_placement.py"]
+tests = ["tests/test_placement.py", "tests/test_parked.py", "tests/test_props.py", "tests/test_vegetation.py"]
 
 [[stages.related]]
 paths = ["pipeline/turku3d/collision_audit.py", "pipeline/tests/test_collision_audit.py"]
@@ -203,8 +207,8 @@ cwd = "game"
 name = "validator-tests"
 kind = "command"
 env = { FIXTURE_WALKERS = "32" }
-triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*", "game/src/vehicle/*", "game/src/physics/triLocator.ts", "game/src/physics/constants.ts", "game/src/physics/protocol.ts"]
-commands = [["node", "--test", "--test-concurrency=1", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/acceptance.test.ts", "tools/validator/test/buildings.test.ts"]]
+triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*", "pipeline/turku3d/placement/manoeuvre.json", "game/src/vehicle/*", "game/src/physics/triLocator.ts", "game/src/physics/constants.ts", "game/src/physics/protocol.ts"]
+commands = [["node", "--test", "--test-concurrency=1", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/acceptance.test.ts", "tools/validator/test/buildings.test.ts", "tools/validator/test/parked.test.ts"]]
 
 [[stages]]
 name = "dev-server-tests"

@@ -123,3 +123,70 @@ def test_full_batch_revalidation_fails_before_publication(tmp_path, monkeypatch)
 def test_distant_walkway_does_not_invent_orientation():
     v = Validator(surface(), {"walkway": LineString([(100, -10), (100, 10)])})
     assert v.facing(bench()) is None
+
+
+def wall(x0, x1, z, bottom, top, material="fence"):
+    """A vertical quad across X at depth z, as two collision triangles."""
+    from turku3d.col.materials import mat_id
+
+    a, b, c, d = [x0, bottom, z], [x1, bottom, z], [x1, top, z], [x0, top, z]
+    return [[a, b, c], [a, c, d]], [mat_id(material)] * 2
+
+
+def obstacles(*parts, primitives=None):
+    from turku3d.placement.clearance import Obstacles
+
+    triangles = [t for part in parts for t in part[0]]
+    materials = [m for part in parts for m in part[1]]
+    return Obstacles(triangles, materials, primitives)
+
+
+def van(**kwargs):
+    # Model +Z (front) faces world +Z at yaw 0; the van spans z -2.5..2.5.
+    base = Instance("van", "car", 0, 3, 0, width=1.98, length=5.0, height=2.05)
+    return replace(base, **kwargs)
+
+
+def parked(found):
+    return Validator(surface(1), {"parking": box(-10, -10, 10, 10)}, obstacles=found)
+
+
+def test_car_boxed_in_by_fence_behind_and_wall_ahead_is_dropped():
+    found = obstacles(wall(-3, 3, -3.5, 3, 4.2), wall(-3, 3, 4, 2.8, 8, "building"))
+    v = parked(found)
+    assert "boxed_in" in v.check(van())
+    assert v.repair(van())[0] is None
+
+
+def test_nose_in_car_needs_only_one_clear_exit_and_measures_it():
+    v = parked(obstacles(wall(-3, 3, 3.5, 2.8, 8, "building")))
+    assert v.check(van()) == []
+    assert v.obstacles.free_length(0, 0, 0, 1.98, 5.0, 3, 2.05, 1) == 1.0
+    assert v.obstacles.free_length(0, 0, 0, 1.98, 5.0, 3, 2.05, -1) == 30.0
+    # Rotating the car half a turn swaps which end faces the wall.
+    assert v.obstacles.free_length(0, 0, np.pi, 1.98, 5.0, 3, 2.05, -1) == 1.0
+
+
+def test_low_kerb_and_high_overhang_do_not_box_a_car_in():
+    low = wall(-3, 3, -3.5, 2.9, 3.2)
+    high = wall(-3, 3, 3.5, 5.2, 8, "building")
+    assert parked(obstacles(low, high)).check(van()) == []
+
+
+def test_side_furniture_within_side_clearance_moves_the_car():
+    from turku3d.placement.clearance import car_box
+
+    bench = car_box(1.9, 3, 0, 0, 0.6, 0.8, 1.8)
+    v = parked(obstacles(primitives=bench))
+    assert "boxed_in" in v.check(van())
+    fixed, _ = v.repair(van())
+    assert fixed is not None and fixed.x <= 1.9 - 0.3 - 0.99 - 1.5 + 1e-9
+    assert v.check(fixed) == []
+
+
+def test_free_length_counts_other_parked_cars():
+    from turku3d.placement.clearance import car_box
+
+    found = obstacles().extended([car_box(0.5, 3, -12, 0, 1.8, 1.5, 4.5)])
+    assert found.free_length(0, 0, 0, 1.98, 5.0, 3, 2.05, -1) == 7.2
+    assert found.free_length(3, 0, 0, 1.98, 5.0, 3, 2.05, -1) == 30.0

@@ -380,6 +380,8 @@ def assemble(
                     "width",
                     "height",
                     "length",
+                    "clear_front_m",
+                    "clear_rear_m",
                 )
             }
             for car in parked

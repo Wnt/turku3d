@@ -20,7 +20,8 @@ from turku3d.layers import (
     write_visual,
 )
 from turku3d.package.gltf import GlbMesh
-from turku3d.placement.inputs import place_objects
+from turku3d.placement.clearance import car_box
+from turku3d.placement.inputs import context, place_objects
 
 from .models import ASSETS, model, palette
 from .placement import Feature, place
@@ -39,6 +40,17 @@ def read_features(path, bounds, osm=True):
             key = f"osm:{row['osm_type']}:{row['osm_id']}" if osm else f"city:{row['feature_key']}"
             result.append(Feature(key, g, tags))
     return result
+
+
+def measure_clearance(cars, obstacles):
+    """Record the clear driving distance ahead of and behind each car, other parked cars included."""
+    keys = ("x", "y", "z", "yaw", "width", "height", "length")
+    boxes = [car_box(*(car[k] for k in keys)) for car in cars]
+    for i, car in enumerate(cars):
+        others = obstacles.extended(boxes[:i] + boxes[i + 1 :])
+        x, y, z, yaw, width, height, length = (car[k] for k in keys)
+        for name, direction in (("clear_front_m", 1), ("clear_rear_m", -1)):
+            car[name] = others.free_length(x, z, yaw, width, length, y, height, direction)
 
 
 def publish(cars, directory, inputs, seed):
@@ -125,9 +137,11 @@ def main():
     cars, excluded, roads, rejected = place(features, city, bounds, (spawn_x, spawn_z), args.seed)
     inputs = {str(p): sha(p) for p in [osm, city_path, *sorted(ASSETS.iterdir())] if p.is_file()}
     before = len(cars)
-    cars = place_objects(cars, "traffic_static", C.OFFICE_BLOCK.core, inputs)
+    validator = context(C.OFFICE_BLOCK.core, inputs, layer="traffic_static")
+    cars = place_objects(cars, "traffic_static", C.OFFICE_BLOCK.core, inputs, validator=validator)
     if not cars:
         raise ValueError("No safe parking placements found")
+    measure_clearance(cars, validator.obstacles)
     args.output.mkdir(parents=True, exist_ok=True)
     report = {
         "seed": args.seed,

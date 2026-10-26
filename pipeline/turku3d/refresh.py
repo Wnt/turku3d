@@ -43,8 +43,8 @@ def code_hash(paths):
 
 def declared_inputs_current(manifest):
     for name, identity in manifest.get("inputs", {}).items():
-        if name == "placement_report":
-            continue  # This is a build report, not a producer input.
+        if name in ("placement_report", "placements.json"):
+            continue  # Build reports and the producer's own audit output are not inputs.
         if name == "placement_code":
             if identity != code_hash([C.REPO_ROOT / "pipeline/turku3d/placement"]):
                 return False
@@ -340,6 +340,16 @@ def roads(layers):
     return "rebuilt"
 
 
+def parked(layers):
+    """Parked cars clear the published colliders of every other layer, so they rebuild last."""
+    code = code_hash([C.REPO_ROOT / "pipeline/turku3d/parked"])
+    if manifest_current(layers / "traffic_static/MANIFEST.json", code):
+        return "cached"
+    local_directory(layers / "traffic_static", layers.parents[1])
+    run("turku3d.parked")
+    return "rebuilt"
+
+
 def timed(name, operation, *args):
     start = time.perf_counter()
     try:
@@ -450,6 +460,7 @@ def refresh(work, target=None):
                 result[name] = future.result()
         result["bridge-textures"] = timed("bridge-textures", bridge_textures, textures)
         result["buildings_outer"] = timed("buildings_outer", outer_buildings, layers)
+        result["traffic_static"] = timed("traffic_static", parked, layers)
     return result
 
 

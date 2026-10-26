@@ -17,6 +17,7 @@ export { CHECKS, DEFAULT_OPTIONS, type CheckName, type Options } from './options
 import { loadFootprints } from './geo.ts';
 import { checkSeams } from './seams.ts';
 import { resolveInputs } from './inputs.ts';
+import { checkParked, withParked } from './parked.ts';
 import { CurbQueries } from '../../../game/src/vehicle/curbQueries.ts';
 import { addCurbMesh, addCurbPrimitive } from '../../../game/src/vehicle/tileCurbs.ts';
 
@@ -111,6 +112,7 @@ export async function validateSerial(opts: Options): Promise<any> {
   if (want.has('stairs')) report.checks.stairs = ctx.checkStairs();
   if (want.has('cars')) report.checks.cars = ctx.checkCars(surfaces);
   if (want.has('belowGround')) report.checks.belowGround = ctx.checkBelowGround();
+  if (want.has('cars')) report.checks.cars = withParked(report.checks.cars, checkParked(loaded.map(l => l.tile), opts.metadata!.parked ?? [], (x, z) => ctx.owns(x, z) && ctx.inside(x, z)));
 
   ctx.walker.free();
   world.free();

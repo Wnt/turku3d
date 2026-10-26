@@ -8,7 +8,9 @@ const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json')
 test('published parked car enters with F and drives on both backends', { tag: ['@drive', '@pipeline'] }, async ({ page }, info) => {
   test.setTimeout(240_000);
   test.skip(!manifest.vehicles?.length, 'No published parked vehicles');
-  const car = manifest.vehicles.find((v: any) => v.model === 'van' && Math.abs(v.x - 69) < 2) ?? manifest.vehicles[0];
+  // The placement report measures each car's straight clear distance behind it; the test reverses 19+ m.
+  const car = [...manifest.vehicles].sort((a: any, b: any) => b.clear_rear_m - a.clear_rear_m || a.object_id.localeCompare(b.object_id))[0];
+  expect(car.clear_rear_m, `${car.object_id} has room to reverse`).toBeGreaterThan(21);
   await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(count => {

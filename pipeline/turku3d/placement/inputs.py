@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import asdict
 
+import numpy as np
 import pyarrow.parquet as pq
 from shapely import force_2d, from_wkb, make_valid, union_all
 from shapely.geometry import box, shape
@@ -11,6 +12,7 @@ from shapely.geometry import box, shape
 from turku3d import config as C
 from turku3d.layers import layer_root, read_collision, read_manifest
 from turku3d.placement import Instance, Surfaces, Validator
+from turku3d.placement.clearance import ENVELOPE_PATH, Obstacles
 
 
 def digest(path):
@@ -24,11 +26,10 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
         root = layer_root() / name
         if not root.exists() and name in ("structures", "bridges"):
             continue
-        manifest = read_manifest(root)
-        inputs[str(root / "MANIFEST.json")] = digest(root / "MANIFEST.json")
-        for filename in manifest["tiles"]:
-            if not filename.endswith(".col.npz"):
-                continue
+        colliders = [n for n in read_manifest(root)["tiles"] if n.endswith(".col.npz")]
+        if colliders:  # Layers without collision (such as the road graph) cannot box a car in.
+            inputs[str(root / "MANIFEST.json")] = digest(root / "MANIFEST.json")
+        for filename in colliders:
             tile = C.CollisionTile.parse(filename.split(".")[0])
             if not envelope.intersects(box(*tile.bbox.as_tuple())):
                 continue
@@ -39,6 +40,7 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
             decks.extend((data.material == 24) & (name in ("structures", "bridges")))
     if not triangles:
         raise ValueError("Placement requires published ground collision triangles")
+    obstacles = solid_obstacles(envelope, inputs, layer) if layer == "traffic_static" else None
     zones = {
         k: []
         for k in (
@@ -129,7 +131,35 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
                 obj = instance(record, other)
                 occupied.append((obj.object_id, obj.shape))
     return Validator(
-        Surfaces(triangles, materials, decks), {k: union_all(v) for k, v in zones.items()}, occupied
+        Surfaces(triangles, materials, decks),
+        {k: union_all(v) for k, v in zones.items()},
+        occupied,
+        obstacles,
+    )
+
+
+def solid_obstacles(envelope, inputs, layer):
+    """Obstacle colliders from every other published layer that overlaps the envelope."""
+    inputs[str(ENVELOPE_PATH)] = digest(ENVELOPE_PATH)
+    triangles, materials, primitives = [], [], []
+    for root in sorted(p for p in layer_root().iterdir() if p.name != layer):
+        if not (root / "MANIFEST.json").is_file():
+            continue
+        colliders = [n for n in read_manifest(root)["tiles"] if n.endswith(".col.npz")]
+        if colliders:  # Layers without collision (such as the road graph) cannot box a car in.
+            inputs[str(root / "MANIFEST.json")] = digest(root / "MANIFEST.json")
+        for filename in colliders:
+            tile = C.CollisionTile.parse(filename.split(".")[0])
+            if not envelope.intersects(box(*tile.bbox.as_tuple())):
+                continue
+            data = read_collision(root / filename)
+            triangles.append(data.positions[data.indices])
+            materials.append(data.material)
+            primitives.append(data.primitives)
+    if not triangles:
+        return Obstacles()
+    return Obstacles(
+        np.concatenate(triangles), np.concatenate(materials), np.concatenate(primitives)
     )
 
 
@@ -154,13 +184,14 @@ def instance(record, layer):
         r.get("yaw", 0),
         r.get("width", width),
         r.get("length", length),
+        r.get("height", 0),
     )
 
 
-def place_objects(objects, layer, bounds, inputs, source_area="work-3x3"):
+def place_objects(objects, layer, bounds, inputs, source_area="work-3x3", validator=None):
     from turku3d.placement.report import write_report
 
-    validator = context(bounds, inputs, source_area, layer)
+    validator = validator or context(bounds, inputs, source_area, layer)
     accepted, records = [], []
     for number, original in enumerate(sorted(objects, key=lambda o: instance(o, layer).object_id)):
         if number % 50 == 0:

@@ -1,0 +1,17 @@
+{
+  "side_m": 1.5,
+  "axial_m": 6.0,
+  "step_m": 0.25,
+  "clear_limit_m": 30.0,
+  "obstacle_materials": [
+    "wall",
+    "fence",
+    "railing",
+    "building",
+    "pole",
+    "tree_trunk",
+    "bollard",
+    "street_furniture",
+    "invisible_boundary"
+  ]
+}

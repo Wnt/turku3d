@@ -2,7 +2,7 @@
 import { E0, N0, COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 
 export interface ManifestEntry { url: string; sha256: string; bytes: number; tris: number; h: [number, number]; prims?: number; flags?: number; level?: number }
-export interface ParkedVehicle { object_id: string; model: string; color: string; x: number; y: number; z: number; yaw: number; width: number; height: number; length: number }
+export interface ParkedVehicle { object_id: string; model: string; color: string; x: number; y: number; z: number; yaw: number; width: number; height: number; length: number; clear_front_m: number; clear_rear_m: number }
 export interface Manifest {
   format: string; version: number; built: string; code: string;
   origin_en: [number, number, number]; crs: string;

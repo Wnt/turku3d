@@ -71,6 +71,7 @@ also retain whole flights that cross collision-tile boundaries.
 | `curbs` | Every ≤35 cm step climbs at 1.5 and 4 m/s; ≥40 cm blocks. The middle band is informational, but a mismatch with the layer's declared height fails. Missing surfaces or starts fail. |
 | `stairs` | Every listed flight climbs up/down, reaches the landing within 10 cm, and has slope ≤40°. Fallback: each stair-slope mesh component. |
 | `cars` | Exact game car coasts across every curb segment at 3/6/10 m/s. For 7–15 cm curbs, ARCHITECTURE 1.14 requires crossing with pitch spike ≥2° and speed loss 5–20%; missing strike events also fail. Steps >25 cm at 2 m/s must stop the chassis centre on the approach side (5 cm tolerance). At 30 m/s it must not cross a building/quay/wall face at any frame. |
+| `cars` (parked) | With `--layers`, every parked car in `traffic_static/placements.json` owned by the tile must not be boxed in by shipped obstacle solids: the [`manoeuvre.json`](../../pipeline/turku3d/placement/manoeuvre.json) envelope (footprint plus 1.5 m sides, 6 m exit lane ahead or behind, 0.25 m above base to roof) shared with the placement producer. Results are under `cars.parked`; any boxed-in car fails `cars`. |
 | `belowGround` | Drops on a 5 m grid and samples every tenth frame of all walker trajectories must retain ground under their feet |
 
 The KCC uses one movement per 60 Hz step, grounded vertical speed −0.5 m/s,

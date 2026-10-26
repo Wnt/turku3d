@@ -5,7 +5,7 @@ import type { Options } from './validate.ts';
 /** Layer manifests advertise validation sidecars; conventional names support pre-assembler layers. */
 export function resolveInputs(options: Options): Options {
   if (options.metadata) return options;
-  const metadata: any = { footprints: { features: [] }, curbs: { features: [] }, stairs: [], sources: [] };
+  const metadata: any = { footprints: { features: [] }, curbs: { features: [] }, stairs: [], parked: [], sources: [] };
   const paths: Record<string, Set<string>> = { footprints: new Set(), curbs: new Set(), stairs: new Set() };
   if (options.layers) {
     if (!existsSync(options.layers)) throw new Error(`layer directory does not exist: ${options.layers}`);
@@ -17,6 +17,14 @@ export function resolveInputs(options: Options): Options {
         const conventional = join(dir, key + (key === 'stairs' ? '.json' : '.geojson'));
         if (refs[key]) paths[key].add(resolve(dirname(manifest), refs[key]));
         else if (existsSync(conventional)) paths[key].add(conventional);
+      }
+      // traffic_static publishes its parked cars, which the car check tests for boxed-in slots.
+      const placements = join(dir, 'placements.json');
+      if (existsSync(placements)) {
+        const cars = JSON.parse(readFileSync(placements, 'utf8')).cars;
+        if (!Array.isArray(cars)) throw new Error(`${placements}: expected a cars array`);
+        metadata.parked.push(...cars);
+        metadata.sources.push({ kind: 'parked', path: placements });
       }
     }
   }

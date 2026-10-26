@@ -63,6 +63,10 @@ engine x305/z230. Ground/building materials in these previews are unassembled.
   and lane selection still belongs to the parked producer.
 - Complete base footprints clear buildings, mapped crossings/driveways and other
   object bases by 0.15 m. Trees use trunk dimensions, not their overhanging crowns.
+- Parked cars must not be boxed in: `clearance.py` tests the envelope in `manoeuvre.json`
+  (footprint plus 1.5 m sides, and a 6 m exit lane ahead or behind) against obstacle-material
+  triangles and primitives of every other published layer, clipped to 0.25 m above the base
+  up to the roof. `tools/validator` reads the same file for its release `cars` check.
 - Signs/posts require nearby roads. Props use class-specific +Z headings: signs face
   oncoming right-hand traffic, benches face away from the kerb, lamps reach over the
   carriageway, and kerb furniture follows its tangent. Direction is checked only within 12 m; missing/coincident directions are listed as

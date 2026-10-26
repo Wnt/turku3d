@@ -21,6 +21,7 @@ class Instance:
     yaw: float = 0
     width: float = 0.2
     length: float = 0.2
+    height: float = 0
 
     @property
     def shape(self):
@@ -76,8 +77,9 @@ TREE = {mat_id("grass"), mat_id("soil")}
 
 
 class Validator:
-    def __init__(self, surfaces, zones=None, occupied=()):
+    def __init__(self, surfaces, zones=None, occupied=(), obstacles=None):
         self.surfaces = surfaces
+        self.obstacles = obstacles
         self.zones = zones or {}
         self.occupied = list(occupied)
         for zone in self.zones.values():
@@ -153,6 +155,15 @@ class Validator:
         ys = [s[0] for s in samples]
         if max(ys) - min(ys) > 0.15:
             issues.append("uneven_support")
+        if (
+            obj.kind == "car"
+            and self.obstacles is not None
+            and self.obstacles.boxed_in(
+                obj.x, obj.z, obj.yaw, obj.width, obj.length, max(ys), obj.height
+            )
+            is not None
+        ):
+            issues.append("boxed_in")
         if check_height:
             if obj.y - min(ys) > 0.15 + 1e-8:
                 issues.append("floating")

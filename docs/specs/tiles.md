@@ -117,7 +117,7 @@ One file for the whole `dist/tiles/` tree. The game reads it at start-up to know
 | `areas` | string[] | built area names (`data-manifests/areas/*.yaml`) |
 | `visual[id]` | object | `url` (relative), `sha256` (hex of the file bytes), `bytes`, `level`, `tris`, `h` = [min, max] height N2000 |
 | `collision[id]` | object | `url`, `sha256`, `bytes`, `tris`, `prims`, `h`, `flags` (= `.col` header flags) |
-| `vehicles` | object[] | Parked vehicle `object_id`, `model`, `color`, engine-local base `x,y,z`, visual `yaw`, and `width,height,length` in metres. These are runtime rigid bodies, so their former `traffic_static` meshes and boxes are omitted from shipped tiles. |
+| `vehicles` | object[] | Parked vehicle `object_id`, `model`, `color`, engine-local base `x,y,z`, visual `yaw`, `width,height,length` in metres, and `clear_front_m,clear_rear_m`: the straight body-width distance to the first solid obstacle or other parked car ahead/behind, capped at 30 m (`pipeline/turku3d/placement/manoeuvre.json`). These are runtime rigid bodies, so their former `traffic_static` meshes and boxes are omitted from shipped tiles. |
 | `vehicle_models[model/color]` | object | Relative `url`, `sha256`, and `bytes` for the shared glTF model and paint variant. |
 | `roads` | object, optional | Street routing graph for the minimap and route guidance: `url`, `sha256`, `bytes`, `nodes`, `edges`. Format: [roads README](../../pipeline/turku3d/roads/README.md). |
 

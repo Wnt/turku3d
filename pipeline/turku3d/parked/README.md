@@ -40,6 +40,21 @@ checks other layer inventories, and repairs small offsets within 2 m. Missing su
 or unsafe placements are omitted and reported. Residual hard violations fail the build.
 The original seeded bay, lane and access exclusions remain in force.
 
+Every car must also be able to drive out (`boxed_in` otherwise). The manoeuvre envelope in
+[`../placement/manoeuvre.json`](../placement/manoeuvre.json) is measured against the collision
+of every other published layer (buildings, structures, props, bridges, vegetation, ground):
+its footprint plus 1.5 m on each side, and an exit lane of that width reaching 6 m ahead of
+**or** behind it, must hold no wall, fence, railing, building, pole, trunk, bollard or street
+furniture between 0.25 m above its base and its roof. A nose-in car against a wall passes; a
+car with a fence behind and a wall ahead does not. The validator first tries the 2 m repair
+grid, then drops the car with its violations in `reports/placement/traffic_static/placement.json`.
+`placements.json` (and `manifest.vehicles`) record `clear_front_m` / `clear_rear_m`: the
+straight body-width distance to the first obstacle or other parked car, capped at 30 m.
+The real-tile e2e drives the car with the longest clear reverse path.
+
+`make refresh` rebuilds this layer last, after every collider it checks, whenever its code,
+the envelope, the placement code or any input layer manifest changes.
+
 ## Asset provenance
 
 [Kenney Car Kit](https://kenney.nl/assets/car-kit), CC0 1.0, downloaded 2026-10-25.
@@ -61,7 +76,11 @@ Run `npm ci --prefix tools/validator` and `npm ci --prefix game` during environm
 setup; the gate never installs dependencies. The synthetic pytest also invokes
 this same Rapier check for all four models and multiple yaw angles.
 
-Office-core evidence (seed 16, 2026-10-25): **16 cars**, four models, six colours;
+Office core after the manoeuvre envelope (seed 16, 2026-10-26, survey-backed structures):
+**15 cars**. `osm:way:1413262871:0:1:0` (van) is dropped: a fence 0.5–2.1 m behind it and a
+building wall 3.1–3.9 m ahead box it in, and no repair offset within 2 m clears both.
+
+Earlier office-core evidence (seed 16, 2026-10-25): **16 cars**, four models, six colours;
 **32 rays + 32 shape sweeps pass**, zero mapped access obstructions/overlaps.
 Twelve cars occupy the mapped parking lot north of the office; four occupy smaller
 street-side/courtyard parking polygons. Street segments tagged `parking:both=no`

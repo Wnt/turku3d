@@ -164,6 +164,8 @@ def test_incremental_tiles_keep_drivable_parked_cars(tmp_path):
             width=width,
             height=height,
             length=length,
+            clear_front_m=30.0,
+            clear_rear_m=30.0,
         )
         for i, x in enumerate((80, 280))
     ]
