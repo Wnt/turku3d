@@ -56,6 +56,26 @@ def jobs_for(facades, refs: Path, batch_size: int = 8):
         }
 
 
+def merge_labels(previous, records):
+    """Keep reviewed overrides when older batch records are replayed on resume."""
+    labels = dict(previous)
+    for record in records:
+        if not record.get("ok"):
+            continue
+        expected = set(record["meta"]["facade_ids"])
+        received = {value["facade_id"] for value in record["answer"]["facades"]}
+        if received != expected or len(record["answer"]["facades"]) != len(expected):
+            continue
+        labels.update(
+            {
+                value["facade_id"]: value
+                for value in record["answer"]["facades"]
+                if value["facade_id"] not in previous
+            }
+        )
+    return labels
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("facades", type=Path)
@@ -82,15 +102,7 @@ def main(argv=None):
         a.run / "run_label", parallel=2, max_pct=70, cache_dir=textures_data_dir("codex-cache")
     )
     result = runner.run(load_jobs(job_path))
-    labels = dict(previous)
-    for record in latest(a.run / "run_label/out.jsonl").values():
-        if not record.get("ok"):
-            continue
-        expected = set(record["meta"]["facade_ids"])
-        received = {v["facade_id"] for v in record["answer"]["facades"]}
-        if received != expected or len(record["answer"]["facades"]) != len(expected):
-            continue
-        labels.update({v["facade_id"]: v for v in record["answer"]["facades"]})
+    labels = merge_labels(previous, latest(a.run / "run_label/out.jsonl").values())
     write_json(labels_path, labels)
     print(json.dumps({"quota_before": quota, "labels": len(labels), "runner_exit": result}))
     return result

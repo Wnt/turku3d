@@ -1,8 +1,19 @@
 from pathlib import Path
 
 import numpy as np
-from turkutex.facade_labels import jobs_for
+from turkutex.facade_labels import jobs_for, merge_labels
 from turkutex.streetview.facades import Facade
+
+
+def test_reviewed_alternate_label_survives_resume():
+    old = {"facade_id": "wall", "usable": False}
+    reviewed = {"facade_id": "wall", "usable": True}
+    new = {"facade_id": "new", "usable": True}
+    records = [
+        {"ok": True, "meta": {"facade_ids": ["wall"]}, "answer": {"facades": [old]}},
+        {"ok": True, "meta": {"facade_ids": ["new"]}, "answer": {"facades": [new]}},
+    ]
+    assert merge_labels({"wall": reviewed}, records) == {"wall": reviewed, "new": new}
 
 
 def test_eight_facades_share_one_low_cost_label_job(monkeypatch, tmp_path):
