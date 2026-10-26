@@ -173,7 +173,7 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_la
 name = "queue-tests"
 kind = "command"
 triggers = ["scripts/dev/merge_queue.py", "scripts/dev/integrator.py", "scripts/dev/landing.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py"]
-commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py"]]
+commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py"]]
 
 [[stages]]
 name = "watch-tests"
