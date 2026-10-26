@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import fcntl
 import json
 import os
@@ -10,6 +11,11 @@ import subprocess
 import time
 
 import sandbox as s
+
+try:
+    import host_slots
+except ImportError:  # The host scheduler lands independently of this tool.
+    host_slots = None
 
 
 def state_path():
@@ -110,21 +116,8 @@ def reverify(name, record):
     # Code/data producers invalidate every tile and can exceed the queue budget.
     if any(p.startswith(("pipeline/", "textures/")) for p in changed):
         raise ValueError("all-tile producer changed; worker precheck required")
-    env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
     started = time.monotonic()
-    deadline = started + 210
-    env["TURKU3D_CHECK_DEADLINE"] = str(deadline)
-    if old.get("release_id"):
-        env["TURKU3D_PREVIOUS_RELEASE_ID"] = old["release_id"]
-    result = s.run_group(
-        [str(repo / "scripts/dev/codex-task"), "precheck", name], cwd=repo, env=env
-    )
-    if result.returncode or time.monotonic() > deadline:
-        detail = s.failure_detail(result.stdout)
-        raise ValueError(f"affected recheck failed or slow ({result.returncode}): {detail}")
-    refreshed = s.read_json(path / "precheck.json", {})
-    if refreshed.get("main") != s.git("rev-parse", "main", cwd=repo):
-        raise ValueError("main moved during affected recheck")
+    refreshed = run_precheck(name, "main", old)
     event(
         record,
         name,
@@ -135,6 +128,67 @@ def reverify(name, record):
     return refreshed
 
 
+def run_precheck(name, base, old):
+    repo = s.sandbox(name) / "repo"
+    path = s.tasks_root() / name
+    env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
+    started = time.monotonic()
+    deadline = started + 210
+    env["TURKU3D_CHECK_DEADLINE"] = str(deadline)
+    if old.get("release_id"):
+        env["TURKU3D_PREVIOUS_RELEASE_ID"] = old["release_id"]
+    result = s.run_group(
+        [str(repo / "scripts/dev/codex-task"), "precheck", name, "--base", base],
+        cwd=repo,
+        env=env,
+    )
+    if result.returncode or time.monotonic() > deadline:
+        detail = s.failure_detail(result.stdout)
+        raise ValueError(f"affected recheck failed or slow ({result.returncode}): {detail}")
+    refreshed = s.read_json(path / "precheck.json", {})
+    if refreshed.get("main") != s.git("rev-parse", base, cwd=repo):
+        raise ValueError("base moved during affected recheck")
+    return refreshed
+
+
+def speculative(names, record, pool):
+    """Prepare disjoint cumulative prefixes while the first member publishes."""
+    if len(names) < 2:
+        return {}
+    base = s.git("rev-parse", "main")
+    receipts = {name: s.read_json(s.tasks_root() / name / "precheck.json", {}) for name in names}
+    if any(row.get("main") != base for row in receipts.values()):
+        return {}
+    domains = set()
+    for name in names:
+        repo = s.sandbox(name) / "repo"
+        paths = s.git("diff", "--name-only", f"{base}...HEAD", cwd=repo).splitlines()
+        touched = {"/".join(path.split("/")[:2]) for path in paths}
+        if (
+            not touched
+            or touched & domains
+            or any(path.startswith(("pipeline/", "textures/")) for path in paths)
+        ):
+            return {}
+        domains.update(touched)
+    for name in names:
+        if not rebase(name, record):
+            return {}
+    previous = s.git("rev-parse", "HEAD", cwd=s.sandbox(names[0]) / "repo")
+    futures = {}
+    for name in names[1:]:
+        repo = s.sandbox(name) / "repo"
+        try:
+            s.git("rebase", "--onto", previous, base, cwd=repo)
+        except subprocess.CalledProcessError as exc:
+            s.git("rebase", "--abort", cwd=repo, check=False)
+            resume(name, f"speculative prefix conflict: {exc.stderr[-500:]}", record)
+            break
+        futures[name] = pool.submit(run_precheck, name, previous, receipts[name])
+        previous = s.git("rev-parse", "HEAD", cwd=repo)
+    return futures
+
+
 def process(record, limit=4):
     from landing import fast
 
@@ -142,28 +196,52 @@ def process(record, limit=4):
     if record.get("last_error") and time.time() - record["last_error"]["time"] < 300:
         return False
     names = ready(record)[:limit]
-    for name in names:
-        event(record, name, "started")
-        if not rebase(name, record):
-            continue
-        try:
-            receipt = s.read_json(s.tasks_root() / name / "precheck.json", {})
-            repo = s.sandbox(name) / "repo"
-            if receipt.get("main") != s.git("rev-parse", "main", cwd=repo):
-                reverify(name, record)
-            result = fast(name)
-        except (ValueError, OSError, subprocess.CalledProcessError, KeyError) as exc:
-            resume(name, str(exc)[-1000:], record)
-        else:
-            event(
-                record,
-                name,
-                "published",
-                commit=result["commit"],
-                merge_wall_seconds=result["merge_wall_seconds"],
-                verification=result["verification"],
-            )
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(names) - 1)) as pool:
+        futures = speculative(names, record, pool)
+        for name in names:
+            if "resumed" in record["tasks"].get(name, {}):
+                continue
+            event(record, name, "started")
+            if name not in futures and not rebase(name, record):
+                continue
+            try:
+                if name in futures:
+                    futures[name].result()
+                else:
+                    receipt = s.read_json(s.tasks_root() / name / "precheck.json", {})
+                    repo = s.sandbox(name) / "repo"
+                    if receipt.get("main") != s.git("rev-parse", "main", cwd=repo):
+                        reverify(name, record)
+                result = fast(name)
+            except (ValueError, OSError, subprocess.CalledProcessError, KeyError) as exc:
+                resume(name, str(exc)[-1000:], record)
+            else:
+                event(
+                    record,
+                    name,
+                    "published",
+                    commit=result["commit"],
+                    merge_wall_seconds=result["merge_wall_seconds"],
+                    verification=result["verification"],
+                )
     return bool(names)
+
+
+def admitted_process(record, limit):
+    if host_slots is None:
+        return process(record, limit)
+    with host_slots.slot("land"):
+        prior = os.environ.get("TURKU3D_LAND_OWNER")
+        os.environ["TURKU3D_LAND_OWNER"] = (
+            f"{os.getpid()}:{host_slots.identity(os.getpid())}"
+        )
+        try:
+            return process(record, limit)
+        finally:
+            if prior is None:
+                os.environ.pop("TURKU3D_LAND_OWNER", None)
+            else:
+                os.environ["TURKU3D_LAND_OWNER"] = prior
 
 
 def published(record, name):
@@ -233,7 +311,7 @@ def run(interval=5, once=False, limit=4):
                     while True:
                         record = state()
                         try:
-                            process(record, limit)
+                            admitted_process(record, limit)
                         except (ValueError, OSError, subprocess.CalledProcessError) as exc:
                             record["last_error"] = {"time": time.time(), "detail": str(exc)}
                             save(record)

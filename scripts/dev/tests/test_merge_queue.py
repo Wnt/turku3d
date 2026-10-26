@@ -1,5 +1,6 @@
 """Synthetic queue scheduling, failures and shared-cache key tests."""
 
+import concurrent.futures
 import json
 import os
 import subprocess
@@ -19,6 +20,46 @@ from gate_cache import cache_root, stage_key  # noqa: E402
 
 
 class QueueTests(unittest.TestCase):
+    def test_disjoint_prefixes_prepare_in_parallel(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tasks = root / "tasks"
+            for name in ("one", "two", "three"):
+                path = tasks / name
+                path.mkdir(parents=True)
+                (path / "precheck.json").write_text('{"main":"base"}')
+
+            def git(*args, cwd=None):
+                if args == ("rev-parse", "main"):
+                    return "base"
+                if args[:2] == ("diff", "--name-only"):
+                    return {
+                        "one": "game/src/a.ts",
+                        "two": "qa/checks/b.py",
+                        "three": "scripts/dev/c.py",
+                    }[cwd.parent.name]
+                if args == ("rev-parse", "HEAD"):
+                    return cwd.parent.name + "-head"
+                if args[:2] == ("rebase", "--onto"):
+                    return ""
+                raise AssertionError(args)
+
+            record = {"tasks": {}, "events": []}
+            with (
+                patch.object(merge_queue.s, "tasks_root", return_value=tasks),
+                patch.object(merge_queue.s, "sandbox", side_effect=lambda n: root / n),
+                patch.object(merge_queue.s, "git", side_effect=git),
+                patch.object(merge_queue, "rebase", return_value=True),
+                patch.object(merge_queue, "run_precheck", return_value={}) as precheck,
+            ):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = merge_queue.speculative(["one", "two", "three"], record, pool)
+                    for future in futures.values():
+                        future.result()
+                self.assertEqual(set(futures), {"two", "three"})
+                self.assertEqual(precheck.call_args_list[0].args[:2], ("two", "one-head"))
+                self.assertEqual(precheck.call_args_list[1].args[:2], ("three", "two-head"))
+
     def test_check_deadline_stops_slow_command(self):
         with tempfile.TemporaryDirectory() as temp:
             start = time.monotonic()

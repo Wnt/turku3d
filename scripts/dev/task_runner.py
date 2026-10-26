@@ -558,7 +558,7 @@ def land(name, force=False):
         cleanup_landed(name)
 
 
-def precheck(name):
+def precheck(name, base="main"):
     """Rebase and run the landing gate and live checks in the worker sandbox."""
     path = task(name)
     repo = s.sandbox(name) / "repo"
@@ -566,16 +566,17 @@ def precheck(name):
         if s.git("status", "--porcelain", cwd=repo):
             raise ValueError("commit changes before precheck")
         try:
-            s.git("rebase", "main", cwd=repo)
+            s.git("rebase", base, cwd=repo)
         except subprocess.CalledProcessError:
             s.git("rebase", "--abort", cwd=repo, check=False)
             raise
         head = s.git("rev-parse", "HEAD", cwd=repo)
         env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
+        env["TURKU3D_VERIFY_BASE"] = base
         gate_log = path / "precheck-gate.log"
         start = time.monotonic()
         result = s.run_group(
-            [str(repo / "scripts/dev/gate"), "--base", "main", "--json"], cwd=repo, env=env
+            [str(repo / "scripts/dev/gate"), "--base", base, "--json"], cwd=repo, env=env
         )
         gate_log.write_text(result.stdout)
         if result.returncode:
@@ -609,7 +610,12 @@ def precheck(name):
         import verification
 
         receipt = verification.create(
-            repo, Path(env["TURKU3D_DATA"]), Path(env["TURKU3D_WORK"]), gate_report, build
+            repo,
+            Path(env["TURKU3D_DATA"]),
+            Path(env["TURKU3D_WORK"]),
+            gate_report,
+            build,
+            base,
         )
         report = {
             **receipt,
@@ -636,6 +642,7 @@ def main():
     subs.add_parser("ls")
     p = subs.add_parser("precheck")
     p.add_argument("name", nargs="?", default=os.environ.get("TURKU3D_SANDBOX"))
+    p.add_argument("--base", default="main")
     queue = subs.add_parser("queue")
     queue.add_argument("action", choices=("run", "status"))
     queue.add_argument("--once", action="store_true")
@@ -671,7 +678,7 @@ def main():
     elif a.cmd == "ls":
         list_tasks()
     elif a.cmd == "precheck":
-        precheck(a.name)
+        precheck(a.name, a.base)
     elif a.cmd == "queue":
         import merge_queue
 

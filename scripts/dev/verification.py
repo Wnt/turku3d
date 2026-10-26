@@ -26,10 +26,10 @@ def artifact_hash(release):
     return result.hexdigest()
 
 
-def create(repo, published, work, gate, build):
+def create(repo, published, work, gate, build, base="main"):
     head = s.git("rev-parse", "HEAD", cwd=repo)
     tree = s.git("rev-parse", "HEAD^{tree}", cwd=repo)
-    main = s.git("rev-parse", "main", cwd=repo)
+    main = s.git("rev-parse", base, cwd=repo)
     checks = {
         "gate": {
             row["name"]: row["input_hash"]
