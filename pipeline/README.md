@@ -12,6 +12,7 @@ make pipeline-bootstrap pipeline-versions
 make pipeline-test                        # offline, synthetic fixtures, 4 pytest workers
 make fetch-aoi AREA=work-3x3               # prepare shared data once, intentionally writes raw/
 make fetch-checksums AREA=work-3x3         # export small provenance files for git
+make refresh                              # rebuild stale derived layers and bindings
 make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-show                            # sandbox port base + 1
 make qa-refs                              # regenerate crops with corrected grid heading

@@ -2,7 +2,9 @@
 AREA ?= office-block
 PIPELINE_RUN = bash $(REPO)/pipeline/env/run.sh
 
-.PHONY: pipeline-bootstrap pipeline-bootstrap-update pipeline-versions pipeline-test pipeline-venv pipeline-sources fetch-aoi fetch-report fetch-checksums
+.PHONY: pipeline-bootstrap pipeline-bootstrap-update pipeline-versions pipeline-test pipeline-venv pipeline-sources fetch-aoi fetch-report fetch-checksums refresh
+refresh: ## Rebuild stale derived layers and bindings under TURKU3D_WORK
+	$(PIPELINE_RUN) python -m turku3d.refresh $(if $(REFRESH_TARGET),--target $(REFRESH_TARGET))
 pipeline-bootstrap: ## Install native osx-arm64 tools under ~/turku3d (idempotent)
 	bash $(REPO)/pipeline/env/bootstrap.sh
 pipeline-bootstrap-update: ## Re-solve the native environment

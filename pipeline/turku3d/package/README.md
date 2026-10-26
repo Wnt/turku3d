@@ -7,11 +7,27 @@ L0 and collision have no stub or raw-data fallback. Coarse parents may read the 
 maanpinta ground points and 2022 ortho to fill their complete footprint.
 
 ```sh
+make refresh
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-test
 make game-test
 ```
+
+`make refresh` locks `$TURKU3D_WORK/.refresh.lock`, checks producer manifest input and
+code hashes, and rebuilds changed ground and buildings in parallel. It then checks
+ground splats, the filtered facade export, and props placement. Ground splats reuse
+the fused orthos when the ground layer changes. A second run with unchanged inputs
+prints `cached` for every present product. It reads shared raw inputs and writes
+only derived products under `$TURKU3D_WORK`. Run it before `make tile-build` after
+changing a layer. The tile builder rejects stale ground bindings and names this
+refresh target instead of shipping flat ground. A changed QA-approved facade export
+needs a new filtered export; refresh reports that case explicitly because the
+original QA inputs are required to regenerate it. If buildings code or inputs are
+stale while an approved facade export exists, refresh stops before replacing the
+building layer: changed wall identities need a new facade QA pass. Use
+`make refresh REFRESH_TARGET=ground-textures` to refresh ground and splats while
+that facade work is pending.
 
 `make tile` assembles, validates with Rapier, then runs Chrome WebGPU/WebGL2 tests.
 Output is `$TURKU3D_WORK/dist/tiles`; reports are `$TURKU3D_WORK/reports`.
