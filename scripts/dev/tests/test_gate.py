@@ -14,7 +14,7 @@ from unittest.mock import patch
 DEV = Path(__file__).resolve().parents[1]
 REPO = DEV.parents[1]
 sys.path.insert(0, str(DEV))
-from gate_lib import changes, e2e, matches, related  # noqa: E402
+from gate_lib import browser, changes, e2e, matches, related, selection  # noqa: E402
 from hooks import snapshot  # noqa: E402
 
 
@@ -209,6 +209,42 @@ class GateTest(unittest.TestCase):
         self.assertEqual(
             related(stage, ["pipeline/turku3d/lidar/store.py"], "tests"), ["tests/test_lidar.py"]
         )
+
+    def test_fast_selection_has_no_browser_stage(self):
+        config = tomllib.loads((DEV / "gate.toml").read_text())
+
+        def chosen(paths, **mode):
+            return {
+                stage["name"] for stage, picked, _ in selection(config, paths, **mode)[1] if picked
+            }
+
+        game = ["game/src/render/idPass.ts"]
+        self.assertIn("game-e2e", chosen(game))
+        fast = chosen(game, fast=True)
+        self.assertTrue({"game-unit", "game-types", "js-lint"} <= fast, fast)
+        self.assertFalse({"game-e2e", "qa-render-tests"} & fast, fast)
+        routing = chosen(["scripts/dev/gate.toml"], fast=True)
+        self.assertIn("gate-tests", routing)
+        self.assertFalse({s["name"] for s in config["stages"] if browser(s)} & routing, routing)
+        for tool in ("host_slots.py", "env_sync.py", "resources.py"):
+            full, _ = selection(config, ["scripts/dev/" + tool], fast=True)
+            self.assertFalse(full, tool)
+
+    def test_every_stage_that_starts_a_browser_is_marked(self):
+        config = tomllib.loads((DEV / "gate.toml").read_text())
+        markers = ("from 'playwright'", 'from "playwright"', "@playwright/test", "playwright test")
+        for stage in config["stages"]:
+            sources = [
+                (REPO / arg).read_text(errors="ignore")
+                for command in stage.get("commands", [])
+                for arg in command
+                if "{" not in arg and (REPO / arg).is_file()
+            ]
+            starts = any(m in text for text in sources for m in markers) or any(
+                "playwright" in arg for command in stage.get("commands", []) for arg in command
+            )
+            with self.subTest(stage=stage["name"]):
+                self.assertEqual(browser(stage), starts or stage["kind"] == "e2e")
 
     def test_incoming_producer_rows_and_qa_callers(self):
         config = tomllib.loads((DEV / "gate.toml").read_text())

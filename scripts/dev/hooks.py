@@ -70,13 +70,13 @@ def snapshot(root, revision, staged=False):
             git(root, "worktree", "remove", "--force", str(target))
 
 
-def check_snapshot(target, changed, fast=False):
+def check_snapshot(target, changed, lint_only=False):
     return subprocess.run(
         [
             sys.executable,
             str(target / "scripts/dev/hooks.py"),
             "_check",
-            "lint" if fast else "full",
+            "lint" if lint_only else "full",
         ],
         cwd=target,
         env={
@@ -95,7 +95,7 @@ def main():
     try:
         if len(sys.argv) == 3 and sys.argv[1] == "_check":
             config = tomllib.loads((root / "scripts/dev/gate.toml").read_text())
-            return run_gate(root, config, json.load(sys.stdin), fast=sys.argv[2] == "lint")
+            return run_gate(root, config, json.load(sys.stdin), lint_only=sys.argv[2] == "lint")
         if sys.argv[1:] == ["pre-commit"]:
             changed = sorted(
                 paths_from(git(root, "diff", "--cached", "--name-only", "--no-renames", "-z"))
@@ -103,7 +103,7 @@ def main():
             if not changed:
                 return 0
             with snapshot(root, "HEAD", staged=True) as target:
-                return check_snapshot(target, changed, fast=True)
+                return check_snapshot(target, changed, lint_only=True)
         if sys.argv[1:] != ["pre-push"]:
             raise ValueError("usage: hooks.py pre-commit|pre-push")
         result = 0

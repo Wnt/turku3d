@@ -1,4 +1,4 @@
-"""Headless Codex tasks with durable logs and serialized, verified landing."""
+"""Headless Codex tasks with durable logs; landing.py lands finished branches."""
 
 from __future__ import annotations
 
@@ -16,9 +16,8 @@ from pathlib import Path
 import coordination as coord
 import external_worker
 import host_slots
-import live_build
+import landing
 import merge_queue
-import queue_sweep
 import sandbox as s
 
 
@@ -311,6 +310,8 @@ def worker(name):
         meta.update(exit_code=rc, finished=time.time())
         if meta["state"] != "stopped":
             meta["state"] = "done" if rc == 0 else "failed"
+        if meta["state"] == "done":
+            meta.setdefault("first_finished", meta["finished"])
         meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         s.write_json(path / "meta.json", meta)
 
@@ -323,7 +324,9 @@ def status(name):
         state = "interrupted"
     if kind := host_slots.waiting(name):
         state = f"waiting for {kind} slot"
-    if reason := merge_queue.returned(name):
+    if reason := merge_queue.returned(name) or (
+        meta.get("returned_reason") if state == "returned" else None
+    ):
         state = f"returned: {reason}"
     last = deque(read_events(path), maxlen=1)
     elapsed = (meta.get("finished") or time.time()) - meta.get("started", meta["created"])
@@ -410,8 +413,8 @@ def kill_members(members):
 
 def stop(name):
     path = task(name)
-    # A worker's own precheck holds the task lock for the whole gate and live build,
-    # so signal the group first; the lock is only needed for the state update.
+    # A landing holds the task lock for its whole fast gate, so signal the group
+    # first; the lock is only needed for the state update.
     meta = s.read_json(path / "meta.json")
     if not running(meta):
         s.reap_browsers(name)
@@ -446,15 +449,6 @@ def stop(name):
     s.reap_browsers(name)
 
 
-def facade_reason(path):
-    """The result's `Facade regression reason:` text, which admits a lower facade count."""
-    text = (path / "last.md").read_text() if (path / "last.md").exists() else ""
-    marker = "Facade regression reason:"
-    return next(
-        (line[len(marker) :].strip() for line in text.splitlines() if line.startswith(marker)), None
-    )
-
-
 def main_checkout(repo):
     for block in s.git("worktree", "list", "--porcelain", cwd=repo).split("\n\n"):
         if "branch refs/heads/main" in block.splitlines():
@@ -481,162 +475,6 @@ def cleanup_landed(name, integrated_commit=None):
         print(f"{name}: landed, sandbox retained: {error}; use wt rm after resolving it")
 
 
-def land(name, force=False):
-    path = task(name)
-    with s.lock(s.root() / ".registry/land.lock"), s.lock(path / "lock"):
-        meta = s.read_json(path / "meta.json")
-        if running(meta) or meta.get("state") != "done" or meta.get("exit_code") != 0:
-            raise ValueError("task must have completed successfully before landing")
-        with coord.landing_guard(name, force):
-            pass
-        s.reap_browsers(name)
-        if not (path / "last.md").exists() or [
-            line
-            for line in (path / "last.md").read_text().splitlines()
-            if line.startswith("## Result:")
-        ] != ["## Result: DONE"]:
-            raise ValueError("result must contain an exact ## Result: DONE heading")
-        repo = s.sandbox(name) / "repo"
-        if s.git("branch", "--show-current", cwd=repo) != f"wt/{name}":
-            raise ValueError("sandbox is not on its expected branch")
-        if s.git("status", "--porcelain", cwd=repo):
-            raise ValueError("sandbox is dirty")
-        main = main_checkout(repo)
-        if main and s.git("status", "--porcelain", cwd=main):
-            raise ValueError("main worktree is dirty")
-        if not (repo / "scripts/dev/gate").is_file():
-            raise ValueError("missing scripts/dev/gate; main unchanged")
-        before = s.git("rev-parse", "main", cwd=repo)
-        start = time.monotonic()
-        build_report = None
-        for _attempt in range(3):
-            base = s.git("rev-parse", "main", cwd=repo)
-            s.rebase("main", repo)
-            head = s.git("rev-parse", "HEAD", cwd=repo)
-            env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
-            gate = repo / "scripts/dev/gate"
-            if not gate.is_file():
-                raise ValueError("missing scripts/dev/gate; main unchanged")
-            commands = [[str(gate), "--base", before]]
-            with (path / "gate.log").open("w") as log:
-                for command in commands:
-                    result = s.run_group(command, cwd=repo, env=env)
-                    log.write(result.stdout)
-                    log.flush()
-                    rc = result.returncode
-                    if rc:
-                        raise ValueError(
-                            f"gate failed ({rc}); {s.failure_detail(result.stdout)}; host load {s.host_load()}: {path / 'gate.log'}; main unchanged"
-                        )
-            if (
-                s.git("status", "--porcelain", cwd=repo)
-                or s.git("rev-parse", "HEAD", cwd=repo) != head
-            ):
-                raise ValueError("gate changed sandbox files or HEAD; main unchanged")
-            build_report = live_build.build(
-                repo,
-                Path(env["TURKU3D_WORK"]),
-                Path(env["TURKU3D_DATA"]),
-                env,
-                path / "live-build.log",
-                facade_reason(path),
-            )
-            if (
-                s.git("status", "--porcelain", cwd=repo)
-                or s.git("rev-parse", "HEAD", cwd=repo) != head
-            ):
-                raise ValueError("live build changed sandbox files or HEAD; main unchanged")
-            if s.git("rev-parse", "main", cwd=repo) == base:
-                before = base
-                break
-        else:
-            raise ValueError("main changed during gate three times; retry landing")
-        live_build.prepare(Path(env["TURKU3D_WORK"]), Path(env["TURKU3D_DATA"]), head, build_report)
-        with coord.landing_guard(name, force):
-            if main:
-                if s.git("status", "--porcelain", cwd=main):
-                    raise ValueError("main became dirty during gate; main unchanged")
-                s.git("merge", "--ff-only", head, cwd=main)
-            else:
-                s.git("update-ref", "refs/heads/main", head, before, cwd=repo)
-            live_build.publish(Path(env["TURKU3D_DATA"]), head)
-        record = {
-            "name": name,
-            "before": before,
-            "commit": head,
-            "time": time.time(),
-            "gate_seconds": round(time.monotonic() - start, 3),
-            "live_build": build_report,
-        }
-        meta["landed"] = record
-        s.write_json(path / "meta.json", meta)
-        with (s.root() / ".registry/landed.jsonl").open("a") as f:
-            f.write(json.dumps(record) + "\n")
-        print(
-            f"{name}: landed {head[:12]} (landing {record['gate_seconds']}s; "
-            f"live stages {build_report['seconds']})"
-        )
-        cleanup_landed(name)
-
-
-def precheck(name, base="main"):
-    """Rebase and run the landing gate and live checks in the worker sandbox."""
-    path = task(name)
-    repo = s.sandbox(name) / "repo"
-    with s.lock(path / "lock"):
-        if s.git("status", "--porcelain", cwd=repo):
-            raise ValueError("commit changes before precheck")
-        # Pin the base: the receipt must name the main this head was rebased onto and checked
-        # against, even when main moves while the gate and live build run.
-        base = s.git("rev-parse", base, cwd=repo)
-        s.rebase(base, repo)
-        head = s.git("rev-parse", "HEAD", cwd=repo)
-        env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
-        env["TURKU3D_VERIFY_BASE"] = base
-        gate_log = path / "precheck-gate.log"
-        # A red full sweep admits a branch touching its held domains only with full-gate proof.
-        scope = ["--all"] if queue_sweep.held(repo) else []
-        start = time.monotonic()
-        result = s.run_group(
-            [str(repo / "scripts/dev/gate"), "--base", base, *scope, "--json"], cwd=repo, env=env
-        )
-        gate_log.write_text(result.stdout)
-        if result.returncode:
-            raise ValueError(f"precheck gate failed: {s.failure_detail(result.stdout)}: {gate_log}")
-        gate_report = json.loads(result.stdout)
-        if not gate_report["ok"]:
-            raise ValueError(f"precheck gate reported failure: {gate_log}")
-        gate_seconds = round(time.monotonic() - start, 3)
-        build = live_build.build(
-            repo,
-            Path(env["TURKU3D_WORK"]),
-            Path(env["TURKU3D_DATA"]),
-            env,
-            path / "precheck-live.log",
-            facade_reason(path),
-        )
-        if s.git("status", "--porcelain", cwd=repo) or s.git("rev-parse", "HEAD", cwd=repo) != head:
-            raise ValueError("precheck changed the worker checkout")
-        import verification
-
-        receipt = verification.create(
-            repo,
-            Path(env["TURKU3D_DATA"]),
-            Path(env["TURKU3D_WORK"]),
-            gate_report,
-            build,
-            base,
-        )
-        report = {
-            **receipt,
-            "gate_seconds": gate_seconds,
-            "live_build": build,
-            "time": time.time(),
-        }
-        s.write_json(path / "precheck.json", report)
-        print(json.dumps(report, indent=2))
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     subs = ap.add_subparsers(dest="cmd", required=True)
@@ -650,9 +488,6 @@ def main():
     p.add_argument("--route", choices=("task", "task_rebase", "light"))
     p.add_argument("--force", action="store_true")
     subs.add_parser("ls")
-    p = subs.add_parser("precheck")
-    p.add_argument("name", nargs="?", default=os.environ.get("TURKU3D_SANDBOX"))
-    p.add_argument("--base", default="main")
     p = subs.add_parser("adopt", help="register an existing sandbox as an externally worked task")
     p.add_argument("name")
     p.add_argument("--brief", required=True)
@@ -671,13 +506,7 @@ def main():
         p = subs.add_parser(cmd)
         p.add_argument("name", nargs="?" if cmd == "land" else None)
         if cmd == "land":
-            p.add_argument("--batch", nargs="+")
-            p.add_argument(
-                "--prechecked",
-                action="store_true",
-                help="publish the task's precheck receipt and prepared release without a rebuild",
-            )
-            p.add_argument("--dry-run", action="store_true", help="with --prechecked: check only")
+            p.add_argument("--batch", nargs="+", help="land these tasks in order")
         if cmd == "log":
             p.add_argument("n", type=int, default=20, nargs="?")
         if cmd == "resume":
@@ -705,8 +534,6 @@ def main():
         )
     elif a.cmd == "ls":
         list_tasks()
-    elif a.cmd == "precheck":
-        precheck(a.name, a.base)
     elif a.cmd == "adopt":
         external_worker.adopt(a.name, a.brief)
     elif a.cmd == "finish":
@@ -725,28 +552,12 @@ def main():
     elif a.cmd == "stop":
         stop(a.name)
     elif a.cmd == "land":
+        if bool(a.batch) == bool(a.name):
+            ap.error("land takes one name or --batch")
         if a.batch:
-            if a.name:
-                ap.error("choose name or --batch")
-            from landing import batch
-
-            batch(a.batch, a.force)
-        elif a.prechecked:
-            if not a.name or a.force:
-                ap.error("--prechecked takes one name and no --force")
-            from landing import fast
-
-            result = fast(a.name, dry_run=a.dry_run)
-            if not a.dry_run:
-                print(
-                    f"{a.name}: landed {result['commit'][:12]} in {result['merge_wall_seconds']}s"
-                )
-        elif a.dry_run:
-            ap.error("--dry-run requires --prechecked")
-        elif a.name:
-            land(a.name, a.force)
+            landing.batch(a.batch, a.force)
         else:
-            ap.error("land requires a name or --batch")
+            landing.land(a.name, a.force)
     elif a.cmd == "_worker":
         worker(a.name)
     elif a.cmd == "result":

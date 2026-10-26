@@ -110,7 +110,7 @@ def run_group(command, *, cwd, env, log=None, timeout=None, hand_over=()):
 def wait_cmd(command, tail=40, timeout=None):
     """Run a long command to exit in one call: stream it to a log, then print its tail.
 
-    Agents use this instead of polling a running gate, precheck or build every few seconds.
+    Agents use this instead of polling a running gate or build every few seconds.
     """
     command = command[1:] if command[:1] == ["--"] else command
     if not command:

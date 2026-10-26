@@ -1,7 +1,8 @@
 # The only path -> stage routing table. Globs use fnmatch: * includes slashes.
 # A trigger selects a stage; sources bounds the files linted by that stage.
 [gate]
-full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py", "scripts/dev/gate_cache.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/host_slots.py"]
+# Gate machinery changes rerun every stage; the host tools are covered by their own test stages.
+full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py", "scripts/dev/gate_cache.py"]
 prose = ["*.md"]
 python = ".venv/bin/python"
 tool_dirs = ["~/turku3d/envs/pipeline/bin", "~/turku3d/tools/bin"]
@@ -164,14 +165,14 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_polic
 name = "tooling-tests"
 inputs = ["pipeline/turku3d/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
-triggers = ["scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/landing.py", "scripts/dev/live_build.py", "scripts/dev/host_slots.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_live_build.py", "scripts/dev/tests/test_host_slots.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_live_build.py", "test_host_slots.py", "test_environment.py", "test_stop.py"]]
+triggers = ["scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/landing.py", "scripts/dev/live_build.py", "scripts/dev/host_slots.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_lander.py", "scripts/dev/tests/test_live_build.py", "scripts/dev/tests/test_host_slots.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_lander.py", "test_live_build.py", "test_host_slots.py", "test_environment.py", "test_stop.py"]]
 
 # The queue tests patch module globals and os.environ, so they run serially in their own process.
 [[stages]]
 name = "queue-tests"
 kind = "command"
-triggers = ["scripts/dev/merge_queue.py", "scripts/dev/queue_sweep.py", "scripts/dev/landing.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/verification.py", "scripts/dev/warm_queue.py", "scripts/dev/warm_browser.mjs", "scripts/dev/affected_browser.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py"]
+triggers = ["scripts/dev/merge_queue.py", "scripts/dev/integrator.py", "scripts/dev/landing.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py"]
 commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py"]]
 
 [[stages]]
@@ -231,9 +232,11 @@ configs = [".shellcheckrc", "scripts/dev/gate.toml"]
 triggers = ["*.sh", ".shellcheckrc", ".githooks/*"]
 sources = ["*.sh", ".githooks/*"]
 
+# browser = true: the stage starts Chrome, so `gate --fast` leaves it to the integrator.
 [[stages]]
 name = "qa-render-tests"
 kind = "command"
+browser = true
 triggers = ["qa/render/*", "qa/tests/golden_projection.json", "tools/dev/environment.*"]
 commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
 

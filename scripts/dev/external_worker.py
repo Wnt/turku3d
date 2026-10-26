@@ -1,7 +1,7 @@
-"""Tasks worked outside Codex: `codex-task adopt` registers them, `finish` hands them to the queue.
+"""Tasks worked outside Codex: `codex-task adopt` registers them, `finish` hands them to the lander.
 
-Their meta.json carries `worker: external`. The merge queue never resumes them through Codex;
-it marks them `returned` and posts a request to the task inbox instead (see merge_queue.py).
+Their meta.json carries `worker: external`. They are never resumed through Codex; a branch the
+lander cannot land is marked `returned` with a request in the task inbox (see landing.py).
 """
 
 from __future__ import annotations
@@ -40,9 +40,9 @@ def adopt(name, brief):
 
 
 def finish(name, result_path):
-    """Record a result produced by a non-Codex worker so the merge queue can land the task.
+    """Record a result produced by a non-Codex worker so the lander can land the task.
 
-    A new `finished` time also re-enqueues a task the queue returned to its worker.
+    A new `finished` time also re-enqueues a returned task; `first_finished` keeps the first.
     """
     from task_runner import running, task
 
@@ -56,6 +56,8 @@ def finish(name, result_path):
             raise ValueError("task is still running; stop it first")
         (path / "last.md").write_text(text)
         meta.update(state="done", exit_code=0, finished=time.time(), worker="external")
+        meta.setdefault("first_finished", meta["finished"])
+        meta.pop("returned_reason", None)
         meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         s.write_json(path / "meta.json", meta)
-    print(f"{name}: DONE result recorded; the merge queue lands it after precheck")
+    print(f"{name}: DONE result recorded; the lander lands it after its fast gate")

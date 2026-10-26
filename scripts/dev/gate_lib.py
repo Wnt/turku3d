@@ -285,21 +285,17 @@ def execute(root, stage, changed, files, full, env, config):
     }
 
 
-def run_gate(root, config, changed, *, full=False, listing=False, as_json=False, fast=False):
-    # One checkout has one browser port/output tree. Distinct sandboxes still run in parallel.
-    with lock(root / ".cache/gate.lock"):
-        return _run_gate(
-            root, config, changed, full=full, listing=listing, as_json=as_json, fast=fast
-        )
+def browser(stage):
+    """Stages that start Playwright or Chrome; `gate --fast` leaves them to the integrator."""
+    return stage["kind"] == "e2e" or bool(stage.get("browser"))
 
 
-def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False, fast=False):
-    start = time.monotonic()
-    files = inventory(root)
+def selection(config, changed, *, full=False, lint_only=False, fast=False):
+    """Return (stage, selected, reason) for every stage; full_triggers widen to all stages."""
     full = full or (
-        not fast and any(matches(p, config["gate"].get("full_triggers", [])) for p in changed)
+        not lint_only and any(matches(p, config["gate"].get("full_triggers", [])) for p in changed)
     )
-    chosen, results = [], []
+    rows = []
     for stage in config["stages"]:
         hits = [
             p
@@ -309,12 +305,33 @@ def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False
         ]
         selected = full or stage.get("always") or bool(hits)
         reason = "--all" if full else "always" if stage.get("always") else ", ".join(hits[:3])
-        if fast and stage["kind"] not in ("python-lint", "js-lint", "shell"):
+        if lint_only and stage["kind"] not in ("python-lint", "js-lint", "shell"):
             selected, reason = False, "pre-commit: lint/format only"
+        elif fast and browser(stage):
+            selected, reason = False, "--fast: browser stages run in the integrator"
         elif not selected:
             reason = "no changed path matches stage triggers"
+        rows.append((stage, selected, reason))
+    return full, rows
+
+
+def run_gate(root, config, changed, **options):
+    """Options: full, listing, as_json, lint_only (pre-commit) and fast (no browser stages)."""
+    # One checkout has one browser port/output tree. Distinct sandboxes still run in parallel.
+    with lock(root / ".cache/gate.lock"):
+        return _run_gate(root, config, changed, **options)
+
+
+def _run_gate(
+    root, config, changed, *, full=False, listing=False, as_json=False, lint_only=False, fast=False
+):
+    start = time.monotonic()
+    files = inventory(root)
+    full, rows = selection(config, changed, full=full, lint_only=lint_only, fast=fast)
+    chosen, results = [], []
+    for stage, selected, reason in rows:
         if selected and not listing:
-            chosen.append({**stage, "configs": []} if fast else stage)
+            chosen.append({**stage, "configs": []} if lint_only else stage)
         else:
             results.append(
                 {
@@ -326,7 +343,7 @@ def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False
             )
     if chosen:
         env = environment(root, config)
-        if not fast:
+        if not lint_only:
             synced = sync(root, env)
             results.append(synced)
             if not as_json:
@@ -335,14 +352,14 @@ def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False
                     print(synced["output"], flush=True)
             if synced["status"] == "FAIL":
                 chosen = []
-        tools = versions(env) if chosen and not fast else {}
+        tools = versions(env) if chosen and not lint_only else {}
 
         def run_stage(stage):
             def action():
                 return execute(root, stage, changed, files, full, env, config)
 
             # Policy depends on current main's merge count and is already inexpensive.
-            if fast or stage["kind"] == "policy":
+            if lint_only or stage["kind"] == "policy":
                 return action()
             kind = stage["kind"]
             if kind in ("python-lint", "js-lint", "shell"):
@@ -400,6 +417,9 @@ def main(argv=None):
     parser.add_argument("--list", action="store_true", dest="listing")
     parser.add_argument("--json", action="store_true", dest="as_json")
     parser.add_argument(
+        "--fast", action="store_true", help="skip browser stages; the lander's pre-merge gate"
+    )
+    parser.add_argument(
         "--paths", nargs="+", help="profile explicit repo-relative paths instead of Git changes"
     )
     args = parser.parse_args(argv)
@@ -410,5 +430,11 @@ def main(argv=None):
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.error(f"cannot select changes: {exc}")
     return run_gate(
-        root, config, changed, full=args.full, listing=args.listing, as_json=args.as_json
+        root,
+        config,
+        changed,
+        full=args.full,
+        listing=args.listing,
+        as_json=args.as_json,
+        fast=args.fast,
     )

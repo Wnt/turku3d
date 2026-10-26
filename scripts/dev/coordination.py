@@ -23,7 +23,7 @@ Send a message: scripts/dev/codex-task msg <name|all> --kind request --subject "
 Announce shared interface changes with --kind interface --ref <commit> to all.
 Before changing another area's interface, request it from its running owner or the board.
 Never edit another sandbox's files. Open inbox requests/warnings prevent landing.
-Run anything that can take longer than 30 s (gate, precheck, tile build, Chrome suites) as one
+Run anything that can take longer than 30 s (gate, tile build, Chrome suites) as one
 blocking call: scripts/dev/codex-task wait-cmd -- <command>. It prints the last 40 lines and the
 exit code. Otherwise poll with write_stdin at yield_time_ms 30000; never poll at 1000 ms.
 """
