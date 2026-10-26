@@ -11,8 +11,12 @@ placement code and the audit report.
 ## Rebuild and inspect
 
 Run from this worktree with its sandbox environment. Ground and buildings must already
-be published under `$TURKU3D_WORK/build/layers`. Rebuild sequentially so each producer
-sees the other inventories; the last producer checks against every preceding layer.
+be published under `$TURKU3D_WORK/build/layers`. Producers run in `PLACEMENT_ORDER`
+(`inputs.py`: props, vegetation, traffic_static), and each clears only the inventories
+published before it: trees avoid props, parked cars avoid both. A rebuilt later layer
+therefore never invalidates an earlier one, and `make refresh` runs them in this order
+in a single pass. `python -m turku3d.placement` revalidates each layer in the same order,
+which covers every pair once.
 
 ```sh
 source ../sandbox.env

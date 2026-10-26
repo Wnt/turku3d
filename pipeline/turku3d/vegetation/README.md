@@ -8,6 +8,10 @@ bash pipeline/env/run.sh python -m turku3d.vegetation --scope phase1  # final fu
 scripts/dev/gate
 ```
 
+`make refresh` rebuilds this layer after props and before traffic_static whenever
+`code_hash()` (this package plus config, layers and glTF packaging), the placement
+code or a declared input (sources, LAZ, assets, published surface layers, props
+inventory) changes; office assembly fails without it.
 The default output is `$TURKU3D_WORK/build/layers/vegetation`; `--out PATH` changes
 that directory. Development defaults to the office core plus 50 m; `--scope phase1`
 uses the four Phase 1 L0 tiles plus 50 m for final acceptance. Whole
