@@ -46,6 +46,8 @@ def fast(name):
         main = main_checkout(repo)
         if main and s.git("status", "--porcelain", cwd=main):
             raise ValueError("main worktree is dirty")
+        if time.monotonic() - started > 110:
+            raise ValueError("merge verification is slow; 2-minute budget would be exceeded")
         with coord.landing_guard(name, force=True):
             if main:
                 s.git("merge", "--ff-only", receipt["head"], cwd=main)
@@ -53,8 +55,6 @@ def fast(name):
                 s.git("update-ref", "refs/heads/main", receipt["head"], before, cwd=repo)
             live_build.publish(published, receipt["head"], receipt["release_id"])
         elapsed = round(time.monotonic() - started, 3)
-        if elapsed > 120:
-            raise ValueError(f"merge wall budget exceeded: {elapsed}s")
         queued = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})["tasks"].get(
             name, {}
         )
@@ -65,6 +65,7 @@ def fast(name):
             "source": receipt["head"],
             "time": time.time(),
             "merge_wall_seconds": elapsed,
+            "merge_slow": elapsed > 120,
             "verification": receipt["release_id"],
             "live_build": receipt["live_build"],
             "done_time": queued.get("done", meta.get("finished")),

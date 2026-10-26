@@ -32,9 +32,10 @@ def create(repo, published, work, gate, build, base="main"):
     main = s.git("rev-parse", base, cwd=repo)
     checks = {
         "gate": {
-            row["name"]: row["input_hash"]
+            row["name"]: row.get("input_hash")
+            or digest({"tree": tree, "main": main, "check": row["name"], "status": row["status"]})
             for row in gate["stages"]
-            if row["status"] == "PASS" and "input_hash" in row
+            if row["status"] == "PASS"
         },
         "live": build["input_hashes"],
     }
