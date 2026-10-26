@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import LineString, box
 from turku3d.bridges.build import Crossing, crossings, geometry, profile
+from turku3d.bridges.shore import Shore, approaches
 from turku3d.col.materials import mat_id
 
 
@@ -47,9 +48,11 @@ def test_deck_profile_prefers_class17_and_generates_walk_drive_surfaces():
     meshes, report = geometry(crossing, points, classes)
     assert report["deck_source_class"] == 17
     assert {m.metadata.get("material_key") for m in meshes if m.material == "bridge_deck"} == {
-        "road",
-        "sidewalk",
+        "bridge_asphalt",
+        "bridge_stone",
     }
+    assert any(m.object_id.endswith(":road") for m in meshes)
+    assert any(m.object_id.endswith(":sidewalk") for m in meshes)
     assert any(m.material == "curb" for m in meshes)
     assert any(m.material == "railing" for m in meshes)
     assert any(":pier:" in m.object_id for m in meshes)
@@ -69,3 +72,18 @@ def test_short_bridge_interpolates_between_ground_abutments():
     assert source == "abutments"
     assert abs(heights[0] - 3) < 0.05
     assert abs(heights[-1] - 3.1) < 0.05
+
+
+def test_approach_matches_full_width_shore_contact_and_waterline():
+    crossing = Crossing("footbridge", box(0, -1, 20, 1), LineString([(0, 0), (20, 0)]), False, [])
+    contact = Shore("start", 10, 0, np.array([-1, 0, 1]), np.array([2.5, 2.55, 2.5]), 0.02, 0, None)
+    survey = SimpleNamespace(water=box(10, -10, 20, 10), support=lambda xz, reference: (2.5, 0.0))
+    meshes = approaches(crossing, [contact], survey, lambda xz: 3.0)
+    deck = next(mesh for mesh in meshes if mesh.material == "bridge_deck")
+    for offset, height in zip(contact.offsets, contact.heights, strict=True):
+        matches = np.all(np.isclose(deck.positions[:, [0, 2]], [0, offset]), axis=1)
+        assert matches.any()
+        assert np.allclose(deck.positions[matches, 1], height, atol=1e-9)
+    waterline = np.isclose(deck.positions[:, 0], 10)
+    assert waterline.any()
+    assert np.allclose(deck.positions[waterline, 1], 3.0, atol=1e-9)

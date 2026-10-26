@@ -14,6 +14,8 @@ from shapely.ops import triangulate, unary_union
 from turku3d import config as C
 from turku3d.structures.geometry import Faces, planar_uv, profile_wall
 
+from .shore import approaches, at, span, strip
+
 BOUNDS = C.BBoxLocal(0, 0, 500, 500)
 
 
@@ -42,7 +44,7 @@ def crossings(city, osm):
     for name, ways in sorted(roads.items()):
         road_ways = [w for w in ways if w[1].get("highway") not in ("footway", "path")]
         axis_row = max(road_ways or ways, key=lambda w: w[0].geometry_local.length)[0]
-        axis = axis_row.geometry_local.intersection(region)
+        axis = axis_row.geometry_local
         if axis.geom_type == "MultiLineString":
             axis = max(axis.geoms, key=lambda part: part.length)
         if axis.geom_type != "LineString" or axis.length < 0.5:
@@ -54,11 +56,11 @@ def crossings(city, osm):
             r.geometry_local for r in matching.itertuples() if r.geometry_local.intersects(region)
         ]
         if city_parts:
-            footprint = unary_union(city_parts).intersection(region)
+            footprint = unary_union(city_parts)
             ids = [r.feature_key for r in matching.itertuples()]
         else:
             width = float(ways[0][1].get("width", 2.0))
-            footprint = axis.buffer(width / 2, cap_style="flat").intersection(region)
+            footprint = axis.buffer(width / 2, cap_style="flat")
             ids = []
         if footprint.is_empty:
             continue
@@ -85,7 +87,7 @@ def lidar_points(paths):
                 x = np.asarray(chunk.x) - C.ORIGIN_E
                 z = C.ORIGIN_N - np.asarray(chunk.y)
                 cls = np.asarray(chunk.classification)
-                keep = (x >= -20) & (x <= 520) & (z >= -20) & (z <= 520)
+                keep = (x >= -40) & (x <= 520) & (z >= -20) & (z <= 520)
                 keep &= np.isin(cls, (2, 9, 12, 17))
                 if keep.any():
                     points.append(np.column_stack((x[keep], np.asarray(chunk.z)[keep], z[keep])))
@@ -185,25 +187,43 @@ def _box(object_id, centre, half, material):
     return faces.mesh(object_id, material)
 
 
-def geometry(crossing, points, classes):
+def geometry(crossing, points, classes, survey=None):
     stations, heights, source = profile(crossing, points, classes)
 
     def elevation(xz):
         s = crossing.axis.project(Point(float(xz[0]), float(xz[1])))
         return float(np.interp(s, stations, heights))
 
+    shores, wet_span = survey.shores(crossing) if survey is not None else ([], None)
+    start, end = span(crossing.footprint, crossing.axis)
+    if wet_span is not None:
+        if any(shore.side == "start" for shore in shores):
+            start = wet_span[0]
+        if any(shore.side == "end" for shore in shores):
+            end = wet_span[1]
+    deck_footprint = crossing.footprint.intersection(strip(crossing.axis, start, end))
     road_part = (
-        crossing.footprint.intersection(crossing.axis.buffer(4, cap_style="flat"))
+        deck_footprint.intersection(crossing.axis.buffer(4, cap_style="flat"))
         if crossing.road
         else None
     )
     surfaces = (
-        [("road", road_part, 0.0), ("sidewalk", crossing.footprint.difference(road_part), 0.12)]
+        [
+            ("road", "bridge_asphalt", road_part, 0.0),
+            ("sidewalk", "bridge_stone", deck_footprint.difference(road_part), 0.12),
+        ]
         if crossing.road
-        else [("sidewalk", crossing.footprint, 0.0)]
+        else [
+            (
+                "deck",
+                "painted_steel" if crossing.name.startswith("osm:") else "bridge_stone",
+                deck_footprint,
+                0.0,
+            )
+        ]
     )
     meshes = []
-    for material_key, polygon, lift in surfaces:
+    for label, material_key, polygon, lift in surfaces:
         deck = Faces()
         for triangle in _triangles(polygon):
             xyz = np.column_stack(
@@ -215,7 +235,7 @@ def geometry(crossing, points, classes):
         if deck.indices:
             meshes.append(
                 deck.mesh(
-                    f"bridge:{crossing.name}:{material_key}",
+                    f"bridge:{crossing.name}:{label}",
                     "bridge_deck",
                     metadata={"kind": "bridge_deck", "material_key": material_key},
                 )
@@ -248,7 +268,7 @@ def geometry(crossing, points, classes):
                         material="curb",
                     )
                 )
-    boundary = crossing.footprint.boundary
+    boundary = deck_footprint.boundary
     lines = list(boundary.geoms) if boundary.geom_type == "MultiLineString" else [boundary]
     axis_direction = (
         np.asarray(crossing.axis.coords[-1])[:2] - np.asarray(crossing.axis.coords[0])[:2]
@@ -289,6 +309,8 @@ def geometry(crossing, points, classes):
                         "wall",
                     )
                 )
+    if survey is not None:
+        meshes.extend(approaches(crossing, shores, survey, elevation))
     report = {
         "name": crossing.name,
         "source_ids": crossing.source_ids,
@@ -297,5 +319,19 @@ def geometry(crossing, points, classes):
         "deck_area_m2": float(crossing.footprint.area),
         "road": crossing.road,
         "meshes": len(meshes),
+        "water_span_s": list(wet_span) if wet_span is not None else None,
+        "shores": [
+            {
+                "side": shore.side,
+                "water_station_m": shore.water_s,
+                "contact_station_m": shore.contact_s,
+                "contact_xz": at(crossing.axis, shore.contact_s).tolist(),
+                "lidar_ground_error_m": shore.lidar_error_m,
+                "ramp_ground_error_m": shore.ground_error_m,
+                "ground_available": shore.ground_available,
+                "quay": shore.quay,
+            }
+            for shore in shores
+        ],
     }
     return meshes, report

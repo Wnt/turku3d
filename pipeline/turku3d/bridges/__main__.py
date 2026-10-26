@@ -9,15 +9,17 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
-from shapely.geometry import MultiPoint
+from shapely.geometry import Point
+from shapely.ops import unary_union
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.layers import CollisionLayer, write_collision, write_manifest, write_visual
 from turku3d.package.gltf import GlbMesh
-from turku3d.structures.inputs import lidar_paths
+from turku3d.structures.inputs import Ground, lidar_paths
 
 from .build import BOUNDS, crossings, geometry, lidar_points
+from .shore import Survey, at
 
 
 def digest(path):
@@ -27,24 +29,36 @@ def digest(path):
 def main():
     city_path = C.raw_dir("wfs") / "work-3x3/GIS_Katualueet.parquet"
     osm_path = C.raw_dir("osm") / "work-3x3/work-3x3-261024.parquet"
-    laz = lidar_paths(BOUNDS)
+    laz = lidar_paths(C.BBoxLocal(-40, 0, 500, 500))
     city, osm = gpd.read_parquet(city_path), gpd.read_parquet(osm_path)
     found = crossings(city, osm)
     if not found or not any(c.name == "Auransilta" for c in found):
         raise ValueError("Auransilta missing from mapped bridge inputs")
     points, classes = lidar_points(laz)
-    meshes, reports = [], []
+    water = unary_union(
+        [
+            r.geometry_local
+            for r in osm.itertuples()
+            if r.natural == "water" and r.geometry_local.intersects(Point(250, 250).buffer(400))
+        ]
+    )
+    ground_root = C.work_root() / "build/layers/ground"
+    ground = Ground(ground_root)
+    survey = Survey(points, classes, water, ground)
+    meshes, reports, owners = [], [], []
     for crossing in found:
-        built, report = geometry(crossing, points, classes)
+        built, report = geometry(crossing, points, classes, survey)
         meshes.extend(built)
         reports.append(report)
+        midpoint = sum(report["water_span_s"]) / 2
+        owner = at(crossing.axis, midpoint)
+        owners.extend([owner] * len(built))
     out = C.work_root() / "build/layers/bridges"
     out.mkdir(parents=True, exist_ok=True)
     collisions, visuals = defaultdict(list), defaultdict(list)
-    for mesh in meshes:
-        centre = MultiPoint(mesh.positions[:, [0, 2]]).convex_hull.centroid
-        collisions[C.CollisionTile.at(centre.x, centre.y).id].append(mesh)
-        visuals[C.VisualTile.at(centre.x, centre.y).id].append(mesh)
+    for mesh, centre in zip(meshes, owners, strict=True):
+        collisions[C.CollisionTile.at(*centre).id].append(mesh)
+        visuals[C.VisualTile.at(*centre).id].append(mesh)
     files = []
     for tile, parts in sorted(collisions.items()):
         positions = np.concatenate([p.positions for p in parts])
@@ -73,7 +87,7 @@ def main():
                         "object_id": p.object_id,
                         "material_key": p.metadata.get(
                             "material_key",
-                            "metal_railing" if p.material == "railing" else "concrete_wall",
+                            "painted_steel" if p.material == "railing" else "bridge_stone",
                         ),
                     },
                 )
@@ -87,7 +101,17 @@ def main():
     ).hexdigest()
     manifest = write_manifest(
         out,
-        inputs={str(p): digest(p) for p in [city_path, osm_path, *laz]},
+        inputs={
+            str(p): digest(p)
+            for p in [
+                city_path,
+                osm_path,
+                *laz,
+                ground_root / "MANIFEST.json",
+                ground_root / "quays.json",
+            ]
+            if p.is_file()
+        },
         params={"bounds": list(BOUNDS.as_tuple()), "seams": "objects"},
         code=code,
         tiles=files,

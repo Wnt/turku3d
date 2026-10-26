@@ -14,6 +14,15 @@ test.beforeEach(async ({ page, context }) => {
   await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
 });
 
+test('Auransilta from the west river bank', { tag: ['@pipeline', '@render'] }, async ({ page }, info) => {
+  test.setTimeout(150000);
+  const backend = info.project.name;
+  await page.goto(`/?backend=${backend}&tiles=${tiles}&cam=23459755,6704270,5.5,90,-5,60`);
+  await page.waitForFunction(() => (window as any).__qaReady || (window as any).__qaError, null, { timeout: 125000 });
+  expect(await page.evaluate(() => (window as any).__qaError)).toBeFalsy();
+  await page.screenshot({ path: path.join(shots, `auransilta-river-bank-${backend}.png`) });
+});
+
 test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@drive'] }, async ({ page }, info) => {
   test.skip(!manifest.visual.t0_1_0 || manifest.visual.t0_1_0.tris < 1000, 'Requires assembled bridge-area tiles');
   test.setTimeout(180000);
@@ -21,31 +30,43 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   const browserErrors: string[] = [];
   page.on('pageerror', error => browserErrors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()); });
-  await page.goto(`/?backend=${backend}&tiles=${tiles}&spawn=23459794,6704289,145`);
+  await page.goto(`/?backend=${backend}&tiles=${tiles}&spawn=23459787.2,6704300.2,145`);
   await page.waitForFunction(() => {
     const s = (window as any).__game?.state?.();
     return s?.grounded && s.collision.tiles >= 9;
   }, null, { timeout: 60000 });
   const start = await page.evaluate(() => (window as any).__game.state());
-  expect(start.H).toBeGreaterThan(5.5);
+  expect(start.H).toBeGreaterThan(4.9);
   await page.screenshot({ path: path.join(shots, `auransilta-near-bank-${backend}.png`) });
   await page.keyboard.down('KeyW');
   await page.keyboard.down('ShiftLeft');
+  try {
+    await page.waitForFunction(() => {
+      const s = (window as any).__game.state();
+      return s.feet[0] > 305 && s.feet[2] > 228;
+    }, null, { timeout: 60000 });
+  } catch (error) {
+    console.log(`[${backend}] stalled walker ${JSON.stringify(await page.evaluate(() => (window as any).__game.state()))}`);
+    await page.screenshot({ path: path.join(shots, `auransilta-walk-stall-${backend}.png`) });
+    throw error;
+  }
+  const middle = await page.evaluate(() => (window as any).__game.state());
+  expect(middle.groundMaterial).toBe(24);
   await page.waitForFunction(() => {
     const s = (window as any).__game.state();
-    return s.feet[0] > 317 && s.feet[2] > 245;
+    return s.feet[0] > 325 && s.feet[2] > 254;
   }, null, { timeout: 60000 });
   await page.keyboard.up('KeyW');
   await page.keyboard.up('ShiftLeft');
   const walked = await page.evaluate(() => (window as any).__game.state());
   expect(walked.grounded).toBe(true);
   expect(walked.H).toBeGreaterThan(5.5);
-  expect(walked.groundMaterial).toBe(24);
+  await page.screenshot({ path: path.join(shots, `auransilta-far-bank-${backend}.png`) });
 
   await page.evaluate(() => {
     const g = (window as any).__game;
-    g.physics.resetVehicle({ x: 294, y: 7, z: 211 }, -0.95);
-    g.physics.setCharacterEnabled(true, { x: 294, y: 6.3, z: 212 });
+    g.physics.resetVehicle({ x: 287.2, y: 6, z: 199.8 }, -0.95);
+    g.physics.setCharacterEnabled(true, { x: 287.2, y: 6.3, z: 200.8 });
   });
   await page.waitForFunction(() => {
     const s = (window as any).__game.state();
@@ -55,16 +76,17 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
   await page.waitForFunction(() => (window as any).__game.state().mode === 'car');
   await page.keyboard.down('KeyW');
   try {
-    await page.waitForFunction(() => (window as any).__game.state().vehicle.pos[2] > 245, null, { timeout: 60000 });
+    await page.waitForFunction(() => (window as any).__game.state().vehicle.pos[2] > 254, null, { timeout: 60000 });
   } catch (error) {
     console.log(`[${backend}] stalled vehicle ${JSON.stringify((await page.evaluate(() => (window as any).__game.state())).vehicle)}`);
+    await page.screenshot({ path: path.join(shots, `auransilta-drive-stall-${backend}.png`) });
     throw error;
   }
   await page.keyboard.up('KeyW');
   const driven = await page.evaluate(() => (window as any).__game.state());
-  expect(driven.vehicle.pos[0]).toBeGreaterThan(317);
+  expect(driven.vehicle.pos[0]).toBeGreaterThan(325);
   expect(driven.vehicle.pos[1]).toBeGreaterThan(5.5);
   expect(driven.errors).toEqual([]);
   expect(browserErrors).toEqual([]);
-  console.log(`[${backend}] Auransilta walk ${JSON.stringify({ from: start.feet, to: walked.feet, material: walked.groundMaterial })}; drive ${JSON.stringify(driven.vehicle.pos)}`);
+  console.log(`[${backend}] Auransilta walk ${JSON.stringify({ from: start.feet, middle: middle.feet, to: walked.feet, material: middle.groundMaterial })}; drive ${JSON.stringify(driven.vehicle.pos)}`);
 });
