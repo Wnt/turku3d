@@ -1,6 +1,6 @@
 # Host slot scheduler verification (2026-10-26)
 
-Commit `8901516` adds host-wide `build` (3), `browser` (2), and exclusive priority
+The scheduler adds host-wide `build` (3), `browser` (2), and exclusive priority
 `land` admission. Build children receive at most two `TURKU3D_JOBS`; Chrome and
 landing children receive one. Synthetic process tests verified capacity, landing
 priority, dead-PID reclamation, inherited landing reservations, and worker caps.
@@ -36,6 +36,21 @@ after Chrome exited. An earlier baseline sample before this branch's work was
 **60.63/125.82/152.00**. These snapshots include unrelated agent activity and
 cannot be attributed to the scheduler alone.
 
-Live-build Chrome acceptance needs a rerun after the bridge tile changes are
-published and active worktrees use the scheduler. The scheduler's own gate and
-synthetic admission checks are green; this real tile probe is not.
+After rebasing on main at `f9d026a`, I cloned the published bridge-enabled tiles
+into the sandbox and ran the full tile Playwright suite once through a `land`
+slot. All ten WebGPU cases and both WebGL2 bridge cases passed; bridge traversal
+reported material **24** on both backends. The suite finished with **16 passed,
+4 WebGL2 timeouts in 21.0 minutes**. The scheduler wrapper measured **1263.175
+seconds**. The WebGL2 facade/ID, ground texture, tile walk, and QA render cases
+timed out. The log is `$TURKU3D_WORK/reports/host-slots-live-chrome-rebased.log`.
+
+During the facade/ID case, I observed both the task process group and the
+Playwright web server's separate process group in the stopped (`T`) state.
+I resumed only those groups. The orchestrator's SIGSTOP mechanism was still
+active despite the expectation that it would leave this task running. This
+interruption and machine-wide load (124.34/128.95/102.98 while the suite ran;
+45.14/80.82/87.79 shortly after) make the Chrome duration unusable as a clean
+landing measurement. Landing priority reserves capacity against commands that
+use the scheduler, so it covers the intended role of `quiet.sh` once active
+worktrees run their heavy commands through slots. It cannot prevent an external
+SIGSTOP or reserve capacity against commands that bypass the scheduler.
