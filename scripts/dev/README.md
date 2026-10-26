@@ -700,6 +700,13 @@ green sweep clears it. While a hold covers a branch, `codex-task precheck` runs 
 and records `full_gate: true` in the receipt; the queue admits a held branch whose receipt is a
 green full gate and live build on its current head over current main, so the fix lands and
 its own sweep clears the hold. The sweep does not delay publication of the verified prefix.
+A sweep covers the diff since the last swept commit. It is skipped, with `status: "skipped"` and
+`reason: "sweep skipped: no affected domain"`, when no path is a declared live-stage input
+(`live_cache.INPUTS`) and every path is gate prose (`gate.toml` `prose`) or under `scripts/dev/`,
+`docs/` or `.githooks/`; precheck already gated those on the same diff. Unknown paths count as
+affected. A skip keeps the held domains, and the next sweep's diff starts at the last swept commit.
+Sweeps hold one lock and coalesce to the latest main. While a `fix-queue-sweep-*` task runs, a new
+red sweep sends it a note with the newer commit instead of starting a second fix task.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA

@@ -5,12 +5,19 @@ import os
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 
+import coordination as coord
 import live_build
+import live_cache
 import sandbox as s
+from gate_lib import matches
 
 NAME = "merge-queue-sweep"
+# Precheck already gated these on the same diff, and no live stage reads them.
+NON_DOMAIN = ("scripts/dev/*", "docs/*", ".githooks/*")
+SKIPPED = "sweep skipped: no affected domain"
 
 
 def path():
@@ -19,6 +26,23 @@ def path():
 
 def domains(paths):
     return sorted({"/".join(name.split("/")[:2]) for name in paths})
+
+
+def sweep_domains(changed):
+    """Domains a landed diff can affect in the full sweep; empty means nothing to verify.
+
+    A path counts when a live stage declares it as an input (live_cache.INPUTS, the
+    stage cache key), or when it is neither gate prose (gate.toml) nor tooling and docs.
+    Unknown paths therefore count, so a new data or game directory is never skipped.
+    """
+    config = tomllib.loads((s.REPO / "scripts/dev/gate.toml").read_text())
+    prose = config["gate"].get("prose", ["*.md"])
+    live = sorted({pattern for patterns in live_cache.INPUTS.values() for pattern in patterns})
+    return domains(
+        name
+        for name in changed
+        if matches(name, live) or not (matches(name, prose) or matches(name, NON_DOMAIN))
+    )
 
 
 def held(repo):
@@ -65,8 +89,20 @@ def start():
 
 
 def fix_task(commit, detail, log_path):
-    from task_runner import launch
+    from task_runner import launch, running
 
+    # One fix task at a time; the latest red commit is sent to the one already working.
+    for meta_path in sorted(s.tasks_root().glob("fix-queue-sweep-*/meta.json")):
+        if running(s.read_json(meta_path)):
+            current = meta_path.parent.name
+            coord.send(
+                current,
+                "note",
+                f"Full sweep still red at {commit[:12]}",
+                f"Main moved to {commit} and the sweep is red: {detail}. Log: {log_path}. "
+                "Rebase onto main and fix the failure at this commit.",
+            )
+            return current
     name = f"fix-queue-sweep-{commit[:8]}"
     brief = s.root() / ".registry/briefs" / f"{name}.md"
     brief.parent.mkdir(parents=True, exist_ok=True)
@@ -124,14 +160,31 @@ def run():
             if previous.get("commit") == commit:
                 return
             started = time.time()
+            # Skipped commits were never swept, so later diffs start at the last swept one.
+            since = previous.get("since" if previous.get("status") == "skipped" else "commit")
+            try:
+                changed = s.git("diff", "--name-only", since, commit).splitlines() if since else []
+            except subprocess.CalledProcessError:
+                since, changed = None, []
+            if since and not sweep_domains(changed):
+                s.write_json(
+                    path(),
+                    {
+                        **{k: previous[k] for k in ("failure", "fix_task") if k in previous},
+                        "commit": commit,
+                        "status": "skipped",
+                        "reason": SKIPPED,
+                        "since": since,
+                        "changed_paths": len(changed),
+                        "time": started,
+                        "blocked_domains": previous.get("blocked_domains", []),
+                    },
+                )
+                print(f"{commit[:12]}: {SKIPPED} ({len(changed)} paths since {since[:12]})")
+                continue
             try:
                 report = verify(commit)
             except (ValueError, OSError, subprocess.CalledProcessError) as exc:
-                changed = (
-                    s.git("diff", "--name-only", previous["commit"], commit).splitlines()
-                    if previous.get("commit")
-                    else []
-                )
                 blocked_domains = sorted(
                     set(previous.get("blocked_domains", [])) | set(domains(changed) or ["*"])
                 )

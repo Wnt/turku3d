@@ -127,6 +127,62 @@ class QueueTests(unittest.TestCase):
                 self.assertTrue(queue_sweep.blocked(root, {**full, "head": "older"}))
                 self.assertTrue(queue_sweep.blocked(root, {**full, "main": "older"}))
 
+    def test_sweep_skips_landings_without_affected_domain_and_serializes_fixes(self):
+        self.assertEqual(
+            queue_sweep.sweep_domains(
+                ["scripts/dev/task_runner.py", "scripts/dev/tests/test_x.py", "docs/a.md", "x.md"]
+            ),
+            [],
+        )
+        self.assertEqual(
+            queue_sweep.sweep_domains(["scripts/dev/live_build.py", "pipeline/turku3d/a.py"]),
+            ["pipeline/turku3d", "scripts/dev"],
+        )
+        self.assertEqual(queue_sweep.sweep_domains(["newdata/a.bin"]), ["newdata/a.bin"])
+        diffs = {"old": "scripts/dev/sandbox.py\nscripts/dev/tests/t.py", "pipe": "game/src/a.ts"}
+        heads = ["tool", "tool", "game", "game"]
+
+        def git(*args, **_):
+            if args == ("rev-parse", "main"):
+                return heads.pop(0)
+            self.assertEqual(args[:2], ("diff", "--name-only"))
+            return diffs["old" if args[3] == "tool" else "pipe"]
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state = root / ".registry/queue-sweep.json"
+            state.parent.mkdir()
+            state.write_text(json.dumps({"commit": "base", "status": "green"}))
+            with (
+                patch.object(queue_sweep.s, "root", return_value=root),
+                patch.object(queue_sweep.s, "git", side_effect=git) as calls,
+                patch.object(queue_sweep, "verify", return_value={"seconds": 1}) as verify,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                queue_sweep.run()
+                row = json.loads(state.read_text())
+                self.assertEqual((row["status"], row["reason"]), ("skipped", queue_sweep.SKIPPED))
+                verify.assert_not_called()
+                queue_sweep.run()
+            # The next sweep's diff starts at the last swept commit, not the skipped one.
+            self.assertEqual(calls.call_args_list[4].args, ("diff", "--name-only", "base", "game"))
+            verify.assert_called_once_with("game")
+            self.assertEqual(json.loads(state.read_text())["status"], "green")
+            tasks = root / "tasks"
+            (tasks / "fix-queue-sweep-old").mkdir(parents=True)
+            (tasks / "fix-queue-sweep-old/meta.json").write_text("{}")
+            with (
+                patch.object(queue_sweep.s, "root", return_value=root),
+                patch.object(queue_sweep.s, "tasks_root", return_value=tasks),
+                patch.object(task_runner, "running", return_value=True),
+                patch.object(task_runner, "launch") as launch,
+                patch.object(queue_sweep.coord, "send") as send,
+            ):
+                name = queue_sweep.fix_task("newcommit", "red", root / "log")
+            self.assertEqual(name, "fix-queue-sweep-old")
+            self.assertEqual(send.call_args.args[:2], ("fix-queue-sweep-old", "note"))
+            launch.assert_not_called()
+
     def test_red_full_sweep_opens_fix_once_and_holds_area(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
