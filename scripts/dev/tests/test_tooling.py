@@ -553,7 +553,7 @@ class ToolingTests(unittest.TestCase):
             1,
         )
 
-    def test_land_reports_request_arriving_during_gate(self):
+    def test_land_blocks_request_arriving_during_gate(self):
         repo = self.start()
         gate = repo / "scripts/dev/gate"
         gate.write_text(
@@ -563,8 +563,11 @@ class ToolingTests(unittest.TestCase):
         self.git("add", ".", cwd=repo)
         self.git("commit", "-qm", "Gate message fixture", cwd=repo)
         before = self.git("rev-parse", "main")
-        self.assertIn("late request/warning", self.cli("codex-task", "land", "demo").stdout)
-        self.assertNotEqual(self.git("rev-parse", "main"), before)
+        self.assertIn(
+            "unacknowledged request/warning",
+            self.cli("codex-task", "land", "demo", ok=False).stderr,
+        )
+        self.assertEqual(self.git("rev-parse", "main"), before)
         self.assertTrue((self.base / "tasks/demo/gate.log").exists())
 
     def test_land_refuses_result_dirty_and_red_gate(self):

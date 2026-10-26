@@ -1,8 +1,10 @@
 """Small, offline fixtures for live artifact verification and publication."""
 
+import contextlib
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +14,80 @@ import live_build
 
 
 class LiveBuildTests(unittest.TestCase):
+    def test_prepared_release_snapshots_nested_symlink_targets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work = root / "work"
+            for relative in ("build/game", "dist/tiles", "build/layers", "textures"):
+                (work / relative).mkdir(parents=True)
+            (work / "textures/asset.bin").write_bytes(b"stable")
+            (work / "textures/link.bin").symlink_to("asset.bin")
+            release = live_build.prepare(work, root / "data", "commit", {}, "key")
+            self.assertFalse((release / "textures/link.bin").is_symlink())
+            self.assertEqual((release / "textures/link.bin").read_bytes(), b"stable")
+
+    def test_seed_approvals_never_write_through_shared_texture_link(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            published = root / "data"
+            shared = published / "textures"
+            (shared / "assembly").mkdir(parents=True)
+            (shared / "assembly/MANIFEST.json").write_text("shared")
+            (published / "facade-approvals/assembly").mkdir(parents=True)
+            (published / "facade-approvals/assembly/MANIFEST.json").write_text("approved")
+            work = root / "work"
+            work.mkdir()
+            (work / "textures").symlink_to(shared, target_is_directory=True)
+            live_build.seed(work, published)
+            self.assertFalse((work / "textures").is_symlink())
+            self.assertEqual((work / "textures/assembly/MANIFEST.json").read_text(), "approved")
+            self.assertEqual((shared / "assembly/MANIFEST.json").read_text(), "shared")
+
+    def test_layer_delta_maps_collision_and_visual_to_only_affected_tiles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root / "release/layers/ground"
+            new = root / "work/build/layers/ground"
+            old.mkdir(parents=True)
+            new.mkdir(parents=True)
+            for directory in (old, new):
+                (directory / "t0_0_0.vis.glb").write_bytes(b"same")
+                (directory / "t0_1_0.vis.glb").write_bytes(b"same")
+                (directory / "c_4_1.col.npz").write_bytes(b"same")
+            (new / "t0_1_0.vis.glb").write_bytes(b"changed")
+            (new / "c_4_1.col.npz").write_bytes(b"changed")
+            self.assertEqual(
+                live_build.affected_tiles(root / "release", root / "work"), ("t0_1_0",)
+            )
+            (new / "unmapped.bin").write_bytes(b"unknown")
+            self.assertEqual(
+                live_build.affected_tiles(root / "release", root / "work"), live_build.TILES
+            )
+
+    def test_warm_checks_select_both_backends(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            scripts = repo / "scripts/dev"
+            scripts.mkdir(parents=True)
+            (scripts / "warm_browser.mjs").touch()
+            (scripts / "affected_browser.py").touch()
+            state = root / "warm-browser.json"
+            state.write_text("{}")
+            env = {
+                "TURKU3D_WARM_BROWSER_STATE": str(state),
+                "TURKU3D_BROWSER_DIR": str(root / "browser"),
+                "TURKU3D_PORT_BASE": "5200",
+            }
+            result = type(
+                "Result", (), {"stdout": json.dumps({"tile": ["tests/e2e-tile/office.spec.ts"]})}
+            )()
+            with patch.object(live_build.subprocess, "run", return_value=result):
+                commands, scopes = live_build.warm_checks(repo, root / "work", env)
+            self.assertEqual([row[0] for row in commands], ["chrome-webgpu", "chrome-webgl"])
+            self.assertEqual(scopes["chrome-webgpu"], ["tests/e2e-tile/office.spec.ts"])
+            self.assertIn("--service-state", commands[0][1])
+
     def test_legacy_baseline_uses_last_published_assembler_result(self):
         with tempfile.TemporaryDirectory() as temp:
             published = Path(temp) / "data"
@@ -48,15 +124,31 @@ class LiveBuildTests(unittest.TestCase):
                 )
             )
             calls = []
+            started = time.monotonic()
 
             def run(command, **kwargs):
-                calls.append((command, kwargs["cwd"], kwargs["env"]["TILE_DIST"]))
+                calls.append(
+                    (
+                        command,
+                        kwargs["cwd"],
+                        kwargs["env"]["TILE_DIST"],
+                        float(kwargs["env"]["TURKU3D_CHECK_DEADLINE"]),
+                    )
+                )
                 output = '{"facades_bound": 2}\n' if "tile-build" in command else "passed\n"
                 return type("Completed", (), {"returncode": 0, "stdout": output})()
 
-            with patch.object(live_build.s, "run_group", side_effect=run):
+            with (
+                patch.object(live_build.s, "run_group", side_effect=run),
+                patch.object(live_build, "slot", return_value=contextlib.nullcontext()),
+                patch.object(live_build, "identity", return_value="test-process"),
+            ):
                 report = live_build.build(
-                    repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log"
+                    repo,
+                    work,
+                    published,
+                    {"TURKU3D_WORK": str(work), "TURKU3D_CHECK_DEADLINE": str(started + 1000)},
+                    root / "build.log",
                 )
             self.assertEqual(
                 [stage for stage in report["seconds"]],
@@ -71,6 +163,8 @@ class LiveBuildTests(unittest.TestCase):
             )
             self.assertEqual(len(calls), 6)
             self.assertEqual(calls[-1][1], repo / "game")
+            self.assertLess(calls[0][3] - started, 76)
+            self.assertGreater(calls[0][3] - started, 74)
             self.assertEqual(report["facades_bound"], 2)
 
     def test_inspect_requires_bound_ground_budget_and_facade_floor(self):
@@ -118,6 +212,52 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual((published / "live-releases/legacy/game/marker").read_text(), "old")
             self.assertEqual(live_build.baseline(published), 7)
             self.assertEqual((root / "logs/live-version.txt").read_text(), "abc\n")
+
+    def test_prepare_dereferences_nested_shared_links(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work, published = root / "work", root / "data"
+            for relative in ("build/game", "dist/tiles", "build/layers", "textures"):
+                (work / relative).mkdir(parents=True)
+            shared_ground = published / "shared-ground"
+            shared_ground.mkdir(parents=True)
+            (published / "build").mkdir()
+            (published / "dist").mkdir()
+            (shared_ground / "mesh").write_text("ground")
+            (work / "build/layers/ground").symlink_to(shared_ground, target_is_directory=True)
+            (work / "textures/ground").symlink_to(shared_ground, target_is_directory=True)
+            release = live_build.prepare(work, published, "abc", {"facades_bound": 1})
+            self.assertFalse((release / "layers/ground").is_symlink())
+            self.assertFalse((release / "textures/ground").is_symlink())
+            self.assertEqual((release / "layers/ground/mesh").read_text(), "ground")
+            live_build.publish(published, "abc")
+            self.assertEqual((published / "build/layers/ground/mesh").read_text(), "ground")
+
+    def test_publish_rolls_back_when_stable_path_does_not_resolve_to_release(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work, published = root / "work", root / "data"
+            for relative in ("build/game", "dist/tiles", "build/layers", "textures"):
+                (work / relative).mkdir(parents=True)
+            previous = published / "live-releases/old"
+            previous.mkdir(parents=True)
+            (published / "live").symlink_to(previous, target_is_directory=True)
+            (published / "build").mkdir()
+            (published / "build/game").symlink_to(published / "live/game", target_is_directory=True)
+            (published / "build/layers").symlink_to(
+                published / "build/layers", target_is_directory=True
+            )
+            (published / "dist").mkdir()
+            (published / "dist/tiles").symlink_to(
+                published / "live/tiles", target_is_directory=True
+            )
+            (published / "textures").symlink_to(
+                published / "live/textures", target_is_directory=True
+            )
+            live_build.prepare(work, published, "abc", {"facades_bound": 1})
+            with self.assertRaisesRegex(ValueError, "stable path"):
+                live_build.publish(published, "abc")
+            self.assertEqual((published / "live").resolve(), previous.resolve())
 
 
 if __name__ == "__main__":

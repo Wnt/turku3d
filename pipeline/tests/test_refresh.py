@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 
 import pytest
 from turku3d import refresh
@@ -18,6 +19,27 @@ def test_declared_input_and_code_hashes(tmp_path):
     assert not refresh.manifest_current(output, "version-2")
     source.write_text('{"value":2}')
     assert not refresh.manifest_current(output, "version-1")
+
+
+def test_rebuild_detaches_linked_layer_without_writing_shared_data(tmp_path, monkeypatch):
+    shared = tmp_path / "data/ground"
+    shared.mkdir(parents=True)
+    (shared / "MANIFEST.json").write_text('{"code":"old"}')
+    work = tmp_path / "work"
+    layers = work / "build/layers"
+    layers.mkdir(parents=True)
+    (layers / "ground").symlink_to(shared, target_is_directory=True)
+    monkeypatch.setattr(refresh, "manifest_current", lambda *args: False)
+    monkeypatch.setattr(refresh, "ground_code_hash", lambda: "new")
+
+    def build(*args):
+        (layers / "ground/MANIFEST.json").write_text("new")
+
+    monkeypatch.setattr(refresh, "run", build)
+    assert refresh.ground(layers) == "rebuilt"
+    assert not (layers / "ground").is_symlink()
+    assert (layers / "ground/MANIFEST.json").read_text() == "new"
+    assert (shared / "MANIFEST.json").read_text() == '{"code":"old"}'
 
 
 def test_texture_source_hash_cache_detects_changes(tmp_path, monkeypatch):
@@ -75,7 +97,7 @@ def test_buildings_refresh_snapshots_approved_geometry_before_rebuild(tmp_path, 
     monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
     assert refresh.buildings(layers) == "rebuilt"
     assert (export / "APPROVED_INVENTORY.geojson").read_bytes() == inventory.read_bytes()
-    assert calls == [("turku3d.buildings",)]
+    assert calls == [("turku3d.buildings", "--jobs", os.environ.get("TURKU3D_JOBS", "3"))]
 
 
 def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):

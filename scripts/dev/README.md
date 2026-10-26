@@ -77,7 +77,9 @@ scripts/dev/codex-task log stairs 30
 scripts/dev/codex-task result stairs
 scripts/dev/codex-task resume stairs 'Fix the failing seam test and rerun the gate.'
 scripts/dev/codex-task stop stairs
-scripts/dev/codex-task land stairs
+scripts/dev/codex-task precheck stairs
+scripts/dev/codex-task queue status
+scripts/dev/codex-task queue run          # one daemon, started by the orchestrator
 ```
 
 Use an actual brief path from `docs/briefs/`. `run` creates the sandbox if absent, exports its environment and
@@ -119,6 +121,9 @@ checkout, a compare-and-swap `git update-ref` is used. The verified game, tiles,
 are APFS-copied into `$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
 swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
 that link, so the existing :5171 static server serves the verified files without a process restart.
+Preparation dereferences sandbox links and rejects any link left inside a release. Publication checks
+all four stable paths after the swap and restores the previous `live` link if a path does not resolve
+to its directory in the prepared release.
 `~/turku3d/logs/live-version.txt` records the published commit. Do not run `deploy-once.sh`,
 `autodeploy.sh`, or `make refresh` on main after landing: those rebuild unverified artifacts.
 Do not update main outside this orchestrator while landing. A missing gate fails closed; there is no
@@ -234,6 +239,22 @@ use `scripts/dev/codex-task land <name> --force` to override only this message c
 acknowledges messages nor bypasses the result, clean-tree or green-gate requirements.
 
 ## Verification
+
+The browser spec selector uses the same changed-path to subsystem map as the gate:
+
+```bash
+python3 scripts/dev/affected_browser.py --base main
+python3 scripts/dev/affected_browser.py game/src/vehicle/vehicle.ts
+```
+
+The real-tile specs share one HTTP-caching browser context per worker, with a fresh page per test. Browser suites default to 960×540; pixel-detail and performance checks set their required viewports explicitly. The landing queue can also keep Chrome processes and one loaded tile page per backend in a dedicated service sandbox. The service writes loopback WebSocket endpoints to a mode-0600 state file; its owner stops the process with SIGTERM. Run the check against an integration worktree's built game and tiles, using that worktree's sandbox port and browser profile:
+
+```bash
+node scripts/dev/warm_browser.mjs serve --repo "$PWD" --work "$TURKU3D_WORK" --profile "$TURKU3D_BROWSER_DIR" --port "$TURKU3D_PORT_BASE"
+node scripts/dev/warm_browser.mjs run --repo "$PWD" --work "$TURKU3D_WORK" --profile "$TURKU3D_BROWSER_DIR" --port "$TURKU3D_PORT_BASE" --service-state /path/to/service/work/cache/warm-browser.json --backend webgpu --spec tests/e2e-tile/tile.spec.ts
+```
+
+`run` returns JSON with the checked specs, result counts, elapsed seconds, and report path. Its `--service-state` file can live in a separate queue-service sandbox. The ordinary Playwright configs still launch their own Chrome when no warm endpoint is provided.
 
 ```bash
 make tooling-test game-dev-tools-test
@@ -469,6 +490,7 @@ The test runner accepts file patterns, for example:
 
 ```sh
 .venv/bin/python scripts/dev/tests/run.py test_tooling.py test_environment.py
+.venv/bin/python -m unittest scripts/dev/tests/test_merge_queue.py
 ```
 
 ### Frozen-main gate verification (2026-10-25)
@@ -536,6 +558,30 @@ See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limit
 
 ## Load-robust gates and environment sync
 
+### Host slots
+
+`make refresh`, `make tile-build`, `make game-build`, the game, tile and render
+Playwright suites, playtest, the gate's e2e stage, and landing's live build use
+`scripts/dev/host_slots.py`.
+The shared state is `~/turku3d/host-slots/` (override with `TURKU3D_SLOT_DIR` only
+for synthetic tests). Up to three `build` jobs and two `browser` jobs run at once;
+each build gets at most two `TURKU3D_JOBS`, and each browser suite one. A queued
+`land` reservation stops new build/browser admissions, then holds exclusive capacity
+through refresh, four-tile assembly, game build, collision checks, and Chrome.
+Commands started under a running `land` reservation (`TURKU3D_LAND_OWNER`) reuse it,
+including nested `land` requests: the merge queue holds one reservation per round, and
+the queue-run prechecks and their live builds run inside it instead of waiting on it.
+Refresh divides its job budget between independent steps and passes it to Roofer.
+Dead owner PIDs are removed on the next admission or status read. Waiting appears
+in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
+
+Direct heavy commands should use the same wrapper, for example:
+
+```sh
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.refresh
+cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test
+```
+
 ```sh
 source ../sandbox.env
 export TURKU3D_JOBS=3
@@ -543,9 +589,8 @@ scripts/dev/wt sync-env                 # current checkout
 scripts/dev/wt sync-env example         # named sandbox (or --all)
 scripts/dev/gate --all
 scripts/dev/gate --paths game/src/core/origin.ts --json
-# Orchestrator only:
-scripts/dev/codex-task land example
-scripts/dev/codex-task land --batch a b c
+scripts/dev/codex-task precheck example
+scripts/dev/codex-task queue status
 # Explicit budgets, on an unloaded machine:
 TURKU3D_JOBS=1 make streaming-perf
 TURKU3D_JOBS=1 make tooling-perf
@@ -559,21 +604,48 @@ Node uses npm ci. It does not mutate linked hook dependencies: sync the source c
 first. A fresh-environment import stage checks dependency declarations when manifests change.
 Native test tools resolve from the same prepared directories as pipeline/env/run.sh.
 
-Successful stages are stored by content hash under `.cache/gate-results`. The key includes
+Successful stages are stored by content hash under `$TURKU3D_DATA/cache/tool-stages/gate`.
+The key includes
 routed source/dependency domains, inventory (including deletions), selected test/lint scope,
-configuration, tools and installed Python versions, and sandbox settings. Only GREEN stages
+configuration, tools and installed Python versions. Sandbox paths and ports are excluded. Only GREEN stages
 can report `cached PASS`; failures are never cached. Policy runs every time because flag expiry
-depends on main's merge count. Remove `.cache/gate-results` to force re-execution.
+depends on main's merge count. Live build stages keep APFS-cloned verified artifacts under
+`$TURKU3D_DATA/cache/tool-stages/live`; keys include declared source paths, input manifests
+and the preceding stage key.
 
-Landing checks completion, messages, branch, cleanliness and the gate before verification.
-A concurrent main advance triggers at most three rebase/gate attempts; unchanged stages reuse
-GREEN results. Batches replay member commits in order in a new isolated integration worktree,
-run one combined gate, and fast-forward main only after all members pass final checks. A red
-batch checks the base, then bisects prefixes and reports a bisected failing prefix (including
-interactions with preceding members). No member is landed on red. Every successful member
-gets its own landed.jsonl record with original and integrated commits. Integration logs remain
-under the task root; member worktrees are unchanged. Conflicts and repeated main advances fail
-without updating main.
+Before DONE, workers commit and run `scripts/dev/codex-task precheck <name>`. It rebases on main,
+runs the gate and every live build check in the worker sandbox, saves per-check input hashes in
+`~/turku3d/tasks/<name>/precheck.json`, and prepares a release under
+`$TURKU3D_DATA/live-releases/<tree-input-and-commit-hash>`. A rebase conflict returns to the worker.
+The orchestrator starts `scripts/dev/codex-task queue run` once. The daemon polls DONE results.
+When main still matches the receipt, it verifies the tree, checks and release bytes, fast-forwards
+main, and swaps the live pointer without rebuilding. The landed ledger records merge wall seconds.
+When main moved, it rebases and runs only invalidated cached gate/live stages under a 210-second
+check deadline. Gate checks have a 120-second default queue budget; live stages have declared
+30–150-second budgets. A slow check returns to its worker for a fix and new precheck. Broad
+producer changes also return to the worker. Layer
+mesh deltas select changed visual tiles, while texture and assembler changes require all tiles.
+Disjoint affected domains may precheck cumulative prefixes in parallel with `precheck --base <SHA>`.
+Conflicts and failed members return to their workers with route `task_rebase`; the queue keeps
+other ready tasks moving. `queue status` shows task timestamps and median DONE-to-live.
+Unread messages do not block the queue. The queue uses
+`wt/.registry/merge-queue.lock` for single-instance ownership and persists its ledger in
+`wt/.registry/merge-queue.json`.
+When the warm browser tool is installed on main, the queue creates a dedicated
+`merge-queue-service` sandbox and starts its two Chrome backends once. It waits for both
+preloaded pages before admitting warm checks. Each candidate's
+affected tile specs run through those endpoints on the candidate sandbox ports; a missing
+service or selector uses the full local Chrome suite. The queue stops only the service
+process it started when it exits. `queue status` remains read-only.
+
+The old `codex-task land` command remains for recovery but is no longer the normal path.
+The orchestrator's `land.sh` and `land-quiet.sh` wrappers are unnecessary.
+The old batch integration helper is retained only for recovery. The queue publishes individual
+verified prefixes and records each successful member in `landed.jsonl`.
+After each pointer swap, `queue_sweep.py` checks the full gate and live area from its own sandbox
+in the background. Its status is in `wt/.registry/queue-sweep.json` and `queue status`; a red
+sweep creates a fix task and holds queue members touching the changed source domain until a
+green sweep clears it. The sweep does not delay publication of the verified prefix.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA

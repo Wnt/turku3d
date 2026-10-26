@@ -183,8 +183,11 @@ class GateTest(unittest.TestCase):
             self.assertEqual(run.call_count, 3)
             fixture_call = run.call_args_list[1]
             commands, fixture_env = fixture_call.args[1:3]
-            self.assertEqual(commands[0][1], str(REPO / "scripts/dev/gate_fixtures.py"))
-            self.assertEqual(commands[0][2], str(REPO / ".cache/gate-tiles"))
+            self.assertEqual(
+                commands[0][1:4], [str(REPO / "scripts/dev/host_slots.py"), "build", "--"]
+            )
+            self.assertEqual(commands[0][5], str(REPO / "scripts/dev/gate_fixtures.py"))
+            self.assertEqual(commands[0][6], str(REPO / ".cache/gate-tiles"))
             self.assertEqual(fixture_env["TURKU3D_DATA"], str(REPO / ".cache/gate-inputs"))
 
     def test_production_routing(self):

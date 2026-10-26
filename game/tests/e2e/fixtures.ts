@@ -1,5 +1,6 @@
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type BrowserContext, type Page } from '@playwright/test';
 import type { PhysicsClient } from '../../src/physics/client';
+import { frames } from './waits';
 
 interface GameState {
   mode: 'foot' | 'car'; paused: boolean; feet: number[]; vel: number[]; grounded: boolean;
@@ -28,6 +29,22 @@ export const isolatedTest = base.extend<{ isolatedInput: void }>({
     await use();
   }, { auto: true }],
 });
+export const cachedTest = isolatedTest.extend<object, { cachedContext: BrowserContext }>({
+  cachedContext: [async ({ browser }, use, workerInfo) => {
+    const context = await browser.newContext({
+      baseURL: workerInfo.project.use.baseURL,
+      viewport: workerInfo.project.use.viewport ?? { width: 960, height: 540 },
+      deviceScaleFactor: workerInfo.project.use.deviceScaleFactor ?? 1,
+    });
+    await use(context);
+    await context.close();
+  }, { scope: 'worker' }],
+  page: async ({ cachedContext }, use) => {
+    const page = await cachedContext.newPage();
+    await use(page);
+    await page.close();
+  },
+});
 export async function installPad(page: Page) {
   await page.addInitScript(() => {
     const virtual = { connected: true, axes: [0, 0, 0, 0], buttons: Array<number>(17).fill(0) };
@@ -43,7 +60,7 @@ export async function padAxes(page: Page, x: number, y: number, rx = 0, ry = 0) 
 }
 export async function padButton(page: Page, index: number, value: number) {
   await page.evaluate(([i, v]) => { window.__virtualPad.buttons[i] = v; }, [index, value]);
-  await page.waitForTimeout(80);
+  await frames(page, 2);
 }
 
 /** Per-frame positions catch transient falls; worker raycasts sample the ground at 10 Hz. */

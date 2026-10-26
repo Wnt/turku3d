@@ -7,6 +7,7 @@ import { reportsRoot } from '../../../tools/dev/environment.mjs';
 type Sample = { frame: number; time: number; x: number; y: number };
 
 test('turning around a moving car and walker keeps actor edges in one screen position', { tag: ['@drive', '@character', '@render'] }, async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.addInitScript(() => {
     const w = window as any;
     w.pad = { id: 'Xbox Wireless Controller (virtual)', index: 0, connected: true, mapping: 'standard',

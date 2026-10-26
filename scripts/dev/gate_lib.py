@@ -152,8 +152,23 @@ def e2e(root, stage, changed, full, env):
     tags = None if full else related(stage, changed, "tags")
     grep = ["--grep", "|".join(tags)] if tags else []
     commands = [
-        ["game/node_modules/.bin/vite", "build"],
-        ["game/node_modules/.bin/playwright", "test", *grep],
+        [
+            "python3",
+            str(root / "scripts/dev/host_slots.py"),
+            "build",
+            "--",
+            str(root / "game/node_modules/.bin/vite"),
+            "build",
+        ],
+        [
+            "python3",
+            str(root / "scripts/dev/host_slots.py"),
+            "browser",
+            "--",
+            str(root / "game/node_modules/.bin/playwright"),
+            "test",
+            *grep,
+        ],
     ]
     code, output = run_commands(root, commands, env, "game")
     if code:
@@ -164,6 +179,10 @@ def e2e(root, stage, changed, full, env):
         root,
         [
             [
+                "python3",
+                str(root / "scripts/dev/host_slots.py"),
+                "build",
+                "--",
                 env["PIPELINE_PY"],
                 str(root / "scripts/dev/gate_fixtures.py"),
                 env["TILE_DIST"],
@@ -182,7 +201,19 @@ def e2e(root, stage, changed, full, env):
         return code, output
     code, more = run_commands(
         root,
-        [["game/node_modules/.bin/playwright", "test", "-c", "playwright.tile.config.ts", *grep]],
+        [
+            [
+                "python3",
+                str(root / "scripts/dev/host_slots.py"),
+                "browser",
+                "--",
+                str(root / "game/node_modules/.bin/playwright"),
+                "test",
+                "-c",
+                "playwright.tile.config.ts",
+                *grep,
+            ]
+        ],
         env,
         "game",
     )
@@ -191,6 +222,13 @@ def e2e(root, stage, changed, full, env):
 
 def execute(root, stage, changed, files, full, env, config):
     start = time.monotonic()
+    if "TURKU3D_CHECK_DEADLINE" in env:
+        env = {
+            **env,
+            "TURKU3D_CHECK_DEADLINE": str(
+                min(float(env["TURKU3D_CHECK_DEADLINE"]), start + stage.get("queue_seconds", 120))
+            ),
+        }
     try:
         kind = stage["kind"]
         if kind == "policy":
@@ -320,7 +358,7 @@ def _run_gate(root, config, changed, *, full=False, listing=False, as_json=False
             else:
                 scope = None
             key = stage_key(root, stage, files, scope, env, tools)
-            return cached_execute(root, stage, key, action)
+            return {**cached_execute(root, stage, key, action, env), "input_hash": key}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=jobs()) as pool:
             futures = [pool.submit(run_stage, s) for s in chosen]

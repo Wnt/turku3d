@@ -2,6 +2,7 @@ import { isolatedTest as test, expect } from './fixtures';
 
 test('@render HiDPI SSE follows output pixels after resize and the debug time slider refreshes sunlight', async ({ browser }, info) => {
   const context = await browser.newContext({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 2 });
+  await context.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
   const page = await context.newPage();
   const session = await context.newCDPSession(page);
   await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });

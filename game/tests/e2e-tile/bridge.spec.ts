@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, cachedTest as test } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
@@ -7,12 +7,6 @@ const shots = path.join(reportsRoot, 'bridges');
 fs.mkdirSync(shots, { recursive: true });
 const tiles = '/tiles/tileset.json';
 const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json'), 'utf8'));
-
-test.beforeEach(async ({ page, context }) => {
-  await context.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
-  const session = await context.newCDPSession(page);
-  await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-});
 
 test('Auransilta from the west river bank', { tag: ['@pipeline', '@render'] }, async ({ page }, info) => {
   test.skip(!manifest.visual.t0_1_0 || manifest.visual.t0_1_0.tris < 1000, 'Requires assembled bridge-area tiles');

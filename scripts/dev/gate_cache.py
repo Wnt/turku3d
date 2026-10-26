@@ -1,11 +1,18 @@
-"""Content-addressed successful stage results, local to one checkout."""
+"""Content-addressed successful stage results shared by sandbox checkouts."""
 
+import fcntl
 import fnmatch
 import hashlib
 import json
 import os
 import subprocess
 import tempfile
+from pathlib import Path
+
+
+def cache_root(root, env=None):
+    data = (env or {}).get("TURKU3D_DATA")
+    return Path(data) / "cache/tool-stages/gate" if data else root / ".cache/gate-results"
 
 
 def versions(env):
@@ -25,13 +32,14 @@ def versions(env):
         ["gltfpack", "-v"],
         ["roofer", "--version"],
     ):
+        label = " ".join(command).replace(env["PIPELINE_PY"], "<pipeline-python>")
         try:
             with tempfile.TemporaryDirectory(dir=env.get("TMPDIR")) as directory:
-                result[" ".join(command)] = subprocess.check_output(
+                result[label] = subprocess.check_output(
                     command, env=env, cwd=directory, stderr=subprocess.STDOUT
                 ).decode()
         except (OSError, subprocess.SubprocessError) as exc:
-            result[" ".join(command)] = str(exc)
+            result[label] = str(exc)
     return result
 
 
@@ -59,9 +67,8 @@ def stage_key(root, stage, files, scope, env, tools):
                 "stage": stage,
                 "scope": scope,
                 "tools": tools,
-                "env": {
-                    k: v for k, v in env.items() if k.startswith(("TURKU3D_", "GATE_", "FIXTURE_"))
-                },
+                # Sandbox paths and ports do not affect synthetic gate results.
+                "env": {k: v for k, v in env.items() if k.startswith(("GATE_", "FIXTURE_"))},
             },
             sort_keys=True,
         ).encode()
@@ -72,18 +79,20 @@ def stage_key(root, stage, files, scope, env, tools):
     return h.hexdigest()
 
 
-def cached_execute(root, stage, key, execute):
-    path = root / ".cache/gate-results" / stage["name"] / (key + ".json")
-    try:
-        record = json.loads(path.read_text())
-        if record["key"] == key and record["result"]["status"] == "PASS":
-            return {**record["result"], "cached": True, "seconds": 0}
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
-    result = execute()
-    if result["status"] == "PASS":
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(f".{os.getpid()}.tmp")
-        temp.write_text(json.dumps({"key": key, "result": result}))
-        temp.replace(path)
-    return result
+def cached_execute(root, stage, key, execute, env=None):
+    path = cache_root(root, env) / stage["name"] / (key + ".json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            record = json.loads(path.read_text())
+            if record["key"] == key and record["result"]["status"] == "PASS":
+                return {**record["result"], "cached": True, "seconds": 0}
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        result = execute()
+        if result["status"] == "PASS":
+            temp = path.with_suffix(f".{os.getpid()}.tmp")
+            temp.write_text(json.dumps({"key": key, "result": result}))
+            temp.replace(path)
+        return result

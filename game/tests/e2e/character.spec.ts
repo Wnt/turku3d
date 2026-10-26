@@ -1,6 +1,7 @@
 import { expect, isolatedTest as test } from './fixtures';
 import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
+import { settled } from './waits';
 
 test('textured player stays framed in third person', { tag: ['@walk'] }, async ({ page }, info) => {
   const errors: string[] = [];
@@ -20,7 +21,7 @@ test('textured player stays framed in third person', { tag: ['@walk'] }, async (
   expect(height).toBeLessThan(1.9);
   await page.goto(`/?backend=${info.project.name}`);
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
-  await page.waitForTimeout(500);
+  await settled(page);
   // Project the actual bind-pose body height from the default orbit camera using its actual pose.
   const bounds = await page.evaluate(height => {
     const s = (window as any).__game.state();

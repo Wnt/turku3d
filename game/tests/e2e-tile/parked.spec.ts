@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { cachedTest as test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tileDist } from '../../../tools/dev/environment.mjs';
@@ -8,7 +8,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(tileDist, 'manifest.json')
 test('published parked car enters with F and drives on both backends', { tag: ['@drive', '@pipeline'] }, async ({ page }, info) => {
   test.setTimeout(240_000);
   test.skip(!manifest.vehicles?.length, 'No published parked vehicles');
-  const car = manifest.vehicles.find((v: any) => v.model === 'van' && Math.abs(v.x - 140) < 2) ?? manifest.vehicles[0];
+  const car = manifest.vehicles.find((v: any) => v.model === 'van' && Math.abs(v.x - 69) < 2) ?? manifest.vehicles[0];
   await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
   await page.getByRole('button', { name: 'Start playing' }).click();
   await page.waitForFunction(count => {
@@ -18,7 +18,7 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   await page.evaluate(c => (window as any).__game.physics.setCharacterEnabled(true,
     { x: c.x - 2.5, y: c.y, z: c.z }), car);
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(250);
+  await page.waitForFunction(c => Math.abs((window as any).__game.state().feet[2] - c.z) > 0.1, car);
   await page.keyboard.up('KeyW');
   await page.waitForFunction(id => {
     const s = (window as any).__game.state();
@@ -39,7 +39,7 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   });
   const start = await page.evaluate(() => (window as any).__game.state().vehicle.pos);
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(4500);
+  await page.waitForFunction(() => (window as any).drivenMeters > 1, null, { timeout: 60_000 });
   await page.keyboard.up('KeyW');
   await page.keyboard.down('KeyS');
   await page.waitForFunction(() => (window as any).drivenMeters > 20, null, { timeout: 60_000 });

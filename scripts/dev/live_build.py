@@ -1,5 +1,6 @@
 """Build, check and publish the real office distribution during landing."""
 
+import filecmp
 import json
 import os
 import shutil
@@ -7,13 +8,65 @@ import subprocess
 import time
 from pathlib import Path
 
+import live_cache
 import sandbox as s
+from host_slots import identity, slot
 
 TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+QUEUE_STAGE_BUDGETS = {
+    "refresh": 75,
+    "tile-build": 150,
+    "game-build": 30,
+    "collision-sweep": 30,
+    "collision-audit": 30,
+    "chrome": 90,
+    "chrome-webgpu": 60,
+    "chrome-webgl": 60,
+}
+
+
+def affected_tiles(previous, work):
+    """Map changed layer meshes to visual tiles; ambiguous changes rebuild all tiles."""
+    old = previous / "layers"
+    new = work / "build/layers"
+    if not old.is_dir() or not new.is_dir():
+        return TILES
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return TILES
+    changed = set()
+    names = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    names |= {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    for name in names:
+        before, after = old / name, new / name
+        if before.is_file() and after.is_file() and filecmp.cmp(before, after, shallow=False):
+            continue
+        stem = name.name
+        if stem.endswith(".vis.glb") and stem.split(".vis.glb")[0] in TILES:
+            changed.add(stem.split(".vis.glb")[0])
+        elif stem.endswith(".col.npz") and stem.startswith("c_"):
+            _, i, j = stem.split(".")[0].split("_")
+            changed.add(f"t0_{int(i) // 4}_{int(j) // 4}")
+        elif stem == "MANIFEST.json":
+            continue
+        else:
+            return TILES
+    return tuple(tile for tile in TILES if tile in changed)
+
+
+def same_tree(old, new):
+    if not old.is_dir() or not new.is_dir():
+        return False
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return False
+    before = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    after = {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    return before == after and all(
+        filecmp.cmp(old / name, new / name, shallow=False) for name in before
+    )
 
 
 def _clone(source, target):
-    if target.exists():
+    if target.exists() or target.is_symlink():
         return
     if not source.exists():
         return
@@ -21,16 +74,39 @@ def _clone(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     # APFS clones keep a private, writable snapshot without copying asset bytes.
     if subprocess.call(
-        ["cp", "-cR", str(source), str(target)],
+        ["cp", "-cRL", str(source), str(target)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     ):
+        if target.exists():
+            shutil.rmtree(target)
         shutil.copytree(source, target)
 
 
 def seed(work, published):
     for relative in ("build/layers", "textures", "dist/tiles"):
         _clone(published / relative, work / relative)
+    approvals = published / "facade-approvals/assembly"
+    if approvals.is_dir():
+        target = work / "textures/assembly"
+        _detach(target, work)
+        with s.lock(approvals / ".export.lock"):
+            shutil.copytree(approvals, target, dirs_exist_ok=True)
+
+
+def _detach(path, work):
+    """Replace linked components below work with private clones before writing through them."""
+    current = work
+    for part in path.relative_to(work).parts:
+        current = current / part
+        if not current.is_symlink():
+            continue
+        private = current.with_name(current.name + ".seed-local")
+        if private.exists() or private.is_symlink():
+            shutil.rmtree(private)
+        _clone(current, private)
+        current.unlink()
+        private.rename(current)
 
 
 def baseline(published):
@@ -77,12 +153,78 @@ def inspect(manifest_path, facade_count, minimum, reason=None):
     }
 
 
+def warm_checks(repo, work, env):
+    """Use the queue-owned Chrome for affected tile specs when available."""
+    service = env.get("TURKU3D_WARM_BROWSER_STATE")
+    script = repo / "scripts/dev/warm_browser.mjs"
+    selector = repo / "scripts/dev/affected_browser.py"
+    if not service or not Path(service).is_file() or not script.is_file() or not selector.is_file():
+        return [], {}
+    selected = subprocess.run(
+        [
+            env.get("PIPELINE_PY", "python3"),
+            str(selector),
+            "--base",
+            env.get("TURKU3D_VERIFY_BASE", "main"),
+        ],
+        cwd=repo,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    specs = json.loads(selected.stdout)["tile"]
+    if not specs:
+        return [], {}
+    commands = []
+    scopes = {}
+    for backend in ("webgpu", "webgl"):
+        stage = "chrome-" + backend
+        command = [
+            "node",
+            str(script),
+            "run",
+            "--repo",
+            str(repo),
+            "--work",
+            str(work),
+            "--profile",
+            env["TURKU3D_BROWSER_DIR"],
+            "--port",
+            env["TURKU3D_PORT_BASE"],
+            "--service-state",
+            service,
+            "--backend",
+            backend,
+        ]
+        for spec in specs:
+            command.extend(("--spec", spec))
+        commands.append((stage, command, repo))
+        scopes[stage] = specs
+    return commands, scopes
+
+
 def build(repo, work, published, env, log_path, reason=None):
+    with slot("land") as inherited:
+        owner = (
+            os.environ["TURKU3D_LAND_OWNER"]
+            if inherited
+            else f"{os.getpid()}:{identity(os.getpid())}"
+        )
+        reserved_env = {**env, "TURKU3D_LAND_OWNER": owner, "TURKU3D_JOBS": "1"}
+        return _build(repo, work, published, reserved_env, log_path, reason)
+
+
+def _build(repo, work, published, env, log_path, reason=None):
     seed(work, published)
     minimum = baseline(published)
     durations = {}
+    cache_hits = []
+    input_hashes = {}
     report = None
-    commands = (
+    previous = ""
+    cache_enabled = (repo / ".git").exists()
+    commands = [
         ("refresh", ["make", "refresh"], repo),
         ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
         ("game-build", ["make", "game-build"], repo),
@@ -98,13 +240,50 @@ def build(repo, work, published, env, log_path, reason=None):
             ],
             repo / "game",
         ),
-    )
+    ]
+    warm, scopes = warm_checks(repo, work, env)
+    if warm:
+        commands[-1:] = warm
     with log_path.open("w") as log:
         for stage, command, cwd in commands:
+            if stage == "tile-build":
+                previous_id = env.get("TURKU3D_PREVIOUS_RELEASE_ID")
+                if previous_id:
+                    prior = published / "live-releases" / previous_id
+                    selected = affected_tiles(prior, work)
+                    # Facade and library texture changes affect tile packing globally.
+                    if selected and same_tree(prior / "textures", work / "textures"):
+                        command = ["make", "tile-build", "T=" + " ".join(selected)]
+                        scopes[stage] = selected
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()
+            key = (
+                live_cache.digest(repo, work, published, stage, previous, scopes.get(stage))
+                if cache_enabled
+                else None
+            )
+            if key:
+                input_hashes[stage] = key
+            cached = live_cache.restore(published, work, stage, key) if key else None
+            if cached is not None:
+                log.write(f"cache hit {key}\n")
+                durations[stage] = 0.0
+                cache_hits.append(stage)
+                if stage == "tile-build":
+                    report = inspect(
+                        work / "dist/tiles/manifest.json", cached["facades_bound"], minimum, reason
+                    )
+                previous = key
+                continue
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            if "TURKU3D_CHECK_DEADLINE" in env:
+                run_env["TURKU3D_CHECK_DEADLINE"] = str(
+                    min(
+                        float(env["TURKU3D_CHECK_DEADLINE"]),
+                        start + QUEUE_STAGE_BUDGETS.get(stage, 60),
+                    )
+                )
             proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             log.flush()
@@ -124,15 +303,26 @@ def build(repo, work, published, env, log_path, reason=None):
                 if facade_count is None:
                     raise ValueError(f"tile-build did not report facades_bound: {log_path}")
                 report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
+            if key:
+                live_cache.store(
+                    published,
+                    work,
+                    stage,
+                    key,
+                    {"facades_bound": report["facades_bound"]} if stage == "tile-build" else {},
+                )
+                previous = key
     report["seconds"] = durations
+    report["cache_hits"] = cache_hits
+    report["input_hashes"] = input_hashes
     return report
 
 
-def prepare(work, published, commit, report):
+def prepare(work, published, commit, report, release_id=None):
     """Copy the verified release before advancing main."""
     releases = published / "live-releases"
     releases.mkdir(parents=True, exist_ok=True)
-    release = releases / commit
+    release = releases / (release_id or commit)
     if release.exists():
         if (published / "live").is_symlink() and (published / "live").resolve() == release:
             raise ValueError(f"release is already live: {release}")
@@ -148,12 +338,13 @@ def prepare(work, published, commit, report):
         if not source.is_dir():
             raise ValueError(f"verified {name} is missing: {source}")
         _clone(source, release / name)
+        for asset in (release / name).rglob("*"):
+            if asset.is_symlink():
+                raise ValueError(f"verified release contains a symlink: {asset}")
         if name in ("game", "tiles"):
             # The existing server caches Brotli by path and mtime. Give each
             # release fresh mtimes so the same stable URL cannot reuse old bytes.
             for asset in (release / name).rglob("*"):
-                if asset.is_symlink():
-                    raise ValueError(f"verified distribution contains a symlink: {asset}")
                 if asset.is_file():
                     os.utime(asset, None)
     (release / "live-build.json").write_text(
@@ -162,13 +353,25 @@ def prepare(work, published, commit, report):
     return release
 
 
-def publish(published, commit):
-    """Swap one release link; stable game/tile paths resolve through that link."""
-    release = published / "live-releases" / commit
+def prepared(published, commit, release_id=None):
+    """Return a complete, link-free prepared release for commit, or raise."""
+    release = published / "live-releases" / (release_id or commit)
     if not (release / "live-build.json").exists():
         raise ValueError(f"prepared release is missing: {release}")
     if json.loads((release / "live-build.json").read_text())["commit"] != commit:
         raise ValueError("prepared release commit does not match landing")
+    for name in ("game", "tiles", "layers", "textures"):
+        directory = release / name
+        if not directory.is_dir() or directory.is_symlink():
+            raise ValueError(f"prepared release directory is missing or linked: {directory}")
+        if any(asset.is_symlink() for asset in directory.rglob("*")):
+            raise ValueError(f"prepared release contains a symlink: {directory}")
+    return release
+
+
+def publish(published, commit, release_id=None):
+    """Swap one release link; stable game/tile paths resolve through that link."""
+    release = prepared(published, commit, release_id)
     # Migrate the old service's paths once. Its existing server resolves these paths
     # for each request, so it serves the new release without killing an owned process.
     live = published / "live"
@@ -188,9 +391,23 @@ def publish(published, commit):
         temporary = published / ".live-next"
         temporary.symlink_to(legacy, target_is_directory=True)
         os.replace(temporary, live)
+    previous = live.readlink()
     temporary = published / ".live-next"
     temporary.symlink_to(release, target_is_directory=True)
     os.replace(temporary, live)
+    try:
+        for target, name in (
+            (published / "build/game", "game"),
+            (published / "dist/tiles", "tiles"),
+            (published / "build/layers", "layers"),
+            (published / "textures", "textures"),
+        ):
+            if not target.is_dir() or target.resolve() != (release / name).resolve():
+                raise ValueError(f"stable path does not resolve into release: {target}")
+    except Exception:
+        temporary.symlink_to(previous, target_is_directory=True)
+        os.replace(temporary, live)
+        raise
     version = published.parent / "logs/live-version.txt"
     version.parent.mkdir(parents=True, exist_ok=True)
     pending = version.with_suffix(".tmp")
