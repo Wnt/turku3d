@@ -80,13 +80,20 @@ def car_report(path, returncode):
     }
 
 
-def deep_gate(repo, env, log):
+def deep_gate(repo, env, log, cancelled=None):
     """Run the deep gate tier (`gate --deep --all`, cached per stage input hash) in the
     published commit's checkout: (seconds, advisory entries; [] when green)."""
     started = time.monotonic()
     try:
-        proc = s.run_group([str(repo / "scripts/dev/gate"), "--deep", "--all"], cwd=repo, env=env)
+        proc = s.run_group(
+            [str(repo / "scripts/dev/gate"), "--deep", "--all"],
+            cwd=repo,
+            env=env,
+            cancelled=cancelled,
+        )
         log.write_text(proc.stdout)
+    except InterruptedError:
+        raise
     except OSError as exc:
         return None, [{"stage": "deep-gate", "detail": str(exc)[-1000:], "log": str(log)}]
     seconds = round(time.monotonic() - started, 3)

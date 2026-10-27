@@ -267,9 +267,15 @@ class LiveBuildTests(unittest.TestCase):
                 return type("Completed", (), {"returncode": 1, "stdout": "cars FAIL\n"})()
             if "tile-validate" in command:
                 (work / "reports").mkdir(exist_ok=True)
-                report = {"checks": {name: {"status": s} for name, s in checks.items()}}
+                selected = next(part for part in command if part.startswith("VALIDATOR_ARGS="))
+                included = selected.split("--checks ")[1].split()[0].split(",")
+                report = {
+                    "checks": {
+                        name: {"status": s} for name, s in checks.items() if name in included
+                    }
+                }
                 (work / "reports/validate-aoi.json").write_text(json.dumps(report))
-                code = 1 if "fail" in checks.values() else 0
+                code = 1 if any(c["status"] == "fail" for c in report["checks"].values()) else 0
                 return type("Completed", (), {"returncode": code, "stdout": "validated\n"})()
             stage = next(
                 (
@@ -302,6 +308,25 @@ class LiveBuildTests(unittest.TestCase):
             "facades_bound": 2,
         }
 
+    def build_and_advise(self, repo, work, published, env, log, **kwargs):
+        report = live_build.build(repo, work, published, env, log, **kwargs)
+        if kwargs.get("checks", True):
+            seconds = report["seconds"]
+            report = live_build.post_publish(
+                repo,
+                work,
+                published,
+                env,
+                log,
+                report,
+                kind=kwargs.get("kind", "code"),
+                previous=kwargs.get("previous_release"),
+                chrome=kwargs.get("chrome"),
+                cancelled=lambda: False,
+            )
+            report["seconds"] = {**seconds, **report.get("advisory_seconds", {})}
+        return report
+
     def test_build_runs_real_stages_in_order_and_records_time(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -313,7 +338,7 @@ class LiveBuildTests(unittest.TestCase):
                 patch.object(live_build.s, "run_group", side_effect=run),
                 patch("os.getloadavg", return_value=(12.0, 11.0, 10.0)),
             ):
-                report = live_build.build(
+                report = self.build_and_advise(
                     repo,
                     work,
                     published,
@@ -327,21 +352,20 @@ class LiveBuildTests(unittest.TestCase):
                     "refresh",
                     "tile-build",
                     "tile-validate",
+                    "collision-checks",
                     "car-report",
                     "facade-ground-audit",
                     "chrome",
                 ],
             )
-            self.assertEqual(len(calls), 6)
+            self.assertEqual(len(calls), 7)
             self.assertEqual(report["tiles_built"], list(CORE))
             self.assertEqual(
                 calls[2][0][:3], ["make", "tile-validate", "T=" + " ".join(live_build.C.CORE_TILES)]
             )
             self.assertIn("TILE_WALKERS=128", calls[2][0])
-            self.assertIn("VALIDATOR_REQUIRE=buildings,curbs", calls[2][0])
-            self.assertIn(
-                "--checks format,seams,buildings,curbs --walk-seconds 2", " ".join(calls[2][0])
-            )
+            self.assertIn("VALIDATOR_REQUIRE=buildings,curbs", calls[3][0])
+            self.assertIn("--checks format,seams", " ".join(calls[2][0]))
             self.assertEqual(report["car_validation"]["status"], "fail")
             self.assertEqual(report["car_validation"]["failed_tiles"], 1)
             self.assertEqual(calls[-1][1], repo / "game")
@@ -386,7 +410,7 @@ class LiveBuildTests(unittest.TestCase):
             ),
             patch.object(live_build.served, "ship", return_value=self.shipped()),
         ):
-            report = live_build.build(
+            report = self.build_and_advise(
                 repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log", **kwargs
             )
         return report, calls
@@ -397,9 +421,9 @@ class LiveBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             report, calls = self.failing_build(Path(temp), failing, statuses)
         # Every stage still ran; the tiles are there to publish.
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 7)
         stages = [entry["stage"] for entry in report["advisory"]]
-        self.assertEqual(stages, ["tile-validate", "facade-ground-audit", "chrome"])
+        self.assertEqual(stages, ["collision-checks", "facade-ground-audit", "chrome"])
         self.assertEqual(report["advisory"][0]["checks"], ["curbs"])
         self.assertEqual(
             report["advisory"][-1]["specs"],
@@ -541,16 +565,16 @@ class LiveBuildTests(unittest.TestCase):
                 Path(temp), [update], cached=("game-build",), kind="full"
             )
             # The cached bundle is all a restart repeats; Chrome then runs for real once.
-            self.assertEqual(joins, [("game-build",), ("game-build",)])
+            self.assertEqual(joins, [])
             self.assertEqual(stages, [])
-            self.assertEqual(log.count("cache hit key-game-build"), 2)
-            self.assertEqual(log.count("== chrome"), 2)
+            self.assertEqual(log.count("cache hit key-game-build"), 1)
+            self.assertEqual(log.count("== chrome"), 0)
             self.assertEqual((report["cache_hits"], timings["game-build"]), (["game-build"], 0.0))
 
     def test_data_build_runs_no_unselected_chrome_and_carries_unchanged_car_result(self):
         self.assertEqual(live_build.stages_for("inert"), ())
-        self.assertEqual(live_build.stages_for("data")[-1], "chrome")
-        self.assertEqual(live_build.stages_for("full")[-1], "chrome")
+        self.assertEqual(live_build.stages_for("data", post_publish=True)[-1], "chrome")
+        self.assertEqual(live_build.stages_for("full"), ("game-build",))
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo, work, published = self.stage_fixture(root)
@@ -573,7 +597,7 @@ class LiveBuildTests(unittest.TestCase):
                         live_build.s, "run_group", side_effect=self.stage_runner(work, calls)
                     ),
                 ):
-                    report = live_build.build(
+                    report = self.build_and_advise(
                         repo,
                         work,
                         published,
@@ -588,10 +612,17 @@ class LiveBuildTests(unittest.TestCase):
             report, calls = build()
             self.assertEqual(
                 list(report["seconds"]),
-                ["refresh", "tile-build", "tile-validate", "facade-ground-audit", "chrome"],
+                [
+                    "refresh",
+                    "tile-build",
+                    "tile-validate",
+                    "collision-checks",
+                    "facade-ground-audit",
+                    "chrome",
+                ],
             )
             # The unchanged tile list selects no spec, so Chrome never starts.
-            self.assertEqual(len(calls), 4)
+            self.assertEqual(len(calls), 5)
             self.assertEqual((report["chrome"]["selected"], report["chrome"]["run"]), ([], []))
             self.assertEqual(report["car_validation"], {**car, "carried_from": "g" * 40})
             self.assertEqual(
@@ -603,7 +634,7 @@ class LiveBuildTests(unittest.TestCase):
             report, calls = build()
             self.assertIn("car-report", report["seconds"])
             self.assertNotIn("carried_from", report["car_validation"])
-            self.assertEqual(len(calls), 5)
+            self.assertEqual(len(calls), 6)
 
     def test_car_report_rejects_missing_or_inconsistent_result(self):
         with tempfile.TemporaryDirectory() as temp:

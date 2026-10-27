@@ -7,8 +7,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import advisory  # noqa: E402
 import coordination  # noqa: E402
 import integrator  # noqa: E402
+import live_build  # noqa: E402
 import test_integrator  # noqa: E402
 
 # The cases patch os.environ: tests/run.py runs them one by one in a process of their own.
@@ -16,6 +18,19 @@ SERIAL = True
 
 
 class AdvisoryTests(test_integrator.IntegratorFixture):
+    def test_only_build_stages_precede_publication_for_every_kind(self):
+        for kind in ("code", "full", "data", "inert"):
+            before = live_build.stages_for(kind)
+            after = live_build.stages_for(kind, post_publish=True)
+            self.assertTrue(set(before) <= set(advisory.BUILD_STAGES))
+            self.assertTrue(set(after).isdisjoint(advisory.BUILD_STAGES))
+            self.assertEqual(set(before) | set(after), set(live_build.STAGES[kind]))
+        self.assertEqual(live_build.stages_for("full", post_publish=True), ("chrome",))
+        self.assertEqual(
+            live_build.stages_for("data", post_publish=True),
+            ("collision-checks", "car-report", "facade-ground-audit", "chrome"),
+        )
+
     def test_red_chrome_is_advisory_publishes_live_and_pages_and_warns_the_authors(self):
         self.land("one", "game/a.ts", "a")
         head = self.land("two", "game/b.ts", "b")
@@ -86,12 +101,38 @@ class AdvisoryTests(test_integrator.IntegratorFixture):
     def test_every_published_batch_deploys_pages_full_suite_or_not(self):
         for full in (False, True):
             head = self.land(f"game-{full}", f"game/src/render/{full}.ts", "a")
-            with self.pages() as publish:
+            advise = self.fake_advise
+
+            def after_pages(*args, head=head, advise=advise, **kwargs):
+                self.assertTrue(publish.called)
+                self.assertEqual(integrator.live_commit(self.published), head)
+                return advise(*args, **kwargs)
+
+            with (
+                self.pages() as publish,
+                patch.object(self, "fake_advise", side_effect=after_pages),
+            ):
                 row = self.integrate(full=full)
             publish.assert_called_once_with(self.published)
             self.assertEqual((row["result"], row["full_suite"]), ("green", full))
             self.assertEqual(integrator.live_commit(self.published), head)
             self.assertEqual(self.live_record()["full_suite"], full)
+
+    def test_newer_landing_cuts_post_publish_checks_short_without_marking_full_suite(self):
+        head = self.land("first", "game/a.ts", "a")
+
+        def advise(*args, **kwargs):
+            self.assertEqual(integrator.live_commit(self.published), head)
+            self.land("next", "game/b.ts", "b")
+            self.assertTrue(kwargs["cancelled"]())
+            raise InterruptedError("newer landing waiting; advisory checks cut short")
+
+        with patch.object(self, "fake_advise", side_effect=advise):
+            row = self.integrate(full=True)
+        self.assertEqual(row["result"], "green")
+        self.assertIn("newer landing", row["advisory_interrupted"])
+        self.assertFalse(row["full_suite"])
+        self.assertFalse(self.live_record()["full_suite"])
 
     def test_red_full_run_is_advisory_and_reverts_nothing(self):
         self.land("first", "game/a.ts", "a")

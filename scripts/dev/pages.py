@@ -154,6 +154,8 @@ def notes(record, since, date, selection, repo=REPO):
     lines.append("")
     if advisory is None:
         lines.append("Advisory checks: not recorded for this release")
+    elif record.get("advisory_pending") and not advisory:
+        lines.append("Advisory checks: pending (post-publish)")
     elif not advisory:
         lines.append("Advisory checks: all green")
     else:
@@ -274,6 +276,42 @@ def publish(published, release=None, repo=REPO):
         "seconds": round(time.monotonic() - started, 3),
         "url": url,
     }
+
+
+def update_notes(published, release, deployment):
+    """Amend only the deployed commit's notes, with a lease protecting newer releases."""
+    try:
+        record = json.loads((release / "live-build.json").read_text())
+        if deployment.get("release") != record["commit"]:
+            return {"skipped": "different Pages release"}
+        target = config(published)
+        selection = pages_region.plan(target, release)
+        date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
+        message = notes(record, record.get("from"), date, selection)
+        with tempfile.TemporaryDirectory(prefix="pages-notes-") as temp:
+            site = Path(temp)
+            git("init", "-q", cwd=site)
+            remote, branch = remote_url(target["repo"]), target["branch"]
+            git("fetch", "-q", "--depth=1", remote, branch, cwd=site, timeout=30)
+            if git("rev-parse", "FETCH_HEAD", cwd=site) != deployment["commit"]:
+                return {"skipped": "newer Pages deployment"}
+            tree = git("rev-parse", "FETCH_HEAD^{tree}", cwd=site)
+            commit = git("commit-tree", tree, "-m", message, cwd=site)
+            git(
+                "push",
+                "-q",
+                f"--force-with-lease=refs/heads/{branch}:{deployment['commit']}",
+                remote,
+                f"{commit}:refs/heads/{branch}",
+                cwd=site,
+                timeout=30,
+            )
+        state = Path(published) / STATE
+        if json.loads(state.read_text()).get("commit") == deployment["commit"]:
+            state.write_text(json.dumps({"release": record["commit"], "commit": commit}) + "\n")
+        return {"commit": commit}
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        return {"error": str(exc)[-500:]}
 
 
 def deploy(published):

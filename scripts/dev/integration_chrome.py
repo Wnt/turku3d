@@ -52,10 +52,10 @@ def record_path(published):
     return (published / "live").resolve() / "live-build.json"
 
 
-def mark_full_suite(published, advisory):
+def mark_full_suite(published, advisory, *, release=None):
     """Record in the live release that the full Chrome suite ran on it, with the advisory
     failures of that run."""
-    path = record_path(published)
+    path = release / "live-build.json" if release else record_path(published)
     record = json.loads(path.read_text())
     pending = path.with_suffix(".tmp")
     record = {**record, "full_suite": True, "advisory": advisory}

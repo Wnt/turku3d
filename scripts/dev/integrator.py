@@ -1,31 +1,14 @@
-"""Build and publish the live release (and GitHub Pages) for main once per landed batch.
+"""Build and publish live and Pages for each landed batch.
 
-Live and Pages publish what the localhost game already serves (served.py). The lander
-fast-forwards main after the fast gate. The code lane then classifies the batch G..M by its
-paths (G = commit of the published live release, M = main head; landing_class.py): `inert`
-re-points live to M without a build; any other batch builds only M's game bundle in its own
-sandbox and publishes it with the served tile set (no refresh, tile-build or validators). A
-batch whose game bundle builds is published to live and Pages; then it runs the deep gate tier
-(`gate --deep --all`). Advisory findings (facade baseline, deep gate; Chrome on the scheduled
-full suite) are recorded in the row and the release, and new ones go to the batch's authors as
-an inbox warning. A build failure builds G first: a red G is
-`data-red` (no commit is blamed). Only a green G bisects the batch's landings and reverts the
-one culprit landing on main through the land lock and the fast gate, tells its author and
-leaves live at G.
+The code lane builds main's game with served tiles; the data lane rebuilds changed tiles
+with their live builder and carries the live game. Inert batches repoint without building.
+Only build failures trigger base checks and bisection; advisory failures never revert.
+Chrome, audits and the deep gate run after publication and yield to newer landings.
 
-The data lane (`--lane data`, sandbox `integration-data`) owns every change of the data root
-(facade approvals, the playable tile list, published layers): it rebuilds the affected tiles
-with the tile code that built the live tiles, so a pipeline change in main never forces a
-rebuild; it falls back to main's tile code only when that code cannot build the new data. It
-carries the live game bundle. The live record lists each tile's builder and the tiles whose
-tile code is older than main's (`stale_by_code`); `--refresh-stale` (make tiles-refresh-stale)
-rebuilds them with main's code when the host is idle.
-
-Nothing polls: each landing starts a run when none is going (ensure), and a finished run starts
-the next when main or the data root moved meanwhile. A newer main joins the code lane only
-while that is free (before the first stage that is not a cache hit). Publication is serialised
-under `publish.lock`; a code release whose tiles changed meanwhile is recomposed on the new
-live tiles, and a data release whose live game moved meanwhile ships the newer game.
+Landings start idle lanes; finished runs start successors when main or data moved. Joins
+are allowed only before the first uncached build stage. publish.lock serialises publication:
+code releases recompose on newer tiles, data releases carry a newer live game. --refresh-stale
+rebuilds stale_by_code tiles with main's tile code when the host is idle.
 """
 
 from __future__ import annotations
@@ -45,6 +28,7 @@ from pathlib import Path
 import advisory
 import coordination as coord
 import host_slots
+import integration_advisory
 import integration_chrome as chrome
 import integration_messages as messages
 import landing
@@ -456,16 +440,16 @@ def integrate(run, base, start, end):
             known = advisory.release_advisory(live)
             if landing_class.release_parts(live) == run.live_parts:
                 try:
-                    if end == live_commit(published):  # a full run checks live in place
-                        chrome.mark_full_suite(published, report["advisory"])
-                    else:
+                    release = live
+                    if end != live_commit(published):
                         record_fields = {
                             **report,
                             **served.provenance(run.main_repo, end, shipped),
-                            "full_suite": run.full,
+                            "full_suite": False,
+                            "advisory_pending": True,
                             "from": start,
                         }
-                        live_build.prepare(work, published, end, record_fields)
+                        release = live_build.prepare(work, published, end, record_fields)
                         # Main is already at M; only the live link moves, and publish rolls
                         # it back to G if a stable path does not resolve into the release.
                         live_build.publish(published, end)
@@ -486,15 +470,18 @@ def integrate(run, base, start, end):
             return record(run, {**row, "result": "failed", "failure": failure})
     if deployed := pages.deploy(published):
         row["pages"] = deployed
-    # The deep gate tier, once the release is out, in the build's checkout of M (advisory);
-    # a deep stage that was already red in the previous batch is not news.
-    repo, log = s.sandbox(run.name) / "repo", registry() / f"integration-{end[:12]}-deep.log"
-    row["deep_gate_seconds"], deep = advisory.deep_gate(repo, environment(repo, published), log)
-    row["advisory"] = [*row["advisory"], *deep]
-    known += [e for e in last(published).get("advisory") or () if e["stage"] == "deep-gate"]
-    row["result"] = "green"
-    row["warned"] = advisory.warn(run, row, known)
-    return record(run, row)
+    row["publish_seconds"] = round(time.monotonic() - run.started, 3)
+    return integration_advisory.finish(
+        run,
+        row,
+        report,
+        work,
+        release,
+        known,
+        environment=environment,
+        registry=registry,
+        record=record,
+    )
 
 
 def repoint(run, base, start, end):
@@ -644,18 +631,35 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
                     served.carry_game(current, work)
                     row["to"] = start
                 release = f"{start}-{key[:12]}" + (f"-{builder[:12]}" if refresh_stale else "")
-                fields = {**report, **served.provenance(main_repo, start, shipped), "from": start}
+                fields = {
+                    **report,
+                    **served.provenance(main_repo, start, shipped),
+                    "from": start,
+                    "advisory_pending": True,
+                }
                 live_build.prepare(work, published, start, fields, release)
                 live_build.publish(published, start, release)
         except (ValueError, OSError, subprocess.CalledProcessError) as exc:
             return record(
                 run, {**base, "result": "failed", "failure": {"detail": str(exc)[-1000:]}}
             )
-    row["result"] = "green"
-    row["warned"] = advisory.warn(run, row, advisory.release_advisory(live))
     if deployed := pages.deploy(published):
         row["pages"] = deployed
-    return record(run, row)
+    row["publish_seconds"] = round(time.monotonic() - run.started, 3)
+    release = published / "live-releases" / release
+    # Diagnostics need a host reservation too; code and data builds retain separate slots.
+    with reserved(DATA_NAME):
+        return integration_advisory.finish(
+            run,
+            row,
+            report,
+            work,
+            release,
+            advisory.release_advisory(live),
+            environment=environment,
+            registry=registry,
+            record=record,
+        )
 
 
 def running(lane=NAME):

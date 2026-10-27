@@ -85,8 +85,10 @@ reason. The rules below are the ones that stay hard.
   landings you are behind. Unlanded branches are never shared: land an interface or data-structure change
   first as a small compatible slice, then build on it; never ask others to merge your branch.
 - The integrator builds every landed batch asynchronously and publishes it to `live` and GitHub Pages as soon
-  as its build stages succeed (refresh, tile build, tile format and seams, game build). Chrome specs, the facade
-  ground audit, the car report, the collision sweep and audit, the walk checks and the facade baseline are
+  as its build stages succeed (refresh, tile build, tile format and seams, game build). Chrome specs (including
+  scheduled full runs), the facade ground audit, the car report, collision and walk checks run after live and
+  Pages publication; a newer landing
+  cuts advisories short with a recorded note so the next batch can build. These and the facade baseline are
   advisory: a new failure reaches the batch's authors as an inbox `warning` and is listed in the Pages release
   notes; fix yours in a new landing. Only a batch that cannot be built is bisected and its culprit reverted with
   an inbox `request`. A facade count below the published baseline without a `Facade regression reason: ...` line
