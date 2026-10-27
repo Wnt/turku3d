@@ -1,0 +1,572 @@
+"""Build, check and publish the real office distribution for the integrator."""
+
+import filecmp
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
+
+import live_cache
+import sandbox as s
+from host_slots import integration_jobs
+
+TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+
+
+class StageFailed(ValueError):
+    """A live stage failed; `stage` names it so the integrator can rerun Chrome once."""
+
+    def __init__(self, stage, message):
+        super().__init__(message)
+        self.stage = stage
+
+
+class FacadeRegression(StageFailed):
+    """The assembler bound fewer facades than the published release, with no reported reason."""
+
+    def __init__(self, bound, baseline):
+        super().__init__(
+            "facade-baseline",
+            f"facades_bound regressed: {bound} < {baseline}; no reported reason",
+        )
+        self.bound = bound
+        self.baseline = baseline
+
+
+def approval_manifests(published):
+    """SHA-256 of the approval root's MANIFEST.json and of the published release's copy.
+
+    seed() replaces the release assembly with the approvals, so the two differ exactly
+    when the approvals changed on disk after the published release was built.
+    """
+
+    def sha(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+    return {
+        "published": sha(published / "live/textures/assembly/MANIFEST.json"),
+        "current": sha(published / "facade-approvals/assembly/MANIFEST.json"),
+    }
+
+
+def affected_tiles(previous, work):
+    """Map changed layer meshes to visual tiles; ambiguous changes rebuild all tiles."""
+    old = previous / "layers"
+    new = work / "build/layers"
+    if not old.is_dir() or not new.is_dir():
+        return TILES
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return TILES
+    changed = set()
+    names = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    names |= {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    for name in names:
+        before, after = old / name, new / name
+        if before.is_file() and after.is_file() and filecmp.cmp(before, after, shallow=False):
+            continue
+        stem = name.name
+        if stem.endswith(".vis.glb") and stem.split(".vis.glb")[0] in TILES:
+            changed.add(stem.split(".vis.glb")[0])
+        elif stem.endswith(".col.npz") and stem.startswith("c_"):
+            _, i, j = stem.split(".")[0].split("_")
+            changed.add(f"t0_{int(i) // 4}_{int(j) // 4}")
+        elif stem == "MANIFEST.json":
+            continue
+        else:
+            return TILES
+    return tuple(tile for tile in TILES if tile in changed)
+
+
+def affected_collision_files(previous, work, selected):
+    """Validate changed shipped colliders; a validator-only change checks the whole selection."""
+    current = work / "dist/tiles/collision"
+    old = previous / "tiles/collision" if previous else None
+    files = tuple(sorted(path for tile in selected for path in (current / tile).glob("*.col")))
+    if not old or not old.is_dir():
+        return files
+    changed = tuple(
+        path
+        for path in files
+        if not (old / path.parent.name / path.name).is_file()
+        or not filecmp.cmp(old / path.parent.name / path.name, path, shallow=False)
+    )
+    return changed or files
+
+
+def same_tree(old, new):
+    if not old.is_dir() or not new.is_dir():
+        return False
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return False
+    before = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    after = {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    return before == after and all(
+        filecmp.cmp(old / name, new / name, shallow=False) for name in before
+    )
+
+
+def _clone(source, target):
+    if target.exists() or target.is_symlink():
+        return
+    if not source.exists():
+        return
+    source = source.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # APFS clones keep a private, writable snapshot without copying asset bytes.
+    if subprocess.call(
+        ["cp", "-cRL", str(source), str(target)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ):
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target)
+
+
+def seed(work, published):
+    for relative in ("build/layers", "textures", "dist/tiles"):
+        _clone(published / relative, work / relative)
+    approvals = published / "facade-approvals/assembly"
+    if approvals.is_dir():
+        # The approvals are authoritative: a retired facade must leave the release too,
+        # so the assembly is replaced rather than merged over the published copy.
+        target = work / "textures/assembly"
+        _detach(target, work)
+        if target.exists():
+            shutil.rmtree(target)
+        with s.lock(approvals / ".export.lock"):
+            shutil.copytree(approvals, target)
+
+
+def _detach(path, work):
+    """Replace linked components below work with private clones before writing through them."""
+    current = work
+    for part in path.relative_to(work).parts:
+        current = current / part
+        if not current.is_symlink():
+            continue
+        private = current.with_name(current.name + ".seed-local")
+        if private.exists() or private.is_symlink():
+            shutil.rmtree(private)
+        _clone(current, private)
+        current.unlink()
+        private.rename(current)
+
+
+def baseline(published):
+    record = published / "live/live-build.json"
+    if record.exists():
+        return int(json.loads(record.read_text())["facades_bound"])
+    # The legacy deploy recorded this count only in its assembler log.
+    legacy_log = published.parent / "logs/deploy-once.log"
+    if legacy_log.exists():
+        for line in reversed(legacy_log.read_text().splitlines()):
+            try:
+                result = json.loads(line)
+                if (
+                    Path(result.get("manifest", "")).resolve()
+                    == (published / "dist/tiles/manifest.json").resolve()
+                ):
+                    return int(result["facades_bound"])
+            except (ValueError, KeyError, TypeError):
+                continue
+    export = published / "textures/assembly/MANIFEST.json"
+    if export.exists():
+        return len(json.loads(export.read_text())["bound"])
+    raise ValueError("published facade baseline is unavailable")
+
+
+def inspect(manifest_path, facade_count, minimum, reason=None):
+    manifest = json.loads(manifest_path.read_text())
+    for tile in TILES:
+        entry = manifest["visual"][tile]
+        if entry.get("tris", 0) < 1000:
+            raise ValueError(f"{tile}: office geometry is missing; Chrome tests would skip")
+        if entry.get("ground_texture_bytes", 0) <= 0:
+            raise ValueError(f"{tile}: ground textures are unbound")
+        if entry.get("wire_bytes", 8_000_001) >= 8_000_000:
+            raise ValueError(f"{tile}: L0 wire size exceeds 8 MB")
+    if facade_count < minimum and not reason:
+        raise FacadeRegression(facade_count, minimum)
+    if not manifest.get("spawn"):
+        raise ValueError("live build has no spawn")
+    return {
+        "facades_bound": facade_count,
+        "facades_baseline": minimum,
+        "facade_regression_reason": reason if facade_count < minimum else None,
+    }
+
+
+def browser_load(rows_path, load_before):
+    """Summarize host load and per-test frame p95 (tests/e2e/fixtures.ts rows) for one Chrome stage."""
+    rows = []
+    if rows_path.is_file():
+        for line in rows_path.read_text().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    paces = sorted(row["pace"]["p95FrameMs"] for row in rows if row.get("pace"))
+    return {
+        "host_load_start": [round(value, 2) for value in load_before],
+        "host_load_end": [round(value, 2) for value in os.getloadavg()],
+        "frame_p95_ms": (
+            {"median": round(paces[len(paces) // 2], 1), "max": round(paces[-1], 1)}
+            if paces
+            else None
+        ),
+        "attempts": len(rows),
+        "retried": [
+            {
+                "test": f"[{row['project']}] {row['file']} {row['title']}",
+                "status": row["status"],
+                "host_load": round(row["hostLoad"], 2),
+            }
+            for row in rows
+            if row.get("retry")
+        ],
+    }
+
+
+def load_summary(load):
+    frame = load["frame_p95_ms"]
+    return (
+        f"host load {', '.join(f'{value:.2f}' for value in load['host_load_end'])}"
+        f" (start {load['host_load_start'][0]:.2f}); frame p95 "
+        + (f"median {frame['median']} ms, max {frame['max']} ms" if frame else "unmeasured")
+        + f"; {len(load['retried'])} load retries"
+    )
+
+
+def inspect_car_report(path, returncode):
+    """Preserve known-red car diagnostics without accepting validator load errors."""
+    if returncode not in (0, 1) or not path.is_file():
+        raise ValueError(
+            f"car report failed ({returncode}); report missing or validator error: {path}"
+        )
+    data = json.loads(path.read_text())
+    cars = data.get("checks", {}).get("cars", {})
+    status = cars.get("status")
+    if status not in ("pass", "fail") or bool(data.get("pass")) != (status == "pass"):
+        raise ValueError(f"car report has no usable car result: {path}")
+    if returncode != (0 if status == "pass" else 1):
+        raise ValueError(f"car report exit code disagrees with result: {path}")
+    per_tile = cars.get("perTile", [])
+    if not per_tile:
+        raise ValueError(f"car report has no tested tiles: {path}")
+    return {
+        "status": status,
+        "failed_tiles": sum(tile.get("status") == "fail" for tile in per_tile),
+        "tested_tiles": len(per_tile),
+        "report": "reports/validate-cars.json",
+        "known_red_reason": "Published car probes still fail curb response and four wall/building crossings",
+    }
+
+
+def build(repo, work, published, env, log_path, reason=None, previous_release=None):
+    """Run every live stage on repo; the caller holds the integration host reservation.
+
+    previous_release is the published release directory the batch starts from; tile-build
+    and collision checks then only rebuild what the layer delta affects.
+    """
+    seed(work, published)
+    minimum = baseline(published)
+    durations = {}
+    cache_hits = []
+    input_hashes = {}
+    browser_loads = {}
+    report = None
+    previous = ""
+    cache_enabled = (repo / ".git").exists()
+    commands = [
+        ("refresh", ["make", "refresh"], repo),
+        ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
+        (
+            "tile-validate",
+            [
+                "make",
+                "tile-validate",
+                "T=" + " ".join(TILES),
+                "TILE_WALKERS=128",
+                "VALIDATOR_REQUIRE=buildings,curbs",
+                "VALIDATOR_ARGS=--checks format,seams,buildings,curbs --walk-seconds 2",
+            ],
+            repo,
+        ),
+        (
+            "car-report",
+            ["node", "src/cli.ts", "--checks", "cars", "--require", "cars", "--workers", "4"],
+            repo / "tools/validator",
+        ),
+        (
+            "facade-ground-audit",
+            ["bash", "pipeline/env/run.sh", "python", "-m", "turku3d.package.facade_ground_audit"],
+            repo,
+        ),
+        ("game-build", ["make", "game-build"], repo),
+        ("collision-sweep", ["make", "collision-sweep"], repo),
+        ("collision-audit", ["make", "collision-audit"], repo),
+        (
+            "chrome",
+            [
+                str(repo / "game/node_modules/.bin/playwright"),
+                "test",
+                "-c",
+                "playwright.tile.config.ts",
+            ],
+            repo / "game",
+        ),
+    ]
+    scopes = {}
+    with log_path.open("w") as log:
+        for stage, command, cwd in commands:
+            if stage == "tile-build":
+                prior = previous_release
+                if prior:
+                    selected = affected_tiles(prior, work)
+                    # Facade and library texture changes affect tile packing globally.
+                    if selected and same_tree(prior / "textures", work / "textures"):
+                        command = ["make", "tile-build", "T=" + " ".join(selected)]
+                        scopes[stage] = selected
+            if stage in ("tile-validate", "car-report"):
+                selected = scopes.get("tile-build") or TILES
+                files = affected_collision_files(previous_release, work, selected)
+                if stage == "tile-validate":
+                    command[2] = "T=" + " ".join(selected)
+                    if files:
+                        command.append("VALIDATOR_INPUTS=" + " ".join(map(str, files)))
+                else:
+                    command.extend(("--out", str(work / "reports/validate-cars.json")))
+                    layers = work / "build/layers"
+                    if layers.is_dir():
+                        command.extend(("--layers", str(layers)))
+                    command.extend(map(str, files))
+                scopes[stage] = tuple(str(path.relative_to(work)) for path in files)
+            start = time.monotonic()
+            log.write(f"\n== {stage}: {' '.join(command)} ==\n")
+            log.flush()
+            key = (
+                live_cache.digest(repo, work, published, stage, previous, scopes.get(stage))
+                if cache_enabled
+                else None
+            )
+            if key:
+                input_hashes[stage] = key
+            cached = (
+                live_cache.restore(published, work, stage, key)
+                if key and stage != "car-report"
+                else None
+            )
+            if cached is not None:
+                log.write(f"cache hit {key}\n")
+                durations[stage] = 0.0
+                cache_hits.append(stage)
+                if stage == "tile-build":
+                    report = inspect(
+                        work / "dist/tiles/manifest.json", cached["facades_bound"], minimum, reason
+                    )
+                if stage == "facade-ground-audit":
+                    report["facade_ground_audit"] = cached["facade_ground_audit"]
+                previous = key
+                continue
+            run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
+            load_before = os.getloadavg()
+            if stage.startswith("chrome"):
+                run_env["TURKU3D_JOBS"] = str(integration_jobs("browser"))
+                load_rows.parent.mkdir(parents=True, exist_ok=True)
+                load_rows.unlink(missing_ok=True)
+                run_env["TURKU3D_BROWSER_LOAD_LOG"] = str(load_rows)
+            proc = s.run_group(command, cwd=cwd, env=run_env)
+            log.write(proc.stdout)
+            durations[stage] = round(time.monotonic() - start, 3)
+            load = None
+            if stage.startswith("chrome"):
+                load = browser_load(load_rows, load_before)
+                browser_loads[stage] = load
+                log.write(f"{stage} load: {json.dumps(load)}\n")
+            log.flush()
+            if stage == "car-report":
+                car_report = inspect_car_report(
+                    work / "reports/validate-cars.json", proc.returncode
+                )
+                if report is None:
+                    raise ValueError("tile-build report is unavailable before car validation")
+                report["car_validation"] = car_report
+            elif proc.returncode:
+                conditions = load_summary(load) if load else f"host load {s.host_load()}"
+                raise StageFailed(
+                    stage,
+                    f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; {conditions}: {log_path}",
+                )
+            if stage == "tile-build":
+                facade_count = None
+                for line in reversed(proc.stdout.splitlines()):
+                    try:
+                        facade_count = int(json.loads(line)["facades_bound"])
+                        break
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                if facade_count is None:
+                    raise ValueError(f"tile-build did not report facades_bound: {log_path}")
+                report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
+            if stage == "facade-ground-audit":
+                report["facade_ground_audit"] = json.loads(proc.stdout.splitlines()[-1])
+            if key and stage != "car-report":
+                live_cache.store(
+                    published,
+                    work,
+                    stage,
+                    key,
+                    {"facades_bound": report["facades_bound"]}
+                    if stage == "tile-build"
+                    else {"facade_ground_audit": report["facade_ground_audit"]}
+                    if stage == "facade-ground-audit"
+                    else {},
+                )
+                previous = key
+            elif key:
+                previous = key
+    report["seconds"] = durations
+    report["cache_hits"] = cache_hits
+    report["input_hashes"] = input_hashes
+    report["browser_load"] = browser_loads
+    return report
+
+
+def prepare(work, published, commit, report, release_id=None):
+    """Copy the verified release into live-releases; publish() then moves the live link."""
+    releases = published / "live-releases"
+    releases.mkdir(parents=True, exist_ok=True)
+    release = releases / (release_id or commit)
+    if release.exists():
+        if (published / "live").is_symlink() and (published / "live").resolve() == release:
+            raise ValueError(f"release is already live: {release}")
+        shutil.rmtree(release)
+    release.mkdir()
+    artifacts = (
+        (work / "build/game", "game"),
+        (work / "dist/tiles", "tiles"),
+        (work / "build/layers", "layers"),
+        (work / "textures", "textures"),
+    )
+    for source, name in artifacts:
+        if not source.is_dir():
+            raise ValueError(f"verified {name} is missing: {source}")
+        _clone(source, release / name)
+        if name in ("game", "tiles"):
+            # The existing server caches Brotli by path and mtime. Give each
+            # release fresh mtimes so the same stable URL cannot reuse old bytes.
+            for asset in (release / name).rglob("*"):
+                if asset.is_file():
+                    os.utime(asset, None)
+    if "car_validation" in report:
+        car_report = work / report["car_validation"]["report"]
+        if not car_report.is_file():
+            raise ValueError(f"verified car report is missing: {car_report}")
+        (release / "reports").mkdir()
+        shutil.copy2(car_report, release / "reports/validate-cars.json")
+    (release / "live-build.json").write_text(
+        json.dumps({"commit": commit, **report}, indent=2) + "\n"
+    )
+    return release
+
+
+def prepared(published, commit, release_id=None):
+    """Return a complete, link-free prepared release for commit, or raise."""
+    release = published / "live-releases" / (release_id or commit)
+    if not (release / "live-build.json").exists():
+        raise ValueError(f"prepared release is missing: {release}")
+    record = json.loads((release / "live-build.json").read_text())
+    if record["commit"] != commit:
+        raise ValueError("prepared release commit does not match landing")
+    if "car_validation" in record and not (release / record["car_validation"]["report"]).is_file():
+        raise ValueError("prepared release car report is missing")
+    for name in ("game", "tiles", "layers", "textures"):
+        directory = release / name
+        if not directory.is_dir() or directory.is_symlink():
+            raise ValueError(f"prepared release directory is missing or linked: {directory}")
+        if any(asset.is_symlink() for asset in directory.rglob("*")):
+            raise ValueError(f"prepared release contains a symlink: {directory}")
+    return release
+
+
+def publication_preflight(published, commit, release_id=None):
+    """Check release and stable path layout before advancing main."""
+    release = prepared(published, commit, release_id)
+    live = published / "live"
+    if live.exists() and not live.is_symlink():
+        raise ValueError(f"live path is not a symlink: {live}")
+    if live.is_symlink() and not live.resolve().is_dir():
+        raise ValueError(f"live link is invalid: {live}")
+    for target, name in (
+        (published / "build/game", "game"),
+        (published / "dist/tiles", "tiles"),
+        (published / "build/layers", "layers"),
+        (published / "textures", "textures"),
+    ):
+        if target.is_symlink():
+            expected = os.path.abspath(live / name)
+            actual = os.path.abspath(target.parent / os.readlink(target))
+            if actual != expected:
+                raise ValueError(f"stable path does not point through live: {target}")
+        elif live.is_symlink():
+            raise ValueError(f"stable path is not a link: {target}")
+        elif target.exists() and not target.is_dir():
+            raise ValueError(f"legacy stable path is not a directory: {target}")
+        if (
+            not live.is_symlink()
+            and target.exists()
+            and (published / "live-releases/legacy" / name).exists()
+        ):
+            raise ValueError(f"legacy release target already exists: {target}")
+    return release
+
+
+def publish(published, commit, release_id=None):
+    """Swap one release link; stable game/tile paths resolve through that link."""
+    release = publication_preflight(published, commit, release_id)
+    # Migrate the old service's paths once. Its existing server resolves these paths
+    # for each request, so it serves the new release without killing an owned process.
+    live = published / "live"
+    if not live.is_symlink():
+        legacy = published / "live-releases/legacy"
+        legacy.mkdir(exist_ok=True)
+        for target, name in (
+            (published / "build/game", "game"),
+            (published / "dist/tiles", "tiles"),
+            (published / "build/layers", "layers"),
+            (published / "textures", "textures"),
+        ):
+            if not target.is_symlink():
+                if target.exists():
+                    target.rename(legacy / name)
+                target.symlink_to(os.path.relpath(live / name, target.parent))
+        temporary = published / ".live-next"
+        temporary.symlink_to(legacy, target_is_directory=True)
+        os.replace(temporary, live)
+    previous = live.readlink()
+    temporary = published / ".live-next"
+    temporary.symlink_to(release, target_is_directory=True)
+    os.replace(temporary, live)
+    try:
+        for target, name in (
+            (published / "build/game", "game"),
+            (published / "dist/tiles", "tiles"),
+            (published / "build/layers", "layers"),
+            (published / "textures", "textures"),
+        ):
+            if not target.is_dir() or target.resolve() != (release / name).resolve():
+                raise ValueError(f"stable path does not resolve into release: {target}")
+        version = published.parent / "logs/live-version.txt"
+        version.parent.mkdir(parents=True, exist_ok=True)
+        pending = version.with_suffix(".tmp")
+        pending.write_text(commit + "\n")
+        os.replace(pending, version)
+    except Exception:
+        temporary.symlink_to(previous, target_is_directory=True)
+        os.replace(temporary, live)
+        raise

@@ -1,0 +1,1493 @@
+{
+ "area": "work-3x3",
+ "core_en": [
+  23459000.0,
+  6703500.0,
+  23460500.0,
+  6705000.0
+ ],
+ "with_margin_en": [
+  23459000.0,
+  6703500.0,
+  23460500.0,
+  6705000.0
+ ],
+ "laz": [
+  {
+   "file": "23459000_6705000.laz",
+   "bytes": 119776934,
+   "points_total": 18333946,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23459000.0,
+    6704500.0,
+    23459499.999,
+    6704999.999
+   ],
+   "z_range": [
+    -5.098,
+    80.9
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 18333946,
+    "pts_per_m2": 8.15,
+    "classes": {
+     "1:unclassified": 163776,
+     "2:ground": 4994179,
+     "3:veg_low": 110970,
+     "4:veg_med": 250547,
+     "5:veg_high": 2301514,
+     "6:building": 4050542,
+     "7:low_noise": 7372,
+     "8:key_points": 29516,
+     "10:?": 16,
+     "12:overlap": 6425514
+    },
+    "cells_1m_with_class2": 0.0702,
+    "cells_1m_with_class2_excl_building_cells": 0.0661,
+    "ground_z_range": [
+     6.834,
+     35.95
+    ],
+    "gps_time_range": [
+     302685099.7236151,
+     302687353.6648402
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 18333946,
+    "pts_per_m2": 8.15,
+    "classes": {
+     "1:unclassified": 163776,
+     "2:ground": 4994179,
+     "3:veg_low": 110970,
+     "4:veg_med": 250547,
+     "5:veg_high": 2301514,
+     "6:building": 4050542,
+     "7:low_noise": 7372,
+     "8:key_points": 29516,
+     "10:?": 16,
+     "12:overlap": 6425514
+    }
+   }
+  },
+  {
+   "file": "23459500_6705000.laz",
+   "bytes": 96281029,
+   "points_total": 15676395,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23459500.0,
+    6704500.0,
+    23459999.999,
+    6704999.999
+   ],
+   "z_range": [
+    -18.816,
+    88.772
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 15676395,
+    "pts_per_m2": 6.97,
+    "classes": {
+     "1:unclassified": 163015,
+     "2:ground": 3995805,
+     "3:veg_low": 76108,
+     "4:veg_med": 178471,
+     "5:veg_high": 838587,
+     "6:building": 4828556,
+     "7:low_noise": 10294,
+     "8:key_points": 19522,
+     "9:water": 4525,
+     "12:overlap": 5561512
+    },
+    "cells_1m_with_class2": 0.0596,
+    "cells_1m_with_class2_excl_building_cells": 0.055,
+    "ground_z_range": [
+     -0.774,
+     22.53
+    ],
+    "gps_time_range": [
+     302686752.30103904,
+     302688660.2490816
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 15676395,
+    "pts_per_m2": 6.97,
+    "classes": {
+     "1:unclassified": 163015,
+     "2:ground": 3995805,
+     "3:veg_low": 76108,
+     "4:veg_med": 178471,
+     "5:veg_high": 838587,
+     "6:building": 4828556,
+     "7:low_noise": 10294,
+     "8:key_points": 19522,
+     "9:water": 4525,
+     "12:overlap": 5561512
+    }
+   }
+  },
+  {
+   "file": "23460000_6705000.laz",
+   "bytes": 151821103,
+   "points_total": 21495483,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23460000.0,
+    6704500.0,
+    23460499.999,
+    6704999.999
+   ],
+   "z_range": [
+    -4.115,
+    102.544
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 21495483,
+    "pts_per_m2": 9.55,
+    "classes": {
+     "1:unclassified": 77977,
+     "2:ground": 5650797,
+     "3:veg_low": 320907,
+     "4:veg_med": 244635,
+     "5:veg_high": 5204567,
+     "6:building": 2319500,
+     "7:low_noise": 3635,
+     "8:key_points": 26351,
+     "9:water": 299313,
+     "10:?": 69571,
+     "12:overlap": 7278230
+    },
+    "cells_1m_with_class2": 0.0791,
+    "cells_1m_with_class2_excl_building_cells": 0.0758,
+    "ground_z_range": [
+     -0.045,
+     25.354
+    ],
+    "gps_time_range": [
+     302688040.75180155,
+     302689886.8905718
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 21495483,
+    "pts_per_m2": 9.55,
+    "classes": {
+     "1:unclassified": 77977,
+     "2:ground": 5650797,
+     "3:veg_low": 320907,
+     "4:veg_med": 244635,
+     "5:veg_high": 5204567,
+     "6:building": 2319500,
+     "7:low_noise": 3635,
+     "8:key_points": 26351,
+     "9:water": 299313,
+     "10:?": 69571,
+     "12:overlap": 7278230
+    }
+   }
+  },
+  {
+   "file": "23459000_6704500.laz",
+   "bytes": 112187899,
+   "points_total": 17391719,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23459000.0,
+    6704000.0,
+    23459499.999,
+    6704499.999
+   ],
+   "z_range": [
+    -11.253,
+    90.601
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 17391719,
+    "pts_per_m2": 7.73,
+    "classes": {
+     "1:unclassified": 157680,
+     "2:ground": 4474774,
+     "3:veg_low": 109348,
+     "4:veg_med": 184027,
+     "5:veg_high": 1877673,
+     "6:building": 3810268,
+     "7:low_noise": 7545,
+     "8:key_points": 18112,
+     "9:water": 323354,
+     "10:?": 6852,
+     "12:overlap": 6422086
+    },
+    "cells_1m_with_class2": 0.0656,
+    "cells_1m_with_class2_excl_building_cells": 0.0613,
+    "ground_z_range": [
+     -0.006,
+     19.258
+    ],
+    "gps_time_range": [
+     302685691.11207867,
+     302688059.65319955
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 17391719,
+    "pts_per_m2": 7.73,
+    "classes": {
+     "1:unclassified": 157680,
+     "2:ground": 4474774,
+     "3:veg_low": 109348,
+     "4:veg_med": 184027,
+     "5:veg_high": 1877673,
+     "6:building": 3810268,
+     "7:low_noise": 7545,
+     "8:key_points": 18112,
+     "9:water": 323354,
+     "10:?": 6852,
+     "12:overlap": 6422086
+    }
+   }
+  },
+  {
+   "file": "23459500_6704500.laz",
+   "bytes": 141008019,
+   "points_total": 19931068,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23459500.0,
+    6704000.0,
+    23459999.999,
+    6704499.999
+   ],
+   "z_range": [
+    -16.191,
+    69.377
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 19931068,
+    "pts_per_m2": 8.86,
+    "classes": {
+     "1:unclassified": 153101,
+     "2:ground": 4925191,
+     "3:veg_low": 264920,
+     "4:veg_med": 315772,
+     "5:veg_high": 4310699,
+     "6:building": 2500574,
+     "7:low_noise": 4147,
+     "8:key_points": 33078,
+     "9:water": 573451,
+     "10:?": 52405,
+     "12:overlap": 6797730
+    },
+    "cells_1m_with_class2": 0.0719,
+    "cells_1m_with_class2_excl_building_cells": 0.0694,
+    "ground_z_range": [
+     -0.022,
+     39.688
+    ],
+    "gps_time_range": [
+     302687340.3728985,
+     302689293.19443
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 19931068,
+    "pts_per_m2": 8.86,
+    "classes": {
+     "1:unclassified": 153101,
+     "2:ground": 4925191,
+     "3:veg_low": 264920,
+     "4:veg_med": 315772,
+     "5:veg_high": 4310699,
+     "6:building": 2500574,
+     "7:low_noise": 4147,
+     "8:key_points": 33078,
+     "9:water": 573451,
+     "10:?": 52405,
+     "12:overlap": 6797730
+    }
+   }
+  },
+  {
+   "file": "23460000_6704500.laz",
+   "bytes": 175299075,
+   "points_total": 24202916,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23460000.0,
+    6704000.0,
+    23460499.999,
+    6704499.999
+   ],
+   "z_range": [
+    -6.0680000000000005,
+    76.432
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 24202916,
+    "pts_per_m2": 10.76,
+    "classes": {
+     "1:unclassified": 99549,
+     "2:ground": 6072418,
+     "3:veg_low": 173851,
+     "4:veg_med": 421721,
+     "5:veg_high": 5949781,
+     "6:building": 2531645,
+     "7:low_noise": 4369,
+     "8:key_points": 43442,
+     "9:water": 13608,
+     "12:overlap": 8892532
+    },
+    "cells_1m_with_class2": 0.0859,
+    "cells_1m_with_class2_excl_building_cells": 0.0815,
+    "ground_z_range": [
+     0.029,
+     50.92
+    ],
+    "gps_time_range": [
+     302688048.9451058,
+     302690519.21231896
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 24202916,
+    "pts_per_m2": 10.76,
+    "classes": {
+     "1:unclassified": 99549,
+     "2:ground": 6072418,
+     "3:veg_low": 173851,
+     "4:veg_med": 421721,
+     "5:veg_high": 5949781,
+     "6:building": 2531645,
+     "7:low_noise": 4369,
+     "8:key_points": 43442,
+     "9:water": 13608,
+     "12:overlap": 8892532
+    }
+   }
+  },
+  {
+   "file": "23459000_6704000.laz",
+   "bytes": 144093472,
+   "points_total": 20594420,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23459000.0,
+    6703500.0,
+    23459499.999,
+    6703999.999
+   ],
+   "z_range": [
+    -14.019,
+    67.538
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 20594420,
+    "pts_per_m2": 9.15,
+    "classes": {
+     "1:unclassified": 92182,
+     "2:ground": 5894058,
+     "3:veg_low": 364266,
+     "4:veg_med": 486882,
+     "5:veg_high": 4506795,
+     "6:building": 1093808,
+     "7:low_noise": 2673,
+     "8:key_points": 47696,
+     "9:water": 460563,
+     "10:?": 128336,
+     "12:overlap": 7517161
+    },
+    "cells_1m_with_class2": 0.0874,
+    "cells_1m_with_class2_excl_building_cells": 0.0857,
+    "ground_z_range": [
+     -0.038,
+     39.119
+    ],
+    "gps_time_range": [
+     302685690.4688009,
+     302688639.2091513
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 20594420,
+    "pts_per_m2": 9.15,
+    "classes": {
+     "1:unclassified": 92182,
+     "2:ground": 5894058,
+     "3:veg_low": 364266,
+     "4:veg_med": 486882,
+     "5:veg_high": 4506795,
+     "6:building": 1093808,
+     "7:low_noise": 2673,
+     "8:key_points": 47696,
+     "9:water": 460563,
+     "10:?": 128336,
+     "12:overlap": 7517161
+    }
+   }
+  },
+  {
+   "file": "23459500_6704000.laz",
+   "bytes": 157484968,
+   "points_total": 22263738,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23459500.0,
+    6703500.0,
+    23459999.999,
+    6703999.999
+   ],
+   "z_range": [
+    2.2800000000000002,
+    74.118
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 22263738,
+    "pts_per_m2": 9.89,
+    "classes": {
+     "1:unclassified": 135374,
+     "2:ground": 6776205,
+     "3:veg_low": 161169,
+     "4:veg_med": 426063,
+     "5:veg_high": 5057842,
+     "6:building": 1849424,
+     "7:low_noise": 4364,
+     "8:key_points": 38692,
+     "12:overlap": 7814605
+    },
+    "cells_1m_with_class2": 0.0937,
+    "cells_1m_with_class2_excl_building_cells": 0.0909,
+    "ground_z_range": [
+     4.515,
+     38.447
+    ],
+    "gps_time_range": [
+     302687338.84636694,
+     302689865.8306419
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 22263738,
+    "pts_per_m2": 9.89,
+    "classes": {
+     "1:unclassified": 135374,
+     "2:ground": 6776205,
+     "3:veg_low": 161169,
+     "4:veg_med": 426063,
+     "5:veg_high": 5057842,
+     "6:building": 1849424,
+     "7:low_noise": 4364,
+     "8:key_points": 38692,
+     "12:overlap": 7814605
+    }
+   }
+  },
+  {
+   "file": "23460000_6704000.laz",
+   "bytes": 141552771,
+   "points_total": 20703130,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23460000.0,
+    6703500.0,
+    23460499.999,
+    6703999.999
+   ],
+   "z_range": [
+    2.5500000000000003,
+    60.624
+   ],
+   "core": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 20703130,
+    "pts_per_m2": 9.2,
+    "classes": {
+     "1:unclassified": 156931,
+     "2:ground": 6311731,
+     "3:veg_low": 157211,
+     "4:veg_med": 482423,
+     "5:veg_high": 3818950,
+     "6:building": 2269408,
+     "7:low_noise": 4802,
+     "8:key_points": 25082,
+     "12:overlap": 7476592
+    },
+    "cells_1m_with_class2": 0.0899,
+    "cells_1m_with_class2_excl_building_cells": 0.0837,
+    "ground_z_range": [
+     14.783,
+     26.769
+    ],
+    "gps_time_range": [
+     302688645.053985,
+     302690527.63562167
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459000.0,
+     6703500.0,
+     23460500.0,
+     6705000.0
+    ],
+    "points": 20703130,
+    "pts_per_m2": 9.2,
+    "classes": {
+     "1:unclassified": 156931,
+     "2:ground": 6311731,
+     "3:veg_low": 157211,
+     "4:veg_med": 482423,
+     "5:veg_high": 3818950,
+     "6:building": 2269408,
+     "7:low_noise": 4802,
+     "8:key_points": 25082,
+     "12:overlap": 7476592
+    }
+   }
+  }
+ ],
+ "wfs": {
+  "kanta:Liikennevayla": {
+   "status": "ok",
+   "features": 1274,
+   "rows": 1274,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Point": 856,
+    "LineString": 418
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62020": 856,
+    "62520": 415,
+    "62525": 3
+   }
+  },
+  "kanta:Kevyenliikenteenvayla": {
+   "status": "ok",
+   "features": 1797,
+   "rows": 1797,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "LineString": 1797
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62522": 1741,
+    "62523": 56
+   }
+  },
+  "kanta:Rakenne": {
+   "status": "ok",
+   "features": 9801,
+   "rows": 9801,
+   "requests": 25,
+   "leaf_pages": 19,
+   "geom_types": {
+    "LineString": 9366,
+    "Point": 435
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "66626": 2347,
+    "66618": 1757,
+    "62540": 1532,
+    "66636": 916,
+    "66632": 911,
+    "66620": 829,
+    "66634": 540,
+    "66114": 303,
+    "62534": 186,
+    "66622": 134,
+    "66630": 93,
+    "66110": 77,
+    "66624": 55,
+    "66152": 34,
+    "62536": 34,
+    "62538": 15,
+    "64500": 13,
+    "64020": 11,
+    "66122": 6,
+    "66106": 4,
+    "66614": 3,
+    "66616": 1
+   }
+  },
+  "kanta:Rakennus": {
+   "status": "ok",
+   "features": 10297,
+   "rows": 18841,
+   "requests": 73,
+   "leaf_pages": 55,
+   "geom_types": {
+    "LineString": 16062,
+    "Point": 1493,
+    "Polygon": 1286
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "66524": 2475,
+    "66516": 2059,
+    "66520": 1281,
+    "66518": 1207,
+    "66500": 663,
+    "66522": 499,
+    "66000": 423,
+    "66610": 423,
+    "66606": 377,
+    "66502": 291,
+    "66612": 215,
+    "60020": 180,
+    "66005": 80,
+    "66608": 65,
+    "66001": 32,
+    "60022": 23,
+    "66008": 4
+   }
+  },
+  "kanta:Erityisrakenne": {
+   "status": "ok",
+   "features": 9,
+   "rows": 9,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 9
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62521": 6,
+    "62527": 3
+   }
+  },
+  "kanta:Korkeuspiste": {
+   "status": "ok",
+   "features": 1470,
+   "rows": 1717,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Point": 1717
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "60004": 1223,
+    "60000": 247
+   }
+  },
+  "kanta:Korkeuskayra": {
+   "status": "ok",
+   "features": 2068,
+   "rows": 2068,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "LineString": 2068
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "60504": 1688,
+    "60500": 380
+   }
+  },
+  "kanta:Jyrkanne": {
+   "status": "ok",
+   "features": 47,
+   "rows": 47,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 47
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64604": 47
+   }
+  },
+  "kanta:Kivi": {
+   "status": "ok",
+   "features": 3,
+   "rows": 3,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 2,
+    "Point": 1
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64606": 2,
+    "64064": 1
+   }
+  },
+  "kanta:Vesikohde": {
+   "status": "ok",
+   "features": 62,
+   "rows": 65,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 43,
+    "Polygon": 15,
+    "Point": 7
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64508": 22,
+    "64502": 17,
+    "64000": 15,
+    "64620": 4,
+    "72014": 3,
+    "64086": 1
+   }
+  },
+  "kanta:Raide": {
+   "status": "ok",
+   "features": 7,
+   "rows": 7,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 7
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62532": 7
+   }
+  },
+  "kanta:Lehtipuu": {
+   "status": "ok",
+   "features": 4518,
+   "rows": 4518,
+   "requests": 13,
+   "leaf_pages": 10,
+   "geom_types": {
+    "Point": 4518
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64039": 4248,
+    "64040": 270
+   }
+  },
+  "kanta:Havupuu": {
+   "status": "ok",
+   "features": 313,
+   "rows": 313,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 313
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64035": 289,
+    "64038": 24
+   }
+  },
+  "kanta:Lehtipuurivi": {
+   "status": "ok",
+   "features": 1,
+   "rows": 1,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 1
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64618": 1
+   }
+  },
+  "kanta:Pensas": {
+   "status": "ok",
+   "features": 205,
+   "rows": 205,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 205
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64037": 205
+   }
+  },
+  "kanta:Pensasaita": {
+   "status": "ok",
+   "features": 392,
+   "rows": 392,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 392
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64614": 392
+   }
+  },
+  "kanta:Kasviryhma": {
+   "status": "ok",
+   "features": 428,
+   "rows": 428,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 428
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64041": 428
+   }
+  },
+  "kanta:Viherkaista": {
+   "status": "ok",
+   "features": 0,
+   "rows": 0,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {},
+   "has_z": false
+  },
+  "kanta:Pysakki": {
+   "status": "ok",
+   "features": 110,
+   "rows": 110,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 110
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "66208": 110
+   }
+  },
+  "kanta:Porttaali": {
+   "status": "ok",
+   "features": 72,
+   "rows": 72,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 72
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62502": 72
+   }
+  },
+  "kanta:Polku": {
+   "status": "ok",
+   "features": 27,
+   "rows": 27,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 27
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62528": 27
+   }
+  },
+  "kanta:LuokittelematonViiva": {
+   "status": "unauthorized"
+  },
+  "kanta:Sahkoverkonosa": {
+   "status": "unauthorized"
+  },
+  "GIS:Katualueet": {
+   "status": "ok",
+   "features": 1792,
+   "rows": 1792,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Polygon": 1791,
+    "Point": 1
+   },
+   "has_z": false,
+   "by_Katuosalaji": {
+    "Jalkakäytävä": 496,
+    "Välikaista": 440,
+    "Ajorata": 299,
+    "Yhdistetty kevyen liikenteen väylä": 199,
+    "Tonttiliittymä": 143,
+    "Muu liikennealue": 49,
+    "Portaat": 45,
+    "Muu": 40,
+    "Silta": 25,
+    "Pyöräkaista": 23,
+    "Odotustila": 14,
+    "Pyörätie": 6,
+    "Siltaluiska": 4,
+    "Alikulkukäytävä": 3,
+    "Kävelytie": 3,
+    "Tunneli": 2,
+    "Ei tietoa": 1
+   },
+   "by_Pintamateriaali": {
+    "Betonilaatta": 546,
+    "Asfalttibetoni": 535,
+    "Noppakivi": 275,
+    "Betonikivi": 160,
+    "Nupukivi": 79,
+    "Luonnonkivi": 55,
+    "Kenttäkivi": 37,
+    "Graniitti": 36,
+    "Asfalttibetoni, punainen (AB 16, rautaoksidi FeO2)": 19,
+    "Sora": 18,
+    "Betoni": 11,
+    "Ei tietoa": 8,
+    "Liuskekivi": 7,
+    "Kivi": 5
+   }
+  },
+  "GIS:Keskilinjat": {
+   "status": "ok",
+   "features": 2527,
+   "rows": 2527,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "LineString": 2527
+   },
+   "has_z": false,
+   "by_Katuosalaji": {
+    "Jalkakäytävä": 1122,
+    "Yhdistetty kevyen liikenteen väylä": 581,
+    "Ajorata": 477,
+    "Pyöräkaista": 156,
+    "Silta": 51,
+    "Portaat": 40,
+    "Muu liikennealue": 24,
+    "Tunneli": 18,
+    "Odotustila": 16,
+    "Pyörätie": 16,
+    "Muu": 9,
+    "Kävelytie": 7,
+    "Ei tietoa": 4,
+    "Alikulkukäytävä": 3,
+    "Välikaista": 3
+   },
+   "by_Pintamateriaali": {
+    "Asfalttibetoni": 1104,
+    "Betonilaatta": 953,
+    "Nupukivi": 181,
+    "Asfalttibetoni, punainen (AB 16, rautaoksidi FeO2)": 149,
+    "Graniitti": 47,
+    "Kenttäkivi": 25,
+    "Sora": 19,
+    "Luonnonkivi": 15,
+    "Noppakivi": 11,
+    "Betoni": 8,
+    "Kivi": 7,
+    "Betonikivi": 4
+   }
+  },
+  "GIS:Varusteet": {
+   "status": "ok",
+   "features": 1243,
+   "rows": 1243,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Point": 1243
+   },
+   "has_z": false
+  },
+  "GIS:Puut": {
+   "status": "ok",
+   "features": 2987,
+   "rows": 2987,
+   "requests": 9,
+   "leaf_pages": 7,
+   "geom_types": {
+    "Point": 2987
+   },
+   "has_z": false
+  },
+  "GIS:Liikennemerkit": {
+   "status": "ok",
+   "features": 4154,
+   "rows": 4154,
+   "requests": 13,
+   "leaf_pages": 10,
+   "geom_types": {
+    "Point": 4154
+   },
+   "has_z": false
+  },
+  "GIS:Rakennukset": {
+   "status": "ok",
+   "features": 1185,
+   "rows": 1185,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Polygon": 1175,
+    "Point": 10
+   },
+   "has_z": false
+  },
+  "GIS:Osoitteet": {
+   "status": "ok",
+   "features": 857,
+   "rows": 857,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 857
+   },
+   "has_z": false
+  },
+  "GIS:Nopeusrajoitusalueet": {
+   "status": "ok",
+   "features": 22,
+   "rows": 22,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Polygon": 22
+   },
+   "has_z": false
+  },
+  "GIS:Raitiotielinjaus": {
+   "status": "ok",
+   "features": 1,
+   "rows": 1,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 1
+   },
+   "has_z": false
+  },
+  "GIS:Viheralueet": {
+   "status": "ok",
+   "features": 1304,
+   "rows": 1304,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Polygon": 1304
+   },
+   "has_z": false,
+   "by_Pintamateriaali": {
+    "Nurmikko": 413,
+    "Kasvillisuus": 196,
+    "Graniitti": 126,
+    "Sora / Hiekka": 84,
+    "# Ei tietoa": 81,
+    "Kivituhka": 55,
+    "Noppakivi": 53,
+    "Niitty": 49,
+    "Metsä": 49,
+    "Asfalttibetoni": 43,
+    "Kenttäkivi": 35,
+    "Muu päällyste": 20,
+    "Murske": 19,
+    "Betonilaatta": 18,
+    "Kivi": 13,
+    "Liuskekivi": 10,
+    "Nupukivi": 9,
+    "Kekkilän ruskea rantakivi": 8,
+    "Vesi": 6,
+    "Puu": 6,
+    "Betoni": 5,
+    "Betonikivi": 2,
+    "Sirotepintaus, läpäisevä kivipäällyste Barrikade Steinbelegg #2-5mm, väri Tivoli": 2,
+    "Singeli": 1,
+    "Hake": 1
+   }
+  },
+  "GIS:Polkupyoraparkki": {
+   "status": "ok",
+   "features": 139,
+   "rows": 139,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 139
+   },
+   "has_z": false
+  },
+  "GIS:Pysakointiautomaatit": {
+   "status": "ok",
+   "features": 38,
+   "rows": 38,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 38
+   },
+   "has_z": false
+  },
+  "GIS:Follariasemat": {
+   "status": "ok",
+   "features": 46,
+   "rows": 46,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 46
+   },
+   "has_z": false
+  },
+  "bldg:Building_LOD2": {
+   "status": "ok",
+   "features": 1181,
+   "rows": 41776,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Polygon": 40617,
+    "LineString": 1159
+   },
+   "has_z": true
+  },
+  "bldg:Building_LOD3": {
+   "status": "ok",
+   "features": 1181,
+   "rows": 51345,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Polygon": 50155,
+    "LineString": 1180,
+    "Triangle": 10
+   },
+   "has_z": true
+  },
+  "tran:Road_LOD3": {
+   "status": "ok",
+   "features": 1124,
+   "rows": 71948,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Triangle": 71948
+   },
+   "has_z": true
+  },
+  "veg:PlantCover_LOD2": {
+   "status": "ok",
+   "features": 1073,
+   "rows": 54672,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "Triangle": 54672
+   },
+   "has_z": true
+  }
+ },
+ "wms": {
+  "ortho2022to": {
+   "layer": "Ilmakuva 2022 True ortho",
+   "slug": "ortho2022to",
+   "area": "work-3x3",
+   "px_m": 0.05,
+   "chunk_m": 200.0,
+   "chunks": 64,
+   "chunks_ok": 64,
+   "chunks_empty": 0,
+   "errors": [],
+   "coverage_of_bbox": 1.0,
+   "native_cm_median": 5.29,
+   "bytes": 1709083527,
+   "vrt": "/Users/wnt/turku3d/data/raw/ortho/ortho2022to/work-3x3.vrt",
+   "mosaic_px": [
+    32000,
+    32000
+   ],
+   "mosaic_res_m": [
+    0.05,
+    0.05
+   ],
+   "mosaic_crs": "EPSG:3877"
+  },
+  "ortho2025": {
+   "layer": "Ilmakuva 2025",
+   "slug": "ortho2025",
+   "area": "work-3x3",
+   "px_m": 0.05,
+   "chunk_m": 200.0,
+   "chunks": 64,
+   "chunks_ok": 64,
+   "chunks_empty": 0,
+   "errors": [],
+   "coverage_of_bbox": 1.0,
+   "native_cm_median": 5.15,
+   "bytes": 1689717654,
+   "vrt": "/Users/wnt/turku3d/data/raw/ortho/ortho2025/work-3x3.vrt",
+   "mosaic_px": [
+    32000,
+    32000
+   ],
+   "mosaic_res_m": [
+    0.05,
+    0.05
+   ],
+   "mosaic_crs": "EPSG:3877"
+  },
+  "drone": {
+   "layer": "Turun lennokkikuvaukset",
+   "slug": "drone",
+   "area": "work-3x3",
+   "px_m": 0.0125,
+   "chunk_m": 50.0,
+   "chunks": 900,
+   "chunks_ok": 209,
+   "chunks_empty": 691,
+   "errors": [],
+   "coverage_of_bbox": 0.1754,
+   "native_cm_median": 1.65,
+   "bytes": 389714295,
+   "vrt": "/Users/wnt/turku3d/data/raw/ortho/drone/work-3x3.vrt",
+   "mosaic_px": [
+    88000,
+    120000
+   ],
+   "mosaic_res_m": [
+    0.0125,
+    0.0125
+   ],
+   "mosaic_crs": "EPSG:3877"
+  }
+ },
+ "osm": {
+  "clip": "work-3x3-261024.osm.pbf",
+  "rows": 33312,
+  "by_geom_type": {
+   "LineString": 14656,
+   "Point": 11919,
+   "MultiPolygon": 6737
+  },
+  "objects": {
+   "changesets": 0,
+   "nodes": 73165,
+   "ways": 14953,
+   "relations": 612
+  },
+  "timestamp_last": "2026-10-24T09:12:36Z",
+  "counts": {
+   "building": 3546,
+   "highway": 7878,
+   "barrier=kerb": 449,
+   "highway=steps": 543,
+   "highway=crossing": 659,
+   "highway=street_lamp": 509,
+   "natural=tree": 4689,
+   "amenity/shop": 5341
+  },
+  "parquet_bytes": 6189413
+ },
+ "dirs": {
+  "laz": {
+   "files": 20,
+   "bytes": 1246408080,
+   "human": "1.2 GB"
+  },
+  "wfs": {
+   "files": 424,
+   "bytes": 1060228370,
+   "human": "1011.1 MB"
+  },
+  "ortho": {
+   "files": 396,
+   "bytes": 4055404394,
+   "human": "3.8 GB"
+  },
+  "osm": {
+   "files": 9,
+   "bytes": 782241441,
+   "human": "746.0 MB"
+  }
+ },
+ "checksums": {
+  "laz": {
+   "registered": 18
+  },
+  "wfs": {
+   "registered": 340
+  },
+  "ortho": {
+   "registered": 377
+  },
+  "osm": {
+   "registered": 5
+  }
+ },
+ "maanpinta": [
+  {
+   "file": "23459000_6705000.laz",
+   "points": 59042,
+   "bytes": 700762
+  },
+  {
+   "file": "23459500_6705000.laz",
+   "points": 39631,
+   "bytes": 477990
+  },
+  {
+   "file": "23460000_6705000.laz",
+   "points": 55835,
+   "bytes": 675699
+  },
+  {
+   "file": "23459000_6704500.laz",
+   "points": 38938,
+   "bytes": 476534
+  },
+  {
+   "file": "23459500_6704500.laz",
+   "points": 67265,
+   "bytes": 788768
+  },
+  {
+   "file": "23460000_6704500.laz",
+   "points": 86494,
+   "bytes": 1003240
+  },
+  {
+   "file": "23459000_6704000.laz",
+   "points": 98509,
+   "bytes": 1104248
+  },
+  {
+   "file": "23459500_6704000.laz",
+   "points": 82248,
+   "bytes": 951766
+  },
+  {
+   "file": "23460000_6704000.laz",
+   "points": 59619,
+   "bytes": 714696
+  }
+ ]
+}

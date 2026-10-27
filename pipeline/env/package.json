@@ -1,0 +1,10 @@
+{
+  "name": "turku3d-tools",
+  "private": true,
+  "dependencies": {
+    "@gltf-transform/cli": "4.5.1",
+    "gltfpack": "1.3.0",
+    "meshoptimizer": "1.3.0",
+    "sharp": "0.35.5"
+  }
+}

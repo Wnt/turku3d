@@ -1,0 +1,173 @@
+{
+  "version": "hard-planted-v2",
+  "cases": [
+    {
+      "id": 0,
+      "truth": [
+        {
+          "bbox": [
+            0.23,
+            0.28,
+            0.51,
+            0.72
+          ],
+          "category": "material",
+          "what": "subtle facade colour shift"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/00_reference.png",
+      "source_sha256": "456109af3d304b58825c0d66e1af20ad6d70ad90f01000f1fb29e7b97594a46f",
+      "input_sha256": [
+        "456109af3d304b58825c0d66e1af20ad6d70ad90f01000f1fb29e7b97594a46f",
+        "17fa09a3fde261b4066209ffce1e5aea998b6cdff6a4bbb60bf79f4af2905382"
+      ]
+    },
+    {
+      "id": 1,
+      "truth": [
+        {
+          "bbox": [
+            0.78,
+            0.03,
+            0.99,
+            0.74
+          ],
+          "category": "material",
+          "what": "subtle facade colour shift"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/06_reference.png",
+      "source_sha256": "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+      "input_sha256": [
+        "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+        "8da8f8d20c2b4b4eae224f5f5fd2df4fc53def11de8cde9ab546a3ea6e0bf731"
+      ]
+    },
+    {
+      "id": 2,
+      "truth": [
+        {
+          "bbox": [
+            0.57,
+            0,
+            0.99,
+            0.34
+          ],
+          "category": "material",
+          "what": "wrong roof colour"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/02_reference.png",
+      "source_sha256": "a0409f8ac570ff9702357c1778a0869ce53b7939359c65b5a875e1641f2e2fc6",
+      "input_sha256": [
+        "a0409f8ac570ff9702357c1778a0869ce53b7939359c65b5a875e1641f2e2fc6",
+        "8972f1108ea965492f704c1969eecc6441a55f4e7579efe9046429ef1090ee7e"
+      ]
+    },
+    {
+      "id": 3,
+      "truth": [
+        {
+          "bbox": [
+            0.62,
+            0.34,
+            0.84,
+            0.49
+          ],
+          "category": "material",
+          "what": "wrong roof colour"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/04_reference.png",
+      "source_sha256": "a516bc2915e952b2dfdb86bfb0278cdbd5216c1377b75a11a14ff411d5003e5e",
+      "input_sha256": [
+        "a516bc2915e952b2dfdb86bfb0278cdbd5216c1377b75a11a14ff411d5003e5e",
+        "56dafa7e355e47a097d230c7521adf6b24b3d1ed5db4b66f0c4792ab6deefdff"
+      ]
+    },
+    {
+      "id": 4,
+      "truth": [
+        {
+          "bbox": [
+            0.82,
+            0.35,
+            0.94,
+            0.43
+          ],
+          "category": "missing_object",
+          "what": "missing planted balcony"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/06_reference.png",
+      "source_sha256": "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+      "input_sha256": [
+        "9ea43bfc3c78b4de124310c28066fa776269fd1a3b87bfbd962c23d6cf2e4315",
+        "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c"
+      ]
+    },
+    {
+      "id": 5,
+      "truth": [
+        {
+          "bbox": [
+            0.72,
+            0.35,
+            0.82,
+            0.43
+          ],
+          "category": "missing_object",
+          "what": "missing planted balcony"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/06_reference.png",
+      "source_sha256": "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+      "input_sha256": [
+        "9d150d1f7420949ac835038aee267fd6ea98251141df6bb3a2be5ce8a541e478",
+        "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c"
+      ]
+    },
+    {
+      "id": 6,
+      "truth": [
+        {
+          "bbox": [
+            0.72,
+            0.14,
+            0.99,
+            0.38
+          ],
+          "category": "geometry",
+          "what": "extra storey cloned above existing facade"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/06_reference.png",
+      "source_sha256": "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+      "input_sha256": [
+        "5a927907c77205b12eefcd7b339b41f00b84dc20f266f810781abb6ff24b018c",
+        "621d27ee2221313d1e127be6c8ec4c104f95dbb17bed2781ab9056e28330a220"
+      ]
+    },
+    {
+      "id": 7,
+      "truth": [
+        {
+          "bbox": [
+            0.67,
+            0.1,
+            0.99,
+            0.32
+          ],
+          "category": "geometry",
+          "what": "extra storey cloned above existing facade"
+        }
+      ],
+      "source": "/Users/wnt/turku3d/wt/w2-01-costbench/work/reports/costbench/qa-inputs/02_reference.png",
+      "source_sha256": "a0409f8ac570ff9702357c1778a0869ce53b7939359c65b5a875e1641f2e2fc6",
+      "input_sha256": [
+        "a0409f8ac570ff9702357c1778a0869ce53b7939359c65b5a875e1641f2e2fc6",
+        "7733b462e486d0d29e9a4c5435fb659dd8c7a50616e17d43df9c4977ee80f90c"
+      ]
+    }
+  ]
+}

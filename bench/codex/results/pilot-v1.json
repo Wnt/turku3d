@@ -1,0 +1,121 @@
+{
+  "budget": {
+    "start": 75,
+    "reset": 1793550798,
+    "cap": 80,
+    "budget": 3,
+    "manifest": "003396195e5ab8040540a41fc0b8eacb37989211de28748614065d88e6b11054",
+    "last": 77
+  },
+  "stop": "budget stop: 77%, baseline 75%, reserve 1 point",
+  "results": [
+    {
+      "model": "gpt-6.1-sol",
+      "effort": "low",
+      "ok": true,
+      "views": 8,
+      "strict_recall": 0.0,
+      "strict_false_positives": 4,
+      "localization_recall": 1.0,
+      "localization_false_positives": 0,
+      "tokens": {
+        "input_tokens": 27484,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 681,
+        "reasoning_output_tokens": 59
+      },
+      "seconds": 51.8
+    },
+    {
+      "model": "gpt-6-astra",
+      "effort": "low",
+      "ok": true,
+      "views": 8,
+      "strict_recall": 0.0,
+      "strict_false_positives": 4,
+      "localization_recall": 1.0,
+      "localization_false_positives": 0,
+      "tokens": {
+        "input_tokens": 27384,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 652,
+        "reasoning_output_tokens": 0
+      },
+      "seconds": 35.0
+    },
+    {
+      "model": "gpt-6-sol",
+      "effort": "low",
+      "ok": true,
+      "views": 8,
+      "strict_recall": 1.0,
+      "strict_false_positives": 0,
+      "localization_recall": 1.0,
+      "localization_false_positives": 0,
+      "tokens": {
+        "input_tokens": 26935,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 575,
+        "reasoning_output_tokens": 0
+      },
+      "seconds": 17.9
+    },
+    {
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "ok": true,
+      "views": 8,
+      "strict_recall": 0.0,
+      "strict_false_positives": 4,
+      "localization_recall": 1.0,
+      "localization_false_positives": 0,
+      "tokens": {
+        "input_tokens": 26738,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 608,
+        "reasoning_output_tokens": 0
+      },
+      "seconds": 20.9
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "ok": true,
+      "views": 8,
+      "strict_recall": 1.0,
+      "strict_false_positives": 0,
+      "localization_recall": 1.0,
+      "localization_false_positives": 0,
+      "tokens": {
+        "input_tokens": 26602,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 904,
+        "reasoning_output_tokens": 159
+      },
+      "seconds": 26.0
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "ok": true,
+      "views": 8,
+      "strict_recall": 1.0,
+      "strict_false_positives": 0,
+      "localization_recall": 1.0,
+      "localization_false_positives": 0,
+      "tokens": {
+        "input_tokens": 26602,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 822,
+        "reasoning_output_tokens": 197
+      },
+      "seconds": 25.0
+    }
+  ]
+}

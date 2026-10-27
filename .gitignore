@@ -1,0 +1,49 @@
+# Dependencies / envs
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+
+# Bulk data and build output (bulk data lives on osgallery-dev:~/turku3d/data)
+/data/
+dist/
+*.laz
+*.las
+*.copc.laz
+*.ply
+*.tif
+*.tiff
+
+# Generated images / renders / texture outputs (assets live in data/, manifests are committed)
+textures/out/
+textures/library/images/
+textures/run/out/
+*.ktx2
+*.exr
+qa/renders/
+game/test-results/
+game/playwright-report/
+screenshots/
+
+# Secrets / tokens (e.g. ~/.config/turku3d/mapillary.token is outside the repo; never copy it here)
+*.token
+*client_secret*
+.env
+.env.*
+*.key
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local quality gate caches (never shared between worktrees)
+.cache/
+*.tsbuildinfo
+.eslintcache

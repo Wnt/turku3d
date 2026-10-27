@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><title>probe</title>
+<style>html,body{margin:0;height:100%;background:#9cb4cc}#info{position:fixed;top:4px;left:6px;font:13px monospace;background:#fffc;padding:4px}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body><div id="info">loading…</div><script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const q=new URLSearchParams(location.search); const file=q.get('m')||'lod22.glb';
+const r=new THREE.WebGLRenderer({antialias:true}); r.setSize(innerWidth,innerHeight); document.body.appendChild(r.domElement);
+const s=new THREE.Scene(); s.background=new THREE.Color(0x9cb4cc);
+s.add(new THREE.HemisphereLight(0xffffff,0x445566,1.2)); const d=new THREE.DirectionalLight(0xffffff,2); d.position.set(300,500,200); s.add(d);
+const cam=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,0.5,20000);
+const oc=new OrbitControls(cam,r.domElement);
+const t0=performance.now();
+new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(file,g=>{
+  const o=g.scene; s.add(o);
+  o.traverse(m=>{ if(m.isMesh && !m.material.map && file.includes('lod22')) m.material=new THREE.MeshStandardMaterial({color:0xd8cfc4,flatShading:true,side:THREE.DoubleSide}); });
+  const b=new THREE.Box3().setFromObject(o); const c=b.getCenter(new THREE.Vector3());
+  const R=+q.get('r')||350; cam.position.set(c.x+R*0.7,c.y+R*0.55,c.z+R*0.7); oc.target.copy(c); if(q.get('tx')){oc.target.set(+q.get('tx'),+q.get('ty'),+q.get('tz'));cam.position.set(+q.get('cx'),+q.get('cy'),+q.get('cz'));} oc.update();
+  let tris=0; o.traverse(m=>{if(m.isMesh) tris+=(m.geometry.index?m.geometry.index.count:m.geometry.attributes.position.count)/3;});
+  window.__stats={file,ms:Math.round(performance.now()-t0),tris,bbox:[b.min.toArray().map(Math.round),b.max.toArray().map(Math.round)]};
+  document.getElementById('info').textContent=JSON.stringify(window.__stats);
+},undefined,e=>{document.getElementById('info').textContent='ERR '+e;});
+(function loop(){requestAnimationFrame(loop); r.render(s,cam);})();
+</script></body></html>

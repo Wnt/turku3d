@@ -1,0 +1,187 @@
+{
+ "base": "http://127.0.0.1:5501/",
+ "backend": "webgpu",
+ "browser": "156.0.8078.48",
+ "views": [
+  {
+   "view_id": "sv_01",
+   "width": 960,
+   "height": 720,
+   "pose": {
+    "E": 23459675.963,
+    "N": 6704242.703,
+    "H": 5.622,
+    "yaw": 324.819,
+    "pitch": 10,
+    "roll": 0,
+    "fov": 65
+   },
+   "time": null,
+   "passes": {
+    "color": {
+     "ready": true,
+     "error": null,
+     "pose": {
+      "E": 23459675.963,
+      "N": 6704242.703,
+      "H": 5.622,
+      "yaw": 324.819,
+      "pitch": 10,
+      "roll": 0,
+      "fov": 65
+     },
+     "info": {
+      "renderer": "three.js r186 WebGPURenderer",
+      "backend": "WebGPU",
+      "pass": "color",
+      "time": null,
+      "three": "186",
+      "tiles": [
+       "t2_0_0",
+       "t1_0_1",
+       "t1_1_1",
+       "t1_1_0",
+       "t1_0_0",
+       "t0_0_0",
+       "t0_0_1",
+       "t0_1_0",
+       "t0_1_1"
+      ],
+      "tileset": "/tiles/tileset.json",
+      "quality": "medium",
+      "effectiveTime": "2026-10-15T11:00:00.000Z",
+      "sseUnits": "drawing-buffer-pixels"
+     },
+     "inner": [
+      960,
+      720
+     ],
+     "url": "http://127.0.0.1:5501/?cam=23459675.963%2C6704242.703%2C5.622%2C324.819%2C10%2C65&qa=1&backend=webgpu&tiles=%2Ftiles%2Ftileset.json",
+     "file": "/Users/wnt/turku3d/wt/w1-09b-facades/work/reports/facades-before-batched/sv_01.png",
+     "ms": 4242,
+     "console": []
+    }
+   }
+  },
+  {
+   "view_id": "sv_02",
+   "width": 960,
+   "height": 720,
+   "pose": {
+    "E": 23459666.333,
+    "N": 6704237.927,
+    "H": 5.653,
+    "yaw": 5.922,
+    "pitch": 10,
+    "roll": 0,
+    "fov": 65
+   },
+   "time": null,
+   "passes": {
+    "color": {
+     "ready": true,
+     "error": null,
+     "pose": {
+      "E": 23459666.333,
+      "N": 6704237.927,
+      "H": 5.653,
+      "yaw": 5.922,
+      "pitch": 10,
+      "roll": 0,
+      "fov": 65
+     },
+     "info": {
+      "renderer": "three.js r186 WebGPURenderer",
+      "backend": "WebGPU",
+      "pass": "color",
+      "time": null,
+      "three": "186",
+      "tiles": [
+       "t1_1_1",
+       "t2_0_0",
+       "t1_0_1",
+       "t1_1_0",
+       "t0_0_0",
+       "t1_0_0",
+       "t0_0_1",
+       "t0_1_0",
+       "t0_1_1"
+      ],
+      "tileset": "/tiles/tileset.json",
+      "quality": "medium",
+      "effectiveTime": "2026-10-15T11:00:00.000Z",
+      "sseUnits": "drawing-buffer-pixels"
+     },
+     "inner": [
+      960,
+      720
+     ],
+     "url": "http://127.0.0.1:5501/?cam=23459666.333%2C6704237.927%2C5.653%2C5.922%2C10%2C65&qa=1&backend=webgpu&tiles=%2Ftiles%2Ftileset.json",
+     "file": "/Users/wnt/turku3d/wt/w1-09b-facades/work/reports/facades-before-batched/sv_02.png",
+     "ms": 2631,
+     "console": []
+    }
+   }
+  },
+  {
+   "view_id": "sv_03",
+   "width": 960,
+   "height": 720,
+   "pose": {
+    "E": 23459656.869,
+    "N": 6704233.057,
+    "H": 5.576,
+    "yaw": 27.991,
+    "pitch": 10,
+    "roll": 0,
+    "fov": 65
+   },
+   "time": null,
+   "passes": {
+    "color": {
+     "ready": true,
+     "error": null,
+     "pose": {
+      "E": 23459656.869,
+      "N": 6704233.057,
+      "H": 5.576,
+      "yaw": 27.991,
+      "pitch": 10,
+      "roll": 0,
+      "fov": 65
+     },
+     "info": {
+      "renderer": "three.js r186 WebGPURenderer",
+      "backend": "WebGPU",
+      "pass": "color",
+      "time": null,
+      "three": "186",
+      "tiles": [
+       "t2_0_0",
+       "t1_0_0",
+       "t1_0_1",
+       "t1_1_1",
+       "t1_1_0",
+       "t0_0_1",
+       "t0_0_0",
+       "t0_1_0",
+       "t0_1_1"
+      ],
+      "tileset": "/tiles/tileset.json",
+      "quality": "medium",
+      "effectiveTime": "2026-10-15T11:00:00.000Z",
+      "sseUnits": "drawing-buffer-pixels"
+     },
+     "inner": [
+      960,
+      720
+     ],
+     "url": "http://127.0.0.1:5501/?cam=23459656.869%2C6704233.057%2C5.576%2C27.991%2C10%2C65&qa=1&backend=webgpu&tiles=%2Ftiles%2Ftileset.json",
+     "file": "/Users/wnt/turku3d/wt/w1-09b-facades/work/reports/facades-before-batched/sv_03.png",
+     "ms": 2942,
+     "console": []
+    }
+   }
+  }
+ ]
+}

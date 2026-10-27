@@ -1,0 +1,311 @@
+{
+ "generated_from": "docs/specs/materials.md",
+ "material_table_version": 1,
+ "flag_bits": {
+  "CURB": 1,
+  "STAIR": 2,
+  "NOWALK": 4,
+  "FIX_EDGES": 8
+ },
+ "groups": {
+  "STATIC_SOLID": 1,
+  "STATIC_QUERY": 2,
+  "STATIC_SENSOR": 4,
+  "CHARACTER": 16,
+  "VEHICLE": 32,
+  "DYNAMIC": 64
+ },
+ "materials": [
+  {
+   "id": 0,
+   "name": "unknown",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "concrete",
+   "flags": []
+  },
+  {
+   "id": 1,
+   "name": "road",
+   "cls": "solid",
+   "friction": 0.9,
+   "audio": "asphalt",
+   "flags": []
+  },
+  {
+   "id": 2,
+   "name": "sidewalk",
+   "cls": "solid",
+   "friction": 0.85,
+   "audio": "concrete",
+   "flags": []
+  },
+  {
+   "id": 3,
+   "name": "curb",
+   "cls": "solid",
+   "friction": 0.85,
+   "audio": "stone",
+   "flags": [
+    "CURB",
+    "FIX_EDGES"
+   ]
+  },
+  {
+   "id": 4,
+   "name": "curb_dropped",
+   "cls": "solid",
+   "friction": 0.85,
+   "audio": "stone",
+   "flags": [
+    "FIX_EDGES"
+   ]
+  },
+  {
+   "id": 5,
+   "name": "crossing",
+   "cls": "solid",
+   "friction": 0.9,
+   "audio": "asphalt",
+   "flags": []
+  },
+  {
+   "id": 6,
+   "name": "cycleway",
+   "cls": "solid",
+   "friction": 0.9,
+   "audio": "asphalt",
+   "flags": []
+  },
+  {
+   "id": 7,
+   "name": "cobblestone",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "stone",
+   "flags": []
+  },
+  {
+   "id": 8,
+   "name": "paving_slab",
+   "cls": "solid",
+   "friction": 0.85,
+   "audio": "stone",
+   "flags": []
+  },
+  {
+   "id": 9,
+   "name": "gravel",
+   "cls": "solid",
+   "friction": 0.7,
+   "audio": "gravel",
+   "flags": []
+  },
+  {
+   "id": 10,
+   "name": "grass",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "grass",
+   "flags": []
+  },
+  {
+   "id": 11,
+   "name": "soil",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "soil",
+   "flags": []
+  },
+  {
+   "id": 12,
+   "name": "sand",
+   "cls": "solid",
+   "friction": 0.5,
+   "audio": "sand",
+   "flags": []
+  },
+  {
+   "id": 13,
+   "name": "rock",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "stone",
+   "flags": []
+  },
+  {
+   "id": 14,
+   "name": "water",
+   "cls": "sensor",
+   "friction": 0.0,
+   "audio": "water",
+   "flags": []
+  },
+  {
+   "id": 15,
+   "name": "quay",
+   "cls": "solid",
+   "friction": 0.85,
+   "audio": "stone",
+   "flags": [
+    "FIX_EDGES"
+   ]
+  },
+  {
+   "id": 16,
+   "name": "stair_slope",
+   "cls": "solid",
+   "friction": 0.9,
+   "audio": "stone",
+   "flags": [
+    "STAIR"
+   ]
+  },
+  {
+   "id": 17,
+   "name": "stair_tread_helper",
+   "cls": "query",
+   "friction": 0.0,
+   "audio": "stone",
+   "flags": [
+    "STAIR"
+   ]
+  },
+  {
+   "id": 18,
+   "name": "ramp",
+   "cls": "solid",
+   "friction": 0.9,
+   "audio": "concrete",
+   "flags": []
+  },
+  {
+   "id": 19,
+   "name": "wall",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "concrete",
+   "flags": [
+    "NOWALK"
+   ]
+  },
+  {
+   "id": 20,
+   "name": "fence",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "metal",
+   "flags": [
+    "NOWALK"
+   ]
+  },
+  {
+   "id": 21,
+   "name": "railing",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "metal",
+   "flags": [
+    "NOWALK"
+   ]
+  },
+  {
+   "id": 22,
+   "name": "building",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "concrete",
+   "flags": [
+    "NOWALK"
+   ]
+  },
+  {
+   "id": 23,
+   "name": "roof",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "roof",
+   "flags": []
+  },
+  {
+   "id": 24,
+   "name": "bridge_deck",
+   "cls": "solid",
+   "friction": 0.9,
+   "audio": "asphalt",
+   "flags": []
+  },
+  {
+   "id": 25,
+   "name": "pole",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "metal",
+   "flags": [
+    "NOWALK"
+   ]
+  },
+  {
+   "id": 26,
+   "name": "tree_trunk",
+   "cls": "solid",
+   "friction": 0.7,
+   "audio": "wood",
+   "flags": [
+    "NOWALK"
+   ]
+  },
+  {
+   "id": 27,
+   "name": "bollard",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "metal",
+   "flags": [
+    "NOWALK"
+   ]
+  },
+  {
+   "id": 28,
+   "name": "street_furniture",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "metal",
+   "flags": []
+  },
+  {
+   "id": 29,
+   "name": "vegetation_low",
+   "cls": "solid",
+   "friction": 0.6,
+   "audio": "grass",
+   "flags": []
+  },
+  {
+   "id": 30,
+   "name": "metal_grate",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "metal",
+   "flags": []
+  },
+  {
+   "id": 31,
+   "name": "wood_deck",
+   "cls": "solid",
+   "friction": 0.8,
+   "audio": "wood",
+   "flags": []
+  },
+  {
+   "id": 32,
+   "name": "invisible_boundary",
+   "cls": "solid",
+   "friction": 0.0,
+   "audio": "none",
+   "flags": [
+    "NOWALK"
+   ]
+  }
+ ]
+}

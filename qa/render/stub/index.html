@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QA Contract Stub</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+// Reference implementation of the QA render contract (qa/README.md, "Render URL contract").
+// Not a game: it draws a few boxes around the office block with the exact camera convention,
+// so the Playwright driver, the ID pass and the pose math can be tested before the game exists.
+const E0 = 23459500, N0 = 6704500;            // origin O (pipeline/turku3d/config.py)
+const q = new URLSearchParams(location.search);
+const fail = (msg) => { window.__qaError = msg; console.error('QA error: ' + msg); };
+
+function parseCam(s) {
+  const v = (s || '').split(',').map(Number);
+  if (v.length !== 6 || v.some((x) => !Number.isFinite(x))) return null;
+  const [E, N, H, yaw, pitch, fov] = v;
+  return { E, N, H, yaw, pitch, fov, roll: Number(q.get('roll') || 0) };
+}
+const pose = parseCam(q.get('cam'));
+const pass = q.get('pass') || 'color';
+const time = q.get('time');
+if (!pose) fail('bad or missing ?cam=E,N,H,yaw,pitch,fov');
+if (time && Number.isNaN(Date.parse(time))) fail('bad ?time (ISO 8601 with offset)');
+
+// Camera basis in ENU, identical to qa/qalib/camera.py basis().
+const rad = (d) => d * Math.PI / 180;
+function basis(p) {
+  const y = rad(p.yaw), t = rad(p.pitch), r = rad(p.roll);
+  const f = [Math.sin(y) * Math.cos(t), Math.cos(y) * Math.cos(t), Math.sin(t)];
+  const rt = [Math.cos(y), -Math.sin(y), 0];
+  const up = [rt[1] * f[2] - rt[2] * f[1], rt[2] * f[0] - rt[0] * f[2], rt[0] * f[1] - rt[1] * f[0]];
+  const rt2 = rt.map((v, i) => v * Math.cos(r) - up[i] * Math.sin(r));
+  const up2 = up.map((v, i) => v * Math.cos(r) + rt[i] * Math.sin(r));
+  return { f, rt: rt2, up: up2 };
+}
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+// Scene: boxes in EPSG:3877 / N2000. [id, kind, name, tile, material, e0, n0, e1, n1, h0, h1, rgb]
+const SCENE = [
+  [1, 'building', 'office_LR15', 't0_0_0', 'wall', 23459650, 6704250, 23459690, 6704265, 3.5, 13, [176, 140, 96]],
+  [2, 'building', 'neighbour_LR13', 't0_0_0', 'wall', 23459618, 6704236, 23459648, 6704252, 3.5, 11, [190, 196, 205]],
+  [3, 'building', 'neighbour_LR17', 't0_0_0', 'wall', 23459692, 6704264, 23459730, 6704282, 3.5, 12, [170, 60, 50]],
+  [4, 'prop', 'lamp_post_1', 't0_0_0', 'pole', 23459674, 6704244, 23459674.3, 6704244.3, 3.5, 8, [40, 50, 45]],
+];
+const GROUND = [100, 'ground', 'ground_t0_0_0', 't0_0_0', 'sidewalk', 23459400, 6704100, 23459900, 6704400, 3.5, 3.5, [120, 118, 112]];
+
+window.__qaPose = pose;
+window.__qaInfo = { renderer: 'qa-stub-canvas2d', backend: 'canvas2d', pass, time };
+window.__qaIdTable = Object.fromEntries([...SCENE, GROUND].map((o) => [String(o[0]), { kind: o[1], id: o[2], tile: o[3], material: o[4] }]));
+
+const cv = document.getElementById('c');
+const W = innerWidth, H = innerHeight;
+cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+
+window.__qaProject = (E, N, Hh) => {
+  const b = basis(pose);
+  const d = [E - pose.E, N - pose.N, Hh - pose.H];
+  const zc = dot(d, b.f);
+  if (zc <= 1e-6) return null;
+  const ty = Math.tan(rad(pose.fov) / 2), tx = ty * W / H;
+  return [(dot(d, b.rt) / zc / tx + 1) / 2 * W, (1 - dot(d, b.up) / zc / ty) / 2 * H];
+};
+
+function faces(o) {
+  const [, , , , , e0, n0, e1, n1, h0, h1] = o;
+  const c = (e, n, h) => [e, n, h];
+  const P = [c(e0, n0, h0), c(e1, n0, h0), c(e1, n1, h0), c(e0, n1, h0), c(e0, n0, h1), c(e1, n0, h1), c(e1, n1, h1), c(e0, n1, h1)];
+  if (h0 === h1) return [{ pts: [P[0], P[1], P[2], P[3]], shade: 1 }];
+  return [
+    { pts: [P[0], P[1], P[5], P[4]], shade: 0.8 }, { pts: [P[1], P[2], P[6], P[5]], shade: 0.95 },
+    { pts: [P[2], P[3], P[7], P[6]], shade: 0.7 }, { pts: [P[3], P[0], P[4], P[7]], shade: 0.85 },
+    { pts: [P[4], P[5], P[6], P[7]], shade: 1.05 },
+  ];
+}
+
+// Camera-space clip against the near plane, then project.
+function drawPoly(pts, fill) {
+  const b = basis(pose);
+  const ty = Math.tan(rad(pose.fov) / 2), tx = ty * W / H, near = 0.05;
+  const cam = pts.map((p) => { const d = [p[0] - pose.E, p[1] - pose.N, p[2] - pose.H]; return [dot(d, b.rt), dot(d, b.up), dot(d, b.f)]; });
+  const out = [];
+  for (let i = 0; i < cam.length; i++) {
+    const a = cam[i], c = cam[(i + 1) % cam.length];
+    if (a[2] >= near) out.push(a);
+    if ((a[2] >= near) !== (c[2] >= near)) { const t = (near - a[2]) / (c[2] - a[2]); out.push(a.map((v, k) => v + (c[k] - v) * t)); }
+  }
+  if (out.length < 3) return Infinity;
+  ctx.beginPath();
+  out.forEach(([x, y, z], i) => { const px = (x / z / tx + 1) / 2 * W, py = (1 - y / z / ty) / 2 * H; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  return out.reduce((s, p) => s + p[2], 0) / out.length;
+}
+
+function idColour(id) { return `rgb(${(id >> 16) & 255},${(id >> 8) & 255},${id & 255})`; }
+
+function render() {
+  const sunUp = time ? (() => { const h = new Date(time).getUTCHours() + 3; return h > 5 && h < 22; })() : true;
+  if (pass === 'id') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }
+  else {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, sunUp ? '#7fb2e5' : '#0b1330'); g.addColorStop(1, sunUp ? '#dfe9f3' : '#24304f');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  const polys = [];
+  for (const o of [GROUND, ...SCENE]) for (const f of faces(o)) {
+    const b = basis(pose); const ctr = f.pts.reduce((s, p) => s.map((v, i) => v + p[i] / f.pts.length), [0, 0, 0]);
+    const depth = o === GROUND ? Infinity : dot([ctr[0] - pose.E, ctr[1] - pose.N, ctr[2] - pose.H], b.f);
+    polys.push({ o, f, depth });
+  }
+  polys.sort((a, b) => b.depth - a.depth);       // painter's algorithm, ground first
+  for (const { o, f } of polys) {
+    const fill = pass === 'id' ? idColour(o[0]) : `rgb(${o[11].map((v) => Math.min(255, v * f.shade * (sunUp ? 1 : 0.35)) | 0).join(',')})`;
+    drawPoly(f.pts, fill);
+  }
+  if (pass === 'id') {
+    // Canvas 2D antialiases edges; snap every pixel to the nearest valid id colour so the pass is exact.
+    const img = ctx.getImageData(0, 0, W, H), d = img.data;
+    const ids = [0, ...Object.keys(window.__qaIdTable).map(Number)].map((id) => [(id >> 16) & 255, (id >> 8) & 255, id & 255]);
+    for (let i = 0; i < d.length; i += 4) {
+      let best = 0, bd = 1e9;
+      for (let k = 0; k < ids.length; k++) { const c = ids[k]; const e = (d[i] - c[0]) ** 2 + (d[i + 1] - c[1]) ** 2 + (d[i + 2] - c[2]) ** 2; if (e < bd) { bd = e; best = k; } }
+      d[i] = ids[best][0]; d[i + 1] = ids[best][1]; d[i + 2] = ids[best][2]; d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+}
+
+if (!window.__qaError) {
+  // A real game waits here until every tile intersecting the frustum is loaded and N frames rendered.
+  requestAnimationFrame(() => { render(); requestAnimationFrame(() => { window.__qaReady = true; }); });
+}
+</script>
+</body>
+</html>

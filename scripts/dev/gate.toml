@@ -1,0 +1,298 @@
+# The only path -> stage routing table. Globs use fnmatch: * includes slashes.
+# A trigger selects a stage; sources bounds the files linted by that stage.
+[gate]
+# Gate machinery changes rerun every stage; the host tools are covered by their own test stages.
+full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py", "scripts/dev/gate_cache.py"]
+prose = ["*.md"]
+python = ".venv/bin/python"
+tool_dirs = ["~/turku3d/envs/pipeline/bin", "~/turku3d/tools/bin"]
+
+[budgets]
+lines = { py = 800, ts = 600, js = 600, mjs = 600, sh = 400, md = 800, toml = 600 }
+binary_kib = 512
+binary_allowed = ["game/public/assets/*", "game/public/basis/*"]
+
+[budgets.exceptions]
+"game/public/basis/basis_transcoder.js" = "Vendored Three/Basis runtime distributed with the game; replaced as a unit."
+
+[flags]
+registry = "docs/flags.toml"
+main = "main"
+sources = ["game/src/*.ts", "pipeline/turku3d/*.py", "qa/*.py", "qa/render/*.mjs", "textures/turkutex/*.py", "textures/node/*.mjs"]
+readers = ["game/src/core/flags.ts", "pipeline/turku3d/flags.py"]
+
+[[stages]]
+name = "policy"
+kind = "policy"
+always = true
+
+[[stages]]
+name = "generated"
+inputs = ["pipeline/turku3d/col/*", "docs/specs/materials.md", "game/src/shared/col/materials.ts"]
+kind = "command"
+always = true
+commands = [["{python}", "-m", "turku3d.col.materials"]]
+
+[[stages]]
+name = "python-lint"
+kind = "python-lint"
+configs = ["ruff.toml", "*/pyproject.toml", "scripts/dev/gate.toml"]
+triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
+sources = ["tools/validator/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
+
+[[stages]]
+name = "pipeline-tests"
+kind = "pytest"
+triggers = ["pipeline/*.py", "pipeline/turku3d/package/*.mjs", "pipeline/turku3d/placement/manoeuvre.json", "pipeline/pyproject.toml", "docs/specs/*", "game/src/shared/col/*", "tools/validator/src/*"]
+cwd = "pipeline"
+tests = ["tests", "turku3d/col/tests"]
+# Unmapped modules conservatively select the whole package.
+[[stages.related]]
+paths = ["pipeline/turku3d/fetch/*", "pipeline/tests/test_fetch.py"]
+tests = ["tests/test_fetch.py"]
+[[stages.related]]
+paths = ["pipeline/turku3d/fetch/common.py", "pipeline/turku3d/ground/*"]
+tests = ["tests/test_package.py"]
+[[stages.related]]
+paths = ["pipeline/turku3d/ground/*", "pipeline/tests/test_ground.py"]
+tests = ["tests/test_ground.py"]
+[[stages.related]]
+paths = ["pipeline/turku3d/buildings/*", "pipeline/tests/test_buildings*.py"]
+tests = ["tests/test_buildings.py", "tests/test_buildings_fallback.py"]
+[[stages.related]]
+paths = ["pipeline/turku3d/package/*", "pipeline/turku3d/layers.py", "pipeline/tests/fixtures/*", "pipeline/tests/test_package.py", "pipeline/tests/test_layers.py", "pipeline/tests/test_assemble.py", "pipeline/tests/test_assemble_outer.py"]
+tests = ["tests/test_package.py", "tests/test_layers.py", "tests/test_assemble.py", "tests/test_assemble_outer.py", "tests/test_roads.py"]
+[[stages.related]]
+paths = ["pipeline/turku3d/col/*"]
+tests = ["turku3d/col/tests", "tests/test_package.py", "tests/test_specs.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/lidar/*", "pipeline/tests/test_lidar.py"]
+tests = ["tests/test_lidar.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/region/*", "pipeline/tests/test_region.py"]
+tests = ["tests/test_region.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/parked/*", "pipeline/tests/test_parked.py"]
+tests = ["tests/test_parked.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/placement/*", "pipeline/tests/test_placement.py"]
+tests = ["tests/test_placement.py", "tests/test_parked.py", "tests/test_props.py", "tests/test_vegetation.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/collision_audit.py", "pipeline/tests/test_collision_audit.py"]
+tests = ["tests/test_collision_audit.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/props/*", "pipeline/tests/test_props.py"]
+tests = ["tests/test_props.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/structures/*", "pipeline/tests/test_structures.py"]
+tests = ["tests/test_structures.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/bridges/*", "pipeline/tests/test_bridges.py"]
+tests = ["tests/test_bridges.py", "tests/test_assemble.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/roads/*", "pipeline/tests/test_roads.py"]
+tests = ["tests/test_roads.py"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/refresh.py", "pipeline/tests/test_refresh.py"]
+tests = ["tests/test_refresh.py", "tests/test_ground_textures.py", "tests/test_assemble.py"]
+
+[[stages]]
+name = "package-js-tests"
+kind = "command"
+triggers = ["pipeline/turku3d/package/*"]
+commands = [["node", "--test", "pipeline/turku3d/package/prop_atlas.test.mjs"]]
+
+[[stages]]
+name = "structures-physics"
+kind = "command"
+triggers = ["pipeline/turku3d/structures/*", "pipeline/tests/test_structures.py", "tools/validator/test/structures.test.ts", "tools/validator/src/structures*.ts", "tools/validator/src/kcc.ts", "game/src/shared/col/*", "mk/structures.mk"]
+commands = [["node", "--test", "tools/validator/test/structures.test.ts"]]
+
+[[stages]]
+name = "qa-python-tests"
+kind = "pytest"
+triggers = ["qa/*.py", "qa/*.json", "qa/*.jsonl", "qa/requirements*.txt", "pipeline/turku3d/config.py"]
+cwd = "qa"
+tests = ["tests"]
+
+# report.report is called directly by these tests and by loop.main's failure path.
+[[stages.related]]
+paths = ["qa/report/report.py"]
+tests = ["tests/test_qa.py::test_build_report", "tests/test_regression.py::test_concurrent_history_updates_preserve_runs", "tests/test_regression.py::test_loop_rejects_missing_render_and_keeps_report"]
+
+[[stages]]
+name = "textures-tests"
+kind = "pytest"
+triggers = ["bench/codex/*.py", "textures/*.py", "textures/node/*", "textures/pyproject.toml", "pipeline/turku3d/config.py"]
+cwd = "textures"
+tests = ["tests"]
+[[stages.related]]
+paths = ["bench/codex/*.py", "textures/turkutex/codex/*", "textures/tests/test_codex_runner.py", "textures/tests/fake_codex.py"]
+tests = ["tests/test_codex_runner.py", "tests/test_jobs.py"]
+[[stages.related]]
+paths = ["textures/turkutex/post/*", "textures/node/*", "textures/tests/test_post.py"]
+tests = ["tests/test_post.py"]
+[[stages.related]]
+paths = ["textures/turkutex/streetview/*", "textures/tests/test_streetview_geometry.py"]
+tests = ["tests/test_streetview_geometry.py"]
+
+# Synthetic voice pipeline tests plus the check that committed clips match dialogue.json and voices.toml.
+[[stages]]
+name = "voice-tests"
+kind = "pytest"
+triggers = ["audio/voice/*", "game/src/gameplay/content/dialogue.json", "game/public/assets/voice/*"]
+cwd = "audio/voice"
+tests = ["tests"]
+
+[[stages]]
+name = "gate-tests"
+inputs = ["pipeline/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
+kind = "command"
+triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "docs/flags.toml"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py", "test_gate_state.py"]]
+
+[[stages]]
+name = "tooling-tests"
+inputs = ["pipeline/turku3d/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
+kind = "command"
+triggers = ["scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/landing.py", "scripts/dev/live_build.py", "scripts/dev/host_slots.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_lander.py", "scripts/dev/tests/test_live_build.py", "scripts/dev/tests/test_host_slots.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_lander.py", "test_live_build.py", "test_host_slots.py", "test_environment.py", "test_stop.py"]]
+
+# The queue tests patch module globals and os.environ, so they run serially in their own process.
+[[stages]]
+name = "queue-tests"
+kind = "command"
+triggers = ["scripts/dev/merge_queue.py", "scripts/dev/integrator.py", "scripts/dev/landing.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py"]
+commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py"]]
+
+[[stages]]
+name = "watch-tests"
+kind = "command"
+triggers = ["scripts/dev/watch", "scripts/dev/watch_*.py", "scripts/dev/tests/test_watch.py", "scripts/dev/task_runner.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py"]
+commands = [["{python}", "scripts/dev/tests/test_watch.py"]]
+
+[[stages]]
+name = "js-lint"
+kind = "js-lint"
+configs = ["eslint.config.mjs", "package*.json", "scripts/dev/gate.toml"]
+triggers = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "tools/dev/*.mjs", "tools/dev/*.mts", "qa/render/*.mjs", "textures/node/*.mjs", "pipeline/*.mjs", "eslint.config.mjs", "package*.json"]
+sources = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "tools/dev/*.mjs", "tools/dev/*.mts", "qa/render/*.mjs", "textures/node/*.mjs", "pipeline/*.mjs", "eslint.config.mjs"]
+
+[[stages]]
+name = "game-types"
+kind = "command"
+triggers = ["game/*.ts", "game/*config*.json", "game/package*.json", "tools/dev/environment.*"]
+commands = [["game/node_modules/.bin/tsc", "-b", "game/tsconfig.json", "--noEmit"]]
+
+[[stages]]
+name = "validator-types"
+kind = "command"
+triggers = ["tools/validator/*.ts", "tools/validator/*.json", "game/src/shared/col/*.ts", "game/src/vehicle/*", "game/src/physics/triLocator.ts", "game/src/physics/constants.ts", "game/src/physics/protocol.ts"]
+commands = [["tools/validator/node_modules/.bin/tsc", "-b", "tools/validator/tsconfig.json", "--noEmit"]]
+
+[[stages]]
+name = "knip"
+kind = "command"
+triggers = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "qa/render/*.mjs", "textures/node/*.mjs", "tools/dev/*.mjs", "tools/dev/*.mts", "pipeline/*.mjs", "*/package*.json", "package*.json", "knip.json"]
+commands = [["node_modules/.bin/knip", "--no-progress", "--include-entry-exports"]]
+
+[[stages]]
+name = "game-unit"
+kind = "vitest"
+triggers = ["game/src/*.ts", "game/tests/unit/*.ts", "game/tests/fixtures/*.ts", "game/vitest.config.ts", "game/package*.json", "tools/validator/fixtures/*"]
+cwd = "game"
+
+[[stages]]
+name = "validator-tests"
+kind = "command"
+env = { FIXTURE_WALKERS = "32" }
+triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*", "pipeline/turku3d/placement/manoeuvre.json", "game/src/vehicle/*", "game/src/physics/triLocator.ts", "game/src/physics/constants.ts", "game/src/physics/protocol.ts"]
+commands = [["node", "--test", "--test-concurrency=1", "tools/validator/test/roundtrip.test.ts", "tools/validator/test/kcc.test.ts", "tools/validator/test/fixtures.test.ts", "tools/validator/test/acceptance.test.ts", "tools/validator/test/buildings.test.ts", "tools/validator/test/parked.test.ts"]]
+
+[[stages]]
+name = "dev-server-tests"
+kind = "command"
+triggers = ["tools/dev/*.mjs", "tools/dev/*.mts"]
+commands = [["node", "--test", "tools/dev/serve-dist.test.mjs"]]
+
+[[stages]]
+name = "shell"
+kind = "shell"
+configs = [".shellcheckrc", "scripts/dev/gate.toml"]
+triggers = ["*.sh", ".shellcheckrc", ".githooks/*"]
+sources = ["*.sh", ".githooks/*"]
+
+# browser = true: the stage starts Chrome, so `gate --fast` leaves it to the integrator.
+[[stages]]
+name = "qa-render-tests"
+kind = "command"
+browser = true
+triggers = ["qa/render/*", "qa/tests/golden_projection.json", "tools/dev/environment.*"]
+commands = [["node", "--test", "qa/render/test/stub.test.mjs"]]
+
+[[stages]]
+name = "game-e2e"
+inputs = ["game/*", "pipeline/*", "tools/validator/*", "qa/tests/golden_projection.json"]
+kind = "e2e"
+tile_tags = ["@walk", "@pipeline", "@render", "@qa", "@ground", "@character", "@streaming", "@gameplay"]
+triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/ui/*", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/src/gameplay/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/tests/e2e-playtest/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/ground/*"]
+# Subsystem tags are declared on the specs; unmapped e2e triggers select all.
+[[stages.related]]
+paths = ["game/src/render/*", "game/src/world/materials.ts", "qa/tests/golden_projection.json", "game/tests/e2e/render-*.spec.ts"]
+tags = ["@render", "@qa"]
+[[stages.related]]
+paths = ["game/src/actors/*", "game/src/physics/*", "game/src/shared/col/*"]
+tags = ["@walk", "@drive", "@character", "@ground", "@structures", "@buildings"]
+
+[[stages.related]]
+paths = ["game/src/input/*", "game/tests/e2e/gamepad.spec.ts"]
+tags = ["@input", "@launch"]
+
+[[stages.related]]
+paths = ["game/src/vehicle/*", "game/tests/e2e/vehicle.spec.ts"]
+tags = ["@drive", "@vehicle"]
+
+[[stages.related]]
+paths = ["game/src/ui/*", "game/tests/e2e/start.spec.ts"]
+tags = ["@launch"]
+
+[[stages.related]]
+paths = ["game/src/world/tiles.ts"]
+tags = ["@streaming"]
+
+[[stages.related]]
+paths = ["game/src/gameplay/*"]
+tags = ["@gameplay", "@launch"]
+
+[[stages.related]]
+paths = ["pipeline/turku3d/ground/*", "pipeline/tests/test_ground.py"]
+tags = ["@curb"]
+
+[[stages]]
+name = "vehicle-node-tests"
+kind = "command"
+triggers = ["game/src/vehicle/*", "game/src/physics/constants.ts", "game/src/physics/protocol.ts", "game/src/shared/col/*", "game/tests/fixtures/*", "game/tests/headless/*", "game/package*.json"]
+commands = [["node", "--test", "game/tests/headless/vehicle.test.ts"]]
+
+[[stages]]
+name = "dependency-imports"
+kind = "command"
+triggers = ["*/pyproject.toml", "*requirements*.txt", "scripts/dev/check_imports.py"]
+inputs = ["pipeline/*.py", "textures/*.py"]
+commands = [["{python}", "scripts/dev/check_imports.py"]]
+
+[[stages]]
+name = "playtest-tools"
+kind = "command"
+triggers = ["tools/dev/play*", "tools/dev/environment.*", "game/tools/*", "game/tests/e2e-playtest/*", "mk/play.mk"]
+commands = [["node", "--test", "tools/dev/play.test.mjs"]]

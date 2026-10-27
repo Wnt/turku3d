@@ -1,0 +1,46 @@
+{
+ "good": {
+  "pass": true,
+  "checks": {
+   "format": "pass",
+   "holes": "pass",
+   "buildings": "pass",
+   "curbs": "pass",
+   "stairs": "pass",
+   "belowGround": "pass"
+  },
+  "curb_steps": {
+   "curb_12cm": "climb",
+   "curb_25cm": "climb",
+   "step_40cm": "block"
+  }
+ },
+ "neg_hole": {
+  "pass": false,
+  "checks": {
+   "holes": "fail",
+   "belowGround": "fail",
+   "buildings": "pass"
+  }
+ },
+ "neg_open_building": {
+  "pass": false,
+  "checks": {
+   "buildings": "fail",
+   "holes": "pass"
+  }
+ },
+ "neg_steep_stair": {
+  "pass": false,
+  "checks": {
+   "stairs": "fail",
+   "holes": "pass"
+  }
+ },
+ "neg_material0": {
+  "pass": false,
+  "checks": {
+   "format": "fail"
+  }
+ }
+}

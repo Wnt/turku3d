@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "facade_reference_grid v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "facade_id",
+    "wall_visible",
+    "problem",
+    "storeys",
+    "window_columns",
+    "ground_openings",
+    "plinth",
+    "cornice",
+    "cladding"
+  ],
+  "properties": {
+    "facade_id": {"type": "string"},
+    "wall_visible": {"type": "boolean"},
+    "problem": {"type": "string"},
+    "storeys": {"type": "integer", "minimum": 0},
+    "window_columns": {"type": "integer", "minimum": 0},
+    "ground_openings": {"type": "integer", "minimum": 0},
+    "plinth": {"type": "boolean"},
+    "cornice": {"type": "boolean"},
+    "cladding": {"type": "string"}
+  }
+}

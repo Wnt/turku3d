@@ -1,0 +1,17 @@
+# streetlevel is installed separately with --no-deps (pyexiv2 lacks a Mac shared library).
+aiohttp
+numpy
+pillow
+protobuf>4
+pycryptodome
+requests
+scipy
+pyproj
+bd09convertor
+coordinatesconverter
+pyequilib
+jsonschema
+pytest
+opencv-python-headless
+laspy
+lazrs

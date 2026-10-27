@@ -1,0 +1,107 @@
+{
+  "area": "next-ring",
+  "visual_tiles": 12,
+  "collision_tiles": 192,
+  "tile_ids": [
+    "t0_-1_-1",
+    "t0_-1_0",
+    "t0_-1_1",
+    "t0_-1_2",
+    "t0_0_-1",
+    "t0_0_2",
+    "t0_1_-1",
+    "t0_1_2",
+    "t0_2_-1",
+    "t0_2_0",
+    "t0_2_1",
+    "t0_2_2"
+  ],
+  "laz_tiles": [
+    "23459000_6704000",
+    "23459000_6704500",
+    "23459000_6705000",
+    "23459500_6704000",
+    "23459500_6704500",
+    "23459500_6705000",
+    "23460000_6704000",
+    "23460000_6704500",
+    "23460000_6705000"
+  ],
+  "laz_downloads": [],
+  "buildings": 162,
+  "street_facades": 324,
+  "panoramas_needed": 108,
+  "inventory_source": "cached WFS footprint polygons 66000/66001, deduplicated; street facades = 2/building placeholder",
+  "jobs": {
+    "facade_label": {
+      "calls": 324,
+      "tokens": 3888000,
+      "seconds": 19440,
+      "weekly_pct": null,
+      "source": "placeholder"
+    },
+    "facade_improve": {
+      "calls": 324,
+      "tokens": 6480000,
+      "seconds": 58320,
+      "weekly_pct": null,
+      "source": "placeholder"
+    },
+    "ground_texture": {
+      "calls": 12,
+      "tokens": 192000,
+      "seconds": 1440,
+      "weekly_pct": null,
+      "source": "placeholder"
+    }
+  },
+  "wall_seconds": 21150,
+  "additional_disk_bytes": 3900000000,
+  "assumptions": [
+    "150 MB/LAZ; 25 MB/panorama; 100 MB products/visual tile",
+    "450 CPU seconds/visual tile; ideal worker scaling; network time excluded",
+    "Codex quota percent is unknown without measured ledger averages; spending fails closed"
+  ],
+  "steps": [
+    {
+      "name": "fetch",
+      "available": true,
+      "reason": ""
+    },
+    {
+      "name": "ground",
+      "available": false,
+      "reason": "producer unavailable"
+    },
+    {
+      "name": "structures",
+      "available": false,
+      "reason": "producer unavailable"
+    },
+    {
+      "name": "buildings",
+      "available": false,
+      "reason": "producer unavailable"
+    },
+    {
+      "name": "facades",
+      "available": false,
+      "reason": "no area-aware producer adapter published"
+    },
+    {
+      "name": "ground-textures",
+      "available": false,
+      "reason": "no area-aware producer adapter published"
+    },
+    {
+      "name": "assemble",
+      "available": true,
+      "reason": ""
+    },
+    {
+      "name": "validate",
+      "available": true,
+      "reason": ""
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"type":"object","additionalProperties":false,"required":["fidelity","cleanliness","reason"],"properties":{"fidelity":{"type":"number","minimum":0,"maximum":10},"cleanliness":{"type":"number","minimum":0,"maximum":10},"reason":{"type":"string"}}}

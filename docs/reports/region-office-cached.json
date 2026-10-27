@@ -1,0 +1,50 @@
+[
+  {
+    "step": "fetch",
+    "status": "cached",
+    "reason": "inputs, code and output manifests unchanged",
+    "seconds": 0.102
+  },
+  {
+    "step": "ground",
+    "status": "skipped",
+    "reason": "producer unavailable",
+    "seconds": 0.117
+  },
+  {
+    "step": "structures",
+    "status": "skipped",
+    "reason": "producer unavailable",
+    "seconds": 0.21
+  },
+  {
+    "step": "buildings",
+    "status": "skipped",
+    "reason": "producer unavailable",
+    "seconds": 0.236
+  },
+  {
+    "step": "facades",
+    "status": "skipped",
+    "reason": "no area-aware producer adapter published",
+    "seconds": 0.0
+  },
+  {
+    "step": "ground-textures",
+    "status": "skipped",
+    "reason": "no area-aware producer adapter published",
+    "seconds": 0.0
+  },
+  {
+    "step": "assemble",
+    "status": "cached",
+    "reason": "inputs, code and output manifests unchanged",
+    "seconds": 0.074
+  },
+  {
+    "step": "validate",
+    "status": "cached",
+    "reason": "inputs, code and output manifests unchanged",
+    "seconds": 0.015
+  }
+]

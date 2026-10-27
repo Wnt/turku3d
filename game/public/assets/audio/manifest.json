@@ -1,0 +1,128 @@
+{
+  "step-asphalt.ogg": {
+    "bytes": 1019,
+    "channels": 1,
+    "seconds": 0.23,
+    "sha256": "0f509fbad2eeba942903d2c4af1b9942b4782896cbc646608d32f550feb460a8",
+    "license": "CC0-1.0"
+  },
+  "step-stone.ogg": {
+    "bytes": 1126,
+    "channels": 1,
+    "seconds": 0.25,
+    "sha256": "992d80068da45615fe368189a30d5b5764fb7881b85842eb1920d72638f026b0",
+    "license": "CC0-1.0"
+  },
+  "step-grass.ogg": {
+    "bytes": 1332,
+    "channels": 1,
+    "seconds": 0.32,
+    "sha256": "7a32a532c4eb337b58b7fad1b3fdb4569db9babb972f16b8268e9942dbb70d4d",
+    "license": "CC0-1.0"
+  },
+  "step-gravel.ogg": {
+    "bytes": 1472,
+    "channels": 1,
+    "seconds": 0.34,
+    "sha256": "dcebe20ac13d4cac77b2f828690465d84ae08ab67f22038df185b48500022300",
+    "license": "CC0-1.0"
+  },
+  "step-wood.ogg": {
+    "bytes": 1323,
+    "channels": 1,
+    "seconds": 0.3,
+    "sha256": "3b863b61a9cf3e3f70964d69b9e39560dde2060eec539510b96dd9cf551eea98",
+    "license": "CC0-1.0"
+  },
+  "engine.ogg": {
+    "bytes": 14685,
+    "channels": 1,
+    "seconds": 3.9,
+    "sha256": "3a9fa67be177d8f328f0488ce50ecb94fa5ea6e3aec826a0d6155c5bbcd27c01",
+    "license": "CC0-1.0"
+  },
+  "roll.ogg": {
+    "bytes": 14678,
+    "channels": 1,
+    "seconds": 3.9,
+    "sha256": "0cea853f2cd3afa18357d55b0754c4403d50eaa589e1d9354701b13799b2bbf9",
+    "license": "CC0-1.0"
+  },
+  "screech.ogg": {
+    "bytes": 15648,
+    "channels": 1,
+    "seconds": 3.9,
+    "sha256": "88aaa0b4ee6b6aa1c1aabb5e5b8539b6635fd5ad7a71a94b3814a11d6ef4c4d7",
+    "license": "CC0-1.0"
+  },
+  "curb.ogg": {
+    "bytes": 1592,
+    "channels": 1,
+    "seconds": 0.4,
+    "sha256": "1ea453707e1903ff54cfaa9459b9e1eb6d6eb8daa6799888f9822d2426a0aa75",
+    "license": "CC0-1.0"
+  },
+  "impact.ogg": {
+    "bytes": 2532,
+    "channels": 1,
+    "seconds": 0.7,
+    "sha256": "893f33191391389518824395f8542e28008af0e621ba2b0e9788fa826b8ec605",
+    "license": "CC0-1.0"
+  },
+  "door-open.ogg": {
+    "bytes": 1952,
+    "channels": 1,
+    "seconds": 0.45,
+    "sha256": "3ecd5cd1e2eed84b3596e19d9774ff88e820a481bbb514dc2c2dd7659b8ae10a",
+    "license": "CC0-1.0"
+  },
+  "door-close.ogg": {
+    "bytes": 1638,
+    "channels": 1,
+    "seconds": 0.45,
+    "sha256": "56fa5e56b392b31a605c18a4c4f2c304b39e9dbeaccf4268ba67f2be1b0a300b",
+    "license": "CC0-1.0"
+  },
+  "city.ogg": {
+    "bytes": 29253,
+    "channels": 1,
+    "seconds": 7.9,
+    "sha256": "8eb9cce1e80db2a2a98c27ff01e64dc8102ffe3a44c2f4cd894443d53a0a938e",
+    "license": "CC0-1.0"
+  },
+  "river.ogg": {
+    "bytes": 28734,
+    "channels": 1,
+    "seconds": 7.9,
+    "sha256": "c1fc26e05f4c9921b17d8962f1535ab7c3092952d54e5e072fc8876d0301f474",
+    "license": "CC0-1.0"
+  },
+  "gulls.ogg": {
+    "bytes": 18309,
+    "channels": 1,
+    "seconds": 7.9,
+    "sha256": "6cd50caaf787e378577b966e8dac01234ac0cf71a087873fea3b288657477bc7",
+    "license": "CC0-1.0"
+  },
+  "traffic.ogg": {
+    "bytes": 29001,
+    "channels": 1,
+    "seconds": 7.9,
+    "sha256": "996a6e1381eea7506a73b0ff68633eb13d19816c2aaa9aa1a0bcf70a39d68ba0",
+    "license": "CC0-1.0"
+  },
+  "wind.ogg": {
+    "bytes": 28688,
+    "channels": 1,
+    "seconds": 7.9,
+    "sha256": "675b08c0128a6a1cee3130c0c283f0afcef5776ff9442badf38ed53d2dc10bfe",
+    "license": "CC0-1.0"
+  },
+  "connect.ogg": {
+    "bytes": 1462,
+    "channels": 1,
+    "seconds": 0.2,
+    "sha256": "2f85aa2656d74c52310a0e98529ad7519db76d14e1620fd54f1b845b396b15c2",
+    "license": "CC0-1.0"
+  }
+}

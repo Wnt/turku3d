@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "facade_visual_qa v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "facade_id",
+    "storeys",
+    "expected_storeys",
+    "upper_openings",
+    "expected_upper_openings",
+    "grid_matches",
+    "orthographic",
+    "foreign_objects",
+    "clean",
+    "notes"
+  ],
+  "properties": {
+    "facade_id": {"type": "string"},
+    "storeys": {"type": "integer", "minimum": 0},
+    "expected_storeys": {"type": "integer", "minimum": 0},
+    "upper_openings": {"type": "integer", "minimum": 0},
+    "expected_upper_openings": {"type": "integer", "minimum": 0},
+    "grid_matches": {"type": "boolean"},
+    "orthographic": {"type": "boolean"},
+    "foreign_objects": {"type": "array", "items": {"type": "string"}},
+    "clean": {"type": "boolean"},
+    "notes": {"type": "string"}
+  }
+}

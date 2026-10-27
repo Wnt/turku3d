@@ -1,0 +1,88 @@
+{
+  "coverage": {
+    "scope": "phase1",
+    "bbox_local": [
+      -50.0,
+      -50.0,
+      550.0,
+      550.0
+    ],
+    "resolution_m": 0.25,
+    "code_hash": "c644f07d794df5f06ea4ebf85c6fea4c4c66dcad5f2f1a44cb56ca93f3c6e51d",
+    "source_key": "6207a25024a1bebc90a8cf3e4fdfac32dd358034907120bed7139d63bc397078",
+    "sources": [
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23459000_6705000.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23459500_6705000.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23460000_6705000.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23459000_6704500.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23459500_6704500.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23460000_6704500.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23459000_6704000.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23459500_6704000.laz",
+      "/Users/wnt/turku3d/data/raw/laz-3x3/23460000_6704000.laz"
+    ],
+    "points": 28852145,
+    "ground_points": 8775503,
+    "vector_length_m": 7597.048501526688,
+    "supported_length_m": 7206.623003347522,
+    "confirmed_fraction": 0.948608265683613,
+    "raised_length_m": 4971.595813475141,
+    "flush_length_m": 2235.0271898723818,
+    "unsupported_length_m": 390.4254981791655,
+    "median_step_m": 0.0614434427807824,
+    "p90_step_m": 0.12667666243611508,
+    "added_lidar_length_m": {
+      "quay": 79.82743292022022,
+      "curb": 386.5302586772837,
+      "wall_planter_edge": 79.62716781137107,
+      "step": 4.718259424935482
+    },
+    "added_polylines": 199,
+    "vector_polylines": 1135,
+    "small_object_candidates": 8765,
+    "elapsed_s": 707.0173414999153,
+    "fitting_split": "80% deterministic coordinate hash; 20% withheld before ground selection",
+    "confirmation_definition": "Adjacent supported slope-fitted stations, including measured flush/drop spans. Not proof of a raised curb.",
+    "mesh_coverage": null
+  },
+  "cache_benchmark": {
+    "tile": "c_2_3",
+    "buffer_m": 0.0,
+    "points": 275789,
+    "cache_prepare_s": 0.008671416901051998,
+    "cached_read_s": [
+      0.012769334018230438,
+      0.027292291866615415,
+      0.015918291872367263
+    ],
+    "laz_read_crop_s": [
+      10.318932583089918,
+      12.714437707792968,
+      8.727847333066165
+    ],
+    "speedup": 648.2437101811574,
+    "method": "Fresh TileStore, mmap open plus full xyz checksum vs LAZ decode/crop plus same checksum; OS file cache warm for both."
+  },
+  "gate": {
+    "base": "2d75e2c",
+    "passed": true,
+    "seconds": 8.516,
+    "pipeline_tests": 88
+  },
+  "post_rebase_verification": {
+    "base": "8c1f9a5103384e4971c22e528e14b2ef026d6a39",
+    "lidar_tests_passed": 9,
+    "pytest_seconds": 1.8,
+    "workers": 1,
+    "ruff_check_passed": true,
+    "ruff_format_passed": true,
+    "full_gate_run": false,
+    "reason": "Orchestrator requested scoped tests only and will gate landing."
+  },
+  "mesh_integration": {
+    "status": "deferred",
+    "before": null,
+    "after": null,
+    "reason": "User deferred curbs from current playable-block release; orchestrator confirmed wrap-up with remaining quality/integration as next-iteration follow-ups."
+  }
+}

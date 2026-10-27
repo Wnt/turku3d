@@ -1,0 +1,4 @@
+# Temporary A/B experiments only. At most five, each lasting at most ten main merges.
+# Add [[flags]] with name, owner, reason, added_at_merge, remove_after_merges.
+# See scripts/dev/README.md for the exact call and expiry conventions.
+flags = []

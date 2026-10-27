@@ -1,0 +1,10 @@
+# streetlevel 0.12.13 is installed with --no-deps (its pyfrpc dep does not build on macOS 26 and
+# pyexiv2 needs Homebrew inih; neither is used, see turkutex/streetview/sl.py). These are the
+# dependencies it really needs for Google Street View + Apple Look Around:
+aiohttp>=3.9
+protobuf>4
+pycryptodome>=3.20
+bd09convertor>=0.0.3
+coordinatesconverter
+requests>=2.31
+pillow-heif>=0.18

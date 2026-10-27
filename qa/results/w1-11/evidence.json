@@ -1,0 +1,37 @@
+{
+  "run_id": "w1-20-2fc2a3f",
+  "commit": "2fc2a3fb4e419fc74ca470e4d4e4275f4f5aa7bf",
+  "references": 20,
+  "rendered_colour_id_pairs": 20,
+  "mean_score": 0.6,
+  "issues": 59,
+  "issues_with_visible_asset_candidates": 28,
+  "calibration_scores": [
+    3,
+    3,
+    3
+  ],
+  "calibration_sample_variance": 0,
+  "judge_calls": 43,
+  "judge_attempts": 43,
+  "input_tokens": 856125,
+  "output_tokens": 27797,
+  "account_usage_before_min_pct": 7,
+  "account_usage_after_max_pct": 14,
+  "quota_note": "Account-wide rounded counters include concurrent agents; the delta is not attributable solely to this task.",
+  "acceptance": {
+    "command": [
+      "/Users/wnt/turku3d/wt/w1-11-visualqa/repo/qa/.venv/bin/python",
+      "qa/acceptance.py",
+      "--run",
+      "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/runs/w1-20-2fc2a3f",
+      "--calibration",
+      "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/calibration/calibration.json"
+    ],
+    "exit_code": 1,
+    "output": "{\n  \"ok\": false,\n  \"views\": 20,\n  \"blockers\": [\n    \"current package exposes no building asset IDs; assembled building layer is required\"\n  ]\n}\n",
+    "seconds": 0.224
+  },
+  "report": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/w1-11-report.html",
+  "package_sha256": "659b9a9b05d516556be1620439966fc7dc56cd157646257616be5c5782edef46"
+}

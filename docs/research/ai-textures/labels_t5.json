@@ -1,0 +1,90 @@
+[
+  {
+    "image": "facade_LR21.jpg",
+    "building_type": "asuinkerrostalo",
+    "era_style": "1930-luvun pelkistetty klassismi",
+    "floors_above_ground": 6,
+    "has_attic_or_dormers": true,
+    "visible_facade_bays": 7,
+    "window": {
+      "rows": 6,
+      "cols": 7,
+      "type": "casement",
+      "panes_per_window": 2,
+      "frame_color_hex": "#eeeede",
+      "surround": "simple",
+      "approx_width_m": 1.2,
+      "approx_height_m": 1.5
+    },
+    "wall": {
+      "material": "render",
+      "color_hex": "#e8cc7e",
+      "texture_notes": "Hienorakeinen keltainen rappaus, vaaleat räystäslistat ja ikkunanpielet."
+    },
+    "plinth": {
+      "material": "stone",
+      "color_hex": "#69645c",
+      "height_m": 0.5
+    },
+    "roof": {
+      "type": "gable",
+      "material": "clay_tile",
+      "color_hex": "#805a4d",
+      "has_dormers": false,
+      "pitch_deg": 28.0
+    },
+    "ground_floor_use": "shop",
+    "occluders": [
+      "tiheät lehtipuut",
+      "pensasaita",
+      "metalliaita"
+    ],
+    "estimated_facade_height_m": 18.5,
+    "confidence": 0.62
+  },
+  {
+    "image": "facade_LR27b.jpg",
+    "building_type": "puinen ravintolarakennus",
+    "era_style": "1800-luvun lopun koristeellinen puuarkkitehtuuri",
+    "floors_above_ground": 1,
+    "has_attic_or_dormers": true,
+    "visible_facade_bays": 5,
+    "window": {
+      "rows": 1,
+      "cols": 5,
+      "type": "casement",
+      "panes_per_window": 3,
+      "frame_color_hex": "#e5e3d6",
+      "surround": "ornamented",
+      "approx_width_m": 1.2,
+      "approx_height_m": 2.3
+    },
+    "wall": {
+      "material": "wood_clapboard",
+      "color_hex": "#929b85",
+      "texture_notes": "Vaakasuuntainen vaalean harmaanvihreä puuverhous, kermanvalkoiset koristelistat ja veistetyt ikkunankehykset."
+    },
+    "plinth": {
+      "material": "rusticated_granite",
+      "color_hex": "#817b72",
+      "height_m": 1.0
+    },
+    "roof": {
+      "type": "gable",
+      "material": "standing_seam_metal",
+      "color_hex": "#666874",
+      "has_dormers": true,
+      "pitch_deg": 40.0
+    },
+    "ground_floor_use": "restaurant",
+    "occluders": [
+      "suljetut aurinkovarjot",
+      "aurinkovarjojen tukipylväät",
+      "pinotut terassituolit",
+      "terassipöydät",
+      "köysiaita"
+    ],
+    "estimated_facade_height_m": 5.2,
+    "confidence": 0.87
+  }
+]

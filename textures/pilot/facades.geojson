@@ -1,0 +1,73 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:3877"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "aurakatu2_se",
+    "height_m": 11.5,
+    "normal": "right",
+    "building_id": "1032958849",
+    "address": "Aurakatu 2",
+    "floors": 2,
+    "material": "muu materiaali",
+    "year": "1811",
+    "street": "Läntinen Rantakatu",
+    "street_dist_m": 1.7,
+    "length_m": 22.54,
+    "height_source": "pilot estimate: LOD2 measuredHeight minus roof, checked on the crops; replace with lidar eave height",
+    "source_id": "1032958849_151"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      23459739.413,
+      6704284.237
+     ],
+     [
+      23459759.172,
+      6704295.079
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "lr15_se",
+    "height_m": 5.5,
+    "normal": "right",
+    "building_id": "103295893K",
+    "address": "Läntinen Rantakatu 15",
+    "floors": 1,
+    "material": "puu",
+    "year": "1809",
+    "street": "Läntinen Rantakatu",
+    "street_dist_m": 1.7,
+    "length_m": 38.77,
+    "height_source": "pilot estimate: LOD2 measuredHeight minus roof, checked on the crops; replace with lidar eave height",
+    "source_id": "103295893K_151"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      23459650.252,
+      6704236.607
+     ],
+     [
+      23459684.215,
+      6704255.295
+     ]
+    ]
+   }
+  }
+ ]
+}

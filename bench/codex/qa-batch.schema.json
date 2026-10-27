@@ -1,0 +1,111 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "judgements"
+  ],
+  "properties": {
+    "judgements": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Visual QA judgement: game render vs reference photo",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "same_place",
+          "similarity",
+          "summary",
+          "issues",
+          "ignored_differences"
+        ],
+        "properties": {
+          "same_place": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "probably",
+              "unsure",
+              "no"
+            ],
+            "description": "Would a local recognise image 2 as the same place and viewpoint as image 1?"
+          },
+          "similarity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Overall recognisability 0-10 (10 = indistinguishable as a place, 0 = unrelated scene)"
+          },
+          "summary": {
+            "type": "string",
+            "description": "One or two sentences, English"
+          },
+          "issues": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "what",
+                "bbox",
+                "category",
+                "severity",
+                "fix_hint"
+              ],
+              "properties": {
+                "what": {
+                  "type": "string",
+                  "description": "What is wrong in image 2 compared with image 1"
+                },
+                "bbox": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "description": "[x0, y0, x1, y1] in image 2, normalised 0-1, origin top-left"
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "geometry",
+                    "texture",
+                    "material",
+                    "lighting",
+                    "missing_object",
+                    "scale",
+                    "vegetation",
+                    "other"
+                  ]
+                },
+                "severity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5
+                },
+                "fix_hint": {
+                  "type": "string",
+                  "description": "Concrete fix for the asset / pipeline step"
+                }
+              }
+            }
+          },
+          "ignored_differences": {
+            "type": "array",
+            "maxItems": 15,
+            "items": {
+              "type": "string"
+            },
+            "description": "Differences deliberately not reported (people, cars, weather, season, ...)"
+          }
+        }
+      }
+    }
+  }
+}

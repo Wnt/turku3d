@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "turku3d_coords": "engine-xz",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "planted-30cm",
+        "step": 0.25
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            22,
+            20
+          ],
+          [
+            38,
+            20
+          ]
+        ]
+      }
+    }
+  ]
+}

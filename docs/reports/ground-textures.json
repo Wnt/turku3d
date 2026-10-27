@@ -1,0 +1,2684 @@
+{
+  "date": "2026-10-25",
+  "sandbox": "w1-10-groundtex",
+  "artifact_root": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures",
+  "status": "DONE: first integrated office-core version",
+  "library": {
+    "version": 1,
+    "materials": [
+      {
+        "key": "asphalt_fresh",
+        "metres": 2,
+        "preset": "asphalt",
+        "description": "fresh dark grey Finnish asphalt, fine crushed aggregate, no markings or cracks",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/asphalt_fresh/00.png",
+        "source_sha256": "4a3922b02a92b6eb5d009fbe7a296ac815a6574d67bab887bd31357f61223322",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17485-b2fe-75a0-8128-5cc992aca492",
+          "job_key": "78655c830e09e5002970ae1733b0c016d8274bfc78f0d0f9d828020db2838718",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.891,
+          "seam_y": 0.889,
+          "seam_rank_x": 4.0,
+          "seam_rank_y": 0.6,
+          "lowfreq_x": 0.0019,
+          "lowfreq_y": 0.0,
+          "mean_rgb": [
+            87.5,
+            88.5,
+            89.6
+          ],
+          "std_lum": 40.19,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "d573ca523030ed3afdc3887d31fc828648ce870869e1737f1e8456318b49ea0c",
+            "uri": "asphalt_fresh/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "08b78a0d3679ff86fce265ec74cf261f50f512959fd1dff6b46fac918278bc7a",
+            "uri": "asphalt_fresh/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "b129f0d1aa0aa10af7bd59c029741f5a34a2224c78b6e9bbf53f7ca0659387a3",
+            "uri": "asphalt_fresh/orm.ktx2"
+          }
+        }
+      },
+      {
+        "key": "asphalt_worn",
+        "metres": 2,
+        "preset": "asphalt",
+        "description": "weathered medium grey Finnish asphalt, exposed fine granite aggregate, subtle wear, no large cracks or markings",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/asphalt_worn/00.png",
+        "source_sha256": "1d10cb003eec320fcc3baf41ccccbe30d14e504806c65b8f68d294ef13233373",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17485-af55-7612-84ae-9e470e8c933b",
+          "job_key": "861f2a1a653e46d9cabd9ba6bef41275d628560b8c2338e11f659b06b937e27e",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.92,
+          "seam_y": 0.886,
+          "seam_rank_x": 10.6,
+          "seam_rank_y": 0.6,
+          "lowfreq_x": 0.0011,
+          "lowfreq_y": 0.0009,
+          "mean_rgb": [
+            122.6,
+            119.6,
+            116.5
+          ],
+          "std_lum": 36.11,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "b09a977ecd7cc7e8476b4a6768755fc488687dec11d408e1a3111ddc1f1e4e17",
+            "uri": "asphalt_worn/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "22faa8d34f53de3dcf80df65e62d928849f092a729a909c4a61b79343ce45bef",
+            "uri": "asphalt_worn/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "bc50e734b83625706b021b21066df55cbf30e1486f510a2938dde09da6bce95b",
+            "uri": "asphalt_worn/orm.ktx2"
+          }
+        }
+      },
+      {
+        "key": "granite_curb",
+        "metres": 2,
+        "preset": "ground_stone",
+        "description": "grey and muted pink Finnish granite curb stone, finely bush-hammered flat surface, mineral speckles, no joints",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/granite_curb/00.png",
+        "source_sha256": "8bc617e7f190fd98b68711670ee9ff501b8b18a5693b8ce06cbe86e04584267d",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17486-4e7d-7363-9329-0cd34cda535e",
+          "job_key": "1d45d90675b04b0ee49297ad70dd19547fe8d1c9202012043a5a6859420d0cd2",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.938,
+          "seam_y": 0.896,
+          "seam_rank_x": 15.9,
+          "seam_rank_y": 1.3,
+          "lowfreq_x": 0.0008,
+          "lowfreq_y": 0.0004,
+          "mean_rgb": [
+            142.7,
+            134.1,
+            128.9
+          ],
+          "std_lum": 37.31,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "5582af55804a71922182b1e8dc5ee9ad7c96791d32ca23988e4e7df1223086f0",
+            "uri": "granite_curb/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "138c4c59bd5ae6d7cd9e0a051dcdb0abb90ea93224566a8708941833b67baaef",
+            "uri": "granite_curb/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "e7def70bc14961bcbc150e6ebc3072a0de8d47ec91ee1634b84c71a94015540a",
+            "uri": "granite_curb/orm.ktx2"
+          }
+        }
+      },
+      {
+        "key": "cobblestone",
+        "metres": 2,
+        "preset": "ground_stone",
+        "description": "Turku grey granite rectangular cobblestone setts in staggered straight rows, 15 by 20 cm blocks, narrow dark sandy joints, slightly rounded worn tops",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/cobblestone/00.png",
+        "source_sha256": "b8930778fd83c25838a7e64e1c19d955605c1548c1b38bbf0d5712101064c240",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17486-5d0f-72c3-9a72-6ca028621b6f",
+          "job_key": "a088f5072e2fd2f4919acb135902d698618a4db12d2f8a7d28562db0dcb246ba",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.885,
+          "seam_y": 0.825,
+          "seam_rank_x": 6.5,
+          "seam_rank_y": 0.3,
+          "lowfreq_x": 0.0007,
+          "lowfreq_y": 0.0136,
+          "mean_rgb": [
+            128.9,
+            125.8,
+            122.8
+          ],
+          "std_lum": 35.94,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "7189fc328903407a93d7c84e878c0d9c83fbf302a429f6aef6bc6f99149c2e1e",
+            "uri": "cobblestone/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "c3f52df6c439cf61ed99bbcec49f607054b9e1573cf95c20c4a5fc41956b7c7f",
+            "uri": "cobblestone/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "f73723a63c9b2420564bbd856c3469235f5b0c6dc68a22c4ec85445b356e5045",
+            "uri": "cobblestone/orm.ktx2"
+          }
+        }
+      },
+      {
+        "key": "concrete_slabs",
+        "metres": 2,
+        "preset": "concrete",
+        "description": "Finnish pale grey sidewalk concrete slabs, 50 cm squares in an aligned grid, narrow straight joints, fine surface grains and subtle wear",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/concrete_slabs/00.png",
+        "source_sha256": "f29494ce3e4c3f0c8dfe912f96320009a70a94fcdbbe39b31e12c598589a79c2",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17486-fe6e-7331-9f3a-013b71024596",
+          "job_key": "939a31bc47bdfc44bef3227cdefbcdee27a847ec7dc047402ae68895de50a27e",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.783,
+          "seam_y": 0.802,
+          "seam_rank_x": 0.3,
+          "seam_rank_y": 0.2,
+          "lowfreq_x": 0.005,
+          "lowfreq_y": 0.0056,
+          "mean_rgb": [
+            173.5,
+            171.6,
+            167.7
+          ],
+          "std_lum": 20.8,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "158fe19fee6bfad31454df7b2aab6c2584539e4f57ef1c1fa5abc5a154ab06ac",
+            "uri": "concrete_slabs/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "4645a4b99a4f9f059ecbda54d9eb5f204a99b9ad0bd27398e3cd88aca3a571db",
+            "uri": "concrete_slabs/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "c5b1c337d5b694d758069110430c5cc3da40ca7222cd3500d3b44bf4abd3a3ee",
+            "uri": "concrete_slabs/orm.ktx2"
+          }
+        }
+      },
+      {
+        "key": "grass",
+        "metres": 2,
+        "preset": "grass",
+        "description": "short mown Finnish urban lawn, natural muted greens, fine individual blades, sparse dry blades, no flowers",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/grass/00.png",
+        "source_sha256": "ccff65679ca979b35af902eac0743a8452b4633001be67bd2aecc7409f4205fd",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17487-1cf4-7260-96d8-ff6525625689",
+          "job_key": "3c57a213ac2f08a407edd982f71df30ee0afa3ef75cdef6e9cd5961f18a0ce44",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.912,
+          "seam_y": 0.876,
+          "seam_rank_x": 5.9,
+          "seam_rank_y": 0.8,
+          "lowfreq_x": 0.0006,
+          "lowfreq_y": 0.0,
+          "mean_rgb": [
+            84.4,
+            106.1,
+            46.0
+          ],
+          "std_lum": 34.69,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "ff019f32d8671f4cf7b6b06670dafd981ee3b0486271a98b4ce2bdd69446c710",
+            "uri": "grass/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "bcad2eb85ff2a50bf35c510362ebee6f63721a08f22fcd0b560736278e952aeb",
+            "uri": "grass/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "051aa07431e047e08307e1495486c75ebc7db7918b6e9f3c4f488cf29bf052bc",
+            "uri": "grass/orm.ktx2"
+          }
+        }
+      },
+      {
+        "key": "gravel",
+        "metres": 2,
+        "preset": "gravel",
+        "description": "compacted Finnish grey granite gravel, irregular 5 to 15 mm stones and fine grey sand, no large rocks",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/gravel/00.png",
+        "source_sha256": "989f55456e8a759123e4952e9f35444cb1388a12e5e11ec7d1d5f2d27f833ba0",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17487-a6e1-7b30-a2ec-24e591e34554",
+          "job_key": "db6b16705722cb2617820b7f91262b5276ed9dbff54990e4904f0b15f7171464",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.916,
+          "seam_y": 0.894,
+          "seam_rank_x": 6.5,
+          "seam_rank_y": 0.4,
+          "lowfreq_x": 0.0007,
+          "lowfreq_y": 0.0003,
+          "mean_rgb": [
+            139.9,
+            136.1,
+            131.8
+          ],
+          "std_lum": 42.55,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "f437462e947c2da83d482227f2e19482f83de6805b09fca3b0ecf64738c311b2",
+            "uri": "gravel/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "b266f7ef6b8a8afcf1bfd94c58ec2a1d8d5438d85bf8d7e49c13ad152b94f82f",
+            "uri": "gravel/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "5df119c3d893c41093ae399438eb404cb4ea12422db2ffadd487437ccec2da8f",
+            "uri": "gravel/orm.ktx2"
+          }
+        }
+      },
+      {
+        "key": "quay_stone",
+        "metres": 2,
+        "preset": "ground_stone",
+        "description": "old Turku Aura river quay granite paving, large worn grey stone blocks in straight staggered rows, narrow mortar joints, faint mineral discoloration",
+        "source": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground-run/images/quay_stone/00.png",
+        "source_sha256": "8a7dae1fc0f25394f03300823cc9a309b78066521b8eb309c7cf0baa7a790113",
+        "provenance": {
+          "kind": "OpenAI image_gen",
+          "thread_id": "01a17487-c397-76f2-a702-5b7d9da73ace",
+          "job_key": "d1fd6dab5e3480dfe3dbacb239d64a2a657654024ca946dce3ab8ec02ae79bcb",
+          "prompt_version": "ground-v1",
+          "license": "Generated output under OpenAI terms; not a CC0 source asset"
+        },
+        "qa": {
+          "width": 1024,
+          "height": 1024,
+          "seam_x": 0.869,
+          "seam_y": 0.85,
+          "seam_rank_x": 2.8,
+          "seam_rank_y": 0.4,
+          "lowfreq_x": 0.0036,
+          "lowfreq_y": 0.0026,
+          "mean_rgb": [
+            133.7,
+            130.9,
+            127.8
+          ],
+          "std_lum": 30.89,
+          "axes": "xy",
+          "pass_seam": true,
+          "pass_lowfreq": true
+        },
+        "maps": "Sobel on luminance (DeepBump not installed or --sobel)",
+        "files": {
+          "albedo": {
+            "sha256": "8d15fd29d8ecc75ef7044c54266f89e5cc09f31e3af4e1aa24f33e64f4fa4570",
+            "uri": "quay_stone/albedo.ktx2"
+          },
+          "normal": {
+            "sha256": "9ec97028e1e57ae5645c094446f3bc65c21ed0b4839a1fd695f0340613f95777",
+            "uri": "quay_stone/normal.ktx2"
+          },
+          "orm": {
+            "sha256": "e5e827fe64ff3ff1ad6883fbbe58d5dc4aede707d7d64b8adb0ad1c69400da46",
+            "uri": "quay_stone/orm.ktx2"
+          }
+        }
+      }
+    ],
+    "arrays": {
+      "albedo": {
+        "uri": "albedo.array.ktx2",
+        "valid": true,
+        "vkFormat": 0,
+        "width": 1024,
+        "height": 1024,
+        "levels": 11,
+        "supercompression": "BasisLZ(ETC1S)",
+        "bytes": 1660824,
+        "sha256": "9cda7c3054798daf5fe450931c03ac20e68333b65a667c64d39feace84ad7447",
+        "layers": 8,
+        "command": [
+          "toktx",
+          "--t2",
+          "--genmipmap",
+          "--threads",
+          "4",
+          "--assign_oetf",
+          "srgb",
+          "--encode",
+          "etc1s",
+          "--layers",
+          "8",
+          "--qlevel",
+          "160",
+          "--clevel",
+          "2",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/albedo.array.ktx2",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/asphalt_fresh/albedo.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/asphalt_worn/albedo.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/granite_curb/albedo.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/cobblestone/albedo.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/concrete_slabs/albedo.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/grass/albedo.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/gravel/albedo.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/quay_stone/albedo.png"
+        ]
+      },
+      "normal": {
+        "uri": "normal.array.ktx2",
+        "valid": true,
+        "vkFormat": 0,
+        "width": 1024,
+        "height": 1024,
+        "levels": 11,
+        "supercompression": "zstd",
+        "bytes": 10388120,
+        "sha256": "1f387c09fc37452f8d8ada2d55e8b87ee8906caec3648124f585163831861f94",
+        "layers": 8,
+        "command": [
+          "toktx",
+          "--t2",
+          "--genmipmap",
+          "--threads",
+          "4",
+          "--assign_oetf",
+          "linear",
+          "--encode",
+          "uastc",
+          "--layers",
+          "8",
+          "--uastc_quality",
+          "2",
+          "--zcmp",
+          "3",
+          "--normal_mode",
+          "--input_swizzle",
+          "rgb1",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/normal.array.ktx2",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/asphalt_fresh/normal.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/asphalt_worn/normal.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/granite_curb/normal.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/cobblestone/normal.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/concrete_slabs/normal.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/grass/normal.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/gravel/normal.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/quay_stone/normal.png"
+        ],
+        "inputs": [
+          "5d9a97c655110a7760f43ef6a3b56ee23a03dbcf983f5c07d0a8ad227de59d7c",
+          "78d274a1d99997511923b4fd366a72aa33cd20740418a92245c441ed92eb2453",
+          "ef08ce7204e8aa94e35130270a29dafa0392dfc3947e03f4127afdf39b048bf2",
+          "ebd30c748026cbe07161be4eea0e8bf57ff2ae808ba3232d84cdd53deaa918f0",
+          "3cc18bb3493cff25c7cc16ccb3f3fdbaa4bfa5f3f03843dbcd11f5eeb2ce4d6a",
+          "422049da31a2f12290f0c1772ab4d87a8505330f981c525376dfa0e5b4a68a2f",
+          "5567d9563459f8eea98eac34cca4be53b18a46e2373bea2fc41f7861fde8b8d9",
+          "37a7d4fcab19c204def1acbc5dad92f2ba2b21345abe0be4373e8cc38e3f559f"
+        ]
+      },
+      "orm": {
+        "uri": "orm.array.ktx2",
+        "valid": true,
+        "vkFormat": 0,
+        "width": 1024,
+        "height": 1024,
+        "levels": 11,
+        "supercompression": "BasisLZ(ETC1S)",
+        "bytes": 1542077,
+        "sha256": "045a312356b3229f3cf7f25cf576f18d223ec00674bb46fdd2edfb584995e2e9",
+        "layers": 8,
+        "command": [
+          "toktx",
+          "--t2",
+          "--genmipmap",
+          "--threads",
+          "4",
+          "--assign_oetf",
+          "linear",
+          "--encode",
+          "etc1s",
+          "--layers",
+          "8",
+          "--qlevel",
+          "160",
+          "--clevel",
+          "2",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/orm.array.ktx2",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/asphalt_fresh/orm.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/asphalt_worn/orm.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/granite_curb/orm.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/cobblestone/orm.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/concrete_slabs/orm.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/grass/orm.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/gravel/orm.png",
+          "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/library/quay_stone/orm.png"
+        ]
+      }
+    },
+    "gpu_bytes_8bpp": 33555072
+  },
+  "tiles": [
+    {
+      "version": 1,
+      "tile": "t0_0_0",
+      "material_keys": [
+        "asphalt_fresh",
+        "asphalt_worn",
+        "granite_curb",
+        "cobblestone",
+        "concrete_slabs",
+        "grass",
+        "gravel",
+        "quay_stone"
+      ],
+      "pixel_m": 0.04,
+      "source_native_pixel_m": {
+        "2022": 0.055,
+        "2025": 0.052
+      },
+      "pixel_note": "4 cm output sampling; native ortho detail is not increased by resampling",
+      "bounds_xz": [
+        0.0,
+        0.0,
+        250.0,
+        250.0
+      ],
+      "image_origin": "north-west; row increases south",
+      "ortho_uv": {
+        "offset": 0.01018808777429467,
+        "scale": 0.9796238244514106
+      },
+      "splat_uv": {
+        "offset": 0.007692307692307693,
+        "scale": 0.9846153846153847
+      },
+      "textures": {
+        "ortho2022": {
+          "uri": "ortho2022.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 5546005,
+          "sha256": "718a34fb7cd63e9d166bf9c367779419503610c4bc0da7ab67d89615885d0a38",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/ortho2022.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/ortho2022.png"
+          ],
+          "inputs": [
+            "29cab6273531f9c92aabb57014dc33cbe5f9f23d28122f410b3171a3d92dc4d2"
+          ]
+        },
+        "ortho2025": {
+          "uri": "ortho2025.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 6003198,
+          "sha256": "d65e0211b4b124107cbf11f8f64b1b26fa72f0c201a371c9fc21b2d5ad7a7676",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/ortho2025.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/ortho2025.png"
+          ],
+          "inputs": [
+            "a71a7c19b08fb3ae7e95c7d1eb59760c9b3fe03d3ea23432b139c5e587016566"
+          ]
+        },
+        "ortho": {
+          "uri": "ortho.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 5032535,
+          "sha256": "acfd0ffaa706ea552cb7ca750d17623048893953329b39b4ed7cdf2def620384",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "80",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/ortho.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/ortho.png"
+          ],
+          "inputs": [
+            "56e5e27a924e85e2133acb97e528b0954ced0d6fb312aec5b40597f82daa06f6"
+          ]
+        },
+        "splat0": {
+          "uri": "splat0.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 179982,
+          "sha256": "1b6343d0f6468974db418e4e6312f2ccbb468f69dcfb0a9fe52a14d7b25ab2d3",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/splat0.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/splat0.png"
+          ],
+          "inputs": [
+            "1b99891929826c794105e3abaddcb9427d0b7e098bdd65eb9f45d60c29b26b98"
+          ]
+        },
+        "splat1": {
+          "uri": "splat1.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 106782,
+          "sha256": "5ad5a536995e4d54097b504b11e15b4358dbcbddbd21bf417ee641df2155512b",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/splat1.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_0/splat1.png"
+          ],
+          "inputs": [
+            "86a25d35a40bf49b44873acf727da3f8bfce372c98d1047b6838ea6103169009"
+          ]
+        }
+      },
+      "runtime_textures": [
+        "ortho",
+        "splat0",
+        "splat1"
+      ],
+      "semantic_source": "ground triangles + ortho fallback",
+      "triangle_coverage": 1.0,
+      "ground_inputs": [
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_0.col.npz",
+          "sha256": "aa2874b4abe4de2d22c35e89dc08917a1881ff22d2869170a02e2d9cd11415b7"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_0.col.npz",
+          "sha256": "817ffe39fc1acf34cff5817216c1d0b918308939585507385dfbf295e1b1ac04"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_0.col.npz",
+          "sha256": "cad10a74d9342ce2aba473de97f999757a1661def2e59a433ef2601396d2424e"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_0.col.npz",
+          "sha256": "4bca708252be7240a3df90a008a97370d7051bf8b63d162699176bdcc7449b55"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_0.col.npz",
+          "sha256": "90b08f1f7aa7187f1c747842f509222aacd9aa42c75e4a03be49e2f43ebde7ac"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_1.col.npz",
+          "sha256": "cec568bdf6a6ce0599047beec45eca279dae45d77bbf551b1898355cded90177"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_1.col.npz",
+          "sha256": "8805412819ed842ecd7219a31adeb1a81f8998c0ef047fd3bf3177bc5bda839f"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_1.col.npz",
+          "sha256": "fb98cb0615e3c0d188e91d99535cb1c9eeabbc14c8a046f63f7f26a0baff3fc3"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_1.col.npz",
+          "sha256": "ba507a1aa5938091106309450d411436b6b9ba75da0fb80c3844a6808f7511e0"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_1.col.npz",
+          "sha256": "9f9e2efa13858afe74baefae655e057a5587192182d83dae41d3e9e16d8d5817"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_2.col.npz",
+          "sha256": "fd860d55740b642e0a26e8d6e42f696a4fc882e6ce3f9d34cbebb697576237d2"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_2.col.npz",
+          "sha256": "c949fbd27b6ee1dcf701633a423249c1bed56e36f3b3067102f4e3a0723cc5af"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_2.col.npz",
+          "sha256": "6157d88904430b9a0eded402349ebbe1e9cbcfa853979f04b47ec8b9a85827f9"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_2.col.npz",
+          "sha256": "52a16c7f96e6aa05c9be1ca66a8b99f18b2b65f861b3ff641cc156e3ebd6c34d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_2.col.npz",
+          "sha256": "e31eec150019b88271e79c09c463d4c6bb39042e215f3c20b57852eed4cf687f"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_3.col.npz",
+          "sha256": "869e14b7052e72412c1f382b8993bb808755556034c0ac8367a943a839be434c"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_3.col.npz",
+          "sha256": "f0c9b978183773e2abcd5afc38a60683c579ae6b1356cc3e39b152cfde070414"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_3.col.npz",
+          "sha256": "a2b71a472ed35f40475561ff85db39e3e28b43e8090beb10594e39ea7d247d6b"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_3.col.npz",
+          "sha256": "64147c858aed0856b38ca8c8b79496cf9a96158fdfdc469e81015818687aa104"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_3.col.npz",
+          "sha256": "f9d802477532fad7e651eea04b0f8d5d199c1f6e7c6ee10ca5a0bb4e0e1c30a6"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_4.col.npz",
+          "sha256": "37a00416837ef10d4b857945b6f6d224e99b68720e11d30540f440f74b1a369d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_4.col.npz",
+          "sha256": "443e00895f41e3c5f14d11a6e10ac288039eba92dd40c16e62e3266e604737f8"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_4.col.npz",
+          "sha256": "73eb1b5f52f2ae52893f29bc217054e922d126364de141ce30e190f0b6ce9a93"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_4.col.npz",
+          "sha256": "02fab8c32183b9c99e42b929c32a7c0cf2a08b638736e948d9530c7ef4eb564d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_4.col.npz",
+          "sha256": "c72169938b45241bd567f5d82c6606c1c2c9731324cf3d33e73d364c8b974fce"
+        }
+      ],
+      "uncertain_fraction": 0.315629184,
+      "gpu_bytes_8bpp": 57180080,
+      "seconds": 34.65
+    },
+    {
+      "version": 1,
+      "tile": "t0_0_1",
+      "material_keys": [
+        "asphalt_fresh",
+        "asphalt_worn",
+        "granite_curb",
+        "cobblestone",
+        "concrete_slabs",
+        "grass",
+        "gravel",
+        "quay_stone"
+      ],
+      "pixel_m": 0.04,
+      "source_native_pixel_m": {
+        "2022": 0.055,
+        "2025": 0.052
+      },
+      "pixel_note": "4 cm output sampling; native ortho detail is not increased by resampling",
+      "bounds_xz": [
+        0.0,
+        250.0,
+        250.0,
+        500.0
+      ],
+      "image_origin": "north-west; row increases south",
+      "ortho_uv": {
+        "offset": 0.01018808777429467,
+        "scale": 0.9796238244514106
+      },
+      "splat_uv": {
+        "offset": 0.007692307692307693,
+        "scale": 0.9846153846153847
+      },
+      "textures": {
+        "ortho2022": {
+          "uri": "ortho2022.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 5720921,
+          "sha256": "09f40885854dfeda7d36e1b8530125c1d97e58abd973944760d8d0d61c69821e",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/ortho2022.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/ortho2022.png"
+          ],
+          "inputs": [
+            "f35bf6e3822dd0d3742c0c795085a2090f10755274696b90d02cb7558265f0ca"
+          ]
+        },
+        "ortho2025": {
+          "uri": "ortho2025.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 6050184,
+          "sha256": "33bc062d7dbce700a59f5509c95b5e23ddc8975e876649e5665d59da572b8b45",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/ortho2025.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/ortho2025.png"
+          ],
+          "inputs": [
+            "70d9385e5f9372244bf9864b9e174c8f9246724110ef1ec0dd4e6bf0f6e40309"
+          ]
+        },
+        "ortho": {
+          "uri": "ortho.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 4036475,
+          "sha256": "387613c959b95e541536db0a61dece4ca3c8dfcc7582ec82161bd0074f6e3323",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "16",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/ortho.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/ortho.png"
+          ],
+          "inputs": [
+            "3b4d1741cb978e84db888b34b26798bdd4ed1e77431910a679b7ae7c03689fb4"
+          ]
+        },
+        "splat0": {
+          "uri": "splat0.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 80563,
+          "sha256": "546cc1674ade5457a713f18b508bec6db0f8b3748f93e64fd056fe54baeab26a",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/splat0.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/splat0.png"
+          ],
+          "inputs": [
+            "9da9e1e1a66ed80948ded667e5b71b9569bd6b05dc73cd303c3953d8c1071fdc"
+          ]
+        },
+        "splat1": {
+          "uri": "splat1.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 150045,
+          "sha256": "30b8dc80094554bba7527918253a5cb5fb2c682c8b62baff43b6eb4faf251c3f",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/splat1.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_0_1/splat1.png"
+          ],
+          "inputs": [
+            "bb4ca833f61c7ccfbf46e734bbca62a95ab1b17723816312a3a421aeb43bd47e"
+          ]
+        }
+      },
+      "runtime_textures": [
+        "ortho",
+        "splat0",
+        "splat1"
+      ],
+      "semantic_source": "ground triangles + ortho fallback",
+      "triangle_coverage": 1.0,
+      "ground_inputs": [
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_3.col.npz",
+          "sha256": "869e14b7052e72412c1f382b8993bb808755556034c0ac8367a943a839be434c"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_3.col.npz",
+          "sha256": "f0c9b978183773e2abcd5afc38a60683c579ae6b1356cc3e39b152cfde070414"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_3.col.npz",
+          "sha256": "a2b71a472ed35f40475561ff85db39e3e28b43e8090beb10594e39ea7d247d6b"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_3.col.npz",
+          "sha256": "64147c858aed0856b38ca8c8b79496cf9a96158fdfdc469e81015818687aa104"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_3.col.npz",
+          "sha256": "f9d802477532fad7e651eea04b0f8d5d199c1f6e7c6ee10ca5a0bb4e0e1c30a6"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_4.col.npz",
+          "sha256": "37a00416837ef10d4b857945b6f6d224e99b68720e11d30540f440f74b1a369d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_4.col.npz",
+          "sha256": "443e00895f41e3c5f14d11a6e10ac288039eba92dd40c16e62e3266e604737f8"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_4.col.npz",
+          "sha256": "73eb1b5f52f2ae52893f29bc217054e922d126364de141ce30e190f0b6ce9a93"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_4.col.npz",
+          "sha256": "02fab8c32183b9c99e42b929c32a7c0cf2a08b638736e948d9530c7ef4eb564d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_4.col.npz",
+          "sha256": "c72169938b45241bd567f5d82c6606c1c2c9731324cf3d33e73d364c8b974fce"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_5.col.npz",
+          "sha256": "f853d07f1799d3f1a9f2884fcd40e5905d9ca08882d67d8238ff09471092c938"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_5.col.npz",
+          "sha256": "674e6d7650f56c1dbe03b88c3311b60f5c7a640fe86bf0a379e4de6a82eaf7eb"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_5.col.npz",
+          "sha256": "ec9b86639057dd59940936ee65fbded45a5476bfc3c31505214329dcf81fb6ba"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_5.col.npz",
+          "sha256": "e50a1c68bab6fec34c1d983dd6397f20f134342b2b74276fc1c5d0375d46f3e9"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_5.col.npz",
+          "sha256": "fb8049f7f551c850006ed9bd3c1727bda34f38bf0328c7b8a4c8d493ad7fe2a0"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_6.col.npz",
+          "sha256": "8a9eeaeb2cb6d75cc225c3d4a11628958ebf2c2b6627c17212984fd7d53ea746"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_6.col.npz",
+          "sha256": "8fa9d4f5b36397105ca422b304b89dcdfecad50c5c34535bf7c406256f934b48"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_6.col.npz",
+          "sha256": "8aa29ae61d8540600b6fdd3ea58445d347bae078e9ae0c12f4ac9628fd505bd4"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_6.col.npz",
+          "sha256": "8ae539f087858647f13ae3e7480f5c1e32bdd4701ce2f5a6553c8fb0995c33f1"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_6.col.npz",
+          "sha256": "a6c5d140f640e18ba4298b4f8b54178057313986d6a768a030325523518645fd"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_0_7.col.npz",
+          "sha256": "14d91d3901556dea154dafe72c872554d238e39a545cf5a377c0891e657bca56"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_1_7.col.npz",
+          "sha256": "0efeb1a33c12bb029e3f3309df08e250d882427e9c715ab8024df611a754757b"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_2_7.col.npz",
+          "sha256": "8db57c5d9d1d79ac8665efeafbe93011bd7dcf635304a7f38d3a4c45993ea662"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_7.col.npz",
+          "sha256": "bd02c44fe5849931f84e8b70db86c70ee38f48ce576ad34562cb7696ef628756"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_7.col.npz",
+          "sha256": "b08c5c2e192c57cd78530bda6f5e3bc837ef185affdb2e05cebb9f09807b4e38"
+        }
+      ],
+      "uncertain_fraction": 0.3348918016,
+      "gpu_bytes_8bpp": 57180080,
+      "seconds": 34.85
+    },
+    {
+      "version": 1,
+      "tile": "t0_1_0",
+      "material_keys": [
+        "asphalt_fresh",
+        "asphalt_worn",
+        "granite_curb",
+        "cobblestone",
+        "concrete_slabs",
+        "grass",
+        "gravel",
+        "quay_stone"
+      ],
+      "pixel_m": 0.04,
+      "source_native_pixel_m": {
+        "2022": 0.055,
+        "2025": 0.052
+      },
+      "pixel_note": "4 cm output sampling; native ortho detail is not increased by resampling",
+      "bounds_xz": [
+        250.0,
+        0.0,
+        500.0,
+        250.0
+      ],
+      "image_origin": "north-west; row increases south",
+      "ortho_uv": {
+        "offset": 0.01018808777429467,
+        "scale": 0.9796238244514106
+      },
+      "splat_uv": {
+        "offset": 0.007692307692307693,
+        "scale": 0.9846153846153847
+      },
+      "textures": {
+        "ortho2022": {
+          "uri": "ortho2022.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 5624044,
+          "sha256": "2080b3f277fa838de4b89879937574588cb47347d0926d5feef6b4c96f18694c",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/ortho2022.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/ortho2022.png"
+          ],
+          "inputs": [
+            "8b9c61d1c0e1563fad88c65abf02c38d435a6cac3ba7c7094e1c40eec9f8f3ed"
+          ]
+        },
+        "ortho2025": {
+          "uri": "ortho2025.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 5848261,
+          "sha256": "f088cb587c65bc116df28be7eac9ce479bb2c6c5e8d2c2ab002b24d940562f1d",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/ortho2025.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/ortho2025.png"
+          ],
+          "inputs": [
+            "f3e0c332886003c05121e9649275e9907b2a316ec04e5438e9e2dabaaeaba576"
+          ]
+        },
+        "ortho": {
+          "uri": "ortho.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 5656463,
+          "sha256": "4dd3c9631263e132bfa8a3969b345e7d58eae842753bc996f4664d35f86d8345",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/ortho.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/ortho.png"
+          ],
+          "inputs": [
+            "758b702c2c2de58c4a9cc1970c1b67b4e4cb1c8c5f67ebe58ac5ba7093031bd7"
+          ]
+        },
+        "splat0": {
+          "uri": "splat0.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 119947,
+          "sha256": "251444b4b9cc4d059f1e763c93266d4ac3d870f9d50976bd89a9bfce2ee80e46",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/splat0.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/splat0.png"
+          ],
+          "inputs": [
+            "26271a76481870353b053342ed5b5a73c20f47b49aeabf68a391977a9ba437b7"
+          ]
+        },
+        "splat1": {
+          "uri": "splat1.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 140236,
+          "sha256": "0c454be82b13d6473864d58bdf142a9cdea68ddbbdc09250564d66a3ce0a045c",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/splat1.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_0/splat1.png"
+          ],
+          "inputs": [
+            "0dfe6ecb27c643edf3e8242298c3fe1300283e527b9f1cb822826e207cbee50a"
+          ]
+        }
+      },
+      "runtime_textures": [
+        "ortho",
+        "splat0",
+        "splat1"
+      ],
+      "semantic_source": "ground triangles + ortho fallback",
+      "triangle_coverage": 1.0,
+      "ground_inputs": [
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_0.col.npz",
+          "sha256": "4bca708252be7240a3df90a008a97370d7051bf8b63d162699176bdcc7449b55"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_0.col.npz",
+          "sha256": "90b08f1f7aa7187f1c747842f509222aacd9aa42c75e4a03be49e2f43ebde7ac"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_0.col.npz",
+          "sha256": "81fb967dd186eba406d1e6785e98e42b28b1189b9d220bb218fb593237809792"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_0.col.npz",
+          "sha256": "90921386387a64c888dbae9f956358e6eda919d92905c883c4300df66e9d76a1"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_0.col.npz",
+          "sha256": "bb2f440599ed2608d6b0055420b5439d676601e5378ec1dcfd21bf163ad6d5ac"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_1.col.npz",
+          "sha256": "ba507a1aa5938091106309450d411436b6b9ba75da0fb80c3844a6808f7511e0"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_1.col.npz",
+          "sha256": "9f9e2efa13858afe74baefae655e057a5587192182d83dae41d3e9e16d8d5817"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_1.col.npz",
+          "sha256": "2d19f93d995b9c91d1ab5cff13b6608306a64cd6f844333979d81410b9fcd3f2"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_1.col.npz",
+          "sha256": "6d31d5cb37fe1ad2e5e93a0b52be8051991ea944554d7099f281e2fcf6835c88"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_1.col.npz",
+          "sha256": "d42225b2dfde7f02b05d8727599e4ff73c153e23f84872f8d2c9389d29a5ea0d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_2.col.npz",
+          "sha256": "52a16c7f96e6aa05c9be1ca66a8b99f18b2b65f861b3ff641cc156e3ebd6c34d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_2.col.npz",
+          "sha256": "e31eec150019b88271e79c09c463d4c6bb39042e215f3c20b57852eed4cf687f"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_2.col.npz",
+          "sha256": "38cb35aca17648ffc7407687ffc9a25d1724428722262fe23ec2a7500522b9ca"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_2.col.npz",
+          "sha256": "d4d7593c58950f47afa2228c9bb6da78a5cd4c432abceae5d08be4d9f1a4aa92"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_2.col.npz",
+          "sha256": "975267ae5df1494cd8769043cfc6b4e40bd32d52c27ae28ded0443fc06fe167e"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_3.col.npz",
+          "sha256": "64147c858aed0856b38ca8c8b79496cf9a96158fdfdc469e81015818687aa104"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_3.col.npz",
+          "sha256": "f9d802477532fad7e651eea04b0f8d5d199c1f6e7c6ee10ca5a0bb4e0e1c30a6"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_3.col.npz",
+          "sha256": "a552dacf9864d9184ba659f4c5f1285f7615a58341837d9ced973ba4737462b1"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_3.col.npz",
+          "sha256": "7c4d9664c3eeded8e101aade626336e0a51789fab20ef1091f6b8d783d4062a9"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_3.col.npz",
+          "sha256": "8293b54d0f19806fbdb14c1e554d91cd2d57a67fe1ae738e2b2c4673b9d4cf4d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_4.col.npz",
+          "sha256": "02fab8c32183b9c99e42b929c32a7c0cf2a08b638736e948d9530c7ef4eb564d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_4.col.npz",
+          "sha256": "c72169938b45241bd567f5d82c6606c1c2c9731324cf3d33e73d364c8b974fce"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_4.col.npz",
+          "sha256": "2fa5004200d77b10e60b5436b61d1074fce947e722e9c832d77c806507da9219"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_4.col.npz",
+          "sha256": "19a49b4db60cef1076fedde025fa0cbdb114bd26c328cb4c163defa1cee551f0"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_4.col.npz",
+          "sha256": "97bd3d4c234e20cd0b722ab6a07ae083e42b9faf9a074002c3decc86bc249744"
+        }
+      ],
+      "uncertain_fraction": 0.3731212544,
+      "gpu_bytes_8bpp": 57180080,
+      "seconds": 27.44
+    },
+    {
+      "version": 1,
+      "tile": "t0_1_1",
+      "material_keys": [
+        "asphalt_fresh",
+        "asphalt_worn",
+        "granite_curb",
+        "cobblestone",
+        "concrete_slabs",
+        "grass",
+        "gravel",
+        "quay_stone"
+      ],
+      "pixel_m": 0.04,
+      "source_native_pixel_m": {
+        "2022": 0.055,
+        "2025": 0.052
+      },
+      "pixel_note": "4 cm output sampling; native ortho detail is not increased by resampling",
+      "bounds_xz": [
+        250.0,
+        250.0,
+        500.0,
+        500.0
+      ],
+      "image_origin": "north-west; row increases south",
+      "ortho_uv": {
+        "offset": 0.01018808777429467,
+        "scale": 0.9796238244514106
+      },
+      "splat_uv": {
+        "offset": 0.007692307692307693,
+        "scale": 0.9846153846153847
+      },
+      "textures": {
+        "ortho2022": {
+          "uri": "ortho2022.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 6069195,
+          "sha256": "edaad8d20bc95abf34d805e3f770da1e31e19c26a363f83443adc559c7370043",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/ortho2022.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/ortho2022.png"
+          ],
+          "inputs": [
+            "92c26cead6bc9c2c7e35fefc3d703ec8d98a8295fb09ce25c37fcf95b77ef982"
+          ]
+        },
+        "ortho2025": {
+          "uri": "ortho2025.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 6317238,
+          "sha256": "053d17609aa5f34e1e51af15f9809a9f28c977a20ccacdfc560ec56dd7257848",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "128",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/ortho2025.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/ortho2025.png"
+          ],
+          "inputs": [
+            "520f0b5c76e1efc74eea24dcf0a4856e90808861f30878d9b589e2ba698eab38"
+          ]
+        },
+        "ortho": {
+          "uri": "ortho.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 6380,
+          "height": 6380,
+          "levels": 13,
+          "supercompression": "BasisLZ(ETC1S)",
+          "bytes": 4270946,
+          "sha256": "0aac8a4b757dbb0becd485bbfd5c9f41ef05e140743e85ff36576a66e76a553a",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "srgb",
+            "--encode",
+            "etc1s",
+            "--qlevel",
+            "16",
+            "--clevel",
+            "0",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/ortho.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/ortho.png"
+          ],
+          "inputs": [
+            "209a534d93d0ac8ce35dfd37a3d6463aec26a9a3239947af1e5cbd34cd17f3cc"
+          ]
+        },
+        "splat0": {
+          "uri": "splat0.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 92962,
+          "sha256": "d4b021d628aed734fa1326dcc21cba8333d22e4b2698f32f0e2c9c3003276174",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/splat0.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/splat0.png"
+          ],
+          "inputs": [
+            "8356a6313671f72dd43a82f0f1e97dc1cba605515f31665cb81208f07bf65b4d"
+          ]
+        },
+        "splat1": {
+          "uri": "splat1.ktx2",
+          "valid": true,
+          "vkFormat": 0,
+          "width": 1040,
+          "height": 1040,
+          "levels": 11,
+          "supercompression": "zstd",
+          "bytes": 173685,
+          "sha256": "51682bcb7080b0ecf30ec7104a5802a8f48c7848cd3bfa8dda276fb68694c053",
+          "layers": 1,
+          "command": [
+            "toktx",
+            "--t2",
+            "--genmipmap",
+            "--threads",
+            "4",
+            "--assign_oetf",
+            "linear",
+            "--encode",
+            "uastc",
+            "--uastc_quality",
+            "2",
+            "--zcmp",
+            "3",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/splat1.ktx2",
+            "/Users/wnt/turku3d/wt/w1-10-groundtex/work/textures/ground/t0_1_1/splat1.png"
+          ],
+          "inputs": [
+            "0e12e75ba96791c8b169bbd75901d07f85a961fc8431cc55d5e9c7170f7473c9"
+          ]
+        }
+      },
+      "runtime_textures": [
+        "ortho",
+        "splat0",
+        "splat1"
+      ],
+      "semantic_source": "ground triangles + ortho fallback",
+      "triangle_coverage": 1.0,
+      "ground_inputs": [
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_3.col.npz",
+          "sha256": "64147c858aed0856b38ca8c8b79496cf9a96158fdfdc469e81015818687aa104"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_3.col.npz",
+          "sha256": "f9d802477532fad7e651eea04b0f8d5d199c1f6e7c6ee10ca5a0bb4e0e1c30a6"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_3.col.npz",
+          "sha256": "a552dacf9864d9184ba659f4c5f1285f7615a58341837d9ced973ba4737462b1"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_3.col.npz",
+          "sha256": "7c4d9664c3eeded8e101aade626336e0a51789fab20ef1091f6b8d783d4062a9"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_3.col.npz",
+          "sha256": "8293b54d0f19806fbdb14c1e554d91cd2d57a67fe1ae738e2b2c4673b9d4cf4d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_4.col.npz",
+          "sha256": "02fab8c32183b9c99e42b929c32a7c0cf2a08b638736e948d9530c7ef4eb564d"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_4.col.npz",
+          "sha256": "c72169938b45241bd567f5d82c6606c1c2c9731324cf3d33e73d364c8b974fce"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_4.col.npz",
+          "sha256": "2fa5004200d77b10e60b5436b61d1074fce947e722e9c832d77c806507da9219"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_4.col.npz",
+          "sha256": "19a49b4db60cef1076fedde025fa0cbdb114bd26c328cb4c163defa1cee551f0"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_4.col.npz",
+          "sha256": "97bd3d4c234e20cd0b722ab6a07ae083e42b9faf9a074002c3decc86bc249744"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_5.col.npz",
+          "sha256": "e50a1c68bab6fec34c1d983dd6397f20f134342b2b74276fc1c5d0375d46f3e9"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_5.col.npz",
+          "sha256": "fb8049f7f551c850006ed9bd3c1727bda34f38bf0328c7b8a4c8d493ad7fe2a0"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_5.col.npz",
+          "sha256": "3608bea479b869526b26a26c137493e6248b444eecf28a4e99983b8ee076357a"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_5.col.npz",
+          "sha256": "0db4251506647814db6690c9ff0bae7263777597675e8b6ad7697c4c9ac37ab2"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_5.col.npz",
+          "sha256": "28beb3967fff2ec4f467bdf6ea77ae536b55907dd7501ba7664fef354503d197"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_6.col.npz",
+          "sha256": "8ae539f087858647f13ae3e7480f5c1e32bdd4701ce2f5a6553c8fb0995c33f1"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_6.col.npz",
+          "sha256": "a6c5d140f640e18ba4298b4f8b54178057313986d6a768a030325523518645fd"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_6.col.npz",
+          "sha256": "44966c89626e7708e207f957f53d64c65ca4d377208e82f304a214703b101936"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_6.col.npz",
+          "sha256": "13b5e4a4cb53660f0de8dba47b2ab28f017b8e5f718996716c91ceec7d8f199b"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_6.col.npz",
+          "sha256": "330cf51800a64d5f7b13f9cad6dd787a492aa63bcd1fda4ca36876102b9be373"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_3_7.col.npz",
+          "sha256": "bd02c44fe5849931f84e8b70db86c70ee38f48ce576ad34562cb7696ef628756"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_4_7.col.npz",
+          "sha256": "b08c5c2e192c57cd78530bda6f5e3bc837ef185affdb2e05cebb9f09807b4e38"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_5_7.col.npz",
+          "sha256": "5d20c5a89d548f8ce71d3c294ad6c7befa8d6d66d2b9f21c506297e3f874420c"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_6_7.col.npz",
+          "sha256": "74a3196e35a7291a4e84e5be696839a4cd232538571a2ef0e2f0effc0289ca5f"
+        },
+        {
+          "path": "/Users/wnt/turku3d/data/build/layers/ground/c_7_7.col.npz",
+          "sha256": "5ff555d4438e1f33a9aef6f141acc0ec75826f50bd67f806f0bbaefb01da12b2"
+        }
+      ],
+      "uncertain_fraction": 0.4116471296,
+      "gpu_bytes_8bpp": 57180080,
+      "seconds": 8.6
+    }
+  ],
+  "gpu_budget": {
+    "worst_supported_block_bytes": 16,
+    "shared_library_bytes": 33555072,
+    "four_resident_tiles_bytes": 262275392,
+    "D4_limit_bytes": 300000000,
+    "within_D4": true,
+    "scope": "ground textures only; 2022/2025 archive textures are not resident",
+    "uncompressed_fallback": "not budget-compliant; requires block-compression support"
+  },
+  "calibration": {
+    "gain": [
+      1.4,
+      1.4,
+      1.4
+    ],
+    "offset": [
+      -35.0,
+      -35.0,
+      -35.0
+    ],
+    "samples": 2250000
+  },
+  "source_licenses": {
+    "checked_on": "2026-10-25",
+    "sources": [
+      {
+        "id": "turku_city",
+        "products": [
+          "2022 true ortho",
+          "2025 ortho",
+          "GIS:Katualueet carriageway geometry"
+        ],
+        "source_license": "CC-BY-4.0",
+        "attribution": "Base map \u00a9 City of Turku, CC BY 4.0",
+        "license_source": "https://www.turku.fi/tietoa-turusta/kartat-ja-paikkatieto",
+        "changes": "Resampling, colour matching, temporal cleanup, semantic classification and geometric clipping"
+      },
+      {
+        "id": "openstreetmap",
+        "products": [
+          "Crossing and explicit road-marking semantics/geometry"
+        ],
+        "source_license": "ODbL-1.0",
+        "attribution": "\u00a9 OpenStreetMap contributors",
+        "license_source": "https://www.openstreetmap.org/copyright",
+        "changes": "Crossing stripe construction and clipping to city carriageway polygons"
+      },
+      {
+        "id": "generated_ground_library",
+        "products": [
+          "Eight ground material albedos and derived PBR maps"
+        ],
+        "source_license": null,
+        "provenance": "OpenAI image_gen generated outputs under the applicable OpenAI terms; no CC0 source claim",
+        "source_record": "Sandbox textures/library/MANIFEST.json records thread IDs, job keys, source/output hashes and processing",
+        "changes": "Low-frequency flattening, tileable quilting, Sobel normals/height, heuristic ORM, KTX2 encoding"
+      }
+    ]
+  },
+  "seams": {
+    "comparisons": [
+      {
+        "a": "t0_0_0",
+        "b": "t0_1_0",
+        "axis": "east",
+        "product": "ortho2022",
+        "max_code_difference": 1,
+        "mean_code_difference": 0.0004653885274531253,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_0",
+        "b": "t0_1_0",
+        "axis": "east",
+        "product": "ortho2025",
+        "max_code_difference": 2,
+        "mean_code_difference": 0.0005317583689971277,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_0",
+        "b": "t0_1_0",
+        "axis": "east",
+        "product": "ortho",
+        "max_code_difference": 29,
+        "mean_code_difference": 0.002004689069286916,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_0",
+        "b": "t0_0_1",
+        "axis": "south",
+        "product": "ortho2022",
+        "max_code_difference": 0,
+        "mean_code_difference": 0.0,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_0",
+        "b": "t0_0_1",
+        "axis": "south",
+        "product": "ortho2025",
+        "max_code_difference": 0,
+        "mean_code_difference": 0.0,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_0",
+        "b": "t0_0_1",
+        "axis": "south",
+        "product": "ortho",
+        "max_code_difference": 0,
+        "mean_code_difference": 0.0,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_1",
+        "b": "t0_1_1",
+        "axis": "east",
+        "product": "ortho2022",
+        "max_code_difference": 1,
+        "mean_code_difference": 0.00046139034422758296,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_1",
+        "b": "t0_1_1",
+        "axis": "east",
+        "product": "ortho2025",
+        "max_code_difference": 2,
+        "mean_code_difference": 0.0006133213067981909,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_0_1",
+        "b": "t0_1_1",
+        "axis": "east",
+        "product": "ortho",
+        "max_code_difference": 14,
+        "mean_code_difference": 0.0025028626991894882,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_1_0",
+        "b": "t0_1_1",
+        "axis": "south",
+        "product": "ortho2022",
+        "max_code_difference": 0,
+        "mean_code_difference": 0.0,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_1_0",
+        "b": "t0_1_1",
+        "axis": "south",
+        "product": "ortho2025",
+        "max_code_difference": 0,
+        "mean_code_difference": 0.0,
+        "p99_code_difference": 0.0
+      },
+      {
+        "a": "t0_1_0",
+        "b": "t0_1_1",
+        "axis": "south",
+        "product": "ortho",
+        "max_code_difference": 0,
+        "mean_code_difference": 0.0,
+        "p99_code_difference": 0.0
+      }
+    ],
+    "pass": true,
+    "scope": "source-grid seam continuity; lossy KTX2 seams also need rendered review"
+  },
+  "markings": {
+    "counts": {
+      "crosswalk": 4013,
+      "lane_solid": 0,
+      "lane_dashed": 0,
+      "stop_line": 0
+    },
+    "unresolved_count": 586,
+    "missing_kinds": [
+      "lane_solid",
+      "lane_dashed",
+      "stop_line"
+    ],
+    "inputs": [
+      {
+        "path": "/Users/wnt/turku3d/data/raw/wfs/work-3x3/GIS_Katualueet.parquet",
+        "sha256": "df1ea099154442671477f20face4b58916e9e7f27612543e335999a520748962"
+      },
+      {
+        "path": "/Users/wnt/turku3d/data/raw/osm/work-3x3/work-3x3-261024.parquet",
+        "sha256": "c0ad3c548414765ad00ec666d55f774056ad609ddc92eef5689f70b026ab6024"
+      }
+    ]
+  },
+  "qa": {
+    "scope": "isolated flat ground at 1.7 m; not the completed city",
+    "comparison": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/reports/ground-qa/comparison.jpg",
+    "captures": [
+      {
+        "ready": true,
+        "backend": "WebGPUBackend",
+        "view": 0,
+        "before": true,
+        "eye": [
+          147.292,
+          1.7,
+          271.906
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgpu-0-before.png",
+        "sha256": "cbdffe6ea2e0c6449df11ea2a3d7316af6e820f99c6454f9c7bbd270577ab92a",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGPUBackend",
+        "view": 0,
+        "before": false,
+        "eye": [
+          147.292,
+          1.7,
+          271.906
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgpu-0-after.png",
+        "sha256": "7833cd009ee97a466b3ed84a36366ad1e2813b11b58c8742d51ac5aa0e514f5c",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGPUBackend",
+        "view": 1,
+        "before": true,
+        "eye": [
+          203.504,
+          1.7,
+          241.29
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgpu-1-before.png",
+        "sha256": "caeb3355e79f4a123a60257e2c8d752e1ee57b6304febc4a22d4e172e09c880f",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGPUBackend",
+        "view": 1,
+        "before": false,
+        "eye": [
+          203.504,
+          1.7,
+          241.29
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgpu-1-after.png",
+        "sha256": "0d7fbacf07af6e5815bd7816666640be9c048e8665c34836c9ec715129afddbd",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGPUBackend",
+        "view": 2,
+        "before": true,
+        "eye": [
+          175.963,
+          1.7,
+          257.297
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgpu-2-before.png",
+        "sha256": "d213a4e50dba756c4ee00ff6434ea8140b830d3b9ed7cc29ee98eb6c55a9b153",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGPUBackend",
+        "view": 2,
+        "before": false,
+        "eye": [
+          175.963,
+          1.7,
+          257.297
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgpu-2-after.png",
+        "sha256": "9a4715f09e19c11c5a0fedda43508f36a31e6249614c75e700167255f24710a8",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGLBackend",
+        "view": 0,
+        "before": true,
+        "eye": [
+          147.292,
+          1.7,
+          271.906
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgl-0-before.png",
+        "sha256": "d74088cfb67d8aac16aacaa0a0af9c1a6c4729749ab98dff1f2d2e684302b8ce",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGLBackend",
+        "view": 0,
+        "before": false,
+        "eye": [
+          147.292,
+          1.7,
+          271.906
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgl-0-after.png",
+        "sha256": "2c38c8fedf9a5645092f7175533b5e317e70098d105c437a955dba8c6db7f164",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGLBackend",
+        "view": 1,
+        "before": true,
+        "eye": [
+          203.504,
+          1.7,
+          241.29
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgl-1-before.png",
+        "sha256": "b347b368540fe8a670ec628dccb8bd000fdbc0ad14e9051ba79113da9238539f",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGLBackend",
+        "view": 1,
+        "before": false,
+        "eye": [
+          203.504,
+          1.7,
+          241.29
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgl-1-after.png",
+        "sha256": "1651948b00d21d78570afe445c7c3ec98188858f04e22c06734ab72e00badf2a",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGLBackend",
+        "view": 2,
+        "before": true,
+        "eye": [
+          175.963,
+          1.7,
+          257.297
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgl-2-before.png",
+        "sha256": "9766182bbf2191f59d5b3561b653934365bb80d81e173365a3a96f28cc67523a",
+        "errors": []
+      },
+      {
+        "ready": true,
+        "backend": "WebGLBackend",
+        "view": 2,
+        "before": false,
+        "eye": [
+          175.963,
+          1.7,
+          257.297
+        ],
+        "bounds": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "calls": 6,
+        "file": "webgl-2-after.png",
+        "sha256": "353cc81450af97fe52da0700a6359cb59d54ef7dc1129e35788dca69b5b0fa0a",
+        "errors": []
+      }
+    ]
+  },
+  "integration": {
+    "base_main": "dfb9204",
+    "code_commit": "5a4dd04",
+    "gate": {
+      "status": "PASS",
+      "seconds": 628.612,
+      "stages": 13,
+      "log": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/reports/ground-gate-green.log"
+    },
+    "semantic_core_coverage": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "assembly": {
+      "t0_0_0": {
+        "url": "visual/0/t0_0_0.glb",
+        "sha256": "f86b0a286ac01b44d441b3bb2864a1fb16db9cd7bfa335a6b67904902cb02789",
+        "bytes": 5751188,
+        "level": 0,
+        "tris": 86499,
+        "h": [
+          -13.761,
+          38.099
+        ],
+        "brotli_bytes": 1521884,
+        "ground_texture_bytes": 5319299,
+        "wire_bytes": 6841183,
+        "max_error_m": 0,
+        "bounds": [
+          [
+            -59.68790817260742,
+            -13.760869026184082,
+            -32.70600128173828
+          ],
+          [
+            269.3405456542969,
+            38.0989990234375,
+            263.392333984375
+          ]
+        ]
+      },
+      "t0_0_1": {
+        "url": "visual/0/t0_0_1.glb",
+        "sha256": "f26758a8a05a1231a35ffba9ea7d6438c9aaaa6c4d69f54b04fa07f36bbf7441",
+        "bytes": 4615272,
+        "level": 0,
+        "tris": 198371,
+        "h": [
+          -0.181,
+          188.035
+        ],
+        "brotli_bytes": 2694592,
+        "ground_texture_bytes": 4267083,
+        "wire_bytes": 6961675,
+        "max_error_m": 0,
+        "bounds": [
+          [
+            -0.9835288524627686,
+            -0.18122625350952148,
+            236.59300231933594
+          ],
+          [
+            250,
+            188.0345001220703,
+            500
+          ]
+        ]
+      },
+      "t0_1_0": {
+        "url": "visual/0/t0_1_0.glb",
+        "sha256": "54c97419589dea96e77c6bf9e6458da025f0d0e87dac5f6176c72c2b5bd4a392",
+        "bytes": 4992000,
+        "level": 0,
+        "tris": 130377,
+        "h": [
+          -4.847,
+          38.274
+        ],
+        "brotli_bytes": 1975300,
+        "ground_texture_bytes": 5916646,
+        "wire_bytes": 7891946,
+        "max_error_m": 0,
+        "bounds": [
+          [
+            221.73599243164062,
+            -4.847163200378418,
+            -23.031539916992188
+          ],
+          [
+            537.91552734375,
+            38.27399826049805,
+            254.1929931640625
+          ]
+        ]
+      },
+      "t0_1_1": {
+        "url": "visual/0/t0_1_1.glb",
+        "sha256": "d9715266e6a0692250eaa0083fd6452f6bbe09443b2b916da44ede866b92b0d8",
+        "bytes": 5825512,
+        "level": 0,
+        "tris": 198957,
+        "h": [
+          -0.011,
+          47.616
+        ],
+        "brotli_bytes": 2788642,
+        "ground_texture_bytes": 4537593,
+        "wire_bytes": 7326235,
+        "max_error_m": 0,
+        "bounds": [
+          [
+            250,
+            -0.011235736310482025,
+            250
+          ],
+          [
+            500,
+            47.61600112915039,
+            500
+          ]
+        ]
+      }
+    },
+    "scene_qa": [
+      {
+        "backend": "webgpu",
+        "view": "office-front",
+        "mode": "before",
+        "file": "webgpu-office-front-before.png",
+        "sha256": "21ac262134d21a5d97d98f32f5c67d0f0d6e0a2ae37365056d2b7823db55022d",
+        "groundMeshes": 27,
+        "buildingMeshes": 3640,
+        "texturedGroundMeshes": 0,
+        "eyeHeight": 1.7,
+        "camera": [
+          175.96299999952316,
+          5.418194012461538,
+          257.2970000002533
+        ],
+        "residentTris": 642404,
+        "perf": {
+          "backend": "WebGPU",
+          "totalFrames": 374,
+          "windowFrames": 374,
+          "resolution": [
+            1280,
+            960
+          ],
+          "cpuMs": {
+            "samples": 374,
+            "p50": 1.0199999809265137,
+            "p95": 445.3599998950958
+          },
+          "gpuMs": {
+            "samples": 371,
+            "p50": 2.356298,
+            "p95": 445.429204
+          },
+          "workMs": {
+            "samples": 371,
+            "p50": 3.4902599332427977,
+            "p95": 890.3282528474122
+          },
+          "frameMs": {
+            "samples": 373,
+            "p50": 16.72000002861023,
+            "p95": 446.9949998855591
+          },
+          "gpuStatus": "timestamp-query",
+          "gpuSkipped": 0,
+          "drawCalls": 62317,
+          "triangles": 8309631
+        },
+        "errors": []
+      },
+      {
+        "backend": "webgpu",
+        "view": "office-west",
+        "mode": "before",
+        "file": "webgpu-office-west-before.png",
+        "sha256": "9ace17ce38b45c52446deb55608665d66b9e21b1bd52abbcb3bd88463a935790",
+        "groundMeshes": 20,
+        "buildingMeshes": 1715,
+        "texturedGroundMeshes": 0,
+        "eyeHeight": 1.7,
+        "camera": [
+          147.29199999943376,
+          5.315409908205649,
+          271.9060000004247
+        ],
+        "residentTris": 642404,
+        "perf": {
+          "backend": "WebGPU",
+          "totalFrames": 532,
+          "windowFrames": 532,
+          "resolution": [
+            1280,
+            960
+          ],
+          "cpuMs": {
+            "samples": 532,
+            "p50": 1.0099999904632568,
+            "p95": 172.88499999046326
+          },
+          "gpuMs": {
+            "samples": 529,
+            "p50": 2.797249,
+            "p95": 174.115677
+          },
+          "workMs": {
+            "samples": 529,
+            "p50": 3.8939980762939452,
+            "p95": 347.20824195231626
+          },
+          "frameMs": {
+            "samples": 531,
+            "p50": 16.81500005722046,
+            "p95": 173.71000003814697
+          },
+          "gpuStatus": "timestamp-query",
+          "gpuSkipped": 0,
+          "drawCalls": 22552,
+          "triangles": 5230348
+        },
+        "errors": []
+      },
+      {
+        "backend": "webgpu",
+        "view": "office-east",
+        "mode": "before",
+        "file": "webgpu-office-east-before.png",
+        "sha256": "e2eac7cad8d17fd6c4093897a20207c0205358ba66367f4a84a2df852d375bc3",
+        "groundMeshes": 26,
+        "buildingMeshes": 3613,
+        "texturedGroundMeshes": 0,
+        "eyeHeight": 1.7,
+        "camera": [
+          203.50400000065565,
+          5.452119235355409,
+          241.29000000003725
+        ],
+        "residentTris": 642404,
+        "perf": {
+          "backend": "WebGPU",
+          "totalFrames": 528,
+          "windowFrames": 528,
+          "resolution": [
+            1280,
+            960
+          ],
+          "cpuMs": {
+            "samples": 528,
+            "p50": 0.8599998950958252,
+            "p95": 440.1949999332428
+          },
+          "gpuMs": {
+            "samples": 525,
+            "p50": 2.478003,
+            "p95": 441.488139
+          },
+          "workMs": {
+            "samples": 525,
+            "p50": 3.3938769809265135,
+            "p95": 880.0096689427795
+          },
+          "frameMs": {
+            "samples": 527,
+            "p50": 16.72499990463257,
+            "p95": 441.81500005722046
+          },
+          "gpuStatus": "timestamp-query",
+          "gpuSkipped": 0,
+          "drawCalls": 61841,
+          "triangles": 8271007
+        },
+        "errors": []
+      },
+      {
+        "backend": "webgpu",
+        "view": "office-front",
+        "headingDeg": 144.819,
+        "pitchDeg": -12,
+        "fovDeg": 65,
+        "quality": "medium",
+        "mode": "after",
+        "file": "webgpu-office-front-after.png",
+        "sha256": "17fcaff6d13056d60e9ba7bb07260cbc2f6ac8d85ece0a50733a6bdeed2e91db",
+        "groundMeshes": 27,
+        "buildingMeshes": 3640,
+        "texturedGroundMeshes": 21,
+        "eyeHeight": 1.7,
+        "camera": [
+          175.96299999952316,
+          5.418194012461538,
+          257.2970000002533
+        ],
+        "residentTris": 642404,
+        "perf": {
+          "backend": "WebGPU",
+          "totalFrames": 124,
+          "windowFrames": 124,
+          "resolution": [
+            1280,
+            960
+          ],
+          "cpuMs": {
+            "samples": 124,
+            "p50": 457.6300001144409,
+            "p95": 555.1799998283386
+          },
+          "gpuMs": {
+            "samples": 121,
+            "p50": 456.839737,
+            "p95": 520.81026
+          },
+          "workMs": {
+            "samples": 121,
+            "p50": 915.8347368855591,
+            "p95": 1107.3953440572204
+          },
+          "frameMs": {
+            "samples": 123,
+            "p50": 459.22000002861023,
+            "p95": 572.6549999713898
+          },
+          "gpuStatus": "timestamp-query",
+          "gpuSkipped": 0,
+          "drawCalls": 62317,
+          "triangles": 8309631
+        },
+        "errors": []
+      },
+      {
+        "backend": "webgpu",
+        "view": "office-west",
+        "headingDeg": 128.637,
+        "pitchDeg": -12,
+        "fovDeg": 65,
+        "quality": "medium",
+        "mode": "after",
+        "file": "webgpu-office-west-after.png",
+        "sha256": "d20118fadb3e2908f19ba86e2232fd45d9985a5f39441233e1427b69119706e6",
+        "groundMeshes": 20,
+        "buildingMeshes": 1715,
+        "texturedGroundMeshes": 15,
+        "eyeHeight": 1.7,
+        "camera": [
+          147.29199999943376,
+          5.315409908205649,
+          271.9060000004247
+        ],
+        "residentTris": 642404,
+        "perf": {
+          "backend": "WebGPU",
+          "totalFrames": 123,
+          "windowFrames": 123,
+          "resolution": [
+            1280,
+            960
+          ],
+          "cpuMs": {
+            "samples": 123,
+            "p50": 120.72499990463257,
+            "p95": 142.7649998664856
+          },
+          "gpuMs": {
+            "samples": 120,
+            "p50": 120.561078,
+            "p95": 147.433791
+          },
+          "workMs": {
+            "samples": 120,
+            "p50": 240.4710780858307,
+            "p95": 294.22379096185307
+          },
+          "frameMs": {
+            "samples": 122,
+            "p50": 121.625,
+            "p95": 152.5199999809265
+          },
+          "gpuStatus": "timestamp-query",
+          "gpuSkipped": 0,
+          "drawCalls": 22552,
+          "triangles": 5230348
+        },
+        "errors": []
+      },
+      {
+        "backend": "webgpu",
+        "view": "office-east",
+        "headingDeg": 172.443,
+        "pitchDeg": -12,
+        "fovDeg": 65,
+        "quality": "medium",
+        "mode": "after",
+        "file": "webgpu-office-east-after.png",
+        "sha256": "79ed0db92e4dacd104d112be4883e035e706ce0b3406998e815eea41881da693",
+        "groundMeshes": 26,
+        "buildingMeshes": 3613,
+        "texturedGroundMeshes": 21,
+        "eyeHeight": 1.7,
+        "camera": [
+          203.50400000065565,
+          5.452119235355409,
+          241.29000000003725
+        ],
+        "residentTris": 642404,
+        "perf": {
+          "backend": "WebGPU",
+          "totalFrames": 118,
+          "windowFrames": 118,
+          "resolution": [
+            1280,
+            960
+          ],
+          "cpuMs": {
+            "samples": 118,
+            "p50": 430.3200001716614,
+            "p95": 460.8049998283386
+          },
+          "gpuMs": {
+            "samples": 115,
+            "p50": 430.587972,
+            "p95": 462.273738
+          },
+          "workMs": {
+            "samples": 115,
+            "p50": 861.9189968283385,
+            "p95": 922.0944188283386
+          },
+          "frameMs": {
+            "samples": 117,
+            "p50": 432.4949998855591,
+            "p95": 463.7699999809265
+          },
+          "gpuStatus": "timestamp-query",
+          "gpuSkipped": 0,
+          "drawCalls": 61841,
+          "triangles": 8271007
+        },
+        "errors": []
+      }
+    ],
+    "comparison": "/Users/wnt/turku3d/wt/w1-10-groundtex/work/reports/ground-scene/comparison.jpg",
+    "scope": "Three matched WebGPU office-core views; full original paint and full-scene WebGL acceptance remain follow-ups.",
+    "final_rebase": {
+      "main": "f53dcad",
+      "functional_stages": "PASS",
+      "browser_seconds": 218.484,
+      "assembler_seconds": 42.451,
+      "initial_failure": "Unused getBounds import from landed batching; removed.",
+      "correction_gate": "PASS",
+      "correction_seconds": 21.19,
+      "capture_version_note": "Captures remain evidence of pre-rebase 5a4dd04/9fbd7ed integration, not of later batching."
+    }
+  }
+}

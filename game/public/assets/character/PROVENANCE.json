@@ -1,0 +1,43 @@
+{
+  "triangles": 37225,
+  "bytes": 3527752,
+  "clips": [
+    "Driving_Loop",
+    "Idle_Loop",
+    "Jog_Fwd_Loop",
+    "Jump_Land",
+    "Jump_Loop",
+    "Jump_Start",
+    "Sprint_Loop",
+    "Walk_Formal_Loop",
+    "Walk_Loop"
+  ],
+  "sources": [
+    {
+      "file": "base_body.glb",
+      "sha256": "b5b450af89f6fbf8debf387eda8da40cd0a8c3253a2d59871c730ce7e7f46469"
+    },
+    {
+      "file": "clothing_hoodie.glb",
+      "sha256": "264ad136179ac35326a273116652cf44badc189f6c78f09d188ecda19b3fd969"
+    },
+    {
+      "file": "clothing_jeans.glb",
+      "sha256": "dac0e90aba219415e895eed0e471c0a9aab6b53f8870be1f8dfd41cd89c25d11"
+    },
+    {
+      "file": "clothing_shoes.glb",
+      "sha256": "ea483876a6de5d51bf9fef16e1fd1e8957573398eab3321870d93af8c7dbc9a2"
+    },
+    {
+      "file": "hair_short02.glb",
+      "sha256": "eb341c197acf3948dac1f41f7722e9dad31018149541504a13ebcc8b6aa9d5aa"
+    }
+  ],
+  "source_revision": "852e48f316b90a0937234886630e4fb4cdfd1f78",
+  "licence": "CC0-1.0",
+  "source_repository": "https://github.com/kblood/CharacterCreator",
+  "ual_revision": "2d75e2c56c2db4a011f4197fe16f4367c494e0be",
+  "height_m": 1.79024,
+  "sha256": "5e0ef5e1a4b245f911e88df310d21cc819a24196f54b244b102ded5142b11545"
+}

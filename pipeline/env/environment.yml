@@ -1,0 +1,41 @@
+# macOS arm64, conda-forge only. Exact packages: osx-arm64.lock.txt.
+name: turku3d-pipeline
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  # lidar
+  - pdal>=2.10
+  - python-pdal>=3.4
+  # without this the solver picks hdf5 1.14 and the libpdal-hdf/icebridge plugins fail to load
+  # (they link libhdf5_cpp.so.320) -> "(PDAL Error) Can't load library" spam on every pdal import
+  - hdf5>=2
+  - laspy>=2.5
+  - lazrs-python>=0.6
+  # geometry / vectors
+  - numpy>=2.0
+  - scipy>=1.13
+  - shapely>=2.0
+  - pyproj>=3.6
+  - geopandas>=1.0
+  - pyarrow>=16
+  - lxml>=5.0
+  - trimesh
+  - matplotlib-base
+  - mapbox_earcut
+  # rasters
+  - gdal>=3.9
+  - rasterio>=1.4
+  - pillow>=10
+  # OSM
+  - osmium-tool>=1.16
+  - pyosmium
+  # misc
+  - pyyaml
+  - requests
+  - pytest-xdist
+  - pytest>=8
+  - pip:
+      # Shewchuk Triangle python binding (the conda-forge "triangle" package is only the C library)
+      - triangle>=20230923

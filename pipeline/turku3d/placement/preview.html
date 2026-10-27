@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>Placement before / after</title>
+<style>body{margin:0;font:16px system-ui}header{position:absolute;top:18px;left:20px;background:#ffffffe8;padding:15px;max-width:700px}h1{font-size:22px;margin:0 0 6px}</style>
+<script type="importmap">{"imports":{"three":"/three/build/three.module.js","three/addons/":"/three/examples/jsm/"}}</script>
+<header><h1 id="title"></h1><div>Published layer geometry · identical camera before/after · ground and building context</div><div>Untextured layer QA preview; not a live-game screenshot</div></header>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const scene=new THREE.Scene();scene.background=new THREE.Color('#cbdce5');
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x667766,2));const sun=new THREE.DirectionalLight(0xffffff,2);sun.position.set(-100,200,70);scene.add(sun);
+const config=await(await fetch('/scene.json')).json();const q=new URLSearchParams(location.search);const phase=q.get('phase')||'before';const view=q.get('view')||'aurasilta';
+const loader=new GLTFLoader();for(const url of [...config.context,...config[phase]]){scene.add((await loader.loadAsync(url)).scene);}
+const camera=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,.1,2000);const pose=config.views[view];camera.position.fromArray(pose.eye);camera.lookAt(...pose.target);
+document.querySelector('#title').textContent=`${phase.toUpperCase()} · ${pose.label}`;renderer.render(scene,camera);window.__placementReady=true;
+</script>

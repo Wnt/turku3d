@@ -1,0 +1,63 @@
+{
+  "asset": {
+    "version": "1.0",
+    "generator": "turku3d dev-tiles",
+    "extras": {
+      "frame": "turku3d-local-zup",
+      "origin_en": [
+        23459500,
+        6704500,
+        0
+      ],
+      "crs": "EPSG:3877+3900"
+    }
+  },
+  "geometricError": 512,
+  "root": {
+    "boundingVolume": {
+      "box": [
+        125,
+        -125,
+        12,
+        125,
+        0,
+        0,
+        0,
+        125,
+        0,
+        0,
+        0,
+        10
+      ]
+    },
+    "geometricError": 512,
+    "refine": "REPLACE",
+    "children": [
+      {
+        "boundingVolume": {
+          "box": [
+            125,
+            -125,
+            12,
+            125,
+            0,
+            0,
+            0,
+            125,
+            0,
+            0,
+            0,
+            10
+          ]
+        },
+        "geometricError": 0,
+        "content": {
+          "uri": "visual/0/t0_0_0.glb"
+        },
+        "extras": {
+          "id": "t0_0_0"
+        }
+      }
+    ]
+  }
+}

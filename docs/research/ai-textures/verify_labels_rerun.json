@@ -1,0 +1,90 @@
+[
+ {
+  "image": "facade_LR21.jpg",
+  "building_type": "apartment building",
+  "era_style": "mid-20th-century Nordic functionalism",
+  "floors_above_ground": 6,
+  "has_attic_or_dormers": true,
+  "visible_facade_bays": 6,
+  "window": {
+   "rows": 6,
+   "cols": 6,
+   "type": "casement",
+   "panes_per_window": 2,
+   "frame_color_hex": "#eeeeE5",
+   "surround": "simple",
+   "approx_width_m": 1.2,
+   "approx_height_m": 1.5
+  },
+  "wall": {
+   "material": "render",
+   "color_hex": "#e6d489",
+   "texture_notes": "Fine textured pale yellow render with white trim and recessed balconies; much of the facade is obscured."
+  },
+  "plinth": {
+   "material": "rendered masonry",
+   "color_hex": "#999789",
+   "height_m": 0.6
+  },
+  "roof": {
+   "type": "gable",
+   "material": "clay_tile",
+   "color_hex": "#815347",
+   "has_dormers": false,
+   "pitch_deg": 25.0
+  },
+  "ground_floor_use": "residential",
+  "occluders": [
+   "large deciduous trees",
+   "hedges",
+   "metal fence"
+  ],
+  "estimated_facade_height_m": 18.5,
+  "confidence": 0.58
+ },
+ {
+  "image": "facade_LR27b.jpg",
+  "building_type": "wooden restaurant building",
+  "era_style": "late-19th-century Nordic ornamental timber architecture",
+  "floors_above_ground": 1,
+  "has_attic_or_dormers": true,
+  "visible_facade_bays": 6,
+  "window": {
+   "rows": 1,
+   "cols": 6,
+   "type": "casement with transom",
+   "panes_per_window": 3,
+   "frame_color_hex": "#e9e6d9",
+   "surround": "ornamented",
+   "approx_width_m": 1.3,
+   "approx_height_m": 2.3
+  },
+  "wall": {
+   "material": "wood_clapboard",
+   "color_hex": "#a6ad98",
+   "texture_notes": "Horizontal sage green clapboards with cream pilasters, carved window surrounds and decorative eaves brackets."
+  },
+  "plinth": {
+   "material": "rough-faced stone blocks",
+   "color_hex": "#827970",
+   "height_m": 0.9
+  },
+  "roof": {
+   "type": "gable",
+   "material": "standing_seam_metal",
+   "color_hex": "#777b89",
+   "has_dormers": true,
+   "pitch_deg": 35.0
+  },
+  "ground_floor_use": "restaurant",
+  "occluders": [
+   "closed patio umbrellas",
+   "umbrella support posts",
+   "stacked outdoor chairs",
+   "outdoor tables",
+   "foreground chain barrier"
+  ],
+  "estimated_facade_height_m": 5.2,
+  "confidence": 0.85
+ }
+]

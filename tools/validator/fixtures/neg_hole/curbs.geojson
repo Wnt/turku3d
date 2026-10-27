@@ -1,0 +1,102 @@
+{
+ "type": "FeatureCollection",
+ "turku3d_coords": "engine-xz",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "curb_12cm",
+    "step": 0.12
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      66.5,
+      135.0
+     ],
+     [
+      76.5,
+      135.0
+     ],
+     [
+      76.5,
+      143.0
+     ],
+     [
+      66.5,
+      143.0
+     ],
+     [
+      66.5,
+      135.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "curb_25cm",
+    "step": 0.25
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      82.5,
+      135.0
+     ],
+     [
+      92.5,
+      135.0
+     ],
+     [
+      92.5,
+      143.0
+     ],
+     [
+      82.5,
+      143.0
+     ],
+     [
+      82.5,
+      135.0
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "step_40cm",
+    "step": 0.4
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      98.5,
+      135.0
+     ],
+     [
+      108.5,
+      135.0
+     ],
+     [
+      108.5,
+      143.0
+     ],
+     [
+      98.5,
+      143.0
+     ],
+     [
+      98.5,
+      135.0
+     ]
+    ]
+   }
+  }
+ ]
+}

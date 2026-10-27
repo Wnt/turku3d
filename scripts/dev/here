@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""One-screen orientation without scanning large data directories or contacting services."""
+
+import subprocess
+import sys
+from collections import deque
+from pathlib import Path
+
+import sandbox as s
+
+try:
+    root, branch = s.git(
+        "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD", cwd=Path.cwd()
+    ).splitlines()
+    repo = Path(root)
+    env_file = repo.parent / "sandbox.env"
+    env = s.read_env(env_file) if env_file.exists() else {}
+    name = env.get("TURKU3D_SANDBOX", "main")
+    port = int(env.get("TURKU3D_PORT_BASE", "5170"))
+    print(f"{name} | {branch} | {repo}\nPorts {port}..{port + 9} | dev +0, dist +1, QA +2")
+    dirty = s.git("status", "--short", cwd=repo).splitlines()
+    print("Changes: " + ("clean" if not dirty else f"{len(dirty)} files"))
+    for line in dirty[:8]:
+        print("  " + line)
+    print("Running tasks:")
+    active = []
+    for f in sorted(s.tasks_root().glob("*/meta.json")):
+        from task_runner import running
+
+        meta = s.read_json(f)
+        if running(meta):
+            active.append(f"  {meta['name']} pid={meta['pid']}")
+    print("\n".join(active[:6]) or "  none")
+    print("Last landed:")
+    log = s.root() / ".registry/landed.jsonl"
+    if log.exists():
+        import json
+
+        with log.open() as f:
+            for line in deque(f, maxlen=3):
+                row = json.loads(line)
+                print(f"  {row['commit'][:12]} {row['name']}")
+    else:
+        print(s.git("log", "-3", "--format=  %h %s", "main", cwd=repo))
+    next_cmd = (
+        "scripts/dev/gate"
+        if dirty
+        else ("scripts/dev/codex-task ls" if active else "scripts/dev/wt ls")
+    )
+    print(f"Next: {next_cmd}")
+except (OSError, ValueError, subprocess.CalledProcessError) as e:
+    print(f"here: {e}", file=sys.stderr)
+    sys.exit(1)

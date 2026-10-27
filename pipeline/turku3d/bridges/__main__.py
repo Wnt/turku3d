@@ -1,0 +1,154 @@
+"""Publish the four-L0 bridge layer from read-only city, OSM and lidar inputs."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections import defaultdict
+from pathlib import Path
+
+import geopandas as gpd
+import numpy as np
+from shapely.geometry import Point
+from shapely.ops import unary_union
+
+from turku3d import config as C
+from turku3d.col.materials import mat_id
+from turku3d.layers import CollisionLayer, write_collision, write_manifest, write_visual
+from turku3d.package.gltf import GlbMesh
+from turku3d.structures.inputs import Ground, lidar_paths
+
+from .build import BOUNDS, crossings, geometry, lidar_points
+from .shore import Survey, at
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def code_hash():
+    base = Path(__file__).parents[1]
+    sources = sorted(Path(__file__).parent.glob("*.py")) + [
+        base / "config.py",
+        base / "layers.py",
+        base / "col/materials.py",
+        base / "col/materials_v1.json",
+        base / "package/gltf.py",
+        base / "structures/geometry.py",
+        base / "structures/inputs.py",
+        base / "structures/survey.py",
+    ]
+    return hashlib.sha256("".join(digest(p) for p in sources).encode()).hexdigest()
+
+
+def main():
+    city_path = C.raw_dir("wfs") / "work-3x3/GIS_Katualueet.parquet"
+    osm_path = C.raw_dir("osm") / "work-3x3/work-3x3-261024.parquet"
+    laz = lidar_paths(C.BBoxLocal(-40, 0, 500, 500))
+    city, osm = gpd.read_parquet(city_path), gpd.read_parquet(osm_path)
+    found = crossings(city, osm)
+    if not found or not any(c.name == "Auransilta" for c in found):
+        raise ValueError("Auransilta missing from mapped bridge inputs")
+    points, classes = lidar_points(laz)
+    water = unary_union(
+        [
+            r.geometry_local
+            for r in osm.itertuples()
+            if r.natural == "water" and r.geometry_local.intersects(Point(250, 250).buffer(400))
+        ]
+    )
+    ground_root = C.work_root() / "build/layers/ground"
+    ground = Ground(ground_root)
+    survey = Survey(points, classes, water, ground)
+    meshes, reports, owners = [], [], []
+    for crossing in found:
+        built, report = geometry(crossing, points, classes, survey)
+        meshes.extend(built)
+        reports.append(report)
+        midpoint = sum(report["water_span_s"]) / 2
+        owner = at(crossing.axis, midpoint)
+        owners.extend([owner] * len(built))
+    missing = [
+        f"{report['name']}:{shore['side']}"
+        for report in reports
+        for shore in report["shores"]
+        if not shore["ground_available"]
+    ]
+    if missing:
+        raise ValueError(f"Bridge shore contacts lack ground collision: {', '.join(missing)}")
+    out = C.work_root() / "build/layers/bridges"
+    out.mkdir(parents=True, exist_ok=True)
+    collisions, visuals = defaultdict(list), defaultdict(list)
+    for mesh, centre in zip(meshes, owners, strict=True):
+        collisions[C.CollisionTile.at(*centre).id].append(mesh)
+        visuals[C.VisualTile.at(*centre).id].append(mesh)
+    files = []
+    for tile, parts in sorted(collisions.items()):
+        positions = np.concatenate([p.positions for p in parts])
+        offsets = np.cumsum([0] + [len(p.positions) for p in parts[:-1]])
+        indices = np.concatenate(
+            [p.indices + offset for p, offset in zip(parts, offsets, strict=True)]
+        ).astype(np.uint32)
+        materials = np.concatenate(
+            [np.full(len(p.indices), mat_id(p.material), np.uint8) for p in parts]
+        )
+        name = f"{tile}.col.npz"
+        write_collision(out / name, CollisionLayer(positions, indices, materials))
+        files.append(name)
+    for tile, parts in sorted(visuals.items()):
+        name = f"{tile}.vis.glb"
+        write_visual(
+            out / name,
+            [
+                GlbMesh(
+                    p.object_id,
+                    p.positions,
+                    p.indices,
+                    uvs=p.uvs,
+                    extras={
+                        "layer": "bridges",
+                        "object_id": p.object_id,
+                        "material_key": p.metadata.get(
+                            "material_key",
+                            "painted_steel" if p.material == "railing" else "bridge_stone",
+                        ),
+                    },
+                )
+                for p in parts
+            ],
+            root_extras={"layer": "bridges"},
+        )
+        files.append(name)
+    manifest = write_manifest(
+        out,
+        inputs={
+            str(p): digest(p)
+            for p in [
+                city_path,
+                osm_path,
+                *laz,
+                ground_root / "MANIFEST.json",
+                ground_root / "quays.json",
+            ]
+            if p.is_file()
+        },
+        params={"bounds": list(BOUNDS.as_tuple()), "seams": "objects"},
+        code=code_hash(),
+        tiles=files,
+    )
+    report = {
+        "crossings": reports,
+        "collision_tiles": len(collisions),
+        "visual_tiles": len(visuals),
+        "triangles": sum(len(p.indices) for p in meshes),
+        "manifest": str(out / "MANIFEST.json"),
+    }
+    report_path = C.work_root() / "reports/bridges/report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2))
+    return 0 if manifest["tiles"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

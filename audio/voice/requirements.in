@@ -1,0 +1,8 @@
+# Top-level requirements of the voice venv; requirements.txt is the pinned lock (uv pip compile).
+kokoro==0.9.4
+misaki[en]==0.9.4
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+numpy
+scipy
+pytest
+pytest-xdist

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "tools/dev/serve-dist.mjs",
+        "tools/dev/serve-dist.test.mjs",
+        "pipeline/turku3d/col/meshopt_bridge.mjs",
+        "pipeline/turku3d/package/visual.mjs",
+        "pipeline/turku3d/package/facade_atlas.test.mjs",
+        "pipeline/turku3d/package/prop_atlas.test.mjs",
+        "tools/dev/play.mjs",
+        "tools/dev/play.test.mjs"
+      ],
+      "project": [
+        "tools/dev/*.mjs",
+        "pipeline/**/*.mjs"
+      ]
+    },
+    "game": {
+      "entry": [
+        "src/physics/worker.ts",
+        "tests/**/*.ts",
+        "*.config.ts",
+        "src/qa/ground.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "scripts/*.mjs",
+        "*.config.ts",
+        "tools/*.mjs"
+      ],
+      "playwright": {
+        "config": [
+          "playwright*.config.ts"
+        ]
+      },
+      "vite": {
+        "config": [
+          "vite.config.ts",
+          "vite.ground.config.ts"
+        ]
+      },
+      "vitest": {
+        "config": [
+          "vitest*.config.ts"
+        ]
+      }
+    },
+    "tools/validator": {
+      "entry": [
+        "test/**/*.ts",
+        "parked.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ]
+    },
+    "qa/render": {
+      "entry": [
+        "test/**/*.mjs"
+      ],
+      "project": [
+        "**/*.mjs"
+      ]
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "n": 3,
+  "scores": [
+    3,
+    3,
+    3
+  ],
+  "mean": 3,
+  "sample_variance": 0,
+  "sample_stddev": 0.0,
+  "range": 0,
+  "calls_directory": "/Users/wnt/turku3d/wt/w1-11-visualqa/work/qa/calibration/w1-20-aligned-drone_01-20261025T191655192582Z",
+  "run_id": "w1-20-aligned",
+  "view_id": "drone_01",
+  "comparison_key": "a80895ae0610850e316f95d3b3fb9db0f3cc302bdcf851264fd84f52c5095737",
+  "prompt_sha256": "bf48ebfa1b7e366437a527dac55026fe27991a7abdc338530a727a7e940e8ed6",
+  "usage_before_pct": [
+    11,
+    11,
+    11
+  ],
+  "usage_after_pct": [
+    12,
+    12,
+    12
+  ]
+}

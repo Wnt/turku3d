@@ -1,0 +1,6 @@
+# Gate-only tooling; install once during setup, never from the gate itself.
+ruff==0.17.2
+pytest-xdist==3.8.0
+jsonschema==4.26.0
+# QA pose-refinement regression tests use OpenCV without a GUI.
+opencv-python-headless==5.0.0.93

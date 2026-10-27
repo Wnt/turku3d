@@ -1,0 +1,35 @@
+# Measured visual routes and operator-selected development/light defaults.
+# Explicit job/CLI model and effort take precedence. See docs/reports/codex-model-bench.md.
+[default]
+model = "gpt-6-astra"
+effort = "medium"
+[label]
+model = "gpt-6-astra"
+effort = "medium"
+[building_label]
+model = "gpt-6-astra"
+effort = "medium"
+[improve]
+model = "gpt-6-astra"
+effort = "medium"
+[library]
+model = "gpt-6-astra"
+effort = "medium"
+[qa]
+model = "gpt-6-sol"
+effort = "low"
+[task]
+model = "gpt-6-sol"
+effort = "medium"
+[task_rebase]
+model = "gpt-6-luna"
+effort = "low"
+[light]
+model = "gpt-6-luna"
+effort = "low"
+[generated_visual_qa]
+model = "gpt-6-astra"
+effort = "low"
+[reference_grid]
+model = "gpt-6-astra"
+effort = "low"

@@ -1,0 +1,1069 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3877"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459676.796,
+            6704251.148
+          ],
+          [
+            23459667.158,
+            6704245.778
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295893K/facade/36",
+      "properties": {
+        "base_height": 3.609,
+        "building_id": "103295893K",
+        "facade_index": 36,
+        "layer": "buildings",
+        "material_key": "facade_wood",
+        "normal": [
+          0.48671994388424145,
+          0.0,
+          0.8735580668881266
+        ],
+        "object_id": "103295893K/facade/36",
+        "street_facing": true,
+        "top_height": 10.593,
+        "width_m": 11.033038747614846
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459667.129,
+            6704245.819
+          ],
+          [
+            23459660.82242037,
+            6704242.37922928
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295893K/facade/38",
+      "properties": {
+        "base_height": 3.609,
+        "building_id": "103295893K",
+        "facade_index": 38,
+        "layer": "buildings",
+        "material_key": "facade_wood",
+        "normal": [
+          0.47883262549839556,
+          0.0,
+          0.8779062118235144
+        ],
+        "object_id": "103295893K/facade/38",
+        "street_facing": true,
+        "top_height": 10.519,
+        "width_m": 7.18365987720377
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459683.087483615,
+            6704254.7285002675
+          ],
+          [
+            23459676.758,
+            6704251.229
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295893K/facade/34",
+      "properties": {
+        "base_height": 3.609,
+        "building_id": "103295893K",
+        "facade_index": 34,
+        "layer": "buildings",
+        "material_key": "facade_wood",
+        "normal": [
+          0.4838585092104292,
+          0.0,
+          0.8751462409589958
+        ],
+        "object_id": "103295893K/facade/34",
+        "street_facing": true,
+        "top_height": 10.698,
+        "width_m": 7.232486772573651
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459659.656,
+            6704241.874
+          ],
+          [
+            23459650.25318756,
+            6704236.607665128
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295893K/facade/42",
+      "properties": {
+        "base_height": 3.609,
+        "building_id": "103295893K",
+        "facade_index": 42,
+        "layer": "buildings",
+        "material_key": "facade_wood",
+        "normal": [
+          0.48865704541835053,
+          0.0,
+          0.8724759549483345
+        ],
+        "object_id": "103295893K/facade/42",
+        "street_facing": true,
+        "top_height": 10.55,
+        "width_m": 10.77715940297232
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459648.175,
+            6704237.07
+          ],
+          [
+            23459644.971191384,
+            6704235.326648292
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295899S/facade/253",
+      "properties": {
+        "base_height": 3.483,
+        "building_id": "103295899S",
+        "facade_index": 253,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4779685971848504,
+          0.0,
+          0.8783769237093756
+        ],
+        "object_id": "103295899S/facade/253",
+        "street_facing": true,
+        "top_height": 20.463,
+        "width_m": 3.6474189282762293
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459702.034189038,
+            6704265.39165884
+          ],
+          [
+            23459690.839757767,
+            6704259.062428434
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295888D/facade/26",
+      "properties": {
+        "base_height": 3.696,
+        "building_id": "103295888D",
+        "facade_index": 26,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4921717709893628,
+          0.0,
+          0.8704981032955753
+        ],
+        "object_id": "103295888D/facade/26",
+        "street_facing": true,
+        "top_height": 8.909,
+        "width_m": 12.859799726399864
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459644.24323406,
+            6704235.87657659
+          ],
+          [
+            23459636.583189726,
+            6704231.654655818
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295899S/facade/259",
+      "properties": {
+        "base_height": 3.483,
+        "building_id": "103295899S",
+        "facade_index": 259,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4826994716492701,
+          0.0,
+          0.8757860583895564
+        ],
+        "object_id": "103295899S/facade/259",
+        "street_facing": true,
+        "top_height": 21.352,
+        "width_m": 8.746478960762259
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459710.480563518,
+            6704270.0727438945
+          ],
+          [
+            23459702.034189038,
+            6704265.39165884
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295888D/facade/24",
+      "properties": {
+        "base_height": 3.696,
+        "building_id": "103295888D",
+        "facade_index": 24,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4847449185555208,
+          0.0,
+          0.8746555687438351
+        ],
+        "object_id": "103295888D/facade/24",
+        "street_facing": true,
+        "top_height": 8.909,
+        "width_m": 9.65680066958597
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459632.23870309,
+            6704228.8175415145
+          ],
+          [
+            23459628.95614728,
+            6704227.017731339
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295899S/facade/308",
+      "properties": {
+        "base_height": 3.483,
+        "building_id": "103295899S",
+        "facade_index": 308,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4807707798173632,
+          0.0,
+          0.8768463133718498
+        ],
+        "object_id": "103295899S/facade/308",
+        "street_facing": true,
+        "top_height": 23.476,
+        "width_m": 3.7435931035681183
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459715.78119126,
+            6704272.845648883
+          ],
+          [
+            23459711.213791523,
+            6704270.011335947
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295889E/facade/23",
+      "properties": {
+        "base_height": 3.73,
+        "building_id": "103295889E",
+        "facade_index": 23,
+        "layer": "buildings",
+        "material_key": "facade_wood",
+        "normal": [
+          0.5272789469920283,
+          0.0,
+          0.8496922454977318
+        ],
+        "object_id": "103295889E/facade/23",
+        "street_facing": true,
+        "top_height": 9.282,
+        "width_m": 5.375357678329536
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459718.812198333,
+            6704274.4966110615
+          ],
+          [
+            23459715.78119126,
+            6704272.845648883
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295889E/facade/22",
+      "properties": {
+        "base_height": 3.73,
+        "building_id": "103295889E",
+        "facade_index": 22,
+        "layer": "buildings",
+        "material_key": "facade_wood",
+        "normal": [
+          0.47833524966132485,
+          0.0,
+          0.8781773106448594
+        ],
+        "object_id": "103295889E/facade/22",
+        "street_facing": true,
+        "top_height": 9.282,
+        "width_m": 3.4514750472165616
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459624.426,
+            6704224.965
+          ],
+          [
+            23459616.796190884,
+            6704220.796650607
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295899S/facade/341",
+      "properties": {
+        "base_height": 3.483,
+        "building_id": "103295899S",
+        "facade_index": 341,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4794402144238008,
+          0.0,
+          0.8775745442942497
+        ],
+        "object_id": "103295899S/facade/341",
+        "street_facing": true,
+        "top_height": 21.416,
+        "width_m": 8.694200585575238
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459725.05681492,
+            6704277.681324892
+          ],
+          [
+            23459718.812198333,
+            6704274.4966110615
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295889E/facade/21",
+      "properties": {
+        "base_height": 3.73,
+        "building_id": "103295889E",
+        "facade_index": 21,
+        "layer": "buildings",
+        "material_key": "facade_wood",
+        "normal": [
+          0.4543214832680993,
+          0.0,
+          0.8908378022070428
+        ],
+        "object_id": "103295889E/facade/21",
+        "street_facing": true,
+        "top_height": 9.242,
+        "width_m": 7.009824425854674
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459616.83860319,
+            6704219.913804205
+          ],
+          [
+            23459613.624,
+            6704218.16
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295899S/facade/347",
+      "properties": {
+        "base_height": 3.483,
+        "building_id": "103295899S",
+        "facade_index": 347,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4789330070148861,
+          0.0,
+          0.8778514537162191
+        ],
+        "object_id": "103295899S/facade/347",
+        "street_facing": true,
+        "top_height": 20.597,
+        "width_m": 3.6618988032831403
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459733.47880878,
+            6704282.181350954
+          ],
+          [
+            23459728.386579275,
+            6704279.401770169
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "1032958849/facade/81",
+      "properties": {
+        "base_height": 3.839,
+        "building_id": "1032958849",
+        "facade_index": 81,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.47911794116923323,
+          0.0,
+          0.8777505331526464
+        ],
+        "object_id": "1032958849/facade/81",
+        "street_facing": true,
+        "top_height": 14.729000000000001,
+        "width_m": 5.801454184198249
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459606.960860346,
+            6704223.167198597
+          ],
+          [
+            23459602.14119041,
+            6704229.964720734
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295899S/facade/368",
+      "properties": {
+        "base_height": 3.483,
+        "building_id": "103295899S",
+        "facade_index": 368,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.8157550430847654,
+          0.0,
+          0.5783975360267125
+        ],
+        "object_id": "103295899S/facade/368",
+        "street_facing": true,
+        "top_height": 21.726,
+        "width_m": 8.332798178757173
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459738.444872744,
+            6704284.884233924
+          ],
+          [
+            23459734.58677164,
+            6704282.785419775
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "1032958849/facade/77",
+      "properties": {
+        "base_height": 3.839,
+        "building_id": "1032958849",
+        "facade_index": 77,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.4778683459532092,
+          0.0,
+          0.8784314679791158
+        ],
+        "object_id": "1032958849/facade/77",
+        "street_facing": true,
+        "top_height": 14.812000000000001,
+        "width_m": 4.392034260996368
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459595.058794737,
+            6704240.163855866
+          ],
+          [
+            23459590.538,
+            6704246.602
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295899S/facade/32",
+      "properties": {
+        "base_height": 3.483,
+        "building_id": "103295899S",
+        "facade_index": 32,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.8183893708381789,
+          0.0,
+          0.5746641085878688
+        ],
+        "object_id": "103295899S/facade/32",
+        "street_facing": true,
+        "top_height": 21.486,
+        "width_m": 7.866847204594535
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459588.209517084,
+            6704250.637629577
+          ],
+          [
+            23459586.287370425,
+            6704253.143517082
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295900T/facade/106",
+      "properties": {
+        "base_height": 3.7070000000000003,
+        "building_id": "103295900T",
+        "facade_index": 106,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.7934586096125857,
+          0.0,
+          0.6086242147923974
+        ],
+        "object_id": "103295900T/facade/106",
+        "street_facing": true,
+        "top_height": 23.655,
+        "width_m": 3.15818301558204
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459727.811034527,
+            6704307.454937417
+          ],
+          [
+            23459732.778,
+            6704310.195
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "1032958849/facade/7",
+      "properties": {
+        "base_height": 3.839,
+        "building_id": "1032958849",
+        "facade_index": 7,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.48303245167879816,
+          0.0,
+          -0.8756024501023107
+        ],
+        "object_id": "1032958849/facade/7",
+        "street_facing": true,
+        "top_height": 14.696,
+        "width_m": 5.672626287522604
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459619.418686677,
+            6704322.342463844
+          ],
+          [
+            23459627.61816267,
+            6704327.896759889
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295896N/facade/17",
+      "properties": {
+        "base_height": 3.868,
+        "building_id": "103295896N",
+        "facade_index": 17,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.5608351544801707,
+          0.0,
+          -0.8279274904840417
+        ],
+        "object_id": "103295896N/facade/17",
+        "street_facing": true,
+        "top_height": 19.532,
+        "width_m": 9.903616062888721
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459608.914172865,
+            6704315.205744772
+          ],
+          [
+            23459619.418686677,
+            6704322.342463844
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295896N/facade/8",
+      "properties": {
+        "base_height": 3.868,
+        "building_id": "103295896N",
+        "facade_index": 8,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.5619680393360691,
+          0.0,
+          -0.8271589464938248
+        ],
+        "object_id": "103295896N/facade/8",
+        "street_facing": true,
+        "top_height": 19.478,
+        "width_m": 12.699510600562581
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459628.761119623,
+            6704328.298823082
+          ],
+          [
+            23459635.189,
+            6704332.645
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295896N/facade/30",
+      "properties": {
+        "base_height": 3.868,
+        "building_id": "103295896N",
+        "facade_index": 30,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.5601241115404552,
+          0.0,
+          -0.8284087032805822
+        ],
+        "object_id": "103295896N/facade/30",
+        "street_facing": true,
+        "top_height": 17.785,
+        "width_m": 7.759310532348032
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459601.852151196,
+            6704310.04277558
+          ],
+          [
+            23459608.661,
+            6704314.63
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295896N/facade/1",
+      "properties": {
+        "base_height": 3.868,
+        "building_id": "103295896N",
+        "facade_index": 1,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.5587405790547022,
+          0.0,
+          -0.8293424897577696
+        ],
+        "object_id": "103295896N/facade/1",
+        "street_facing": true,
+        "top_height": 17.816,
+        "width_m": 8.20993604573362
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459586.287370425,
+            6704253.143517082
+          ],
+          [
+            23459575.327,
+            6704268.513
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295900T/facade/110",
+      "properties": {
+        "base_height": 3.7070000000000003,
+        "building_id": "103295900T",
+        "facade_index": 110,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.8141800062366099,
+          0.0,
+          0.5806125364169757
+        ],
+        "object_id": "103295900T/facade/110",
+        "street_facing": true,
+        "top_height": 23.61,
+        "width_m": 18.877254171460464
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459759.172,
+            6704295.079
+          ],
+          [
+            23459739.412570763,
+            6704284.23775643
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "1032958849/facade/64",
+      "properties": {
+        "base_height": 3.839,
+        "building_id": "1032958849",
+        "facade_index": 64,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.481017739638987,
+          0.0,
+          0.8767108612037379
+        ],
+        "object_id": "1032958849/facade/64",
+        "street_facing": true,
+        "top_height": 16.404,
+        "width_m": 22.538136697276585
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459582.45331197,
+            6704221.711536705
+          ],
+          [
+            23459590.464,
+            6704209.815
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295901U/facade/23",
+      "properties": {
+        "base_height": 3.41,
+        "building_id": "103295901U",
+        "facade_index": 23,
+        "layer": "buildings",
+        "material_key": "facade_concrete",
+        "normal": [
+          0.829477798918657,
+          0.0,
+          -0.5585396862364035
+        ],
+        "object_id": "103295901U/facade/23",
+        "street_facing": true,
+        "top_height": 23.962,
+        "width_m": 14.342200261305493
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459582.462,
+            6704296.541
+          ],
+          [
+            23459593.871536255,
+            6704304.262686923
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295900T/facade/30",
+      "properties": {
+        "base_height": 3.7070000000000003,
+        "building_id": "103295900T",
+        "facade_index": 30,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.5604822136571141,
+          0.0,
+          -0.8281664616331798
+        ],
+        "object_id": "103295900T/facade/30",
+        "street_facing": true,
+        "top_height": 23.407,
+        "width_m": 13.776863448615575
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459591.668,
+            6704207.829
+          ],
+          [
+            23459585.01568812,
+            6704203.350463263
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295901U/facade/26",
+      "properties": {
+        "base_height": 3.41,
+        "building_id": "103295901U",
+        "facade_index": 26,
+        "layer": "buildings",
+        "material_key": "facade_concrete",
+        "normal": [
+          0.5584638258028479,
+          0.0,
+          0.8295288754887598
+        ],
+        "object_id": "103295901U/facade/26",
+        "street_facing": true,
+        "top_height": 23.97,
+        "width_m": 8.019385554196035
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459740.909778673,
+            6704314.703884662
+          ],
+          [
+            23459746.183188196,
+            6704317.5386556685
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "1032958849/facade/27",
+      "properties": {
+        "base_height": 3.839,
+        "building_id": "1032958849",
+        "facade_index": 27,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.47348372430501007,
+          0.0,
+          -0.8808025674453143
+        ],
+        "object_id": "1032958849/facade/27",
+        "street_facing": true,
+        "top_height": 14.752,
+        "width_m": 5.987050580940718
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459575.257127568,
+            6704268.461825824
+          ],
+          [
+            23459567.313321125,
+            6704280.009533091
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "103295900T/facade/115",
+      "properties": {
+        "base_height": 3.7070000000000003,
+        "building_id": "103295900T",
+        "facade_index": 115,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          -0.8238834252096917,
+          0.0,
+          0.566759297819406
+        ],
+        "object_id": "103295900T/facade/115",
+        "street_facing": true,
+        "top_height": 23.559,
+        "width_m": 14.016190778572565
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            23459746.676,
+            6704317.807999998
+          ],
+          [
+            23459752.458773796,
+            6704307.372418376
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "1032958849/facade/32",
+      "properties": {
+        "base_height": 3.839,
+        "building_id": "1032958849",
+        "facade_index": 32,
+        "layer": "buildings",
+        "material_key": "facade_plaster",
+        "normal": [
+          0.8746823775493754,
+          0.0,
+          -0.4846965425960575
+        ],
+        "object_id": "1032958849/facade/32",
+        "street_facing": true,
+        "top_height": 14.780000000000001,
+        "width_m": 11.930709810769827
+      },
+      "type": "Feature"
+    }
+  ],
+  "schema_version": 1,
+  "turku3d_coords": "en",
+  "type": "FeatureCollection"
+}

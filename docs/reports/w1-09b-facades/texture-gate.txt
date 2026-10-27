@@ -1,0 +1,20 @@
+PASS   python-lint                2.245s
+PASS   generated                  3.097s
+PASS   policy                     7.837s
+PASS   textures-tests            94.123s
+SKIP   pipeline-tests           no changed path matches stage triggers
+SKIP   qa-python-tests          no changed path matches stage triggers
+SKIP   gate-tests               no changed path matches stage triggers
+SKIP   tooling-tests            no changed path matches stage triggers
+SKIP   js-lint                  no changed path matches stage triggers
+SKIP   game-types               no changed path matches stage triggers
+SKIP   validator-types          no changed path matches stage triggers
+SKIP   knip                     no changed path matches stage triggers
+SKIP   game-unit                no changed path matches stage triggers
+SKIP   validator-tests          no changed path matches stage triggers
+SKIP   dev-server-tests         no changed path matches stage triggers
+SKIP   shell                    no changed path matches stage triggers
+SKIP   qa-render-tests          no changed path matches stage triggers
+SKIP   game-e2e                 no changed path matches stage triggers
+SKIP   vehicle-node-tests       no changed path matches stage triggers
+TOTAL  GREEN 95.156s

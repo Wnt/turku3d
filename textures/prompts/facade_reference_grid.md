@@ -1,0 +1,7 @@
+Inspect real street photos of ONE wall $facade_id in Turku, Finland, before a texture of it is drawn. Do not generate images or run commands. The first $reference_count attachment(s) are wall-plane rectified photos: each should show the target wall flattened to its measured rectangle, $width_m metres wide and $height_m metres high (aspect $aspect). The last attachment is a perspective photo with the target wall outlined in red.
+
+wall_visible is true only if the rectified photos actually show the outlined building wall across most of the rectangle. It is false when they mainly show pavement, sky, water, a boat, vehicles, a hoarding or construction fence, foliage, a different building than the outlined one, or when the wall is too dark, oblique or occluded to count its openings. problem names that reason in a few words; it is empty when the wall is visible.
+
+Count on the wall: storeys including the ground floor; window_columns, the number of window openings in a full upper row (the most common count; 0 for a single-storey wall); ground_openings, the doors, shop windows and gates in the ground storey (for a single-storey wall, all its openings); plinth, whether a distinct base band is visible; cornice, whether a distinct top cornice or eaves band is visible; cladding, the wall material and colour in a few words (for example "pale yellow rendered plaster"). When the wall is not visible, give zeros and false where unknown.
+
+Respond ONLY with the strict schema JSON, with problem and cladding in English. facade_id must be exactly $facade_id.

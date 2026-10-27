@@ -1,0 +1,795 @@
+{
+ "area": "office-block",
+ "core_en": [
+  23459562.5,
+  6704125.0,
+  23459812.5,
+  6704375.0
+ ],
+ "with_margin_en": [
+  23459512.5,
+  6704075.0,
+  23459862.5,
+  6704425.0
+ ],
+ "laz": [
+  {
+   "file": "23459500_6704500.laz",
+   "bytes": 141008019,
+   "points_total": 19931068,
+   "las_version": "1.2",
+   "point_format": 3,
+   "has_crs_vlr": false,
+   "bounds_en": [
+    23459500.0,
+    6704000.0,
+    23459999.999,
+    6704499.999
+   ],
+   "z_range": [
+    -16.191,
+    69.377
+   ],
+   "core": {
+    "bbox_en": [
+     23459562.5,
+     6704125.0,
+     23459812.5,
+     6704375.0
+    ],
+    "points": 4445863,
+    "pts_per_m2": 71.13,
+    "classes": {
+     "1:unclassified": 64500,
+     "2:ground": 1032301,
+     "3:veg_low": 50747,
+     "4:veg_med": 68687,
+     "5:veg_high": 760245,
+     "6:building": 511631,
+     "7:low_noise": 997,
+     "8:key_points": 6763,
+     "9:water": 344472,
+     "10:?": 21067,
+     "12:overlap": 1584453
+    },
+    "cells_1m_with_class2": 0.5867,
+    "cells_1m_with_class2_excl_building_cells": 0.714,
+    "ground_z_range": [
+     -0.021,
+     18.514
+    ],
+    "gps_time_range": [
+     302687342.5395643,
+     302688652.1491211
+    ]
+   },
+   "with_margin": {
+    "bbox_en": [
+     23459512.5,
+     6704075.0,
+     23459862.5,
+     6704425.0
+    ],
+    "points": 9757363,
+    "pts_per_m2": 79.65,
+    "classes": {
+     "1:unclassified": 112549,
+     "2:ground": 2187032,
+     "3:veg_low": 125297,
+     "4:veg_med": 166193,
+     "5:veg_high": 1822846,
+     "6:building": 1086420,
+     "7:low_noise": 2427,
+     "8:key_points": 16722,
+     "9:water": 424884,
+     "10:?": 34220,
+     "12:overlap": 3778773
+    }
+   }
+  }
+ ],
+ "wfs": {
+  "kanta:Liikennevayla": {
+   "status": "ok",
+   "features": 88,
+   "rows": 88,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 51,
+    "LineString": 37
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62020": 51,
+    "62520": 34,
+    "62525": 3
+   }
+  },
+  "kanta:Kevyenliikenteenvayla": {
+   "status": "ok",
+   "features": 140,
+   "rows": 140,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 140
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62522": 138,
+    "62523": 2
+   }
+  },
+  "kanta:Rakenne": {
+   "status": "ok",
+   "features": 1064,
+   "rows": 1064,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "LineString": 1033,
+    "Point": 31
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "66626": 295,
+    "66618": 213,
+    "62540": 172,
+    "66620": 129,
+    "66632": 81,
+    "66636": 63,
+    "66634": 38,
+    "66114": 26,
+    "62534": 23,
+    "66622": 8,
+    "66624": 6,
+    "66110": 5,
+    "66630": 3,
+    "62536": 2
+   }
+  },
+  "kanta:Rakennus": {
+   "status": "ok",
+   "features": 692,
+   "rows": 1060,
+   "requests": 5,
+   "leaf_pages": 4,
+   "geom_types": {
+    "LineString": 902,
+    "Point": 85,
+    "Polygon": 73
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "66516": 225,
+    "66524": 123,
+    "66520": 91,
+    "66500": 52,
+    "66522": 38,
+    "66606": 34,
+    "66000": 32,
+    "66610": 24,
+    "66518": 20,
+    "66502": 17,
+    "60020": 13,
+    "66612": 9,
+    "66005": 4,
+    "66001": 4,
+    "60022": 3,
+    "66608": 3
+   }
+  },
+  "kanta:Erityisrakenne": {
+   "status": "ok",
+   "features": 0,
+   "rows": 0,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {},
+   "has_z": false
+  },
+  "kanta:Korkeuspiste": {
+   "status": "ok",
+   "features": 79,
+   "rows": 95,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 95
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "60004": 63,
+    "60000": 16
+   }
+  },
+  "kanta:Korkeuskayra": {
+   "status": "ok",
+   "features": 125,
+   "rows": 125,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 125
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "60504": 98,
+    "60500": 27
+   }
+  },
+  "kanta:Jyrkanne": {
+   "status": "ok",
+   "features": 3,
+   "rows": 3,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 3
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64604": 3
+   }
+  },
+  "kanta:Kivi": {
+   "status": "ok",
+   "features": 0,
+   "rows": 0,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {},
+   "has_z": false
+  },
+  "kanta:Vesikohde": {
+   "status": "ok",
+   "features": 15,
+   "rows": 15,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 11,
+    "Polygon": 4
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64502": 6,
+    "64508": 5,
+    "64000": 4
+   }
+  },
+  "kanta:Raide": {
+   "status": "ok",
+   "features": 0,
+   "rows": 0,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {},
+   "has_z": false
+  },
+  "kanta:Lehtipuu": {
+   "status": "ok",
+   "features": 291,
+   "rows": 291,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 291
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64039": 261,
+    "64040": 30
+   }
+  },
+  "kanta:Havupuu": {
+   "status": "ok",
+   "features": 1,
+   "rows": 1,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 1
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64035": 1
+   }
+  },
+  "kanta:Lehtipuurivi": {
+   "status": "ok",
+   "features": 1,
+   "rows": 1,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 1
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64618": 1
+   }
+  },
+  "kanta:Pensas": {
+   "status": "ok",
+   "features": 3,
+   "rows": 3,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 3
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64037": 3
+   }
+  },
+  "kanta:Pensasaita": {
+   "status": "ok",
+   "features": 14,
+   "rows": 14,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 14
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64614": 14
+   }
+  },
+  "kanta:Kasviryhma": {
+   "status": "ok",
+   "features": 20,
+   "rows": 20,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 20
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "64041": 20
+   }
+  },
+  "kanta:Viherkaista": {
+   "status": "ok",
+   "features": 0,
+   "rows": 0,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {},
+   "has_z": false
+  },
+  "kanta:Pysakki": {
+   "status": "ok",
+   "features": 10,
+   "rows": 10,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 10
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "66208": 10
+   }
+  },
+  "kanta:Porttaali": {
+   "status": "ok",
+   "features": 6,
+   "rows": 6,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 6
+   },
+   "has_z": false,
+   "by_kplkoodi": {
+    "62502": 6
+   }
+  },
+  "kanta:Polku": {
+   "status": "ok",
+   "features": 0,
+   "rows": 0,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {},
+   "has_z": false
+  },
+  "kanta:LuokittelematonViiva": {
+   "status": "unauthorized"
+  },
+  "kanta:Sahkoverkonosa": {
+   "status": "unauthorized"
+  },
+  "GIS:Katualueet": {
+   "status": "ok",
+   "features": 184,
+   "rows": 184,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Polygon": 184
+   },
+   "has_z": false,
+   "by_Katuosalaji": {
+    "Välikaista": 56,
+    "Jalkakäytävä": 54,
+    "Ajorata": 25,
+    "Muu liikennealue": 20,
+    "Pyöräkaista": 9,
+    "Yhdistetty kevyen liikenteen väylä": 8,
+    "Silta": 6,
+    "Portaat": 3,
+    "Odotustila": 2,
+    "Tonttiliittymä": 1
+   },
+   "by_Pintamateriaali": {
+    "Asfalttibetoni": 50,
+    "Betonilaatta": 47,
+    "Noppakivi": 44,
+    "Asfalttibetoni, punainen (AB 16, rautaoksidi FeO2)": 9,
+    "Sora": 8,
+    "Graniitti": 6,
+    "Betonikivi": 5,
+    "Luonnonkivi": 5,
+    "Kenttäkivi": 5,
+    "Nupukivi": 3,
+    "Betoni": 2
+   }
+  },
+  "GIS:Keskilinjat": {
+   "status": "ok",
+   "features": 245,
+   "rows": 245,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 245
+   },
+   "has_z": false,
+   "by_Katuosalaji": {
+    "Jalkakäytävä": 106,
+    "Pyöräkaista": 54,
+    "Yhdistetty kevyen liikenteen väylä": 36,
+    "Ajorata": 25,
+    "Muu liikennealue": 12,
+    "Silta": 6,
+    "Portaat": 3,
+    "Odotustila": 2,
+    "Välikaista": 1
+   },
+   "by_Pintamateriaali": {
+    "Asfalttibetoni": 104,
+    "Betonilaatta": 76,
+    "Asfalttibetoni, punainen (AB 16, rautaoksidi FeO2)": 54,
+    "Graniitti": 6,
+    "Nupukivi": 3,
+    "Noppakivi": 2
+   }
+  },
+  "GIS:Varusteet": {
+   "status": "ok",
+   "features": 192,
+   "rows": 192,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 192
+   },
+   "has_z": false
+  },
+  "GIS:Puut": {
+   "status": "ok",
+   "features": 130,
+   "rows": 130,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 130
+   },
+   "has_z": false
+  },
+  "GIS:Liikennemerkit": {
+   "status": "ok",
+   "features": 343,
+   "rows": 343,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 343
+   },
+   "has_z": false
+  },
+  "GIS:Rakennukset": {
+   "status": "ok",
+   "features": 68,
+   "rows": 68,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Polygon": 67,
+    "Point": 1
+   },
+   "has_z": false
+  },
+  "GIS:Osoitteet": {
+   "status": "ok",
+   "features": 37,
+   "rows": 37,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 37
+   },
+   "has_z": false
+  },
+  "GIS:Nopeusrajoitusalueet": {
+   "status": "ok",
+   "features": 5,
+   "rows": 5,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Polygon": 5
+   },
+   "has_z": false
+  },
+  "GIS:Raitiotielinjaus": {
+   "status": "ok",
+   "features": 1,
+   "rows": 1,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "LineString": 1
+   },
+   "has_z": false
+  },
+  "GIS:Viheralueet": {
+   "status": "ok",
+   "features": 140,
+   "rows": 140,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Polygon": 140
+   },
+   "has_z": false,
+   "by_Pintamateriaali": {
+    "Nurmikko": 34,
+    "Graniitti": 34,
+    "Kasvillisuus": 14,
+    "Sora / Hiekka": 11,
+    "# Ei tietoa": 9,
+    "Metsä": 7,
+    "Noppakivi": 6,
+    "Kenttäkivi": 6,
+    "Asfalttibetoni": 5,
+    "Betonilaatta": 4,
+    "Kivituhka": 3,
+    "Niitty": 2,
+    "Betoni": 2,
+    "Nupukivi": 2,
+    "Muu päällyste": 1
+   }
+  },
+  "GIS:Polkupyoraparkki": {
+   "status": "ok",
+   "features": 20,
+   "rows": 20,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 20
+   },
+   "has_z": false
+  },
+  "GIS:Pysakointiautomaatit": {
+   "status": "ok",
+   "features": 3,
+   "rows": 3,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 3
+   },
+   "has_z": false
+  },
+  "GIS:Follariasemat": {
+   "status": "ok",
+   "features": 3,
+   "rows": 3,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Point": 3
+   },
+   "has_z": false
+  },
+  "bldg:Building_LOD2": {
+   "status": "ok",
+   "features": 67,
+   "rows": 3893,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Polygon": 3828,
+    "LineString": 65
+   },
+   "has_z": true
+  },
+  "bldg:Building_LOD3": {
+   "status": "ok",
+   "features": 67,
+   "rows": 4810,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Polygon": 4743,
+    "LineString": 67
+   },
+   "has_z": true
+  },
+  "tran:Road_LOD3": {
+   "status": "ok",
+   "features": 101,
+   "rows": 9002,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Triangle": 9002
+   },
+   "has_z": true
+  },
+  "veg:PlantCover_LOD2": {
+   "status": "ok",
+   "features": 141,
+   "rows": 7127,
+   "requests": 1,
+   "leaf_pages": 1,
+   "geom_types": {
+    "Triangle": 7127
+   },
+   "has_z": true
+  }
+ },
+ "wms": {
+  "ortho2022to": {
+   "layer": "Ilmakuva 2022 True ortho",
+   "slug": "ortho2022to",
+   "area": "office-block",
+   "px_m": 0.05,
+   "chunk_m": 100.0,
+   "chunks": 20,
+   "chunks_ok": 20,
+   "chunks_empty": 0,
+   "errors": [],
+   "coverage_of_bbox": 1.0,
+   "native_cm_median": 5.29,
+   "bytes": 134471278,
+   "vrt": "/home/wnt/turku3d/data/raw/ortho/ortho2022to/office-block.vrt",
+   "mosaic_px": [
+    8000,
+    10000
+   ],
+   "mosaic_res_m": [
+    0.05,
+    0.05
+   ],
+   "mosaic_crs": "EPSG:3877"
+  },
+  "ortho2025": {
+   "layer": "Ilmakuva 2025",
+   "slug": "ortho2025",
+   "area": "office-block",
+   "px_m": 0.05,
+   "chunk_m": 100.0,
+   "chunks": 20,
+   "chunks_ok": 20,
+   "chunks_empty": 0,
+   "errors": [],
+   "coverage_of_bbox": 1.0,
+   "native_cm_median": 5.15,
+   "bytes": 131521456,
+   "vrt": "/home/wnt/turku3d/data/raw/ortho/ortho2025/office-block.vrt",
+   "mosaic_px": [
+    8000,
+    10000
+   ],
+   "mosaic_res_m": [
+    0.05,
+    0.05
+   ],
+   "mosaic_crs": "EPSG:3877"
+  },
+  "drone": {
+   "layer": "Turun lennokkikuvaukset",
+   "slug": "drone",
+   "area": "office-block",
+   "px_m": 0.0125,
+   "chunk_m": 25.0,
+   "chunks": 210,
+   "chunks_ok": 0,
+   "chunks_empty": 210,
+   "errors": [],
+   "coverage_of_bbox": 0.0,
+   "native_cm_median": null,
+   "bytes": 0,
+   "vrt": null
+  }
+ },
+ "osm": {
+  "clip": "office-block-261024.osm.pbf",
+  "rows": 4770,
+  "by_geom_type": {
+   "LineString": 2027,
+   "Point": 1740,
+   "MultiPolygon": 1003
+  },
+  "objects": {
+   "changesets": 0,
+   "nodes": 12462,
+   "ways": 2099,
+   "relations": 211
+  },
+  "timestamp_last": "2026-10-23T13:32:10Z",
+  "counts": {
+   "building": 316,
+   "highway": 1116,
+   "barrier=kerb": 84,
+   "highway=steps": 137,
+   "highway=crossing": 66,
+   "highway=street_lamp": 84,
+   "natural=tree": 556,
+   "amenity/shop": 896
+  },
+  "parquet_bytes": 1007633
+ },
+ "dirs": {
+  "laz": {
+   "files": 4,
+   "bytes": 141797912,
+   "human": "135.2 MB"
+  },
+  "wfs": {
+   "files": 126,
+   "bytes": 73446454,
+   "human": "70.0 MB"
+  },
+  "ortho": {
+   "files": 50,
+   "bytes": 266085551,
+   "human": "253.8 MB"
+  },
+  "osm": {
+   "files": 6,
+   "bytes": 774832976,
+   "human": "738.9 MB"
+  }
+ },
+ "checksums": {
+  "laz": {
+   "registered": 2
+  },
+  "wfs": {
+   "registered": 84
+  },
+  "ortho": {
+   "registered": 40
+  },
+  "osm": {
+   "registered": 3
+  }
+ },
+ "maanpinta": [
+  {
+   "file": "23459500_6704500.laz",
+   "points": 67265,
+   "bytes": 788768
+  }
+ ]
+}
