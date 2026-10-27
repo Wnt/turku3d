@@ -60,3 +60,19 @@ No other published texture class uses street-level photos:
 
 The ground orthophotos are aerial imagery under CC BY 4.0 and need the City of Turku attribution
 in the public release.
+
+## GitHub Pages
+
+Deploy-only public repository `Wnt/turku-game`, branch `gh-pages`, site
+https://wnt.github.io/turku-game/. `scripts/dev/publish-pages` (module `scripts/dev/pages.py`)
+copies the live release's `game/` (11 MB) and `tiles/` (100 MB) with a landing redirect, README,
+ATTRIBUTION and `.nojekyll` into one parentless commit and force-pushes it; the integrator runs it
+after every green publish when `$TURKU3D_DATA/publish/pages.json` exists. The first manual publish
+of release `18cb107` (33 generated facades, 307 files, 116.2 MB) took 14.3 s including the push;
+the Pages build took 3.7 s. A release that binds any non-generated facade is refused.
+
+That first site still carried a game bundle built with the absolute `/` base, so its scripts 404
+under `/turku-game/`. This change builds the game with a relative base; a local check of the
+assembled site under `/turku-game/` from a plain static server without COOP/COEP
+(`crossOriginIsolated` false) loaded and walked on WebGPU and WebGL2 with no page errors. The game
+uses no `SharedArrayBuffer`. The next green integration republishes the site with that build.
