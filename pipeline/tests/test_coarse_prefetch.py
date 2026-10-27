@@ -266,6 +266,28 @@ def test_urgent_units_jump_the_queue_and_failures_wait(raw):
         p.stop()
 
 
+def test_a_fetch_that_leaves_its_unit_incomplete_is_not_repeated(raw):
+    class Broken(FakeFetch):
+        def __call__(self, unit):
+            self.started.append(unit.key)
+            return {
+                "bytes": 0,
+                "paths": [],
+            }  # "cached" by the fetcher, yet nothing covers the tiles
+
+    fake = Broken()
+    p = _prefetcher(fake, raw / "prefetch" / "ledger.json", downloads=1)
+    try:
+        p.need([Unit("ortho", BLOCK)])
+        _wait(lambda: f"ortho/{BLOCK.name}" in p.status()["failed"])
+        p.need([Unit("ortho", BLOCK)])
+        time.sleep(0.2)
+        assert fake.started == [f"ortho/{BLOCK.name}"]
+        assert "not covered" in p.status()["failed"][f"ortho/{BLOCK.name}"]
+    finally:
+        p.stop()
+
+
 # -- LRU prune ------------------------------------------------------------------------------------
 
 
@@ -566,3 +588,40 @@ def test_queue_builds_the_path_ahead_first_and_estimates_when_tiles_are_ready(tm
     assert [eta[t] for t in builder.order()] == [5.0, 5.0, 10.0, 10.0, 15.0]
     assert builder.request("t0_2_0", 125) == {"state": "queued", "position": 1, "eta": 5.0}
     assert builder.status()["version"] == 0
+
+
+def test_a_build_that_is_stale_on_arrival_is_built_again(tmp_path):
+    key = ["a"]
+    order = []
+    script = (
+        "import json,sys,pathlib; out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True);"
+        "(out/'manifest.json').write_text(json.dumps({'coarse':True,'tile':sys.argv[1],'code':'test',"
+        "'inputs':sys.argv[3],'seconds':{'total':0.1}}))"
+    )
+
+    def command(tile, out):
+        order.append(tile)
+        used = key[0]
+        key[0] = "b" if len(order) == 1 else key[0]  # data lands during the first build
+        return [sys.executable, "-c", script, tile, str(out), used]
+
+    builder = Builder(
+        tmp_path / "coarse", command=command, code="test", workers=1, input_key=lambda tile: key[0]
+    )
+    try:
+        builder.request("t0_0_0", 0)
+        _wait(lambda: builder.status()["built"] == ["t0_0_0"])
+        assert order == ["t0_0_0", "t0_0_0"] and "t0_0_0" not in builder.status()["failed"]
+    finally:
+        builder.stop()
+
+
+def test_a_tile_without_buildings_is_prepared_with_none(tmp_path):
+    import geopandas as gpd
+    from turku3d.coarse.inputs import prepare_wfs
+
+    tile = C.VisualTile(0, 1, 1)
+    assert prepare_wfs(tile, None, None, None) == {"buildings": [], "streets": [], "water": []}
+    empty = tmp_path / "bldg.parquet"  # what the WFS cache writes for pages without features
+    gpd.GeoDataFrame({"gml_id": []}, geometry=[]).to_parquet(empty)
+    assert prepare_wfs(tile, empty, None, None)["buildings"] == []

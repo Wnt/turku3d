@@ -150,6 +150,8 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
     import geopandas as gpd
 
     frame = gpd.read_parquet(path)
+    if "surface_type" not in frame.columns:  # a page set without any building
+        return []
     frame = frame[frame.geom_type == "Polygon"]
     frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
     bbox = tile.bbox.buffered(100.0)
@@ -190,11 +192,14 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
     return out
 
 
-def prepare_wfs(tile: C.VisualTile, bldg: Path, streets: Path | None, water: Path | None) -> dict:
+def prepare_wfs(
+    tile: C.VisualTile, bldg: Path | None, streets: Path | None, water: Path | None
+) -> dict:
+    """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
 
     return {
-        "buildings": buildings(bldg, tile),
+        "buildings": buildings(bldg, tile) if bldg else [],
         "streets": [
             (shapely.make_valid(g), mat_id(surface_material(r.Katuosalaji, r.Pintamateriaali)))
             for g, r in _frame(streets, tile.bbox)
@@ -274,8 +279,6 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
     if dataset == "roads":
         return prepare_roads(tile, paths[0])
     bldg, streets, water = paths
-    if bldg is None:
-        raise NoCoverage(f"{tile.id}: no CityGML LOD2 coverage")
     return prepare_wfs(tile, bldg, streets, water)
 
 
