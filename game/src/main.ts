@@ -19,6 +19,7 @@ import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
 import { loadManifest, type Manifest } from './world/manifest';
 import { CollisionStreamer } from './world/collisionStreaming';
+import { CoarseTiles } from './world/coarseTiles';
 import { PhysicsClient } from './physics/client';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
@@ -248,6 +249,9 @@ async function runPlay() {
   const [rapier, manifest] = await Promise.all([physics.ready, loadManifest(params.manifest) as Promise<Manifest>]);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   telemetry?.setBuiltTiles(Object.keys(manifest.visual));
+  // Localhost only: draft tiles from tools/dev/coarse-tiles beyond the published tileset (null elsewhere).
+  const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.tiles,
+    unloadCollision: id => physics.unloadTile(id), style: m => materials?.apply(m), unstyle: m => materials?.release(m) });
   const player = new PlayerVisual(scene, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(scene);
   const parkedVisuals = new ParkedCarVisuals(scene);
@@ -340,7 +344,7 @@ async function runPlay() {
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, errors };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, orbit, telemetry, ready: true });
+    shopMenu, orbit, telemetry, coarse, ready: true });
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {
@@ -498,6 +502,7 @@ async function runPlay() {
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,
       position: camera.position, forward: camera.getWorldDirection(audioForward),
       up: audioUp.set(0, 1, 0).applyQuaternion(camera.quaternion) });
+    coarse?.update(feet.x, feet.z);
     streamer.update(feet.x, feet.z);
     env.follow(feet);
     tiles.update(camera);
@@ -525,7 +530,7 @@ async function runPlay() {
       visTris: tiles.residentTris, visModels: tiles.residentModels,
       colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
       E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),
-      ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`,
+      ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`, draft: coarse?.status,
       perf,
     });
     input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden' : menuOpen || missions.shop ? 'menu' : paused ? 'paused'

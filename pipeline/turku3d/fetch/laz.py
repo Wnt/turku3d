@@ -23,11 +23,20 @@ def known_tiles() -> set[tuple[str, str]]:
 def fetch_area(
     area: config.Area, datasets=config.LAZ_DATASETS, verify: bool = False, log=print
 ) -> list[dict]:
+    return fetch_tiles(area.laz_tiles, datasets, verify=verify, log=log)
+
+
+def fetch_tiles(
+    tiles: list[config.LazTile],
+    datasets=config.LAZ_DATASETS,
+    verify: bool = False,
+    log=print,
+) -> list[dict]:
     root = kind_dir("laz")
     reg = Registry(root)
     listed = known_tiles()
     recs = []
-    for t in area.laz_tiles:
+    for t in tiles:
         for ds in datasets:
             if listed and (ds, t.name) not in listed:
                 log(f"laz  {ds}/{t.name}: not in laz-tiles.csv, skipped")

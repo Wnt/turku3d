@@ -124,3 +124,40 @@ test('POST /telemetry appends JSON lines to the day file', async () => {
     fs.rmSync(work, { recursive: true, force: true });
   }
 });
+
+test('/coarse/* is proxied to the coarse tile service, 503 when it is not running', async () => {
+  const http = (await import('node:http')).default;
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(req.url.startsWith('/coarse/t0_1_1/') ? 202 : 200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ path: req.url }));
+  });
+  await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+  const target = `http://127.0.0.1:${upstream.address().port}`;
+  const closed = http.createServer();
+  await new Promise((r) => closed.listen(0, '127.0.0.1', r));
+  const offline = `http://127.0.0.1:${closed.address().port}`;
+  await new Promise((r) => closed.close(r));
+  const servers = [];
+  try {
+    for (const [offset, coarse] of [[8, target], [9, offline]]) {
+      const child = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir,
+        '--port', String(port(offset)), '--coarse', coarse]);
+      servers.push(child);
+      await new Promise((resolve, reject) => {
+        child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
+        child.stdout.on('data', (d) => /serve-dist/.test(d) && resolve());
+      });
+    }
+    const ok = await fetch(`http://127.0.0.1:${port(8)}/coarse/t0_1_1/manifest.json?d=5`);
+    assert.equal(ok.status, 202);
+    assert.equal(ok.headers.get('cross-origin-embedder-policy'), 'require-corp');
+    assert.deepEqual(await ok.json(), { path: '/coarse/t0_1_1/manifest.json?d=5' });
+    assert.equal((await fetch(`http://127.0.0.1:${port(8)}/coarse/status`)).status, 200);
+    const down = await fetch(`http://127.0.0.1:${port(9)}/coarse/status`);
+    assert.equal(down.status, 503);
+    assert.deepEqual(await down.json(), { state: 'offline' });
+  } finally {
+    await Promise.all(servers.map((child) => new Promise((resolve) => { child.once('exit', resolve); child.kill(); })));
+    await new Promise((r) => upstream.close(r));
+  }
+});

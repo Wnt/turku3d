@@ -15,6 +15,7 @@ export default defineConfig({
   worker: { format: 'es', plugins: () => [wasm()] },
   build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000 },
   optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
-  server: { port: port(), strictPort: true, headers: isolation },
+  // /coarse/* reaches the localhost coarse tile service (tools/dev/coarse-tiles) same-origin, as through serve-dist.
+  server: { port: port(), strictPort: true, headers: isolation, proxy: { '/coarse': `http://127.0.0.1:${port(5)}` } },
   preview: { port: port(1), strictPort: true, headers: isolation },
 });
