@@ -92,3 +92,35 @@ test('two dist servers use independent environment ports and output roots', asyn
     roots.forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
   }
 });
+
+test('POST /telemetry appends JSON lines to the day file', async () => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'telemetry-'));
+  const child = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', String(port(8))], {
+    env: { ...process.env, TURKU3D_WORK: work },
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
+      child.stdout.on('data', (d) => /serve-dist/.test(d) && resolve());
+    });
+    const endpoint = `http://127.0.0.1:${port(8)}/telemetry`;
+    const post = (body) => fetch(endpoint, { method: 'POST', body, headers: { 'content-type': 'application/x-ndjson' } });
+    const ok = await post('{"t":1,"facades":[]}\n{"t":2,"facades":[]}\n');
+    assert.equal(ok.status, 204);
+    assert.equal(ok.headers.get('access-control-allow-origin'), '*');
+    assert.equal((await post('{"t":3}')).status, 204); // a final line without newline
+    assert.equal((await post('{"t":4}\nnot json\n')).status, 400);
+    assert.equal((await post('[1]\n')).status, 400);
+    assert.equal((await post('x'.repeat(1024 * 1024 + 1))).status, 413);
+    const preflight = await fetch(endpoint, { method: 'OPTIONS' });
+    assert.match(preflight.headers.get('access-control-allow-methods'), /POST/);
+    assert.equal((await fetch(`http://127.0.0.1:${port(8)}/index.html`, { method: 'POST' })).status, 405);
+    const d = new Date();
+    const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const lines = fs.readFileSync(path.join(work, 'telemetry', `session-${day}.jsonl`), 'utf8').trimEnd().split('\n');
+    assert.deepEqual(lines.map((l) => JSON.parse(l).t), [1, 2, 3]);
+  } finally {
+    await new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});
