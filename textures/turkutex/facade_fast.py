@@ -236,6 +236,22 @@ def describe(
         from .facade_priors import describe as describe_priors
 
         return describe_priors(run, inventory, refs)
+    if engine == "cv-transforms":
+        from .facade_cv_transforms import describe as describe_transforms
+
+        return describe_transforms(run, inventory, refs, segmentation=segmentation)
+    if engine in (
+        "cv-models",
+        "cmp",
+        "cmp-grid",
+        "grounding-dino",
+        "grounding-dino-openings",
+        "smolvlm",
+        "qwen",
+    ):
+        from .facade_models import describe as describe_model
+
+        return describe_model(run, inventory, refs, engine=engine)
     if engine == "cv":
         from .facade_cv import describe as describe_cv
 
@@ -608,7 +624,23 @@ def main(argv=None) -> int:
         if name == "describe":
             p.add_argument("-j", type=int, default=8)
             p.add_argument("--max-pct", type=float, default=90)
-            p.add_argument("--engine", choices=("astra", "cv", "cv-priors"), default="astra")
+            p.add_argument(
+                "--engine",
+                choices=(
+                    "cv-models",
+                    "astra",
+                    "cv",
+                    "cv-priors",
+                    "cv-transforms",
+                    "cmp",
+                    "cmp-grid",
+                    "grounding-dino",
+                    "grounding-dino-openings",
+                    "smolvlm",
+                    "qwen",
+                ),
+                default="astra",
+            )
             p.add_argument("--segmentation", choices=("classic", "segformer"), default="classic")
         if name in ("render", "publish", "contact"):
             p.add_argument("--staging", type=Path, required=True)

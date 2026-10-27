@@ -240,12 +240,25 @@ def measure(
     return answer, sidecar
 
 
-def describe(run: Path, inventory: Path, refs: Path, *, segmentation="classic") -> dict:
+def describe(
+    run: Path,
+    inventory: Path,
+    refs: Path,
+    *,
+    segmentation="classic",
+    measure_fn=None,
+    engine=VERSION,
+) -> dict:
     from . import facade_fast as fast
     from . import facade_fast_render as fr
 
     _, facades = fast.planned_facades(run, inventory)
-    segmenter = Segmenter() if segmentation == "segformer" else None
+    segmenter = Segmenter() if segmentation == "segformer" and measure_fn is None else None
+    if measure_fn is None:
+
+        def measure_fn(rgb, fid, width, height):
+            return measure(rgb, fid, width, height, segmenter)
+
     output = run / "run_describe/out.jsonl"
     output.parent.mkdir(parents=True, exist_ok=True)
     reasons, failures, count = {}, {}, 0
@@ -253,7 +266,7 @@ def describe(run: Path, inventory: Path, refs: Path, *, segmentation="classic") 
     # CV runs have their own run directory; never append over an Astra run accidentally.
     if output.exists():
         for line in output.read_text().splitlines():
-            if json.loads(line).get("model") != VERSION:
+            if json.loads(line).get("model") != engine:
                 raise ValueError("use a separate run directory for the CV engine")
     with output.open("w") as stream:
         for facade in facades:
@@ -264,12 +277,11 @@ def describe(run: Path, inventory: Path, refs: Path, *, segmentation="classic") 
             try:
                 crop = fast.crop_for_call(facade, view, refs, run / "inputs")
                 with Image.open(crop) as image:
-                    answer, sidecar = measure(
+                    answer, sidecar = measure_fn(
                         np.asarray(image.convert("RGB")),
                         facade.id,
                         facade.length,
                         facade.height_m,
-                        segmenter,
                     )
                 errors = fr.validate(answer, facade.id)
                 if errors:
@@ -279,13 +291,13 @@ def describe(run: Path, inventory: Path, refs: Path, *, segmentation="classic") 
                 )
                 fast.write_json(run / "confidence" / f"{facade.id}.json", sidecar)
                 key = hashlib.sha256(
-                    (VERSION + reference["crop_sha256"] + segmentation).encode()
+                    (engine + reference["crop_sha256"] + segmentation).encode()
                 ).hexdigest()
                 record = dict(
                     id=f"{facade.id}.fast",
                     ok=True,
                     answer=answer,
-                    model=VERSION,
+                    model=engine,
                     effort="local",
                     key=key,
                     cached=False,
@@ -296,7 +308,7 @@ def describe(run: Path, inventory: Path, refs: Path, *, segmentation="classic") 
             except Exception as exc:  # noqa: BLE001 - retain per-wall failure without losing the run
                 failures[facade.id] = f"{type(exc).__name__}: {exc}"
     result = dict(
-        engine=VERSION,
+        engine=engine,
         segmentation=segmentation,
         walls=len(facades),
         jobs=count,
