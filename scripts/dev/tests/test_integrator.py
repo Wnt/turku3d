@@ -81,7 +81,7 @@ class IntegratorTests(unittest.TestCase):
         (work / "textures/assembly/MANIFEST.json").write_bytes(self.approvals().read_bytes())
         visual = {
             tile: {"tris": 1000, "ground_texture_bytes": 1, "wire_bytes": 1}
-            for tile in live_build.TILES
+            for tile in live_build.C.CORE_TILES
         }
         manifest = work / "dist/tiles/manifest.json"
         manifest.write_text(json.dumps({"visual": visual, "spawn": [0, 0, 0]}))
@@ -113,7 +113,9 @@ class IntegratorTests(unittest.TestCase):
         approved = len(json.loads(self.approvals().read_text())["bound"])
         facades = min(int((repo / "game/facades.txt").read_text()), approved)
         manifest = self.outputs(work, facades)
-        report = live_build.inspect(manifest, facades, live_build.baseline(published), reason)
+        report = live_build.inspect(
+            manifest, facades, live_build.baseline(published), live_build.tiles(published), reason
+        )
         return {**report, "seconds": {"tile-build": 0.01}, "cache_hits": ["refresh"]}
 
     def land(self, name, path, text, reason=None):

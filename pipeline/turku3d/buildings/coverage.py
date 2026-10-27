@@ -146,7 +146,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--layer", type=Path, default=C.work_root() / "build/layers/buildings")
     ap.add_argument("--source-area", default="work-3x3")
-    ap.add_argument("--tiles", nargs="+", default=[t.id for t in C.PLAYABLE_TILES.visual_tiles])
+    ap.add_argument("--tiles", nargs="+", default=C.playable_tile_ids())
     ap.add_argument("--out", type=Path, default=C.work_root() / "reports/building-coverage")
     args = ap.parse_args(argv)
     tiles = [C.VisualTile.parse(tid) for tid in args.tiles]

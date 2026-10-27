@@ -51,6 +51,9 @@ def digest(repo, work, published, stage, previous, scope=None):
     for name in sorted(s.git("ls-files", cwd=repo).splitlines()):
         if any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns):
             h.update(name.encode() + b"\0" + (repo / name).read_bytes() + b"\0")
+    # The playable tile list decides which tiles every stage builds and checks.
+    listed = published / "playable-tiles.json"
+    h.update(listed.read_bytes() if listed.is_file() else b"missing:playable-tiles")
     # Source manifests contain hashes for the large immutable data products. A
     # changed inventory also invalidates the cache, including missing files.
     data_roots = [published / "data-manifests", work / "textures/assembly"]

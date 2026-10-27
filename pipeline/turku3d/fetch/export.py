@@ -8,7 +8,7 @@ from .. import config as C
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--area", default="office-block", choices=sorted(C.AREAS))
+    ap.add_argument("--area", default="office-block", choices=C.area_names())
     a = ap.parse_args()
     dest = C.DATA_MANIFESTS / "checksums"
     dest.mkdir(exist_ok=True)

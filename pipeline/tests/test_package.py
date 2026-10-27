@@ -26,7 +26,7 @@ def test_facade_atlas_vertical_uv():
 def test_collision_margin_is_published_beyond_l0_edge(tmp_path, monkeypatch):
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
-    monkeypatch.setattr("turku3d.package.assemble.require_office_layers", lambda _: None)
+    monkeypatch.setattr("turku3d.package.assemble.require_layers", lambda *_: None)
     layers, out = tmp_path / "layers", tmp_path / "dist"
     assemble_fixture(layers)
     ground = layers / "ground"

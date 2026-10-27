@@ -39,7 +39,7 @@ def osm_ways(path: Path, bbox: C.BBoxLocal):
 
 
 def build(out: Path, osm: Path, area: str) -> dict:
-    bbox = C.AREAS[area].core
+    bbox = C.area(area).core
     graph = build_graph(osm_ways(osm, bbox), bbox.as_tuple(), area)
     data = encode(graph)
     _atomic_write(out / GRAPH_FILE, data)
@@ -71,7 +71,7 @@ def build(out: Path, osm: Path, area: str) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--area", default="playable-tiles", choices=sorted(C.AREAS))
+    ap.add_argument("--area", default="playable-tiles", choices=C.area_names())
     ap.add_argument(
         "--osm", type=Path, default=C.raw_dir("osm") / "work-3x3/work-3x3-261024.parquet"
     )

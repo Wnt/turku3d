@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -13,7 +14,21 @@ import live_cache
 import sandbox as s
 from host_slots import integration_jobs
 
-TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pipeline"))
+from turku3d import config as C  # noqa: E402  (stdlib-only module; no pipeline env needed)
+
+
+def tiles(published):
+    """The playable L0 tiles the live build ships: the data root's playable-tiles.json."""
+    return tuple(C.playable_tile_ids(published))
+
+
+def released_tiles(release):
+    """The tile list a published release was built for; releases before the list had the core."""
+    record = release / "live-build.json" if release else None
+    if record and record.is_file():
+        return tuple(json.loads(record.read_text()).get("tiles", C.CORE_TILES))
+    return C.CORE_TILES
 
 
 class StageFailed(ValueError):
@@ -52,15 +67,17 @@ def approval_manifests(published):
     }
 
 
-def affected_tiles(previous, work):
-    """Map changed layer meshes to visual tiles; ambiguous changes rebuild all tiles."""
+def affected_tiles(previous, work, listed):
+    """Map changed layer meshes to listed visual tiles; ambiguous changes rebuild all of them.
+
+    A tile the previous release did not list is always affected."""
     old = previous / "layers"
     new = work / "build/layers"
     if not old.is_dir() or not new.is_dir():
-        return TILES
+        return tuple(listed)
     if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
-        return TILES
-    changed = set()
+        return tuple(listed)
+    changed = set(listed) - set(released_tiles(previous))
     names = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
     names |= {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
     for name in names:
@@ -68,16 +85,15 @@ def affected_tiles(previous, work):
         if before.is_file() and after.is_file() and filecmp.cmp(before, after, shallow=False):
             continue
         stem = name.name
-        if stem.endswith(".vis.glb") and stem.split(".vis.glb")[0] in TILES:
+        if stem.endswith(".vis.glb") and stem.split(".vis.glb")[0] in listed:
             changed.add(stem.split(".vis.glb")[0])
         elif stem.endswith(".col.npz") and stem.startswith("c_"):
-            _, i, j = stem.split(".")[0].split("_")
-            changed.add(f"t0_{int(i) // 4}_{int(j) // 4}")
+            changed.add(C.CollisionTile.parse(stem.split(".")[0]).visual_parent().id)
         elif stem == "MANIFEST.json":
             continue
         else:
-            return TILES
-    return tuple(tile for tile in TILES if tile in changed)
+            return tuple(listed)
+    return tuple(tile for tile in listed if tile in changed)
 
 
 def affected_collision_files(previous, work, selected):
@@ -129,6 +145,8 @@ def _clone(source, target):
 def seed(work, published):
     for relative in ("build/layers", "textures", "dist/tiles"):
         _clone(published / relative, work / relative)
+    # The data root's tile list is authoritative; a sandbox list would shadow it.
+    (work / C.PLAYABLE_TILES_FILE).unlink(missing_ok=True)
     approvals = published / "facade-approvals/assembly"
     if approvals.is_dir():
         # The approvals are authoritative: a retired facade must leave the release too,
@@ -179,10 +197,13 @@ def baseline(published):
     raise ValueError("published facade baseline is unavailable")
 
 
-def inspect(manifest_path, facade_count, minimum, reason=None):
+def inspect(manifest_path, facade_count, minimum, listed, reason=None):
+    """Per listed tile: geometry present, ground textures bound and the 8 MB wire cap."""
     manifest = json.loads(manifest_path.read_text())
-    for tile in TILES:
-        entry = manifest["visual"][tile]
+    for tile in listed:
+        entry = manifest["visual"].get(tile)
+        if entry is None:
+            raise ValueError(f"{tile}: listed in playable-tiles.json but not assembled")
         if entry.get("tris", 0) < 1000:
             raise ValueError(f"{tile}: office geometry is missing; Chrome tests would skip")
         if entry.get("ground_texture_bytes", 0) <= 0:
@@ -194,6 +215,7 @@ def inspect(manifest_path, facade_count, minimum, reason=None):
     if not manifest.get("spawn"):
         raise ValueError("live build has no spawn")
     return {
+        "tiles": list(listed),
         "facades_bound": facade_count,
         "facades_baseline": minimum,
         "facade_regression_reason": reason if facade_count < minimum else None,
@@ -274,6 +296,7 @@ def build(repo, work, published, env, log_path, reason=None, previous_release=No
     """
     seed(work, published)
     minimum = baseline(published)
+    listed = tiles(published)
     durations = {}
     cache_hits = []
     input_hashes = {}
@@ -283,13 +306,17 @@ def build(repo, work, published, env, log_path, reason=None, previous_release=No
     cache_enabled = (repo / ".git").exists()
     commands = [
         ("refresh", ["make", "refresh"], repo),
-        ("tile-build", ["make", "tile-build", "T=" + " ".join(TILES)], repo),
+        (
+            "tile-build",
+            ["make", "tile-build", "AREA=playable-tiles", "T=" + " ".join(listed)],
+            repo,
+        ),
         (
             "tile-validate",
             [
                 "make",
                 "tile-validate",
-                "T=" + " ".join(TILES),
+                "T=" + " ".join(listed),
                 "TILE_WALKERS=128",
                 "VALIDATOR_REQUIRE=buildings,curbs",
                 "VALIDATOR_ARGS=--checks format,seams,buildings,curbs --walk-seconds 2",
@@ -326,13 +353,13 @@ def build(repo, work, published, env, log_path, reason=None, previous_release=No
             if stage == "tile-build":
                 prior = previous_release
                 if prior:
-                    selected = affected_tiles(prior, work)
+                    selected = affected_tiles(prior, work, listed)
                     # Facade and library texture changes affect tile packing globally.
                     if selected and same_tree(prior / "textures", work / "textures"):
-                        command = ["make", "tile-build", "T=" + " ".join(selected)]
+                        command = [*command[:3], "T=" + " ".join(selected)]
                         scopes[stage] = selected
             if stage in ("tile-validate", "car-report"):
-                selected = scopes.get("tile-build") or TILES
+                selected = scopes.get("tile-build") or listed
                 files = affected_collision_files(previous_release, work, selected)
                 if stage == "tile-validate":
                     command[2] = "T=" + " ".join(selected)
@@ -366,7 +393,11 @@ def build(repo, work, published, env, log_path, reason=None, previous_release=No
                 cache_hits.append(stage)
                 if stage == "tile-build":
                     report = inspect(
-                        work / "dist/tiles/manifest.json", cached["facades_bound"], minimum, reason
+                        work / "dist/tiles/manifest.json",
+                        cached["facades_bound"],
+                        minimum,
+                        listed,
+                        reason,
                     )
                 if stage == "facade-ground-audit":
                     report["facade_ground_audit"] = cached["facade_ground_audit"]
@@ -412,7 +443,9 @@ def build(repo, work, published, env, log_path, reason=None, previous_release=No
                         continue
                 if facade_count is None:
                     raise ValueError(f"tile-build did not report facades_bound: {log_path}")
-                report = inspect(work / "dist/tiles/manifest.json", facade_count, minimum, reason)
+                report = inspect(
+                    work / "dist/tiles/manifest.json", facade_count, minimum, listed, reason
+                )
             if stage == "facade-ground-audit":
                 report["facade_ground_audit"] = json.loads(proc.stdout.splitlines()[-1])
             if key and stage != "car-report":

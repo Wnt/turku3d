@@ -1,11 +1,15 @@
 // Visual tiles via 3DTilesRendererJS. tileset.json is in the 3D Tiles Z-up frame (docs/specs/tiles.md §1);
 // the renderer rotates Y-up glTF content to Z-up, so the group gets rotation.x = -PI/2 to return to engine axes.
 import * as THREE from 'three/webgpu';
-import { TilesRenderer } from '3d-tiles-renderer';
+import { TilesRenderer, type Tile } from '3d-tiles-renderer';
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { batchTileShadows } from './shadowBatch';
+import { refinableParents } from './residency';
+
+interface ViewErrorTarget { error: number }
+type ViewError = (tile: Tile, target: ViewErrorTarget) => void;
 
 export class VisualTiles {
   readonly tiles: TilesRenderer;
@@ -16,6 +20,9 @@ export class VisualTiles {
   private triCount = new Map<THREE.Object3D, number>();
   private shadowBatches = new Map<THREE.Object3D, THREE.Mesh>();
   private resolution = new THREE.Vector2();
+  /** 500 m parents of L0 tiles -> their L0 child ids, found as the traversal reaches them. */
+  private l0Parents = new Map<string, string[]>();
+  private refinable = new Set<string>();
 
   constructor(url: string, private renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, scene: THREE.Scene,
     idPass = false) {
@@ -23,6 +30,21 @@ export class VisualTiles {
     this.tiles = new TilesRenderer(url);
     this.tiles.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: ktx2, meshoptDecoder: MeshoptDecoder }));
     this.tiles.errorTarget = 8;
+    // A parent outside the nearest-L0 budget reports no error, so it stays coarse and its L0 children go
+    // unused; the LRU cache's byte cap then evicts them, keeping memory bounded as the tile list grows.
+    const viewer = this.tiles as unknown as { calculateTileViewError: ViewError };
+    const viewError = viewer.calculateTileViewError.bind(this.tiles);
+    viewer.calculateTileViewError = (tile, target) => {
+      viewError(tile, target);
+      const id = tile.extras?.id as string | undefined;
+      if (!id) return;
+      if (!this.l0Parents.has(id)) {
+        const children = (tile.children ?? []).map((c) => c.extras?.id as string | undefined)
+          .filter((c): c is string => !!c && c.startsWith('t0_'));
+        if (children.length) this.l0Parents.set(id, children);
+      }
+      if (this.l0Parents.has(id) && !this.refinable.has(id)) target.error = 0;
+    };
     this.tiles.group.rotation.x = -Math.PI / 2;
     this.tiles.setCamera(camera);
     renderer.getDrawingBufferSize(this.resolution);
@@ -61,6 +83,7 @@ export class VisualTiles {
 
   update(camera: THREE.PerspectiveCamera) {
     camera.updateMatrixWorld();
+    this.refinable = refinableParents(this.l0Parents, camera.position.x, camera.position.z);
     // SSE is measured in actual output pixels on every backend, including HiDPI and capped render sizes.
     this.renderer.getDrawingBufferSize(this.resolution);
     this.tiles.setResolution(camera, this.resolution.x, this.resolution.y);

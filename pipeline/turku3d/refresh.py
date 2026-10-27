@@ -22,7 +22,6 @@ from turku3d.roads import code_hash as roads_code_hash
 from turku3d.structures.layer import code_hash as structures_code_hash
 from turku3d.vegetation.__main__ import code_hash as vegetation_code_hash
 
-TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
 _detach_lock = threading.Lock()
 
 
@@ -234,6 +233,7 @@ def ground_textures(layers, textures):
     from turku3d.package.ground_textures import publish_ground
 
     stage_ground_library(textures)
+    tiles = C.playable_tile_ids()
     root = textures / "ground"
     code = ground_texture_code_hash()
     manifest = root / "MANIFEST.json"
@@ -249,7 +249,7 @@ def ground_textures(layers, textures):
     if current:
         try:
             # Validation is read-only: publish into an empty temporary directory only if needed.
-            for tile in TILES:
+            for tile in tiles:
                 spec = json.loads((root / tile / "material.json").read_text())
                 for item in spec["ground_inputs"]:
                     path = layers / "ground" / Path(item["path"]).name
@@ -267,6 +267,7 @@ def ground_textures(layers, textures):
         return "cached"
     local_directory(root, textures.parent)
     args = ["turkutex.ground.build", "--ground-layer", str(layers / "ground"), "--out", str(root)]
+    args += ["--tiles", *tiles]
     if (
         manifest.exists()
         and sources_current
@@ -278,9 +279,9 @@ def ground_textures(layers, textures):
     import tempfile
 
     with tempfile.TemporaryDirectory() as temp:
-        bindings = publish_ground(root, Path(temp), TILES, layers / "ground")
-    if set(bindings) != set(TILES):
-        raise RuntimeError("ground refresh did not produce all four tile bindings")
+        bindings = publish_ground(root, Path(temp), tiles, layers / "ground")
+    if set(bindings) != set(tiles):
+        raise RuntimeError(f"ground refresh did not bind {sorted(set(tiles) - set(bindings))}")
     return "rebuilt"
 
 
