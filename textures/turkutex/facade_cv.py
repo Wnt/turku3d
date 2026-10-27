@@ -72,7 +72,11 @@ def colours(rgb: np.ndarray, mask: np.ndarray) -> tuple[str, str, float]:
     def hex_colour(i):
         return "#" + "".join(f"{v:02x}" for v in palette[i])
 
-    return hex_colour(ranked[0]), hex_colour(ranked[1]), float(counts.max() / len(lab))
+    # OpenCV may keep identical-colour samples in distinct clusters. Treat nearby
+    # centres as one colour family when estimating support.
+    same_colour = np.linalg.norm(centers - centers[ranked[0]], axis=1) <= 3
+    support = float(counts[same_colour].sum() / len(lab))
+    return hex_colour(ranked[0]), hex_colour(ranked[1]), support
 
 
 def classic_masks(rgb: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
