@@ -26,3 +26,14 @@ def test_only_own_building_parameters_invalidate(tmp_path):
     assert parameter_hash(["a"], tmp_path) == before
     store_path("a", tmp_path).write_text('{"changed":true}')
     assert parameter_hash(["a"], tmp_path) != before
+
+
+def test_kit_vertex_styles_batch_together():
+    import subprocess
+
+    from turku3d import config as C
+
+    subprocess.run(
+        ["node", "--test", str(C.REPO_ROOT / "pipeline/turku3d/package/facade_kit.test.mjs")],
+        check=True,
+    )

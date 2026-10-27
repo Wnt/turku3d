@@ -135,7 +135,7 @@ def build_tile(tile, staging):
                     color=(0.8, 0.8, 0.8, 1.0),
                     extras={
                         "layer": "buildings_outer",
-                        "object_id": f"{ident}/{suffix}",
+                        "object_id": ident,
                         "building_id": b.facade_key,
                         "material_key": material,
                         "surface": suffix,
