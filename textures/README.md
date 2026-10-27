@@ -711,3 +711,59 @@ unqueried fields. Benchmark `--short` tests the compact five-field VLM prompt; `
 controls VLM thumbnail side or detector shortest edge. Florence needs its separate pinned
 runtime; [the research scripts](../tools/research/facade_models/README.md) reproduce it and
 the material probe. None of the experimental confidence scores is a calibrated probability.
+
+### Facade input transforms
+
+The refs rectifier directly samples panorama rays at wall-plane pixel centres. Its reusable
+API is `streetview.rectify.rectified_points(corners, pixels_per_metre=32, max_side=2048)`
+and `sample_wall(rgb, camera_model, points, camera_position)`. Coordinates are ENH; corners
+are bottom-left, bottom-right, top-right, top-left. The existing long-side API remains available.
+Re-render a saved pose from a local panorama (including a higher resolution of the same panorama):
+
+```sh
+PYTHONPATH=textures:pipeline .venv/bin/python -m turkutex.streetview.rectify \
+  --view "$REFS/$WALL/$VIEW.json" --panorama "$PANO" \
+  --pixels-per-metre 32 --max-side 2048 --output "$TURKU3D_WORK/reports/wall.png"
+```
+
+The PNG and coverage mask are local street imagery and must never be committed. A source-coverage
+mask does not detect occluders. Rectification uses the recorded provider pose conventions,
+including their existing pitch/roll limitation; it cannot fix an inaccurate pose or wrong wall.
+
+Transform ablations use the same scorer and the exact original Astra crop bytes. The bulk
+runner recreates `crop_for_call` and verifies all direct-reference SHA-256 values before
+measuring anything. It reports the 278 direct readings separately from the 425-wall inventory
+with donor/register fallbacks, and also reports direct walls at least 3 m wide.
+
+```sh
+source ../sandbox.env
+export PYTHONPATH=textures:pipeline
+# FIXTURE is the original fast-measure directory; REFS is its original textures/refs sibling.
+.venv/bin/python -m turkutex.facade_transform_benchmark \
+  --fixture "$FIXTURE" --refs "$REFS" --output "$TURKU3D_WORK/reports/transforms" \
+  --variants baseline metric16 metric32 metric64 native16 native32 native64 \
+  clahe shade whitebalance median vote periodic contrast
+.venv/bin/python -m turkutex.facade_transform_benchmark \
+  --labels "$HOME/turku3d/research/facade-cv/labels" \
+  --refs "$HOME/turku3d/research/facade-cv/refs" \
+  --output "$TURKU3D_WORK/reports/transforms-bulk" --variants baseline periodic
+```
+
+Add `--segmentation segformer` for the pinned ADE20K baseline, or `--engine cv-models`
+for the separately prepared local detector ensemble. Detector comparisons accept the input
+transforms; `periodic` and `contrast` specifically replace the classic opening-grid reader.
+`native*` samples the largest already-cached resolution of the same panorama onto the wall at
+16/32/64 px/m (1536 px side cap); it never downloads. Panorama decode/rectification is an offline
+preparation cost recorded in local sidecars and excluded from describe latency. All other
+transform work and additional-view reads are included. Benchmark JSON is overwritten on each
+invocation; run only the desired `--variants` when continuing an experiment. Images stay local.
+
+`facade_fast describe --engine cv-transforms --run "$RUN" --inventory "$FACADES" --refs "$REFS"`
+retains the metric `periodic` reader as an opt-in research engine, with optional
+`--segmentation segformer`. It uses the shared description writer and always requires review.
+Count agreement on the bulk pseudo-labels improves, but reviewer accuracy remains below target,
+so Astra remains the default. `--engine cv-models --variants modelgrid` in the transform benchmark
+tests column votes across metric upper-storey bands while preserving DINO's storey count.
+The benchmark records unsupported model inputs as failures without removing their count targets;
+colour is scored only where a prediction exists, with measured coverage reported explicitly.
+See [the transform study](../docs/research/facade-cv-transforms.md) for the measured outcomes.
