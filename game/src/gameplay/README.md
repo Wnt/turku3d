@@ -243,3 +243,9 @@ The Chrome check injects a fake `MissionHudSource` whose active target is a stre
 re-plans after the player moves, toggles the large map, and writes screenshots and draw/route
 timings to `$TURKU3D_WORK/reports/gameplay-map-route/`. On synthetic tiles without a road graph
 it skips.
+
+
+Draft bridge graph edges can include optional `edgeHeights` Y arrays parallel to the complete
+edge polyline (including its endpoints); null means no surveyed elevation. `parseRoadGraph` and
+`mergeRoadGraphs` preserve them as `RoadEdge.heights`, and `StreetRouter` returns optional
+`WorldPoint.y` on snaps and route vertices. Existing X/Z-only graph assets remain valid.

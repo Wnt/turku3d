@@ -5,6 +5,8 @@
 export interface WorldPoint {
   x: number;
   z: number;
+  /** Surface height when a route follows a bridge; absent on unsurveyed streets. */
+  y?: number;
 }
 
 export type TargetKind = 'pickup' | 'dropoff' | 'shop' | 'market';

@@ -177,3 +177,15 @@ pixels stay under the sandbox coarse root; validated parameter JSON goes to
 available. `turku3d.facade_kit.write_description()` is the atomic writer. Only affected drafts
 are invalidated; resident models remain visible until the replacement is ready. `/coarse/status`
 includes the worker state under `facades`. Published assembly also reads these parameters.
+
+OSM `bridge=*` transport ways now produce separate slabs, parapets (girder sides for rail),
+ballast for rail and 20 m spaced piers outside crossed-way corridors (`bridges.py`). Decks follow
+lidar abutments, lifted as needed for 4.5 m road / 6 m rail / 2.5 m path clearance below the
+0.4 m slab. Only approach ramps blend into the ground; the ground under the span stays intact.
+This reuses `structures.geometry.profile_wall`, the full bridges producer's box geometry and
+`structures.layer.tile_cells`. The existing 8 MB visual budget still applies. `manifest.seconds.bridges`
+records added geometry time per tile; road preparation is cached with the OSM graph. Without OSM,
+the existing street-area water-bridge lift remains. `roads.json` has optional `edgeHeights`, one
+Y array per edge vertex sequence (including ends), or null for unsurveyed edges. Graph merging and
+the router preserve these deck/approach heights. Verify the pure clearance rules with
+`bash pipeline/env/run.sh pytest -q pipeline/tests/test_coarse.py -k osm_deck_height`.

@@ -5,8 +5,9 @@ ground key points and textured with one true-ortho image. Buildings are CityGML 
 extruded to their mean roof height, walls with the library render material and roofs with the
 same ortho. Street-area polygons only set collision material classes; water polygons become the
 water sensor over a synthetic bed and a visible water surface (``material_key`` water) at the level.
-``maanpinta`` has no points on bridge decks, so a street-area bridge over water is lifted to the
-line through its abutments (``bridge_decks``). OSM ``natural=tree`` points become GPU-instanced
+OSM bridges become separate drivable slabs with clear underpasses and ground-blended approaches;
+without OSM, street-area water bridges retain the abutment lift (``bridge_decks``).
+OSM ``natural=tree`` points become GPU-instanced
 vegetation prototypes (unmeasured, 10 m unless tagged) with trunk cylinders in the collision. The
 tile has no curbs, stairs, structures, props, unique facade maps or LOD parents: the full pipeline
 replaces it when the tile is published.
@@ -38,7 +39,7 @@ from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 
-from . import fences
+from . import bridges, fences
 from .inputs import CELLS, Building, Inputs, gather
 
 FORMAT = "turku3d-coarse-tile"
@@ -411,7 +412,10 @@ def build(
     water = inputs.water
     materials = ground_materials(centroids, inputs.ortho, tile, inputs.streets)
     # A bridge deck stays solid where a water polygon runs under it.
-    wet = water_mask(centroids, water) & (materials != mat_id("bridge_deck"))
+    separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
+    wet = water_mask(centroids, water)
+    if not separate_decks:
+        wet &= materials != mat_id("bridge_deck")
     level = water_level(inputs.points, water)
     if wet.any():
         materials[wet] = mat_id("water")
@@ -419,7 +423,11 @@ def build(
         dry_vertices = np.unique(grid_idx[~wet])
         inner = np.setdiff1d(wet_vertices, dry_vertices)
         grid_pos[inner, 1] = np.minimum(grid_pos[inner, 1], level)
-    decks = bridge_decks(grid_pos, grid_idx, materials, wet)
+    # OSM decks are separate solids: lifting the span's ground blocks underpasses.
+    t_bridges = time.perf_counter()
+    osm_decks = bridges.produce(tile, grid_pos, inputs)
+    decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
+    seconds["bridges"] = time.perf_counter() - t_bridges
     seconds["ground"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -467,6 +475,7 @@ def build(
         )
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
+    bridges.visual(osm_decks, tile, stage, layer_files)
     trees = draft_trees(tile, grid_pos, inputs.trees, water, shells)
     if trees:
         from turku3d.vegetation.visual import write_instances
@@ -541,6 +550,7 @@ def build(
     for ct, (pos, idx, mat) in collision_tiles(
         tile, grid_pos, grid_idx, materials, level, shells
     ).items():
+        pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         data = write_col(col, encoding="meshopt", optimize=False)
@@ -557,7 +567,7 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
-    roads = inputs.roads
+    roads = bridges.road_heights(inputs.roads, osm_decks)
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     _write(out / "vis.glb", vis)
@@ -597,7 +607,7 @@ def build(
         facade_params=facade_params,
         trees=len(trees),
         barriers=barrier_stats,
-        bridges=decks,
+        bridges=decks + len(osm_decks),
         water_level=level,
         sources=inputs.sources,
         inputs=inputs.key,
