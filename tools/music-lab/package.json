@@ -1,0 +1,7 @@
+{
+  "name": "turku3d-music-lab",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1 --strictPort", "build": "tsc --noEmit && vite build", "test:e2e": "playwright test" },
+  "devDependencies": { "@playwright/test": "1.64.1", "typescript": "^7.0.2", "vite": "8.3.5" }
+}

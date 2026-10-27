@@ -76,3 +76,9 @@ The Chrome e2e test unlocks via a real key, decodes every asset, builds all eigh
 footsteps and triggers each effect family without errors on WebGPU and WebGL2. `window.__game.audio`
 exposes `emit`, `snapshot`, `unlock` and `dispose` for diagnostics; `snapshot()` reports graph state,
 loaded count, loop/voice counts, volumes, played counts and errors.
+
+## Procedural music lab
+
+The reusable, standalone `music/` module and its five generated tracks are documented in
+[`music/README.md`](music/README.md). The game does not instantiate it yet; test and tune it
+with `tools/music-lab` before connecting it to the existing audio buses and mission flow.
