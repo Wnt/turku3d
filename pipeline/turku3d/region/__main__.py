@@ -1,9 +1,10 @@
-"""make region AREA=name [STEPS='fetch assemble validate'] [DRY=1]."""
+"""make region AREA=name [STEPS='fetch assemble validate'] [DRY=1]; make tile-add T=t0_i_j."""
 
 import argparse
 import fcntl
 import json
 import os
+import sys
 from pathlib import Path
 
 from turku3d import config as C
@@ -14,6 +15,11 @@ from .runner import ORDER, execute, plan
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] in (["add-tile"], ["list-tile"]):
+        from .tiles import main as tiles
+
+        return tiles(argv)
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--area", default="office-block")
     ap.add_argument("--steps", nargs="+", choices=ORDER, default=list(ORDER))

@@ -153,6 +153,8 @@ def test_buildings_refresh_requires_source_inventory_for_approved_facades(tmp_pa
 
 
 def test_buildings_refresh_snapshots_approved_geometry_before_rebuild(tmp_path, monkeypatch):
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
     layers = tmp_path / "build/layers"
     inventory = layers / "buildings/facades.geojson"
     inventory.parent.mkdir(parents=True)
@@ -167,7 +169,9 @@ def test_buildings_refresh_snapshots_approved_geometry_before_rebuild(tmp_path, 
     monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
     assert refresh.buildings(layers) == "rebuilt"
     assert (export / "APPROVED_INVENTORY.geojson").read_bytes() == inventory.read_bytes()
-    assert calls == [("turku3d.buildings", "--jobs", os.environ.get("TURKU3D_JOBS", "3"))]
+    jobs = os.environ.get("TURKU3D_JOBS", "3")
+    assert calls == [("turku3d.buildings", "--jobs", jobs, "--tiles", *refresh.C.CORE_TILES)]
+    assert refresh.built_tiles(layers / "buildings") == list(refresh.C.CORE_TILES)
 
 
 def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):

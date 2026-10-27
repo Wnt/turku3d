@@ -12,20 +12,22 @@ from turku3d.props import publish, read_sources
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--area", choices=["office-block", "phase1"], default="office-block")
+    parser.add_argument(
+        "--area", choices=["office-block", "playable-tiles"], default="office-block"
+    )
     parser.add_argument("--tiles", nargs="+")
     parser.add_argument("--margin", type=float)
     parser.add_argument("--source-area", default="work-3x3")
     args = parser.parse_args()
     margin = (
-        args.margin if args.margin is not None else (C.MESH_MARGIN if args.area == "phase1" else 0)
+        args.margin
+        if args.margin is not None
+        else (C.MESH_MARGIN if args.area == "playable-tiles" else 0)
     )
     if margin < 0:
         parser.error("Expected a nonnegative margin")
-    if args.tiles or args.area == "phase1":
-        tiles = [
-            C.VisualTile.parse(t) for t in (args.tiles or ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"])
-        ]
+    if args.tiles or args.area == "playable-tiles":
+        tiles = [C.VisualTile.parse(t) for t in (args.tiles or C.playable_tile_ids())]
         if any(t.level != 0 for t in tiles):
             parser.error("Expected L0 tiles")
         boxes = [t.bbox for t in tiles]

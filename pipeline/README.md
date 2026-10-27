@@ -39,6 +39,28 @@ Core tiles (`config.CORE_TILES`) require every layer in `make tile-build`; other
 ground (their `.vis.glb` and all 16 colliders), buildings and roads. `work-3x3` is the larger input
 reservoir.
 
+### Growing the playable area: `make tile-add T=t0_i_j`
+
+```sh
+source ../sandbox.env
+make tile-add T=t0_2_0          # sandbox: list, fetch, seed, refresh, assemble; ~15 min per tile
+cat $TURKU3D_WORK/reports/tile-add/t0_2_0.json   # stage and layer seconds, tile size, layers
+bash pipeline/env/run.sh python -m turku3d.region list-tile t0_2_0   # orchestrator: list it for live
+```
+
+`add-tile` accepts an L0 tile that shares an edge with a listed tile and whose 50 m margin lies
+inside the `work-3x3` input reservoir (every producer reads `--source-area work-3x3`). It appends
+the tile to `$TURKU3D_WORK/playable-tiles.json` and checks the reservoir's inputs, downloading any
+missing ones through `turku3d.fetch`. It clones the published layers, textures and tiles into an
+empty sandbox, then runs `turku3d.refresh` and `turku3d.package.assemble --area playable-tiles`
+for the whole list. Ground, buildings, outer massing, roads and props follow the list: refresh
+records the list it built each one for in `<layer>/PLAYABLE_TILES.json` and rebuilds a layer
+built for another list. Ground is one canonical CDT over all listed tiles, so new seams match
+bytewise. Structures, bridges, vegetation and parked cars stay on the measured office core.
+Coarse visual-only L0 leaves fill the other quadrants of a 500 m parent that contains a new tile
+(massing and coarse DTM, no collision) so REPLACE refinement leaves no hole. `list-tile` appends
+to `$TURKU3D_DATA/playable-tiles.json` only. The next integration then builds and publishes the tile.
+
 `collision-audit` reads `$TURKU3D_WORK/build/layers` and the spawn in
 `$TURKU3D_WORK/dist/tiles/manifest.json`; it writes `reports/collision-audit/issues.json`
 and `map.png`. It compares sampled solid wall triangles and every solid primitive against
