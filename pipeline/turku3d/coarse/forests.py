@@ -10,7 +10,8 @@ import shapely
 
 from turku3d.vegetation.trees import VARIANTS, Tree, deduplicate, variant
 
-TREE_CAP = 192
+# Measured with runtime LOD at Kupittaa; retain the 5 m placement clearance.
+TREE_CAP = 768
 BUSH_CAP = 24
 SPACING = 5.0
 # Trees / square metre. Parks keep open lawns; scrub/heath stay low and sparse.

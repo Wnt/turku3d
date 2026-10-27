@@ -1,0 +1,325 @@
+{
+  "camera": {
+    "position": [
+      1375,
+      19,
+      625
+    ],
+    "lookAt": [
+      1420,
+      18,
+      450
+    ],
+    "fov": 65
+  },
+  "warmFrames": 120,
+  "measuredFrames": 240,
+  "repetitions": 3,
+  "rows": [
+    {
+      "dataset": "Cached (1,391 trees)",
+      "step": "Pre-LOD e9738fb2",
+      "source": "tinted-original",
+      "mode": "baseline",
+      "cpu": 2.2850000858306885,
+      "gpu": 2.767583,
+      "work": 5.152040980926514,
+      "p95": 7.7454161335144045,
+      "drained": 3.3265833328167598,
+      "calls": 117,
+      "triangles": 1992359,
+      "shadowWork": 0.6590339141693118,
+      "shadowCalls": 16,
+      "shadowTriangles": 688574
+    },
+    {
+      "dataset": "Cached (1,391 trees)",
+      "step": "Landed 382fb21c",
+      "source": "tinted-original",
+      "mode": "original",
+      "cpu": 2.575000047683716,
+      "gpu": 2.627669,
+      "work": 5.22787820980835,
+      "p95": 8.413249866485597,
+      "drained": 3.2658749997615812,
+      "calls": 131,
+      "triangles": 503694,
+      "shadowWork": 1.119080162124634,
+      "shadowCalls": 24,
+      "shadowTriangles": 67925
+    },
+    {
+      "dataset": "Cached (1,391 trees)",
+      "step": "Fixed",
+      "source": "tinted-original",
+      "mode": "fixed",
+      "cpu": 2.2200000286102295,
+      "gpu": 2.578419,
+      "work": 4.817584914169311,
+      "p95": 5.440543009536743,
+      "drained": 3.0640625,
+      "calls": 109,
+      "triangles": 503694,
+      "shadowWork": 0.5508758569488528,
+      "shadowCalls": 18,
+      "shadowTriangles": 67925
+    },
+    {
+      "dataset": "Fresh cap 192 (1,421 trees)",
+      "step": "Pre-LOD e9738fb2",
+      "source": "tinted-192",
+      "mode": "baseline",
+      "cpu": 2.134999990463257,
+      "gpu": 2.612502,
+      "work": 4.799668933242797,
+      "p95": 5.456085980926513,
+      "drained": 2.995895833770434,
+      "calls": 113,
+      "triangles": 1685627,
+      "shadowWork": 0.6225800286102299,
+      "shadowCalls": 16,
+      "shadowTriangles": 585710
+    },
+    {
+      "dataset": "Fresh cap 192 (1,421 trees)",
+      "step": "Landed 382fb21c",
+      "source": "tinted-192",
+      "mode": "original",
+      "cpu": 2.609999895095825,
+      "gpu": 2.691917,
+      "work": 5.314000028610229,
+      "p95": 6.207575876022339,
+      "drained": 2.9193124999602635,
+      "calls": 119,
+      "triangles": 425404,
+      "shadowWork": 1.2702419999999996,
+      "shadowCalls": 18,
+      "shadowTriangles": 26783
+    },
+    {
+      "dataset": "Fresh cap 192 (1,421 trees)",
+      "step": "Fixed",
+      "source": "tinted-192",
+      "mode": "fixed",
+      "cpu": 2.134999990463257,
+      "gpu": 2.537003,
+      "work": 4.655543904632568,
+      "p95": 5.570203971389771,
+      "drained": 3.074833333492279,
+      "calls": 102,
+      "triangles": 425404,
+      "shadowWork": 0.550664038146973,
+      "shadowCalls": 15,
+      "shadowTriangles": 26783
+    },
+    {
+      "dataset": "Fresh cap 768 (2,391 trees)",
+      "step": "Pre-LOD e9738fb2",
+      "source": "tinted-768",
+      "mode": "baseline",
+      "cpu": 2.9049999713897705,
+      "gpu": 3.064537,
+      "work": 5.979328914169312,
+      "p95": 6.837617095367431,
+      "drained": 3.416479166348775,
+      "calls": 121,
+      "triangles": 2903869,
+      "shadowWork": 1.4568339427795411,
+      "shadowCalls": 16,
+      "shadowTriangles": 1102560
+    },
+    {
+      "dataset": "Fresh cap 768 (2,391 trees)",
+      "step": "Landed 382fb21c",
+      "source": "tinted-768",
+      "mode": "original",
+      "cpu": 3.8949999809265137,
+      "gpu": 4.000189,
+      "work": 7.900270961853027,
+      "p95": 9.17234694277954,
+      "drained": 4.165770833690961,
+      "calls": 145,
+      "triangles": 556758,
+      "shadowWork": 2.3014409999999996,
+      "shadowCalls": 24,
+      "shadowTriangles": 80993
+    },
+    {
+      "dataset": "Fresh cap 768 (2,391 trees)",
+      "step": "Fixed",
+      "source": "tinted-768",
+      "mode": "fixed",
+      "cpu": 2.7950000762939453,
+      "gpu": 3.057036,
+      "work": 5.923955971389771,
+      "p95": 6.747034143051147,
+      "drained": 3.1167083332935968,
+      "calls": 117,
+      "triangles": 556758,
+      "shadowWork": 1.5673689904632573,
+      "shadowCalls": 18,
+      "shadowTriangles": 80993
+    }
+  ],
+  "captures": [
+    {
+      "label": "tinted-original",
+      "date": "2026-10-27T23:20:15.681Z",
+      "commit": "b893bb32fe334b0e48f70c446e82d03ab45cb08f",
+      "browser": "156.0.8078.48",
+      "loadAverage": [
+        67.0322265625,
+        90.830078125,
+        88.6259765625
+      ],
+      "files": [
+        {
+          "tile": "t0_4_1",
+          "sha256": "737e75b70a7a5ddf6b3e1f1898ce1122fde64bf0c6c443eaa017b1036cbde48f"
+        },
+        {
+          "tile": "t0_4_2",
+          "sha256": "e4b61d018773bcedd4031e2985e7b0327ea8fe2ac642c05469b6055b481cf6e4"
+        },
+        {
+          "tile": "t0_4_3",
+          "sha256": "ca906d69f88d27bd0ea529c6e3936918d97cdf7c0d357a0325e8ac99c4838c4c"
+        },
+        {
+          "tile": "t0_5_1",
+          "sha256": "1e4519d03f19e8a934f3bfeee048d8e4d850c1f2c95962ec7c0f46f1f4559385"
+        },
+        {
+          "tile": "t0_5_2",
+          "sha256": "b17758b77c93e798356915630adaf00ad350ca0666dabef60005426e877f2197"
+        },
+        {
+          "tile": "t0_5_3",
+          "sha256": "f671049f2a571003ec5ccd9a80e3494d61688133b5a76f64b59a00235d5a5524"
+        },
+        {
+          "tile": "t0_6_1",
+          "sha256": "506dd83920387c064aece1069446968d6686edbb40cd9fa656ddfc6055c7b604"
+        },
+        {
+          "tile": "t0_6_2",
+          "sha256": "bccc791341ea7861e0c561fafb35f3a85ca874fc4109a44c517d5e74c9b9ec04"
+        },
+        {
+          "tile": "t0_6_3",
+          "sha256": "2e1ee3d2f7645588b318aaa8fe523fc9e94ceda041d4bf86e72c258e9eafa0bc"
+        },
+        {
+          "asset": "shared/9ac14bc9f2e379068c089fdb142f3f7552d2ccb2d1c3b239f0095a80139d24e9.ktx2",
+          "sha256": "9ac14bc9f2e379068c089fdb142f3f7552d2ccb2d1c3b239f0095a80139d24e9"
+        },
+        {
+          "asset": "shared/ad6c73a332e08bc607495c15fe8f5c4c4209cea241e281bc0465989582d7dad4.ktx2",
+          "sha256": "ad6c73a332e08bc607495c15fe8f5c4c4209cea241e281bc0465989582d7dad4"
+        },
+        {
+          "asset": "shared/f83c68f3a3a1f2ee8970ddba159d6b5bec3980915075c12e1d38f7ab416a38da.ktx2",
+          "sha256": "f83c68f3a3a1f2ee8970ddba159d6b5bec3980915075c12e1d38f7ab416a38da"
+        }
+      ]
+    },
+    {
+      "label": "tinted-192",
+      "date": "2026-10-27T23:21:19.865Z",
+      "commit": "b893bb32fe334b0e48f70c446e82d03ab45cb08f",
+      "browser": "156.0.8078.48",
+      "loadAverage": [
+        42.6884765625,
+        79.51220703125,
+        84.5634765625
+      ],
+      "files": [
+        {
+          "tile": "t0_4_1",
+          "sha256": "7292928f99e18410f7290dea3611050cd52e76e6c7330f9f3b82e0646f05c010"
+        },
+        {
+          "tile": "t0_4_2",
+          "sha256": "c4451b89f364813660e8f13ae0ff5c576d831199a70ce40b6443635419292b81"
+        },
+        {
+          "tile": "t0_4_3",
+          "sha256": "7a85165b725ab58e03cc2f25bf882c7a42daf83ff0ca7a6bfbd6ad7b5edb0864"
+        },
+        {
+          "tile": "t0_5_1",
+          "sha256": "6fd46a1986bf525a0b806748b7e5dcfdfeef51ac29aa81bbf0d11d9e957a3b89"
+        },
+        {
+          "tile": "t0_5_2",
+          "sha256": "17972cce98e856b485ad8adf0199ef0bd9720265ade0e4776e3b80309e928a38"
+        },
+        {
+          "tile": "t0_5_3",
+          "sha256": "302e416bd57bf984d1b56957af57f55afced2629bdaad633ed80858cdc802ed7"
+        },
+        {
+          "tile": "t0_6_1",
+          "sha256": "647a1851cd2e1ccd019ea97931adc6d6290ab5c9aea6a4ed15a54f849d76b394"
+        },
+        {
+          "tile": "t0_6_2",
+          "sha256": "272e1f939be10122b7e8ab1c856cd545e02af1eb2503b44fe7f2fc2ad75a3e3e"
+        },
+        {
+          "tile": "t0_6_3",
+          "sha256": "54ca8ebccdd5ad44fb3f16c87650bf2eeea8c25b35df46312823be4887c5c5e4"
+        }
+      ]
+    },
+    {
+      "label": "tinted-768",
+      "date": "2026-10-27T23:22:29.386Z",
+      "commit": "b893bb32fe334b0e48f70c446e82d03ab45cb08f",
+      "browser": "156.0.8078.48",
+      "loadAverage": [
+        27.8232421875,
+        67.21240234375,
+        79.505859375
+      ],
+      "files": [
+        {
+          "tile": "t0_4_1",
+          "sha256": "7292928f99e18410f7290dea3611050cd52e76e6c7330f9f3b82e0646f05c010"
+        },
+        {
+          "tile": "t0_4_2",
+          "sha256": "ed2155f271f92dfcf8c633341407b1791c84d8f809e0a77507beecd528ffcb8d"
+        },
+        {
+          "tile": "t0_4_3",
+          "sha256": "7a85165b725ab58e03cc2f25bf882c7a42daf83ff0ca7a6bfbd6ad7b5edb0864"
+        },
+        {
+          "tile": "t0_5_1",
+          "sha256": "8dbbbeecb9b4918597a8813060220d037b7dbe16691d60614ba0c86b07e04282"
+        },
+        {
+          "tile": "t0_5_2",
+          "sha256": "58851fe40205a9d15b282532bd5e1f0de0cb2cb81852a24258cfa6246897799d"
+        },
+        {
+          "tile": "t0_5_3",
+          "sha256": "16ef15b348a5f62855c999312f5ff1e7e29158098014173637a0309d346d5155"
+        },
+        {
+          "tile": "t0_6_1",
+          "sha256": "76dfc2dd2e3633d674faba4037e00a24426d80199cb7e840b4ecbb66fb423a42"
+        },
+        {
+          "tile": "t0_6_2",
+          "sha256": "d9bf5e5b500c97dff044a5bde43daf301330eb0dbbe02474cbbad16cfbabfe72"
+        },
+        {
+          "tile": "t0_6_3",
+          "sha256": "8af325fc037882ba6828d797ecfec6071f96df10208d86d15e772a1f5d4e8409"
+        }
+      ]
+    }
+  ]
+}
