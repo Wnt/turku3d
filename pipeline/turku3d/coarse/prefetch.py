@@ -8,7 +8,9 @@ all lidar first (it gates ground and collision), then ortho, then WFS, nearest b
 dataset. A tile whose build is waiting for data (``need``) jumps the queue.
 
 Fetches run in child processes under ``nice``, at most ``DOWNLOADS`` at once, so they never hold up
-a build; a unit already on disk is never fetched again. Every fetched unit is recorded in the
+a build; a unit already on disk is never fetched again. With the service's coarse root, the same
+workers then prepare (``inputs.prepare``) the tiles within ``PREPARE_M`` of the player whose raw data
+is complete, so their builds start from the small prepared inputs. Every fetched unit is recorded in the
 prefetch ledger next to the raw cache, which keeps the newest ``CACHE_CAP`` bytes of prefetched
 inputs and prunes the least recently used ones (``Ledger.prune``). Files the prefetcher did not
 fetch, and units under a listed playable tile's input area, are never pruned.
@@ -33,7 +35,7 @@ import shapely
 
 from turku3d import config as C
 
-from .sources import DATASETS, Sources, Unit, block_bbox
+from .sources import DATASETS, NoCoverage, Sources, Unit, block_bbox
 
 CAR_SPEED = 27.0  # m/s: game/src/physics/constants.ts topSpeed of the player car
 FOOT_SPEED = 6.0  # m/s: sprint (game/src/actors/player.ts)
@@ -49,6 +51,8 @@ REPLAN_METRES = 25.0  # re-plan after this much movement (or every REPLAN_SECOND
 REPLAN_SECONDS = 5.0
 CACHE_CAP = 20 * 1024**3
 TOUCH_FLUSH_SECONDS = 60.0
+PREPARE_M = 1000.0  # tiles in the prefetch area this close to the player are prepared ahead
+PREPARE_MAX = 12  # tiles queued for preparation per plan, nearest first
 
 
 def depth(speed: float) -> float:
@@ -83,6 +87,20 @@ def plan(x: float, z: float, vx: float, vz: float, covered=lambda block: True) -
             blocks.append((box.distance(here), block))
     blocks.sort(key=lambda db: (db[0], db[1]))
     return [Unit(dataset, block) for dataset in DATASETS for _, block in blocks]
+
+
+def prepare_tiles(x: float, z: float, vx: float, vz: float) -> list[C.VisualTile]:
+    """L0 tiles of the prefetch area within PREPARE_M of the player, nearest first."""
+    geom = area(x, z, vx, vz)
+    here = shapely.Point(x, z)
+    near = here.buffer(PREPARE_M, quad_segs=16).intersection(geom)
+    out = []
+    for i, j in C.grid_range(C.BBoxLocal(*near.bounds), C.VISUAL_TILE_SIZE):
+        b = C.grid_bbox(i, j, C.VISUAL_TILE_SIZE)
+        box = shapely.box(b.xmin, b.zmin, b.xmax, b.zmax)
+        if box.intersects(near):
+            out.append((box.distance(here), C.VisualTile(0, i, j)))
+    return [t for _, t in sorted(out)]
 
 
 def playable_blocks() -> set[str]:
@@ -200,6 +218,23 @@ def default_ledger() -> Ledger:
     return Ledger(C.raw_dir("prefetch") / "ledger.json")
 
 
+def prepare_child(root: Path):
+    def run(tile: str) -> dict:
+        """Prepare one tile's inputs in a niced child process; returns its per-dataset report."""
+        command = [
+            *("nice", "-n", str(NICE), sys.executable, "-m", "turku3d.coarse", "prepare"),
+            *(tile, "--root", str(root)),
+        ]
+        proc = subprocess.run(command, capture_output=True, text=True)
+        result = _last_json(proc.stdout) if proc.returncode == 0 else None
+        if result is None:
+            tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or ["prepare failed"]
+            raise RuntimeError(tail[0][:300])
+        return result
+
+    return run
+
+
 def fetch_child(unit: Unit) -> dict:
     """Fetch one unit in a niced child process; returns its {bytes, seconds, paths} report."""
     command = ["nice", "-n", str(NICE), sys.executable, "-m", "turku3d.coarse", "fetch", unit.key]
@@ -221,8 +256,17 @@ class Prefetcher:
         ledger: Ledger | None = None,
         downloads: int = DOWNLOADS,
         on_landed=None,
+        root: Path | None = None,
+        preparer=None,
     ):
+        """``root``: the coarse tile root whose ``.inputs`` the workers prepare ahead (none without);
+        ``preparer(tile id)`` runs one preparation (default: a niced child process)."""
         self.sources = sources or Sources()
+        self.root = root
+        self.preparer = preparer or (prepare_child(root) if root else None)
+        self.prepare: list[str] = []  # tiles near the player with complete raw data, unprepared
+        self.preparing: set[str] = set()
+        self.prepared = {"tiles": 0, "seconds": 0.0, "failed": {}}
         self.fetcher, self.on_landed = fetcher, on_landed
         self.ledger = ledger or default_ledger()
         self.lock = threading.Condition()
@@ -263,11 +307,30 @@ class Prefetcher:
         units = plan(x, z, vx, vz, self.sources.covered)
         missing = [u for u in units if not self.sources.unit_present(u)]
         self.ledger.touch([u for u in units if u not in missing])
+        ready = self._preparable(x, z, vx, vz) if self.root else []
         with self.lock:
             self.planned = units
             self.queue = [u for u in missing if self._wanted(u, now)]
+            self.prepare = [t for t in ready if t not in self.preparing]
             self.lock.notify_all()
             return self.brief()
+
+    def _preparable(self, x: float, z: float, vx: float, vz: float) -> list[str]:
+        from .inputs import unprepared
+
+        out = []
+        for tile in prepare_tiles(x, z, vx, vz):
+            if (self.root / tile.id / "manifest.json").exists():
+                continue  # built drafts need no inputs (a stale one prepares in its build)
+            try:
+                if self.sources.missing(tile) or not unprepared(tile, self.root, self.sources):
+                    continue
+            except NoCoverage:
+                continue
+            out.append(tile.id)
+            if len(out) == PREPARE_MAX:
+                break
+        return out
 
     def need(self, units: list[Unit]) -> None:
         """Units a waiting build needs: fetched before the planned ones."""
@@ -279,14 +342,36 @@ class Prefetcher:
             self.urgent.sort(key=lambda u: DATASETS.index(u.dataset))
             self.lock.notify_all()
 
-    def _next(self) -> Unit | None:
+    def _next(self) -> Unit | str | None:
+        """Downloads first (a waiting build's, then the plan's), then a tile to prepare."""
         now = time.time()
         for source in (self.urgent, self.queue):
             while source:
                 unit = source.pop(0)
                 if self._wanted(unit, now):
                     return unit
+        while self.prepare:
+            tile = self.prepare.pop(0)
+            if tile not in self.preparing:
+                return tile
         return None
+
+    def _prepare(self, tile: str) -> None:
+        started = time.perf_counter()
+        try:
+            self.preparer(tile)
+            error = None
+        except Exception as e:  # a broken raw file: the build reports it when the tile is asked for
+            error = str(e)[:300] or type(e).__name__
+        with self.lock:
+            self.preparing.discard(tile)
+            if error:
+                self.prepared["failed"][tile] = error
+            else:
+                self.prepared["tiles"] += 1
+                self.prepared["seconds"] = round(
+                    self.prepared["seconds"] + time.perf_counter() - started, 3
+                )
 
     def _work(self):
         while True:
@@ -297,7 +382,13 @@ class Prefetcher:
                     unit = self._next()
                 if self.stopped:
                     return
-                self.fetching[unit] = time.time()
+                if isinstance(unit, str):
+                    self.preparing.add(unit)
+                else:
+                    self.fetching[unit] = time.time()
+            if isinstance(unit, str):
+                self._prepare(unit)
+                continue
             if self.sources.unit_present(unit):  # landed meanwhile (another sandbox, a build list)
                 with self.lock:
                     del self.fetching[unit]
@@ -358,6 +449,13 @@ class Prefetcher:
                 "fetching": {u.key: round(time.time() - t, 1) for u, t in self.fetching.items()},
                 "failed": {u.key: e for u, (e, _) in self.failed.items()},
                 "datasets": {d: dict(s) for d, s in self.stats.items()},
+                "prepare": {
+                    "queue": list(self.prepare),
+                    "running": sorted(self.preparing),
+                    "tiles": self.prepared["tiles"],
+                    "seconds": self.prepared["seconds"],
+                    "failed": dict(self.prepared["failed"]),
+                },
                 "recent": list(self.recent),
                 "cache": {
                     "bytes": self.ledger.total(),

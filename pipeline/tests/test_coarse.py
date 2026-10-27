@@ -13,7 +13,7 @@ import pytest
 import shapely
 from turku3d import config as C
 from turku3d.coarse.build import CELLS, WIRE_CAP, bridge_decks, build, grid_mesh
-from turku3d.coarse.inputs import Inputs
+from turku3d.coarse.inputs import Inputs, prepare_ground, prepare_roads, prepare_wfs
 from turku3d.coarse.service import Builder, serve
 from turku3d.col.format import read_col
 from turku3d.col.materials import mat_id
@@ -119,7 +119,19 @@ def inputs(tmp_path):
         },
         geometry="geometry_local",
     ).to_parquet(osm)
-    return Inputs(points, ortho, buildings, streets, water, {"synthetic": True}, {}, osm)
+    ground = prepare_ground(TILE, points)
+    wfs = prepare_wfs(TILE, buildings, streets, water)
+    return Inputs(
+        points,
+        ground["heights"],
+        ortho,
+        wfs["buildings"],
+        wfs["streets"],
+        wfs["water"],
+        prepare_roads(TILE, osm),
+        {"synthetic": True},
+        {},
+    )
 
 
 def test_coarse_tile_is_a_published_tile(tmp_path, inputs):

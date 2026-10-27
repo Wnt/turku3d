@@ -6,7 +6,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from scipy.spatial import cKDTree
 
 
 class Surface:
@@ -14,6 +13,8 @@ class Surface:
         self.points = np.asarray(points, dtype=np.float64)
         if len(self.points) < 6:
             raise ValueError("At least six ground points are required")
+        from scipy.spatial import cKDTree  # imported on use: the coarse producer never needs it
+
         self.tree = cKDTree(self.points[:, [0, 2]])
 
     def sample(self, xz, k=16):

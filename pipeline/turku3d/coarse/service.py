@@ -333,7 +333,7 @@ def serve(
     """Without an explicit builder: the real producer, gated on its inputs, with a prefetcher."""
     if builder is None:
         sources = Sources()
-        prefetcher = Prefetcher(sources)
+        prefetcher = Prefetcher(sources, root=root)
 
         def inputs(tile: str) -> list[str]:
             return [u.key for u in sources.missing(C.VisualTile.parse(tile))]

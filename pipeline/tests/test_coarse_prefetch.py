@@ -2,11 +2,13 @@
 the LRU prune, and a service whose builds never wait for a download (fake fetcher, fake builds)."""
 
 import json
+import os
 import sys
 import threading
 import time
 import urllib.request
 
+import numpy as np
 import pytest
 from turku3d import config as C
 from turku3d.coarse import prefetch as P
@@ -381,3 +383,137 @@ def test_a_draft_built_from_other_raw_files_is_stale(raw, tmp_path):
     lidar = C.raw_dir("laz") / "maanpinta" / f"{BLOCK.name}.laz"
     lidar.write_bytes(b"LASF" * 200)
     assert sources.input_key(C.VisualTile(0, 1, 1)) != first
+
+
+# -- prepared inputs ------------------------------------------------------------------------------
+
+
+def _real_raw(tile: C.VisualTile):
+    """Readable synthetic raw data for one tile: key-point LAZ, an ortho mosaic, WFS and OSM."""
+    import subprocess
+
+    import geopandas as gpd
+    import laspy
+    import rasterio
+    from rasterio.transform import from_origin
+
+    for block in tile_blocks(tile):
+        b = block.bbox_en
+        e, n = np.meshgrid(np.arange(b.emin, b.emax, 10.0), np.arange(b.nmin, b.nmax, 10.0))
+        las = laspy.create(point_format=0, file_version="1.2")
+        las.header.scales, las.header.offsets = [0.01] * 3, [b.emin, b.nmin, 0]
+        las.x, las.y, las.z = e.ravel(), n.ravel(), np.full(e.size, 5.0)
+        path = C.raw_dir("laz") / "maanpinta" / f"{block.name}.laz"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        las.write(path)
+        Registry(C.raw_dir("laz")).record(path, url="https://example.invalid/test.laz")
+    block = block_of(tile)
+    put_ortho(block)  # chunk state; the mosaic below replaces the stub tiles
+    root = C.raw_dir("ortho") / "ortho2022to"
+    tif = root / f"coarse-{block.name}" / "mosaic.tif"
+    b = block.bbox_en
+    with rasterio.open(
+        tif,
+        "w",
+        driver="GTiff",
+        width=64,
+        height=64,
+        count=3,
+        dtype="uint8",
+        crs="EPSG:3877",
+        transform=from_origin(b.emin, b.nmax, 500 / 64, 500 / 64),
+    ) as ds:
+        ds.write(np.full((3, 64, 64), 90, np.uint8))
+    vrt = root / f"coarse-{block.name}.vrt"
+    vrt.unlink()
+    subprocess.run(["gdalbuildvrt", "-q", str(vrt), str(tif)], check=True)
+    adir = C.raw_dir("wfs") / f"coarse-{block.name}"
+    adir.mkdir(parents=True)
+    x0, _, z0 = tile.origin
+    poly = P.shapely.Polygon([(x0 + 10, z0 + 10, 3), (x0 + 30, z0 + 10, 3), (x0 + 30, z0 + 30, 3)])
+    for name, rows in (
+        (
+            "bldg_Building_LOD2",
+            {"feature_key": ["B"], "surface_type": ["GroundSurface"], "measuredHeight": ["9"]},
+        ),
+        ("GIS_Katualueet", {"Katuosalaji": ["Ajorata"], "Pintamateriaali": ["Asfalttibetoni"]}),
+        ("kanta_Vesikohde", {"kplkoodi": ["w"]}),
+    ):
+        frame = gpd.GeoDataFrame(rows, geometry=[poly], crs="EPSG:3877")
+        frame["geometry_local"] = gpd.GeoSeries([poly])
+        frame["geom_type"] = "Polygon"
+        frame.to_parquet(adir / f"{name}.parquet")
+        (adir / f"{name}.summary.json").write_text(
+            json.dumps({"status": "ok", "bbox_en": list(block.bbox_en.as_tuple())})
+        )
+    odir = C.raw_dir("osm") / f"coarse-{block.name}"
+    odir.mkdir(parents=True)
+    gpd.GeoDataFrame(
+        {
+            "highway": ["residential"],
+            "tags": [json.dumps({"highway": "residential"})],
+            "geometry_local": gpd.GeoSeries(
+                [P.shapely.LineString([(x0, z0 + 50), (x0 + 250, z0 + 50)])]
+            ),
+        },
+        geometry="geometry_local",
+    ).to_parquet(odir / f"coarse-{block.name}-261027.parquet")
+
+
+def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_path):
+    from turku3d.coarse.inputs import gather, prepare, unprepared
+
+    tile = C.VisualTile(0, 1, 1)
+    _real_raw(tile)
+    sources = Sources()
+    sources._listed = {b.name for b in tile_blocks(tile)}
+    root = tmp_path / "coarse"
+    assert unprepared(tile, root, sources)
+    first = prepare(tile, root, sources)
+    assert first["missing"] == [] and all(
+        isinstance(first[d], float) for d in ("ground", "ortho", "wfs", "roads")
+    )
+    assert not unprepared(tile, root, sources)
+    assert {
+        k: v for k, v in prepare(tile, root, sources).items() if k != "missing"
+    } == dict.fromkeys(("ground", "ortho", "wfs", "roads"), "cached")
+    inputs = gather(tile, root, sources)
+    assert inputs.heights.shape == (129, 129) and np.allclose(inputs.heights, 5.0)
+    assert inputs.ortho.shape == (512, 512, 3) and inputs.roads["edges"] >= 1
+    assert inputs.key == sources.input_key(tile) and inputs.key
+    laz = C.raw_dir("laz") / "maanpinta" / f"{block_of(tile).name}.laz"
+    os.utime(laz, ns=(laz.stat().st_atime_ns, laz.stat().st_mtime_ns + 10**9))
+    assert unprepared(tile, root, sources)
+    assert isinstance(prepare(tile, root, sources)["ground"], float)
+    assert len(list((root / ".inputs" / tile.id).glob("ground.*.pkl"))) == 1  # the old key is gone
+
+
+def test_prefetcher_prepares_complete_tiles_near_the_player(raw, tmp_path):
+    for block in C.laz_tiles_for_bbox(C.BBoxLocal(-600, -600, 1100, 1100)):
+        (
+            land(Unit("lidar", block)),
+            land(Unit("ortho", block)),
+            land(Unit("wfs", block)),
+            land(Unit("osm", block)),
+        )
+    prepared = []
+    root = tmp_path / "coarse"
+    (root / "t0_1_1").mkdir(parents=True)
+    (root / "t0_1_1" / "manifest.json").write_text("{}")  # built: not prepared again
+    p = _prefetcher(
+        FakeFetch(), raw / "prefetch" / "ledger.json", root=root, preparer=prepared.append
+    )
+    try:
+        p.want(375, 375, 0, 0)
+        _wait(lambda: len(prepared) == P.PREPARE_MAX)
+        nearest = {"t0_0_1", "t0_1_0", "t0_2_1", "t0_1_2"}  # after the built one
+        assert set(prepared[:4]) == nearest
+        assert "t0_1_1" not in prepared and not p.fetching
+        assert p.status()["prepare"]["tiles"] == P.PREPARE_MAX
+    finally:
+        p.stop()
+    tiles = P.prepare_tiles(375, 375, P.CAR_SPEED, 0)
+    assert tiles[0] == C.VisualTile(0, 1, 1)
+    assert (
+        max(t.i for t in tiles) == 5 and min(t.i for t in tiles) == -1
+    )  # 1 km ahead, 500 m behind

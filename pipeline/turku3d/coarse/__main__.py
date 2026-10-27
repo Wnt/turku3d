@@ -1,5 +1,6 @@
 """python -m turku3d.coarse build t0_2_0 [--out DIR] [--fetch]  (default $TURKU3D_WORK/coarse/<tile>)
 python -m turku3d.coarse fetch lidar/23460000_6704500         (one prefetch unit into the raw cache)
+python -m turku3d.coarse prepare t0_2_0 [--root DIR]           (prepare a tile's inputs on disk)
 python -m turku3d.coarse serve [--port P]                      (tools/dev/coarse-tiles; port base + 5)
 
 A build reads the raw cache only and exits with PENDING (3) and {"pending": [units]} when inputs
@@ -50,6 +51,9 @@ def main(argv=None) -> int:
     b.add_argument("--fetch", action="store_true", help="fetch missing inputs first")
     f = sub.add_parser("fetch", help="fetch one prefetch unit (<dataset>/<block>)")
     f.add_argument("unit")
+    p = sub.add_parser("prepare", help="prepare one tile's inputs that are on disk")
+    p.add_argument("tile")
+    p.add_argument("--root", type=Path, help="coarse root (default $TURKU3D_WORK/coarse)")
     sub.add_parser("serve", help="run the localhost companion service", add_help=False)
     if argv is None:
         argv = sys.argv[1:]
@@ -60,6 +64,11 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "fetch":
         print(json.dumps(fetch_unit(a.unit)))
+        return 0
+    if a.cmd == "prepare":
+        from .inputs import prepare
+
+        print(json.dumps(prepare(C.VisualTile.parse(a.tile), a.root or coarse_root())))
         return 0
     tile = C.VisualTile.parse(a.tile)
     if a.fetch:
