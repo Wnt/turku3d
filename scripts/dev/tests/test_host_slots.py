@@ -18,7 +18,12 @@ class HostSlotsTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.env = {**os.environ, "TURKU3D_SLOT_DIR": self.directory.name}
+        # A tasks root of its own: the sandbox's real task budget is never debited.
+        self.env = {
+            **os.environ,
+            "TURKU3D_SLOT_DIR": self.directory.name,
+            "TURKU3D_TASKS_ROOT": self.directory.name,
+        }
         self.children = []
         self.addCleanup(self.stop_children)
 

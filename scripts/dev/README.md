@@ -413,8 +413,8 @@ scripts/dev/install-hooks
 ```sh
 scripts/dev/gate                         # merge-base(main, HEAD) + index + working tree + new files
 scripts/dev/gate --base HEAD             # only local changes
-scripts/dev/gate --base main --list      # selection and explicit reasons, without executing
-scripts/dev/gate --all                   # every stage, including both browser backends
+scripts/dev/gate --base main --list      # selection, reasons, browser pick and its cost, no run
+scripts/dev/gate --all                   # every stage, every spec on both browser backends
 scripts/dev/gate --fast --base main      # the lander's pre-merge gate: selective, no browser stages
 scripts/dev/gate --fast --base main --list   # what the lander would run, and why each stage is skipped
 scripts/dev/gate --json                  # JSON report, including command output and durations
@@ -441,12 +441,13 @@ maps select dependent test files; an unmapped module conservatively selects its 
 Vitest uses `related --run`; deleted sources and dependency/config changes use the entire unit suite.
 Validator Node tests remain Node tests, preserving their cross-language round-trip coverage.
 
-Playwright paths are explicitly tagged in the table. Specs use `@walk`, `@drive`, `@render`,
-`@qa`, `@input` and `@pipeline`; the table's `related.tags` selects the affected subsets. A new/unmapped
-browser trigger selects all specs (`test_spec_selection.py` fails until the map covers it). Both WebGPU and WebGL2 run. The pipeline browser fixture publishes four synthetic ground layers with a deterministic RGB texture,
+`game-e2e` runs a browser pick, by default the selector's proposal (`spec_selection.select`: related rows
+and spec `@tags`) with its estimated browser-minutes; `--specs smoke.spec.ts --project webgl` picks yourself.
+Each task's budget (`[browser] budget_minutes` = 20, or a brief line `BROWSER_BUDGET_MIN = N`) is debited
+by every `host_slots.py browser` run (wall s x workers) in `~/turku3d/tasks/<task>/browser-budget.json`
+(`codex-task status`; ledger `browser_minutes`); a spent budget refuses further runs. The pipeline browser fixture publishes four synthetic ground layers with a deterministic RGB texture,
 then runs the production assembler into `.cache/gate-tiles`. Its separate empty input root prevents
 reading shared raw data. This exercises the four L0 seams as well as compression and rendering.
-The long browser stage is deliberately excluded from ordinary pure-core/unit changes.
 
 All caches live in this checkout: `.cache/ruff`, `.cache/eslint`, each TS package's
 `.cache/typecheck.tsbuildinfo`, and package-local pytest caches. Temporary files live under `.cache/tmp`; browser
@@ -550,10 +551,8 @@ scripts/dev/gate --all
 ```
 
 Package edits select Python package tests without unrelated browser, texture, or tooling suites.
-Unmapped modules still select their full package. Runtime physics/shared collision changes select
-walk/drive browser tags; rendering selects render/QA; input and vehicle specs select their own tags.
+Unmapped modules still select their full package.
 QA report edits run report generation, concurrent history, and the loop's failure/report integration.
-The lidar, region and benchmark producer paths are reserved for their incoming branches.
 
 Browser suites share one Vite build per gate and use TURKU3D_JOBS workers. Gameplay pages emulate focus
 through Chrome's protocol so another window cannot suppress controller/keyboard input. Synthetic

@@ -21,6 +21,7 @@ with its imports, web-server script and Playwright version, and the project.
 
 from __future__ import annotations
 
+import fcntl
 import fnmatch
 import hashlib
 import json
@@ -41,6 +42,8 @@ TILE_CONFIG = "playwright.tile.config.ts"
 PROJECTS = ("webgpu", "webgl")
 CLASSES = ("inert", "data", "code")
 KEEP = 500
+DURATIONS = "spec-durations.json"
+UNKNOWN_SECONDS = 60.0
 
 _TAG = re.compile(r"""['"`]\s*(@[a-z][a-z0-9-]*)(?![\w/-])""")
 _IMPORT = re.compile(r"""(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)['"](\.[^'"]+)['"]""")
@@ -250,6 +253,55 @@ def spec_key(*, bundle, tiles, spec, config, project):
     return _sha(["spec-result/v1", bundle, tiles, spec, config, project])
 
 
+def record_durations(path, seconds):
+    """Keep the latest measured test seconds per `project:spec` (the cost estimate's input)."""
+    if not seconds:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with (path.parent / f".{path.name}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            history = json.loads(path.read_text())
+        except (FileNotFoundError, ValueError):
+            history = {}
+        history.update({f"{p}:{spec}": round(s, 1) for (spec, p), s in seconds.items()})
+        pending = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        pending.write_text(json.dumps(history, indent=1, sort_keys=True))
+        os.replace(pending, path)
+
+
+def estimate_minutes(plan, root=REPO, history=None):
+    """Estimated browser-minutes of a plan from the duration history (cache hits not seen).
+
+    A spec without history counts UNKNOWN_SECONDS per project."""
+    if history is None:
+        try:
+            history = json.loads((cache_dir().parent / DURATIONS).read_text())
+        except (FileNotFoundError, ValueError):
+            history = {}
+    specs = spec_files(root) if plan["specs"] == "all" else plan["specs"]
+    total = sum(
+        history.get(f"{project}:{spec}", UNKNOWN_SECONDS)
+        for project in plan["projects"]
+        for spec in specs
+    )
+    return round(total / 60, 1)
+
+
+def resolve_specs(root, names):
+    """Repo-relative spec files for --specs (repo- or game-relative paths, or file names)."""
+    specs = spec_files(root)
+    if names == ["all"]:
+        return "all"
+    chosen = []
+    for name in names:
+        found = [s for s in specs if s in (name, f"game/{name}") or Path(s).name == name]
+        if len(found) != 1:
+            raise ValueError(f"--specs {name}: matches {len(found)} spec files")
+        chosen.append(found[0])
+    return sorted(set(chosen))
+
+
 def hit(directory, key):
     return (directory / f"{key}.json").is_file()
 
@@ -270,8 +322,8 @@ def prune(directory, keep=KEEP):
 
 
 def outcomes(report, root):
-    """{(repo-relative spec, project): passed} from a Playwright JSON report."""
-    results = {}
+    """({(repo-relative spec, project): passed}, {pair: test seconds incl. retries})."""
+    results, seconds = {}, {}
     base = Path(report["config"]["rootDir"])
 
     def walk(suite):
@@ -281,12 +333,14 @@ def outcomes(report, root):
                 pair = (name, test["projectName"])
                 ok = test["status"] in ("expected", "flaky", "skipped")
                 results[pair] = results.get(pair, True) and ok
+                spent = sum(r.get("duration", 0) for r in test.get("results", ())) / 1000
+                seconds[pair] = seconds.get(pair, 0.0) + spent
         for child in suite.get("suites", ()):
             walk(child)
 
     for suite in report.get("suites", ()):
         walk(suite)
-    return results
+    return results, seconds
 
 
 def run(
@@ -359,9 +413,10 @@ def run(
         output.append(proc.stdout)
         code = code or proc.returncode
         try:
-            results = outcomes(json.loads(report_path.read_text()), root)
+            results, seconds = outcomes(json.loads(report_path.read_text()), root)
         except (OSError, ValueError, KeyError):
-            results = {}
+            results, seconds = {}, {}
+        record_durations(cache.parent / DURATIONS, seconds)
         for pair in ((name, project) for project in projects for name in names):
             ran.append(pair)
             if results.get(pair):

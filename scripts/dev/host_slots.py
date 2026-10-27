@@ -14,6 +14,8 @@ import sys
 import time
 from pathlib import Path
 
+import browser_budget
+
 LIMITS = {"build": 3, "browser": 1, "integration": 1, "integration-data": 1}
 # The code lane (`integration`, with Chrome) and the data lane (no Chrome) of the integrator.
 # Both are stored as kind `integration` with their `lane`, so tooling that predates the data
@@ -86,6 +88,10 @@ def admissible(entries, entry):
 
 def root():
     return Path(os.environ.get("TURKU3D_SLOT_DIR", Path.home() / "turku3d/host-slots"))
+
+
+def sandbox_name():
+    return os.environ.get("TURKU3D_SANDBOX", "main")
 
 
 def identity(pid):
@@ -207,7 +213,7 @@ def slot(kind):
         "identity": started,
         "kind": "integration" if kind in INTEGRATIONS else kind,
         "state": "waiting",
-        "sandbox": os.environ.get("TURKU3D_SANDBOX", "main"),
+        "sandbox": sandbox_name(),
         "since": time.time(),
     }
     if kind in INTEGRATIONS:
@@ -287,6 +293,10 @@ def main():
         return 0
     if not command:
         parser.error("command required")
+    budgeted = args.kind == "browser" and not os.environ.get("TURKU3D_INTEGRATION_OWNER")
+    if budgeted and (refused := browser_budget.refusal(browser_budget.read(sandbox_name()))):
+        print(refused, file=sys.stderr, flush=True)
+        return 3
     with slot(args.kind) as inherited:
         env = os.environ.copy()
         if args.kind in INTEGRATIONS and not inherited:
@@ -302,6 +312,8 @@ def main():
                 else 2
             )
             env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))
+        if budgeted and not inherited:
+            return browser_budget.run(sandbox_name(), command, env)
         return subprocess.call(command, env=env)
 
 
