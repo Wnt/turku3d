@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import http.server
 import io
 import json
@@ -386,6 +387,14 @@ def test_wms_fetch_layer_fake(data_root, monkeypatch):
     for key in shared:
         assert reg.is_complete(data_root / "raw/ortho/test" / tile.name / f"{key}.tif")
     assert s3["chunks_ok"] >= len(shared) and not s3["errors"]
+    # The same footprint at another resolution is downloaded, never cloned from the coarser chunk.
+    finer = dataclasses.replace(layer, px_m=layer.px_m / 2)
+    other = config.Area("other-res", "", AREA.core, AREA.margin)
+    before = len(calls)
+    s4 = wms.fetch_layer(finer, other, workers=2, log=lambda *_: None, get=get, chunk_px=128)
+    assert len(calls) - before == s4["chunks"] and s4["chunks_ok"] == 5
+    with rasterio.open(s4["vrt"]) as v:
+        assert v.res == pytest.approx((layer.px_m / 2, layer.px_m / 2))
 
 
 def test_decode_png_white_as_nodata():

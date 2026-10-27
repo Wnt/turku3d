@@ -433,7 +433,8 @@ def build(
     roads = inputs.roads
 
     _write(out / "vis.glb", vis)
-    _write(out / "roads.json", roads["json"])
+    if roads is not None:
+        _write(out / "roads.json", roads["json"])
     for cid, data in cols.items():
         _write(out / "col" / f"{cid}.col", data)
     seconds["total"] = time.perf_counter() - started
@@ -458,7 +459,11 @@ def build(
             )
         },
         collision=collision,
-        roads=_entry("roads.json", roads["json"], nodes=roads["nodes"], edges=roads["edges"]),
+        roads=(
+            _entry("roads.json", roads["json"], nodes=roads["nodes"], edges=roads["edges"])
+            if roads is not None
+            else None
+        ),
         buildings=len(blds),
         bridges=decks,
         water_level=level,

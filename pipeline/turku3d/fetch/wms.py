@@ -124,8 +124,8 @@ def native_resolution_cm(rgb, valid, px_m: float) -> float | None:
 
 
 def reuse_chunk(root: Path, reg: Registry, layer: WmsLayer, area_name: str, key: str, bb, dest):
-    """Read-through: the same O-aligned chunk already fetched for another area is cloned
-    (APFS copy-on-write), not downloaded again. Returns its state, or None."""
+    """Read-through: the same O-aligned chunk at the same resolution already fetched for another
+    area is cloned (APFS copy-on-write), not downloaded again. Returns its state, or None."""
     for state_path in sorted((root / layer.slug).glob("*.chunks.json")):
         other = state_path.name.removesuffix(".chunks.json")
         if other == area_name:
@@ -137,6 +137,8 @@ def reuse_chunk(root: Path, reg: Registry, layer: WmsLayer, area_name: str, key:
         if not reg.is_complete(source):
             continue
         record = reg.get(source)
+        if record.get("px_m") != layer.px_m:  # same footprint, another resolution (a coarse chunk)
+            continue
         temporary = dest.with_name(dest.name + ".tmp.tif")
         dest.parent.mkdir(parents=True, exist_ok=True)
         if subprocess.call(["cp", "-c", str(source), str(temporary)], stderr=subprocess.DEVNULL):

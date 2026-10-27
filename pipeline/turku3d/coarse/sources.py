@@ -7,8 +7,10 @@ four L0 tiles):
 * ``ortho``  2022 true ortho at the draft resolution, one O-aligned chunk per L0 tile
   (``raw/ortho/ortho2022to/coarse-<block>{/,.vrt,.chunks.json,.summary.json}``)
 * ``wfs``    CityGML LOD2 buildings, street areas and water (``raw/wfs/coarse-<block>/``)
-* ``osm``    an osmium clip of the cached Finland snapshot for the street graph
-  (``raw/osm/coarse-<block>/``; local, no download once the snapshot is cached)
+* ``osm``    an osmium clip of the cached Finland snapshot for the street graph, one per 2 km
+  square holding the block (``raw/osm/coarse-osm-<E>_<N>/``; local: a clip mostly reads the
+  snapshot, so a large one costs about as much as a small one). Optional: a draft without it has no
+  streets and is rebuilt with them once the clip lands.
 
 The checks here read only the disk (file stats and small JSON summaries, re-read when they change),
 so the service can run them on every request. Any prepared area that covers a tile serves it
@@ -22,6 +24,7 @@ import dataclasses
 import hashlib
 import json
 import math
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -30,6 +33,8 @@ from pathlib import Path
 from turku3d import config as C
 
 DATASETS = ("lidar", "ortho", "wfs", "osm")  # fetch order: lidar gates ground and collision
+REQUIRED = ("lidar", "ortho", "wfs")  # a build waits for these; without osm it has no streets
+OSM_SQUARE = 2000.0  # m: one OSM clip covers this O-aligned square
 ORTHO_PX = 512  # draft ortho per 250 m L0 tile (49 cm/px): one WMS chunk, one KTX2 encode
 ORTHO_SLUG = "ortho2022to"
 POINT_MARGIN = 20.0  # ground key points are read for the tile plus this margin
@@ -101,6 +106,8 @@ def unit_paths(unit: Unit) -> list[Path]:
     """Files and directories a unit's fetch writes (what the prefetch ledger may prune)."""
     if unit.dataset == "lidar":
         return [C.raw_dir("laz") / "maanpinta" / f"{unit.block.name}.laz"]
+    if unit.dataset == "osm":
+        return [C.raw_dir("osm") / osm_area(unit.block).name]
     name = AREA_PREFIX + unit.block.name
     if unit.dataset == "ortho":
         root = C.raw_dir("ortho") / ORTHO_SLUG
@@ -109,6 +116,17 @@ def unit_paths(unit: Unit) -> list[Path]:
             *(root / f"{name}{s}" for s in (".vrt", ".chunks.json", ".summary.json")),
         ]
     return [C.raw_dir(unit.dataset) / name]
+
+
+def osm_area(block: C.LazTile) -> C.Area:
+    """The OSM_SQUARE holding a block (O-aligned, named by its west and north edges)."""
+    b = block_bbox(block)
+    i, j = C.grid_index(b.xmin, b.zmin, OSM_SQUARE)
+    square = C.grid_bbox(i, j, OSM_SQUARE)
+    en = square.to_en()
+    return C.Area(
+        f"{AREA_PREFIX}osm-{int(en.emin)}_{int(en.nmax)}", "coarse OSM square", square, 0.0
+    )
 
 
 def covers(bbox_en, tile: C.VisualTile) -> bool:
@@ -121,14 +139,21 @@ def covers(bbox_en, tile: C.VisualTile) -> bool:
     )
 
 
-class _JsonFiles:
-    """JSON files matching a glob, listed at most every MAX_AGE seconds (or after ``invalidate``),
-    each re-read only when its size or mtime changes."""
+def vrt_bounds(text: str) -> tuple[float, float, float, float]:
+    """(emin, nmin, emax, nmax) of a north-up GDAL VRT from its size and geotransform."""
+    w, h = (int(re.search(rf'raster{a}Size="(\d+)"', text)[1]) for a in "XY")
+    e0, dx, _, n0, _, dy = map(float, re.search(r"<GeoTransform>([^<]+)<", text)[1].split(","))
+    return e0, n0 + h * dy, e0 + w * dx, n0
+
+
+class _Files:
+    """Files matching a glob, listed at most every MAX_AGE seconds (or after ``invalidate``), each
+    parsed again only when its size or mtime changes (JSON by default)."""
 
     MAX_AGE = 1.0
 
-    def __init__(self, root: Path, pattern: str):
-        self.root, self.pattern = root, pattern
+    def __init__(self, root: Path, pattern: str, parse=json.loads):
+        self.root, self.pattern, self.parse = root, pattern, parse
         self.cache: dict[Path, tuple[tuple[int, int], dict]] = {}
         self.listing: list[tuple[Path, dict]] = []
         self.listed_at = -math.inf
@@ -154,8 +179,8 @@ class _JsonFiles:
                 cached = self.cache.get(path)
                 if not cached or cached[0] != sig:
                     try:
-                        cached = (sig, json.loads(path.read_text()))
-                    except (OSError, ValueError):
+                        cached = (sig, self.parse(path.read_text()))
+                    except (OSError, ValueError, TypeError):
                         continue
                     self.cache[path] = cached
                 out.append((path, cached[1]))
@@ -169,8 +194,9 @@ class Sources:
     """Disk-only lookups of a tile's inputs under one raw root."""
 
     def __init__(self):
-        self.wfs = _JsonFiles(C.raw_dir("wfs"), "*/*.summary.json")
-        self.ortho = _JsonFiles(C.raw_dir("ortho") / ORTHO_SLUG, "*.chunks.json")
+        self.wfs = _Files(C.raw_dir("wfs"), "*/*.summary.json")
+        self.ortho = _Files(C.raw_dir("ortho") / ORTHO_SLUG, "*.chunks.json")
+        self.mosaics = _Files(C.raw_dir("ortho") / ORTHO_SLUG, "*.vrt", vrt_bounds)
         self._listed: set[str] | None = None
         self._laz = None
 
@@ -178,6 +204,7 @@ class Sources:
         """A fetch landed: list the summaries again on the next lookup."""
         self.wfs.invalidate()
         self.ortho.invalidate()
+        self.mosaics.invalidate()
 
     def listed(self) -> set[str]:
         """maanpinta tiles in the city lidar index (laz-tiles.csv); empty = no index, assume all."""
@@ -216,27 +243,18 @@ class Sources:
 
     # -- ortho -----------------------------------------------------------------------------------
     def ortho_source(self, tile: C.VisualTile) -> Path | None:
-        """The first ortho mosaic whose fetched chunks cover the tile. NoCoverage when the block's
-        coarse fetch found no imagery there."""
-        own = f"{AREA_PREFIX}{block_of(tile).name}.chunks.json"
-        empty = False
-        for state_path, state in self.ortho.items():
-            if state_path.name == own:
-                empty = state.get(f"{tile.i}_{tile.j}", {}).get("status") == "empty"
-            ok = [s["bbox"] for s in state.values() if s.get("status") == "ok"]
-            if not ok:
-                continue
-            bounds = (
-                min(b[0] for b in ok),
-                min(b[1] for b in ok),
-                max(b[2] for b in ok),
-                max(b[3] for b in ok),
-            )
-            vrt = state_path.with_name(state_path.name.removesuffix(".chunks.json") + ".vrt")
-            if covers(bounds, tile) and vrt.exists():
+        """The first ortho mosaic (by name: the 512 px coarse ones before the 5 cm areas) whose
+        extent covers the tile. NoCoverage when the block's coarse fetch found no imagery there."""
+        for vrt, bounds in self.mosaics.items():
+            if covers(bounds, tile):
                 return vrt
-        if empty:
-            raise NoCoverage(f"{tile.id}: no true ortho")
+        own = f"{AREA_PREFIX}{block_of(tile).name}.chunks.json"
+        for state_path, state in self.ortho.items():
+            if (
+                state_path.name == own
+                and state.get(f"{tile.i}_{tile.j}", {}).get("status") == "empty"
+            ):
+                raise NoCoverage(f"{tile.id}: no true ortho")
         return None
 
     # -- wfs -------------------------------------------------------------------------------------
@@ -264,7 +282,7 @@ class Sources:
         areas = ([C.WORK_3X3.name] if inside else []) + [
             C.tile_input_area(tile).name,
             f"{AREA_PREFIX}{tile.id}",
-            f"{AREA_PREFIX}{block_of(tile).name}",
+            osm_area(block_of(tile)).name,
         ]
         for area in areas:
             found = sorted((C.raw_dir("osm") / area).glob("*.parquet"))
@@ -281,21 +299,19 @@ class Sources:
             out.append(Unit("ortho", block_of(tile)))
         if not all(self.wfs_source(name, tile)[0] for name in WFS_LAYERS):
             out.append(Unit("wfs", block_of(tile)))
-        if self.osm_source(tile) is None:
-            out.append(Unit("osm", block_of(tile)))
         return out
 
     def input_key(self, tile: C.VisualTile) -> str | None:
-        """Identity (path, size, mtime) of every raw file the tile's build reads; None while some
-        are missing. A draft built from other files than these is stale."""
+        """Identity (path, size, mtime) of every raw file the tile's build reads, and whether OSM is
+        there; None while a required unit is missing. A draft built from other files is stale."""
         laz, missing = self.lidar_paths(tile)
         ortho, osm = self.ortho_source(tile), self.osm_source(tile)
         wfs = [self.wfs_source(name, tile) for name in WFS_LAYERS]
-        if missing or ortho is None or osm is None or not all(found for found, _ in wfs):
+        if missing or ortho is None or not all(found for found, _ in wfs):
             return None
         chunks = ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")
-        h = hashlib.sha256()
-        for path in [*laz, ortho, chunks, *(p for _, p in wfs if p), osm]:
+        h = hashlib.sha256(b"osm" if osm else b"no-osm")
+        for path in [*laz, ortho, chunks, *(p for _, p in wfs if p), *([osm] if osm else [])]:
             try:
                 st = path.stat()
             except OSError:
@@ -335,7 +351,7 @@ def fetch(unit: Unit, log=print) -> None:
     elif unit.dataset == "osm":
         from turku3d.fetch import osm
 
-        osm.fetch_area(block_area(unit.block), log=log)
+        osm.fetch_area(osm_area(unit.block), log=log)
     else:
         from turku3d.fetch import wfs
         from turku3d.fetch.sources import WFS_LAYERS as ALL

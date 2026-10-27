@@ -86,9 +86,12 @@ neither geopandas nor rasterio nor laspy. The draft ortho is encoded with the fa
 The game sends `GET /coarse/want?x=&z=&vx=&vz=` once a second (engine metres and m/s). The
 prefetch area is a 500 m ring around the player plus a 60° cone along the velocity, 500 m deep
 on foot (up to 6 m/s) and growing linearly to 1.5 km at the car's top speed (27 m/s). Every
-missing unit whose block intersects the area is queued: all lidar first (it gates ground and
-collision), then ortho, then WFS, then OSM, nearest block first within a dataset. Units a waiting build
-needs jump the queue. Two downloads run at once, each in a child process under `nice -n 10`
+missing unit whose block intersects the area is queued band by band of 500 m distance: within a
+band lidar first (it gates ground and collision), then ortho, WFS and OSM, nearest block first.
+Units a waiting build needs jump the queue. OSM is optional: a draft built before its clip lands has
+no streets and is rebuilt with them afterwards (its manifest's input identity changes). One OSM clip
+covers a 2 km square, since a clip mostly reads the Finland snapshot (about two minutes of CPU at
+any size). Two downloads run at once, each in a child process under `nice -n 10`
 (`python -m turku3d.coarse fetch <unit>`); a unit on disk is never fetched again, a failed one
 is retried after two minutes. `/coarse/status` reports under `prefetch` the queue, the downloads
 in flight, per dataset the units, bytes and seconds fetched, the most recent units and the cache.

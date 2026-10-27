@@ -3,14 +3,15 @@
 The game reports the player's position and velocity (``GET /coarse/want``) once a second. The
 prefetch area is a 500 m ring around the player plus a cone ahead along the direction of travel,
 ``FOOT_DEPTH`` deep on foot and growing linearly to ``CAR_DEPTH`` at the car's top speed. Every
-missing 500 m block unit (``sources.Unit``) that intersects it is fetched into the shared raw cache:
-all lidar first (it gates ground and collision), then ortho, then WFS, nearest block first within a
-dataset. A tile whose build is waiting for data (``need``) jumps the queue.
+missing 500 m block unit (``sources.Unit``) that intersects it is fetched into the shared raw cache,
+band by band of ``BAND`` m distance: within a band lidar first (it gates ground and collision), then
+ortho, WFS and OSM, nearest block first. A tile whose build is waiting for data (``need``) jumps
+the queue.
 
 Fetches run in child processes under ``nice``, at most ``DOWNLOADS`` at once, so they never hold up
-a build; a unit already on disk is never fetched again. With the service's coarse root, the same
-workers then prepare (``inputs.prepare``) the tiles within ``PREPARE_M`` of the player whose raw data
-is complete, so their builds start from the small prepared inputs. Every fetched unit is recorded in the
+a build; a unit already on disk is never fetched again. With the service's coarse root, one more
+worker prepares (``inputs.prepare``) the tiles within ``PREPARE_M`` of the player whose raw data is
+complete, so their builds start from the small prepared inputs. Every fetched unit is recorded in the
 prefetch ledger next to the raw cache, which keeps the newest ``CACHE_CAP`` bytes of prefetched
 inputs and prunes the least recently used ones (``Ledger.prune``). Files the prefetcher did not
 fetch, and units under a listed playable tile's input area, are never pruned.
@@ -35,13 +36,14 @@ import shapely
 
 from turku3d import config as C
 
-from .sources import DATASETS, NoCoverage, Sources, Unit, block_bbox
+from .sources import DATASETS, NoCoverage, Sources, Unit, block_bbox, osm_area
 
 CAR_SPEED = 27.0  # m/s: game/src/physics/constants.ts topSpeed of the player car
 FOOT_SPEED = 6.0  # m/s: sprint (game/src/actors/player.ts)
 FOOT_DEPTH = 500.0  # cone depth on foot (m)
 CAR_DEPTH = 1500.0  # cone depth at the car's top speed (m)
 RING = 500.0  # radius around the player (m)
+BAND = 500.0  # m: units are fetched band by band of distance, every dataset of a band first
 HALF_ANGLE = math.radians(30.0)  # cone half-angle around the direction of travel
 MIN_SPEED = 1.0  # below this the direction is noise: ring only
 DOWNLOADS = 2
@@ -75,7 +77,8 @@ def area(x: float, z: float, vx: float = 0.0, vz: float = 0.0):
 
 
 def plan(x: float, z: float, vx: float, vz: float, covered=lambda block: True) -> list[Unit]:
-    """Units over the prefetch area in fetch order: dataset rank, then distance to the block."""
+    """Units over the prefetch area in fetch order: by BAND of distance to the block, within a band
+    lidar, ortho, WFS, OSM, then nearest first; an OSM square already planned is not planned again."""
     geom = area(x, z, vx, vz)
     bounds = C.BBoxLocal(*geom.bounds)
     here = shapely.Point(x, z)
@@ -86,7 +89,16 @@ def plan(x: float, z: float, vx: float, vz: float, covered=lambda block: True) -
         if covered(block) and box.intersects(geom):
             blocks.append((box.distance(here), block))
     blocks.sort(key=lambda db: (db[0], db[1]))
-    return [Unit(dataset, block) for dataset in DATASETS for _, block in blocks]
+    units, squares = [], set()
+    for d, block in blocks:
+        for dataset in DATASETS:
+            if dataset == "osm":
+                square = osm_area(block).name
+                if square in squares:
+                    continue
+                squares.add(square)
+            units.append((int(d // BAND), DATASETS.index(dataset), d, Unit(dataset, block)))
+    return [u for *_, u in sorted(units, key=lambda t: t[:3])]
 
 
 def prepare_tiles(x: float, z: float, vx: float, vz: float) -> list[C.VisualTile]:
@@ -285,6 +297,14 @@ class Prefetcher:
             threading.Thread(target=self._work, name=f"coarse-prefetch-{k}", daemon=True)
             for k in range(downloads)
         ]
+        if (
+            self.preparer
+        ):  # one more worker prepares the tiles near the player, beside the downloads
+            self.threads.append(
+                threading.Thread(
+                    target=self._prepare_loop, name="coarse-prefetch-prepare", daemon=True
+                )
+            )
         for t in self.threads:
             t.start()
 
@@ -342,19 +362,34 @@ class Prefetcher:
             self.urgent.sort(key=lambda u: DATASETS.index(u.dataset))
             self.lock.notify_all()
 
-    def _next(self) -> Unit | str | None:
-        """Downloads first (a waiting build's, then the plan's), then a tile to prepare."""
+    def _next(self) -> Unit | None:
+        """A waiting build's units first, then the plan's."""
         now = time.time()
         for source in (self.urgent, self.queue):
             while source:
                 unit = source.pop(0)
                 if self._wanted(unit, now):
                     return unit
+        return None
+
+    def _next_tile(self) -> str | None:
         while self.prepare:
             tile = self.prepare.pop(0)
             if tile not in self.preparing:
                 return tile
         return None
+
+    def _prepare_loop(self):
+        while True:
+            with self.lock:
+                tile = self._next_tile()
+                while tile is None and not self.stopped:
+                    self.lock.wait()
+                    tile = self._next_tile()
+                if self.stopped:
+                    return
+                self.preparing.add(tile)
+            self._prepare(tile)
 
     def _prepare(self, tile: str) -> None:
         started = time.perf_counter()
@@ -382,13 +417,7 @@ class Prefetcher:
                     unit = self._next()
                 if self.stopped:
                     return
-                if isinstance(unit, str):
-                    self.preparing.add(unit)
-                else:
-                    self.fetching[unit] = time.time()
-            if isinstance(unit, str):
-                self._prepare(unit)
-                continue
+                self.fetching[unit] = time.time()
             if self.sources.unit_present(unit):  # landed meanwhile (another sandbox, a build list)
                 with self.lock:
                     del self.fetching[unit]
