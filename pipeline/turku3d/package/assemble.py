@@ -16,6 +16,7 @@ import numpy as np
 from turku3d import config as C
 from turku3d.col.format import ColTile, Primitive, read_col, write_col
 from turku3d.content.addresses import publish as publish_addresses
+from turku3d.facade_kit import kit_request, store_path
 from turku3d.layers import (
     CollisionLayer,
     layer_root,
@@ -275,6 +276,10 @@ def visual_tiles(
                 textureCache=str(texture_cache),
                 coarseTerrain=tile.id in coarse_ids,
                 replacedBuildings=list(replaced),
+                facadeKit=kit_request(
+                    C.work_root() / "cache/facade-kit",
+                    set().union(*(glb_buildings(p.read_bytes()) for p in inputs)),
+                ),
             )
         )
     req = stage / "requests.json"
@@ -426,6 +431,8 @@ def assemble(
         + [
             *Path(__file__).parent.glob("*.mjs"),
             Path(__file__).parents[1] / "layers.py",
+            Path(__file__).parents[1] / "facade_kit.py",
+            C.REPO_ROOT / "textures/turkutex/facade_fast_render.py",
             C.REPO_ROOT / "pipeline/env/package-lock.json",
             Path(C.__file__),
         ]
@@ -492,6 +499,7 @@ def assemble(
             buildings |= {facade_id.rsplit("_", 1)[0] for facade_id in ranked}
             bound, facade_files = facade_inputs(facades, bindings, buildings)
             files = inputs + osm_sources() + facade_files
+            files += [p for key in buildings if (p := store_path(key)).exists()]
             if terrain:
                 files += terrain["files"]
             role = (

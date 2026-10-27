@@ -263,3 +263,7 @@ arrays to content-addressed `ground/` URLs and declares scene extras `ground_bin
 The manifest records `ground_texture_bytes` and `wire_bytes`; L0 geometry plus these maps must
 fit 8,000,000 bytes. The shared array library is fetched once across tiles. See
 [ground rendering](../../../../game/src/render/ground/README.md) for complete scene capture commands.
+
+Unmapped building facades use the same cached 42-module procedural atlas as drafts. The binder
+keeps approved per-wall maps first, exports shared KTX2 images, and records `facade_kit` material
+parameters for the game's WebGPU/WebGL2 node material; roof ortho bindings remain independent.

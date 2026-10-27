@@ -41,6 +41,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -50,6 +51,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from turku3d import config as C
+from turku3d.facade_kit import parameter_hash
 
 from .build import code_hash
 from .prefetch import Prefetcher
@@ -223,6 +225,7 @@ class Builder:
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}  # the latest STATUS_ITEMS builds, oldest first
         self.code_seen = self.code()  # producer hash of the latest check, for /coarse/status
+        self.upgrades = None
         self.stopped = False
         self.draining = False
         self.workers = workers
@@ -247,6 +250,8 @@ class Builder:
             return False
         self.code_seen = code = code or self.code()
         if m.get("code") != code:
+            return False
+        if "building_keys" in m and m.get("facade_params") != parameter_hash(m["building_keys"]):
             return False
         try:
             now = self.input_key(tile)
@@ -445,6 +450,8 @@ class Builder:
             self.draining = True
 
     def stop(self):
+        if self.upgrades:
+            self.upgrades.stop()
         with self.lock:
             self.stopped = True
             self.lock.notify_all()
@@ -511,6 +518,8 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                 status = builder.status() | {"started": started, "modules": loaded_files()}
                 if prefetcher:
                     status["prefetch"] = prefetcher.status()
+                if builder.upgrades:
+                    status["facades"] = builder.upgrades.status()
                 return self._json(200, status)
             if url.path == "/coarse/want":
                 q = parse_qs(url.query)
@@ -581,6 +590,9 @@ def serve(
             input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
         )
         prefetcher.on_landed = lambda unit: builder.landed()
+        from .facades import DescribeQueue
+
+        builder.upgrades = DescribeQueue(root, builder)
     server = Server((host, port), handler(builder, prefetcher))
     return server, builder, prefetcher
 
@@ -604,6 +616,11 @@ def main(argv=None) -> int:
     a.root.mkdir(parents=True, exist_ok=True)
     server, builder, prefetcher = serve(a.port, a.root, a.host)
     print(f"coarse-tiles: http://{a.host}:{a.port}/coarse/status -> {a.root}", flush=True)
+
+    def terminate(*_):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, terminate)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

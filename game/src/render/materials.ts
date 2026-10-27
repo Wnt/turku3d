@@ -2,6 +2,7 @@
 // Runtime styling preserves those maps, their UV transforms, ORM channels and facade colours.
 import * as THREE from 'three/webgpu';
 import { materialColor, materialRoughness, texture, positionWorld, mix, vec3, bumpMap, float } from 'three/tsl';
+import { facadeKitMaterial } from './facadeKit';
 import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
 import { GroundBindings } from './ground/binding';
@@ -63,6 +64,12 @@ export class MaterialStyler {
       const style = (source: THREE.Material): THREE.Material => {
         const key = materialKey(mesh, source);
         if (!key) return source;
+        if (key === 'facade_kit') {
+          const cached = cache.get(source.uuid);
+          if (cached) return cached;
+          const kit = facadeKitMaterial(source, this.renderer);
+          if (kit) { materials.push(kit); cache.set(source.uuid, kit); return kit; }
+        }
         const kind = surfaceStyle(key);
         if (kind === 'water') {
           mesh.updateWorldMatrix(true, false);
