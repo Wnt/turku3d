@@ -12,7 +12,7 @@ test('menu prices show payments, income with a plus sign, and nothing without a 
 test('the order option shows address, rounded route length and par time instead of a static detail', () => {
   const base: ShopOptionView = { id: 'take_order', label: 'Take', detail: null, price: null, icon: null, enabled: true,
     reason: null, quote: null };
-  expect(optionDetail({ ...base, quote: { address: 'Linnankatu 13a', metres: 139.6, par: 119.7 } }))
+  expect(optionDetail({ ...base, quote: { address: 'Linnankatu 13a', metres: 139.6, par: 119.7, stops: 1 } }))
     .toBe('Linnankatu 13a · 140 m · par 2:00');
   expect(optionDetail({ ...base, id: 'slice', detail: 'Full speed' })).toBe('Full speed');
 });

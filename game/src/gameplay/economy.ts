@@ -22,6 +22,8 @@ export const VEHICLE_PRICE: Record<Exclude<VehicleOwnership, 'none'>, number> = 
 export const sellBackPrice = (vehicle: Exclude<VehicleOwnership, 'none'>) => Math.floor(VEHICLE_PRICE[vehicle] / 2);
 export const BASE_PAY = 6;
 export const MAX_TIP = 8;
+/** Paid with the second pizza of a double order unless it is late enough to earn no tip. */
+export const DOUBLE_BONUS = 4;
 
 /** Par travel speed in m/s for the vehicle class the player owns. */
 const PAR_SPEED: Record<VehicleOwnership, number> = { none: 1.4, bicycle: 5, car: 9 };

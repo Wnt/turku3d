@@ -95,9 +95,10 @@ either vehicle moves that car to the dealer's kerb. A bicycle model and handling
 
 ## Deliveries
 
+The first four orders are the scripted opening below (their own hand-over and customer lines).
 Drop-off points are street-side spots in front of real addresses from the OSM extract, inside the
 area. Distances are shortest walking routes on the OSM street graph from the pizzeria (the game's
-street-network router may differ by a few metres). After the fourth delivery the list repeats.
+street-network router may differ by a few metres).
 
 | # | Address | x, z | Route | Par on foot |
 |---|---|---|---|---|
@@ -105,6 +106,42 @@ street-network router may differ by a few metres). After the fourth delivery the
 | 2 | Aurakatu 1 | 294.5, 185.2 | ~290 m | ~227 s |
 | 3 | Läntinen Rantakatu 3 | 439.5, 54.8 | ~440 m | ~336 s |
 | 4 | Kaskenkatu 4a (across Auransilta, up the hill) | 474.3, 402.0 | ~610 m | ~456 s |
+
+### Address pool
+
+After the opening, orders come from the address pool that the tile build publishes
+(`manifest.addresses`, [pipeline/turku3d/content](../../pipeline/turku3d/content/README.md)): every
+addressed building in the published tiles with a street-side door, its drop-off 2.5 m in front of
+the door, and route metres from the pizzeria on foot and by car. The four core tiles give 78
+addresses (t0_0_0 31, t0_0_1 14, t0_1_0 16, t0_1_1 17); a new tile adds its own. Addresses in
+tiles the manifest does not carry are skipped. Without a pool (synthetic tiles) the opening
+four repeat.
+
+`game/src/gameplay/missions/orders.ts` draws each order, seeded per game:
+
+- **No repeats.** An address served (delivered or cancelled) is not drawn again until every pool
+  address has been; then the set starts over, without the last order's addresses. The opening's
+  four addresses come last.
+- **Distance ladder.** Pool order *n* (0 = the fifth order) aims at 200 + 40·*n* m on foot, capped
+  at 900 m, and takes a random address between 55 % of that and the target (the three nearest to
+  the target when none is left in the band). One order in five is instead a short hop from the
+  nearest quarter of what is left.
+- **Doubles.** Every fifth pool order (the 9th, 14th, … order) carries two pizzas: the drawn
+  address and the nearest unused one 15–250 m from it. The timer covers both: par is the first
+  leg's par plus the second leg's (router distance between the two drop-offs). Each pizza pays
+  6 € plus its tip, the first against the first leg's par, the second against the whole par; the
+  second also pays the double bonus of 4 € (`paid_double_bonus`) unless it earns no tip. Missing
+  the deadline cancels what is left. A double uses one permit delivery.
+- **Par.** The published walking distance on foot, the driving distance with a bicycle or a car
+  (the walking one when no car route exists), at the vehicle's par speed; tip bands as above.
+
+The pizzeria quotes the address (both, joined with `+`, for a double), route metres and par. On
+pickup the owner says one of six address-free lines (`pizzeria_order_1`–`6`), then the HUD shows
+`order_next` "Next one: {address}." (or `order_next_double`); these and the step hints
+(`hint_deliver_pool`, `hint_deliver_first`, `hint_deliver_second`) are unvoiced templates, so
+voice clips never speak an address. Customers react with one of 12 lines per tip band
+(`customer_fast_1`–`12`, `customer_ok_*`, `customer_slow_*`), picked by the game's seed. The large
+map labels the drop-off marker with its house number.
 
 ## Mission state machine
 
@@ -149,13 +186,17 @@ Customers react at the door by tip band: fast (tip ≥ 5 €), ok (1–4 €), s
 Minimap targets and world zones: `pizzeria`, `dealer` and `market` always, and the current
 drop-off while carrying (its zone disappears with the hand-over until the next order).
 
-The mission save (`MissionSystem.serialize()`) is format version 2: phase, money, permit deliveries
-left, plates, kidney, warning, vehicle, delivery index, elapsed and par seconds. It is stored inside a
-save slot (three named slots and an autosave in `localStorage` key `turku3d.saves`, with the player's
-position, the own car and the clock: `game/src/ui/README.md`). The game autosaves after every finished
-delivery and shop purchase, on quit and on page hide; Continue resumes the latest slot, including a
-running delivery timer; slice energy is not saved. An unslotted save from before the slots (key
-`turku3d.missions`) becomes slot 1 on the first run. A
+The mission save (`MissionSystem.serialize()`) is format version 3: phase, money, permit deliveries
+left, plates, kidney, warning, vehicle, orders served (`delivery`), pizzas handed over, the game's
+seed, the pool addresses served (`delivered`), the quoted or carried order's stop ids and the next
+stop, the last finished order's address (the slot label), elapsed, par and first-leg par seconds. It
+is stored inside a save slot (three named slots and an autosave in `localStorage` key
+`turku3d.saves`, with the player's position, the own car and the clock: `game/src/ui/README.md`).
+The game autosaves after every finished delivery and shop purchase, on quit and on page hide;
+Continue resumes the latest slot, including a running delivery timer; slice energy is not saved. An
+unslotted save from before the slots (key `turku3d.missions`) becomes slot 1 on the first run. A
+version 2 save keeps its order count (and a carried scripted order) and starts the pool unused. A
+saved order whose address is no longer published is dropped, returning its permit delivery. A
 version 1 save (main 2673ec0: `licence` instead of the permit) is migrated on load: an owned licence
 becomes one fresh rental of 10 deliveries and `licence_needed` becomes `permit_needed`. A corrupt or
 foreign save starts a new game.

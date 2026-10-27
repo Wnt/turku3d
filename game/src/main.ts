@@ -240,7 +240,7 @@ async function runPlay() {
   const voice = new VoicePlayer(audio.voiceOutput());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true });
   const saves = new SaveStore(browserStorage(), missionSummary);
-  const intro = saves.any ? [] : INTRO_LINE_IDS.map(lineText);
+  const intro = saves.any ? [] : INTRO_LINE_IDS.map(id => lineText(id));
   const fullscreen = new FullscreenPolicy();
   const startScreen = new StartScreen(input, { intro,
     hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
@@ -302,8 +302,8 @@ async function runPlay() {
   }
   await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
-  const { router, minimap, area } = await createGameplay(manifest, document.body);
-  const missions = new MissionSystem({ router });
+  const { router, minimap, area, addresses } = await createGameplay(manifest, document.body);
+  const missions = new MissionSystem({ router, addresses });
   minimap.setSource(missions);
   voice.attach(missions);
   // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement.

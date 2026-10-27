@@ -262,6 +262,17 @@ export class Minimap {
       ctx.lineWidth = active ? 3 : 1.5;
       ctx.strokeStyle = active ? '#ffffff' : 'rgba(0, 0, 0, 0.7)';
       ctx.stroke();
+      const number = this.expanded && target.kind === 'dropoff' ? houseNumber(target.label) : null;
+      if (number) {
+        ctx.font = 'bold 14px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.strokeText(number, size / 2 + sx + 11, size / 2 + sy);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(number, size / 2 + sx + 11, size / 2 + sy);
+      }
     }
     ctx.translate(size / 2, size / 2);
     ctx.rotate((view.facingDeg * Math.PI / 180) + rotation);
@@ -278,6 +289,12 @@ export class Minimap {
     ctx.stroke();
     ctx.restore();
   }
+}
+
+/** The house number of a street address (`Linnankatu 13a` -> `13a`), or null without one. */
+export function houseNumber(address: string): string | null {
+  const last = address.trim().split(/\s+/).pop() ?? '';
+  return /^\d/.test(last) ? last : null;
 }
 
 const angle = (deg: number) => ((deg + 540) % 360) - 180;

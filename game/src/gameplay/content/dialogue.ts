@@ -22,6 +22,13 @@ export function dialogueLine(id: string): DialogueLine {
   if (!line) throw new Error(`unknown dialogue line ${id}`);
   return line;
 }
-export const lineText = (id: string) => dialogueLine(id).text;
+/** Placeholder values for unvoiced lines such as `Deliver the pizza to {address}.` */
+export type LineVars = Record<string, string>;
+/** The line's text with `{name}` placeholders filled in. Voiced lines carry no placeholders (their clip is fixed). */
+export function lineText(id: string, vars?: LineVars): string {
+  const text = dialogueLine(id).text;
+  if (!vars) return text;
+  return text.replace(/\{(\w+)\}/g, (match, name: string) => vars[name] ?? match);
+}
 /** Story intro paragraphs shown on the start screen of a new game. */
 export const INTRO_LINE_IDS = ['intro_1', 'intro_2', 'intro_3'] as const;

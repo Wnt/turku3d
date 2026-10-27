@@ -69,7 +69,7 @@ export class ShopMenu {
     this.element.dataset.shop = view.id;
     this.element.style.setProperty('--shop-art', `url("${this.assets}${view.background}.webp")`);
     this.title.textContent = view.title;
-    this.status.textContent = `Cash ${view.money} € · Courier permit: ${view.permit === 1 ? '1 delivery' : `${view.permit} deliveries`} left`;
+    this.status.textContent = `Cash ${view.money} € · Delivered ${view.delivered} · Courier permit: ${view.permit === 1 ? '1 delivery' : `${view.permit} deliveries`} left`;
     this.speaker.textContent = view.speaker;
     this.line.textContent = view.line;
     this.list.set(view.options, (option, li) => this.fill(option, li),

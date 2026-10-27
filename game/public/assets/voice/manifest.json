@@ -250,6 +250,66 @@
    "fileSha256": "089ba8ac7d3471945b07acc7d559cd68459365b94b7085b7f29a27072edba5ba"
   },
   {
+   "id": "pizzeria_order_1",
+   "speaker": "pizzeria",
+   "file": "pizzeria_order_1.ogg",
+   "seconds": 3.469,
+   "text": "Next one's out of the oven. Go, before the cheese sets!",
+   "textSha256": "f4d261465fc8a66dc28816ecee529e56e83a59f28525d1ff09781bf9c5506acd",
+   "key": "8e8e75a42116ec66b54522337abaac823de70663e6faafd02e0dde378599e69c",
+   "fileSha256": "658d7a94b5b360068a89a88e39bdaaa246d4aedcd2f8489ad0cff4e8fff6cb11"
+  },
+  {
+   "id": "pizzeria_order_2",
+   "speaker": "pizzeria",
+   "file": "pizzeria_order_2.ogg",
+   "seconds": 4.043,
+   "text": "Here, hot box, cold street. The address is on the slip. Move it!",
+   "textSha256": "5018cf7455bbfcadf9b80136299ce00d10641279ec8c7133e579096744574d70",
+   "key": "4434ecc4cf466497542bc50b90e39175fc4313a9b390b3d3f5bf19d33f84ac9c",
+   "fileSha256": "b7cb9ade1718c19a68016bede37e0f91c6be66bb32741b94e38e7765fb8b7a79"
+  },
+  {
+   "id": "pizzeria_order_3",
+   "speaker": "pizzeria",
+   "file": "pizzeria_order_3.ogg",
+   "seconds": 3.454,
+   "text": "Another one. The robots want this job, so do it fast.",
+   "textSha256": "4e56656be43bb0f86f86edf00770007cce5b78c54af5151041e133e0bf467837",
+   "key": "240957dc2f9cbeac6740f0c2c8767bc16d1c648ded07b6fd5a9275dd4983f2ea",
+   "fileSha256": "7b2e853009814e7b3043219c903269bdd522f15bf3fc682adb8858108168ee2a"
+  },
+  {
+   "id": "pizzeria_order_4",
+   "speaker": "pizzeria",
+   "file": "pizzeria_order_4.ogg",
+   "seconds": 3.533,
+   "text": "Take it and run. The customer already tracks you on the app.",
+   "textSha256": "5a9fb28d915bc59ed50ddd53496f3aff2a6a648f677b4bef57882c7ef1173038",
+   "key": "713951b74e08a8197a5ff923f8430fd1c7353fe0e7c14b3327d5b5d3e8ea014f",
+   "fileSha256": "d5bbd3a53f4947d12aa25d60cbbe095f21ab5ea585d7ae5a2b8eb7c0c6bb271b"
+  },
+  {
+   "id": "pizzeria_order_5",
+   "speaker": "pizzeria",
+   "file": "pizzeria_order_5.ogg",
+   "seconds": 3.373,
+   "text": "Fresh one. Don't eat it on the way, I count the slices.",
+   "textSha256": "301fc64256558717aad8061326c04dbd3fa4e52be07adf23040eca0ab2049817",
+   "key": "4ec8e8c8a804627313a3bf50a564e055e77dc470f853c39f3a3befbbf04a5e9c",
+   "fileSha256": "85be30e0259faffac7d5d6d7c5b55f4089157280d491747e9eff87cf9e3bd9d1"
+  },
+  {
+   "id": "pizzeria_order_6",
+   "speaker": "pizzeria",
+   "file": "pizzeria_order_6.ogg",
+   "seconds": 2.982,
+   "text": "Go, go! Every minute is a euro off your tip.",
+   "textSha256": "44834a9c8e03209092a5c3ff8d3a411ff63b042a79112c13e1eca7a138333d48",
+   "key": "2d31a32b5e0918f1cd722313f40eb1f83aa6c5d785147cb6609c8588cf246dd5",
+   "fileSha256": "d253062a56979a1f25b0ce81ba694d6ca5e6bab653391f15c6651eab09303d9b"
+  },
+  {
    "id": "dealer_greet",
    "speaker": "dealer",
    "file": "dealer_greet.ogg",
@@ -428,6 +488,366 @@
    "textSha256": "46462a842b536da266ba558c357acd611b573d666747438f1baa14d7a4426605",
    "key": "2c7657bd2c097c1a5a100eae3fb5bfe05599e52ceeeb24100e8e6d673198f7f0",
    "fileSha256": "96cd53d23c5821891d078d6c4b4a4c5bb05e6fce70303cb2879f674c8fbc134b"
+  },
+  {
+   "id": "customer_fast_1",
+   "speaker": "customer",
+   "file": "customer_fast_1.ogg",
+   "seconds": 4.153,
+   "text": "Already? The delivery robot quoted forty minutes and a software update.",
+   "textSha256": "fa9b72a08f994a78fbb182adad40462b694b6077c0259edbd6fc3ed167f41161",
+   "key": "eea7f1befbb85d870819e899ba399fcf36026df06b363fe7aac17bc638adba34",
+   "fileSha256": "67712d2b0019ca7c03f2e2746703b728bb442855f3777955607f47d75ab5dc7a"
+  },
+  {
+   "id": "customer_fast_2",
+   "speaker": "customer",
+   "file": "customer_fast_2.ogg",
+   "seconds": 2.882,
+   "text": "Still hot! Here, a tip. Don't tell the algorithm.",
+   "textSha256": "6f4e66d4247a29a08f43c8051f82913b68b29b6d046692655edc7a0a952c4d30",
+   "key": "d0681008c6648abc36849eaecff8dfe01a0ebf3f78af36b675bca47cbab22f2b",
+   "fileSha256": "1bc4e2e8e9c653992d90c69c97a69a7ee67cd3216659198ad20b645c8106f8e8"
+  },
+  {
+   "id": "customer_fast_3",
+   "speaker": "customer",
+   "file": "customer_fast_3.ogg",
+   "seconds": 2.697,
+   "text": "That was fast. Are you sure you're not a drone in a hoodie?",
+   "textSha256": "9e76415ff8007feff33e415beed900885cee1969560290d8e069774e4d6f9f71",
+   "key": "2227d88b3729e768a9050ab661c5560835ec5a2ff2f85e34b003441a824c74c3",
+   "fileSha256": "802b062fd6304964b89ec9f4f5b463b2bb69a41912bc8b2d9b5afcf4da7f278f"
+  },
+  {
+   "id": "customer_fast_4",
+   "speaker": "customer",
+   "file": "customer_fast_4.ogg",
+   "seconds": 4.091,
+   "text": "Perfect timing. My standup call just ended, and so did my job.",
+   "textSha256": "46fdd97fbb5bb25a262169773351afda337ebcf7411140289e195b881e05d382",
+   "key": "82fc48d740b8c2d29bff3836b882f6b6d870653dfed2083524d92e36fd4879ed",
+   "fileSha256": "dfd7f0a36a0b20fcc50a04d887d76c122d41c116383a3faab7135dc201400464"
+  },
+  {
+   "id": "customer_fast_5",
+   "speaker": "customer",
+   "file": "customer_fast_5.ogg",
+   "seconds": 3.131,
+   "text": "Wow. Take the tip before the austerity package finds it.",
+   "textSha256": "ac3d12db4694075430c70babb4fa0c36c22d3dac0f810cd78a728f7ca2594666",
+   "key": "45cace45d013025861427cd0644df5215732ebe06f16ef163870cf10885cb307",
+   "fileSha256": "365c9f1611d70279c9aed1a33de70ea4ba99ea3e09da922b5bc327aae818644b"
+  },
+  {
+   "id": "customer_fast_6",
+   "speaker": "customer",
+   "file": "customer_fast_6.ogg",
+   "seconds": 3.379,
+   "text": "Faster than the tram, and the tram doesn't even run anymore.",
+   "textSha256": "9b32f70ce9f7206b0cd233d137fc9ceae7791d2d102444c0f4d56194eacb623e",
+   "key": "598b319ebceadfe5b821e6544ee9211d4c5bed8677a5530c97ef4b8e162b61fa",
+   "fileSha256": "d2c84566251e82812a457e2d306cbf8a8906fe08040930bbe59acda76a43d63c"
+  },
+  {
+   "id": "customer_fast_7",
+   "speaker": "customer",
+   "file": "customer_fast_7.ogg",
+   "seconds": 2.806,
+   "text": "Steaming hot. You must really need the money. Here.",
+   "textSha256": "b14af7e0221bb0158e0fed27c9cad8d73a46a75e1c1984b390dabca2f79a694c",
+   "key": "2cdb976e87d6d8cd5112098a6096b9b44b5267b7a97a5b53332e61de5dfb727d",
+   "fileSha256": "5b6bc51a8f181e2fe858afc06e800df3db0cf72c6136b7d7f5054b0c3d083ade"
+  },
+  {
+   "id": "customer_fast_8",
+   "speaker": "customer",
+   "file": "customer_fast_8.ogg",
+   "seconds": 3.444,
+   "text": "You ran here? Respect. My knees retired before I did.",
+   "textSha256": "daef1c8f4b7e6deaf53539f691108a6755be9be7abc4dac208fc96875d883d62",
+   "key": "061011d41b077fd0b5405e8df1ef7160ed9ffb86536accfedee5cd0fd365bc20",
+   "fileSha256": "a3a96bdd3ba40d8a434535283c0e63b7a10242b9802d67d60f98683999065635"
+  },
+  {
+   "id": "customer_fast_9",
+   "speaker": "customer",
+   "file": "customer_fast_9.ogg",
+   "seconds": 3.979,
+   "text": "Hot pizza and a human face. That's worth a few euros these days.",
+   "textSha256": "10ba74aecea274631d649f4b290eac349e2dee906898a8c4a3b3c646a62f5c2a",
+   "key": "d25afeef90e5b3c0189b66359b4c989ea09677cb16952d2357bf8bd86e206c7b",
+   "fileSha256": "553d482cf3ffb4859f9554e08461118cc15b0f2fe068e899dad5d25625a1dfeb"
+  },
+  {
+   "id": "customer_fast_10",
+   "speaker": "customer",
+   "file": "customer_fast_10.ogg",
+   "seconds": 3.111,
+   "text": "Quick! Keep the change. It's going to be worthless soon anyway.",
+   "textSha256": "831f608fea87f048a0d0a0bfa93d93f889b2d903bfaeceb9747a4fda82828bc2",
+   "key": "3f02fb22882e1c8188db734e91e55e64a429fccacb56c3d616e6dd506330a37f",
+   "fileSha256": "0241e179c3dc373f9cfad110477baae7201ae5e8c107d5c35b81fa4d5aa3a619"
+  },
+  {
+   "id": "customer_fast_11",
+   "speaker": "customer",
+   "file": "customer_fast_11.ogg",
+   "seconds": 2.734,
+   "text": "Great, it's still warm. Unlike the job market.",
+   "textSha256": "cadba1438f049b04f69eafd875f4c926e0f42de35685702e949de08d405a7107",
+   "key": "0c5cc02ae0923025cc2a9080ed2ba3e9903292e8e3833fde823a70f722c255cc",
+   "fileSha256": "ee25db3cb9d0a6191f89af9874eba591f9e7c10d7890c3d66324814dbea6f20e"
+  },
+  {
+   "id": "customer_fast_12",
+   "speaker": "customer",
+   "file": "customer_fast_12.ogg",
+   "seconds": 3.729,
+   "text": "You beat my fridge's estimate. It's very disappointed in itself.",
+   "textSha256": "d603941bdd6748e3cb6ff7738a2d6b632f13b323d3dc2e9094e32c82e4a45218",
+   "key": "d7c5d9dcac05d7f3e303a954895630837fb43c5f0100956d4fcaf7fe952ad0b5",
+   "fileSha256": "b63e04a5613300f3efcb14d4bc854517927c12cf573156cca7e065fce5dd2564"
+  },
+  {
+   "id": "customer_ok_1",
+   "speaker": "customer",
+   "file": "customer_ok_1.ogg",
+   "seconds": 3.008,
+   "text": "Thanks. About as warm as the economy, but it'll do.",
+   "textSha256": "2edaf283a71241599a7bff744529ae688240bc65b481836b170bacfebd524dca",
+   "key": "7b544fb68f182718e22560253cb91e8947ef60c62b554fe9fe6ef4674a66663d",
+   "fileSha256": "8284ea7ba3f72ee9fdb149c1ef3e1109d5a07cb5e4127b4ac3320b7c8d84f134"
+  },
+  {
+   "id": "customer_ok_2",
+   "speaker": "customer",
+   "file": "customer_ok_2.ogg",
+   "seconds": 3.535,
+   "text": "Right on time, more or less. That's more than the bus manages.",
+   "textSha256": "5aa7d882de80cd604ef6029cc5de207b10424ea8d4de9eb668fd8f48b5f49040",
+   "key": "b70d03ecabb3e7d6b3c125a530307b932d52d6793b5ff103a1e746ad5aa15266",
+   "fileSha256": "ca3bac165510e676b164c7f804c74683e25e41b1ee80af391f8be5f261aed105"
+  },
+  {
+   "id": "customer_ok_3",
+   "speaker": "customer",
+   "file": "customer_ok_3.ogg",
+   "seconds": 3.649,
+   "text": "Fine, fine. Leave it by the door, next to my unemployment letter.",
+   "textSha256": "3a0a649f92b7e782afd9c7896845199d08f4b1b72c28325c8506b8e71a20a889",
+   "key": "358a5fcbe27cce58d8dd725b3345a361935b3aeb1a4e1b17546f40142ffa42a1",
+   "fileSha256": "273f6532fa4f19dea0f8cf6d75443a34223cb1d0617902d67d58abf0d1e7bec7"
+  },
+  {
+   "id": "customer_ok_4",
+   "speaker": "customer",
+   "file": "customer_ok_4.ogg",
+   "seconds": 3.047,
+   "text": "Okay. The app gave you three stars. I gave you four.",
+   "textSha256": "469fc082b45cffd1a29f0abce4d50b9231f578a8236b238a5daac01944fe22ee",
+   "key": "b80c936e5af4a94f1771d10465381f8e14bed18879c133cf8300d174d843b999",
+   "fileSha256": "c969616966f490870a52dfe093e2748f148e845a84a96cf40b31ec0c303cb303"
+  },
+  {
+   "id": "customer_ok_5",
+   "speaker": "customer",
+   "file": "customer_ok_5.ogg",
+   "seconds": 3.062,
+   "text": "Thanks. I'd tip more, but the benefits office closed.",
+   "textSha256": "c216b9534524d5cb7b900f9ded6e9f8dd23b29831a75352bcd9adf306026c785",
+   "key": "50c9d4f727f71b5007946ac73660c60ecf59be51304a9ad9e279f1394cad5a99",
+   "fileSha256": "f039d7be0dc3a5f939c5f46de3754636305d3cfdddeb1c7de9dc78334de21c7b"
+  },
+  {
+   "id": "customer_ok_6",
+   "speaker": "customer",
+   "file": "customer_ok_6.ogg",
+   "seconds": 3.208,
+   "text": "Not bad. My old company's chatbot would have taken longer.",
+   "textSha256": "1bb0ebbdb48abc96651011686146f36a58e2f508e962a02e742649e5c87f97a4",
+   "key": "6058addb228229421e3704c65380f6fb25bea70396a18dcdda6a2115fcaeadc6",
+   "fileSha256": "b220760ad2058e50c87d14205a0caa24854651822534dc45ea9f1ed075cd0c74"
+  },
+  {
+   "id": "customer_ok_7",
+   "speaker": "customer",
+   "file": "customer_ok_7.ogg",
+   "seconds": 4.359,
+   "text": "It's pizza and it's here. Low bar in 2027, but you cleared it.",
+   "textSha256": "3569a6ea3d93545054533efa333a58c917f860de83fe926f08384db351bf9254",
+   "key": "63214a446435ef3e35f5744b0a0d4910c6268509bd9c5e6b1c091895cde4e5c1",
+   "fileSha256": "150b6a619034ad7e4077b7b2c0ccdfd8968ea3c5cd3ca0bc458f4495d59f2ce3"
+  },
+  {
+   "id": "customer_ok_8",
+   "speaker": "customer",
+   "file": "customer_ok_8.ogg",
+   "seconds": 3.351,
+   "text": "Thank you. Mind the stairs, the landlord sold the handrail.",
+   "textSha256": "d462b8f681b7f092286754c8a5a6fd1bdb4d0c2098f11b0a01ffe8a546e53a31",
+   "key": "c6933d891af67469a1a25f91a38da455cfe90caef04b9bad0d7c0f0e5d14393c",
+   "fileSha256": "ad96550939ec4f7b36c69e3d569d1dbf71c43772cb524c9214639bba5b9f23d2"
+  },
+  {
+   "id": "customer_ok_9",
+   "speaker": "customer",
+   "file": "customer_ok_9.ogg",
+   "seconds": 3.299,
+   "text": "Good enough. Everyone's a courier now, you know. Even my dentist.",
+   "textSha256": "5d2a678443419a54b41a91dfdb4fc61588276801baf053512e1fb1f56e8a57bb",
+   "key": "7ccecf22b85eed88867047d8de0355e8bfbf9170b11e7c30a2e334ef139ae3e0",
+   "fileSha256": "fd88a6db862bd18784e813925e17df85c5d92a53b67ffed15520c6891eacdd35"
+  },
+  {
+   "id": "customer_ok_10",
+   "speaker": "customer",
+   "file": "customer_ok_10.ogg",
+   "seconds": 2.786,
+   "text": "Thanks. Lukewarm, like the river in February.",
+   "textSha256": "2604a1b62fc181f7107e6fd4087055738afbbb607085cfe1a0abe8f8c5d0cb84",
+   "key": "e925d531b3f03654a5eafde4d23d8c48dedf856df4aced1713c9d1a63a8c0c3d",
+   "fileSha256": "5b0980f88ab3950f6d0161e78d8215b631e4248ea3515371c85b4d3421a723bc"
+  },
+  {
+   "id": "customer_ok_11",
+   "speaker": "customer",
+   "file": "customer_ok_11.ogg",
+   "seconds": 2.739,
+   "text": "Here you go. Don't spend it all on courier permits.",
+   "textSha256": "aadb716b64250ea44dea6f898afa995be46fb4ac29beb0d82c34e76880b5fbba",
+   "key": "5a0bada3bdfe9d71496dcfd719d9bb1ed8fa8780da3795c5015736c30bca80e0",
+   "fileSha256": "a0695c4f964e3e9a86e9f1c330248a4580e648198af4c8d01e26fe66d67c04ed"
+  },
+  {
+   "id": "customer_ok_12",
+   "speaker": "customer",
+   "file": "customer_ok_12.ogg",
+   "seconds": 2.855,
+   "text": "Acceptable. I'll leave a review the robots can read.",
+   "textSha256": "c34cdcb5063ee31ea7b47a1487f3bd65d1328b0d06778eaa73e18cec1e6c96c9",
+   "key": "3b84359a533ef88e9de3b71b145bff6e798b5d17e2ee57e0479cfa8c87cb2798",
+   "fileSha256": "6a1fdca1aee2b2ca8eee2e6744c1577aa86826d7033ad5a93f82344222cb31bf"
+  },
+  {
+   "id": "customer_slow_1",
+   "speaker": "customer",
+   "file": "customer_slow_1.ogg",
+   "seconds": 3.262,
+   "text": "Finally. I almost asked the delivery drone to adopt me.",
+   "textSha256": "dd168dae96dcf2b78fad219c18f2d5cded74451dc67acd496d5ca19cd5492a9f",
+   "key": "b787c97b6286d60687acdee4ac6adf42273674d77624f3d5264de2e92057d4b8",
+   "fileSha256": "b903e4af77ae36d4daf3a77cd4a5cebcc3f18059f07587be9780ed22fa59335a"
+  },
+  {
+   "id": "customer_slow_2",
+   "speaker": "customer",
+   "file": "customer_slow_2.ogg",
+   "seconds": 2.281,
+   "text": "Cold. Just like the river in January.",
+   "textSha256": "67739c0f7de17274788b1a017d0fb257429d77f9331f87a48fe9cdb882d33e45",
+   "key": "eef94e7780bceea538fc9d14db0652b8ede2efa0838938e080dbe64e19b50cf3",
+   "fileSha256": "5cdf4d67d01d79743ed5111979706e55e45acb7c7d9de19ccd2160cfde24e95c"
+  },
+  {
+   "id": "customer_slow_3",
+   "speaker": "customer",
+   "file": "customer_slow_3.ogg",
+   "seconds": 2.162,
+   "text": "Did you stop for a swim in the river on the way?",
+   "textSha256": "87fc41d1441c0fca2186aef3ec369264f58808b6497288f6bf2ce4bebccf8c94",
+   "key": "2df9f9e99c26001ab69f93ae5db2b28e6281f936c0784c1cc22298e41712c55f",
+   "fileSha256": "e67dc6465425f39169ec5782d64549c7a7de63e93ac026bd11a98e4d2a704b3e"
+  },
+  {
+   "id": "customer_slow_4",
+   "speaker": "customer",
+   "file": "customer_slow_4.ogg",
+   "seconds": 2.768,
+   "text": "My cat starved twice while I waited. No tip.",
+   "textSha256": "ccdc75dd4d5f485969d60510eb2030d41302ccc683d90cc1ee92d282d185e894",
+   "key": "0abdcd084118e2a310091175b3dc6b8a90dd872fce7c884d3b6c2ca53cd651f9",
+   "fileSha256": "3480e269245f22663184bea288994fb038e5e8aae6579caec19e5edcc9b306f8"
+  },
+  {
+   "id": "customer_slow_5",
+   "speaker": "customer",
+   "file": "customer_slow_5.ogg",
+   "seconds": 2.415,
+   "text": "The cheese has set. So has my opinion of you.",
+   "textSha256": "c963aa94b1a7f242a7a8f86abeea82328984c9004b0f2c68dbd875ab3daa687a",
+   "key": "86b09aec8b8738651eac5520d2fb013543ccf60326032a27e877ba9e28676650",
+   "fileSha256": "d68431c5c08ed7b218a5ba20760cf17a3e90878d8b28ab120451716979d70e7c"
+  },
+  {
+   "id": "customer_slow_6",
+   "speaker": "customer",
+   "file": "customer_slow_6.ogg",
+   "seconds": 2.697,
+   "text": "I could have walked to Helsinki and back. No tip.",
+   "textSha256": "27b590af568cde6065bdefde188d73940a870fa45a48a71dc3077a406697c611",
+   "key": "240ea89cdc156e7cf633eb222889c8523bc24a3664a50342c21e6ff6bfba2b77",
+   "fileSha256": "1008a726801090200cffc24740b316ccb4ade6c3606813cd7d012a9f73bb2d2e"
+  },
+  {
+   "id": "customer_slow_7",
+   "speaker": "customer",
+   "file": "customer_slow_7.ogg",
+   "seconds": 3.162,
+   "text": "The robots are slower than you, but at least they apologise.",
+   "textSha256": "4531e6bb047a721f40ebf42d8123e384548de9f2af9b634f01ba016be11823f1",
+   "key": "52c1e8c41f59da90bed961287118018ecac32a0fef2d5186ddea0b9ed42c0321",
+   "fileSha256": "3e1f8401ee9f6eb0b9aae6ed7fb874346f3f7624933fdc118c3fe7ac32ee7dd5"
+  },
+  {
+   "id": "customer_slow_8",
+   "speaker": "customer",
+   "file": "customer_slow_8.ogg",
+   "seconds": 2.592,
+   "text": "Is this pizza or archaeology? Lovely.",
+   "textSha256": "5a841216b7501c3be03ce6bb8b64d70b703ddb37b8dc89781bb36f3dee81d2b4",
+   "key": "4c451a0ffd35a806efa15a9a9faf5009de357411480d337d61091c8176661f44",
+   "fileSha256": "3ab31b58b7ccf81a630047fad9ebc018c5fb0ea67353830efb74440969774049"
+  },
+  {
+   "id": "customer_slow_9",
+   "speaker": "customer",
+   "file": "customer_slow_9.ogg",
+   "seconds": 3.099,
+   "text": "Cold pizza on a cold evening. Very Turku of you.",
+   "textSha256": "d2910d448122884655db6862adb1538dcca048044dcd0c3394a183872dd065f0",
+   "key": "b807f7d2ef149197658abb8e5c47a46d57852fe963a91085141e5804c3b41a28",
+   "fileSha256": "42488abc418f882d7dc3fb9f333dc0f04808679de0d936a81b70b733547fb9a6"
+  },
+  {
+   "id": "customer_slow_10",
+   "speaker": "customer",
+   "file": "customer_slow_10.ogg",
+   "seconds": 2.659,
+   "text": "I aged a year in that time. My pension didn't.",
+   "textSha256": "ee9a3296b733116a178df71d5cf31b679c1970b00090218e30bd699fb7551325",
+   "key": "fd2dffcdcf4ee5aa71887cf8a5ab74c3916407a47f04e014fc81bd3b1ab37bbe",
+   "fileSha256": "5be8e3a4f4f83be602e46e5d10daace892afdfdb921a788175fe99ead651f246"
+  },
+  {
+   "id": "customer_slow_11",
+   "speaker": "customer",
+   "file": "customer_slow_11.ogg",
+   "seconds": 2.159,
+   "text": "You're lucky the robots are on strike today.",
+   "textSha256": "3b9c61318f5ee1d74fa37047d874b8cacbf0d33ce4d9c75abf5bb0034b957ea0",
+   "key": "fd1d2f713d937a9cb925ba43e64ee953f432460741f6cbfe5f453b83b74b9654",
+   "fileSha256": "3b6bbae516bbc061eadac83f926d086bcf818181cdf961f97b3e614517a223c6"
+  },
+  {
+   "id": "customer_slow_12",
+   "speaker": "customer",
+   "file": "customer_slow_12.ogg",
+   "seconds": 3.172,
+   "text": "Ah, the courier. I'd given up on you and on humanity.",
+   "textSha256": "40daffc1f8a74d4c324467e40e23adf4383eb0a2ab1204e02ae3691e7c0041b9",
+   "key": "ae4dfe79ec7f553d750d8fd5cc0640a69c7e3113c41591eca2575b4d7065021d",
+   "fileSha256": "381f5a6977897b93234da99c5017df835fdd8e8712276e21e991733ac4ae2636"
   }
  ]
 }
