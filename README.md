@@ -7,6 +7,13 @@ Rantakatu 15 with an Xbox controller or keyboard and mouse.
 
 **Play:** https://wnt.github.io/turku-game/ (deploy repository [Wnt/turku-game](https://github.com/Wnt/turku-game)).
 
+## Multiplayer server
+
+The [multiplayer server](server/README.md) runs on osgallery-dev behind
+`wss://turku.lab.madekivi.fi`, providing presence and Finnish-hour delivery
+scoreboards for the later browser client. See its [protocol](server/PROTOCOL.md)
+and the [project architecture](docs/ARCHITECTURE.md).
+
 ## Run locally
 
 The game needs world tiles built by the pipeline from the Turku open data sources

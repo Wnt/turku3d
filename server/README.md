@@ -32,3 +32,51 @@ existing game's TypeScript through Node's built-in type stripping and checks its
 mission payout expression. Spawn derivation and coordinate conversion are recorded
 in `spawns.json`; points have 3 m spacing and were checked against the published
 building footprints. Client ground snapping and obstacle handling are still needed.
+
+## Load and public probe
+
+```sh
+node server/tools/load.mjs 10
+node server/tools/probe.mjs ws://127.0.0.1:7700/
+node server/tools/probe.mjs wss://turku.lab.madekivi.fi/
+```
+
+The load tool starts its own server on an ephemeral port and connects 32 fake
+clients at 20 Hz. It reports server-process CPU (100% = one core), JSON bytes/s
+in/out, accepted/rejected poses and remaining connections. It uses a temporary
+score directory, removes it afterwards and does not contact the public service.
+Optional duration is 1–300 seconds. The probe sends hello using the allowed Pages
+Origin, prints a welcome summary without its session token and disconnects. Each
+probe occupies one nickname in that hour and leaves a zero-score entry.
+
+## Deploy on osgallery-dev
+
+Prerequisites: `/usr/bin/node` 24, npm, Python 3, gh authenticated with access to
+`Wnt/forwarder` CI artifacts, `ssh lab` able to read the shared forwarder token,
+and working systemd user services with linger. No new keys or paid services.
+
+```sh
+server/deploy/osgallery-dev/install.sh
+systemctl --user status turku-mp-server.service turku-forwarder-agent.service
+journalctl --user -u turku-mp-server -n 100 --no-pager
+journalctl --user -u turku-forwarder-agent -n 100 --no-pager
+curl -fsS https://turku.lab.madekivi.fi/healthz
+node server/tools/probe.mjs
+```
+
+The idempotent installer downloads the latest successful `Wnt/forwarder` main CI
+artifact into `~/turku3d-mp/bin/`, copies the token directly from `ssh lab` into
+`~/.config/turku3d/forwarder.env` (0600), installs/enables/restarts both user units,
+and checks public health and hello. It stops if SSH or the token is unavailable;
+it never substitutes credentials or prints the token. The agent reads it via
+`EnvironmentFile` and dials `tunnel.lab.madekivi.fi` with
+`--tunnel turku:http:turku.lab.madekivi.fi:7700`. Only the tunnel is public.
+
+The units run this branch's checkout at `~/turku3d-mp/repo`. Do not switch that
+checkout's branch while serving it. After updating committed code, reinstall or
+run `systemctl --user restart turku-mp-server.service`; a restart clears the
+unfinished hour. To stop this deployment:
+
+```sh
+systemctl --user disable --now turku-forwarder-agent.service turku-mp-server.service
+```

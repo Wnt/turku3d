@@ -1,0 +1,17 @@
+[Unit]
+Description=Turku3D multiplayer presence and hourly score server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/turku3d-mp/repo
+ExecStart=/usr/bin/node server/index.js
+Environment=NODE_ENV=production
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

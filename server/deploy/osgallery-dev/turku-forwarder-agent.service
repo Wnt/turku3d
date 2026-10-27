@@ -1,0 +1,17 @@
+[Unit]
+Description=Turku3D outbound public HTTP and WebSocket tunnel
+After=network-online.target turku-mp-server.service
+Wants=network-online.target turku-mp-server.service
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/turku3d/forwarder.env
+ExecStart=%h/turku3d-mp/bin/forwarder-agent-linux-amd64 --server tunnel.lab.madekivi.fi --tunnel turku:http:turku.lab.madekivi.fi:7700
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
