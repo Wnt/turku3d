@@ -187,6 +187,7 @@ export class CoarseTiles {
   velocity = { x: 0, z: 0 };
   /** The service's build counter (from /coarse/want): when it moves, waiting tiles are polled at once. */
   private version = -1;
+  private building = 0;
   private page: string;
   /** Set while the service restarts: no tile or prefetch requests, only status probes. */
   outage: Outage | null = null;
@@ -277,8 +278,7 @@ export class CoarseTiles {
       this.entries.delete(id);
     }
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
-    const states = [...this.entries.values()];
-    const building = states.filter(e => e.state === 'pending' || e.state === 'loading').length;
+    const building = this.building;
     const loaded = [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort();
     const at = this.entries.get(here);
     const inSeconds = (e?: Entry) => e?.readyAt === undefined ? null : Math.max(0, Math.ceil((e.readyAt - now) / 1000));
@@ -359,7 +359,8 @@ export class CoarseTiles {
     try {
       const res = await this.request(`${COARSE_ROOT}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`);
       if (res.status === 404) return; // an older service without the prefetch route: drafts work without it
-      const { version } = await res.json().catch(() => ({})) as { version?: number };
+      const { version, queued, building } = await res.json().catch(() => ({})) as { version?: number; queued?: number; building?: string[] };
+      if (typeof queued === 'number' && Array.isArray(building)) this.building = queued + building.length;
       if (typeof version !== 'number' || version === this.version) return;
       // A build finished: the next frame polls every tile last polled before it (see `due`). The first answer only
       // sets the baseline.

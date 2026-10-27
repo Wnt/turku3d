@@ -215,6 +215,7 @@ class Builder:
         self.motion: tuple[float, float, float, float] | None = None  # player x, z, vx, vz
         self.version = 0  # counts finished builds; the game re-polls its tiles when it changes
         self.built_count = 0  # tiles this process built
+        self.servable: frozenset[str] = frozenset()  # immutable snapshot, read without the lock
         self.recent: list[float] = []  # service seconds of the latest builds
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.building: dict[str, float] = {}
@@ -257,7 +258,9 @@ class Builder:
         """Queue or re-prioritise a tile; returns its state."""
         with self.lock:
             if self.built(tile):
+                self.servable = self.servable | {tile}
                 return {"state": "built"}
+            self.servable = self.servable - {tile}
             error, at = self.failed.get(tile, (None, 0.0))
             if error and time.time() - at < RETRY_SECONDS:
                 return {"state": "failed", "error": error}
@@ -377,6 +380,7 @@ class Builder:
                     self.recent = [*self.recent[-(ETA_BUILDS - 1) :], seconds]
                     self.stale.pop(tile, None)
                     self.built_count += 1
+                    self.servable = self.servable | {tile}
                     outcome = "built"
                 elif proc.returncode == 0 and self.stale.get(tile, 0) < STALE_REBUILDS:
                     # Raw data landed during the build, so the draft is stale already: again.
@@ -516,7 +520,9 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     return self._json(400, {"error": "x, z, vx, vz are finite"})
                 builder.steer(x, z, vx, vz)
                 reply = prefetcher.want(x, z, vx, vz) if prefetcher else {}
-                return self._json(200, {**reply, "version": builder.version})
+                with builder.lock:
+                    work = {"queued": len(builder.priority), "building": sorted(builder.building)}
+                return self._json(200, {**reply, **work, "version": builder.version})
             if len(parts) == 2 and parts[0] == "shared" and SHARED.match(parts[1]):
                 path = builder.root / "shared" / parts[1]
                 if path.exists():
@@ -536,7 +542,7 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     return self._json(404, state)
                 if state["state"] != "built":
                     return self._json(202, state)
-            elif not builder.built(tile):
+            elif tile not in builder.servable:
                 return self._json(404, {"error": f"{tile} is not built"})
             path = builder.root / tile / name
             if not path.exists():

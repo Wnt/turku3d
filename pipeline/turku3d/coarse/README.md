@@ -41,12 +41,16 @@ No curbs, stairs, structures, props, vegetation, facade maps or LOD parents.
 ## Service (`service.py`)
 
 `tools/dev/coarse-tiles` (localhost only, port `$TURKU3D_PORT_BASE + 5`, proxied at `/coarse/` by the dev and dist
-servers). Up to four builds run at once (`WORKERS`), the path ahead of a moving player first, then the ring; the game requests the cells
+servers). Up to four builds run at once (`WORKERS`), the ring first, then the path ahead; the game requests the cells
 ahead of a moving player as well as the 3x3 window. Routes and queueing: `tools/dev/README.md`. Built tiles are
 reused until the producer code changes, so a producer fix rebuilds each draft the next time the game asks for it.
 On main the localhost game service runs it and restarts it when a landing changes a file it loaded
 (`tools/dev/localhost/README.md`): `/coarse/status` reports `started` and `modules` (the repository files the process
 imported), and `POST /coarse/drain` stops new builds so the running ones finish first.
+Payload requests (`.col`, GLB and roads) use the immutable in-memory servable set: a successful build or manifest
+request admits a tile, and a manifest request that finds it stale removes it. They never recheck manifests or raw
+inputs and hold no builder lock while reading or sending bytes. `/coarse/want` returns `queued` and `building`
+(running tile ids), so the badge counts only queued and running builds, including builds finishing after a turn.
 
 ## Inputs (`sources.py`, `inputs.py`)
 
