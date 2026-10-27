@@ -72,8 +72,8 @@ def load_layers(root: Path):
     return manifests, collision
 
 
-# Every layer make refresh rebuilds, with the tile kinds it must publish. Assembly of the
-# office block fails on any gap instead of shipping a release without that layer.
+# Every layer make refresh rebuilds, with the tile kinds it must publish. Assembly of a
+# core tile fails on any gap instead of shipping a release without that layer.
 OFFICE_LAYERS = {
     "ground": (".vis.glb", ".col.npz"),
     "buildings": (".vis.glb", ".col.npz"),
@@ -85,23 +85,38 @@ OFFICE_LAYERS = {
     "traffic_static": (".vis.glb", ".col.npz"),
     "roads": (),
 }
+# Expansion tiles outside the measured core ship with the layers that exist for them;
+# ground, buildings and roads are the minimum (structures need measured office data).
+EXPANSION_LAYERS = ("ground", "buildings", "roads")
 
 
-def require_office_layers(manifests):
-    missing = sorted(OFFICE_LAYERS.keys() - manifests.keys())
+def require_layers(manifests, tile_ids):
+    """Per-area required layers: core tiles need every layer, expansion tiles the minimum."""
+    core = [t for t in tile_ids if t in C.CORE_TILES]
+    expansion = [t for t in tile_ids if t not in C.CORE_TILES]
+    names = OFFICE_LAYERS.keys() if core else EXPANSION_LAYERS
+    missing = sorted(set(names) - manifests.keys())
     if missing:
-        raise ValueError(
-            f"Missing required office-block layers: {', '.join(missing)}; run make refresh"
-        )
-    if not manifests["structures"]["params"].get("acceptance_passed"):
-        raise ValueError("Office-block structures failed real-data acceptance; run make refresh")
-    for name, kinds in OFFICE_LAYERS.items():
-        tiles = manifests[name]["tiles"]
-        absent = [kind for kind in kinds if not any(tile.endswith(kind) for tile in tiles)]
-        if absent:
+        raise ValueError(f"Missing required layers: {', '.join(missing)}; run make refresh")
+    if core:
+        if not manifests["structures"]["params"].get("acceptance_passed"):
             raise ValueError(
-                f"Office-block {name} layer has no {' or '.join(absent)} tiles; run make refresh"
+                "Office-block structures failed real-data acceptance; run make refresh"
             )
+        for name, kinds in OFFICE_LAYERS.items():
+            tiles = manifests[name]["tiles"]
+            absent = [kind for kind in kinds if not any(tile.endswith(kind) for tile in tiles)]
+            if absent:
+                raise ValueError(
+                    f"Office-block {name} layer has no {' or '.join(absent)} tiles; run make refresh"
+                )
+    ground = manifests["ground"]["tiles"]
+    for tid in expansion:
+        tile = C.VisualTile.parse(tid)
+        needed = [f"{tid}.vis.glb"] + [f"{c.id}.col.npz" for c in tile.collision_tiles()]
+        absent = [name for name in needed if name not in ground]
+        if absent:
+            raise ValueError(f"{tid}: ground layer lacks {absent[0]}; run make tile-add T={tid}")
 
 
 def collision_tile(tile, layers, manifests, available, *, dynamic_traffic=False):
@@ -357,8 +372,11 @@ def assemble(
     root = (layers or layer_root()).resolve()
     out = (out or C.dist_dir() / "tiles").resolve()
     manifests, collision = load_layers(root)
-    if root == layer_root().resolve() and area == "office-block":
-        require_office_layers(manifests)
+    checked = area == "office-block" or (
+        area == "playable-tiles" and root == layer_root().resolve()
+    )
+    if checked:
+        require_layers(manifests, tile_ids)
     export = C.work_root() / "textures/assembly"
     library = (library or export / "library").resolve()
     facades = (facades or export / "facades").resolve()
@@ -371,8 +389,8 @@ def assemble(
     if any(t.level != 0 for t in requested):
         raise ValueError("request L0 tiles; 500 m and 1 km parents are built automatically")
     manifests, collision = load_layers(root)
-    if area == "office-block":
-        require_office_layers(manifests)
+    if checked:
+        require_layers(manifests, tile_ids)
     visuals = {}
     for name, m in manifests.items():
         if name == "traffic_static":
@@ -480,7 +498,7 @@ def assemble(
         if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
     ]
     texture_hash = digest(textures)
-    area_visuals = set(C.AREAS[area].visual_tiles)
+    area_visuals = set(C.area(area).visual_tiles)
     available = set(tree.collision)
     for t in requested:
         for c in C.collision_tiles_for_bbox(t.bbox.buffered(C.MESH_MARGIN)):

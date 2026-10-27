@@ -31,7 +31,13 @@ manifests in the sandbox; run `make refresh` first when one is missing.
 `make tile` checks the cached input registry without network access, builds locally, verifies
 manifest hashes and every shared collision seam, runs the Node/Rapier validator and Chrome e2e
 on WebGPU and WebGL2. Missing inputs fail with the exact preparation command.
-The four office tiles stay the playable Phase 1 target; `work-3x3` is the larger input reservoir.
+The playable area is the L0 tile list `$TURKU3D_DATA/playable-tiles.json`
+(`{"level": 0, "tiles": [...], "core_bbox_en": [...]}`; migrated to the four office tiles when
+missing). A sandbox's `$TURKU3D_WORK/playable-tiles.json` shadows it. `config.playable_tile_ids()`,
+the `playable-tiles` area (`config.area("playable-tiles")`), refresh and the live build follow it.
+Core tiles (`config.CORE_TILES`) require every layer in `make tile-build`; other listed tiles require
+ground (their `.vis.glb` and all 16 colliders), buildings and roads. `work-3x3` is the larger input
+reservoir.
 
 `collision-audit` reads `$TURKU3D_WORK/build/layers` and the spawn in
 `$TURKU3D_WORK/dist/tiles/manifest.json`; it writes `reports/collision-audit/issues.json`

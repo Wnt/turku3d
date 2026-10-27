@@ -19,7 +19,7 @@ from .snapshot import snapshot_ground
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ground-layer", type=Path, default=C.work_root() / "build/layers/ground")
-    ap.add_argument("--area", choices=sorted(C.AREAS), default="office-block")
+    ap.add_argument("--area", choices=C.area_names(), default="office-block")
     a = ap.parse_args(argv)
     start = time.monotonic()
     report_dir = C.work_root() / "reports/structures"

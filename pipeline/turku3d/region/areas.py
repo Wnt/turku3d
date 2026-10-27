@@ -10,8 +10,8 @@ from turku3d import config as C
 
 
 def load_area(name: str, directory: Path | None = None) -> C.Area:
-    if name in C.AREAS:
-        return C.AREAS[name]
+    if name in C.area_names():
+        return C.area(name)
     if Path(name).name != name:
         raise ValueError("area must be a name, not a path")
     path = (directory or C.DATA_MANIFESTS / "areas") / f"{name}.yaml"
@@ -39,33 +39,13 @@ def load_area(name: str, directory: Path | None = None) -> C.Area:
     margin = float(data.get("margin_m", C.MESH_MARGIN))
     if margin < 0:
         raise ValueError("margin_m must be nonnegative")
-    return RegionArea(
+    return C.TileArea(
         name,
         data.get("description", name),
         C.BBoxLocal(*geometry.bounds),
         margin,
         extra={"tiles": tiles, "geometry": geometry},
     )
-
-
-class RegionArea(C.Area):
-    @property
-    def visual_tiles(self):
-        return self.extra["tiles"]
-
-    @property
-    def collision_tiles(self):
-        return [c for t in self.visual_tiles for c in t.collision_tiles()]
-
-    @property
-    def laz_tiles(self):
-        return sorted(
-            {
-                laz_tile
-                for t in self.visual_tiles
-                for laz_tile in C.laz_tiles_for_bbox(t.bbox.buffered(self.margin))
-            }
-        )
 
 
 def geometry(area):

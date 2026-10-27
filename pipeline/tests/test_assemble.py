@@ -527,7 +527,7 @@ def test_seam_rejected_before_publishing(tmp_path):
 
 
 def test_missing_layers_have_actionable_error(tmp_path):
-    with pytest.raises(ValueError, match="Missing required office-block layers"):
+    with pytest.raises(ValueError, match="Missing required layers"):
         assemble_office(["t0_0_0"], layers=tmp_path / "missing", out=tmp_path / "out")
 
 

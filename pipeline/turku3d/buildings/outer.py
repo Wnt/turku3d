@@ -1,4 +1,4 @@
-"""Lidar-height massing for buildings outside the four playable L0 tiles."""
+"""Lidar-height massing for buildings outside the playable L0 tiles (config.playable_tile_ids)."""
 
 from __future__ import annotations
 
@@ -78,8 +78,10 @@ def height_for(footprint, ground, ground_tree, roofs, roof_tree):
 
 def main():
     started = time.monotonic()
-    core = C.PLAYABLE_TILES.core
-    core_polygon = shapely.box(core.xmin, core.zmin, core.xmax, core.zmax)
+    playable = C.playable_area()
+    core_polygon = shapely.union_all(
+        [shapely.box(*t.bbox.as_tuple()) for t in playable.visual_tiles]
+    )
     source = C.raw_dir("wfs") / "work-3x3/GIS_Rakennukset.parquet"
     area = C.WORK_3X3
     frame = gpd.read_parquet(source)
@@ -182,7 +184,11 @@ def main():
     write_manifest(
         output,
         inputs=inputs,
-        params={"area": area.name, "core_excluded": core.as_tuple(), "visual_only": True},
+        params={
+            "area": area.name,
+            "playable_tiles": [t.id for t in playable.visual_tiles],
+            "visual_only": True,
+        },
         code=code_hash(),
         tiles=files,
     )

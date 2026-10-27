@@ -69,13 +69,16 @@ def last(published):
 
 
 def data_key(published):
-    """Identity of the data root a run builds against: approval MANIFEST and published layers.
+    """Identity of the data root a run builds against: approval MANIFEST, the playable tile
+    list and published layers.
 
     The queue retries a run for the same main head only when this key changes.
     """
     h = hashlib.sha256()
     manifest = published / "facade-approvals/assembly/MANIFEST.json"
     h.update(manifest.read_bytes() if manifest.is_file() else b"missing:approvals")
+    listed = published / "playable-tiles.json"
+    h.update(listed.read_bytes() if listed.is_file() else b"missing:playable-tiles")
     layers = published / "build/layers"
     if not layers.is_dir():
         h.update(b"missing:layers")

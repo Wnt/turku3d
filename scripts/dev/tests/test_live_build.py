@@ -10,6 +10,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import live_build
 
+CORE = live_build.C.CORE_TILES
+
 
 class LiveBuildTests(unittest.TestCase):
     def test_changed_collision_tiles_are_selected_individually(self):
@@ -103,13 +105,68 @@ class LiveBuildTests(unittest.TestCase):
                 (directory / "c_4_1.col.npz").write_bytes(b"same")
             (new / "t0_1_0.vis.glb").write_bytes(b"changed")
             (new / "c_4_1.col.npz").write_bytes(b"changed")
+            core = live_build.C.CORE_TILES
             self.assertEqual(
-                live_build.affected_tiles(root / "release", root / "work"), ("t0_1_0",)
+                live_build.affected_tiles(root / "release", root / "work", core), ("t0_1_0",)
             )
             (new / "unmapped.bin").write_bytes(b"unknown")
-            self.assertEqual(
-                live_build.affected_tiles(root / "release", root / "work"), live_build.TILES
+            self.assertEqual(live_build.affected_tiles(root / "release", root / "work", core), core)
+
+    def test_five_listed_tiles_select_new_and_changed_tiles_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root / "release/layers/ground"
+            new = root / "work/build/layers/ground"
+            old.mkdir(parents=True)
+            new.mkdir(parents=True)
+            listed = (*live_build.C.CORE_TILES, "t0_2_0")
+            for directory in (old, new):
+                for tile in live_build.C.CORE_TILES:
+                    (directory / f"{tile}.vis.glb").write_bytes(b"same")
+            # The new tile's ground and a margin collider east of it (unlisted t0_3_0).
+            (new / "t0_2_0.vis.glb").write_bytes(b"new")
+            (new / "c_12_0.col.npz").write_bytes(b"margin")
+            (new / "c_7_7.col.npz").write_bytes(b"seam")
+            selected = live_build.affected_tiles(root / "release", root / "work", listed)
+            self.assertEqual(selected, ("t0_1_1", "t0_2_0"))
+            # Recorded in a release that already listed it, an unchanged new tile is not rebuilt.
+            (new / "c_7_7.col.npz").unlink()
+            (new / "t0_2_0.vis.glb").unlink()
+            (old.parents[1] / "live-build.json").write_text(json.dumps({"tiles": list(listed)}))
+            self.assertEqual(live_build.affected_tiles(root / "release", root / "work", listed), ())
+
+    def test_tile_list_is_migrated_and_read_from_the_data_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            published = Path(temp)
+            self.assertEqual(live_build.tiles(published), live_build.C.CORE_TILES)
+            record = json.loads((published / "playable-tiles.json").read_text())
+            self.assertEqual(record["level"], 0)
+            self.assertEqual(record["core_bbox_en"], [23459500.0, 6704000.0, 23460000.0, 6704500.0])
+            live_build.C.write_playable_tiles(
+                published / "playable-tiles.json", [*record["tiles"], "t0_2_0"]
             )
+            self.assertEqual(live_build.tiles(published)[-1], "t0_2_0")
+            (published / "work").mkdir()
+            (published / "work/playable-tiles.json").write_text("{}")
+            live_build.seed(published / "work", published)
+            self.assertFalse((published / "work/playable-tiles.json").exists())
+
+    def test_inspect_checks_every_listed_tile(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest = Path(temp) / "manifest.json"
+            good = {"tris": 5000, "ground_texture_bytes": 1, "wire_bytes": 7_000_000}
+            listed = (*live_build.C.CORE_TILES, "t0_2_0")
+            visual = dict.fromkeys(live_build.C.CORE_TILES, good)
+            manifest.write_text(json.dumps({"visual": visual, "spawn": [0, 0, 0]}))
+            with self.assertRaisesRegex(ValueError, "t0_2_0: listed .* not assembled"):
+                live_build.inspect(manifest, 1, 1, listed)
+            visual["t0_2_0"] = {**good, "wire_bytes": 8_000_000}
+            manifest.write_text(json.dumps({"visual": visual, "spawn": [0, 0, 0]}))
+            with self.assertRaisesRegex(ValueError, "t0_2_0: L0 wire size exceeds 8 MB"):
+                live_build.inspect(manifest, 1, 1, listed)
+            visual["t0_2_0"] = good
+            manifest.write_text(json.dumps({"visual": visual, "spawn": [0, 0, 0]}))
+            self.assertEqual(live_build.inspect(manifest, 1, 1, listed)["tiles"], list(listed))
 
     def test_browser_load_summarizes_frame_time_and_load_retries(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -215,7 +272,7 @@ class LiveBuildTests(unittest.TestCase):
                     {
                         "visual": {
                             tile: {"ground_texture_bytes": 1, "wire_bytes": 100, "tris": 1000}
-                            for tile in live_build.TILES
+                            for tile in live_build.C.CORE_TILES
                         },
                         "spawn": {"position": [0, 0, 0]},
                     }
@@ -289,7 +346,7 @@ class LiveBuildTests(unittest.TestCase):
             )
             self.assertEqual(len(calls), 9)
             self.assertEqual(
-                calls[2][0][:3], ["make", "tile-validate", "T=" + " ".join(live_build.TILES)]
+                calls[2][0][:3], ["make", "tile-validate", "T=" + " ".join(live_build.C.CORE_TILES)]
             )
             self.assertIn("TILE_WALKERS=128", calls[2][0])
             self.assertIn("VALIDATOR_REQUIRE=buildings,curbs", calls[2][0])
@@ -323,28 +380,28 @@ class LiveBuildTests(unittest.TestCase):
             manifest = {
                 "visual": {
                     tile: {"ground_texture_bytes": 1, "wire_bytes": 7999999, "tris": 1000}
-                    for tile in live_build.TILES
+                    for tile in live_build.C.CORE_TILES
                 },
                 "spawn": {"position": [0, 0, 0]},
             }
             path.write_text(json.dumps(manifest))
-            self.assertEqual(live_build.inspect(path, 4, 4)["facades_bound"], 4)
+            self.assertEqual(live_build.inspect(path, 4, 4, CORE)["facades_bound"], 4)
             with self.assertRaisesRegex(ValueError, "facades_bound regressed"):
-                live_build.inspect(path, 3, 4)
+                live_build.inspect(path, 3, 4, CORE)
             self.assertEqual(
-                live_build.inspect(path, 3, 4, "source removed")["facade_regression_reason"],
+                live_build.inspect(path, 3, 4, CORE, "source removed")["facade_regression_reason"],
                 "source removed",
             )
-            manifest["visual"][live_build.TILES[0]]["ground_texture_bytes"] = 0
+            manifest["visual"][live_build.C.CORE_TILES[0]]["ground_texture_bytes"] = 0
             path.write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "ground textures"):
-                live_build.inspect(path, 4, 4)
-            manifest["visual"][live_build.TILES[0]].update(
+                live_build.inspect(path, 4, 4, CORE)
+            manifest["visual"][live_build.C.CORE_TILES[0]].update(
                 ground_texture_bytes=1, wire_bytes=8000000
             )
             path.write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "8 MB"):
-                live_build.inspect(path, 4, 4)
+                live_build.inspect(path, 4, 4, CORE)
 
     def test_publish_switches_single_live_link_and_retains_previous_release(self):
         with tempfile.TemporaryDirectory() as temp:

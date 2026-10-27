@@ -226,7 +226,7 @@ def main(argv=None):
     ap.add_argument(
         "--tiles",
         nargs="+",
-        default=[t.id for t in C.PLAYABLE_TILES.visual_tiles],
+        default=C.playable_tile_ids(),
         help="L0 visual tiles to cover (default: the four playable tiles)",
     )
     args = ap.parse_args(argv)

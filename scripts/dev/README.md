@@ -156,21 +156,21 @@ per batch after the merge, so main may be red for one integration cycle while li
 
 The live build seeds private APFS copies of the published layers, textures and tile dist, and
 replaces the texture assembly with `$TURKU3D_DATA/facade-approvals/assembly`, so retired facades
-leave the release. It runs `make refresh`, `make tile-build
-T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'`, a bounded `make tile-validate` on changed collision tiles
-(all selected tiles when only validator code changed), followed by a separate
-known-red car report over the same collision tiles. The release gate requires
-buildings and curbs; car failures are recorded in `reports/validate-cars.json`
-and `live-build.json` while car content and vehicle response are repaired. Car
-validator load errors and missing reports still fail the live build. The full
-`make tile-validate` command still requires cars. Then `bash pipeline/env/run.sh python -m
+leave the release. For the L0 tiles in `$TURKU3D_DATA/playable-tiles.json` it runs `make refresh`,
+`make tile-build AREA=playable-tiles T=...` (changed or newly listed tiles), a bounded
+`make tile-validate` on changed collision tiles (all selected tiles when only validator code
+changed), followed by a separate known-red car report over the same collision tiles. The release gate requires
+buildings and curbs; car failures are recorded in `reports/validate-cars.json` and `live-build.json`
+while car content and vehicle response are repaired. Car validator load errors and missing reports
+still fail the live build. The full `make tile-validate` command still requires cars. Then `bash pipeline/env/run.sh python -m
 turku3d.package.facade_ground_audit`, `make game-build`, `make collision-sweep`, `make collision-audit`,
 and the real-tile Playwright suite in Chrome on the sandbox dist port. The suite checks spawn loading on
 WebGPU and WebGL2, sweeps 24 street poses in all four L0 tiles plus an aerial view,
 and requires fewer than 500 draws at every street pose and the bridge gameplay pose.
 The facade audit reports all approved facades, including buried bases on slopes, and
-blocks floating or missing walls and incorrect photo UVs. The manifest check requires ground textures on all four L0
-tiles and each tile below 8 MB on the wire. The assembler's `facades_bound` count must meet the current
+blocks floating or missing walls and incorrect photo UVs. The manifest check requires geometry,
+ground textures and < 8 MB on the wire for every listed tile; `live-build.json` records the list as
+`tiles`, and the integrator's data key includes it. The assembler's `facades_bound` count must meet the current
 published release's count; a drop fails as stage `facade-baseline` with both counts. A task may report
 an intentional reduction with `Facade regression reason: <specific reason>` in its result; the lander
 copies it into the ledger row. Stage times and output are in `live-build.log`.

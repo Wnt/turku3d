@@ -17,7 +17,7 @@ from .survey import Lidar
 
 
 def office_bounds(area="office-block"):
-    return C.AREAS[area].core
+    return C.area(area).core
 
 
 def local_geometry(value):

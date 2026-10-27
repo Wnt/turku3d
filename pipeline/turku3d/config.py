@@ -22,6 +22,7 @@ All functions accept Python floats or numpy arrays where it makes sense (plain a
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -417,19 +418,121 @@ OFFICE_BLOCK = area_centred_on(
     VISUAL_TILE_SIZE,
 )
 
-PLAYABLE_TILES = Area(
-    "playable-tiles",
-    "Four complete L0 tiles around the office",
-    BBoxLocal(0, 0, 2 * VISUAL_TILE_SIZE, 2 * VISUAL_TILE_SIZE),
-)
-
 WORK_3X3 = Area(
     "work-3x3",
     "Nine 500 m LAZ tiles around the office; shared input working area",
     BBoxEN(23459000, 6703500, 23460500, 6705000).to_local(),
     margin=0,
 )
-AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, PLAYABLE_TILES, WORK_3X3)}
+AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, WORK_3X3)}
+
+
+class TileArea(Area):
+    """An area made of whole L0 visual tiles; `extra["tiles"]` lists them, `core` is their bbox."""
+
+    @property
+    def visual_tiles(self) -> list[VisualTile]:
+        return self.extra["tiles"]
+
+    @property
+    def collision_tiles(self) -> list[CollisionTile]:
+        return [c for t in self.visual_tiles for c in t.collision_tiles()]
+
+    @property
+    def laz_tiles(self) -> list[LazTile]:
+        return sorted(
+            {
+                laz
+                for t in self.visual_tiles
+                for laz in laz_tiles_for_bbox(t.bbox.buffered(self.margin))
+            }
+        )
+
+
+def tile_area(name: str, description: str, tiles, margin: float = MESH_MARGIN, **extra) -> TileArea:
+    tiles = sorted({VisualTile.parse(t) if isinstance(t, str) else t for t in tiles})
+    if not tiles or any(t.level != 0 for t in tiles):
+        raise ValueError(f"{name}: tiles must be a nonempty list of L0 visual tile ids")
+    core = BBoxLocal(
+        min(t.bbox.xmin for t in tiles),
+        min(t.bbox.zmin for t in tiles),
+        max(t.bbox.xmax for t in tiles),
+        max(t.bbox.zmax for t in tiles),
+    )
+    return TileArea(name, description, core, margin, extra={"tiles": tiles, **extra})
+
+
+# --------------------------------------------------------------------------------------
+# Playable tile list: the L0 tiles that ship with full collision ($TURKU3D_DATA/playable-tiles.json)
+# --------------------------------------------------------------------------------------
+
+PLAYABLE_TILES_FILE = "playable-tiles.json"
+# The four L0 tiles around the office; their union is the measured core whose
+# producers (structures, curbs, facades) need office-specific data.
+CORE_TILES = ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1")
+
+
+def _tile_bbox_en(tiles) -> list[float]:
+    return list(tile_area("bbox", "", tiles).core.to_en().as_tuple())
+
+
+def write_playable_tiles(path: Path, tiles) -> dict:
+    ids = sorted({VisualTile.parse(t).id for t in tiles}, key=lambda t: VisualTile.parse(t))
+    record = {"level": 0, "tiles": ids, "core_bbox_en": _tile_bbox_en(CORE_TILES)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pending = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    pending.write_text(json.dumps(record, indent=2) + "\n")
+    pending.replace(path)
+    return record
+
+
+def read_playable_tiles(path: Path) -> list[str]:
+    record = json.loads(path.read_text())
+    if record.get("level") != 0 or not isinstance(record.get("tiles"), list):
+        raise ValueError(f"{path}: expected {{'level': 0, 'tiles': [...]}}")
+    tiles = [VisualTile.parse(t) for t in record["tiles"]]
+    if not tiles or any(t.level != 0 for t in tiles) or len(set(tiles)) != len(tiles):
+        raise ValueError(f"{path}: tiles must be unique L0 visual tile ids")
+    missing = set(CORE_TILES) - {t.id for t in tiles}
+    if missing:
+        raise ValueError(f"{path}: the core tiles {sorted(missing)} are not listed")
+    return [t.id for t in sorted(tiles)]
+
+
+def playable_tiles_path(root: Path | None = None) -> Path:
+    """The list a build follows: the sandbox's own list when it has one, else the data root's.
+
+    A missing data-root list is migrated to the four core tiles."""
+    if root is not None:
+        path = root / PLAYABLE_TILES_FILE
+    else:
+        path = work_root() / PLAYABLE_TILES_FILE
+        if not path.is_file():
+            path = data_root() / PLAYABLE_TILES_FILE
+    if not path.is_file():
+        write_playable_tiles(path, CORE_TILES)
+    return path
+
+
+def playable_tile_ids(root: Path | None = None) -> list[str]:
+    return read_playable_tiles(playable_tiles_path(root))
+
+
+def playable_area(root: Path | None = None) -> TileArea:
+    return tile_area(
+        "playable-tiles", "The listed L0 tiles with full collision", playable_tile_ids(root)
+    )
+
+
+def area(name: str) -> Area:
+    """A named area; `playable-tiles` follows the playable tile list."""
+    if name == "playable-tiles":
+        return playable_area()
+    return AREAS[name]
+
+
+def area_names() -> list[str]:
+    return sorted({*AREAS, "playable-tiles"})
 
 
 def area_yaml(area: Area) -> str:
@@ -521,7 +624,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     a = ap.parse_args(argv)
     if a.area_yaml:
-        print(area_yaml(AREAS[a.area_yaml]), end="")
+        print(area_yaml(area(a.area_yaml)), end="")
     elif a.where:
         e, n = a.where
         x, _, z = en_to_local(e, n)

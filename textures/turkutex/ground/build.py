@@ -287,7 +287,7 @@ def main(argv=None):
         if calibration_file.exists():
             calibration = json.loads(calibration_file.read_text())
         else:
-            area = C.AREAS[a.area].core
+            area = C.area(a.area).core
             step = 1.0
             width, height = (
                 round((area.xmax - area.xmin) / step),

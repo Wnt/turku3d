@@ -53,9 +53,9 @@ def check(area):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--area", choices=sorted(C.AREAS), default="work-3x3")
+    ap.add_argument("--area", choices=C.area_names(), default="work-3x3")
     a = ap.parse_args()
-    bad = check(C.AREAS[a.area])
+    bad = check(C.area(a.area))
     if bad:
         print("\n".join(bad))
         print(f"Prepare shared inputs once: make fetch-aoi AREA={a.area}")
