@@ -161,12 +161,20 @@ frame (the feet on foot, the body of the driven car in a car) and applies one ru
 - **Safe sample**: grounded (a car: three wheels down and upright), on a loaded collision tile
   inside the area, not under the river surface and at most 2 m/s vertical speed. One sample per
   second `{ time, x, y, z, heading, inVehicle }` goes into a 10 s ring buffer.
+- **Armed**: the lost rules apply only after the first safe frame since the start, a loaded game
+  or a teleport. A player who has not yet stood on safe ground (a debug spawn on the river bed, a
+  placement in mid-air or before its collision arrived) has no known place to return to and is
+  never reset. Every placement through the physics client (`PhysicsClient.placement`: the character
+  via `setCharacterEnabled` with a position, a vehicle via `resetVehicle`) of the probed actor
+  farther than 10 m from where it stood is a teleport: samples and any lost state are dropped and
+  the rules wait for the next safe frame. Nearer placements (leaving a car, R in a car) keep them.
 - **Lost**: below the lowest ground of the loaded tiles (manifest `h[0]`) minus 5 m, more than 5 m
   outside the area's bounding box, more than 2 s with the feet or car body over 0.3 m under the
   river surface (no swimming), or more than 3 s without ground contact. Landing safely again
-  cancels it.
+  cancels it. Over a cell of the area whose collision has not arrived yet the player is streaming,
+  not lost; once it loads, a player who sank below it is lost by the first rule.
 - **Reset**: the newest sample at least 3 s older than the last safe frame (before the slide
-  towards the edge began; the oldest sample or the spawn otherwise), moved 2 m inside the edge
+  towards the edge began; the oldest sample otherwise), moved 2 m inside the edge
   (a car 4.3 m), snapped to the ground by a downward ray after its collision tile is resident. The
   car comes back upright with zero velocity and the player stays in it; the camera snaps behind.
   Samples newer than the target are dropped and the rules pause for 0.5 s. Missions, money and
@@ -180,7 +188,8 @@ countdown that resets automatically; `respawn` (Y, R, touch Reset) or `vehicleRe
 once. While lost, Y does not enter or leave a car. After the reset "Back on solid ground" fades over
 3 s. Within 20 m of the area's edge the HUD shows "Edge of the built area" and the minimap's edge
 line turns red; there are no invisible walls. `__game.recovery` and `__game.state().recovery`
-(`lost`, `countdown`, `samples`, `resets`, `waterDepth`, `edgeDistance`, `hud`) expose it for tests.
+(`armed`, `lost`, `countdown`, `samples`, `resets`, `waterDepth`, `edgeDistance`, `hud`) expose it for tests.
+Each reset logs `[recovery] reset (<reason>) from x,y,z to x,y,z` to the console.
 
 ```sh
 cd game && npx vitest run tests/unit/recovery.test.ts tests/unit/physics.test.ts

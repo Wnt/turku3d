@@ -335,13 +335,12 @@ async function runPlay() {
   const tmp = new THREE.Vector3();
   const carQuat = new THREE.Quaternion();
   const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
-  // Safe reset (gameplay/safeReset.ts): the spawn is the fallback before the first safe sample.
+  // Safe reset (gameplay/safeReset.ts): it arms on the player's first safe frame.
   let snapChase = false;
-  const recovery = new SafeReset(area, manifest, physics, streamer, new RecoveryHud(document.body),
-    { time: 0, x: spawn.x, y: spawn.y, z: spawn.z, heading: yaw0 + Math.PI, inVehicle: false }, (resetMode, heading) => {
-      if (resetMode === 'car') snapChase = true;
-      else { orbit.yaw = heading - Math.PI; orbit.pitch = -0.12; }
-    });
+  const recovery = new SafeReset(area, manifest, physics, streamer, new RecoveryHud(document.body), (resetMode, heading) => {
+    if (resetMode === 'car') snapChase = true;
+    else { orbit.yaw = heading - Math.PI; orbit.pitch = -0.12; }
+  });
   /** On foot again at `at` (null: wherever the character is placed next). */
   const leaveCar = (at: V3 | null) => {
     mode = 'foot';

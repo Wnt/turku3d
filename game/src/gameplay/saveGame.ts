@@ -162,7 +162,7 @@ export class SaveGameController {
       await new Promise(r => setTimeout(r, 20));
     }
     this.o.placed({ x: at.x, y, z: at.z }, at.yaw);
-    this.o.recovery.restart({ x: at.x, y, z: at.z, heading: at.yaw + Math.PI, inVehicle: false });
+    this.o.recovery.restart();
     missions.begin();
   }
 

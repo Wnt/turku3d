@@ -78,6 +78,14 @@ export const cachedTest = isolatedTest.extend<object, { cachedContext: BrowserCo
   }, { scope: 'worker' }],
   page: async ({ cachedContext }, use) => {
     const page = await cachedContext.newPage();
+    // The shared context keeps the HTTP cache, not the game: the previous test's autosave (written on page hide)
+    // would turn New game into an overwrite confirmation. The first document of each test's page starts with empty
+    // storage; reloads within the test keep it (sessionStorage is per page).
+    await page.addInitScript(() => {
+      if (!location.protocol.startsWith('http') || sessionStorage.getItem('e2e-fresh-storage')) return;
+      localStorage.clear();
+      sessionStorage.setItem('e2e-fresh-storage', '1');
+    });
     await use(page);
     await page.close();
   },

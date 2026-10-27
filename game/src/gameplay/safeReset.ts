@@ -6,7 +6,7 @@ import type { Manifest } from '../world/manifest';
 import type { PhysicsClient } from '../physics/client';
 import type { CollisionStreamer } from '../world/collisionStreaming';
 import type { RecoveryHud } from '../ui/recovery';
-import { RECOVERY, RecoveryMonitor, lowestGround, type PlayableArea, type Probe, type SafeSample } from './recovery';
+import { RECOVERY, RecoveryMonitor, lowestGround, type PlayableArea, type Probe } from './recovery';
 
 /** What the frame loop knows about the player this frame. */
 interface PlayerFrame {
@@ -29,6 +29,9 @@ export class SafeReset {
   recovering = false;
   private waterBusy = false;
   private lastWaterProbe = -Infinity;
+  /** The physics placement (`PhysicsClient.placement.seq`) already accounted for, and the last probed position. */
+  private placementSeen = 0;
+  private readonly at = new THREE.Vector3(NaN, NaN, NaN);
   private readonly lowestManifestGround: number;
   private readonly quat = new THREE.Quaternion();
   private readonly axis = new THREE.Vector3();
@@ -36,8 +39,8 @@ export class SafeReset {
   /** `onReset` turns the camera behind the player: `car` snaps the chase camera, `foot` gets the facing. */
   constructor(private readonly area: PlayableArea, private readonly manifest: Manifest,
     private readonly physics: PhysicsClient, private readonly streamer: CollisionStreamer,
-    private readonly hud: RecoveryHud, spawn: SafeSample, private readonly onReset: (mode: 'foot' | 'car', heading: number) => void) {
-    this.monitor = new RecoveryMonitor(area, spawn);
+    private readonly hud: RecoveryHud, private readonly onReset: (mode: 'foot' | 'car', heading: number) => void) {
+    this.monitor = new RecoveryMonitor(area);
     this.lowestManifestGround = lowestGround(Object.keys(manifest.collision), manifest.collision);
   }
 
@@ -47,8 +50,10 @@ export class SafeReset {
   update(dt: number, player: PlayerFrame, resetNow: boolean) {
     if (this.recovering) return;
     this.time += dt;
+    this.followPlacement(player);
     const probe = this.probe(player);
     if (!probe) return;
+    this.at.set(probe.x, probe.y, probe.z);
     if (!this.waterBusy && this.time - this.lastWaterProbe >= 0.25) {
       this.waterBusy = true; this.lastWaterProbe = this.time;
       const y = probe.y;
@@ -60,10 +65,24 @@ export class SafeReset {
     if (this.monitor.update(probe, Number.isFinite(ground) ? ground : this.lowestManifestGround) || resetNow) void this.recover(player);
   }
 
-  /** A loaded or new game placed the player here (`heading` as in SafeSample): start sampling afresh. */
-  restart(start: Omit<SafeSample, 'time'>) {
-    this.monitor.restart({ ...start, time: this.time });
+  /** A loaded or new game placed the player: start sampling afresh at the new place. */
+  restart() {
+    this.monitor.restart(this.time);
     this.waterDepth = null;
+  }
+
+  /**
+   * Any placement of the player through the physics client (a test or debug teleport, an injected mission step,
+   * a loaded game) farther than `RECOVERY.teleport` from where they stood restarts sampling there, so a later fall
+   * never returns them to the old place. Nearer placements (leaving a car, R in a car) keep the samples.
+   */
+  private followPlacement(player: PlayerFrame) {
+    const placed = this.physics.placement;
+    if (placed.seq === this.placementSeen) return;
+    this.placementSeen = placed.seq;
+    if (placed.actor !== (player.mode === 'car' ? player.drivenId : 'character')) return;
+    const moved = Math.hypot(placed.pos.x - this.at.x, placed.pos.y - this.at.y, placed.pos.z - this.at.z);
+    if (!(moved <= RECOVERY.teleport)) this.restart();
   }
 
   /** The lost prompt or the edge notice for this frame; true when the edge notice shows. */
@@ -77,7 +96,7 @@ export class SafeReset {
 
   snapshot(feet: THREE.Vector3) {
     const m = this.monitor;
-    return { lost: m.lost, countdown: m.countdown(this.time), samples: m.samples.length, resets: m.resets,
+    return { armed: m.armed, lost: m.lost, countdown: m.countdown(this.time), samples: m.samples.length, resets: m.resets,
       waterDepth: this.waterDepth, edgeDistance: this.area.edgeDistance(feet.x, feet.z), hud: this.hud.snapshot() };
   }
 
@@ -103,6 +122,8 @@ export class SafeReset {
   private async recover(player: PlayerFrame) {
     this.recovering = true;
     const target = this.monitor.target();
+    console.info(`[recovery] reset (${this.monitor.lost?.reason ?? 'button'}) from ${player.feet.x.toFixed(1)},${player.feet.y.toFixed(1)},${player.feet.z.toFixed(1)} `
+      + `to ${target.x.toFixed(1)},${target.y.toFixed(1)},${target.z.toFixed(1)}`);
     const id = tileId(target.x, target.z);
     this.streamer.update(target.x, target.z, true);
     for (let i = 0; i < 600 && this.manifest.collision[id] && !this.physics.loaded.has(id); i++) {
@@ -118,6 +139,8 @@ export class SafeReset {
     } else {
       this.physics.setCharacterEnabled(true, { x: target.x, y: y + 0.05, z: target.z });
     }
+    this.placementSeen = this.physics.placement.seq;
+    this.at.set(target.x, y, target.z);
     this.onReset(player.mode, target.heading);
     this.waterDepth = null;
     this.monitor.recovered(target, this.time);

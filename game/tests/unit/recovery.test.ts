@@ -3,7 +3,6 @@ import { PlayableArea, RECOVERY, RecoveryMonitor, lostReason, lowestGround, type
 
 // An L-shaped area of three 62.5 m tiles: x 0..125 on row 0, plus x 0..62.5 on row 1.
 const area = new PlayableArea({ c_0_0: {}, c_1_0: {}, c_0_1: {}, 'not-a-tile': {} });
-const spawn = { time: 0, x: 30, y: 2, z: 30, heading: 0, inVehicle: false };
 const probe = (time: number, x: number, over: Partial<Probe> = {}): Probe => ({ time, x, y: 2, z: 30, heading: 0.5,
   inVehicle: false, grounded: true, loaded: true, vy: 0, steady: true, waterDepth: null, ...over });
 
@@ -56,7 +55,7 @@ describe('lost rules', () => {
   });
 
   test('a car driven off the east edge resets at the sample 3 s before it left the ground, inside the edge', () => {
-    const m = new RecoveryMonitor(area, spawn);
+    const m = new RecoveryMonitor(area);
     let t = 0, x = 0;
     for (; x < 125; t += 0.1, x += 1) expect(m.update(probe(t, x, { inVehicle: true }), 2)).toBe(false); // 10 m/s
     expect(m.samples.length).toBeGreaterThanOrEqual(RECOVERY.keepSeconds);
@@ -84,20 +83,50 @@ describe('lost rules', () => {
     expect(m.lost).toBe(null);
   });
 
-  test('a loaded game restarts sampling at its position and drops a pending lost state', () => {
-    const m = new RecoveryMonitor(area, spawn);
+  test('a loaded game or a teleport restarts sampling at the new place and drops a pending lost state', () => {
+    const m = new RecoveryMonitor(area);
     for (let t = 0; t < 5; t += 0.1) m.update(probe(t, 30), 2);
     for (let t = 5; !m.lost; t += 0.1) m.update(probe(t, 131), 2);
-    const loaded = { time: 20, x: 100, y: 3, z: 40, heading: 1, inVehicle: false };
-    m.restart(loaded);
+    m.restart(20);
+    expect(m.lost).toBe(null);
+    expect(m.armed).toBe(false);
+    expect(m.samples).toEqual([]);
+    expect(m.update(probe(20.1, 131), 2)).toBe(false); // the grace period after a placement
+    // Placed in mid-air: the fall to the ground is not a loss, and the first safe frame there arms and samples.
+    for (let t = 20.5; t < 25; t += 0.1) expect(m.update(probe(t, 100, { z: 40, grounded: false, vy: -5, y: 30 }), 2)).toBe(false);
+    expect(m.lost).toBe(null);
+    m.update(probe(25, 100, { z: 40, heading: 1 }), 2);
+    expect(m.armed).toBe(true);
+    for (let t = 25.1; !m.lost; t += 0.1) m.update(probe(t, 131), 2);
+    expect(m.target()).toMatchObject({ x: 100, z: 40, heading: 1 });
+  });
+
+  test('a player who never stood on safe ground is not lost: a spawn on the river bed', () => {
+    const m = new RecoveryMonitor(area);
+    for (let t = 0; t < 30; t += 0.1) expect(m.update(probe(t, 30 + t, { y: -3, waterDepth: 3 }), 2)).toBe(false);
+    expect(m.armed).toBe(false);
     expect(m.lost).toBe(null);
     expect(m.samples).toEqual([]);
-    expect(m.target()).toMatchObject({ x: 100, z: 40, heading: 1 });
-    expect(m.update(probe(20.1, 131), 2)).toBe(false); // the grace period after a placement
+  });
+
+  test('collision still streaming under the player is no fall; sinking below it once loaded is', () => {
+    const m = new RecoveryMonitor(area);
+    m.update(probe(0, 30), 2);
+    // Over c_1_0 before its collision arrived: falling through for 10 s raises nothing.
+    for (let t = 0.1; t < 10; t += 0.1) m.update(probe(t, 100, { loaded: false, grounded: false, vy: -20, y: 2 - t * 2 }), 2);
+    expect(m.lost).toBe(null);
+    m.update(probe(10, 100, { grounded: false, vy: -20, y: -18 }), 2);
+    expect(m.lost?.reason).toBe('below');
+    expect(m.target()).toMatchObject({ x: 30, z: 30 });
+    // Off the area altogether (no collision there to wait for) still counts as lost.
+    const off = new RecoveryMonitor(area);
+    off.update(probe(0, 120), 2);
+    for (let t = 0.1; t < 4; t += 0.1) off.update(probe(t, 120 + t * 5, { loaded: false, grounded: false, vy: -2 }), 2);
+    expect(off.lost?.reason).toMatch(/outside|airborne/);
   });
 
   test('walking into the river: lost after 2 s under the surface, reset before the bank', () => {
-    const m = new RecoveryMonitor(area, spawn);
+    const m = new RecoveryMonitor(area);
     let t = 0;
     for (; t < 6; t += 0.1) m.update(probe(t, 20 + t * 3.6), 2);
     const dry = t - 0.1;
@@ -110,7 +139,7 @@ describe('lost rules', () => {
   });
 
   test('a short fall that lands back on solid ground cancels the prompt', () => {
-    const m = new RecoveryMonitor(area, spawn);
+    const m = new RecoveryMonitor(area);
     for (let t = 0; t < 2; t += 0.1) m.update(probe(t, 30), 2);
     for (let t = 2; t < 5.5; t += 0.1) m.update(probe(t, 30, { grounded: false, y: 40 - t }), 2);
     expect(m.lost?.reason).toBe('airborne');
@@ -118,16 +147,17 @@ describe('lost rules', () => {
     expect(m.lost).toBe(null);
   });
 
-  test('unsafe frames record no samples; without any sample the spawn is the target', () => {
-    const m = new RecoveryMonitor(area, spawn);
+  test('unsafe frames record no samples and do not arm the lost rules', () => {
+    const m = new RecoveryMonitor(area);
     m.update(probe(0, 30, { loaded: false }), 2);
     m.update(probe(1, 30, { vy: -3 }), 2);
     m.update(probe(2, 30, { waterDepth: 0.1 }), 2);
     m.update(probe(3, 30, { steady: false, inVehicle: true }), 2);
     m.update(probe(4, 100, { z: 100 }), 2); // the missing corner tile
     expect(m.samples).toEqual([]);
-    expect(m.target()).toMatchObject({ x: spawn.x, z: spawn.z });
+    expect(m.armed).toBe(false);
     m.update(probe(5, 40, { waterDepth: -3 }), 2); // on a bridge above the river
     expect(m.samples.map(s => s.x)).toEqual([40]);
+    expect(m.armed).toBe(true);
   });
 });
