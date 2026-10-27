@@ -32,7 +32,9 @@ from turku3d.col.materials import mat_id
 from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
 
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
-CODE = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
+CODE = hashlib.sha256(
+    Path(__file__).read_bytes() + Path(__file__).with_name("fences.py").read_bytes()
+).hexdigest()[:16]
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
 
@@ -58,6 +60,7 @@ class Inputs:
     seconds: dict
     key: str = ""
     trees: list = ()  # prepare_trees: (id, x, z, height, conifer) in the tile; () before OSM lands  # Sources.input_key: the raw files' identities, recorded in the manifest
+    barriers: list = ()  # OSM barrier geometries, tags and deliberate road membership
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -299,6 +302,7 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "wfs": [p for _, p in wfs] if all(found for found, _ in wfs) else None,
         "roads": [osm] if osm else None,
         "trees": [osm] if osm else None,
+        "barriers": [osm] if osm else None,
     }
 
 
@@ -309,6 +313,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         return read_ortho(paths[0], tile)
     if dataset == "roads":
         return prepare_roads(tile, paths[0])
+    if dataset == "barriers":
+        from .fences import prepare as prepare_barriers
+
+        return prepare_barriers(tile, paths[0])
     if dataset == "trees":
         return prepare_trees(tile, paths[0])
     bldg, streets, water = paths
@@ -382,5 +390,6 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         provenance,
         seconds,
         sources.input_key(tile) or "",
-        values["trees"] or (),
+        barriers=values["barriers"] or (),
+        trees=values["trees"] or (),
     )

@@ -36,6 +36,7 @@ from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 
+from . import fences
 from .inputs import CELLS, Building, Inputs, gather
 
 FORMAT = "turku3d-coarse-tile"
@@ -508,6 +509,14 @@ def build(
         ]
         write_visual(stage / "buildings.vis.glb", meshes, root_translation=tile.origin)
         layer_files.append(stage / "buildings.vis.glb")
+    barrier_cols, barrier_stats = fences.produce(
+        tile,
+        inputs,
+        stage,
+        layer_files,
+        lambda x, z: grid_height(tile, grid_pos, x, z),
+    )
+    seconds["fences"] = barrier_stats["seconds"]
     vis, stats = package_visual(tile, layer_files, stage, out.parent, library or default_library())
     seconds["visual"] = time.perf_counter() - t
     if stats["brotli_bytes"] > WIRE_CAP:
@@ -521,10 +530,11 @@ def build(
     for ct, (pos, idx, mat) in collision_tiles(
         tile, grid_pos, grid_idx, materials, level, shells
     ).items():
-        primitives = trunks(trees, ct)
+        primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         data = write_col(col, encoding="meshopt", optimize=False)
-        lo, hi = pos[:, 1].min(), pos[:, 1].max()
+        bounds_lo, bounds_hi = col.compute_bbox()
+        lo, hi = bounds_lo[1], bounds_hi[1]
         cols[ct.id] = data
         collision[ct.id] = _entry(
             f"col/{ct.id}.col",
@@ -572,6 +582,7 @@ def build(
         ),
         buildings=len(blds),
         trees=len(trees),
+        barriers=barrier_stats,
         bridges=decks,
         water_level=level,
         sources=inputs.sources,
