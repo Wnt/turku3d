@@ -139,7 +139,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     scooter.load(`${import.meta.env.BASE_URL}assets/vehicles/scooter.glb`),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
-  const { router, minimap, area, addresses } = await createGameplay(manifest, document.body);
+  const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
+  // Draft tiles' streets join the map and the router as the drafts arrive and leave, and with the 60 s manifest poll.
+  if (coarse) {
+    coarse.onMapChange = () => void streets.update(coarse.roadGraphs());
+    if (coarse.roadGraphs().length) coarse.onMapChange();
+  }
   const missions = new MissionSystem({ router, addresses });
   // The scooter exists once bought (a loaded game places it in gameplay/saveGame.ts).
   const parkScooter = async (spot: V3 & { yaw: number }) => physics.spawnVehicle(
@@ -235,7 +240,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, ready: true });
 
   if (hot?.save) startScreen.close();
   else if (resume) saveGame.hooks.play(resume);
@@ -451,6 +456,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       voice.dispose();
       audio.dispose();
       minimap.dispose();
+      if (coarse) coarse.onMapChange = null;
       fullscreen.dispose();
       root.removeFromParent();
       root.traverse(o => {

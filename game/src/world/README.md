@@ -6,6 +6,33 @@ parents first), `collisionStreaming.ts` keeps the `.col` tiles within the collis
 `shadowBatch.ts` merges each tile's shadow casters, and `coarseTiles.ts` streams localhost draft tiles for cells the
 tileset lacks (`tools/dev/coarse-tiles`).
 
+## Collision edge and draft tiles
+
+Ground is drawn farther than collision reaches: the published far LOD (500 m and 1 km parents) covers the city around
+the playable tiles, and a draft tile can be on screen before its cells stream into the physics worker. Two rules keep
+the player from falling through visible ground:
+
+1. **Edge walls** (`physics/edgeWalls.ts`): wherever a loaded `.col` tile borders a cell whose collision is not in the
+   worker (outside the built area, a draft still building, a tile still streaming or one that failed), the worker
+   closes that edge with an invisible box (2 m thick, 20 m below to 40 m above the tile). The character and every
+   vehicle stop there; rays and the camera cast pass through. Loading the neighbour removes the wall. At the real
+   edge of the built area the HUD edge notice and the minimap's red edge (`gameplay/recovery.ts`) explain the stop.
+2. **Collision before visibility** (`coarseTiles.ts`): a draft is added to the scene only when every one of its 16
+   collision cells has an entry (published entries win) and the worker has decoded each draft `.col`
+   (`PhysicsClient.checkTile`, no colliders are built). A draft that fails either check is never drawn; the HUD names
+   the reason (`draft tile t0_i_j unavailable: ...`) and it is asked for again after 120 s.
+
+**Prefetch**: besides the 3x3 window it loads, `CoarseTiles` asks the service to build every cell within the next 30 s
+of travel along the player's heading plus a one-tile ring (`aheadTiles`; speed from the positions of its 1 s checks,
+a jump above 100 m/s is a teleport). Those tiles are only built (state `built`), not loaded, until they enter the
+window. The service builds four at once, so a car at full speed meets built tiles once their raw data is on disk.
+The HUD badge names the tile underfoot, lists the drafts loaded and counts those still building. A draft's street
+graph (`roads.json`) is fetched with it; `roadGraphs()` returns those of the drafts in the scene and `onMapChange`
+tells the map to re-merge (`gameplay/README.md`, "Draft tiles' streets").
+
+Draft entries then join `manifest.collision`, so `CollisionStreamer` loads them with the normal radius, the walls move
+out with them and `SafeReset`'s playable area grows.
+
 ## Tile releases swapped in place (`releaseSwap.ts`)
 
 On the localhost game (`tools/dev/localhost/README.md`) the dev server's `/tiles` moves to a new tile release when a
@@ -29,6 +56,7 @@ The dev server serves `/tiles` with `Cache-Control: no-cache`, so every fetch re
 cached bytes of the previous release. Production builds have no swap path (`import.meta.hot` is undefined).
 
 ```bash
-cd game && npx vitest run tests/unit/release-swap.test.ts tests/unit/streaming.test.ts tests/unit/coarse-tiles.test.ts
+cd game && npx vitest run tests/unit/release-swap.test.ts tests/unit/streaming.test.ts tests/unit/coarse-tiles.test.ts \
+  tests/unit/edge-walls.test.ts
 python3 ../scripts/dev/host_slots.py browser -- node_modules/.bin/playwright test -c playwright.hotswap.config.ts
 ```

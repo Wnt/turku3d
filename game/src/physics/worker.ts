@@ -33,6 +33,10 @@ async function handle(msg: ToWorker) {
       try { post({ type: 'tileLoaded', stats: await pw.loadTile(msg.id, msg.buffer) }); }
       catch (e) { post({ type: 'tileError', id: msg.id, error: String((e as Error).message ?? e), permanent: e instanceof ColFormatError }); }
       break;
+    case 'checkTile':
+      try { post({ type: 'checkResult', id: msg.id, tris: (await pw.checkTile(msg.buffer)).tris, error: null }); }
+      catch (e) { post({ type: 'checkResult', id: msg.id, tris: 0, error: String((e as Error).message ?? e) }); }
+      break;
     case 'unloadTile':
       pw.unloadTile(msg.id);
       post({ type: 'tileUnloaded', id: msg.id });

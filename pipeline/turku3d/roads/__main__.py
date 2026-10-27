@@ -11,31 +11,9 @@ from turku3d import config as C
 from turku3d.layers import layer_root, write_manifest
 from turku3d.package.manifest import _atomic_write
 
-from . import CAR, FOOT, build_graph, code_hash, encode, reversed_oneway, way_flags
+from . import CAR, FOOT, build_graph, code_hash, encode, osm_ways
 
 GRAPH_FILE = "roadgraph.json"
-
-
-def osm_ways(path: Path, bbox: C.BBoxLocal):
-    import geopandas as gpd
-    from shapely import box, get_parts
-
-    frame = gpd.read_parquet(path, columns=["highway", "tags", "geometry_local"])
-    frame = frame[frame["highway"].notna()]
-    clip = box(*bbox.as_tuple())
-    for row in frame.itertuples():
-        line = row.geometry_local
-        if line.geom_type != "LineString" or not line.intersects(clip):
-            continue
-        tags = json.loads(row.tags)
-        flags = way_flags(row.highway, tags)
-        if not flags:
-            continue
-        for part in get_parts(line.intersection(clip)):
-            if part.geom_type != "LineString" or part.is_empty:
-                continue
-            coords = [(x, z) for x, z, *_ in part.coords]
-            yield (coords[::-1] if reversed_oneway(tags) else coords), flags
 
 
 def build(out: Path, osm: Path, area: str) -> dict:

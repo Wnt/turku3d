@@ -122,7 +122,7 @@ To run them on the published tiles without building tiles, add `TILE_DIST=$TURKU
 `main.ts` (play mode) creates both pieces after the manifest and assets load:
 
 ```ts
-const { router, minimap, area } = await createGameplay(manifest, document.body);
+const { router, minimap, area, streets } = await createGameplay(manifest, document.body);
 const missions = new MissionSystem({ router, storage });
 minimap.setSource(missions);   // any MissionHudSource; emptyHudSource shows no targets
 ```
@@ -141,6 +141,14 @@ from the OSM snapshot; `make refresh` keeps it current and `make tile-build` pub
 with the tiles. `roadGraph.ts` loads and decodes it; a manifest without `roads` (the synthetic dev
 tiles) gives an empty graph, so the minimap draws no streets and every route is null.
 
+**Draft tiles' streets** (localhost, `world/coarseTiles.ts`): each draft carries its own OSM graph (`roads.json`
+from `pipeline/turku3d/coarse`, clipped to the 250 m tile, every piece kept). `StreetMap.update(drafts)`
+(`index.ts`) merges the published graph with the drafts' (`mergeRoadGraphs`: nodes merge by coordinate at 0.1 m,
+so streets join where they cross a tile edge; an edge two parts both carry is kept once) and hands the result to
+`StreetRouter.setGraph` and `Minimap.setGraph`. `play.ts` calls it from `CoarseTiles.onMapChange`: when a draft with
+streets arrives or leaves, on a release swap, and after every 60 s manifest poll; the published graph is fetched
+again when `manifest.roads` changed. The router routes onto draft streets as soon as they are on the map.
+
 ### Router (`router.ts`)
 
 `StreetRouter` implements the contract `Router`. `snap()` projects a point onto the nearest
@@ -154,7 +162,8 @@ check on the published graph (1,015 edges) takes 0.3 ms.
 ### Minimap (`minimap.ts`)
 
 A 240 × 240 CSS px rounded canvas at the bottom left, sized by `devicePixelRatio`. All streets
-are drawn once into an offscreen layer (3 px/m, road width by class); each redraw only rotates
+are drawn once into an offscreen layer (3 px/m, fewer when the merged graph is wider than 6,000 px at that
+scale; road width by class), again when the graph changes (`setGraph`); each redraw only rotates
 and scales that layer, then draws the route, markers (`KIND_COLOURS` per `TargetKind`, clamped to
 the rim when off the map, the active one ringed) and the player arrow. It redraws only when the
 view, the HUD state or the size changed. `RouteTracker` re-plans when the active target or travel
@@ -185,7 +194,9 @@ frame (the feet on foot, the body of the driven car in a car) and applies one ru
   the rules wait for the next safe frame. Nearer placements (leaving a car, R in a car) keep them.
 - **Lost**: below the lowest ground of the loaded tiles (manifest `h[0]`) minus 5 m, more than 5 m
   outside the area's bounding box, more than 2 s with the feet or car body over 0.3 m under the
-  river surface (no swimming), or more than 3 s without ground contact. Landing safely again
+  river surface (no swimming), or more than 3 s without ground contact. The edge of the built area is
+  closed by the physics edge walls (`physics/edgeWalls.ts`, `world/README.md`), so in play the lost rules
+  catch the river, a fall through a hole and a placement off the loaded tiles, not a drive off the edge. Landing safely again
   cancels it. Over a cell of the area whose collision has not arrived yet the player is streaming,
   not lost; once it loads, a player who sank below it is lost by the first rule.
 - **Reset**: the newest sample at least 3 s older than the last safe frame (before the slide

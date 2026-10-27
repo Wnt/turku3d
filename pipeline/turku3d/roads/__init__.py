@@ -74,6 +74,29 @@ def reversed_oneway(tags: dict) -> bool:
     return tags.get("oneway") == "-1"
 
 
+def osm_ways(path: Path, bbox):
+    """(engine x/z vertices, flags) of every OSM highway in the parquet at `path`, clipped to `bbox`."""
+    import geopandas as gpd
+    from shapely import box, get_parts
+
+    frame = gpd.read_parquet(path, columns=["highway", "tags", "geometry_local"])
+    frame = frame[frame["highway"].notna()]
+    clip = box(*bbox.as_tuple())
+    for row in frame.itertuples():
+        line = row.geometry_local
+        if line.geom_type != "LineString" or not line.intersects(clip):
+            continue
+        tags = json.loads(row.tags)
+        flags = way_flags(row.highway, tags)
+        if not flags:
+            continue
+        for part in get_parts(line.intersection(clip)):
+            if part.geom_type != "LineString" or part.is_empty:
+                continue
+            coords = [(x, z) for x, z, *_ in part.coords]
+            yield (coords[::-1] if reversed_oneway(tags) else coords), flags
+
+
 def _key(x: float, z: float) -> tuple[int, int]:
     return round(x / PRECISION), round(z / PRECISION)
 
@@ -82,8 +105,18 @@ def _coord(k: int) -> float:
     return round(k * PRECISION, 1)
 
 
-def build_graph(ways: Iterable[tuple[list[tuple[float, float]], int]], bbox, area: str) -> dict:
-    """``ways`` are (engine x/z vertices, flags) already clipped to ``bbox`` (xmin, zmin, xmax, zmax)."""
+def build_graph(
+    ways: Iterable[tuple[list[tuple[float, float]], int]],
+    bbox,
+    area: str,
+    *,
+    connected: bool = True,
+) -> dict:
+    """``ways`` are (engine x/z vertices, flags) already clipped to ``bbox`` (xmin, zmin, xmax, zmax).
+
+    ``connected`` keeps each mode only on its largest network; a draft tile's graph (``turku3d.coarse``)
+    keeps every piece, since its fragments join the neighbouring tiles' graphs in the game.
+    """
     parts = []
     for coords, flags in ways:
         keys = []
@@ -107,7 +140,8 @@ def build_graph(ways: Iterable[tuple[list[tuple[float, float]], int]], bbox, are
             if uses[keys[i]] >= 2:
                 raw.append((keys[start : i + 1], flags))
                 start = i
-    raw = _largest_components(raw)
+    if connected:
+        raw = _largest_components(raw)
     index: dict[tuple[int, int], int] = {}
     nodes, edges = [], []
     for keys, flags in sorted(raw, key=lambda item: (item[0][0], item[0][-1], item[0], item[1])):

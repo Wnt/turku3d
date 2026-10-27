@@ -13,8 +13,14 @@ export class StreetRouter implements Router {
   /** Travel mode for route(): main.ts keeps it equal to the player's current mode. */
   mode: TravelMode = 'foot';
   private readonly grid = new Map<string, Array<[edge: number, segment: number]>>();
+  graph!: RoadGraph;
 
-  constructor(readonly graph: RoadGraph) {
+  constructor(graph: RoadGraph) { this.setGraph(graph); }
+
+  /** Routes over `graph` from now on (draft tiles' streets joined the map; gameplay/index.ts StreetMap). */
+  setGraph(graph: RoadGraph) {
+    this.graph = graph;
+    this.grid.clear();
     graph.edges.forEach((edge, e) => {
       for (let i = 0; i + 1 < edge.cumulative.length; i++) {
         const [x0, z0, x1, z1] = edge.points.subarray(2 * i, 2 * i + 4);

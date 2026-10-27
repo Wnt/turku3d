@@ -4,8 +4,10 @@ Ground is a regular TIN with 250/128 m (~2 m) spacing interpolated from the city
 ground key points and textured with one true-ortho image. Buildings are CityGML LOD2 footprints
 extruded to their mean roof height, walls with the library render material and roofs with the
 same ortho. Street-area polygons only set collision material classes; water polygons become the
-water sensor over a synthetic bed. The tile has no curbs, stairs, structures, props, vegetation,
-facade maps or LOD parents: the full pipeline replaces it when the tile is published.
+water sensor over a synthetic bed. ``maanpinta`` has no points on bridge decks, so a street-area
+bridge over water is lifted to the line through its abutments (``bridge_decks``). The tile has no
+curbs, stairs, structures, props, vegetation, facade maps or LOD parents: the full pipeline
+replaces it when the tile is published.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
+from turku3d.roads import build_graph, encode, osm_ways
 
 from .inputs import Inputs, gather
 
@@ -134,6 +137,72 @@ def water_level(points: np.ndarray, water) -> float:
     shore = shapely.union_all([shapely.make_valid(g) for g, _ in water]).buffer(10.0)
     near = shapely.contains_xy(shore, points[:, 0], points[:, 2])
     return float(max(-1.0, np.percentile(points[near, 1], 2))) if near.any() else 0.0
+
+
+ABUTMENT_M = (
+    5.0,
+    25.0,
+)  # dry ground this far beyond a deck end (m, along the deck) sets that end's height
+
+
+def bridge_decks(
+    grid_pos: np.ndarray, grid_idx: np.ndarray, materials: np.ndarray, wet: np.ndarray
+) -> int:
+    """Lift each connected bridge-deck patch that borders water to the line between its abutments; returns the count.
+
+    ``maanpinta`` has no points on a deck: under it the key points are the river surface and the sloping banks, so
+    the drawn and the collision deck sit at water level between quay-high road ends. Each end's height is the 90th
+    percentile of the dry ground ``ABUTMENT_M`` beyond it inside the deck's corridor (its long axis, as wide as the
+    deck); every dry vertex in the corridor between the two ends is raised to the line through them (never lowered).
+    Decks that do not touch water (a viaduct over a street) stay put.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    deck = materials == mat_id("bridge_deck")
+    if not deck.any():
+        return 0
+    tris = grid_idx[deck]
+    edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
+    n = len(grid_pos)
+    graph = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n))
+    _, label = connected_components(graph, directed=False)
+    deck_vertices = np.unique(tris)
+    dry = np.zeros(n, bool)
+    dry[grid_idx[~wet].ravel()] = True
+    water = np.zeros(n, bool)
+    water[grid_idx[wet].ravel()] = True
+    xz = grid_pos[:, [0, 2]]
+    lifted = 0
+    for comp in np.unique(label[deck_vertices]):
+        verts = deck_vertices[label[deck_vertices] == comp]
+        if not water[verts].any() or len(verts) < 3:
+            continue
+        centre = xz[verts].mean(axis=0)
+        axis = np.linalg.svd(xz[verts] - centre, full_matrices=False)[2][0]
+        t = (xz - centre) @ axis
+        side = np.abs((xz - centre) @ np.array([-axis[1], axis[0]]))
+        width = float(np.percentile(side[verts], 95)) + 1.0
+        t0, t1 = t[verts].min(), t[verts].max()
+        corridor = dry & (side <= width)
+        lo, hi = ABUTMENT_M
+        ends = []
+        for sign, edge in ((-1, t0), (1, t1)):
+            near = corridor & (sign * (t - edge) >= lo) & (sign * (t - edge) <= hi)
+            if near.any():
+                ends.append((edge + sign * lo, float(np.percentile(grid_pos[near, 1], 90))))
+        if not ends:
+            continue
+        (ta, ha), (tb, hb) = (ends[0], ends[-1]) if len(ends) == 2 else (ends[0], ends[0])
+        span = (
+            corridor & (t >= min(ta, tb)) & (t <= max(ta, tb))
+            if len(ends) == 2
+            else np.isin(np.arange(n), verts)
+        )
+        line = ha + (hb - ha) * (t[span] - ta) / (tb - ta) if tb != ta else np.full(span.sum(), ha)
+        grid_pos[span, 1] = np.maximum(grid_pos[span, 1], line)
+        lifted += 1
+    return lifted
 
 
 class Building:
@@ -324,7 +393,11 @@ def _write(path: Path, data: bytes) -> None:
 def build(
     tile_id: str, out: Path, *, inputs: Inputs | None = None, library: Path | None = None, log=print
 ) -> dict:
-    """Write ``out/{manifest.json, vis.glb, col/c_i_j.col}``; shared library KTX2 go to out/../shared."""
+    """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
+
+    ``roads.json`` is the tile's OSM street graph (``turku3d.roads`` format, clipped to the tile, every
+    connected piece kept); it is absent without an OSM extract.
+    """
     tile = C.VisualTile.parse(tile_id)
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
@@ -343,7 +416,8 @@ def build(
     streets = _frame(inputs.streets, bbox)
     water = _frame(inputs.water, bbox)
     materials = ground_materials(centroids, inputs.ortho, tile, streets)
-    wet = water_mask(centroids, water)
+    # A bridge deck stays solid where a water polygon runs under it.
+    wet = water_mask(centroids, water) & (materials != mat_id("bridge_deck"))
     level = water_level(inputs.points, water)
     if wet.any():
         materials[wet] = mat_id("water")
@@ -351,6 +425,7 @@ def build(
         dry_vertices = np.unique(grid_idx[~wet])
         inner = np.setdiff1d(wet_vertices, dry_vertices)
         grid_pos[inner, 1] = np.minimum(grid_pos[inner, 1], level)
+    decks = bridge_decks(grid_pos, grid_idx, materials, wet)
     seconds["ground"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -446,7 +521,21 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
+    t = time.perf_counter()
+    roads = None
+    if inputs.osm is not None:
+        graph = build_graph(
+            osm_ways(inputs.osm, tile.bbox),
+            tile.bbox.as_tuple(),
+            f"coarse-{tile.id}",
+            connected=False,
+        )
+        roads = encode(graph)
+    seconds["roads"] = time.perf_counter() - t
+
     _write(out / "vis.glb", vis)
+    if roads is not None:
+        _write(out / "roads.json", roads)
     for cid, data in cols.items():
         _write(out / "col" / f"{cid}.col", data)
     seconds["total"] = time.perf_counter() - started
@@ -471,7 +560,18 @@ def build(
             )
         },
         collision=collision,
+        roads=(
+            _entry(
+                "roads.json",
+                roads,
+                nodes=len(graph["nodes"]) // 2,
+                edges=len(graph["edges"]),
+            )
+            if roads is not None
+            else None
+        ),
         buildings=len(blds),
+        bridges=decks,
         water_level=level,
         sources=inputs.sources,
         seconds={k: round(v, 3) for k, v in seconds.items()},

@@ -29,17 +29,21 @@ export const edgeLength = (edge: RoadEdge) => edge.cumulative[edge.cumulative.le
 /** Road class 0 path, 1 service, 2 street, 3 major. */
 export const edgeClass = (edge: RoadEdge) => (edge.flags >> CLASS_SHIFT) & 3;
 
-interface RoadGraphJson {
+export interface RoadGraphJson {
   format: string; version: number; frame: string;
   bbox: [number, number, number, number];
   nodes: number[];
   edges: number[][];
 }
 
-export function parseRoadGraph(json: RoadGraphJson): RoadGraph {
+function checkFormat(json: RoadGraphJson) {
   if (json.format !== 'turku3d-roadgraph' || json.version !== 1 || json.frame !== 'engine-xz') {
     throw new Error(`road graph: unsupported ${json.format} v${json.version} (${json.frame})`);
   }
+}
+
+export function parseRoadGraph(json: RoadGraphJson): RoadGraph {
+  checkFormat(json);
   const nodes = Float64Array.from(json.nodes);
   const count = nodes.length / 2;
   const adjacency: number[][] = Array.from({ length: count }, () => []);
@@ -63,11 +67,42 @@ export function parseRoadGraph(json: RoadGraphJson): RoadGraph {
 
 export const EMPTY_ROAD_GRAPH: RoadGraph = { nodes: new Float64Array(), edges: [], adjacency: [], bbox: [0, 0, 0, 0] };
 
-/** The published graph, or an empty one when the tile build carries none (synthetic dev tiles). */
-export async function loadRoadGraph(manifest: Pick<Manifest, 'roads' | 'baseUrl'>): Promise<RoadGraph> {
-  if (!manifest.roads) return EMPTY_ROAD_GRAPH;
+/** One graph from several: the published one and the draft tiles' (pipeline/turku3d/coarse roads.json). Each part is
+ *  clipped to its own area, so a street leaving one part ends on its edge at the same point (to 0.1 m, the pipeline's
+ *  node precision) where it enters the next: nodes merge by coordinate and the parts join there. An edge both parts
+ *  carry (overlapping areas) is kept once. */
+export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
+  if (!parts.length) return EMPTY_ROAD_GRAPH;
+  if (parts.length === 1) return parseRoadGraph(parts[0]);
+  const index = new Map<string, number>(), seen = new Set<string>();
+  const nodes: number[] = [], edges: number[][] = [];
+  const bbox: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  const node = (x: number, z: number) => {
+    const key = `${Math.round(x * 10)},${Math.round(z * 10)}`;
+    let k = index.get(key);
+    if (k === undefined) { k = nodes.length / 2; index.set(key, k); nodes.push(x, z); }
+    return k;
+  };
+  for (const part of parts) {
+    checkFormat(part);
+    const map = Array.from({ length: part.nodes.length / 2 }, (_, i) => node(part.nodes[2 * i], part.nodes[2 * i + 1]));
+    for (const row of part.edges) {
+      const edge = [map[row[0]], map[row[1]], ...row.slice(2)];
+      const key = edge.map(v => Math.round(v * 10)).join(',');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push(edge);
+    }
+    for (let k = 0; k < 4; k++) bbox[k] = k < 2 ? Math.min(bbox[k], part.bbox[k]) : Math.max(bbox[k], part.bbox[k]);
+  }
+  return parseRoadGraph({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox, nodes, edges });
+}
+
+/** The published graph's JSON, or null when the tile build carries none (synthetic dev tiles). */
+export async function loadRoadGraphJson(manifest: Pick<Manifest, 'roads' | 'baseUrl'>): Promise<RoadGraphJson | null> {
+  if (!manifest.roads) return null;
   const url = new URL(manifest.roads.url, manifest.baseUrl).href;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`road graph ${url}: HTTP ${res.status}`);
-  return parseRoadGraph(await res.json() as RoadGraphJson);
+  return await res.json() as RoadGraphJson;
 }

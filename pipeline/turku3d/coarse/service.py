@@ -3,10 +3,11 @@
     GET /coarse/status                      queue, current build, built tiles and their timings
     GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 and the tile is queued,
                                             nearest first by the player distance d (latest wins)
-    GET /coarse/<tile>/vis.glb | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
+    GET /coarse/<tile>/vis.glb | roads.json | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
 
-Tiles not re-requested for STALE_SECONDS leave the queue (the player moved on).
-One build runs at a time, in a child process, so a slow or failing build never blocks requests.
+Tiles not re-requested for STALE_SECONDS leave the queue (the player moved on). The game asks for
+the cells ahead of a moving player as well (prefetch), so up to WORKERS builds run at once, each in
+a child process, so a slow or failing build never blocks requests or the other builds.
 A failed tile (outside every keyless source, or a network error) answers 404 with the reason and is
 retried after RETRY_SECONDS.
 Built tiles live under $TURKU3D_WORK/coarse/<tile>/ and are rebuilt when the producer code changes.
@@ -32,10 +33,11 @@ from turku3d import config as C
 from .build import code_hash
 
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
-FILE = re.compile(r"^(vis\.glb|manifest\.json|col/c_-?\d+_-?\d+\.col)$")
+FILE = re.compile(r"^(vis\.glb|manifest\.json|roads\.json|col/c_-?\d+_-?\d+\.col)$")
 SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
 RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried after this
+WORKERS = 4  # parallel builds: a cold tile spends minutes downloading, warm ones take 5-10 s
 MIME = {
     ".json": "application/json",
     ".glb": "model/gltf-binary",
@@ -45,9 +47,9 @@ MIME = {
 
 
 class Builder:
-    """Priority queue of tile ids (lowest distance first) drained by one worker thread."""
+    """Priority queue of tile ids (lowest distance first) drained by `workers` threads."""
 
-    def __init__(self, root: Path, command=None, code: str | None = None):
+    def __init__(self, root: Path, command=None, code: str | None = None, workers: int = WORKERS):
         self.root = root
         # Re-hashed per check, so a code edit while the service runs rebuilds each tile once.
         self.code = (lambda: code) if code else code_hash
@@ -66,12 +68,16 @@ class Builder:
         self.priority: dict[str, float] = {}
         self.requested: dict[str, float] = {}
         self.heap: list[tuple[float, str]] = []
-        self.building: tuple[str, float] | None = None
+        self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.timings: dict[str, dict] = {}
         self.stopped = False
-        self.thread = threading.Thread(target=self._run, name="coarse-builder", daemon=True)
-        self.thread.start()
+        self.threads = [
+            threading.Thread(target=self._run, name=f"coarse-builder-{k}", daemon=True)
+            for k in range(workers)
+        ]
+        for thread in self.threads:
+            thread.start()
 
     def manifest(self, tile: str) -> Path:
         return self.root / tile / "manifest.json"
@@ -94,8 +100,8 @@ class Builder:
             if error and time.time() - at < RETRY_SECONDS:
                 return {"state": "failed", "error": error}
             self.failed.pop(tile, None)
-            if self.building and self.building[0] == tile:
-                return {"state": "building", "since": self.building[1]}
+            if tile in self.building:
+                return {"state": "building", "since": self.building[tile]}
             self.priority[tile] = distance
             self.requested[tile] = time.time()
             heapq.heappush(self.heap, (distance, tile))
@@ -122,13 +128,13 @@ class Builder:
                     tile = self._next()
                 if self.stopped:
                     return
-                self.building = (tile, time.time())
+                self.building[tile] = time.time()
             started = time.perf_counter()
             out = self.root / tile
             proc = subprocess.run(self.command(tile, out), capture_output=True, text=True)
             seconds = time.perf_counter() - started
             with self.lock:
-                self.building = None
+                del self.building[tile]
                 if proc.returncode == 0 and self.built(tile):
                     m = json.loads(self.manifest(tile).read_text())
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
@@ -146,7 +152,7 @@ class Builder:
         with self.lock:
             return {
                 "state": "building" if self.building else "idle",
-                "building": self.building[0] if self.building else None,
+                "building": sorted(self.building),
                 "queue": [t for t, _ in sorted(self.priority.items(), key=lambda kv: kv[1])],
                 "built": sorted(
                     p.parent.name
