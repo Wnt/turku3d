@@ -18,6 +18,8 @@ export interface HotPlay {
   drivenId: string | null;
   camera: { yaw: number; pitch: number; distance: number };
   hudVisible: boolean;
+  /** Reconnect the live room after the session swaps; the world keeps its actor placements. */
+  multiplayer?: boolean;
 }
 
 /** What a new session restores from a HotPlay. */

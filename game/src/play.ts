@@ -172,6 +172,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   zones.setSource(missions);
   const shopMenu = new ShopMenu(document.body);
   const pauseMenu = new PauseMenu(document.body, input);
+  const crashFlash = document.createElement('div');
+  crashFlash.id = 'mp-crash-flash';
+  document.body.append(crashFlash);
   let multiplayer: MultiplayerClient | null = null;
   let multiplayerPlaying = false;
   const mapDirection = new THREE.Vector3();
@@ -180,6 +183,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let drivenId: string | null = null;
   let paused = false;
   let lastRumble = 0;
+  let lastCrash = 0;
   let wasGrounded = false;
   const desiredVelocity = new THREE.Vector2();
   const feet = new THREE.Vector3(spawn.x, spawn.y, spawn.z);
@@ -248,6 +252,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const restored = applyHot(hot, { missions, setClock: date => { world.setClock(date); clockControl.set(date); }, camera: orbit });
     if (restored.drivenId) { enterVehicle(restored.drivenId); snapChase = true; }
     owned = missions.vehicle;
+    if (hot.multiplayer) {
+      multiplayerPlaying = true;
+      multiplayer = new MultiplayerClient();
+      scoreboard.setClient(multiplayer);
+      multiplayer.connect();
+    }
   }
   // A landing that cannot swap reloads the page (Vite full reload or a restarted dev server): autosave and resume.
   const autosaveForReload = () => { if (saveGame.autosave.save('reload')) markResume(sessionStore()); };
@@ -268,10 +278,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       recovery: recovery.snapshot(feet),
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected },
       pauseMenu: { open: pauseMenu.open, page: pauseMenu.panel.page?.id ?? null, selected: pauseMenu.panel.selected },
-      startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors };
+      startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors,
+      multiplayer: multiplayer ? { connected: multiplayer.state.connected, nick: multiplayer.state.you?.nick,
+        players: multiplayer.state.players.length, scores: multiplayer.state.scores,
+        remotes: remotePlayers.markers(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.close();
   else if (resume) saveGame.hooks.play(resume);
@@ -395,6 +408,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           lastRumble = strike.id;
           if (mode === 'car') void input.rumble(120, strike.rumble, strike.rumble * 0.6);
         }
+        if (multiplayerPlaying && mode === 'car' && activeCar.impact && activeCar.impact.id !== lastCrash) {
+          lastCrash = activeCar.impact.id;
+          crashFlash.style.transition = 'none';
+          crashFlash.style.opacity = String(Math.min(0.5, activeCar.impact.impulse / 12000));
+          requestAnimationFrame(() => { crashFlash.style.transition = 'opacity 450ms ease-out'; crashFlash.style.opacity = '0'; });
+          void input.rumble(150, 0.35, 0.6);
+        }
         if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - 0.6, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
     }
@@ -487,7 +507,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   return {
     dispose() {
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId,
-        camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible };
+        camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
+        multiplayer: multiplayerPlaying };
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
       remotePlayers.dispose();
