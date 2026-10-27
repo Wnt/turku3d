@@ -389,7 +389,7 @@ AOI: one 250 m visual tile centred on the office block at Läntinen Rantakatu 15
 
 ## Multiplayer server
 
-The [Node 24 multiplayer server](../server/README.md) is deployed on osgallery-dev
+The [Node 24 multiplayer server](../server/README.md) targets deployment on osgallery-dev
 (the server-specific exception to the Mac pipeline policy), behind the outbound
 forwarder at `wss://turku.lab.madekivi.fi`. It owns presence, session nicknames and
 delivery score validation for one room of up to 32 connections, with archived
