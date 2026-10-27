@@ -182,13 +182,16 @@ four repeat.
 - **Par.** The published walking distance on foot, the driving distance with a scooter or a car
   (the walking one when no car route exists), at the vehicle's par speed; tip bands as above.
 
-The pizzeria quotes the address (both, joined with `+`, for a double), route metres and par. On
-pickup the owner says one of six address-free lines (`pizzeria_order_1`–`6`), then the HUD shows
-`order_next` "Next one: {address}." (or `order_next_double`); these and the step hints
-(`hint_deliver_pool`, `hint_deliver_first`, `hint_deliver_second`) are unvoiced templates, so
-voice clips never speak an address. Customers react with one of 12 lines per tip band
-(`customer_fast_1`–`12`, `customer_ok_*`, `customer_slow_*`), picked by the game's seed. The large
-map labels the drop-off marker with its house number.
+The pizzeria quotes the address (both, joined with `+`, for a double), route metres and par. At
+pickup the dispatcher speaks a distinct phrase followed by the first address. A double starts with
+one of 12 explicit double-order announcements, then both addresses in delivery order. After its
+first handover a separate 12-phrase pool announces the second address again. Single orders, carrying
+hints, permit and pizzeria hints, customer reactions by tip band, recurring shop greetings and replies,
+failure notices and permit warnings each have 12 phrases. A seeded shuffled cycle per pool prevents repeats until exhaustion;
+draw counts are stored in the mission save. The HUD shows the complete address sentence while
+`VoicePlayer` plays its phrase and address clips back to back. `make voice-build` reads every published
+address pool plus the four scripted stops, so a tile's new addresses receive clips on the next build.
+The large map labels the drop-off marker with its house number.
 
 ## Mission state machine
 
@@ -275,9 +278,11 @@ play, and the zone disappears until the next order.
 ## Dialogue
 
 Speakers: `narrator`, `pizzeria` (owner), `market` (black market seller), `dealer`, `customer`. Prompts,
-hints, notices, pay lines, zone labels and menu option labels, details and reasons are narrator
-lines with `"voiced": false`; character lines (greetings and replies) and the intro are voiced. Code references lines only by id; the displayed text equals the line text exactly
-so the voice player can match the clip. Rules: `~/turku3d/briefs/dialogue-contract.md`.
+hints, notices, pay lines, zone labels and menu option labels, details and reasons have legacy
+templates in `dialogue.json`. Active delivery announcements and rotating hints come from
+`phrases.json`; each address has its own clip. The voice player resolves the complete HUD sentence
+to an ordered sequence of manifest clips. Character replies and the intro still match one clip by
+their exact text. Rules: `~/turku3d/briefs/dialogue-contract.md`.
 
 ## Out of scope for this slice
 

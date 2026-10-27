@@ -10,15 +10,10 @@ export interface Delivery {
   address: string;
   /** Fallback drop-off when the published pool lacks the address. */
   point: WorldPoint;
-  /** Dialogue line ids: the step hint, the owner's hand-over line and the customer's reaction by tip band. */
-  hint: string;
-  handover: string;
-  customer: { fast: string; ok: string; slow: string };
 }
 
 const delivery = (n: number, address: string, point: WorldPoint): Delivery => ({
-  id: `delivery_${n}`, address, point, hint: `hint_deliver_${n}`, handover: `pizzeria_handover_${n}`,
-  customer: { fast: `customer_${n}_fast`, ok: `customer_${n}_ok`, slow: `customer_${n}_slow` },
+  id: `delivery_${n}`, address, point,
 });
 
 export const DELIVERIES: readonly Delivery[] = [

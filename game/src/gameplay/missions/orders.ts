@@ -82,7 +82,3 @@ export function drawOrder(pool: readonly PoolAddress[], n: number, seed: number,
   }
   return { stops, exhausted };
 }
-
-/** Picks one of `count` lines with the stream of hand-over `k` (customer reactions, pizzeria lines). */
-export const pickLine = (seed: number, k: number, count: number) =>
-  Math.floor(rng((seed ^ Math.imul(k + 7, 0x85ebca6b)) >>> 0)() * count);

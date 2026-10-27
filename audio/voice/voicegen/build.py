@@ -1,4 +1,4 @@
-"""Dialogue lines -> normalized Ogg Opus clips + manifest.json, content-addressed and idempotent.
+"""Dialogue and generated announcement lines -> normalized Ogg Opus clips + manifest.json.
 
 Each voiced line has two keys:
 - synth key: engine identity and seed + speaker preset + spoken text (after the pronunciation lexicon).
@@ -78,10 +78,12 @@ def _cached(cache_dir, key):
         return data["samples"], int(data["rate"])
 
 
-def build(dialogue, voices_path, out_dir, cache_dir, synthesizer_factory, log=print):
+def build(
+    dialogue, voices_path, out_dir, cache_dir, synthesizer_factory, log=print, extra_lines=()
+):
     """Write <out_dir>/<id>.ogg and manifest.json. synthesizer_factory(voices) returns synth(line, preset)."""
     voices = load_voices(voices_path)
-    lines = voiced_lines(dialogue)
+    lines = [*voiced_lines(dialogue), *extra_lines]
     out_dir, cache_dir = Path(out_dir), Path(cache_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -135,13 +137,13 @@ def build(dialogue, voices_path, out_dir, cache_dir, synthesizer_factory, log=pr
     return report
 
 
-def check(dialogue, voices_path, out_dir):
+def check(dialogue, voices_path, out_dir, extra_lines=()):
     """Problems that make the committed clips differ from what build would produce (no synthesis)."""
     voices = load_voices(voices_path)
     out_dir = Path(out_dir)
     previous = _read_manifest(out_dir / "manifest.json")
     problems, wanted = [], set()
-    for line in voiced_lines(dialogue):
+    for line in [*voiced_lines(dialogue), *extra_lines]:
         wanted.add(line.id)
         row = previous.get(line.id)
         if not row:

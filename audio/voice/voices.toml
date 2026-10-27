@@ -9,6 +9,7 @@ revision = "f3ff3571791e39611d31c381e3a41a3af07b4987"
 weights = "kokoro-v1_0.pth"
 seed = 2027
 threads = 4
+device = "mps"
 
 [output]
 lufs = -18.0
@@ -40,13 +41,14 @@ speed = 0.88
 voice = "af_heart"
 speed = 1.0
 
-# Finnish names the English G2P gets wrong, as phonemes. Kept only where a Finnish ASR check
-# (Whisper small, language=fi; docs/reports/audio-voice-tts.md) beat the G2P: Turku, Linnankatu,
-# Läntinen Rantakatu and Kaskenkatu sound right without an entry. Use English ɹ, not the Finnish tap
+# Finnish names the English G2P gets wrong, as phonemes. The benchmark
+# (docs/reports/audio-voice-tts.md) found Turku, Linnankatu, Läntinen Rantakatu
+# and Kaskenkatu sound right without an entry. Use English ɹ, not the Finnish tap
 # ɾ: misaki turns ɾ into an American flap that is heard as "d".
 [lexicon]
 "Kristiinankatu" = "kɹˈistiːnɑŋkˌɑtu"
 "Aurakatu" = "ˈɑuɹɑkˌɑtuː"
+"Mustainveljestenkuja" = "mˈustɑinveljestenkˌujɑ"
 
 # Dry, measured police officer; distinct from the narrator and shop voices.
 [speakers.officer]

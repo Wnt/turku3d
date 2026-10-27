@@ -5,6 +5,27 @@ import { VOICE_CUT_SECONDS } from './mix';
 export interface VoiceClip { id: string; speaker: string; file: string; seconds: number; text: string; textSha256: string }
 export interface VoiceManifest { version: number; lines: VoiceClip[] }
 
+/** Resolve an address announcement to clips in speaking order, using only committed manifest entries. */
+export function sentenceClips(message: string, clips: readonly VoiceClip[]): string[] {
+  const phrases = clips.filter(c => c.id.startsWith('phrase_') &&
+    /^(phrase_order_|phrase_double_|phrase_second_|phrase_hint_carry_)/.test(c.id));
+  const addresses = clips.filter(c => c.id.startsWith('address_') && c.id !== 'address_then')
+    .sort((a, b) => b.text.length - a.text.length);
+  const then = clips.find(c => c.id === 'address_then');
+  for (const phrase of phrases) {
+    if (!message.startsWith(phrase.text)) continue;
+    const rest = message.slice(phrase.text.length);
+    const first = addresses.find(c => rest.startsWith(`${c.text}.`));
+    if (!first) continue;
+    const tail = rest.slice(first.text.length + 1);
+    if (tail === '') return [phrase.text, first.text];
+    if (!tail.startsWith(' Then ') || !then) continue;
+    const second = addresses.find(c => tail === ` Then ${c.text}.`);
+    if (second) return [phrase.text, first.text, then.text, second.text];
+  }
+  return [];
+}
+
 /** What the player needs from the mix: the running context, the voice bus and ambience ducking. */
 export interface VoiceOutput {
   context(): AudioContext | null;
@@ -22,9 +43,11 @@ type Playing = { clip: VoiceClip; source: AudioBufferSourceNode; gain: GainNode 
  *  before the audio context runs waits for unlock, unless another message replaces it first. */
 export class VoicePlayer {
   private clips = new Map<string, VoiceClip>();
+  private manifestLines: VoiceClip[] = [];
   private buffers = new Map<string, Promise<AudioBuffer>>();
   private shown: string | null = null;
   private pending: VoiceClip | null = null;
+  private pendingQueue: string[] = [];
   private playing: Playing | null = null;
   private queue: string[] = [];
   private lineEnded: (() => void) | null = null;
@@ -41,6 +64,7 @@ export class VoicePlayer {
     this.ready = this.fetcher(`${base}manifest.json`)
       .then(response => { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); })
       .then((manifest: VoiceManifest) => {
+        this.manifestLines = manifest.lines;
         for (const clip of manifest.lines) this.clips.set(clip.text, clip);
         if (this.shown !== null) this.show(this.shown, true);
         if (!this.playing) this.advance();
@@ -50,7 +74,7 @@ export class VoicePlayer {
       if (this.disposed) return;
       const clip = this.pending;
       this.pending = null;
-      if (clip) void this.start(clip);
+      if (clip) void this.start(clip, this.pendingQueue);
       else if (!this.playing) this.advance();
     });
   }
@@ -66,8 +90,11 @@ export class VoicePlayer {
     if (this.disposed || (message === this.shown && !force)) return;
     this.shown = message;
     this.pending = null; // a line waiting for unlock only plays while it is still the shown message
-    const clip = message === null ? undefined : this.clips.get(message);
-    if (clip) { this.queue = []; this.lineEnded = null; void this.start(clip); }
+    this.pendingQueue = [];
+    const texts = message === null ? [] : this.clips.has(message) ? [message]
+      : sentenceClips(message, this.manifestLines);
+    const clip = this.clips.get(texts[0]);
+    if (clip) { this.queue = []; this.lineEnded = null; void this.start(clip, texts.slice(1)); }
   }
 
   /** Speaks texts one after another (the start screen's story intro). A newly shown voiced HUD message
@@ -117,13 +144,22 @@ export class VoicePlayer {
     return buffer;
   }
 
-  private async start(clip: VoiceClip) {
+  private async start(clip: VoiceClip, nextQueue?: string[]) {
     const ctx = this.output.context(), bus = this.output.bus();
-    if (!ctx || !bus || ctx.state !== 'running') { this.pending = clip; return; }
+    if (!ctx || !bus || ctx.state !== 'running') {
+      this.pending = clip;
+      this.pendingQueue = nextQueue ?? this.queue;
+      return;
+    }
     const request = ++this.request; // only the newest voiced line may start
     let buffer: AudioBuffer;
-    try { buffer = await this.load(clip, ctx); } catch (error) { this.errors.push(`${clip.id}: ${String(error)}`); return; }
+    try { buffer = await this.load(clip, ctx); } catch (error) {
+      this.errors.push(`${clip.id}: ${String(error)}`);
+      if (request === this.request && !this.playing && !this.advance()) this.output.duck(false);
+      return;
+    }
     if (request !== this.request || this.disposed) return;
+    if (nextQueue) this.queue = nextQueue;
     let at = ctx.currentTime;
     if (this.playing) { this.cut(this.playing, at); at += VOICE_CUT_SECONDS; }
     const source = ctx.createBufferSource(), gain = ctx.createGain();

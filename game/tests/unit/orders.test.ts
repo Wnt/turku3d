@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Router, WorldPoint } from '../../src/gameplay/contract';
 import { addressSlug, parseAddressPool, type PoolAddress } from '../../src/gameplay/content/addresses';
-import { DIALOGUE, dialogueLine, lineText } from '../../src/gameplay/content/dialogue';
+import { DIALOGUE, lineText } from '../../src/gameplay/content/dialogue';
+import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { BASE_PAY, DOUBLE_BONUS, MAX_TIP, parSeconds } from '../../src/gameplay/economy';
@@ -129,20 +130,14 @@ describe('address pool asset', () => {
 });
 
 describe('pool dialogue', () => {
-  const ids = (prefix: string) => DIALOGUE.lines.filter(l => l.id.startsWith(prefix));
-  it('has 12 voiced customer lines per tip band and 6 address-free pizzeria order lines', () => {
-    for (const band of ['fast', 'ok', 'slow']) {
-      const lines = ids(`customer_${band}_`);
-      expect(lines).toHaveLength(12);
-      expect(lines.every(l => l.voiced !== false && l.speaker === 'customer')).toBe(true);
+  it('has twelve unique phrases in every active pool', () => {
+    for (const pool of Object.values(PHRASES)) {
+      expect(pool).toHaveLength(12);
+      expect(new Set(pool).size).toBe(12);
     }
-    expect(ids('pizzeria_order_')).toHaveLength(6);
   });
-  it('fills placeholders only in unvoiced lines, so every voice clip stays address-free', () => {
+  it('keeps static dialogue clips free of placeholders', () => {
     for (const line of DIALOGUE.lines) if (line.voiced !== false) expect(line.text).not.toMatch(/[{}]/);
-    expect(dialogueLine('order_next').voiced).toBe(false);
-    expect(lineText('hint_deliver_first', { address: 'Aurakatu 3', next: 'Linnankatu 9b' }))
-      .toBe('Deliver the first pizza to Aurakatu 3, then Linnankatu 9b.');
     expect(lineText('paid_double_bonus')).toContain(`${DOUBLE_BONUS} €`);
   });
 });
@@ -183,9 +178,11 @@ describe('pool orders in the mission system', () => {
     expect(quote).toEqual({ address: 'Testikatu 11', metres: 280, par: parSeconds(280, 'none'), stops: 1 });
     expect(g.missions.shop!.delivered).toBe(DELIVERIES.length);
     g.at(near(PIZZERIA.point), { choose: 'take_order' });
-    expect(g.missions.snapshot().dialogue).toEqual([expect.stringMatching(/^pizzeria_order_[1-6]$/), 'order_next']);
+    expect(g.missions.snapshot().dialogue).toEqual(['order_single']);
+    expect(g.missions.snapshot().hud.message).toContain('Testikatu 11');
     for (let t = 0; t < 30; t += 0.5) g.at({ x: 0, z: 0 }, {}, 0.5);
-    expect(g.missions.snapshot().hud.message).toBe('Deliver the pizza to Testikatu 11.');
+    expect(g.missions.snapshot().hud.message).toContain('Testikatu 11');
+    expect(PHRASES.hint_carry.some(p => g.missions.snapshot().hud.message === `${p}Testikatu 11.`)).toBe(true);
   });
 
   it('resumes a saved game with the delivered set and the carried pool order intact', () => {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import { PERMIT_DELIVERIES, PERMIT_PRICE, START_MONEY } from '../../src/gameplay/economy';
 import { lineText } from '../../src/gameplay/content/dialogue';
+import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SAVES_KEY } from '../../src/core/save';
 import type { WorldPoint } from '../../src/gameplay/contract';
@@ -107,7 +108,7 @@ test('shop zones glow in the world and the black market menu locks movement whil
   // E opens the menu; W then only moves the selection, never the player.
   await page.keyboard.press('KeyE');
   await expect(page.locator('#shop-menu')).toBeVisible();
-  await expect(page.locator('#shop-menu .shop-line')).toHaveText(lineText('market_greet'));
+  expect(PHRASES.market_greet).toContain(await page.locator('#shop-menu .shop-line').textContent());
   await expect(page.locator('#shop-menu .shop-option.selected')).toContainText(lineText('option_rent_permit'));
   const before = await state(page);
   await page.keyboard.down('KeyW');
@@ -121,7 +122,7 @@ test('shop zones glow in the world and the black market menu locks movement whil
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => (window.__game!.state as () => Snapshot)().missions.permit > 0);
   expect((await state(page)).missions).toMatchObject({ money: START_MONEY - PERMIT_PRICE, permit: PERMIT_DELIVERIES });
-  await expect(page.locator('#shop-menu .shop-line')).toHaveText(lineText('market_sold'));
+  expect(PHRASES.market_sold).toContain(await page.locator('#shop-menu .shop-line').textContent());
   await expect(page.locator('#shop-menu .shop-status')).toContainText(`${PERMIT_DELIVERIES} deliveries`);
   await expect(page.locator('#shop-menu .shop-option[data-option="rent_permit"]')).toHaveClass(/disabled/);
   await shot('03-market-menu');
@@ -145,7 +146,7 @@ test('shop zones glow in the world and the black market menu locks movement whil
   await page.keyboard.press('Escape');
   await expect(page.locator('#shop-menu')).toBeHidden();
   await openShop(page, DEALER.point, 40);
-  await expect(page.locator('#shop-menu .shop-line')).toHaveText(lineText('dealer_greet'));
+  expect(PHRASES.dealer_greet).toContain(await page.locator('#shop-menu .shop-line').textContent());
   await shot('05-dealer-menu');
   await page.keyboard.press('Escape');
   await expect(page.locator('#shop-menu')).toBeHidden();

@@ -1,4 +1,4 @@
-"""Kokoro-82M (Apache-2.0) synthesizer, pinned to one Hugging Face revision and run on the CPU.
+"""Kokoro-82M (Apache-2.0) synthesizer, pinned to one Hugging Face revision.
 
 Only `make voice-setup` (fetch) touches the network; synthesis loads the pinned snapshot offline.
 """
@@ -46,11 +46,16 @@ def synthesizer(voices):
         )
     )
     torch.set_num_threads(engine["threads"])
-    model = KModel(
-        repo_id=engine["model"],
-        config=str(root / "config.json"),
-        model=str(root / engine["weights"]),
-    ).eval()
+    device = engine.get("device", "cpu")
+    model = (
+        KModel(
+            repo_id=engine["model"],
+            config=str(root / "config.json"),
+            model=str(root / engine["weights"]),
+        )
+        .to(device)
+        .eval()
+    )
     pipelines = {}
 
     def synth(line, preset):

@@ -4,6 +4,7 @@ import shutil
 
 import numpy as np
 import pytest
+from voicegen.announcements import extra_lines
 from voicegen.build import build, check, text_sha256
 from voicegen.content import load_voices, voiced_lines
 from voicegen.loudness import integrated_loudness, normalize, trim
@@ -99,6 +100,24 @@ def run(env, fake):
 
 def snapshot(out):
     return {p.name: p.read_bytes() for p in sorted(out.iterdir())}
+
+
+def test_new_published_address_gets_a_clip_source(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "game/src/gameplay/content").mkdir(parents=True)
+    (repo / "game/src/gameplay/content/phrases.json").write_text(
+        json.dumps({"order": [f"Delivery {n} to " for n in range(12)]})
+    )
+    tiles = tmp_path / "data/dist/tiles"
+    (tiles / "addresses").mkdir(parents=True)
+    (tiles / "manifest.json").write_text('{"addresses": {"url": "addresses/pool.json"}}')
+    (tiles / "addresses/pool.json").write_text(
+        '{"addresses": [{"id": "testikatu-9", "address": "Testikatu 9"}]}'
+    )
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    lines = extra_lines(repo)
+    assert any(line.id == "address_testikatu_9" and line.text == "Testikatu 9" for line in lines)
 
 
 def test_build_writes_clips_and_manifest(env):
