@@ -153,7 +153,7 @@ becomes one commit on `refs/public/main`, which began as a squashed import (`doc
 pushed to origin's `main`. Local `main` is never pushed. The row records `push` (`commit`, `seconds`) or `push:
 {error}`.
 
-### Live build (`live_build.build`, run by the integrator)
+### Live build (`live_build.build`; tile selection in `live_layers.py`)
 
 Live and Pages publish what localhost serves (Jonni, 2026-10-27 22:55). `live_build.stages_for(kind)`: `code` (every
 non-inert batch) runs only `make game-build` and ships the served tiles (`served.tiles`: the tile store entry for

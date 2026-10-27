@@ -98,12 +98,19 @@ neighbour's placement context changed.
 |---|---|---|---|
 | ground | LAZ under the envelope, WFS streets/water/buildings, OSM (water bodies, bridges), ortho | `ground/MANIFEST.json` `tile_builds` (+ water body levels) | 82–160 s |
 | roads | OSM ways (`tile_layer.osm`) | OSM clip + code | < 1 s (+8 s reading the work-3x3 clip) |
-| structures | city survey `kanta_Rakenne` (stairs, walls, fences), OSM steps/barriers, LAZ, ground collision | sources + LAZ + ground cells within 5 m | (measured below) |
+| structures | city survey `kanta_Rakenne` (stairs, walls, fences), OSM steps/barriers, LAZ, ground collision | sources + LAZ + ground cells within 5 m | 78–183 s warm; new tile 90 s |
 | bridges | OSM `bridge=*` ways within 150 m, `GIS_Katualueet` `Silta`, LAZ, ground collision | sources + LAZ + ground cells under its crossings | 1–21 s |
 | props | WFS register points, OSM lamps/bollards, placement context | sources + collision within 20 m + footprints + code | 30–60 s |
-| vegetation | tree register (4 WFS layers), LAZ under tile + 12 m, placement context | sources + LAZ + context + assets | 190–390 s cold (each LAZ reduced once), then the placement |
+| vegetation | tree register (4 WFS layers), LAZ under tile + 12 m, placement context | sources + LAZ + context + assets | 7–19 s warm; new tile 9 s (each LAZ reduced once) |
 | traffic_static | OSM parking, `GIS_Katualueet`, placement context (every collider within 20 m) | sources + context + seed | 26–62 s |
 | buildings_outer | CityGML LOD2 of each ring tile (any prepared area covering it) | LOD2 file + listed neighbours | 18 s for the 32 ring tiles |
+
+The new-tile measurements above are from sandbox `t0_2_-1` at host load around 300:
+roads 1.3 s, bridges 6.7 s, props 14 s, vegetation 9 s and parked cars 7 s;
+ground took 1135 s including neighbour work. These are elapsed producer times, not budgets.
+Kerbs still require per-tile lidar relief generation: `lidar.relief` currently takes only
+fixed office/phase1 scopes and reads `work-3x3`; ground accepts one explicit `--breaklines`
+file. There is no automatic per-tile kerb switch yet.
 
 `make tile-add` builds each of these for the new tile; a neighbour rebuilds only when its key
 changes (placement context reaching into the new tile, a water body or bridge it shares).
