@@ -39,7 +39,7 @@ test('taken parked car stays visible after driving away on both backends', { tag
     (window as any).pad.buttons[i] = { value: v, pressed: v > 0.5, touched: v > 0 };
   }, [index, value]);
   await open(page, `/?backend=${info.project.name}`);
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   await page.waitForFunction(() => (window as any).__game?.state?.().grounded);
   await page.evaluate(() => (window as any).__game.physics.setCharacterEnabled(true, { x: 125, y: 2, z: 167.8 }));
   await page.waitForFunction(() => Math.abs((window as any).__game.state().feet[2] - 167.8) < 0.2);

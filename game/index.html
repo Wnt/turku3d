@@ -23,8 +23,6 @@
       #start-bindings { display: grid; grid-template-columns: 40px 1fr 40px 1fr; gap: 8px; }
       #start-bindings dt { font-weight: bold; color: #9de3cc; }
       #start-bindings dd { margin: 0; }
-      .start-card button { padding: 12px 22px; border: 0; border-radius: 6px; background: #a1ebd3; color: #10252d; font: bold 16px system-ui; cursor: pointer; }
-      .start-card button:disabled { opacity: .5; }
       .start-hint { font-size: 12px; }
       .start-credits { font-size: 11px; color: #9fb3b0; margin-bottom: 0; }
       .start-intro { font-size: 14px; color: #cfe0dd; border-left: 3px solid #a1ebd3; padding-left: 12px; }
@@ -67,6 +65,21 @@
       .shop-price { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; color: #f2a541; }
       .shop-price.income { color: #8fe3a0; }
       .shop-hints { margin: 12px 0 0; color: #c9c2b4; font-size: 13px; }
+      /* Start screen and pause menu pages (ui/menu.ts MenuPanel). */
+      #pause-menu { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; background: #06151cb3; color: #edf4f3; font: 15px/1.4 system-ui, sans-serif; overflow: auto; }
+      #pause-menu[hidden] { display: none; }
+      #pause-menu .menu-panel { width: min(480px, calc(100vw - 32px)); box-sizing: border-box; padding: 22px; background: #10252dee; border: 1px solid #47636c; border-radius: 12px; }
+      .menu-title { margin: 0 0 6px; font-size: 22px; }
+      #start-screen .menu-title { display: none; }
+      .menu-text { margin: 0 0 10px; color: #9de3cc; }
+      .menu-text[hidden] { display: none; }
+      .menu-options { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      .menu-option { display: flex; flex-direction: column; padding: 9px 14px; border-radius: 8px; background: #17343ee6; border: 2px solid #2c5560; cursor: pointer; touch-action: manipulation; }
+      .menu-option.selected { border-color: #a1ebd3; background: #21474fe6; box-shadow: 0 0 0 3px #a1ebd333; }
+      .menu-option.disabled { opacity: .5; cursor: default; }
+      .menu-label { font-weight: 600; font-size: 16px; }
+      .menu-detail { color: #b9cdc9; font-size: 13px; }
+      .menu-hints { margin: 10px 0 0; color: #b9cdc9; font-size: 12px; }
       .start-touch, .start-fullscreen { color: #9de3cc; }
       .start-touch[hidden], .start-fullscreen[hidden] { display: none; }
       /* Touch play (input/touch.ts): thumb buttons over the scene; the canvas is the stick and look area. */

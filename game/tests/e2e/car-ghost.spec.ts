@@ -16,7 +16,7 @@ test('car history follows signed motion at driving speed', { tag: ['@drive', '@r
     const g = window.__game as any;
     return g?.ready && g.state().grounded && g.state().tilesSettled;
   });
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   // Position the driver beside the parked car, then use the normal input/worker/visual path.
   await page.evaluate(() => {
     const g = window.__game as any, v = g.state().vehicle.pos;

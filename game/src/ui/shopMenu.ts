@@ -1,11 +1,12 @@
 // Full-screen shop menu over the world: the shop's illustration, the shopkeeper's latest line and the options with
 // prices. Greyed options show why they are not available. It renders a MissionSystem ShopView and turns the menu
 // actions (D-pad / left stick, A, B; arrows or W/S, Enter or E, Escape; a tap or click on a row and the touch Back
-// button) into the mission frame's choose / leave.
+// button; the shared MenuList in menu.ts) into the mission frame's choose / leave.
 import type { Input, InputSource } from '../input';
 import type { OptionId } from '../gameplay/content/shops';
 import type { ShopOptionView, ShopView } from '../gameplay/missions/missions';
 import { formatTimer } from '../gameplay/minimap';
+import { MenuList } from './menu';
 
 interface MenuCommand { choose: OptionId | null; leave: boolean }
 
@@ -26,11 +27,10 @@ export function optionDetail(option: ShopOptionView): string | null {
 
 export class ShopMenu {
   readonly element = document.createElement('section');
-  selected = 0;
   private view: ShopView | null = null;
   private source: InputSource | null = null;
-  private clicked: OptionId | null = null;
-  private readonly list = document.createElement('ol');
+  private chosen: OptionId | null = null;
+  private readonly list = new MenuList<ShopOptionView>('shop', option => { this.chosen = option.id; });
   private readonly line = document.createElement('p');
   private readonly title = document.createElement('h2');
   private readonly speaker = document.createElement('p');
@@ -48,15 +48,15 @@ export class ShopMenu {
     this.line.className = 'shop-line';
     this.status.className = 'shop-status';
     this.hints.className = 'shop-hints';
-    this.list.className = 'shop-options';
     this.title.id = 'shop-title';
     this.element.setAttribute('aria-labelledby', this.title.id);
-    panel.append(this.title, this.status, this.speaker, this.line, this.list, this.hints);
+    panel.append(this.title, this.status, this.speaker, this.line, this.list.element, this.hints);
     this.element.append(panel);
     parent.append(this.element);
   }
 
   get open() { return this.view !== null; }
+  get selected() { return this.list.selected; }
 
   /** Shows `view` (null hides the menu). Cheap when nothing changed. */
   render(view: ShopView | null, input: Input) {
@@ -66,40 +66,28 @@ export class ShopMenu {
     this.source = input.source;
     this.element.hidden = view === null;
     if (!view) return;
-    if (reopened) this.selected = Math.max(0, view.options.findIndex(o => o.enabled));
-    this.selected = Math.min(this.selected, view.options.length - 1);
     this.element.dataset.shop = view.id;
     this.element.style.setProperty('--shop-art', `url("${this.assets}${view.background}.webp")`);
     this.title.textContent = view.title;
     this.status.textContent = `Cash ${view.money} € · Courier permit: ${view.permit === 1 ? '1 delivery' : `${view.permit} deliveries`} left`;
     this.speaker.textContent = view.speaker;
     this.line.textContent = view.line;
-    this.list.replaceChildren(...view.options.map((option, i) => this.row(option, i)));
+    this.list.set(view.options, (option, li) => this.fill(option, li),
+      reopened ? Math.max(0, view.options.findIndex(o => o.enabled)) : undefined);
     this.hints.textContent = input.source === 'touch' ? `Tap an option to select · ${input.prompt('menuBack')} Back to leave`
       : `${input.prompt('menuUp')} ${input.prompt('menuDown')} choose · ${input.prompt('menuSelect')} select · ${input.prompt('menuBack')} leave`;
-    this.highlight();
   }
 
   /** Moves the selection and returns this frame's menu command. Call only while the menu is open. */
   handle(input: Input): MenuCommand {
-    const view = this.view;
-    if (!view) return { choose: null, leave: false };
-    const n = view.options.length;
-    if (input.consume('menuUp')) this.selected = (this.selected - 1 + n) % n;
-    if (input.consume('menuDown')) this.selected = (this.selected + 1) % n;
-    this.highlight();
-    const leave = input.consume('menuBack');
-    const choose = this.clicked ?? (input.consume('menuSelect') ? view.options[this.selected].id : null);
-    this.clicked = null;
+    if (!this.view) return { choose: null, leave: false };
+    const leave = this.list.handle(input);
+    const choose = this.chosen;
+    this.chosen = null;
     return { choose: leave ? null : choose, leave };
   }
 
-  private row(option: ShopOptionView, index: number) {
-    const li = document.createElement('li');
-    li.className = 'shop-option';
-    li.dataset.option = option.id;
-    li.classList.toggle('disabled', !option.enabled);
-    li.setAttribute('aria-disabled', String(!option.enabled));
+  private fill(option: ShopOptionView, li: HTMLLIElement) {
     const icon = document.createElement('span');
     icon.className = 'shop-icon';
     if (option.icon) icon.style.backgroundImage = `url("${this.assets}${option.icon}.webp")`;
@@ -122,15 +110,5 @@ export class ShopMenu {
     price.textContent = formatPrice(option.price);
     price.classList.toggle('income', (option.price ?? 0) < 0);
     li.append(icon, text, price);
-    // pointerup serves mouse clicks and touch taps alike; a touch that began on a thumb button stays captured there.
-    li.addEventListener('pointerup', () => { this.selected = index; this.clicked = option.id; this.highlight(); });
-    return li;
-  }
-
-  private highlight() {
-    this.list.querySelectorAll('li').forEach((li, i) => {
-      li.classList.toggle('selected', i === this.selected);
-      li.setAttribute('aria-selected', String(i === this.selected));
-    });
   }
 }

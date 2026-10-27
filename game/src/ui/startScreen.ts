@@ -1,8 +1,9 @@
 import { glyph, type Action } from '../input/bindings';
 import type { Input } from '../input';
+import { MenuPanel, type MenuHost, type MenuPage } from './menu';
 
 interface StartOptions {
-  /** Story paragraphs for a new game (dialogue line texts), empty when continuing a saved game. */
+  /** Story paragraphs for a first game (dialogue line texts), empty when a save exists. */
   intro?: readonly string[];
   /** One line under the controls, e.g. how to get fullscreen where the browser cannot provide it. */
   hint?: string | null;
@@ -10,23 +11,20 @@ interface StartOptions {
   onClose?: () => void;
 }
 
-/** Controller discovery stays live while the player reads the controls. A new game also shows the story intro. */
-export class StartScreen {
+/**
+ * Controller discovery stays live while the player reads the controls; the main menu (Continue, New game, Load game:
+ * ui/menu.ts SaveMenuFlow.start) starts the game. A first game also shows the story intro. Quitting a game reopens it.
+ */
+export class StartScreen implements MenuHost {
   readonly element = document.createElement('section');
+  readonly menu: MenuPanel;
   active = true;
   private status: HTMLElement;
   private touchLine: HTMLElement;
-  private button: HTMLButtonElement;
-
-  /** Resolves when the player dismisses the screen. */
-  readonly closed: Promise<void>;
-  private resolveClosed!: () => void;
-
   private readonly onClose: () => void;
 
   constructor(input: Input, { intro = [], hint = null, onClose = () => {} }: StartOptions = {}) {
     this.onClose = onClose;
-    this.closed = new Promise(resolve => { this.resolveClosed = resolve; });
     this.element.id = 'start-screen';
     this.element.setAttribute('role', 'dialog');
     this.element.setAttribute('aria-labelledby', 'start-title');
@@ -39,13 +37,12 @@ export class StartScreen {
       <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · M map · Esc pause</p>
       <p class="start-touch">Touch: left thumb moves and drives · drag right to look · pinch to zoom · buttons bottom right</p>
       <p class="start-fullscreen" hidden></p>
-      <button type="button" disabled>Start playing</button>
       <p class="start-hint">Loading the world…</p>
       <p class="start-credits">Map data, lidar and aerial imagery © City of Turku, CC BY 4.0 · Streets © OpenStreetMap contributors, ODbL</p>
     </div>`;
-    const actions: [Action, string][] = [['moveY', 'Move / steer'], ['lookX', 'Look'], ['sprint', 'Sprint / start'],
+    const actions: [Action, string][] = [['moveY', 'Move / steer'], ['lookX', 'Look'], ['sprint', 'Sprint'],
       ['jump', 'Jump'], ['mission', 'Interact'], ['interact', 'Enter / exit car'], ['throttle', 'Accelerate'], ['brake', 'Brake / reverse'],
-      ['handbrake', 'Handbrake'], ['cameraReset', 'Reset camera'], ['map', 'Map'], ['pause', 'Pause / resume']];
+      ['handbrake', 'Handbrake'], ['cameraReset', 'Reset camera'], ['map', 'Map'], ['pause', 'Pause menu']];
     for (const [action, label] of actions) {
       const dt = document.createElement('dt'), dd = document.createElement('dd');
       dt.textContent = glyph(action, input.bindings, true); dd.textContent = label;
@@ -62,26 +59,35 @@ export class StartScreen {
     fullscreen.hidden = !hint;
     this.status = this.element.querySelector('#gamepad-status')!;
     this.touchLine = this.element.querySelector('.start-touch')!;
-    this.button = this.element.querySelector('button')!;
-    this.button.addEventListener('click', () => this.close());
+    this.menu = new MenuPanel(input);
+    this.menu.setEnabled(false);
+    this.status.after(this.menu.element);
     document.body.append(this.element);
   }
+  show(page: MenuPage) { this.menu.show(page); }
+  /** The world is loaded: the menu accepts picks. */
   ready() {
-    this.button.disabled = false;
-    this.element.querySelector('.start-hint')!.textContent = 'Press Ⓐ or select Start playing.';
-    this.button.focus();
+    this.menu.setEnabled(true);
+    this.element.querySelector('.start-hint')!.textContent = 'Press Ⓐ or select an option.';
   }
   update(input: Input) {
     this.status.textContent = input.gamepadName ? `${input.gamepadName} connected`
       : input.source === 'touch' ? 'Touch controls ready.' : 'No controller detected — connect it and press a button.';
     this.touchLine.hidden = !input.touchDevice;
-    if (!this.button.disabled && input.consume('sprint')) this.close();
+    this.menu.handle(input);
   }
-  private close() {
+  /** Leaves for the game; call from the pick that starts it (still inside the gesture). */
+  close() {
     if (!this.active) return;
     this.active = false;
     this.element.remove();
     this.onClose();
-    this.resolveClosed();
+  }
+  /** Back from a game: the menu `page` over the world, without the first-game intro. */
+  reopen(page: MenuPage) {
+    this.element.querySelector('.start-intro')?.remove();
+    this.active = true;
+    this.show(page);
+    document.body.append(this.element);
   }
 }

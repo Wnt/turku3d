@@ -14,7 +14,7 @@ test('minimap routes along published streets to an injected mission target', { t
   page.on('pageerror', e => errors.push(e.message));
   const backend = info.project.name;
   await open(page, `/?backend=${backend}&tiles=/tiles/tileset.json`);
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   await untilSim(page, () => {
     const s = (window as any).__game?.state?.();
     return s?.grounded && s.tilesSettled && s.visTris > 0;

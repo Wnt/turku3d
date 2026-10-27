@@ -4,7 +4,7 @@
 //   (vertical fov), no HUD/player/physics; sets window.__qaReady/__qaError/__qaPose/__qaInfo/__qaProject[/__qaIdTable]
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
-import { enToEngine, engineToEN, collisionTileAt, headingToYaw, yawToHeading } from './core/origin';
+import { enToEngine, engineToEN, collisionTileAt, headingToYaw, yawToHeading, type V3 } from './core/origin';
 import { Input } from './input';
 import { GameAudio } from './audio';
 import { GameplayAudio } from './audio/gameplay';
@@ -30,7 +30,9 @@ import { StartScreen } from './ui/startScreen';
 import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
 import { ShopMenu } from './ui/shopMenu';
 import { RecoveryHud } from './ui/recovery';
-import { MissionSystem, OWN_VEHICLE_ID, hasSavedGame } from './gameplay/missions/missions';
+import { PauseMenu, SaveMenuFlow, type GameHooks } from './ui/menu';
+import { Autosave, SaveStore, formatLabel, type SaveGame } from './core/save';
+import { MissionSystem, OWN_VEHICLE_ID, missionSummary } from './gameplay/missions/missions';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { BICYCLE_TOP_SPEED } from './gameplay/economy';
@@ -90,9 +92,12 @@ env.setTime(params.time);
 if (!idPass) env.updateIBL();
 const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
+/** The sun clock: the ?time= start, the time slider or a loaded game's clock. */
+let clockTime = params.time;
 window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
+  clockTime = date;
   env.setTime(date);
   if (!idPass) env.updateIBL();
 } };
@@ -233,8 +238,8 @@ async function runPlay() {
   audio.mount(document.body);
   const voice = new VoicePlayer(audio.voiceOutput());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true });
-  const storage = browserStorage();
-  const intro = hasSavedGame(storage) ? [] : INTRO_LINE_IDS.map(lineText);
+  const saves = new SaveStore(browserStorage(), missionSummary);
+  const intro = saves.any ? [] : INTRO_LINE_IDS.map(lineText);
   const fullscreen = new FullscreenPolicy();
   const startScreen = new StartScreen(input, { intro,
     hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
@@ -243,7 +248,7 @@ async function runPlay() {
   const hud = new Hud(hudEl);
   const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
   if (!params.hud) hud.toggle();
-  clockControl.hidden = !hud.visible;
+  clockControl.element.hidden = !hud.visible;
   const physics = new PhysicsClient();
   physics.onError = (e) => fail(`physics: ${e}`);
   const [rapier, manifest] = await Promise.all([physics.ready, loadManifest(params.manifest) as Promise<Manifest>]);
@@ -297,7 +302,7 @@ async function runPlay() {
   await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area } = await createGameplay(manifest, document.body);
-  const missions = new MissionSystem({ router, storage });
+  const missions = new MissionSystem({ router });
   minimap.setSource(missions);
   voice.attach(missions);
   // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement.
@@ -305,7 +310,7 @@ async function runPlay() {
     .then(hit => hit?.point.y ?? null), document.body);
   zones.setSource(missions);
   const shopMenu = new ShopMenu(document.body);
-  void startScreen.closed.then(() => missions.begin());
+  const pauseMenu = new PauseMenu(document.body, input);
   const mapDirection = new THREE.Vector3();
 
   let mode: 'foot' | 'car' = 'foot';
@@ -330,6 +335,113 @@ async function runPlay() {
       if (resetMode === 'car') snapChase = true;
       else { orbit.yaw = heading - Math.PI; orbit.pitch = -0.12; }
     });
+  const down = { x: 0, y: -1, z: 0 };
+
+  /** Chassis yaw (engine radians) of a physics vehicle. */
+  const yawOf = (rot: { x: number; y: number; z: number; w: number }) => {
+    const f = tmp.set(1, 0, 0).applyQuaternion(carQuat.set(rot.x, rot.y, rot.z, rot.w));
+    return Math.atan2(-f.z, f.x);
+  };
+  /** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame). */
+  const driverSide = (v: { pos: V3; rot: { x: number; y: number; z: number; w: number } }): V3 => {
+    const out = tmp.set(0, 0, -(1.0 + 0.9)).applyQuaternion(carQuat.set(v.rot.x, v.rot.y, v.rot.z, v.rot.w));
+    return { x: v.pos.x + out.x, y: v.pos.y + 0.2, z: v.pos.z + out.z };
+  };
+  /** On foot again at `at` (null: wherever the character is placed next). */
+  const leaveCar = (at: V3 | null) => {
+    mode = 'foot';
+    physics.driveVehicle(null);
+    drivenId = null;
+    chase.leave();
+    physics.setCharacterEnabled(true, at ?? undefined);
+    player.root.visible = true;
+    orbit.distance = 4.5;
+  };
+
+  // Save slots (core/save.ts) and the start / pause menus (ui/menu.ts).
+  /** A loaded or new game is being placed: the world waits (paused) until the player stands on the ground. */
+  let loading = false;
+  /** Collision streams around this point instead of the feet until the placed character reports it. */
+  let streamFocus: { x: number; z: number } | null = null;
+  const capture = (): SaveGame => {
+    const driven = mode === 'car' ? physics.latest?.vehicles.find(v => v.id === drivenId) : undefined;
+    const at = driven ? driverSide(driven) : feet;
+    const p = engineToEN(at.x, at.y, at.z);
+    const own = physics.latest?.vehicles.find(v => v.id === OWN_VEHICLE_ID);
+    const c = own ? engineToEN(own.pos.x, own.pos.y, own.pos.z) : null;
+    return { version: 1, savedAt: Date.now(), label: formatLabel(missions.lastAddress, clockTime), mission: missions.serialize(),
+      // In a car the camera sits behind the chassis: its yaw is the chassis yaw minus a quarter turn.
+      player: { E: p.E, N: p.N, H: p.H, yaw: driven ? yawOf(driven.rot) - Math.PI / 2 : orbit.yaw },
+      vehicle: own && c ? { owned: missions.vehicle !== 'none', E: c.E, N: c.N, H: c.H, yaw: yawOf(own.rot) } : null,
+      clock: { timeOfDay: clockTime.toISOString() }, stats: { deliveries: missions.deliveries, money: missions.money } };
+  };
+  /** Streams the collision tile under (x, z) and waits until queries see it. */
+  const settleCollision = async (x: number, z: number) => {
+    streamFocus = { x, z };
+    streamer.update(x, z, true);
+    const t = collisionTileAt(x, z), id = `c_${t.i}_${t.j}`;
+    const t0 = performance.now();
+    while (manifest.collision[id] && !physics.loaded.has(id)) {
+      if (performance.now() - t0 > 30000) throw new Error(`collision tile ${id} did not load`);
+      await new Promise(r => setTimeout(r, 20));
+      streamer.update(x, z);
+    }
+    physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+  };
+  // Ground snap of a saved pose: a downward ray from just above its height (under a bridge it finds the road, not
+  // the deck), else from the sky. gameplay-safe-reset adds a shared ground-snap helper; this one has its semantics.
+  const snapGround = async (x: number, z: number, near: number) =>
+    (await physics.raycast({ x, y: near + 2, z }, down, 40))?.point.y ?? groundAt(x, z);
+  /** Puts the world in the state of `game` (null: a new game): missions, clock, the own car, then the player. */
+  const place = async (game: SaveGame | null) => {
+    if (mode === 'car') leaveCar(null);
+    missions.restore(game?.mission ?? null);
+    window.__render!.setTime((game?.clock ? new Date(game.clock.timeOfDay) : params.time).toISOString());
+    clockControl.set(clockTime);
+    const savedCar = game?.vehicle?.owned ? game.vehicle : null;
+    const carAt = savedCar ? { ...enToEngine(savedCar.E, savedCar.N, savedCar.H), yaw: savedCar.yaw }
+      : { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw };
+    await settleCollision(carAt.x, carAt.z);
+    const carY = savedCar ? await snapGround(carAt.x, carAt.z, carAt.y) : carGround;
+    physics.resetVehicle({ x: carAt.x, y: carY + 0.75, z: carAt.z }, carAt.yaw, OWN_VEHICLE_ID);
+    const at = game?.player ? enToEngine(game.player.E, game.player.N, game.player.H) : { ...spawn };
+    await settleCollision(at.x, at.z);
+    const y = game?.player ? await snapGround(at.x, at.z, at.y) : spawn.y;
+    physics.setCharacterEnabled(true, { x: at.x, y: y + 0.05, z: at.z });
+    // The world stays paused until the worker reports the character at its new place, so nothing reads the old one.
+    const t0 = performance.now();
+    const arrived = () => { const c = physics.latest?.character?.pos; return !!c && Math.hypot(c.x - at.x, c.z - at.z) < 0.5; };
+    while (!arrived()) {
+      if (performance.now() - t0 > 10000) throw new Error('the placed character did not arrive');
+      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      await new Promise(r => setTimeout(r, 20));
+    }
+    feet.set(at.x, y, at.z);
+    desiredVelocity.set(0, 0);
+    orbit.yaw = game?.player?.yaw ?? yaw0;
+    recovery.restart({ x: at.x, y, z: at.z, heading: orbit.yaw + Math.PI, inVehicle: false });
+    missions.begin();
+  };
+  const hooks: GameHooks = {
+    capture,
+    play: game => {
+      if (startScreen.active) startScreen.close();
+      pauseMenu.close();
+      paused = loading = true;
+      void place(game).catch(fail).finally(() => { loading = paused = false; });
+    },
+    resume: () => { pauseMenu.close(); paused = false; },
+    quit: () => {
+      autosave.save('quit');
+      pauseMenu.close();
+      paused = false;
+      startScreen.reopen(startFlow.start());
+    },
+  };
+  const startFlow = new SaveMenuFlow(startScreen, saves, hooks);
+  const pauseFlow = new SaveMenuFlow(pauseMenu, saves, hooks);
+  const autosave = new Autosave(saves, () => startScreen.active || loading ? null : capture());
+  autosave.attach(window, document);
 
   const state = () => {
     const en = engineToEN(feet.x, feet.y, feet.z);
@@ -341,11 +453,14 @@ async function runPlay() {
       visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
       frameMs: frameEma, missions: missions.snapshot(), zones: zones.snapshot(),
       recovery: recovery.snapshot(feet),
-      shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, errors };
+      shopMenu: { open: shopMenu.open, selected: shopMenu.selected },
+      pauseMenu: { open: pauseMenu.open, page: pauseMenu.panel.page?.id ?? null, selected: pauseMenu.panel.selected },
+      startScreen: startScreen.active, loading, autosave: autosave.last, errors };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, orbit, telemetry, coarse, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, ready: true });
 
+  startScreen.show(startFlow.start());
   startScreen.ready();
   renderer.setAnimationLoop(() => {
     clock.frames++;
@@ -356,7 +471,7 @@ async function runPlay() {
     frameEma += (dt * 1000 - frameEma) * 0.05;
 
     input.update(dt);
-    if (input.consume('hud')) { hud.toggle(); clockControl.hidden = !hud.visible; }
+    if (input.consume('hud')) { hud.toggle(); clockControl.element.hidden = !hud.visible; }
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.
@@ -372,7 +487,17 @@ async function runPlay() {
       for (const action of LOCKED_IN_MENU) input.consume(action);
       input.lookX = input.lookY = input.zoom = 0;
     }
-    if (input.consume('pause')) paused = !paused;
+    // The pause menu owns the controller like a shop menu. Menu closes it from any page; Escape is also menu back.
+    if (pauseMenu.open) {
+      const pause = input.consume('pause');
+      const back = pauseMenu.panel.handle(input);
+      if (pause && !back && pauseMenu.open) hooks.resume();
+      for (const action of LOCKED_IN_MENU) input.consume(action);
+      input.lookX = input.lookY = input.zoom = 0;
+    } else if (input.consume('pause') && !loading) {
+      paused = true;
+      pauseMenu.show(pauseFlow.pause());
+    }
     // Touch play runs only in fullscreen: leaving it pauses behind the overlay until the player taps back in.
     paused = fullscreen.update(input.source === 'touch' && !startScreen.active, paused);
     if (input.consume('map')) minimap.toggleExpanded();
@@ -404,15 +529,7 @@ async function runPlay() {
         player.root.visible = false;
         orbit.distance = 8;
       } else if (mode === 'car' && vs) {
-        mode = 'foot';
-        physics.driveVehicle(null);
-        drivenId = null;
-        chase.leave();
-        carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w);
-        const out = tmp.set(0, 0, -(1.0 + 0.9)).applyQuaternion(carQuat); // driver side (-Z in the chassis frame)
-        physics.setCharacterEnabled(true, { x: vs.pos.x + out.x, y: vs.pos.y + 0.2, z: vs.pos.z + out.z });
-        player.root.visible = true;
-        orbit.distance = 4.5;
+        leaveCar(driverSide(vs));
       }
     }
     if (mode === 'car' && !paused && !lost && input.consume('vehicleReset') && vs) {
@@ -441,6 +558,7 @@ async function runPlay() {
       position: { x: feet.x, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
     });
+    if (mission.checkpoint) autosave.save(mission.checkpoint);
     shopMenu.render(missions.shop, input);
     zones.setHidden(missions.shop !== null);
     if (mission.bought && drivenId !== OWN_VEHICLE_ID) {
@@ -502,8 +620,9 @@ async function runPlay() {
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,
       position: camera.position, forward: camera.getWorldDirection(audioForward),
       up: audioUp.set(0, 1, 0).applyQuaternion(camera.quaternion) });
-    coarse?.update(feet.x, feet.z);
-    streamer.update(feet.x, feet.z);
+    if (streamFocus && !loading && Math.hypot(feet.x - streamFocus.x, feet.z - streamFocus.z) < 3) streamFocus = null;
+    coarse?.update(streamFocus?.x ?? feet.x, streamFocus?.z ?? feet.z);
+    streamer.update(streamFocus?.x ?? feet.x, streamFocus?.z ?? feet.z);
     env.follow(feet);
     tiles.update(camera);
     renderFrame();
@@ -533,8 +652,8 @@ async function runPlay() {
       ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`, draft: coarse?.status,
       perf,
     });
-    input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden' : menuOpen || missions.shop ? 'menu' : paused ? 'paused'
-      : recovery.lost ? 'lost' : mode);
+    input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden'
+      : menuOpen || missions.shop || pauseMenu.open ? 'menu' : paused ? 'paused' : recovery.lost ? 'lost' : mode);
     const help = document.getElementById('help')!;
     help.textContent = paused ? `${input.prompt('pause')} Resume`
       : recovery.lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
@@ -545,10 +664,10 @@ async function runPlay() {
   });
 }
 
-/** Actions ignored while a shop menu is open (Escape and D-pad down are also pause and mute). */
+/** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
-/** localStorage, or null where the browser blocks it (the mission system then runs without persistence). */
+/** localStorage, or null where the browser blocks it (the save slots then last only for this page). */
 function browserStorage(): Storage | null {
   try { return window.localStorage; } catch { return null; }
 }

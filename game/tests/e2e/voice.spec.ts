@@ -12,7 +12,7 @@ test('intro narration plays; a voiced HUD message starts its clip, ducks ambienc
   const manifest = await (await page.request.get('assets/voice/manifest.json')).json();
   const lines = manifest.lines as { id: string; speaker: string; text: string; seconds: number }[];
   const first = lines.find(line => line.speaker === 'market')!, second = lines.find(line => line.speaker === 'pizzeria')!;
-  await page.getByRole('button', { name: 'Start playing' }).click(); // pointerdown unlocks the audio context
+  await page.getByRole('option', { name: 'New game' }).click(); // pointerdown unlocks the audio context
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot().state), { timeout: 30_000 }).toBe('running');
   await expect.poll(() => page.evaluate(() => (window as any).__game.voice.snapshot().playing), { timeout: 10_000 }).toBe('intro_1');
   await page.evaluate(text => {

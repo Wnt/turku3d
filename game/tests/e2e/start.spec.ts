@@ -4,7 +4,7 @@ import { OFFICE_EN } from '../../src/core/origin';
 test('start screen discovers, disconnects and reconnects an Xbox controller', { tag: ['@input', '@launch', '@synthetic'] }, async ({ page }, info) => {
   await installPad(page);
   await page.goto(`/?backend=${info.project.name}`);
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled();
+  await expect(page.getByRole('option', { name: 'New game' })).toBeEnabled();
   await expect(page.locator('#gamepad-status')).toHaveText('Xbox Wireless Controller connected');
   await expect(page.locator('#start-bindings')).toContainText('Ⓨ');
   await expect(page.locator('#start-bindings')).toContainText('RT');

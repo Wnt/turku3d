@@ -60,6 +60,12 @@ export class SafeReset {
     if (this.monitor.update(probe, Number.isFinite(ground) ? ground : this.lowestManifestGround) || resetNow) void this.recover(player);
   }
 
+  /** A loaded or new game placed the player here (`heading` as in SafeSample): start sampling afresh. */
+  restart(start: Omit<SafeSample, 'time'>) {
+    this.monitor.restart({ ...start, time: this.time });
+    this.waterDepth = null;
+  }
+
   /** The lost prompt or the edge notice for this frame; true when the edge notice shows. */
   render(feet: THREE.Vector3, button: string) {
     const lost = this.monitor.lost;

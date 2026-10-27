@@ -5,7 +5,8 @@ DOM overlays drawn over the WebGPU/WebGL canvas. Styles live in `game/index.html
 | File | Role |
 |---|---|
 | `hud.ts` | Debug HUD (H): backend, frame times, resident tiles, collision, player position |
-| `startScreen.ts` | Controls, controller status and the story intro of a new game; closes with A or the button |
+| `startScreen.ts` | Controls, controller status, the main menu (Continue / New game / Load game) and the story intro of a first game; quitting a game reopens it |
+| `menu.ts` | `MenuList` (the row list every menu uses), `MenuPanel` (a titled menu page), `PauseMenu`, and `SaveMenuFlow` (start, pause, save, load and confirm pages over `core/save.ts`) |
 | `shopMenu.ts` | `ShopMenu`: the full-screen shop menu that renders a `ShopView` from the mission system |
 | `fullscreen.ts` | `FullscreenPolicy`: touch play runs the scene in fullscreen; the "Tap to continue in fullscreen" overlay |
 
@@ -32,8 +33,49 @@ becomes visible again); every rejection is ignored. While the scene runs, `updat
 
 Unit tests: `cd game && npx vitest run tests/unit/touch.test.ts`. Browser: `tests/e2e/touch.spec.ts`.
 
+## Main menu, pause menu and save slots
+
+`core/save.ts` keeps three named slots and an autosave in `localStorage` key `turku3d.saves`
+(`{version: 1, slots: {auto, slot1, slot2, slot3}}`). A slot is
+`{version, savedAt, label, mission, player: {E, N, H, yaw} | null, vehicle: {owned, E, N, H, yaw} | null,
+clock: {timeOfDay} | null, stats: {deliveries, money}}`: `mission` is the opaque text of
+`MissionSystem.serialize()` (the mission module keeps its own format and migrations), E/N are EPSG:3877,
+H is N2000, yaw is the engine yaw in radians (the camera yaw on foot). The label is the last delivery's
+address and the Helsinki clock time (`Linnankatu 21 · 14:05`, `Before the first delivery · 14:00`).
+A mission save from before the slots (key `turku3d.missions`) becomes slot 1 on the first run and the old
+key is removed; it has no position, so it continues from the spawn point at the default time.
+
+The game autosaves (`Autosave`) after every finished delivery and every shop purchase or sale
+(`missions.update(...).checkpoint`), on Quit to start screen, and on `pagehide` or a hidden tab while a
+game runs (never from the start screen).
+
+- **Start screen**: Continue (the most recent slot, with its label, delivery count, money and save
+  time), New game (asks first when any save exists), Load game (greyed without saves).
+- **Pause menu** (`pause`: Menu, Escape, touch Pause): Resume, Save game (Slot 1–3; a filled slot asks
+  before it is overwritten, then "Saved to Slot N."), Load game (autosave and slots, empty ones greyed),
+  New game (always asks), Quit to start screen. While it is open the world is paused and its input is
+  locked like in a shop menu. Menu resumes from any page; Escape and B go back one page (resume on the
+  first); the touch context is `menu`, so the touch Back button does the same. The fullscreen overlay
+  rule is unchanged: a pause the player chose survives a trip out of fullscreen.
+- **Load / new game** (`main.ts` `place`): leaves the car, restores the missions (a running order keeps
+  its timer), the clock and the time slider, puts the own car at its saved pose when one is owned (else at
+  its spawn parking), streams the collision tile under the saved position and snaps the player onto the
+  ground with a downward ray from 2 m above the saved height (from the sky when that misses), then waits
+  paused until the physics worker reports the character there.
+
+All menus share `MenuList`: `menuUp` / `menuDown` (D-pad, left stick, arrows, W/S) move the selection,
+`menuSelect` (A, Enter, E) or a `pointerup` on a row picks it, `menuBack` (B, Escape, Backspace, touch
+Back) goes back. A pick runs synchronously inside the tap, so the start screen's fullscreen request still
+has its user gesture. Disabled rows carry `aria-disabled="true"` and the `disabled` class.
+
+Unit tests (no DOM): `cd game && npx vitest run tests/unit/save.test.ts tests/unit/missions.test.ts`
+(slot CRUD, corrupt storage, migration, labels, autosave triggers, every menu page). Browser, both
+backends, screenshots in `$TURKU3D_WORK/reports/gameplay-save-menu/`:
+`cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test tests/e2e/save-menu.spec.ts`.
+
 ## Shop menu
 
+`ShopMenu` draws its rows with the shared `MenuList` (`menu.ts`, row prefix `shop`).
 `main.ts` calls `shopMenu.render(missions.shop, input)` every frame (cheap when the view object is
 unchanged) and, while `shopMenu.open`, `shopMenu.handle(input)` before the mission update. `handle`
 moves the selection with `menuUp` / `menuDown` (D-pad, left stick, arrows, W/S) and returns

@@ -138,7 +138,7 @@ export class RecoveryMonitor {
   private airSince: number | null = null;
   private graceUntil = -Infinity;
 
-  constructor(private readonly area: PlayableArea, private readonly fallback: SafeSample) {}
+  constructor(private readonly area: PlayableArea, private fallback: SafeSample) {}
 
   /** Seconds left before the automatic reset, or null when not lost. */
   countdown(time: number) { return this.lost ? Math.max(0, this.lost.since + RECOVERY.countdown - time) : null; }
@@ -171,6 +171,17 @@ export class RecoveryMonitor {
     const sample = [...this.samples].reverse().find(s => s.time <= before) ?? this.samples[0] ?? this.fallback;
     const margin = RECOVERY.edgeMargin + (sample.inVehicle ? RECOVERY.carMargin : 0);
     return { ...sample, ...this.area.inset(sample, margin) };
+  }
+
+  /** A loaded or new game put the player at `start`: older samples and any lost state belong to the old game. */
+  restart(start: SafeSample) {
+    this.fallback = start;
+    this.samples.length = 0;
+    this.lost = null;
+    this.waterSince = this.airSince = null;
+    this.lastSafe = start.time;
+    this.lastSample = start.time - RECOVERY.sampleEvery;
+    this.graceUntil = start.time + RECOVERY.grace;
   }
 
   /** The player was put back at `target` at `time`: newer samples led to the fall and are dropped. */

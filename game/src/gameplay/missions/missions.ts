@@ -21,7 +21,6 @@ export const INTERACT_RADIUS = 3;
 const SHOP_LEAVE_RADIUS = 6;
 /** The player's own car (physics vehicle id); it also stands in for the bicycle. */
 export const OWN_VEHICLE_ID = 'player';
-export const SAVE_KEY = 'turku3d.missions';
 
 interface MissionSave {
   version: 2;
@@ -53,11 +52,6 @@ interface MissionSaveV1 {
   par: number;
 }
 
-export interface KeyValueStore {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
-
 export interface MissionFrame {
   /** Player feet (on foot) or vehicle position (driving). */
   position: WorldPoint;
@@ -75,8 +69,13 @@ export interface MissionFrame {
 
 interface MissionOptions {
   router: Router;
-  storage: KeyValueStore | null;
 }
+
+/** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
+export type Checkpoint = 'delivery' | 'purchase';
+
+/** What a save slot shows about a mission save without restoring it. */
+export interface MissionSummary { deliveries: number; money: number; lastAddress: string | null }
 
 /** What the pizzeria quotes before an order is accepted. */
 export interface OrderQuote { address: string; metres: number; par: number }
@@ -181,9 +180,15 @@ function parseSave(raw: string | null): MissionSave {
   }
 }
 
-/** Whether the store holds a started game; the start screen shows the intro only for a new game. */
-export function hasSavedGame(storage: KeyValueStore | null): boolean {
-  return parseSave(storage?.getItem(SAVE_KEY) ?? null).phase !== 'idle';
+/** Address of the delivery before index `delivery`, or null before the first one. */
+function lastAddress(delivery: number): string | null {
+  return delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null;
+}
+
+/** Slot details of a `MissionSystem.serialize()` text (an invalid text reads as a new game). */
+export function missionSummary(text: string | null): MissionSummary {
+  const s = parseSave(text);
+  return { deliveries: s.delivery, money: s.money, lastAddress: lastAddress(s.delivery) };
 }
 
 export class MissionSystem implements MissionHudSource {
@@ -193,7 +198,7 @@ export class MissionSystem implements MissionHudSource {
   private frame: MissionFrame | null = null;
   private listeners = new Set<HudStateListener>();
   private hud: MissionHudState;
-  private savedSecond = -1;
+  private checkpoint: Checkpoint | null = null;
   /** Seconds of slice energy left (not saved: a reload starts without it). */
   private energy = 0;
   private open: { shop: Shop; line: string } | null = null;
@@ -201,8 +206,24 @@ export class MissionSystem implements MissionHudSource {
   private quoteCache: { key: string; quote: OrderQuote } | null = null;
 
   constructor(private readonly options: MissionOptions) {
-    this.s = parseSave(options.storage?.getItem(SAVE_KEY) ?? null);
+    this.s = freshSave();
     this.hud = this.buildState();
+  }
+
+  /** The mission save as text; its format and migrations stay private to this module. */
+  serialize(): string { return JSON.stringify(this.s); }
+
+  /** Continues from a `serialize()` text, or starts a new game with null. A running order keeps its timer. */
+  restore(text: string | null) {
+    this.s = parseSave(text);
+    this.queue = [];
+    this.lastResult = null;
+    this.energy = 0;
+    this.open = null;
+    this.view = null;
+    this.quoteCache = null;
+    this.checkpoint = null;
+    this.emit();
   }
 
   get phase(): Phase { return this.s.phase; }
@@ -212,6 +233,10 @@ export class MissionSystem implements MissionHudSource {
   get plates(): boolean { return this.s.plates; }
   get kidney(): boolean { return this.s.kidney; }
   get currentDelivery(): Delivery { return DELIVERIES[this.s.delivery % DELIVERIES.length]; }
+  /** Finished deliveries (delivered or failed). */
+  get deliveries(): number { return this.s.delivery; }
+  /** Address of the last finished delivery, or null before the first one. */
+  get lastAddress(): string | null { return lastAddress(this.s.delivery); }
   /** Multiplier on the player's run and sprint speed. */
   get runFactor(): number { return this.s.kidney && this.energy <= 0 ? KIDNEY_RUN_FACTOR : 1; }
   /** The open shop menu, or null. The same object is returned until something in it changes. */
@@ -231,7 +256,6 @@ export class MissionSystem implements MissionHudSource {
   begin() {
     if (this.s.phase !== 'idle') return;
     this.s.phase = this.restPhase();
-    this.persist();
     this.emit();
   }
 
@@ -245,7 +269,7 @@ export class MissionSystem implements MissionHudSource {
   }
 
   /** Advances timers and dialogue by dt seconds (0 while paused), handles the interaction button and the menu. */
-  update(dt: number, frame: MissionFrame): { bought: BoughtVehicle | null; opened: boolean } {
+  update(dt: number, frame: MissionFrame): { bought: BoughtVehicle | null; opened: boolean; checkpoint: Checkpoint | null } {
     this.frame = frame;
     let bought: BoughtVehicle | null = null;
     const wasOpen = this.open !== null;
@@ -253,12 +277,10 @@ export class MissionSystem implements MissionHudSource {
     this.energy = Math.max(0, this.energy - dt);
     if ((this.s.phase === 'delivered' || this.s.phase === 'failed') && this.queue.length === 0) {
       this.s.phase = this.restPhase();
-      this.persist();
     }
     if (this.s.phase === 'carrying' && dt > 0) {
       this.s.elapsed += dt;
       if (this.s.elapsed > deliveryDeadline(this.s.par)) this.fail();
-      else if (Math.floor(this.s.elapsed) !== this.savedSecond) this.persist();
     }
     if (this.open) {
       if (frame.leave || distance(frame.position, this.open.shop.target.point) > SHOP_LEAVE_RADIUS) this.open = null;
@@ -272,7 +294,9 @@ export class MissionSystem implements MissionHudSource {
     }
     this.view = this.buildView();
     this.emit();
-    return { bought, opened: !wasOpen && this.open !== null };
+    const checkpoint = this.checkpoint;
+    this.checkpoint = null;
+    return { bought, opened: !wasOpen && this.open !== null, checkpoint };
   }
 
   // ----------------------------------------------------------------------------------------------- actions
@@ -379,7 +403,7 @@ export class MissionSystem implements MissionHudSource {
         break;
       case 'sell_vehicle': this.s.vehicle = 'none'; this.reply('dealer_bought_back'); break;
     }
-    this.persist();
+    if (price !== null) this.checkpoint = 'purchase';
   }
 
   /** The shopkeeper answers inside the open menu; the line is also the HUD message, so it is voiced. */
@@ -424,7 +448,7 @@ export class MissionSystem implements MissionHudSource {
     this.s.elapsed = this.s.par = 0;
     this.lastResult = 'delivered';
     this.say(t >= 5 ? d.customer.fast : t >= 1 ? d.customer.ok : d.customer.slow, `paid_tip_${t}`, ...this.permitWarning());
-    this.persist();
+    this.checkpoint = 'delivery';
   }
 
   private fail() {
@@ -433,7 +457,7 @@ export class MissionSystem implements MissionHudSource {
     this.s.elapsed = this.s.par = 0;
     this.lastResult = 'failed';
     this.say('delivery_failed', ...this.permitWarning());
-    this.persist();
+    this.checkpoint = 'delivery';
   }
 
   private permitWarning(): string[] {
@@ -508,15 +532,6 @@ export class MissionSystem implements MissionHudSource {
       && next.timerSeconds === prev.timerSeconds && next.message === prev.message) return;
     this.hud = next;
     for (const listener of this.listeners) listener(next);
-  }
-
-  private persist() {
-    this.savedSecond = Math.floor(this.s.elapsed);
-    try {
-      this.options.storage?.setItem(SAVE_KEY, JSON.stringify(this.s));
-    } catch {
-      // Storage full or blocked (private mode): the game continues without persistence.
-    }
   }
 }
 
