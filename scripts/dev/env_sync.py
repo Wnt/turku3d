@@ -89,7 +89,14 @@ def sync(root, env=None):
                 )
                 stamp["python"] = key
                 write_json(cache / "stamp.json", stamp)
-            for package in (".", "game", "tools/validator", "qa/render", "textures/node"):
+            for package in (
+                ".",
+                "game",
+                "tools/validator",
+                "tools/music-lab",
+                "qa/render",
+                "textures/node",
+            ):
                 directory = root / package
                 paths = [directory / name for name in ("package.json", "package-lock.json")]
                 if not all(p.exists() for p in paths):
