@@ -6,16 +6,13 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 import live_cache
 import sandbox as s
 from host_slots import integration_jobs
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pipeline"))
-from turku3d import config as C  # noqa: E402  (stdlib-only module; no pipeline env needed)
+from landing_class import C, released_tiles
 
 
 def tiles(published):
@@ -23,12 +20,58 @@ def tiles(published):
     return tuple(C.playable_tile_ids(published))
 
 
-def released_tiles(release):
-    """The tile list a published release was built for; releases before the list had the core."""
-    record = release / "live-build.json" if release else None
-    if record and record.is_file():
-        return tuple(json.loads(record.read_text()).get("tiles", C.CORE_TILES))
-    return C.CORE_TILES
+# Stages per landing class (landing_class.py); `inert` builds nothing and re-points live.
+STAGES = {
+    "code": (
+        "refresh",
+        "tile-build",
+        "tile-validate",
+        "car-report",
+        "facade-ground-audit",
+        "game-build",
+        "collision-sweep",
+        "collision-audit",
+        "chrome",
+    ),
+    # No Chrome: spec selection for data landings belongs to tool-chrome-selection. The
+    # game bundle is rebuilt (seconds): a release ships one and voice clips are part of it.
+    "data": (
+        "refresh",
+        "tile-build",
+        "tile-validate",
+        "car-report",
+        "facade-ground-audit",
+        "game-build",
+    ),
+    "inert": (),
+}
+
+
+def stages_for(landing_class):
+    """The live stages a batch of this class runs: the one seam for stage selection."""
+    return STAGES[landing_class]
+
+
+def parked_changed(previous, work):
+    """Whether the parked-car layer differs from the previous release's."""
+    return not previous or not same_tree(
+        previous / "layers/traffic_static", work / "build/layers/traffic_static"
+    )
+
+
+def carry_car_report(previous, work):
+    """The previous release's car result, copied for a data build with unchanged parked cars."""
+    record = json.loads((previous / "live-build.json").read_text())
+    if "car_validation" not in record:
+        return None
+    target = work / "reports/validate-cars.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(previous / record["car_validation"]["report"], target)
+    return {
+        **record["car_validation"],
+        "report": "reports/validate-cars.json",
+        "carried_from": record.get("verified_commit", record["commit"]),
+    }
 
 
 class StageFailed(ValueError):
@@ -288,12 +331,17 @@ def inspect_car_report(path, returncode):
     }
 
 
-def build(repo, work, published, env, log_path, reason=None, previous_release=None):
-    """Run every live stage on repo; the caller holds the integration host reservation.
+def build(
+    repo, work, published, env, log_path, reason=None, previous_release=None, landing_class="code"
+):
+    """Run the class's live stages on repo; the caller holds the integration host reservation.
 
     previous_release is the published release directory the batch starts from; tile-build
-    and collision checks then only rebuild what the layer delta affects.
+    and collision checks then only rebuild what the layer delta affects. A data build runs
+    the car report only when the parked-car layer changed, else it carries the previous
+    release's result forward.
     """
+    stages = stages_for(landing_class)
     seed(work, published)
     minimum = baseline(published)
     listed = tiles(published)
@@ -350,6 +398,17 @@ def build(repo, work, published, env, log_path, reason=None, previous_release=No
     scopes = {}
     with log_path.open("w") as log:
         for stage, command, cwd in commands:
+            if stage not in stages:
+                continue
+            if (
+                stage == "car-report"
+                and landing_class == "data"
+                and not parked_changed(previous_release, work)
+            ):
+                if carried := carry_car_report(previous_release, work):
+                    report["car_validation"] = carried
+                log.write(f"\n== {stage}: parked cars unchanged; result carried forward ==\n")
+                continue
             if stage == "tile-build":
                 prior = previous_release
                 if prior:
@@ -505,6 +564,30 @@ def prepare(work, published, commit, report, release_id=None):
     (release / "live-build.json").write_text(
         json.dumps({"commit": commit, **report}, indent=2) + "\n"
     )
+    return release
+
+
+def repoint(published, start, end):
+    """Publish end with the content of start's live release; an inert batch ships nothing new.
+
+    The release directory is an APFS clone of the live one whose record names end, keeps
+    `verified_commit` (the commit whose build verified the content) and `repointed_from`.
+    """
+    previous = (published / "live").resolve()
+    record = json.loads((previous / "live-build.json").read_text())
+    if record["commit"] != start:
+        raise ValueError(
+            f"live release is {record['commit'][:12]}, not the batch base {start[:12]}"
+        )
+    release = published / "live-releases" / end
+    if release.exists():
+        shutil.rmtree(release)
+    _clone(previous, release)
+    record.update(
+        commit=end, verified_commit=record.get("verified_commit", start), repointed_from=start
+    )
+    (release / "live-build.json").write_text(json.dumps(record, indent=2) + "\n")
+    publish(published, end)
     return release
 
 

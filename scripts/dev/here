@@ -39,7 +39,7 @@ try:
         with log.open() as f:
             for line in deque(f, maxlen=3):
                 row = json.loads(line)
-                print(f"  {row['commit'][:12]} {row['name']}")
+                print(f"  {row['commit'][:12]} {row.get('class', '?'):5} {row['name']}")
     else:
         print(s.git("log", "-3", "--format=  %h %s", "main", cwd=repo))
     next_cmd = (

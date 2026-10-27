@@ -257,75 +257,83 @@ class LiveBuildTests(unittest.TestCase):
             )
             self.assertEqual(live_build.baseline(published), 164)
 
+    def stage_fixture(self, root):
+        """repo, work and published roots with one assembled manifest of the core tiles."""
+        repo, work, published = root / "repo", root / "work", root / "data"
+        repo.mkdir()
+        (published / "textures/assembly").mkdir(parents=True)
+        (published / "textures/assembly/MANIFEST.json").write_text(
+            json.dumps({"bound": ["one", "two"]})
+        )
+        (work / "dist/tiles").mkdir(parents=True)
+        (work / "dist/tiles/manifest.json").write_text(
+            json.dumps(
+                {
+                    "visual": {
+                        tile: {"ground_texture_bytes": 1, "wire_bytes": 100, "tris": 1000}
+                        for tile in live_build.C.CORE_TILES
+                    },
+                    "spawn": {"position": [0, 0, 0]},
+                }
+            )
+        )
+        return repo, work, published
+
+    def stage_runner(self, work, calls):
+        """A run_group stand-in that records each stage command and fakes its output."""
+
+        def run(command, **kwargs):
+            load_log = kwargs["env"].get("TURKU3D_BROWSER_LOAD_LOG")
+            if load_log:
+                Path(load_log).write_text(
+                    json.dumps(
+                        {
+                            "project": "webgpu",
+                            "file": "tile.spec.ts",
+                            "title": "walks",
+                            "retry": 0,
+                            "status": "passed",
+                            "hostLoad": 1.0,
+                            "pace": {"p95FrameMs": 20.0},
+                        }
+                    )
+                    + "\n"
+                )
+            calls.append(
+                (
+                    command,
+                    kwargs["cwd"],
+                    kwargs["env"]["TILE_DIST"],
+                    kwargs["env"].get("TURKU3D_JOBS"),
+                )
+            )
+            if "--checks" in command and "cars" in command:
+                (work / "reports").mkdir(exist_ok=True)
+                (work / "reports/validate-cars.json").write_text(
+                    json.dumps(
+                        {
+                            "pass": False,
+                            "checks": {"cars": {"status": "fail", "perTile": [{"status": "fail"}]}},
+                        }
+                    )
+                )
+                return type("Completed", (), {"returncode": 1, "stdout": "cars FAIL\n"})()
+            if "tile-build" in command:
+                output = '{"facades_bound": 2}\n'
+            elif any(part.endswith("facade_ground_audit") for part in command):
+                output = '{"sampled": 2, "buried_facades": []}\n'
+            else:
+                output = "passed\n"
+            return type("Completed", (), {"returncode": 0, "stdout": output})()
+
+        return run
+
     def test_build_runs_real_stages_in_order_and_records_time(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            repo, work, published = root / "repo", root / "work", root / "data"
-            repo.mkdir()
-            (published / "textures/assembly").mkdir(parents=True)
-            (published / "textures/assembly/MANIFEST.json").write_text(
-                json.dumps({"bound": ["one", "two"]})
-            )
-            (work / "dist/tiles").mkdir(parents=True)
-            (work / "dist/tiles/manifest.json").write_text(
-                json.dumps(
-                    {
-                        "visual": {
-                            tile: {"ground_texture_bytes": 1, "wire_bytes": 100, "tris": 1000}
-                            for tile in live_build.C.CORE_TILES
-                        },
-                        "spawn": {"position": [0, 0, 0]},
-                    }
-                )
-            )
+            repo, work, published = self.stage_fixture(root)
             calls = []
-
-            def run(command, **kwargs):
-                load_log = kwargs["env"].get("TURKU3D_BROWSER_LOAD_LOG")
-                if load_log:
-                    Path(load_log).write_text(
-                        json.dumps(
-                            {
-                                "project": "webgpu",
-                                "file": "tile.spec.ts",
-                                "title": "walks",
-                                "retry": 0,
-                                "status": "passed",
-                                "hostLoad": 1.0,
-                                "pace": {"p95FrameMs": 20.0},
-                            }
-                        )
-                        + "\n"
-                    )
-                calls.append(
-                    (
-                        command,
-                        kwargs["cwd"],
-                        kwargs["env"]["TILE_DIST"],
-                        kwargs["env"].get("TURKU3D_JOBS"),
-                    )
-                )
-                if "--checks" in command and "cars" in command:
-                    (work / "reports").mkdir(exist_ok=True)
-                    (work / "reports/validate-cars.json").write_text(
-                        json.dumps(
-                            {
-                                "pass": False,
-                                "checks": {
-                                    "cars": {"status": "fail", "perTile": [{"status": "fail"}]}
-                                },
-                            }
-                        )
-                    )
-                    return type("Completed", (), {"returncode": 1, "stdout": "cars FAIL\n"})()
-                if "tile-build" in command:
-                    output = '{"facades_bound": 2}\n'
-                elif any(part.endswith("facade_ground_audit") for part in command):
-                    output = '{"sampled": 2, "buried_facades": []}\n'
-                else:
-                    output = "passed\n"
-                return type("Completed", (), {"returncode": 0, "stdout": output})()
-
+            run = self.stage_runner(work, calls)
             with patch.object(live_build.s, "run_group", side_effect=run):
                 report = live_build.build(
                     repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log"
@@ -362,6 +370,58 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(list(report["browser_load"]), ["chrome"])
             self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)
             self.assertEqual(report["facade_ground_audit"]["sampled"], 2)
+
+    def test_data_build_skips_chrome_and_collision_and_carries_unchanged_car_result(self):
+        self.assertEqual(live_build.stages_for("inert"), ())
+        self.assertNotIn("chrome", live_build.stages_for("data"))
+        self.assertEqual(live_build.stages_for("code")[-1], "chrome")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, work, published = self.stage_fixture(root)
+            previous = root / "release"
+            (previous / "reports").mkdir(parents=True)
+            (previous / "reports/validate-cars.json").write_text('{"previous": true}')
+            car = {"status": "fail", "failed_tiles": 3, "report": "reports/validate-cars.json"}
+            (previous / "live-build.json").write_text(
+                json.dumps({"commit": "g" * 40, "car_validation": car})
+            )
+            for layers in (previous / "layers", work / "build/layers"):
+                (layers / "traffic_static").mkdir(parents=True)
+                (layers / "traffic_static/placements.json").write_text("[1]")
+
+            def build():
+                calls = []
+                with patch.object(
+                    live_build.s, "run_group", side_effect=self.stage_runner(work, calls)
+                ):
+                    report = live_build.build(
+                        repo,
+                        work,
+                        published,
+                        {"TURKU3D_WORK": str(work)},
+                        root / "build.log",
+                        previous_release=previous,
+                        landing_class="data",
+                    )
+                return report, calls
+
+            report, calls = build()
+            self.assertEqual(
+                list(report["seconds"]),
+                ["refresh", "tile-build", "tile-validate", "facade-ground-audit", "game-build"],
+            )
+            self.assertEqual(len(calls), 5)
+            self.assertEqual(report["car_validation"], {**car, "carried_from": "g" * 40})
+            self.assertEqual(
+                (work / "reports/validate-cars.json").read_text(), '{"previous": true}'
+            )
+            self.assertIn("parked cars unchanged", (root / "build.log").read_text())
+            # Changed parked cars run the car report again, still without Chrome.
+            (work / "build/layers/traffic_static/placements.json").write_text("[2]")
+            report, calls = build()
+            self.assertIn("car-report", report["seconds"])
+            self.assertNotIn("carried_from", report["car_validation"])
+            self.assertEqual(len(calls), 6)
 
     def test_car_report_rejects_missing_or_inconsistent_result(self):
         with tempfile.TemporaryDirectory() as temp:

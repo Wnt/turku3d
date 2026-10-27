@@ -1,4 +1,4 @@
-"""Synthetic integration batches: publish, skip, base check, bisect and revert, facades."""
+"""Synthetic integration batches: classes, publish, re-point, base check, bisect, facades."""
 
 import json
 import os
@@ -58,6 +58,7 @@ class IntegratorTests(unittest.TestCase):
         (home / "sandbox.env").write_text(f"export TURKU3D_WORK={self.work}\n")
         self.release(self.base)
         self.builds = []
+        self.classes = []
         self.chrome_flakes = 0
 
     def git(self, *args, cwd=None):
@@ -81,7 +82,7 @@ class IntegratorTests(unittest.TestCase):
         (work / "textures/assembly/MANIFEST.json").write_bytes(self.approvals().read_bytes())
         visual = {
             tile: {"tris": 1000, "ground_texture_bytes": 1, "wire_bytes": 1}
-            for tile in live_build.C.CORE_TILES
+            for tile in live_build.tiles(self.published)
         }
         manifest = work / "dist/tiles/manifest.json"
         manifest.write_text(json.dumps({"visual": visual, "spawn": [0, 0, 0]}))
@@ -97,9 +98,12 @@ class IntegratorTests(unittest.TestCase):
         live_build.prepare(work, self.published, commit, report)
         live_build.publish(self.published, commit)
 
-    def fake_build(self, repo, work, published, env, log, reason=None, previous=None):
+    def fake_build(
+        self, repo, work, published, env, log, reason=None, previous=None, landing_class="code"
+    ):
         """Stands in for the real stages: red on game/bad.ts, real facade inspection."""
         self.builds.append(self.git("rev-parse", "HEAD", cwd=repo))
+        self.classes.append(landing_class)
         self.assertEqual(previous, (published / "live").resolve())
         log.write_text("== tile-build: make tile-build ==\n")
         if (repo / "game/bad.ts").exists():
@@ -149,14 +153,63 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual(integrator.last(self.published), row)
         self.assertIsNone(self.integrate())
 
-    def test_docs_only_batch_publishes_nothing(self):
+    def test_inert_batch_repoints_live_to_main_without_a_build(self):
         self.land("docs", "docs/notes.md", "prose")
-        head = self.land("tooling", "scripts/dev/watch.py", "print()")
-        row = self.integrate()
-        self.assertEqual(row["result"], "skipped")
+        head = self.land("readme", "game/README.md", "prose")
+        (self.published / "publish").mkdir()
+        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
+        with patch.object(pages, "publish") as publish:
+            row = self.integrate()
+        publish.assert_not_called()
+        self.assertEqual((row["result"], row["class"], row["skipped"]), ("green", "inert", True))
+        self.assertEqual((row["to"], row["changed_paths"], row["tiles"]), (head, 2, []))
         self.assertEqual(self.builds, [])
-        self.assertEqual(integrator.live_commit(self.published), self.base)
-        self.assertEqual(row["to"], head)
+        self.assertEqual(integrator.live_commit(self.published), head)
+        release = self.published / "live-releases" / head
+        self.assertEqual((self.published / "live").resolve(), release)
+        record = json.loads((release / "live-build.json").read_text())
+        self.assertEqual(
+            (record["verified_commit"], record["repointed_from"]), (self.base, self.base)
+        )
+        # The release content is the verified one, byte for byte.
+        verified = self.published / "live-releases" / self.base
+        self.assertTrue(live_build.same_tree(verified / "game", release / "game"))
+        self.assertTrue(live_build.same_tree(verified / "textures", release / "textures"))
+        self.assertIsNone(self.integrate())
+        # A second inert batch keeps naming the build that verified the content.
+        later = self.land("licence", "docs/published-images.toml", "[images]\n")
+        with patch.object(pages, "publish", return_value={"url": "u"}) as publish:
+            row = self.integrate()
+        publish.assert_called_once_with(self.published)
+        self.assertEqual((row["class"], row["pages"]), ("inert", {"url": "u"}))
+        record = json.loads((self.published / "live/live-build.json").read_text())
+        self.assertEqual((record["commit"], record["verified_commit"]), (later, self.base))
+
+    def test_inert_paths_with_changed_approvals_are_a_data_batch(self):
+        self.land("note", "docs/reports/facades.md", "report")
+        self.approve(3)
+        row = self.integrate()
+        self.assertEqual((row["class"], row["data_delta"]), ("data", ["facade-approvals"]))
+        self.assertEqual(row["tiles"], list(live_build.C.CORE_TILES))
+        self.assertEqual((row["result"], self.classes), ("green", ["data"]))
+
+    def test_newly_listed_tile_is_a_data_batch_for_that_tile(self):
+        head = self.land("voice", "game/public/assets/voice/fi/a.ogg", "clip")
+        tiles = [*live_build.C.CORE_TILES, "t0_1_-1"]
+        live_build.C.write_playable_tiles(self.published / "playable-tiles.json", tiles)
+        row = self.integrate()
+        self.assertEqual((row["class"], row["data_delta"]), ("data", ["playable-tiles"]))
+        self.assertEqual(
+            (row["tiles"], row["paths"]), (["t0_1_-1"], ["game/public/assets/voice/fi/a.ogg"])
+        )
+        self.assertEqual((row["result"], self.classes), ("green", ["data"]))
+        self.assertEqual(integrator.live_commit(self.published), head)
+
+    def test_tooling_batch_is_code(self):
+        self.land("docs", "docs/notes.md", "prose")
+        self.land("tooling", "scripts/dev/watch.py", "print()")
+        row = self.integrate()
+        self.assertEqual((row["class"], row["result"], self.classes), ("code", "green", ["code"]))
 
     def test_bad_commit_in_batch_of_five_is_bisected_and_reverted(self):
         commits = [
@@ -353,14 +406,6 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual(
             (current["from"], current["to"], current["stage"]), ("a", "b", "tile-build")
         )
-
-    def test_classification_follows_declared_stage_inputs(self):
-        self.assertEqual(integrator.domains(["docs/a.md", "scripts/dev/watch.py"]), [])
-        self.assertEqual(
-            integrator.domains(["scripts/dev/live_build.py", "pipeline/turku3d/a.py"]),
-            ["pipeline/turku3d", "scripts/dev"],
-        )
-        self.assertEqual(integrator.domains(["newdata/a.bin"]), ["newdata/a.bin"])
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import time
 import uuid
 
 import coordination as coord
+import landing_class
 import sandbox as s
 
 BUDGET_SECONDS = 180
@@ -27,6 +28,33 @@ class Returned(ValueError):
 
 def ledger_path():
     return s.root() / ".registry/landed.jsonl"
+
+
+def classes(repo, ranges):
+    """Landing class fields for each (base, head) range of one landing, in order.
+
+    The data delta compares the data root with the last ledger row that recorded its
+    parts (else with the live release), so a data-root change is attributed to the first
+    landing after it.
+    """
+    published = landing_class.published_root()
+    current = landing_class.data_parts(published)
+    baseline = None
+    if ledger_path().is_file():
+        for line in reversed(ledger_path().read_text().splitlines()):
+            with contextlib.suppress(ValueError):
+                if baseline := json.loads(line).get("data_parts"):
+                    break
+    if baseline is None:
+        baseline = landing_class.release_parts((published / "live").resolve())
+    delta = landing_class.data_delta(current, baseline)
+    fields = []
+    for base, head in ranges:
+        fields.append(
+            {**landing_class.classify(repo, base, head, delta, published), "data_parts": current}
+        )
+        delta = []
+    return fields
 
 
 def facade_reason(text):
@@ -202,10 +230,11 @@ def push_public(repo):
     return {"error": error, "seconds": round(time.monotonic() - started, 3)}
 
 
-def record(name, path, text, before, commit, source, started, gate, batch=None, push=None):
+def record(name, path, text, before, commit, source, started, gate, landing, batch=None, push=None):
     """Append the ledger row and store it in meta; `first_finished` is never overwritten.
 
-    The best-effort push to origin is reported in `push` and excluded from the merge time.
+    `landing` holds the class fields (classes()). The best-effort push to origin is
+    reported in `push` and excluded from the merge time.
     """
     seconds, stages = gate
     elapsed = round(time.monotonic() - started - (push or {}).get("seconds", 0), 3)
@@ -224,6 +253,7 @@ def record(name, path, text, before, commit, source, started, gate, batch=None, 
             "first_done_time": meta.get("first_finished", meta.get("finished")),
             "done_time": meta.get("finished"),
             "facade_regression_reason": facade_reason(text),
+            **landing,
         }
         if batch:
             row["batch"] = batch
@@ -263,12 +293,18 @@ def land(name, force=False):
                 break
         else:
             raise ValueError("main changed during gate three times; retry landing")
+        [landing] = classes(repo, [(before, head)])
         with coord.landing_guard(name, force):
             over_budget([path], started, BUDGET_SECONDS, "merge")
             advance(repo, main, before, head)
         pushed = push_public(repo)
-        row = record(name, path, text, before, head, head, started, (seconds, stages), push=pushed)
-        print(f"{name}: landed {head[:12]} in {row['merge_wall_seconds']}s (fast gate {seconds}s)")
+        row = record(
+            name, path, text, before, head, head, started, (seconds, stages), landing, push=pushed
+        )
+        print(
+            f"{name}: landed {head[:12]} as {row['class']} in {row['merge_wall_seconds']}s "
+            f"(fast gate {seconds}s)"
+        )
         cleanup_landed(name)
         return row
 
@@ -349,6 +385,7 @@ def batch(names, force=False):
             culprit = None if landed == len(members) else members[landed]
             rows = []
             if landed:
+                fields = classes(integration, zip([before, *commits[:-1]], commits, strict=True))
                 with contextlib.ExitStack() as guards:
                     for name, _path, _text, head in members[:landed]:
                         guards.enter_context(coord.landing_guard(name, force))
@@ -363,12 +400,22 @@ def batch(names, force=False):
                     advance(integration, main, before, commits[-1])
                 pushed = push_public(integration)
                 gate = gates[landed][:2]
-                for (name, path, text, source), commit in zip(
-                    members[:landed], commits, strict=True
+                for (name, path, text, source), commit, landing in zip(
+                    members[:landed], commits, fields, strict=True
                 ):
                     rows.append(
                         record(
-                            name, path, text, before, commit, source, started, gate, names, pushed
+                            name,
+                            path,
+                            text,
+                            before,
+                            commit,
+                            source,
+                            started,
+                            gate,
+                            landing,
+                            names,
+                            pushed,
                         )
                     )
                 print(f"batch landed: {', '.join(names[:landed])}; {log_path}")

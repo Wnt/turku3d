@@ -257,8 +257,8 @@ class Monitor:
                 line = Line(
                     rec_time(rec),
                     f"{rec.get('name', '?')} landed "
-                    f"{str(rec.get('commit', '?'))[:12]} "
-                    f"(gate {rec.get('gate_seconds', '?')}s)",
+                    f"{str(rec.get('commit', '?'))[:12]} as {rec.get('class', '?')} "
+                    f"(gate {rec.get('fast_gate_seconds', '?')}s)",
                     "notice",
                 )
             elif kind == "gate":
