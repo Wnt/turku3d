@@ -299,6 +299,11 @@ paths = ["game/src/audio/*", "game/public/assets/audio/*"]
 tags = ["@audio"]
 
 [[stages.related]]
+paths = ["game/src/net/*"]
+specs = ["game/tests/e2e/mp.spec.ts"]
+tags = ["@launch"]
+
+[[stages.related]]
 paths = ["game/public/assets/voice/*"]
 tags = ["@voice"]
 

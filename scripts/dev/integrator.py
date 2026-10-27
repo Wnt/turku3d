@@ -532,7 +532,7 @@ def integrate(run, base, start, end):
         # it with the data stages, as a data landing after M would be, never published over it.
         # A batch rebuilds at most once; after that the next run builds on the newer release.
         if "rebuilt_on" in row:
-            detail = f"live changed again during the rebuild (now {live.name}); the next run publishes"
+            detail = f"live changed again during the rebuild (now {live.name}); next run publishes"
             return record(run, {**row, "result": "failed", "failure": {"detail": detail}})
         run.previous, run.live_parts = live, landing_class.release_parts(live)
         row["rebuilt_on"] = live.name

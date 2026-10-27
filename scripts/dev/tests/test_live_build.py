@@ -463,7 +463,9 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(joins, [(), ()])
             self.assertEqual(stages.count("refresh"), 1)
             self.assertIn("collision-sweep", stages)
-            self.assertLess(log.index("== join: rebuilding m2 as code =="), log.rindex("== refresh"))
+            self.assertLess(
+                log.index("== join: rebuilding m2 as code =="), log.rindex("== refresh")
+            )
             self.assertEqual(set(timings), set(report["seconds"]))
 
     def test_cached_refresh_allows_a_join_at_the_first_real_stage(self):
