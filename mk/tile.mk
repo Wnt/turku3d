@@ -18,12 +18,15 @@ tile-fetch: ## Check cached work-3x3 inputs without network or writes to shared 
 tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams
 	python3 $(REPO)/scripts/dev/host_slots.py build -- $(PIPELINE_RUN) python -m turku3d.package.assemble --area $(AREA) --tile $(TILE_IDS)
 
-tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000)
+tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000); verdicts go into the tile quality ledger
 	mkdir -p $(TILE_REPORTS)
+	rm -f $(TILE_REPORTS)/validate-aoi.json
 	cd $(VALIDATOR) && node src/cli.ts --walkers $(TILE_WALKERS) --workers 4 \
 	  --require $(VALIDATOR_REQUIRE) --out $(TILE_REPORTS)/validate-aoi.json \
 	  $(if $(wildcard $(TURKU3D_WORK)/build/layers),--layers $(TURKU3D_WORK)/build/layers) \
-	  $(VALIDATOR_ARGS) $(or $(VALIDATOR_INPUTS),$(foreach tile,$(TILE_IDS),$(DIST_MIRROR)/tiles/collision/$(tile)))
+	  $(VALIDATOR_ARGS) $(or $(VALIDATOR_INPUTS),$(foreach tile,$(TILE_IDS),$(DIST_MIRROR)/tiles/collision/$(tile))); \
+	  status=$$?; test ! -f $(TILE_REPORTS)/validate-aoi.json || $(PIPELINE_RUN) \
+	  python -m turku3d.region quality --dist $(DIST_MIRROR)/tiles --validated $(TILE_REPORTS)/validate-aoi.json; exit $$status
 
 tile-e2e: game-install ## Build the game and test real tiles with Chrome WebGPU and WebGL2
 	$(MAKE) game-build

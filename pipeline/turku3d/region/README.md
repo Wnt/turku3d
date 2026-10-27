@@ -98,3 +98,27 @@ links. `TURKU3D_STREETLEVEL_CACHE_GB` sets the LRU limit (default 60 GiB); the c
 oldest complete keys after writes and imports. Metadata JSON is retained with imported keys.
 `make cache-gc APPLY=1` removes only stale partials. Size reports count unique inodes
 separately from logical paths.
+
+## Tile quality ledger and what is never lost
+
+```sh
+python -m turku3d.region quality            # table: work root ledger (main: the data root), else the work dist
+python -m turku3d.region quality --json
+python -m turku3d.region quality --release "$TURKU3D_DATA/live"   # measure a release that predates the ledger
+```
+
+Every tile build (`python -m turku3d.package.assemble`, so `make tile-build`, `make tile-add`, the integrator and
+the localhost quick build) writes `<dist>/tiles/quality.json`; `make tile-validate` adds each tile's validator
+verdict. Per playable tile: build time and assembly seconds, wire bytes, buildings, facade walls by map source
+(generate / derived / derived-neighbour / other / none), street-facing wall area covered by generated-style maps,
+ground texture kind (ortho-splats / untextured / draft), trees, parked cars and the validator verdict. The ledger
+travels with the tile tree into the stage cache, the tile store and the release; live publication merges it into
+`$TURKU3D_DATA/tile-quality.json` with the release's tiles validator-green, keeps `full_quality_since` (textured
+ground, generated-style maps only, validator green) and marks a tile that left the list `listed: false` instead
+of dropping its record. GitHub Pages ships from it (`scripts/dev/pages_region.py`, `publish-pages --plan`).
+
+Nothing good is lost: the playable list only grows (`list-tile` and `add-tile` only add an adjacent tile;
+neither the content loop nor the integrator removes one; a human edits the file to remove one). A live build
+fails, and live stays at the previous release, when a listed tile is not assembled with geometry and textured
+ground (`live_build.inspect`), so every listed tile of a live release is at full build quality. The tile store
+keeps its newest 30 entries plus the newest entry that carries each listed tile (`tile_store.prune`).

@@ -23,6 +23,7 @@ import sandbox as s
 import spec_selection
 from host_slots import integration_jobs, phase
 from landing_class import C, released_tiles
+from turku3d.region import quality
 
 
 def tiles(published):
@@ -785,3 +786,6 @@ def publish(published, commit, release_id=None):
         temporary.symlink_to(previous, target_is_directory=True)
         os.replace(temporary, live)
         raise
+    if (release / "tiles" / quality.DIST_LEDGER).is_file():
+        # The data root's tile-quality.json: every tile this verified release ships, history kept.
+        quality.publish(published, release, commit)

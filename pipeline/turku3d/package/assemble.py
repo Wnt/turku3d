@@ -8,6 +8,7 @@ import json
 import math
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
@@ -678,7 +679,13 @@ def main():
     ap.add_argument("--area", default="office-block")
     args = vars(ap.parse_args())
     args["tile_ids"] = args.pop("tile")
-    print(json.dumps(assemble(**args)))
+    started = time.monotonic()
+    result = assemble(**args)
+    if args["out"] is None:  # the per-tile quality ledger travels with the dist tree
+        from turku3d.region.quality import after_build
+
+        after_build(args["layers"], args["facades"], result["changed"], time.monotonic() - started)
+    print(json.dumps(result))
 
 
 if __name__ == "__main__":

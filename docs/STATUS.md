@@ -92,3 +92,15 @@ Per-building collision provenance allows nested parts to be tested independently
 See [the measured report](reports/buildings.md) for scope, fallback evidence and verification.
 The 19-stage gate passed in 261.019 s; the final coverage-policy gate passed in 5.394 s.
 This layer is not yet assembled into the game.
+
+## Publication region and tile quality (2026-10-27)
+
+```sh
+bash pipeline/env/run.sh python -m turku3d.region quality   # per-tile quality table (data root ledger)
+scripts/dev/publish-pages --plan                              # which listed tiles the next Pages release ships
+```
+
+The live release `3544a2c` lists the four core tiles; all have orthophoto + splat ground and at most 7.56 MB on
+the wire. Street-facing wall area with generated-style facade maps: t0_0_0 23 %, t0_0_1 39 %, t0_1_0 32 %,
+t0_1_1 0 %. With the default region (1 km around Läntinen Rantakatu 15, at least 20 % facade coverage) the next
+Pages release ships t0_0_0, t0_0_1 and t0_1_0 playable and keeps t0_1_1 as visual-only scenery.

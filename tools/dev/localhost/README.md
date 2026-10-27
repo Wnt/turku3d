@@ -72,8 +72,9 @@ processes in its process group, so stopping it stops them.
 ## Tile releases (`scripts/dev/tile_store.py`)
 
 `$TURKU3D_DATA/tile-store/<key>/` holds one complete tile dist (tileset, manifest, visual, collision, ground, roads,
-vehicles, addresses) plus `STORE.json` `{key, commit, source, time, tiles}`; `index.jsonl` lists the entries in the
-order they were added and the newest 30 are kept. Entries are immutable APFS clones of build output. The key of a
+vehicles, addresses, the tile quality ledger `quality.json`) plus `STORE.json` `{key, commit, source, time, tiles}`;
+`index.jsonl` lists the entries in the order they were added. The newest 30 are kept, plus the newest entry that
+carries each tile of `playable-tiles.json` when none of those 30 does. Entries are immutable APFS clones of build output. The key of a
 commit hashes the git blob ids of its refresh and tile-build inputs (`live_cache.INPUTS`) and the data root's parts
 (`landing_class.data_parts`: facade approvals, tile list, published layers). After the integrator publishes a
 commit, the layers it refreshed are the data root's, so the commit's key is the live release's from then on.

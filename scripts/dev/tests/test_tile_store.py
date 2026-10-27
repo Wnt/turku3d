@@ -1,6 +1,7 @@
 """Tile store keys and entries (tile_store.py) on a throwaway git repository and data root."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -89,6 +90,26 @@ class TileStoreTests(unittest.TestCase):
         tile_store.prune(self.data, keep=2)
         kept = sorted(p.name for p in (self.data / "tile-store").iterdir() if p.is_dir())
         self.assertEqual(kept, ["k1", "k2"])
+
+    def test_prune_keeps_the_newest_entry_of_every_listed_tile(self):
+        commit = self.commit("pipeline/a.py", "a = 1\n")
+        (self.data / "playable-tiles.json").write_text(listed([*CORE, "t0_2_0"]))
+        tiles = Path(self.temp.name) / "dist/tiles"
+        tiles.mkdir(parents=True)
+
+        def build(key, ids):
+            visual = {t: {"level": 0} for t in ids} | {"t1_0_0": {"level": 1}}
+            (tiles / "manifest.json").write_text(json.dumps({"visual": visual}))
+            entry = tile_store.put(self.data, tiles, key, commit, "integrator")
+            os.utime(entry, (len(key), len(key)))  # mtime orders entries: k1 < k22 < k333 ...
+
+        build("k1", [*CORE, "t0_2_0"])  # the only build that carries t0_2_0, then three without it
+        build("k22", CORE)
+        build("k333", CORE)
+        build("k4444", CORE)
+        tile_store.prune(self.data, keep=2)
+        kept = sorted(p.name for p in (self.data / "tile-store").iterdir() if p.is_dir())
+        self.assertEqual(kept, ["k1", "k333", "k4444"])
 
     def test_put_without_a_manifest_stores_nothing(self):
         commit = self.commit("pipeline/a.py", "a = 1\n")
