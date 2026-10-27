@@ -120,6 +120,23 @@ class LiveBuildTests(unittest.TestCase):
             (new / "unmapped.bin").write_bytes(b"unknown")
             self.assertEqual(live_build.affected_tiles(root / "release", root / "work", core), core)
 
+    def test_per_tile_records_map_to_their_tile(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root / "release/layers/props"
+            new = root / "work/build/layers/props"
+            old.mkdir(parents=True)
+            new.mkdir(parents=True)
+            for directory in (old, new):
+                (directory / "t0_0_0.records.json").write_text("same")
+                (directory / "instances.json").write_text("[]")
+            (new / "t0_0_1.records.json").write_text("changed")
+            (new / "instances.json").write_text("[1]")
+            core = live_build.C.CORE_TILES
+            self.assertEqual(
+                live_build.affected_tiles(root / "release", root / "work", core), ("t0_0_1",)
+            )
+
     def test_five_listed_tiles_select_new_and_changed_tiles_only(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
