@@ -22,11 +22,12 @@ The single policy source is [AGENTS.md](../../AGENTS.md), including the English-
 isolation, verification, commits and run results. Tool commands: [scripts/dev/README.md](../../scripts/dev/README.md).
 Send a progress message only when a stage finishes or the plan changes, not while polling or waiting.
 
-DONE means committed on your branch, `scripts/dev/gate --fast --base main` green, a result file with the
-AGENTS.md headings, and `scripts/dev/codex-task finish`. The lander runs the fast gate and fast-forwards main
-within three minutes. The integrator builds and verifies the live release asynchronously; a red batch is
-bisected and the culprit reverted with an inbox message to its author. Live only ever points to a verified
-release. Workers never land main.
+DONE means committed on your branch, `scripts/dev/gate --fast --base main` green and a result file with the
+AGENTS.md headings; the runner lands a DONE turn on main itself (rebase, fast gate, fast-forward) and tells the
+other agents. Do not merge main by hand. A `landed` inbox message means main moved: rebase onto main before
+your next gate and resolve conflicts yourself. Land an interface or data-structure change first as a small
+compatible slice. The integrator builds and verifies the live release asynchronously; a red batch is bisected
+and the culprit reverted with an inbox message to its author. Live only ever points to a verified release.
 
 ## 3. Coordinates and tiles (from `pipeline/turku3d/config.py`, do not redefine)
 
