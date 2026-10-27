@@ -1,8 +1,9 @@
 """Refresh derived products from declared input and code hashes.
 
 Ground, buildings, surrounding massing, roads, props, vegetation and parked cars follow the
-playable tile list (config.playable_tile_ids); a layer built for another list is stale.
-Structures and bridges stay on the measured office core."""
+playable tile list (config.playable_tile_ids). Per-tile layers (turku3d.tile_layer: roads,
+props) keep a key per tile and rebuild only stale tiles; the others record the list they were
+built for and rebuild for another list. Structures and bridges stay on the measured office core."""
 
 import argparse
 import concurrent.futures
@@ -18,11 +19,11 @@ import time
 from pathlib import Path
 
 from turku3d import config as C
+from turku3d import tile_layer
 from turku3d.bridges.__main__ import code_hash as bridges_code_hash
 from turku3d.ground.build import code_hash as ground_code_hash
 from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
-from turku3d.roads import code_hash as roads_code_hash
 from turku3d.structures.layer import code_hash as structures_code_hash
 from turku3d.vegetation.__main__ import code_hash as vegetation_code_hash
 
@@ -354,25 +355,28 @@ def facades(layers, textures):
     return "cached"
 
 
-def props(layers):
-    code = code_hash([C.REPO_ROOT / "pipeline/turku3d/props"])
-    if manifest_current(layers / "props/MANIFEST.json", code) and tiles_current(layers / "props"):
+def per_tile(layers, producer, module):
+    """A per-tile layer (turku3d.tile_layer) rebuilds only its stale tiles, in its producer."""
+    directory = layers / producer.layer
+    if (directory / "MANIFEST.json").is_file() and not tile_layer.stale(
+        directory, producer, C.playable_tile_ids()
+    ):
         return "cached"
-    local_directory(layers / "props", layers.parents[1])
-    run("turku3d.props", "--area", "playable-tiles")
-    record_tiles(layers / "props")
+    local_directory(directory, layers.parents[1])
+    run(module)
     return "rebuilt"
+
+
+def props(layers):
+    from turku3d.props import PRODUCER
+
+    return per_tile(layers, PRODUCER, "turku3d.props")
 
 
 def roads(layers):
-    if layer_current(layers / "roads/MANIFEST.json", roads_code_hash()) and tiles_current(
-        layers / "roads"
-    ):
-        return "cached"
-    local_directory(layers / "roads", layers.parents[1])
-    run("turku3d.roads", "--area", "playable-tiles")
-    record_tiles(layers / "roads")
-    return "rebuilt"
+    from turku3d.roads.layer import PRODUCER
+
+    return per_tile(layers, PRODUCER, "turku3d.roads")
 
 
 def vegetation(layers):

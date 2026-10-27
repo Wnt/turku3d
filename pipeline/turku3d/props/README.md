@@ -1,11 +1,13 @@
 # Props layer v1
 
-Build from the immutable `work-3x3` WFS/OSM snapshot and published ground/structures collision:
+Built per listed L0 tile ([`turku3d.tile_layer`](../tile_layer.py)) from that tile's own
+input area (`config.source_area`: `work-3x3` while it holds the tile, else `tile-<id>`) and
+the published ground/structures/bridges collision:
 
 ```sh
 source ../sandbox.env
-bash pipeline/env/run.sh python -m turku3d.props  # office core (development)
-bash pipeline/env/run.sh python -m turku3d.props --area playable-tiles  # final AOI acceptance
+bash pipeline/env/run.sh python -m turku3d.props                  # every listed tile; only stale ones rebuild
+bash pipeline/env/run.sh python -m turku3d.props --tiles t0_3_0   # one tile
 bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_props.py
 bash pipeline/env/run.sh scripts/dev/gate
 # npm ci --prefix game is needed once for the browser preview.
@@ -13,19 +15,22 @@ bash pipeline/env/run.sh python -m turku3d.props.preview
 bash pipeline/env/run.sh python -m turku3d.props.orientation_report
 ```
 
-The default is the office core, 250×250 m (16 collision tiles), without a margin.
-`--area playable-tiles` selects the listed playable L0 tiles (`config.playable_tile_ids()`) plus 50 m; for the four core tiles that is engine x/z −50…550 m.
-`--tiles t0_0_0 t0_0_1 --margin 50 --source-area work-3x3` selects another envelope.
-A build replaces the **complete** props manifest, not an incremental subset.
+A tile owns the props whose position lies in it: its `t0_i_j.vis.glb`, the `c_i_j.col.npz`
+of its collision tiles and `t0_i_j.records.json`. A tile's key covers its register and OSM
+sources, the published collision tiles within 20 m, the building footprints there and the
+producer code, so adding a tile builds only that tile; a prop repaired across its tile edge is
+dropped (`metrics.left_tile`). The layer's MANIFEST keeps each tile's key in `tile_builds`.
+Props of unlisted neighbours (the old 50 m margin) are no longer built.
 Only `$TURKU3D_WORK/build/layers/props` is published; the assembler owns shipped files.
-Run the assembler with the other completed layers to integrate this layer into the game.
 
-Outputs follow `docs/specs/layers.md`: `c_i_j.col.npz`, `t0_i_j.vis.glb`, and
-`MANIFEST.json`. `instances.json` records source identity, engine position, yaw, sign
-code, nearest ground distance and orientation method. `metrics.json` reports counts,
-geometry/file budgets, missing sources and omitted objects. The manifest embeds those
-metrics, hashes every input/output and identifies producer code. Stale unlisted files
-are intentionally ignored by layer readers. Do not build concurrently with assembly.
+Outputs follow `docs/specs/layers.md`. `instances.json` (every listed tile's records)
+records source identity, engine position, yaw, sign code, nearest ground distance and
+orientation method. `metrics.json` reports counts, geometry/file budgets, missing sources
+and omitted objects. Placement audits are per tile under
+`$TURKU3D_WORK/reports/placement/props/<tile>/`. Do not build concurrently with assembly.
+
+On the four core tiles a tile builds in 30–60 s (t0_0_0, 330 props, about 60 s at host load
+100); the four in parallel take about 3 minutes.
 
 ## Models, placement and collision
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import struct
@@ -14,9 +13,11 @@ import numpy as np
 from shapely.strtree import STRtree
 
 from turku3d import config as C
-from turku3d.layers import PRIMITIVE_DTYPE, CollisionLayer, write_collision, write_manifest
+from turku3d import tile_layer
+from turku3d.layers import PRIMITIVE_DTYPE, CollisionLayer, write_collision
 from turku3d.package.gltf import build_glb, read_glb
 from turku3d.package.manifest import _atomic_write
+from turku3d.placement.inputs import context_key, place_objects
 from turku3d.props.models import SUPPORTED_SIGNS, model
 from turku3d.props.orientation import heading
 
@@ -82,22 +83,13 @@ def face_road(x: float, z: float, roads: STRtree | None) -> tuple[float, str]:
     return heading("lamp", x, z, roads)
 
 
-def sha(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def read_sources(bbox, source_area="work-3x3"):
     import geopandas as gpd
 
-    inputs, missing, candidates, skipped = {}, [], [], Counter()
+    missing, candidates, skipped = [], [], Counter()
     root = C.raw_dir("wfs") / source_area
 
     def load(path):
-        inputs[str(path.relative_to(C.data_root()))] = sha(path)
         frame = gpd.read_parquet(path)
         if "geometry_local" not in frame:
             raise ValueError(f"{path}: expected fetch geometry_local")
@@ -175,7 +167,7 @@ def read_sources(bbox, source_area="work-3x3"):
         locations["exact"].append(key)
         p.yaw, p.orientation = heading(p.kind, p.x, p.z, roads)
         props.append(p)
-    return props, inputs, {"missing_sources": missing, "skipped": dict(skipped)}
+    return props, {"missing_sources": missing, "skipped": dict(skipped)}
 
 
 def primitives(p: Prop) -> np.ndarray:
@@ -254,28 +246,27 @@ def visual_bytes(props, tile):
     )
 
 
-def publish(props, directory, inputs, metadata):
+def write_tile(props, directory, tile):
+    """One L0 tile's visual and collision files; every prop lies in the tile."""
     directory = Path(directory)
-    visuals, collisions = defaultdict(list), defaultdict(list)
+    if any(C.VisualTile.at(p.x, p.z) != tile for p in props):
+        raise ValueError(f"{tile.id}: props outside the tile")
+    collisions = defaultdict(list)
     for p in props:
-        visuals[C.VisualTile.at(p.x, p.z)].append(p)
         collisions[C.CollisionTile.at(p.x, p.z)].extend(primitives(p))
-    files, tile_metrics = [], {}
-    for tile, objects in sorted(visuals.items()):
-        name = f"{tile.id}.vis.glb"
-        data = visual_bytes(objects, tile)
-        _atomic_write(directory / name, data)
-        files.append(name)
-        tile_metrics[tile.id] = {
-            "objects": len(objects),
-            "bytes": len(data),
-            "mesh_prototypes": len({p.prototype for p in objects}),
-            "triangles": sum(len(model(*p.prototype).indices) for p in objects),
+    if not props:
+        return {
+            "objects": 0,
+            "bytes": 0,
+            "triangles": 0,
+            "collision_primitives": 0,
+            "collision_bytes": 0,
         }
-    for tile, parts in sorted(collisions.items()):
-        name = f"{tile.id}.col.npz"
+    data = visual_bytes(props, tile)
+    _atomic_write(directory / f"{tile.id}.vis.glb", data)
+    for cell, parts in sorted(collisions.items()):
         write_collision(
-            directory / name,
+            directory / f"{cell.id}.col.npz",
             CollisionLayer(
                 np.empty((0, 3), np.float64),
                 np.empty((0, 3), np.uint32),
@@ -283,19 +274,44 @@ def publish(props, directory, inputs, metadata):
                 np.array(parts, dtype=PRIMITIVE_DTYPE),
             ),
         )
-        files.append(name)
+    return {
+        "objects": len(props),
+        "bytes": len(data),
+        "mesh_prototypes": len({p.prototype for p in props}),
+        "triangles": sum(len(model(*p.prototype).indices) for p in props),
+        "collision_primitives": sum(map(len, collisions.values())),
+        "collision_bytes": sum(
+            (directory / f"{cell.id}.col.npz").stat().st_size for cell in collisions
+        ),
+    }
+
+
+def combine(directory, tiles):
+    """Layer-wide inventory and metrics from every tile's records; returns manifest params."""
+    directory = Path(directory)
+    props = [Prop(**r) for entry in tiles.values() for r in entry["records"]]
     counts = Counter(p.kind for p in props)
+    visual = {tid: entry["metrics"] for tid, entry in tiles.items() if entry["metrics"]["objects"]}
     metrics = {
         "counts": {k: counts[k] for k in KINDS},
         "objects": len(props),
-        "collision_primitives": sum(map(len, collisions.values())),
-        "visual_tiles": tile_metrics,
-        "triangles": sum(t["triangles"] for t in tile_metrics.values()),
-        "visual_bytes": sum(t["bytes"] for t in tile_metrics.values()),
-        "collision_bytes": sum((directory / f).stat().st_size for f in files if f.endswith(".npz")),
+        "collision_primitives": sum(m["collision_primitives"] for m in visual.values()),
+        "visual_tiles": {
+            tid: {k: m[k] for k in ("objects", "bytes", "mesh_prototypes", "triangles")}
+            for tid, m in visual.items()
+        },
+        "triangles": sum(m["triangles"] for m in visual.values()),
+        "visual_bytes": sum(m["bytes"] for m in visual.values()),
+        "collision_bytes": sum(m["collision_bytes"] for m in visual.values()),
         "ground_nearest_max_m": max((p.height_distance for p in props), default=0),
         "orientation_counts": dict(Counter(p.orientation for p in props)),
-        **metadata,
+        "missing_sources": sorted(
+            {name for e in tiles.values() for name in e["metrics"].get("missing_sources", [])}
+        ),
+        "skipped": dict(
+            sum((Counter(e["metrics"].get("skipped", {})) for e in tiles.values()), Counter())
+        ),
+        "left_tile": sum(e["metrics"].get("left_tile", 0) for e in tiles.values()),
     }
     _atomic_write(
         directory / "metrics.json", (json.dumps(metrics, indent=2, sort_keys=True) + "\n").encode()
@@ -304,20 +320,47 @@ def publish(props, directory, inputs, metadata):
         directory / "instances.json",
         (json.dumps([asdict(p) for p in props], indent=2) + "\n").encode(),
     )
-    code = hashlib.sha256(
-        b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))
-    ).hexdigest()
-    write_manifest(
-        directory,
-        inputs=inputs,
-        params={
-            "seams": "objects",
-            "models": "procedural-cc0-v1",
-            "height": "published-collision-triangles",
-            "metrics": metrics,
-            "sign_faces": sorted(SUPPORTED_SIGNS),
-        },
-        code=code,
-        tiles=files,
+    return {
+        "models": "procedural-cc0-v1",
+        "height": "published-collision-triangles",
+        "metrics": metrics,
+        "sign_faces": sorted(SUPPORTED_SIGNS),
+    }
+
+
+def code_hash():
+    base = Path(__file__).parents[1]
+    return tile_layer.code_hash(
+        Path(__file__).parent,
+        base / "placement",
+        base / "tile_layer.py",
+        base / "layers.py",
+        base / "config.py",
+        base / "package/gltf.py",
     )
-    return metrics
+
+
+def tile_key(tile):
+    """Every input a tile's props build reads: register sources, OSM and placement context."""
+    area = C.source_area(tile)
+    paths = {name: tile_layer.wfs(tile, name) for name in (*SOURCES, "GIS_Keskilinjat")}
+    paths["osm"] = tile_layer.osm(tile)
+    return {
+        "sources": tile_layer.identities(paths),
+        "placement": context_key(tile.bbox, "props", area),
+    }
+
+
+def build_tile(tile, staging):
+    area = C.source_area(tile)
+    props, metadata = read_sources(tile.bbox, area)
+    if props:
+        props = place_objects(props, "props", tile.bbox, {}, area, report=f"props/{tile.id}")
+    # A repair may move an object up to 2 m; one that left its tile is dropped, not handed over.
+    inside = [p for p in props if tile.bbox.contains(p.x, p.z)]
+    metrics = write_tile(inside, staging, tile)
+    metrics.update(metadata, left_tile=len(props) - len(inside), source_area=area)
+    return {"records": [asdict(p) for p in inside], "metrics": metrics}
+
+
+PRODUCER = tile_layer.Producer("props", code_hash, tile_key, build_tile, combine)

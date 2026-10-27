@@ -7,9 +7,9 @@ import pytest
 from shapely.geometry import LineString, box
 from shapely.strtree import STRtree
 from turku3d import config as C
-from turku3d.layers import read_collision, read_manifest, read_visual
+from turku3d.layers import read_collision, read_visual
 from turku3d.package.gltf import accessor_array, read_glb
-from turku3d.props import Prop, classify, face_road, primitives, publish, visual_bytes
+from turku3d.props import Prop, classify, face_road, primitives, visual_bytes, write_tile
 from turku3d.props.models import SUPPORTED_SIGNS, atlas, model
 from turku3d.props.orientation import heading
 
@@ -74,34 +74,37 @@ def test_sign_faces_oncoming_traffic_on_both_sides_and_reversed_geometry():
         assert math.cos(right) == pytest.approx(1)
 
 
-def test_boundary_ownership_and_shared_mesh_roundtrip(tmp_path):
+def test_tile_files_and_shared_mesh_roundtrip(tmp_path):
     props = [
         Prop("one", "bench", 62.49, 4, 3),
         Prop("two", "bench", 62.51, 5, 3),
-        Prop("edge", "lamp", 250, 6, 250),
-        Prop("negative", "post", -0.01, 4, -0.01),
+        Prop("corner", "lamp", 249.9, 6, 249.9),
     ]
     root = tmp_path / "props"
-    metrics = publish(props, root, {}, {})
-    manifest = read_manifest(root)
-    assert metrics["objects"] == 4
-    assert len(manifest["tiles"]) == 7
+    root.mkdir()
+    metrics = write_tile(props, root, C.VisualTile(0, 0, 0))
+    assert metrics["objects"] == 3 and metrics["collision_primitives"] == 5
+    assert sorted(p.name for p in root.iterdir()) == [
+        "c_0_0.col.npz",
+        "c_1_0.col.npz",
+        "c_3_3.col.npz",
+        "t0_0_0.vis.glb",
+    ]
     a = read_collision(root / "c_0_0.col.npz")
     b = read_collision(root / "c_1_0.col.npz")
     assert len(a.primitives) == len(b.primitives) == 2
     assert a.positions.shape == (0, 3)
     js, blob = read_glb(read_visual(root / "t0_0_0.vis.glb"))
-    assert len(js["meshes"]) == 1
+    assert len(js["meshes"]) == 2
     nodes = js["nodes"][1:]
-    assert [n["mesh"] for n in nodes] == [0, 0]
     assert nodes[0]["translation"] == [62.49, 4, 3]
     assert nodes[1]["extras"]["object_id"] == "two"
-    pos = accessor_array(js, blob, js["meshes"][0]["primitives"][0]["attributes"]["POSITION"])
+    bench = [m for m in js["meshes"] if m["name"].startswith("bench")] or js["meshes"][:1]
+    assert nodes[0]["mesh"] == nodes[1]["mesh"]
+    pos = accessor_array(js, blob, bench[0]["primitives"][0]["attributes"]["POSITION"])
     assert pos[:, 0].max() == pytest.approx(0.9)
-    assert metrics["collision_primitives"] == 6
-    # Re-publication with fewer objects must not expose old files in the manifest.
-    publish(props[:1], root, {}, {})
-    assert set(read_manifest(root)["tiles"]) == {"t0_0_0.vis.glb", "c_0_0.col.npz"}
+    with pytest.raises(ValueError, match="outside the tile"):
+        write_tile([Prop("edge", "lamp", 250, 6, 250)], root, C.VisualTile(0, 0, 0))
 
 
 @pytest.mark.parametrize(
@@ -167,13 +170,12 @@ def test_register_ingestion_and_missing_optional_sources(tmp_path, monkeypatch):
         [Point(15, 15), Point(20, 20)],
     )
     write("kanta_Pysakki", [dict(feature_key="stop")], [Point(15.1, 15.1)])
-    props, inputs, meta = read_sources(C.BBoxLocal(0, 0, 25, 25))
+    props, meta = read_sources(C.BBoxLocal(0, 0, 25, 25))
     assert [p.kind for p in props] == ["sign", "post", "bench"]
     assert props[1].code == "XYZ"
     assert props[2].y == 0  # register point Z must not become a ground elevation
     assert meta["skipped"]["duplicates"] == meta["skipped"]["duplicate_stop"] == 1
     assert "kanta_Sahkoverkonosa.parquet" in meta["missing_sources"]
-    assert len(inputs) == 3
     assert all(p.orientation == "no_road_default" for p in props)
 
 
@@ -190,15 +192,67 @@ def test_published_surface_and_unsupported_distance():
 def test_assembled_shared_prototypes_keep_each_world_transform(tmp_path, monkeypatch):
     import json
 
+    from turku3d.layers import write_manifest
     from turku3d.package.assemble import assemble
 
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
     props = [Prop("one", "bench", 10, 3, 20), Prop("two", "bench", 30, 5, 40)]
     root = tmp_path / "layers/props"
-    publish(props, root, {}, {})
+    root.mkdir(parents=True)
+    write_tile(props, root, C.VisualTile(0, 0, 0))
+    names = [p.name for p in root.iterdir()]
+    write_manifest(root, inputs={}, params={"seams": "objects"}, code="test", tiles=names)
     out = tmp_path / "dist"
     assemble(["t0_0_0"], layers=root.parent, out=out, area="work-3x3")
     entry = json.loads((out / "manifest.json").read_text())["visual"]["t0_0_0"]
     expected = np.concatenate([model("bench").positions + [p.x, p.y, p.z] for p in props])
     np.testing.assert_allclose(entry["bounds"], [expected.min(0), expected.max(0)], atol=0.002)
+
+
+def test_props_build_per_tile_from_each_tiles_inputs(tmp_path, monkeypatch):
+    """Two tiles: each owns its props; adding a register record rebuilds only its tile."""
+    import json
+
+    import producer_world as world
+    from shapely.geometry import Point
+    from turku3d import tile_layer
+    from turku3d.layers import layer_root
+    from turku3d.props import PRODUCER
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_JOBS", "1")
+    world.city(streets=[("Jalkakäytävä", box(0, 0, 500, 250))])
+    world.ground(["t0_0_0", "t0_1_0"])
+    world.ortho()
+    benches = [Point(100, 100), Point(350, 100)]
+    world.write_wfs(
+        "GIS_Varusteet",
+        [dict(Id=f"b{i}", feature_key=f"b{i}", Tyyppi="Penkki") for i in range(2)],
+        benches,
+    )
+    world.write_osm([({"highway": "street_lamp"}, Point(120, 60))])
+    out = layer_root() / "props"
+    result = tile_layer.run(out, PRODUCER, ["t0_0_0", "t0_1_0"])
+    assert result["built"] == ["t0_0_0", "t0_1_0"]
+    instances = json.loads((out / "instances.json").read_text())
+    assert sorted((r["object_id"], r["y"]) for r in instances) == [
+        ("GIS_Varusteet:b0", 3.0),
+        ("GIS_Varusteet:b1", 3.0),
+        ("osm:1", 3.0),
+    ]
+    tiles = json.loads((out / "MANIFEST.json").read_text())["tiles"]
+    assert {"t0_0_0.vis.glb", "t0_1_0.vis.glb"} <= set(tiles)
+    assert (tmp_path / "work/reports/placement/props/t0_1_0/placement.json").is_file()
+    world.write_wfs(
+        "GIS_Varusteet",
+        [dict(Id=f"b{i}", feature_key=f"b{i}", Tyyppi="Penkki") for i in range(3)],
+        [*benches, Point(130, 140)],
+    )
+    # The register file is shared by both tiles, so both keys change; a tile list change
+    # alone (a third tile without props) adds only that tile.
+    assert tile_layer.stale(out, PRODUCER, ["t0_0_0", "t0_1_0"]) == ["t0_0_0", "t0_1_0"]
+    tile_layer.run(out, PRODUCER, ["t0_0_0", "t0_1_0"])
+    world.ground(["t0_0_0", "t0_1_0", "t0_0_1"])
+    assert tile_layer.stale(out, PRODUCER, ["t0_0_0", "t0_1_0", "t0_0_1"]) == ["t0_0_1"]

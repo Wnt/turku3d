@@ -224,6 +224,7 @@ gets 4 workers below load 60 (else 2), and agents' Chrome suites queue behind it
 │   ├── turku3d/
 │   │   ├── config.py                    origin, CRS, tile grid, paths (single source of truth)
 │   │   ├── tiles.py                     tile IDs ↔ bbox ↔ LAZ tiles
+│   │   ├── tile_layer.py                per-tile producer runs: tile inputs, keys, ownership (pipeline/README.md)
 │   │   ├── fetch/                       laz.py, wfs.py (GML), wms.py, osm.py, panos.py
 │   │   ├── ground/                      merge_ground.py, breaklines.py, curb_profile.py, cdt.py, materials.py
 │   │   ├── structures/                  stairs.py, walls.py, fences.py, quays.py

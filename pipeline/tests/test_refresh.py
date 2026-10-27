@@ -361,3 +361,20 @@ def test_vegetation_refresh_rebuilds_when_props_change(tmp_path, monkeypatch):
     props.write_text('[{"object_id": "bench"}]')
     assert refresh.vegetation(layers) == "rebuilt"
     assert calls == [("turku3d.vegetation",)]
+
+
+def test_per_tile_layers_rebuild_only_when_a_tile_is_stale(tmp_path, monkeypatch):
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    layers = tmp_path / "build/layers"
+    (layers / "props").mkdir(parents=True)
+    stale = []
+    monkeypatch.setattr(refresh.tile_layer, "stale", lambda *args: stale)
+    calls = []
+    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
+    assert refresh.props(layers) == "rebuilt"  # No manifest yet.
+    (layers / "props/MANIFEST.json").write_text("{}")
+    assert refresh.props(layers) == "cached"
+    stale.append("t0_0_0")
+    assert refresh.props(layers) == refresh.roads(layers) == "rebuilt"
+    assert calls == [("turku3d.props",), ("turku3d.props",), ("turku3d.roads",)]
