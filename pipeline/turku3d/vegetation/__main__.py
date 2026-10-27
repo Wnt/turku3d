@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 import numpy as np
+import shapely
 
 from turku3d import config as C
 from turku3d.layers import (
@@ -88,21 +89,29 @@ def publish(trees, out, inputs, params):
     return report
 
 
+def scope(name):
+    """Read bounds and, for the playable tiles, the region a trunk must lie in."""
+    if name == "office-block":
+        return C.OFFICE_BLOCK.with_margin, None
+    # Every listed tile and its meshing margin; the bounding box only limits the reads.
+    playable = C.playable_area()
+    region = shapely.union_all(
+        [shapely.box(*t.bbox.buffered(C.MESH_MARGIN).as_tuple()) for t in playable.visual_tiles]
+    )
+    return playable.with_margin, region
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, default=layer_root() / "vegetation")
-    ap.add_argument("--scope", choices=("office-block", "phase1"), default="office-block")
+    ap.add_argument("--scope", choices=("office-block", "playable-tiles"), default="playable-tiles")
     args = ap.parse_args()
     started = time.monotonic()
-    bounds = (
-        C.OFFICE_BLOCK.with_margin
-        if args.scope == "office-block"
-        else C.BBoxLocal(0, 0, 2 * C.VISUAL_TILE_SIZE, 2 * C.VISUAL_TILE_SIZE).buffered(
-            C.MESH_MARGIN
-        )
-    )
+    bounds, region = scope(args.scope)
     trees, inputs = register(bounds)
-    ground, canopy, lidar_inputs = load_points(bounds)
+    if region is not None:
+        trees = [t for t in trees if region.covers(shapely.Point(t.x, t.z))]
+    ground, canopy, lidar_inputs = load_points(bounds, region)
     inputs.update(lidar_inputs)
     print(f"Measuring {len(trees)} mapped trees against {len(canopy)} canopy returns", flush=True)
     trees = measure(trees, ground, canopy, bounds)

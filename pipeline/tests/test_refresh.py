@@ -269,6 +269,9 @@ def test_bridge_refresh_rebuilds_for_stale_ground_or_code(tmp_path, monkeypatch)
 
 
 def test_parked_refresh_rebuilds_when_structures_change(tmp_path, monkeypatch):
+    # Both layers follow the tile list; keep the sandbox's own list out of the test.
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
     from turku3d.layers import write_manifest
 
     layers = tmp_path / "build/layers"
@@ -336,6 +339,9 @@ def test_facade_target_runs_buildings_before_migration(monkeypatch, tmp_path):
 
 
 def test_vegetation_refresh_rebuilds_when_props_change(tmp_path, monkeypatch):
+    # Both layers follow the tile list; keep the sandbox's own list out of the test.
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
     from turku3d.layers import write_manifest
 
     layers = tmp_path / "build/layers"

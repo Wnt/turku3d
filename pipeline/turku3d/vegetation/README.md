@@ -2,8 +2,8 @@
 
 ```sh
 source ../sandbox.env
-bash pipeline/env/run.sh python -m turku3d.vegetation  # office core + margin
-bash pipeline/env/run.sh python -m turku3d.vegetation --scope phase1  # final full AOI
+bash pipeline/env/run.sh python -m turku3d.vegetation  # every listed playable tile + margin
+bash pipeline/env/run.sh python -m turku3d.vegetation --scope office-block  # office core + margin
 .venv/bin/python -m pytest pipeline/tests/test_vegetation.py -q
 scripts/dev/gate
 ```
@@ -13,8 +13,11 @@ scripts/dev/gate
 code or a declared input (sources, LAZ, assets, published surface layers, props
 inventory) changes; office assembly fails without it.
 The default output is `$TURKU3D_WORK/build/layers/vegetation`; `--out PATH` changes
-that directory. Development defaults to the office core plus 50 m; `--scope phase1`
-uses the four Phase 1 L0 tiles plus 50 m for final acceptance. Whole
+that directory. The default scope follows the playable tile list (`playable-tiles.json`): trees
+whose trunk lies in a listed L0 tile or its 50 m margin, so a tile added with `make tile-add`
+gets the register's trees with lidar heights where they exist. Refresh records the list in
+`PLAYABLE_TILES.json` and rebuilds for a new list. `--scope office-block` is the office core plus
+50 m. Whole
 trees belong to their trunk point's visual/collision tile, including margin tiles;
 assembly of just the four core tiles consumes their files normally.
 

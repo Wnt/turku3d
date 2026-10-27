@@ -1,8 +1,8 @@
 """Refresh derived products from declared input and code hashes.
 
-Ground, buildings, surrounding massing, roads and props follow the playable tile list
-(config.playable_tile_ids); a layer built for another list is stale. Structures, bridges,
-vegetation and parked cars stay on the measured office core."""
+Ground, buildings, surrounding massing, roads, props, vegetation and parked cars follow the
+playable tile list (config.playable_tile_ids); a layer built for another list is stale.
+Structures and bridges stay on the measured office core."""
 
 import argparse
 import concurrent.futures
@@ -376,20 +376,26 @@ def roads(layers):
 
 
 def vegetation(layers):
-    if layer_current(layers / "vegetation/MANIFEST.json", vegetation_code_hash()):
+    if layer_current(layers / "vegetation/MANIFEST.json", vegetation_code_hash()) and tiles_current(
+        layers / "vegetation"
+    ):
         return "cached"
     local_directory(layers / "vegetation", layers.parents[1])
     run("turku3d.vegetation")
+    record_tiles(layers / "vegetation")
     return "rebuilt"
 
 
 def parked(layers):
     """Parked cars clear the published colliders of every other layer, so they rebuild last."""
     code = code_hash([C.REPO_ROOT / "pipeline/turku3d/parked"])
-    if manifest_current(layers / "traffic_static/MANIFEST.json", code):
+    if manifest_current(layers / "traffic_static/MANIFEST.json", code) and tiles_current(
+        layers / "traffic_static"
+    ):
         return "cached"
     local_directory(layers / "traffic_static", layers.parents[1])
     run("turku3d.parked")
+    record_tiles(layers / "traffic_static")
     return "rebuilt"
 
 
