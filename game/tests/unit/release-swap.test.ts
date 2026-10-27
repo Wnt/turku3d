@@ -70,7 +70,7 @@ test('a collision-only release does not reload the visual tileset', async () => 
 test('refresh reloads only loaded tiles, in place, and clears failures', async () => {
   const collision: Record<string, { url: string; bytes: number }> = { c_0_0: { url: 'a.col', bytes: 4 }, c_0_1: { url: 'b.col', bytes: 4 } };
   const loaded = new Map<string, unknown>([['c_0_0', {}]]);
-  const physics = { loaded, loadTile: vi.fn(async (id: string) => { loaded.set(id, {}); }), unloadTile: vi.fn() };
+  const physics = { loaded, loadTile: vi.fn(async (id: string) => { loaded.set(id, {}); }), unloadTile: vi.fn(), setKnown: vi.fn() };
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) })));
   const s = new CollisionStreamer({ collision, baseUrl: 'http://x/' } as never, physics as never, 100, 50);
   s.refresh(['c_0_0', 'c_0_1', 'c_7_7']);

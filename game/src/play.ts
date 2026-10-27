@@ -44,7 +44,7 @@ import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
 import type { PhysicsClient } from './physics/client';
 import type { Manifest } from './world/manifest';
-import type { CollisionStreamer } from './world/collisionStreaming';
+import { holdCar, holdFoot, type CollisionStreamer } from './world/collisionStreaming';
 import type { CoarseTiles } from './world/coarseTiles';
 import type { VisualTiles } from './world/tiles';
 import type { Telemetry } from './telemetry';
@@ -414,6 +414,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         : { throttle: input.actions.throttle, steer: input.actions.steer,
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
+    // Collision that exists but has not streamed in yet holds the player gently (no edge wall faces it).
+    if (carIn && vs) carIn = holdCar(carIn, vs.forwardSpeed, streamer.speedLimit(feet.x, feet.z, vel.x, vel.z));
+    else if (!fly?.active) charIn = holdFoot(charIn, streamer.speedLimit(feet.x, feet.z, charIn.vx, charIn.vz));
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
@@ -515,7 +518,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       input: carIn, character: mode === 'foot' ? { grounded, vy: vel.y } : null });
     const streamAt = saveGame.streamPoint(feet);
     coarse?.update(streamAt.x, streamAt.z);
-    streamer.update(streamAt.x, streamAt.z);
+    streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     env.follow(feet);
     tiles.update(camera);
     renderFrame();

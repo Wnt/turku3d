@@ -37,6 +37,8 @@ export type ToWorker =
   | { type: 'init' }
   | { type: 'loadTile'; id: string; buffer: ArrayBuffer }
   | { type: 'unloadTile'; id: string }
+  /** Collision tiles that exist (published or draft) but may not be loaded: no edge wall faces them (edgeWalls.ts). */
+  | { type: 'knownTiles'; add: string[]; remove: string[] }
   /** Decode a tile without adding it; answered with 'checkResult'. */
   | { type: 'checkTile'; id: number; buffer: ArrayBuffer }
   | { type: 'spawnCharacter'; pos: V3 }

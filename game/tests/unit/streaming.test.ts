@@ -1,13 +1,17 @@
-// CollisionStreamer: which tiles it requests/unloads, and that a city-sized manifest does not stall the main thread.
+// CollisionStreamer: which tiles it requests/unloads, the tiles it loads ahead of a moving player, which tiles it tells
+// the worker exist (no edge wall faces them), the gentle hold near unloaded ones, and that a city-sized manifest does
+// not stall the main thread.
 import { test, expect, vi } from 'vitest';
-import { CollisionStreamer } from '../../src/world/collisionStreaming';
+import { CollisionStreamer, holdCar, holdFoot } from '../../src/world/collisionStreaming';
 
 function fakes(ni: number, nj: number) {
   const collision: Record<string, { url: string; bytes: number }> = {};
   for (let i = 0; i < ni; i++) for (let j = 0; j < nj; j++) collision[`c_${i}_${j}`] = { url: `c_${i}_${j}.col`, bytes: 4 };
   const manifest = { collision, baseUrl: 'http://x/' } as never;
   const loaded = new Map<string, unknown>();
-  const physics = { loaded, loadTile: vi.fn(async (id: string) => { loaded.set(id, {}); }), unloadTile: vi.fn((id: string) => loaded.delete(id)) };
+  const known = new Set<string>();
+  const physics = { loaded, known, loadTile: vi.fn(async (id: string) => { loaded.set(id, {}); }), unloadTile: vi.fn((id: string) => loaded.delete(id)),
+    setKnown: vi.fn((add: string[], remove: string[]) => { for (const id of add) known.add(id); for (const id of remove) known.delete(id); }) };
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) })));
   return { manifest, physics };
 }
@@ -80,4 +84,57 @@ for (const failure of ['size', 'CRC'] as const) test(`${failure} failures are pe
   expect(s.update(20,20,true)).toEqual([]);
   expect(onError).toHaveBeenCalledWith(expect.stringContaining(failure === 'size' ? 'size' : 'CRC'));
   expect(s.pending).toBe(0);
+});
+
+const settle = async (s: CollisionStreamer, x: number, z: number, vx = 0, vz = 0) => {
+  for (let k = 0; k < 60 && (s.pending || s.update(x, z, true, vx, vz).length); k++) await new Promise(r => setTimeout(r, 0));
+};
+
+test('a moving player gets the collision along the next 8 s of travel loaded, and keeps it beyond the radius', async () => {
+  const { manifest, physics } = fakes(40, 4);
+  const s = new CollisionStreamer(manifest, physics as never, 100, 50);
+  // 40 m/s east along z 100 from x 100: radius 100 plus 320 m ahead.
+  await settle(s, 100, 100, 40, 0);
+  for (const id of ['c_3_1', 'c_6_1', 'c_8_1', 'c_8_2']) expect(physics.loaded.has(id)).toBe(true);
+  expect(physics.loaded.has('c_10_1')).toBe(false); // 625 m: beyond 100 + 100 + 320 and the one-tile corridor
+  // Tiles behind the player stay within the radius only.
+  expect(physics.loaded.has('c_0_1')).toBe(true);
+  // Standing, the ahead tiles beyond radius + hysteresis unload again; ahead of a walker nothing extra loads.
+  s.update(100, 100, true);
+  expect(physics.loaded.has('c_8_1')).toBe(false);
+  expect(s.ahead(100, 100, 2, 0)).toEqual([]);
+});
+
+test('the worker learns the neighbours of loaded tiles that exist; a tile that failed for good is not one', async () => {
+  const { manifest, physics } = fakes(4, 4);
+  vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith('c_1_0.col')
+    ? { ok: false, status: 404 } as Response : { ok: true, arrayBuffer: async () => new ArrayBuffer(4) } as Response);
+  const s = new CollisionStreamer(manifest, physics as never, 40);
+  Object.assign(physics, { onError: () => {} });
+  await settle(s, 30, 10);
+  expect([...physics.loaded.keys()]).toEqual(['c_0_0']);
+  // c_0_1 exists and is not loaded: no wall faces it. c_1_0 failed: a wall does. c_-1_0 and c_0_-1 do not exist.
+  expect([...physics.known].sort()).toEqual(['c_0_0', 'c_0_1']);
+  physics.unloadTile('c_0_0');
+  s.update(500, 500, true);
+  expect([...physics.known]).toEqual([]);
+});
+
+test('near a tile that exists but is not loaded the player is held to a speed that stops before it', () => {
+  const { manifest, physics } = fakes(4, 1);
+  for (const id of ['c_0_0', 'c_1_0']) physics.loaded.set(id, {});
+  const s = new CollisionStreamer(manifest, physics as never, 100);
+  // 30 m before c_2_0 (x 125), moving east: stops within 28.5 m at 6 m/s².
+  expect(s.speedLimit(95, 30, 40, 0)).toBeCloseTo(Math.sqrt(2 * 6 * 28.5), 5);
+  expect(s.speedLimit(95, 30, -40, 0)).toBe(Infinity); // moving away
+  expect(s.speedLimit(124, 30, 5, 0)).toBe(0);
+  physics.loaded.set('c_2_0', {}); physics.loaded.set('c_3_0', {});
+  expect(s.speedLimit(95, 30, 40, 0)).toBe(Infinity);
+  // A car above the limit brakes (reversing: brakes with the throttle); a walker slows down.
+  const drive = { throttle: 1, steer: 0.2, brake: 0, handbrake: false };
+  expect(holdCar(drive, 20, 25)).toBe(drive);
+  expect(holdCar(drive, 30, 20)).toEqual({ throttle: 0, steer: 0.2, brake: 1, handbrake: false });
+  expect(holdCar(drive, 20.5, 20)).toEqual({ throttle: 0, steer: 0.2, brake: 0.3, handbrake: false });
+  expect(holdCar({ ...drive, throttle: 0, brake: 1 }, -8, 2)).toEqual({ throttle: 1, steer: 0.2, brake: 0, handbrake: false });
+  expect(holdFoot({ vx: 6, vz: 8, jump: false }, 5)).toEqual({ vx: 3, vz: 4, jump: false });
 });

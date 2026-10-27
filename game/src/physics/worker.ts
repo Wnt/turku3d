@@ -41,6 +41,7 @@ async function handle(msg: ToWorker) {
       pw.unloadTile(msg.id);
       post({ type: 'tileUnloaded', id: msg.id });
       break;
+    case 'knownTiles': pw.edges.setKnown(msg.add, msg.remove); break;
     case 'spawnCharacter': pw.spawnCharacter(msg.pos); break;
     case 'setCharacterEnabled': pw.setCharacterEnabled(msg.enabled, msg.pos); break;
     case 'spawnVehicle': pw.spawnVehicle(msg.spec.pos, msg.spec.yaw, msg.spec); break;
