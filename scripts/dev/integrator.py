@@ -1,22 +1,31 @@
 """Build and publish the live release (and GitHub Pages) for main once per landed batch.
 
-The lander fast-forwards main after the fast gate. This integrator then classifies the batch
-G..M (G = commit of the published live release, M = main head; landing_class.py): `inert`
-re-points live to M without a build, `data` and `code` build M once in its own sandbox with
-the class's stages (live_build.stages_for). A batch whose build stages succeed is published
-to live and Pages; then a code batch runs the deep gate tier (`gate --deep --all`). Advisory
-checks (Chrome, audits, car report, facade baseline, deep gate) are recorded in the row (and
-the release) and new failures go to the batch's authors as an inbox warning; they never
-block, bisect or revert. A build failure builds G against the current data root first: a
-red G is `data-red` (no commit is blamed). Only a green G bisects the batch's landings (build
-stages only) and reverts the one culprit landing through the land lock and the fast gate.
+Live and Pages publish what the localhost game already serves (served.py). The lander
+fast-forwards main after the fast gate. The code lane then classifies the batch G..M by its
+paths (G = commit of the published live release, M = main head; landing_class.py): `inert`
+re-points live to M without a build; any other batch builds only M's game bundle in its own
+sandbox and publishes it with the served tile set (no refresh, tile-build or validators). A
+batch whose game bundle builds is published to live and Pages; then it runs the deep gate tier
+(`gate --deep --all`). Advisory findings (facade baseline, deep gate; Chrome on the scheduled
+full suite) are recorded in the row and the release, and new ones go to the batch's authors as
+an inbox warning. A build failure builds G first: a red G is
+`data-red` (no commit is blamed). Only a green G bisects the batch's landings and reverts the
+one culprit landing on main through the land lock and the fast gate, tells its author and
+leaves live at G.
 
-Nothing polls: each landing starts a run when none is going (ensure), and a finished run
-starts the next when main or the data root moved meanwhile. A newer main joins only while
-that is free (before the first stage that is not a cache hit); then the batch is frozen. A
-second lane (`--lane data`, sandbox `integration-data`) builds G against a changed data root
-while the code lane is busy; publication is serialised under `publish.lock`, and a lane whose
-live release changed meanwhile rebuilds on top of it instead of publishing over it.
+The data lane (`--lane data`, sandbox `integration-data`) owns every change of the data root
+(facade approvals, the playable tile list, published layers): it rebuilds the affected tiles
+with the tile code that built the live tiles, so a pipeline change in main never forces a
+rebuild; it falls back to main's tile code only when that code cannot build the new data. It
+carries the live game bundle. The live record lists each tile's builder and the tiles whose
+tile code is older than main's (`stale_by_code`); `--refresh-stale` (make tiles-refresh-stale)
+rebuilds them with main's code when the host is idle.
+
+Nothing polls: each landing starts a run when none is going (ensure), and a finished run starts
+the next when main or the data root moved meanwhile. A newer main joins the code lane only
+while that is free (before the first stage that is not a cache hit). Publication is serialised
+under `publish.lock`; a code release whose tiles changed meanwhile is recomposed on the new
+live tiles, and a data release whose live game moved meanwhile ships the newer game.
 """
 
 from __future__ import annotations
@@ -37,10 +46,12 @@ import advisory
 import coordination as coord
 import host_slots
 import integration_chrome as chrome
+import integration_messages as messages
 import landing
 import landing_class
 import pages
 import sandbox as s
+import served
 
 NAME = "integration"
 DATA_NAME = "integration-data"
@@ -94,21 +105,24 @@ def last(published):
 
 
 def data_key(published):
-    """Identity of the data root a run builds against (landing_class.data_parts).
-
-    A new run for the same main head starts only when this key changes (settled).
-    """
+    """Identity of the data root a run builds against (landing_class.data_parts); the data lane
+    runs once per (live commit, data key)."""
     parts = landing_class.data_parts(published)
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()
 
 
 def batch_class(published, start, end, repo):
-    """The landing class of the batch start..end against the live release and data root."""
-    delta = landing_class.data_delta(
+    """The code lane's class of the batch start..end: its paths only (the data lane owns the
+    data root)."""
+    return landing_class.classify(repo, start, end, [], published)
+
+
+def release_delta(published):
+    """The data-root parts the live release does not carry yet."""
+    return landing_class.data_delta(
         landing_class.data_parts(published),
         landing_class.release_parts((published / "live").resolve()),
     )
-    return landing_class.classify(repo, start, end, delta, published)
 
 
 def code_rows(published):
@@ -125,16 +139,10 @@ def full_due(published, now=None):
 
 
 def settled(published, main):
-    """True when main needs no new integration: it is live, or its last run saw this data."""
+    """True when main needs no new code-lane run: it is live, or its last run took it."""
     if full_due(published):
         return False
-    if main == live_commit(published):
-        return True
-    row = last(published)
-    if row.get("to") != main:
-        return False
-    # Rows written before the data key existed keep the old main-only rule.
-    return row.get("data_key") in (None, data_key(published))
+    return main in (live_commit(published), last(published).get("to"))
 
 
 def live_commit(published):
@@ -183,9 +191,10 @@ class Run:
         self.main_repo = main_repo
         self.name = name
         self.lane = lane
-        # Whether this run is the scheduled full Chrome suite; self.chrome is its plan.
+        # Whether this run is the scheduled full Chrome suite; self.chrome is the Chrome plan.
         self.full = full
-        self.chrome = None
+        self.kind = "data" if lane == DATA_NAME else "full" if full else "code"
+        self.chrome = chrome.full_plan() if full else None
         # The batch end M and its class fields; a join moves both to a newer main.
         self.end = end
         self.landing = landing or {"class": "code"}
@@ -221,17 +230,13 @@ class Run:
         self.landing = batch_class(self.published, start, head, self.main_repo)
         if self.full:
             self.landing = {**self.landing, "class": "code"}
-        else:
-            self.chrome = chrome.batch_plan(self.main_repo, start, head, self.landing)
         checkout(head, self.name, self.published)
         self.end = head
         self.joined.append(head)
-        # The restarted build seeds the current data root, so the lane now covers its key.
-        key = data_key(self.published)
-        status(self.lane, to=head, commit=head, data_key=key, **{"class": self.landing_class})
+        status(self.lane, to=head, commit=head, **{"class": self.landing_class})
         return {
             "commit": head,
-            "landing_class": self.landing_class,
+            "kind": self.kind,
             "reason": landing.facade_reason_in(start, head, self.main_repo),
             "chrome": self.chrome,
         }
@@ -239,12 +244,11 @@ class Run:
     def timed(self, commit, started):
         self.builds.append({"commit": commit, "seconds": round(time.monotonic() - started, 3)})
 
-    def build(self, start, commit, join=False, kind=None, checks=True):
+    def build(self, start, commit, join=False, checks=True):
         """(report, None) when commit builds, else (None, failure); report["advisory"] lists
         the advisory checks that failed.
 
         join lets main heads that land before the first expensive stage join (self.end);
-        kind overrides the batch class (a data rebuild on top of another lane's release);
         checks=False runs the build stages only (base check and bisection).
         """
         # Imported here: the daemon imports this module, and the lander path must not
@@ -267,9 +271,9 @@ class Run:
                 log,
                 reason,
                 self.previous,
-                kind or self.landing_class,
+                self.kind,
                 (lambda cached: self.join(start, cached)) if join else None,
-                chrome=chrome.data_plan(self.published) if kind == "data" else self.chrome,
+                chrome=self.chrome,
                 timings=self.stage_seconds,
                 checks=checks,
             )
@@ -299,23 +303,6 @@ def bisect(run, start, end, failure):
     return (points[high - 1] if high else start), points[high], failures[high]
 
 
-def revert_message(run, task, failure, commits):
-    """Commit message of an integrator revert: integration row id, stage and exact commits."""
-    lines = [
-        f"Revert landing {task or 'unknown'} ({commits[-1][:12]}): integration {run.id} "
-        f"red at {failure['stage']}",
-        "",
-        f"Integration: {run.id}",
-        f"Failing stage: {failure['stage']}",
-        f"Log: {failure['log']}",
-        "Reverted commits:",
-    ]
-    for commit in commits:
-        subject = s.git("log", "-1", "--format=%s", commit, cwd=run.main_repo)
-        lines.append(f"  {commit} {subject}")
-    return "\n".join([*lines, "", f"Detail: {failure['detail'][-300:]}"]) + "\n"
-
-
 def revert(run, parent, culprit, task, failure):
     """Revert the culprit landing parent..culprit as one commit on current main.
 
@@ -336,7 +323,7 @@ def revert(run, parent, culprit, task, failure):
         if not s.git("diff", "--cached", "--name-only", cwd=repo):
             s.git("revert", "--abort", cwd=repo, check=False)
             return {"error": "revert is empty; the landing is already reverted", "reverted": []}
-        s.git("commit", "-q", "-m", revert_message(run, task, failure, commits), cwd=repo)
+        s.git("commit", "-q", "-m", messages.revert_message(run, task, failure, commits), cwd=repo)
         started = time.monotonic()
         gate = s.run_group(
             [str(repo / "scripts/dev/gate"), "--fast", "--base", before],
@@ -377,48 +364,6 @@ def revert(run, parent, culprit, task, failure):
         return {"commit": head, "reverted": commits, "fast_gate_seconds": seconds}
 
 
-def notify(run, task, culprit, failure, reverted):
-    detail = (
-        f"reverted on main as {reverted['commit'][:12]}"
-        if "commit" in reverted
-        else f"NOT reverted ({reverted['error']})"
-    )
-    body = (
-        f"Integration {run.id} is red at your landing {culprit[:12]}: {failure['stage']} "
-        f"failed. Log: {failure['log']}. Detail: {failure['detail'][-400:]}\n"
-        f"The change is {detail}; live stays on the last published release. Rebase onto "
-        "main, fix it, and run codex-task finish again."
-    )
-    recipient = task if task and (s.tasks_root() / task / "meta.json").exists() else "orchestrator"
-    try:
-        coord.send(recipient, "request", f"integration red at {culprit[:12]}", body)
-    except (ValueError, OSError):
-        coord.send("orchestrator", "request", f"integration red at {culprit[:12]}", body)
-    return recipient
-
-
-def warn_data_red(run, row):
-    """Tell everyone the data root, not a commit, turned the batch red; returns the subject."""
-    failure = row["failure"]
-    cause = (
-        "The facade approval root's MANIFEST.json differs from the published release's."
-        if row["data_cause"] == "approval-root-changed"
-        else "The batch base itself is red against the current data root."
-    )
-    body = (
-        f"Integration {run.id} ({row['from'][:12]}..{row['to'][:12]}) is data-red: the base "
-        f"{row['from'][:12]} builds red at {failure['stage']}. {cause} No commit was "
-        f"reverted; live stays on {row['from'][:12]}. The run is retried when main moves or "
-        f"the data root changes. Log: {failure['log']}. Detail: {failure['detail'][-400:]}"
-    )
-    subject = f"integration {run.id} data-red at {failure['stage']}"
-    try:
-        coord.send("all", "warning", subject, body)
-    except (ValueError, OSError):
-        coord.send("orchestrator", "warning", subject, body)
-    return subject
-
-
 def record(run, row):
     row = {
         "id": run.id,
@@ -457,13 +402,14 @@ def data_red(run, base, head_failure, base_failure):
         "approval_manifest": manifests,
         "revert": None,
     }
-    row["notified"] = warn_data_red(run, row)
+    row["notified"] = messages.warn_data_red(run, row)
     return record(run, row)
 
 
 def integrate(run, base, start, end):
-    """Build M; publish it and Pages when it builds, whatever its advisory checks say.
-    A build failure builds G; red G is data-red, green G bisects."""
+    """Build M's game bundle; publish it with the served tiles and Pages when it builds,
+    whatever its advisory checks say. A build failure builds G; red G is data-red, green G
+    bisects."""
     import live_build
 
     published = run.published
@@ -488,7 +434,7 @@ def integrate(run, base, start, end):
                 "culprit_task": task,
                 "failure": failure,
                 "revert": reverted,
-                "notified": notify(run, task, culprit, failure, reverted),
+                "notified": messages.notify(run, task, culprit, failure, reverted),
             },
         )
     row = {
@@ -502,7 +448,9 @@ def integrate(run, base, start, end):
     }
     while True:
         work = Path(report.pop("work"))
+        shipped = report.pop("shipped")
         row["advisory"] = report["advisory"]
+        row["tiles_from"] = shipped["source"]
         with publish_lock():
             live = (published / "live").resolve()
             known = advisory.release_advisory(live)
@@ -511,7 +459,12 @@ def integrate(run, base, start, end):
                     if end == live_commit(published):  # a full run checks live in place
                         chrome.mark_full_suite(published, report["advisory"])
                     else:
-                        record_fields = {**report, "full_suite": run.full, "from": start}
+                        record_fields = {
+                            **report,
+                            **served.provenance(run.main_repo, end, shipped),
+                            "full_suite": run.full,
+                            "from": start,
+                        }
                         live_build.prepare(work, published, end, record_fields)
                         # Main is already at M; only the live link moves, and publish rolls
                         # it back to G if a stable path does not resolve into the release.
@@ -520,17 +473,17 @@ def integrate(run, base, start, end):
                     failure = {"detail": str(exc)}
                     return record(run, {**row, "result": "failed", "failure": failure})
                 break
-        # The data lane published newer data meanwhile: verified code M is rebuilt on top of
-        # it with the data stages, as a data landing after M would be, never published over it.
-        # A batch rebuilds at most once; after that the next run builds on the newer release.
+        # The data lane published new tiles meanwhile: M is recomposed on them (its game
+        # bundle is a cache hit), never published over them. A batch recomposes at most once;
+        # after that the next run takes the newer release.
         if "rebuilt_on" in row:
             detail = f"live changed again during the rebuild (now {live.name}); next run publishes"
             return record(run, {**row, "result": "failed", "failure": {"detail": detail}})
         run.previous, run.live_parts = live, landing_class.release_parts(live)
         row["rebuilt_on"] = live.name
-        report, failure = run.build(start, end, kind="data")
+        report, failure = run.build(start, end)
         if report is None:
-            return data_red(run, base, failure, failure)
+            return record(run, {**row, "result": "failed", "failure": failure})
     if deployed := pages.deploy(published):
         row["pages"] = deployed
     # The deep gate tier, once the release is out, in the build's checkout of M (advisory);
@@ -577,10 +530,10 @@ def reserved(lane):
                 os.environ.pop("TURKU3D_INTEGRATION_OWNER", None)
 
 
-def begin(lane, start, end, landing, key):
+def begin(lane, start, end, landing, **fields):
     status_path(lane).parent.mkdir(parents=True, exist_ok=True)
-    fields = {"pid": os.getpid(), "started": time.time(), "from": start, "to": end}
-    s.write_json(status_path(lane), {**fields, "class": landing["class"], "data_key": key})
+    fields = {"pid": os.getpid(), "started": time.time(), "from": start, "to": end, **fields}
+    s.write_json(status_path(lane), {**fields, "class": landing["class"]})
 
 
 def run_once(published, main_repo=s.REPO, name=NAME, full=False):
@@ -597,12 +550,10 @@ def run_once(published, main_repo=s.REPO, name=NAME, full=False):
     landing = batch_class(published, start, end, main_repo)
     landing = {**landing, "class": "code"} if full else landing
     run = Run(published, main_repo, name, end, landing, full=full)
-    key = data_key(published)
-    begin(NAME, start, end, landing, key)
-    base = {"from": start, "to": end, "data_key": key, **landing, "full_suite": full}
+    begin(NAME, start, end, landing)
+    base = {"from": start, "to": end, **landing, "full_suite": full}
     if landing["class"] == "inert":
         return repoint(run, base, start, end)
-    run.chrome = chrome.batch_plan(main_repo, start, end, landing, full)
     with reserved(NAME):
         try:
             return integrate(run, base, start, end)
@@ -612,27 +563,13 @@ def run_once(published, main_repo=s.REPO, name=NAME, full=False):
             return record(run, {**base, "result": "failed", "failure": failure})
 
 
-def data_due(published, main_repo=s.REPO):
-    """Whether the data lane should build live G against the changed data root now.
-
-    Only while the code lane cannot cover the change: it runs with an older data key, or
-    main is live so no code run follows. One run per (G, data key).
-    """
+def data_due(published):
+    """Whether the data lane should rebuild tiles now: the data root has parts the live release
+    does not carry, and no data run took this (live commit, data key) yet."""
     start = live_commit(published)
-    if start is None or running(DATA_NAME):
+    if start is None or running(DATA_NAME) or not release_delta(published):
         return False
     key = data_key(published)
-    code = running(NAME)
-    if code:
-        if code.get("data_key") == key:
-            return False
-    elif s.git("rev-parse", "main", cwd=main_repo) != start:
-        return False
-    live = (published / "live").resolve()
-    if not landing_class.data_delta(
-        landing_class.data_parts(published), landing_class.release_parts(live)
-    ):
-        return False
     return not any(
         row.get("lane") == "data" and row.get("from") == start and row.get("data_key") == key
         for row in read_rows(ledger_path())
@@ -640,9 +577,23 @@ def data_due(published, main_repo=s.REPO):
     )
 
 
-def run_data(published, main_repo=s.REPO, name=DATA_NAME):
-    """Data lane: build live G with the data stages against the current data root and
-    publish it as release <G>-<data key> unless live moved meanwhile."""
+def tile_builders(main_repo, live, refresh_stale):
+    """The commits whose tile code a data run tries in turn: the live tiles' builder (only the
+    data changed), then main when its tile code differs; main alone to refresh stale tiles."""
+    main = s.git("rev-parse", "main", cwd=main_repo)
+    if refresh_stale:
+        return [main]
+    builder = served.builder(served.record(live))
+    if served.tile_code(main_repo, builder) == served.tile_code(main_repo, main):
+        return [builder]
+    return [builder, main]
+
+
+def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
+    """Data lane: rebuild the tiles the changed data root affects (refresh_stale: the live
+    tiles whose tile code is older than main's, with main's) and publish them with the live
+    game as release <G>-<data key>. When the code lane published a newer game on the same
+    tiles meanwhile, the release ships that game; when it changed the tiles, it is superseded."""
     import live_build
 
     published = Path(published)
@@ -650,23 +601,30 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME):
     if start is None:
         raise ValueError(f"no published live release in {published}")
     live = (published / "live").resolve()
-    current = landing_class.data_parts(published)
-    delta = landing_class.data_delta(current, landing_class.release_parts(live))
-    if not delta:
+    delta = release_delta(published)
+    stale = served.record(live).get("stale_by_code", [])
+    if not (stale if refresh_stale else delta):
         return None
+    builders = tile_builders(main_repo, live, refresh_stale)
     landing = landing_class.classify(main_repo, start, start, delta, published)
     run = Run(published, main_repo, name, start, landing, lane=DATA_NAME)
-    run.chrome = chrome.data_plan(published)
+    run.chrome = chrome.data_plan(published, main_repo)
     key = data_key(published)
-    begin(DATA_NAME, start, start, landing, key)
+    begin(DATA_NAME, start, start, landing, data_key=key)
     base = {"lane": "data", "from": start, "to": start, "data_key": key, **landing}
+    if refresh_stale:
+        base["refresh_stale"] = stale
     with reserved(DATA_NAME):
         try:
-            report, failure = run.build(start, start)
+            for builder in builders:
+                report, failure = run.build(start, builder)
+                if report is not None:
+                    break
             if report is None:
                 return data_red(run, base, failure, failure)
             row = {
                 **base,
+                "tiles_commit": builder,
                 "seconds": report["seconds"],
                 "cache_hits": report["cache_hits"],
                 "facades_bound": report["facades_bound"],
@@ -674,12 +632,20 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME):
                 "culprit": None,
             }
             work = Path(report.pop("work"))
+            shipped = served.built(builder, live, report["tiles"], report.pop("tiles_built"))
             with publish_lock():
-                if (published / "live").resolve() != live:
-                    # The code lane published first; the next round rebuilds on top of it.
-                    return record(run, {**row, "result": "superseded"})
-                release = f"{start}-{key[:12]}"
-                live_build.prepare(work, published, start, {**report, "from": start}, release)
+                current = (published / "live").resolve()
+                if current != live:
+                    if landing_class.release_parts(current) != run.live_parts:
+                        # New tiles were published first; the next round rebuilds on them.
+                        return record(run, {**row, "result": "superseded"})
+                    # A code release of a newer main on the same tiles: ship its game.
+                    start = live_commit(published)
+                    served.carry_game(current, work)
+                    row["to"] = start
+                release = f"{start}-{key[:12]}" + (f"-{builder[:12]}" if refresh_stale else "")
+                fields = {**report, **served.provenance(main_repo, start, shipped), "from": start}
+                live_build.prepare(work, published, start, fields, release)
                 live_build.publish(published, start, release)
         except (ValueError, OSError, subprocess.CalledProcessError) as exc:
             return record(
@@ -730,17 +696,29 @@ def ensure(published, main_repo=s.REPO):
     if not running(NAME) and not settled(published, s.git("rev-parse", "main", cwd=main_repo)):
         start(published, "code")
         started.append("code")
-    if data_due(published, main_repo):
+    if data_due(published):
         start(published, "data")
         started.append("data")
     return started
 
 
-def start(published, lane="code"):
+def refresh_stale(published):
+    """Start the data lane on the live tiles marked stale_by_code (make tiles-refresh-stale,
+    run by the sentinel's heartbeat on an idle host); False when none are or it is busy."""
+    if live_commit(published) is None or running(DATA_NAME):
+        return False
+    if not served.record((Path(published) / "live").resolve()).get("stale_by_code"):
+        return False
+    start(published, "data", refresh_stale=True)
+    return True
+
+
+def start(published, lane="code", refresh_stale=False):
     """Start one detached integration of a lane; its own lock keeps one run per lane."""
     log = registry() / f"{LANES[lane]}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     command = ["run", "--published", str(published), "--lane", lane]
+    command += ["--refresh-stale"] if refresh_stale else []
     with log.open("a") as output:
         return subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), *command],
@@ -754,13 +732,18 @@ def start(published, lane="code"):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("run", "status", "ensure"))
+    parser.add_argument("command", choices=("run", "status", "ensure", "refresh-stale"))
     parser.add_argument("--published", type=Path, default=os.environ.get("TURKU3D_DATA"))
     parser.add_argument("--main-repo", type=Path, default=s.REPO)
     parser.add_argument("--lane", choices=tuple(LANES), default="code")
     parser.add_argument("--sandbox", help="integration sandbox (default: the lane's)")
     parser.add_argument(
         "--full", action="store_true", help="code lane: the full Chrome suite now (advisory)"
+    )
+    parser.add_argument(
+        "--refresh-stale",
+        action="store_true",
+        help="data lane: rebuild the live tiles listed stale_by_code with main's tile code",
     )
     args = parser.parse_args()
     lane = LANES[args.lane]
@@ -773,6 +756,9 @@ def main():
     if args.command == "ensure":
         print(json.dumps({"started": ensure(args.published.resolve(), args.main_repo)}))
         return 0
+    if args.command == "refresh-stale":
+        print(json.dumps({"started": refresh_stale(args.published.resolve())}))
+        return 0
     lock_path(lane).parent.mkdir(parents=True, exist_ok=True)
     with lock_path(lane).open("a") as file:
         try:
@@ -780,7 +766,11 @@ def main():
         except BlockingIOError:
             print(f"{lane} already running", file=sys.stderr)
             return 0
-        run = run_data if args.lane == "data" else functools.partial(run_once, full=args.full)
+        run = (
+            functools.partial(run_data, refresh_stale=args.refresh_stale)
+            if args.lane == "data"
+            else functools.partial(run_once, full=args.full)
+        )
         try:
             row = run(args.published.resolve(), args.main_repo, args.sandbox or lane)
         finally:

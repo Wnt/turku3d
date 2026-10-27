@@ -194,8 +194,15 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_la
 name = "integrator-tests"
 tier = "deep"
 kind = "command"
-triggers = ["scripts/dev/integrator.py", "scripts/dev/integration_chrome.py", "scripts/dev/advisory.py", "scripts/dev/tests/test_advisory.py", "scripts/dev/spec_selection.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/gate_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/pages_region.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/tile_store.py", "scripts/dev/tests/test_tile_store.py", "scripts/dev/tests/test_caches.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
+triggers = ["scripts/dev/integrator.py", "scripts/dev/integration_chrome.py", "scripts/dev/advisory.py", "scripts/dev/tests/test_advisory.py", "scripts/dev/spec_selection.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/gate_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/pages_region.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/served.py", "scripts/dev/integration_messages.py", "scripts/dev/tile_store.py", "scripts/dev/tests/test_tile_store.py", "scripts/dev/tests/test_caches.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
 commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_caches.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_advisory.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_tile_store.py", "scripts/dev/tests/test_landing_class.py"]]
+
+# What live and Pages ship (served.py) and which lanes start; a few seconds, in the fast tier.
+[[stages]]
+name = "publish-tests"
+kind = "command"
+triggers = ["scripts/dev/served.py", "scripts/dev/tile_store.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/integrator.py", "scripts/dev/live_build.py", "scripts/dev/landing_class.py", "scripts/dev/tests/test_served.py", "scripts/dev/tests/test_integration_ensure.py"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_served.py", "test_integration_ensure.py"]]
 
 [[stages]]
 name = "watch-tests"

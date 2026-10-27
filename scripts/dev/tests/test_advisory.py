@@ -63,9 +63,14 @@ class AdvisoryTests(test_integrator.IntegratorFixture):
         self.land("two", "game/b.ts", "b")
         self.assertEqual(self.integrate()["warned"], [])
 
-    def test_facade_drop_without_reason_is_published_with_a_warning(self):
-        head = self.land("drop", "game/facades.txt", "1\n")
+    def test_facade_drop_from_changed_approvals_is_published_with_a_warning(self):
+        head = self.land("docs-and-prompts", "game/a.ts", "a")
+        self.approve(1)
+        # The code lane ships the live tiles: no drop there.
         row = self.integrate()
+        self.assertEqual((row["result"], row["advisory"], row["facades_bound"]), ("green", [], 2))
+        # The data lane rebuilds the tiles with the new approvals and publishes the drop.
+        row = self.data()
         self.assertEqual((row["result"], row["culprit"], row["facades_bound"]), ("green", None, 1))
         [drop] = row["advisory"]
         self.assertEqual(
@@ -73,18 +78,10 @@ class AdvisoryTests(test_integrator.IntegratorFixture):
             ("facade-baseline", 1, 2),
         )
         self.assertIn("facades_bound regressed", drop["detail"])
-        self.assertEqual(integrator.live_commit(self.published), head)
-        [warning] = coordination.inbox("drop", unread=True)
-        self.assertIn("facade-baseline", warning["subject"])
-
-    def test_facade_drop_from_changed_approvals_is_published_with_a_warning(self):
-        head = self.land("docs-and-prompts", "game/a.ts", "a")
-        self.approve(1)
-        row = self.integrate()
-        self.assertEqual((row["result"], row["culprit"]), ("green", None))
-        self.assertEqual([entry["stage"] for entry in row["advisory"]], ["facade-baseline"])
         self.assertEqual(self.git("rev-parse", "main"), head)
         self.assertEqual(integrator.live_commit(self.published), head)
+        [warning] = coordination.inbox("orchestrator", unread=True)
+        self.assertIn("facade-baseline", warning["subject"])
 
     def test_every_published_batch_deploys_pages_full_suite_or_not(self):
         for full in (False, True):

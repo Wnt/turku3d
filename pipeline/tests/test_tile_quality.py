@@ -216,11 +216,16 @@ def test_publish_keeps_history_and_unlisted_tiles(root, tmp_path):
     ledger = json.loads((tiles / Q.DIST_LEDGER).read_text())
     del ledger["tiles"]["t0_1_0"]
     (tiles / Q.DIST_LEDGER).write_text(json.dumps(ledger))
+    # The release record names each tile's builder and the tiles built with older tile code.
+    record = {"tile_commits": {"t0_0_0": "old"}, "stale_by_code": ["t0_0_0"]}
+    (release / "live-build.json").write_text(json.dumps(record))
     second = Q.publish(published, release, "def")["tiles"]
     assert second["t0_1_0"]["listed"] is False
     assert second["t0_0_0"]["full_quality_since"] == since
+    assert (second["t0_0_0"]["tile_commit"], second["t0_0_0"]["stale_by_code"]) == ("old", True)
     text = Q.table(second)
     assert "t0_1_0 (unlisted)" in text and "ortho-splats" in text
+    assert "t0_0_0 (stale code)" in text
 
 
 def test_the_assembler_cli_writes_the_ledger_into_its_dist(tmp_path, monkeypatch, capsys):

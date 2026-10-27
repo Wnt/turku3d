@@ -1,4 +1,8 @@
-"""Publish a live release to GitHub Pages as one orphan commit.
+"""Publish main's game with the tiles the localhost game serves to GitHub Pages as one orphan commit.
+
+`publish-pages` (`--from-served`, the default) ships main's production bundle with the served
+tile set (served.release: the live release when it already is exactly that); `--release DIR`
+ships a specific release dir. The integrator publishes each live release it builds.
 
 The deploy repository named in `$TURKU3D_DATA/publish/pages.json`
 (`{"repo": "owner/name", "branch": "gh-pages", "region": {...}}`) only ever holds the latest
@@ -289,11 +293,22 @@ def deploy(published):
 def main(argv=None):
     import argparse
 
+    import served
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--published", type=Path, default=os.environ.get("TURKU3D_DATA"))
-    parser.add_argument("--release", type=Path, help="any release dir (default: <published>/live)")
+    parser.add_argument("--main-repo", type=Path, default=REPO)
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
+        "--from-served",
+        action="store_true",
+        help="main's production bundle with the served tiles (the default)",
+    )
+    source.add_argument("--release", type=Path, help="publish this release dir instead")
     parser.add_argument(
-        "--plan", action="store_true", help="print the region selection; publish nothing"
+        "--plan",
+        action="store_true",
+        help="print the region selection of --release (default: live); publish nothing",
     )
     args = parser.parse_args(argv)
     if not args.published:
@@ -302,7 +317,10 @@ def main(argv=None):
         release = Path(args.release or (args.published / "live")).resolve()
         print(pages_region.notes(pages_region.plan(config(args.published) or {}, release)), end="")
         return 0
-    result = publish(args.published, args.release)
+    started = time.monotonic()
+    release = args.release or served.release(args.published.resolve(), args.main_repo)
+    result = publish(args.published, release)
+    result["total_seconds"] = round(time.monotonic() - started, 3)
     print(json.dumps(result))
     print(result["url"])
     return 0

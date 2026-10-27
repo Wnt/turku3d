@@ -8,8 +8,10 @@
 The assembler CLI writes `<dist>/tiles/quality.json` after every tile build (`record`), so the ledger travels
 with the tile tree into the stage cache, the tile store and the live release. `make tile-validate` adds the
 validator's verdict per tile. When the integrator publishes a release, `publish` merges the release's ledger
-into `$TURKU3D_DATA/tile-quality.json`, marks its tiles validator-green (every stage of the release passed) and
-keeps `full_quality_since` and tiles that later leave the list (`listed: false`), so nothing good is forgotten.
+into `$TURKU3D_DATA/tile-quality.json`, marks its tiles validator-green (every stage of the release passed),
+records the commit that built each tile and whether its tile code is older than the release's (`tile_commit`,
+`stale_by_code`, from the release record; `make tiles-refresh-stale` rebuilds those) and keeps
+`full_quality_since` and tiles that later leave the list (`listed: false`), so nothing good is forgotten.
 
 Per playable L0 tile: when it was built and how long the assembly took, wire bytes, buildings, facade walls by
 map source (generate, derived, derived-neighbour, other = not generated-style, none), the street-facing wall area
@@ -297,9 +299,17 @@ def publish(published: Path, release: Path, commit: str) -> dict:
     previous = read(path)
     tiles = {}
     when = now()
+    try:
+        entry = json.loads((Path(release) / "live-build.json").read_text())
+    except (OSError, ValueError):
+        entry = {}
+    builders, stale = entry.get("tile_commits", {}), set(entry.get("stale_by_code", ()))
     for tid, record in release_tiles(release).items():
         old = previous.get(tid, {})
         record = {**record, "validator": {"status": "pass", "checked": when, "release": commit}}
+        if tid in builders:
+            record["tile_commit"] = builders[tid]
+        record["stale_by_code"] = tid in stale
         record["full_quality_since"] = old.get("full_quality_since") or record.get(
             "full_quality_since"
         )
@@ -333,7 +343,9 @@ def table(tiles: dict) -> str:
         cov = r.get("facade_coverage")
         rows.append(
             (
-                tid + ("" if r.get("listed", True) else " (unlisted)"),
+                tid
+                + ("" if r.get("listed", True) else " (unlisted)")
+                + (" (stale code)" if r.get("stale_by_code") else ""),
                 (r.get("built") or "-")[:16],
                 "-" if r.get("build_seconds") is None else f"{r['build_seconds']:.0f}",
                 f"{r.get('wire_bytes', 0) / 1e6:.2f}",
