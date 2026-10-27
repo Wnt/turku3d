@@ -50,6 +50,8 @@ interface SaveGameOptions {
   placed: (at: V3, yaw: number) => void;
   setPaused: (paused: boolean) => void;
   fail: (e: unknown) => void;
+  multiplayer?: () => void;
+  onQuit?: () => void;
 }
 
 export class SaveGameController {
@@ -69,13 +71,14 @@ export class SaveGameController {
       play: game => this.play(game),
       resume: () => { o.pauseMenu.close(); o.setPaused(false); },
       quit: () => {
+        o.onQuit?.();
         this.autosave.save('quit');
         o.pauseMenu.close();
         o.setPaused(false);
         o.startScreen.reopen(this.startFlow.start());
       },
     };
-    this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks);
+    this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer);
     this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks);
     this.autosave = new Autosave(o.saves, () => o.startScreen.active || this.loading ? null : this.capture());
     this.detach = this.autosave.attach(window, document);
@@ -136,8 +139,18 @@ export class SaveGameController {
     void this.place(game).catch(this.o.fail).finally(() => { this.loading = false; this.o.setPaused(false); });
   }
 
+  /** Places a multiplayer join at the server's spawn or retained pose, using the normal safe-ground snap. */
+  async playAt(at: Pose) {
+    this.o.startScreen.close();
+    this.o.pauseMenu.close();
+    this.loading = true;
+    this.o.setPaused(true);
+    try { await this.place(null, at); }
+    finally { this.loading = false; this.o.setPaused(false); }
+  }
+
   /** Puts the world in the state of `game` (null: a new game): missions, clock, the own car, then the player. */
-  private async place(game: SaveGame | null) {
+  private async place(game: SaveGame | null, override?: Pose) {
     const { physics, missions, spawn } = this.o;
     if (this.o.view().mode === 'car') this.o.leaveCar();
     missions.restore(game?.mission ?? null);
@@ -154,8 +167,8 @@ export class SaveGameController {
       const y = await this.snap(at);
       physics.spawnVehicle({ x: at.x, y: y + 0.55, z: at.z }, at.yaw, { id: SCOOTER_ID, kind: 'scooter' });
     }
-    const at = game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn;
-    const y = game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y);
+    const at = override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
+    const y = override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y);
     physics.setCharacterEnabled(true, { x: at.x, y: y + 0.05, z: at.z });
     // The world stays paused until the worker reports the character at its new place, so nothing reads the old one.
     const t0 = performance.now();

@@ -45,6 +45,7 @@ import type { Environment } from './render/environment';
 import type { PerformanceMonitor } from './render/performance';
 import type { MaterialStyler } from './render/materials';
 import type { parseParams } from './core/params';
+import { MultiplayerClient } from './net/client';
 
 type Pose = V3 & { yaw: number };
 
@@ -162,6 +163,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   zones.setSource(missions);
   const shopMenu = new ShopMenu(document.body);
   const pauseMenu = new PauseMenu(document.body, input);
+  let multiplayer: MultiplayerClient | null = null;
+  let multiplayerPlaying = false;
   const mapDirection = new THREE.Vector3();
 
   let mode: 'foot' | 'car' = 'foot';
@@ -211,7 +214,21 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     spawn, car: world.car,
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
-    setPaused: value => { paused = value; }, fail });
+    setPaused: value => { paused = value; }, fail,
+    onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; },
+    multiplayer: () => {
+      multiplayer?.disconnect();
+      const client = new MultiplayerClient();
+      multiplayer = client;
+      client.addEventListener('welcome', () => {
+        if (multiplayer !== client || multiplayerPlaying) return;
+        const self = client.state.players.find(p => p.id === client.state.you?.id);
+        const at = self?.pose ?? client.state.you!.spawn;
+        multiplayerPlaying = true;
+        void saveGame.playAt({ x: at.E, y: self?.pose?.H ?? 0, z: -at.N, yaw: at.yaw }).catch(fail);
+      });
+      client.connect();
+    } });
   let owned = missions.vehicle;
   if (hot) {
     const restored = applyHot(hot, { missions, setClock: date => { world.setClock(date); clockControl.set(date); }, camera: orbit });
@@ -366,6 +383,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - 0.6, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
     }
+    if (multiplayerPlaying && !startScreen.active && !saveGame.loading) {
+      const yaw = mode === 'car' && vs ? yawOf(vs.rot) - Math.PI / 2 : player.root.rotation.y - Math.PI;
+      multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
+        vE: vel.x, vN: -vel.z, vH: vel.y, mode: mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : 'car',
+        carrying: missions.phase === 'carrying' });
+    }
     if (!paused && !startScreen.active && !menuOpen) {
       recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y }, resetNow);
     }
@@ -450,6 +473,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId,
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible };
       renderer.setAnimationLoop(null);
+      multiplayer?.disconnect();
       listeners.abort();
       saveGame.dispose();
       input.dispose();
@@ -474,4 +498,3 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     },
   };
 }
-
