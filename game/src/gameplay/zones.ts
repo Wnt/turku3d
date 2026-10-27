@@ -21,8 +21,9 @@ const PULSE_SECONDS = 1.6;
 const GLOW = 2.4;
 const PROBE_RETRY_SECONDS = 1;
 
-/** Ground height under (x, z) from a downward ray starting at `top`, or null while no collider is there. */
-type GroundProbe = (x: number, z: number, top: number) => Promise<number | null>;
+/** Ground height under a target from a downward ray starting at `top`, or null while no collider is there (or while a
+ *  drop-off is being moved off a rejected point, missions/dropoffs.ts). */
+type GroundProbe = (target: RouteTarget, top: number) => Promise<number | null>;
 
 interface Zone {
   target: RouteTarget;
@@ -151,8 +152,7 @@ export class ZoneMarkers {
   private probe(zone: Zone) {
     if (zone.probing || this.time < zone.nextProbe) return;
     zone.probing = true;
-    const { x, z } = zone.target.point;
-    void this.ground(x, z, ZONE_RAY_TOP[zone.target.id] ?? DEFAULT_ZONE_RAY_TOP).then(y => {
+    void this.ground(zone.target, ZONE_RAY_TOP[zone.target.id] ?? DEFAULT_ZONE_RAY_TOP).then(y => {
       zone.probing = false;
       if (this.zones.get(zone.target.id) !== zone) return;
       if (y === null) { zone.nextProbe = this.time + PROBE_RETRY_SECONDS; return; }

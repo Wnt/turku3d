@@ -101,16 +101,31 @@ the scooter.
 ## Deliveries
 
 The first four orders are the scripted opening below (their own hand-over and customer lines).
-Drop-off points are street-side spots in front of real addresses from the OSM extract, inside the
-area. Distances are shortest walking routes on the OSM street graph from the pizzeria (the game's
-street-network router may differ by a few metres).
+Each names its address; the mission system looks it up in the published address pool and takes the
+pool's drop-off (the sidewalk spot 2.5 m in front of the door, outside every footprint), route
+metres and par, like any pool order. The coordinates below are the fallback for a pool that lacks
+the address (and the synthetic tiles, which carry no pool): the same sidewalk rule applied to the
+buildings layer. Route is the walking distance on the road graph from the pizzeria.
 
-| # | Address | x, z | Route | Par on foot |
+| # | Address | Fallback x, z | Route | Par on foot |
 |---|---|---|---|---|
-| 1 | Linnankatu 13a | 191.0, 106.5 | ~140 m | ~120 s |
-| 2 | Aurakatu 1 | 294.5, 185.2 | ~290 m | ~227 s |
-| 3 | Läntinen Rantakatu 3 | 439.5, 54.8 | ~440 m | ~336 s |
-| 4 | Kaskenkatu 4a (across Auransilta, up the hill) | 474.3, 402.0 | ~610 m | ~456 s |
+| 1 | Linnankatu 13a | 183.24, 116.26 | ~129 m | ~112 s |
+| 2 | Aurakatu 1 | 267.03, 156.12 | ~245 m | ~195 s |
+| 3 | Läntinen Rantakatu 3 | 433.79, 69.71 | ~472 m | ~357 s |
+| 4 | Kaskenkatu 4a (across Auransilta, up the hill) | 446.4, 417.37 | ~551 m | ~414 s |
+
+Linnankatu 13a is not in the pool yet: the pipeline's door search picks the party wall to
+Linnankatu 13b, whose sidewalk spot falls inside the neighbour, so its fallback is the Linnankatu
+wall nearest to the city register point. Before 2026-10-27 the four were hand-placed; the first sat
+inside the Linnankatu 13 footprint and its marker stood on the roof.
+
+**Street-level check.** Before a drop-off marker is placed, `missions/dropoffs.ts` casts the ground
+ray at the point and on two rings (5 and 9 m) around it. A point whose ground is a building (roof,
+building or wall material) or lies more than 2 m from the median street height around it is
+rejected with a console warning (`[missions] drop-off … rejected: …`), and the mission system moves
+the drop-off to its next candidate: the pool's point, the scripted fallback, the pool's street
+point, then the nearest point of the street network. The hand-over trigger moves with it; a marker
+never stands on a roof.
 
 ### Address pool
 

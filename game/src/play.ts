@@ -29,6 +29,8 @@ import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { createGameplay, compassDeg } from './gameplay';
 import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
+import { DropoffGuard } from './gameplay/missions/dropoffs';
+import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
 import { applyHot, markResume, takeResume, type HotPlay } from './gameplay/hotState';
 import { MATERIALS } from './shared/col/materials';
 import type { VehicleInput } from './physics/protocol';
@@ -144,9 +146,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     { x: spot.x, y: await groundAt(spot.x, spot.z) + 0.55, z: spot.z }, spot.yaw, { id: SCOOTER_ID, kind: 'scooter' });
   minimap.setSource(missions);
   voice.attach(missions);
-  // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement.
-  const zones = new ZoneMarkers(root, (x, z, top) => physics.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, top + 60)
-    .then(hit => hit?.point.y ?? null), document.body);
+  // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement. A drop-off's
+  // marker waits for its street-level check, which moves a drop-off off a roof (gameplay/missions/dropoffs.ts).
+  const zoneRay = (x: number, z: number, top: number) => physics.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, top + 60);
+  const dropoffs = new DropoffGuard(
+    (x, z) => zoneRay(x, z, DEFAULT_ZONE_RAY_TOP).then(hit => hit && { y: hit.point.y, material: hit.material }),
+    (id, point) => missions.relocateDropoff(id, point));
+  const zones = new ZoneMarkers(root, (target, top) => target.kind === 'dropoff' ? dropoffs.ground(target)
+    : zoneRay(target.point.x, target.point.z, top).then(hit => hit?.point.y ?? null), document.body);
   zones.setSource(missions);
   const shopMenu = new ShopMenu(document.body);
   const pauseMenu = new PauseMenu(document.body, input);

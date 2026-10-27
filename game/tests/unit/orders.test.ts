@@ -15,7 +15,8 @@ import { MissionSystem, missionSummary, type MissionFrame } from '../../src/game
 const POOL: PoolAddress[] = Array.from({ length: 40 }, (_, i) => {
   const foot = 80 + 20 * i;
   return { id: `testikatu-${i + 1}`, address: `Testikatu ${i + 1}`, tile: 't0_0_0',
-    point: { x: PIZZERIA.point.x + foot, z: PIZZERIA.point.z }, foot, car: Math.round(foot * 1.1) };
+    point: { x: PIZZERIA.point.x + foot, z: PIZZERIA.point.z }, street: { x: PIZZERIA.point.x + foot, z: PIZZERIA.point.z - 2 },
+    foot, car: Math.round(foot * 1.1) };
 });
 const straight: Router = {
   route: (from, to) => [from, to],
@@ -107,13 +108,15 @@ describe('order generator', () => {
 describe('address pool asset', () => {
   const json = (origin: [number, number]) => ({ format: 'turku3d-addresses', version: 1, frame: 'engine-xz', origin,
     addresses: [
-      { id: 'linnankatu-9b', address: 'Linnankatu 9b', tile: 't0_0_0', point: [274.8, 54.3] as [number, number], foot: 244, car: 239 },
-      { id: 'kaukana-1', address: 'Kaukana 1', tile: 't0_5_5', point: [2700, 2700] as [number, number], foot: 4000, car: null },
+      { id: 'linnankatu-9b', address: 'Linnankatu 9b', tile: 't0_0_0', point: [274.8, 54.3] as [number, number],
+        street: [274.1, 52.0] as [number, number], foot: 244, car: 239 },
+      { id: 'kaukana-1', address: 'Kaukana 1', tile: 't0_5_5', point: [2700, 2700] as [number, number],
+        street: [2700, 2702] as [number, number], foot: 4000, car: null },
     ] });
   it('keeps addresses in published tiles and rejects another origin or format', () => {
     const pool = parseAddressPool(json([PIZZERIA.point.x, PIZZERIA.point.z]), tile => tile === 't0_0_0');
     expect(pool).toEqual([{ id: 'linnankatu-9b', address: 'Linnankatu 9b', tile: 't0_0_0', point: { x: 274.8, z: 54.3 },
-      foot: 244, car: 239 }]);
+      street: { x: 274.1, z: 52.0 }, foot: 244, car: 239 }]);
     expect(() => parseAddressPool(json([0, 0]), () => true)).toThrow(/not the pizzeria/);
     expect(() => parseAddressPool({ ...json([77.1, 187.6]), version: 2 }, () => true)).toThrow(/unsupported/);
   });

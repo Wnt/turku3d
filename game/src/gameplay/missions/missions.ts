@@ -8,12 +8,13 @@ import {
   sellBackPrice, tip, type VehicleOwnership,
 } from '../economy';
 import { DIALOGUE, lineText, type LineVars } from '../content/dialogue';
-import { addressSlug, type PoolAddress } from '../content/addresses';
-import { DELIVERIES, type Delivery } from '../content/deliveries';
+import type { PoolAddress } from '../content/addresses';
+import { DELIVERIES } from '../content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
 import { drawOrder, pickLine } from './orders';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
+import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
 
 type BoughtVehicle = Exclude<VehicleOwnership, 'none'>;
 
@@ -72,16 +73,6 @@ export interface OrderQuote {
   stops: number;
 }
 
-/** One drop-off of the current order. */
-interface OrderStop {
-  id: string;
-  address: string;
-  point: WorldPoint;
-  /** The scripted opening delivery, or null for a pool address. */
-  scripted: Delivery | null;
-  pool: PoolAddress | null;
-}
-
 export interface ShopOptionView {
   id: OptionId;
   label: string;
@@ -136,8 +127,6 @@ export function lineSeconds(text: string): number {
 
 const distance = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.z - b.z);
 
-/** Pool ids of the scripted opening's addresses: the pool offers them only after everything else. */
-const SCRIPTED_IDS: ReadonlySet<string> = new Set(DELIVERIES.map(d => addressSlug(d.address)));
 const CUSTOMER_LINES = 12;
 const ORDER_LINES = 6;
 type TipBand = 'fast' | 'ok' | 'slow';
@@ -156,12 +145,10 @@ export class MissionSystem implements MissionHudSource {
   private open: { shop: Shop; line: string } | null = null;
   private view: ShopView | null = null;
   private quoteCache: { key: string; quote: OrderQuote; firstPar: number } | null = null;
-  private readonly pool: readonly PoolAddress[];
-  private readonly poolById: ReadonlyMap<string, PoolAddress>;
+  private readonly stops: Stops;
 
   constructor(private readonly options: MissionOptions) {
-    this.pool = options.addresses ?? [];
-    this.poolById = new Map(this.pool.map(a => [a.id, a]));
+    this.stops = new Stops(options.addresses ?? [], options.router);
     this.s = freshSave(options.seed ?? newSeed());
     this.hud = this.buildState();
   }
@@ -172,7 +159,7 @@ export class MissionSystem implements MissionHudSource {
   /** Continues from a `serialize()` text, or starts a new game with null. A running order keeps its timer. */
   restore(text: string | null) {
     this.s = parseSave(text, this.options.seed ?? newSeed());
-    if (this.s.order.some(id => !this.resolve(id))) {
+    if (this.s.order.some(id => !this.stops.resolve(id))) {
       // The saved order's address left the published area: the pizza goes back and its permit delivery returns.
       if (this.s.phase === 'carrying') { this.s.permit += 1; this.s.phase = this.restPhase(); }
       this.s.order = [];
@@ -209,7 +196,7 @@ export class MissionSystem implements MissionHudSource {
   /** The open shop menu, or null. The same object is returned until something in it changes. */
   get shop(): ShopView | null { return this.view; }
   snapshot() {
-    const order = this.s.order.map(id => this.resolve(id)!);
+    const order = this.s.order.map(id => this.stops.resolve(id)!);
     return { ...this.s, address: order[this.s.stop]?.address ?? null, stops: order.map(o => o.address),
       dialogue: this.queue.map(q => q.id), energy: this.energy, runFactor: this.runFactor, shop: this.view, hud: this.hud };
   }
@@ -277,24 +264,26 @@ export class MissionSystem implements MissionHudSource {
     return { id: d.id, kind: 'dropoff', label: d.address, point: d.point };
   }
 
-  private resolve(id: string): OrderStop | null {
-    const scripted = DELIVERIES.find(d => d.id === id);
-    if (scripted) return { id, address: scripted.address, point: scripted.point, scripted, pool: null };
-    const pool = this.poolById.get(id);
-    return pool ? { id, address: pool.address, point: pool.point, scripted: null, pool } : null;
+  /** Moves a drop-off whose point the ground check rejected (missions/dropoffs.ts) to its next street-level
+   *  candidate (`Stops.relocate`); null when every candidate was rejected. */
+  relocateDropoff(id: string, point: WorldPoint): WorldPoint | null {
+    const next = this.stops.relocate(id, point);
+    this.quoteCache = null;
+    this.emit();
+    return next;
   }
 
   /** The current order's stops; draws the next order when none is quoted yet. */
   private ensureOrder(): OrderStop[] {
     if (this.s.order.length === 0) {
       const n = this.s.delivery - DELIVERIES.length;
-      const draw = n >= 0 ? drawOrder(this.pool, n, this.s.seed, new Set(this.s.delivered), SCRIPTED_IDS,
+      const draw = n >= 0 ? drawOrder(this.stops.pool, n, this.s.seed, new Set(this.s.delivered), SCRIPTED_IDS,
         this.s.delivered.slice(-2)) : null;
       if (draw?.exhausted) this.s.delivered = [];
       this.s.order = draw ? draw.stops : [DELIVERIES[this.s.delivery % DELIVERIES.length].id];
       this.s.stop = 0;
     }
-    return this.s.order.map(id => this.resolve(id)!);
+    return this.s.order.map(id => this.stops.resolve(id)!);
   }
 
   /** The action of the nearest target in range: enter a shop, or hand over the pizza at the drop-off. */
@@ -459,7 +448,7 @@ export class MissionSystem implements MissionHudSource {
     const bonus = stops.length > 1 && last && t > 0 ? DOUBLE_BONUS : 0;
     this.s.money += BASE_PAY + t + bonus;
     this.s.pizzas += 1;
-    if (stop.pool) this.s.delivered.push(stop.id);
+    if (!stop.scripted) this.s.delivered.push(stop.id);
     const band: TipBand = t >= 5 ? 'fast' : t >= 1 ? 'ok' : 'slow';
     const customer = stop.scripted ? stop.scripted.customer[band]
       : `customer_${band}_${pickLine(this.s.seed, 1000 + this.s.pizzas, CUSTOMER_LINES) + 1}`;
@@ -476,7 +465,7 @@ export class MissionSystem implements MissionHudSource {
 
   private fail() {
     // The customers left waiting cancel; their addresses count as served.
-    for (const stop of this.ensureOrder().slice(this.s.stop)) if (stop.pool) this.s.delivered.push(stop.id);
+    for (const stop of this.ensureOrder().slice(this.s.stop)) if (!stop.scripted) this.s.delivered.push(stop.id);
     this.finishOrder('failed');
     this.say('delivery_failed', ...this.permitWarning());
   }
@@ -582,5 +571,6 @@ export class MissionSystem implements MissionHudSource {
 }
 
 function sameTargets(a: RouteTarget[], b: RouteTarget[]) {
-  return a.length === b.length && a.every((t, i) => t.id === b[i].id);
+  return a.length === b.length
+    && a.every((t, i) => t.id === b[i].id && t.point.x === b[i].point.x && t.point.z === b[i].point.z);
 }
