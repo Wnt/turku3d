@@ -24,6 +24,7 @@ test('virtual gamepad drives over a curb, rumbles, orbits, brakes and exits', { 
   }, [i, value]);
   await open(page, `/?backend=${info.project.name}`);
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
   await axis(0, 1);
   await page.waitForFunction(() => { const s = (window as any).__game.state(); return Math.hypot(s.vehicle.pos[0] - s.feet[0], s.vehicle.pos[2] - s.feet[2]) < 3; });

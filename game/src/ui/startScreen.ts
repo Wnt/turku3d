@@ -3,8 +3,6 @@ import type { Input } from '../input';
 import { MenuPanel, type MenuHost, type MenuPage } from './menu';
 
 interface StartOptions {
-  /** Story paragraphs for a first game (dialogue line texts), empty when a save exists. */
-  intro?: readonly string[];
   /** One line under the controls, e.g. how to get fullscreen where the browser cannot provide it. */
   hint?: string | null;
   /** Runs synchronously inside the closing gesture (a fullscreen request needs it). */
@@ -13,7 +11,7 @@ interface StartOptions {
 
 /**
  * Controller discovery stays live while the player reads the controls; the main menu (Continue, New game, Load game:
- * ui/menu.ts SaveMenuFlow.start) starts the game. A first game also shows the story intro. Quitting a game reopens it.
+ * ui/menu.ts SaveMenuFlow.start) starts the game. Quitting a game reopens it.
  */
 export class StartScreen implements MenuHost {
   readonly element = document.createElement('section');
@@ -23,7 +21,7 @@ export class StartScreen implements MenuHost {
   private touchLine: HTMLElement;
   private readonly onClose: () => void;
 
-  constructor(input: Input, { intro = [], hint = null, onClose = () => {} }: StartOptions = {}) {
+  constructor(input: Input, { hint = null, onClose = () => {} }: StartOptions = {}) {
     this.onClose = onClose;
     this.element.id = 'start-screen';
     this.element.setAttribute('role', 'dialog');
@@ -47,12 +45,6 @@ export class StartScreen implements MenuHost {
       const dt = document.createElement('dt'), dd = document.createElement('dd');
       dt.textContent = glyph(action, input.bindings, true); dd.textContent = label;
       this.element.querySelector('dl')!.append(dt, dd);
-    }
-    if (intro.length) {
-      const story = document.createElement('div');
-      story.className = 'start-intro';
-      for (const text of intro) story.append(Object.assign(document.createElement('p'), { textContent: text }));
-      this.element.querySelector('h1')!.after(story);
     }
     const fullscreen = this.element.querySelector<HTMLElement>('.start-fullscreen')!;
     fullscreen.textContent = hint;
@@ -83,9 +75,8 @@ export class StartScreen implements MenuHost {
     this.element.remove();
     this.onClose();
   }
-  /** Back from a game: the menu `page` over the world, without the first-game intro. */
+  /** Back from a game: the menu `page` over the world. */
   reopen(page: MenuPage) {
-    this.element.querySelector('.start-intro')?.remove();
     this.active = true;
     this.show(page);
     document.body.append(this.element);

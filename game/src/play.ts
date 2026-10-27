@@ -21,6 +21,7 @@ import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
 import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
 import { ShopMenu } from './ui/shopMenu';
+import { IntroDialog } from './ui/introDialog';
 import { RecoveryHud } from './ui/recovery';
 import { PauseMenu } from './ui/menu';
 import { DevMenuFlow } from './ui/devMenu';
@@ -28,7 +29,6 @@ import { FlyMode } from './gameplay/flyMode';
 import { SaveStore } from './core/save';
 import { SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
 import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, missionSummary } from './gameplay/missions/missions';
-import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { createGameplay, compassDeg } from './gameplay';
 import { SafeReset } from './gameplay/safeReset';
@@ -126,12 +126,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const saves = new SaveStore(browserStorage(), missionSummary);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
   const resume = !hot && import.meta.hot && takeResume(sessionStore()) ? saves.get('auto') : null;
-  const intro = saves.any || hot || resume ? [] : INTRO_LINE_IDS.map(id => lineText(id));
   const fullscreen = new FullscreenPolicy();
-  const startScreen = new StartScreen(input, { intro,
+  const startScreen = new StartScreen(input, {
     hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
     onClose: () => fullscreen.enterScene(input.source === 'touch') });
-  voice.narrate(intro);
+  const introDialog = new IntroDialog(document.body, voice);
   const hud = new Hud(hudEl);
   const clockControl = timeControl(world.clockTime(), date => world.setClock(date));
   if (hot ? !hot.hudVisible : !params.hud) hud.toggle();
@@ -248,7 +247,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     spawn, car: world.car,
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
-    setPaused: value => { paused = value; }, fail,
+    setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
     onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; remotePlayers.dispose();
       minimap.setRemotes([]); scoreboard.setClient(null); },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
@@ -331,6 +330,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       input.lookX = input.lookY = input.zoom = 0;
     }
     // An open shop menu owns the controller: world movement, camera and the other buttons wait until it closes.
+    const introOpen = introDialog.open;
+    if (introOpen) {
+      introDialog.handle(input);
+      for (const action of LOCKED_IN_MENU) input.consume(action);
+      input.lookX = input.lookY = input.zoom = 0;
+    }
     const menuOpen = shopMenu.open;
     const menu = menuOpen ? shopMenu.handle(input) : { choose: null, leave: false };
     if (menuOpen) {
@@ -338,7 +343,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       input.lookX = input.lookY = input.zoom = 0;
     }
     // The pause menu owns the controller like a shop menu.
-    if (saveGame.frame(input)) {
+    if (!introOpen && saveGame.frame(input)) {
       for (const action of LOCKED_IN_MENU) input.consume(action);
       input.lookX = input.lookY = input.zoom = 0;
     }

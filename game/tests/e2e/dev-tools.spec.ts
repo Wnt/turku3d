@@ -30,6 +30,7 @@ test('Developer page: money, fly 20 m up and land, teleport', { tag: ['@gameplay
 
   await open(page, `/?backend=${backend}`);
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await untilSim(page, () => {
     const s = (window.__game!.state as () => DevState)();
     return !s.loading && !s.startScreen && s.grounded && s.recovery.armed;

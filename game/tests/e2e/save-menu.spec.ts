@@ -66,6 +66,8 @@ test('save to slot 2, quit, load slot 2 restores money, permit and position; New
   await expect(page.getByRole('option', { name: 'Load game' })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('option', { name: 'Continue' })).toHaveCount(0);
   await newGame.click();
+  await expect(page.locator('#intro-dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await playing(page);
   const start = await menuState(page);
 
@@ -158,6 +160,8 @@ test('save to slot 2, quit, load slot 2 restores money, permit and position; New
   await page.getByRole('option', { name: 'New game' }).click();
   await expect(page.locator('#pause-menu .menu-panel')).toHaveAttribute('data-page', 'confirm-new');
   await page.getByRole('option', { name: 'Start a new game' }).click();
+  await expect(page.locator('#intro-dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await playing(page);
   const fresh = await menuState(page);
   expect(fresh.missions).toMatchObject({ money: START_MONEY, permit: 0, kidney: false, phase: 'permit_needed' });

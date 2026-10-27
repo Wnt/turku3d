@@ -2,7 +2,7 @@ import path from 'node:path';
 import { reportsRoot } from '../../../tools/dev/environment.mjs';
 import { expect, test } from './fixtures';
 
-// A new game narrates the start-screen intro once audio unlocks. Then a fake MissionHudSource shows a voiced
+// A new game narrates the intro dialog once audio unlocks. Then a fake MissionHudSource shows a voiced
 // line: its clip cuts the narration on the voice bus with ambience ducked, and a second line cuts the first.
 test('intro narration plays; a voiced HUD message starts its clip, ducks ambience and a new line cuts it', { tag: ['@audio', '@voice'] }, async ({ page }, info) => {
   const errors: string[] = [];

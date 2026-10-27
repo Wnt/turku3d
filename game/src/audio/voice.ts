@@ -27,6 +27,7 @@ export class VoicePlayer {
   private pending: VoiceClip | null = null;
   private playing: Playing | null = null;
   private queue: string[] = [];
+  private lineEnded: (() => void) | null = null;
   private request = 0;
   private unsubscribe: (() => void) | null = null;
   private disposed = false;
@@ -76,6 +77,21 @@ export class VoicePlayer {
     if (!this.playing) this.advance();
   }
 
+  /** Plays one dialog line and reports its natural end; advancing manually cancels the callback. */
+  playDialogLine(text: string, ended: () => void) {
+    this.stopDialogLine();
+    this.lineEnded = ended;
+    this.show(text, true);
+  }
+
+  stopDialogLine() {
+    this.lineEnded = null;
+    this.pending = null;
+    this.queue = [];
+    ++this.request;
+    if (this.playing) { this.playing.source.stop(); this.playing = null; this.output.duck(false); }
+  }
+
   /** Starts the next narration clip; false when nothing could start (empty queue, locked or no manifest). */
   private advance() {
     const ctx = this.output.context();
@@ -117,7 +133,10 @@ export class VoicePlayer {
       source.disconnect(); gain.disconnect();
       if (this.playing !== playing) return;
       this.playing = null;
+      const ended = this.lineEnded;
+      this.lineEnded = null;
       if (!this.advance()) this.output.duck(false);
+      ended?.();
     };
     this.playing = playing;
     this.output.duck(true);

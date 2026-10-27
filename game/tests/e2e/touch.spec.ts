@@ -53,6 +53,7 @@ async function start(page: Page, backend: string, spawn: string) {
   await expect(page.locator('#touch-controls')).toBeHidden();
   await shot(page, backend, 'start');
   await button.tap();
+  await page.getByRole('button', { name: 'Skip' }).tap();
   await expect.poll(() => fullscreen(page), 'closing the start screen enters fullscreen').toBe(true);
   await page.waitForFunction(() => (window.__game!.state as () => { grounded: boolean })().grounded);
   await expect(page.locator('#touch-controls')).toBeVisible();

@@ -40,6 +40,7 @@ test('a new game under browser automation posts telemetry samples to the dev ser
   const { scale } = await open(page, '/');
   expect(await page.evaluate(() => navigator.webdriver)).toBe(true);
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await expect.poll(() => posts.length, { timeout: 10_000 * scale }).toBeGreaterThan(0);
   const sent = posts[0].postData()!.trimEnd().split('\n').map(line => JSON.parse(line) as { session: string; E: number; N: number });
   expect(sent.length).toBeGreaterThanOrEqual(1);

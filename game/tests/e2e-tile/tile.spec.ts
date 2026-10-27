@@ -54,6 +54,7 @@ test('assembled tile from the pipeline renders and the character walks on its co
   expect(Object.keys(manifest.visual).length).toBeGreaterThan(0);
   const { scale } = await open(page, `/?backend=${backend}&tiles=${TILES}&spawn=${WALK_START.E},${WALK_START.N},0`);
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   // Loading precedes the game clock, so this bound stays wall-clock, scaled by the measured frame time.
   await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 * scale });
   const vis = manifest.visual.t0_0_0;
@@ -154,6 +155,7 @@ test('character crosses all four L0 seams without a height step', { tag: ['@walk
   // Start east of the junction so the car parked 6 m east stays outside the route.
   await open(page, `/?backend=${info.project.name}&tiles=${TILES}&spawn=23459756,6704256,0`);
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await untilSim(page, () => {
     const s = (window as any).__game?.state?.();
     return s?.tilesSettled && s.grounded && s.collision.tiles >= 16;

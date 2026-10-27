@@ -29,6 +29,7 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   const backend = info.project.name;
   await open(page, `/?backend=${backend}&tiles=/tiles/tileset.json`);
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await untilSim(page, () => {
     const game = (window as any).__game;
     const s = game?.state?.();

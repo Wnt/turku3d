@@ -151,6 +151,23 @@ test('narration plays in order, waits for unlock, survives prompts and is cut by
   expect(ducks.at(-1)).toBe(false);
 });
 
+test('dialog callback follows the natural clip end and manual advance cancels it', async () => {
+  const { ctx, player, unlock } = rig();
+  await unlock(); await player.ready;
+  const ended: string[] = [];
+  player.playDialogLine(OFFER, () => ended.push('first'));
+  await settle();
+  expect(player.snapshot().playing).toBe('market_offer');
+  player.stopDialogLine();
+  ctx.sources[0].end();
+  expect(ended).toEqual([]);
+  player.playDialogLine(SOLD, () => ended.push('second'));
+  await settle();
+  ctx.sources[1].end();
+  expect(ended).toEqual(['second']);
+  expect(player.snapshot().playing).toBeNull();
+});
+
 test('attach replaces the subscription; missing manifest is contained', async () => {
   const { player } = rig();
   const a = hud(), b = hud();

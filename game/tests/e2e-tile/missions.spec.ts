@@ -53,11 +53,13 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   const { scale } = await open(page, `/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
   await page.evaluate(key => localStorage.removeItem(key), SAVES_KEY);
   await page.reload();
-  await expect(page.locator('.start-intro')).toContainText(lineText('intro_1'));
+  await expect(page.locator('.start-intro')).toHaveCount(0);
   // Loading precedes the game clock, so these bounds stay wall-clock, scaled by the measured frame time.
   await expect(page.getByRole('option', { name: 'New game' })).toBeEnabled({ timeout: 60_000 * scale });
   await shot('01-start-intro');
   await page.getByRole('option', { name: 'New game' }).click();
+  await expect(page.locator('#intro-dialog')).toContainText(lineText('intro_1'));
+  await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => {
     const s = (window.__game!.state as () => { collision: { tiles: number }; tilesSettled: boolean })();
     return s.collision.tiles >= 9 && s.tilesSettled;

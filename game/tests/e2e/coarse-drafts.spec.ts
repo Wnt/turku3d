@@ -91,6 +91,7 @@ test('a draft tile with collision is drawn and stood on; one without full collis
   await installPad(page);
   await page.goto(`/?backend=${info.project.name}&spawn=23459740,6704470`); // x 240, z 30: 10 m from the east edge
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
   fs.mkdirSync(SHOTS, { recursive: true });
 

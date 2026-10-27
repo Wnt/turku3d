@@ -12,6 +12,7 @@ test('@render HiDPI SSE follows output pixels after resize and the debug time sl
   try {
     await page.goto(`/?backend=${info.project.name}`);
     await page.getByRole('option', { name: 'New game' }).click();
+    await page.getByRole('button', { name: 'Skip' }).click();
     await page.waitForFunction(() => window.__game?.ready);
     const sizes = () => page.evaluate(() => {
       const r = window.__render!, tiles = window.__game!.tiles as any;
