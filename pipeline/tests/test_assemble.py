@@ -24,7 +24,7 @@ from turku3d.package.facades import facade_priorities
 from turku3d.package.gltf import GlbMesh, read_glb
 from turku3d.package.manifest import verify_tree
 from turku3d.package.seams import verify_seams
-from turku3d.parked.__main__ import publish as publish_parked
+from turku3d.parked.layer import write_tile as write_parked
 from turku3d.parked.models import MODELS
 
 
@@ -170,9 +170,10 @@ def test_incremental_tiles_keep_drivable_parked_cars(tmp_path):
         for i, x in enumerate((80, 280))
     ]
     parked = layers / "traffic_static"
-    parked.mkdir(parents=True)
+    write_parked(cars[:1], parked, C.VisualTile(0, 0, 0))
+    write_parked(cars[1:], parked, C.VisualTile(0, 1, 0))
+    write_manifest(parked, inputs={}, params={}, code="t", tiles=[p.name for p in parked.iterdir()])
     (parked / "placements.json").write_text(json.dumps({"cars": cars}))
-    publish_parked(cars, parked, {"fixture": "test"}, 16)
     assemble(["t0_0_0"], layers=layers, out=out)
     first = json.loads((out / "manifest.json").read_text())
     assert [car["object_id"] for car in first["vehicles"]] == ["car-0"]

@@ -64,15 +64,27 @@ curbs. Terrain faces steeper than 45 degrees with over 35 cm of relief cannot ca
 a walkable pavement material; they use the wall material in both collision and the
 matching visual GLB. This keeps river retaining faces visible as blockers.
 
+Water bodies are the OSM water areas of each tile's own clip (`natural=water`,
+`waterway=riverbank`, `landuse=basin|reservoir`; `water.bodies`), one per OSM feature, and each
+has one level (`build.WaterLevels`). A body over the office core (the Aura) takes the reference
+level measured there once; any other body (a pond, a basin, a river far from the core) is
+measured from the lidar under its complete polygon: the median of class-9 returns inside it,
+else the lowest supported 5 cm mode more than 3 m inside, else the 5th percentile of the ground
+within 3 m of its shore minus 20 cm (`water.level_from_points`). A level is identified by the
+body's polygon and those LAZ files and kept in the manifest's `water_levels`, so every tile that
+reaches a body uses the same level and separately built tiles meet at the seams; a tile's key
+includes the identities of its bodies. A tile without water needs none.
 Water polygons constrain the shoreline. Unsupported shoreline constraint heights are
 bounded to nearby observed ground returns, preventing a fitted bank plane from creating
 high pavement where the nearest lidar support is several metres away. Mapped bridge
-footprints cut land triangles within 2 m of the water under decks, retaining
+footprints (the crossings whose OSM ways meet the tile's envelope, `bridges.build.crossings`)
+cut land triangles within 2 m of the water under decks, retaining
 ground at surveyed abutments and the water surface beneath.
-The separate water sensor/visual surface uses
-median class-9 N2000 elevation; ground heights are not interpolated across the river.
+The separate water sensor/visual surface lies at its body's level; ground heights are not
+interpolated across the river. QA requires every water triangle to be horizontal (one plane per
+body; `water.levels_m` lists the levels in a tile).
 The solid river bed required by `materials.md` is an explicitly synthetic collision-only
-fallback 3 m below that water level, with closed bank faces. It is not measured bathymetry
+fallback 3 m below each body's level, with closed bank faces. It is not measured bathymetry
 and is omitted from visuals. This prevents unbounded falls through the sensor without
 interpolating land elevations across the river. Its provenance is recorded in the report.
 If reliable water observations are absent, supply a measured level explicitly:

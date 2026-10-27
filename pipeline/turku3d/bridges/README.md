@@ -1,24 +1,32 @@
 # Bridges layer
 
-Build the mapped spans in the four Phase 1 L0 tiles from read-only `work-3x3`
-GIS:Katualueet, OSM `bridge=yes` ways and the 2021 city lidar. The producer writes
-only `$TURKU3D_WORK/build/layers/bridges/`; the assembler makes the shipped tiles.
+Built per listed L0 tile ([`turku3d.tile_layer`](../tile_layer.py), `layer.py`) from the tile's
+own `GIS:Katualueet`, OSM `bridge=*` ways and the city lidar. A tile owns the crossings whose
+axis midpoint lies in it, found among the OSM bridge ways within 150 m of the tile (named ways
+grouped by name; a city `Silta` outline with the same name is the footprint, else the way
+buffered by its `width`). A crossing over water gets shore contacts on the published ground
+collision and approach ramps; one over a road or a railway keeps its lidar deck. A crossing
+that cannot be built is listed in `reports/bridges/report.json` with the reason and skipped,
+never fatal. A tile's key covers its street areas, OSM clip, the LAZ files and the ground
+collision tiles under its crossings (plus 30 m) and `quays.json`. The producer writes only
+`$TURKU3D_WORK/build/layers/bridges/`; the assembler makes the shipped tiles.
 
 ```sh
 source ../sandbox.env
 make bridges-test
-make bridges-build
+make bridges-build                                              # every listed tile; only stale ones rebuild
+bash pipeline/env/run.sh python -m turku3d.bridges --tiles t0_2_-1
 make bridges-textures
 scripts/dev/gate --base main
-# Stage the already-published inputs read-only when using a fresh sandbox:
-for layer in ground buildings props vegetation traffic_static; do
-  ln -s "$TURKU3D_DATA/build/layers/$layer" "$TURKU3D_WORK/build/layers/$layer"
-done
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-show
 # Browser traversal and near-bank screenshots on both backends:
 cd game && E2E_TILE_PORT=$((TURKU3D_PORT_BASE + 1)) TILE_DIST="$TURKU3D_WORK/dist/tiles" npx playwright test -c playwright.tile.config.ts tests/e2e-tile/bridge.spec.ts
 ```
+
+On the four core tiles the per-tile build reproduces the published crossings (Teatterisilta,
+Auransilta, Kirjastosilta and three short gangways: the same collision tiles and triangle
+counts, deck heights within 2 cm) in 1–21 s per tile.
 
 City `Silta` polygons provide the outlines of Auransilta, Kirjastosilta and the
 full span of Teatterisilta, including its west shore outside the L0 boundary. OSM supplies crossing names, vehicle access and

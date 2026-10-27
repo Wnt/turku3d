@@ -4,9 +4,11 @@ Ground is a regular TIN with 250/128 m (~2 m) spacing interpolated from the city
 ground key points and textured with one true-ortho image. Buildings are CityGML LOD2 footprints
 extruded to their mean roof height, walls with the library render material and roofs with the
 same ortho. Street-area polygons only set collision material classes; water polygons become the
-water sensor over a synthetic bed. ``maanpinta`` has no points on bridge decks, so a street-area
-bridge over water is lifted to the line through its abutments (``bridge_decks``). The tile has no
-curbs, stairs, structures, props, vegetation, facade maps or LOD parents: the full pipeline
+water sensor over a synthetic bed and a visible water surface (``material_key`` water) at the level.
+``maanpinta`` has no points on bridge decks, so a street-area bridge over water is lifted to the
+line through its abutments (``bridge_decks``). OSM ``natural=tree`` points become GPU-instanced
+vegetation prototypes (unmeasured, 10 m unless tagged) with trunk cylinders in the collision. The
+tile has no curbs, stairs, structures, props, facade maps or LOD parents: the full pipeline
 replaces it when the tile is published.
 """
 
@@ -254,6 +256,50 @@ def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells):
     return out
 
 
+def grid_height(tile: C.VisualTile, grid_pos: np.ndarray, x: float, z: float) -> float:
+    """Bilinear height of the ground grid at (x, z) inside the tile."""
+    n, step = CELLS + 1, tile.size / CELLS
+    heights = grid_pos[:, 1].reshape(n, n)
+    u = min(max((x - tile.origin[0]) / step, 0.0), CELLS - 1e-9)
+    v = min(max((z - tile.origin[2]) / step, 0.0), CELLS - 1e-9)
+    i, j = int(u), int(v)
+    fu, fv = u - i, v - j
+    top = heights[j, i] * (1 - fu) + heights[j, i + 1] * fu
+    bottom = heights[j + 1, i] * (1 - fu) + heights[j + 1, i + 1] * fu
+    return float(top * (1 - fv) + bottom * fv)
+
+
+def draft_trees(tile, grid_pos, trees, water, shells):
+    """OSM trees on dry ground outside buildings, as vegetation layer trees (unmeasured)."""
+    from turku3d.vegetation.trees import VARIANTS, Tree, variant
+
+    blocked = shapely.union_all([*water, *(b.footprint for b, _ in shells)])
+    result = []
+    for object_id, x, z, height, conifer in trees:
+        if not blocked.is_empty and blocked.covers(shapely.Point(x, z)):
+            continue
+        tree = Tree(object_id, x, z, "osm", y=grid_height(tile, grid_pos, x, z), height=height)
+        tree.crown_radius = float(np.clip(height * 0.3, 1.5, 7.0))
+        tree.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
+        tree.variant = VARIANTS[3] if conifer else variant("", height)
+        result.append(tree)
+    return result
+
+
+def trunks(trees, ct):
+    """Trunk cylinders of the trees standing in collision tile ct (tile-local centres)."""
+    from turku3d.col.format import Primitive
+
+    result = []
+    for t in trees:
+        if C.CollisionTile.at(t.x, t.z) != ct:
+            continue
+        height = min(t.height * 0.55, 8.0)
+        centre = (t.x - ct.origin[0], t.y + height / 2, t.z - ct.origin[2])
+        result.append(Primitive.cylinder(mat_id("tree_trunk"), centre, height / 2, t.trunk_radius))
+    return result
+
+
 def default_library() -> Path:
     """The sandbox's assembled material library, else the published one."""
     library = C.work_root() / "textures/assembly/library"
@@ -383,21 +429,45 @@ def build(
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
-    ground_mesh = GlbMesh(
-        f"ground_{tile.id}",
-        grid_pos - origin,
-        grid_idx,
-        uvs=ortho_uv(tile, grid_pos),
-        image=image,
-        extras=dict(
-            layer="ground",
-            object_id=f"ground_{tile.id}",
-            material_key="ortho",
-            texture_uv="normalized",
-        ),
-    )
-    write_visual(stage / "ground.vis.glb", [ground_mesh], root_translation=tile.origin)
+    ground_meshes = [
+        GlbMesh(
+            f"ground_{tile.id}",
+            grid_pos - origin,
+            grid_idx[~wet],
+            uvs=ortho_uv(tile, grid_pos),
+            image=image,
+            extras=dict(
+                layer="ground",
+                object_id=f"ground_{tile.id}",
+                material_key="ortho",
+                texture_uv="normalized",
+            ),
+        )
+    ]
+    if wet.any():
+        # A visible water surface at the level; the game draws material_key water as a river.
+        ids, inverse = np.unique(grid_idx[wet], return_inverse=True)
+        surface = grid_pos[ids].copy()
+        surface[:, 1] = level
+        ground_meshes.append(
+            GlbMesh(
+                f"water_{tile.id}",
+                surface - origin,
+                inverse.reshape(-1, 3).astype(np.uint32),
+                uvs=surface[:, [0, 2]] * [1, -1],
+                extras=dict(
+                    layer="ground", object_id=f"water_{tile.id}", material_key="water", sensor=True
+                ),
+            )
+        )
+    write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
+    trees = draft_trees(tile, grid_pos, inputs.trees, water, shells)
+    if trees:
+        from turku3d.vegetation.visual import write_instances
+
+        write_instances(stage / "vegetation.vis.glb", tile, trees)
+        layer_files.append(stage / "vegetation.vis.glb")
     if shells:
         roof_pos, roof_idx, wall_pos, wall_uv, wall_idx = [], [], [], [], []
         rc = wc = 0
@@ -451,7 +521,8 @@ def build(
     for ct, (pos, idx, mat) in collision_tiles(
         tile, grid_pos, grid_idx, materials, level, shells
     ).items():
-        col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, aoi_border=False)
+        primitives = trunks(trees, ct)
+        col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         data = write_col(col, encoding="meshopt", optimize=False)
         lo, hi = pos[:, 1].min(), pos[:, 1].max()
         cols[ct.id] = data
@@ -459,7 +530,7 @@ def build(
             f"col/{ct.id}.col",
             data,
             tris=len(idx),
-            prims=0,
+            prims=len(primitives),
             h=[float(lo), float(hi)],
             flags=col.computed_flags(),
         )
@@ -500,6 +571,7 @@ def build(
             else None
         ),
         buildings=len(blds),
+        trees=len(trees),
         bridges=decks,
         water_level=level,
         sources=inputs.sources,

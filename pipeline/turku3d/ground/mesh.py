@@ -175,9 +175,12 @@ class HeightQuery:
 
 
 def build_mesh(
-    surface, bounds, tiles, curbs, water, water_level, materials, tolerance=0.01, bridges=None
+    surface, bounds, tiles, curbs, water, levels, materials, tolerance=0.01, bridges=None
 ):
     """Build with 50 m support, then extract tiles by constrained triangle ownership.
+
+    `water` is the union of the water bodies and `levels` their (polygon, N2000 level) pairs;
+    each wet triangle's sensor lies at the level of the body holding it.
 
     All neighbouring tiles use the SAME vertex array before compaction; no rounding or
     independent interpolation can change a seam. Triangle `pc` retains the convex hull.
@@ -347,9 +350,14 @@ def build_mesh(
     wet = shapely.contains_xy(water, *centers.T)
     bridged_land = ~wet & shapely.contains_xy(deck_cut, *centers.T)
     # Duplicate shoreline vertices for the sensor: ground-bank height is not water height.
+    level = np.full(len(f), np.nan)
+    for polygon, value in levels:
+        level[np.isnan(level) & wet & shapely.contains_xy(polygon, *centers.T)] = value
+    if np.isnan(level[wet]).any():
+        raise ValueError("a water triangle lies in no water body")
     water_ids, inverse = np.unique(f[wet], return_inverse=True)
     wp = p[water_ids].copy()
-    wp[:, 1] = water_level
+    wp[inverse.reshape(-1, 3), 1] = level[wet][:, None]
     wf = inverse.reshape(-1, 3) + len(p)
     positions = np.r_[p, wp]
     indices = np.r_[f[~wet & ~bridged_land], wf].astype(np.uint32)

@@ -9,12 +9,12 @@ shared material table.
 # From the worktree, with its sandbox.env already exported:
 scripts/dev/gate
 make -j2 structures-test
-make structures-build ARGS="--area office-block --ground-layer $TURKU3D_DATA/build/layers/ground"
-# Explicit ground input, if staged at another location:
-make structures-build ARGS="--ground-layer $TURKU3D_WORK/build/layers/ground"
+make structures-build                          # every listed tile; only stale ones rebuild
+make structures-build ARGS="--tiles t0_3_0"    # one tile
 ```
 
-The native environment from `make pipeline-bootstrap` supplies numpy, scipy,
+The layer is built per listed L0 tile ([`turku3d.tile_layer`](../tile_layer.py),
+`producer.py`). The native environment from `make pipeline-bootstrap` supplies numpy, scipy,
 shapely, geopandas, laspy/lazrs and pytest. The physics target installs the locked
 validator Node dependencies if needed. Tests use small synthetic data and never
 read raw LAZ or start a server. Ports are not needed. Physics fixtures are written
@@ -22,18 +22,31 @@ to `$TURKU3D_WORK/build/structures-tests/scenes.json`.
 
 ## Inputs and ground handoff
 
-Raw inputs are read-only:
+Raw inputs are read-only and come from each tile's own input area (`config.source_area`:
+work-3x3 while it holds the tile, else `tile-<id>`):
 
-- `raw/wfs/work-3x3/kanta_Rakenne.parquet`: 66626 stair nosings, supporting 66618
-  edges, 66634 wall tops, 66630/66632/66636 fences, 62540 ramp lines.
-- `raw/osm/work-3x3/work-3x3-261024.parquet`: uncovered `highway=steps` and structural
-  barriers. City geometry wins; only uncovered OSM portions are retained. OSM
-  steps use their `width` tag or a 2 m default, which needs real-data review.
-- Point clouds in `raw/laz/pistepilvi` or `raw/laz-3x3`: cropped on read to `config.OFFICE_BLOCK.core` (250 m, collision tiles
-  c_1_2 through c_4_5); `--area` selects another configured area. No CRS is inferred from LAZ.
+- `raw/wfs/<area>/kanta_Rakenne.parquet`: the city survey, citywide: 66626 stair nosings,
+  supporting 66618 edges, 66634 wall tops, 66630/66632/66636 fences, 62540 ramp lines.
+- `raw/osm/<area>/*.parquet`: uncovered `highway=steps` and structural barriers
+  (`fence`, `railing`, `guard_rail`, `handrail`, `wall`, `city_wall`, `retaining_wall`).
+  City geometry wins; only uncovered OSM portions are retained. OSM steps use their `width`
+  tag or a 2 m default.
+- Point clouds in `raw/laz/pistepilvi` or `raw/laz-3x3`, cropped to the tile plus 5 m.
 - `$TURKU3D_WORK/build/layers/ground/MANIFEST.json` and `*.col.npz`: authoritative
   ground contacts and ramp coverage. Water is excluded from
   ground contact queries; missing coverage is an error, not a nearest fill.
+
+Survey lines are clipped to the tile, so a tile owns the structures inside it; a complete
+object that pokes past the tile edge stays whole in the tile's own collision tiles. A tile's
+key covers its survey and OSM clips, the LAZ files and the ground collision tiles within 5 m
+(plus `quays.json` and `ramps.json`), so adding a tile builds only that tile.
+
+Every object is checked against lidar and the ground (below) and probed with the real-data
+Rapier character (`acceptance.validate`). An object that fails either is **omitted** from the
+layer and listed under its tile's `issues` in `metrics.json` (`omitted_meshes` counts its
+meshes); everything else ships. `params.acceptance_passed` therefore holds for every
+published layer: no shipped object failed a check. Per-tile physics evidence is under
+`$TURKU3D_WORK/reports/structures/<tile>/`.
 
 The reader consumes W1-01's `ground/quays.json` directly. Each entry contains
 `object_id`, `kind: "quay"`, `centers_xz`, `side_heights` and `normals_xz`. Heights
@@ -54,7 +67,7 @@ All collision/visual output and reports stay in this sandbox.
 
 Ramp survey lines use ground's `ramps.json` measured coverage handoff. The ground
 producer distinguishes traversable slopes from steep wall faces and keeps grassy
-surfaces as grass. Structures checks each office survey line against that handoff;
+surfaces as grass. Structures checks each ramp survey line against that handoff;
 the ground layer itself owns ramp collision and visuals.
 
 ## Geometry and evidence
@@ -80,13 +93,13 @@ the ground layer itself owns ramp collision and visuals.
 
 Real-data accuracy is **not established by the synthetic tests**. Sparse lidar,
 uneven landing crossfall, ambiguous survey grouping, and uncovered ramp lines
-produce explicit blocking issues. The synthetic and real car checks use a 1,500 kg CCD box at 10 m/s; a full
+produce explicit issues; the objects concerned are omitted. The synthetic and real car checks use a 1,500 kg CCD box at 10 m/s; a full
 raycast-vehicle run over the assembled AOI belongs to W1-05. Real probes combine
 the supplied ground with generated solid/query geometry: each emitted flight in
 both directions, retaining walls approached from lower terrain, representative
 fence interiors, and quay crossings every
-10 m. Barrier probes cross segment interiors rather than open endpoints. Failed
-or unplaceable routes are blocking and retain their measured progress/heights.
+10 m. Barrier probes cross segment interiors rather than open endpoints. An object with a
+failed or unplaceable route is omitted; its measured progress/heights stay in the report.
 `physics-cases.json` and `physics.json` live in the sandbox report directory.
 
 ## Output
@@ -99,22 +112,21 @@ or unplaceable routes are blocking and retain their measured progress/heights.
   extras contain `layer`, `object_id`, `material_key`, and flight metadata.
   Horizontal UVs follow translated E/N metre axes; wall UVs use along-face and
   above-base metres. Texture binding remains the assembler's responsibility.
-- `MANIFEST.json`: shared `turku3d-layer` v1 inventory, input hashes, parameters
-  including `acceptance_passed`,
-  code hash, tile hashes/sizes and metrics hash. Strict acceptance remains in
-  `metrics.json`; a publishable layer can still have measured acceptance failures.
-- `metrics.json` and `report.md`: object counts, per-object evidence and issues.
+- `t0_i_j.records.json`: the tile's shipped object measurements.
+- `MANIFEST.json`: shared `turku3d-layer` v1 inventory, per-tile keys (`tile_builds`),
+  parameters including `acceptance_passed` (no shipped object failed a check), object and
+  omitted counts, code hash and tile hashes/sizes.
+- `metrics.json` and `report.md`: per-tile object counts, evidence and issues (omitted objects).
 
-`make refresh` rebuilds this layer after ground, and office assembly requires
-`acceptance_passed: true` plus collision and visual tiles. A blocked run retains
-its layer and report for diagnosis but cannot be shipped.
+`make refresh` rebuilds stale tiles of this layer after ground; office assembly requires
+`acceptance_passed: true` plus collision and visual tiles.
 
 Material keys are `stone_stairs`, `concrete_wall`, `metal_fence`, `metal_railing`,
 `granite_quay`. Their texture-library assets are a downstream
 integration requirement; the layer GLBs currently use neutral base colours.
 
-Complete objects belong to the collision and visual tiles containing their footprint
-centroids, with `params.seams=objects`. No grid clipping or face duplication occurs.
+Complete objects (`params.seams=objects`) go to every collision tile of their own L0 tile they
+touch and to that tile's visual; no grid clipping or face duplication occurs.
 All NPZ, GLB and manifest publication uses `turku3d.layers`; the v1 reader verifies
 these files in the synthetic regression. Cross-grid tests preserve every original
 triangle exactly, including helpers and cheeks.

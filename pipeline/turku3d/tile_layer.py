@@ -97,6 +97,10 @@ def digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def digest_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
 def sha(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()

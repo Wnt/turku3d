@@ -526,12 +526,12 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
     assert unprepared(tile, root, sources)
     first = prepare(tile, root, sources)
     assert first["missing"] == [] and all(
-        isinstance(first[d], float) for d in ("ground", "ortho", "wfs", "roads")
+        isinstance(first[d], float) for d in ("ground", "ortho", "wfs", "roads", "trees")
     )
     assert not unprepared(tile, root, sources)
     assert {
         k: v for k, v in prepare(tile, root, sources).items() if k != "missing"
-    } == dict.fromkeys(("ground", "ortho", "wfs", "roads"), "cached")
+    } == dict.fromkeys(("ground", "ortho", "wfs", "roads", "trees"), "cached")
     inputs = gather(tile, root, sources)
     assert inputs.heights.shape == (129, 129) and np.allclose(inputs.heights, 5.0)
     assert inputs.ortho.shape == (512, 512, 3) and inputs.roads["edges"] >= 1

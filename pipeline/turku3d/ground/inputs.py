@@ -9,6 +9,7 @@ from shapely.geometry import box
 from turku3d import config as C
 
 from .mesh import parts
+from .water import bodies
 
 WFS_NAMES = (
     "kanta_Liikennevayla",
@@ -39,6 +40,40 @@ def source_paths(bounds, source_area="work-3x3"):
         if not path.exists():
             raise FileNotFoundError(path)
     return paths
+
+
+def laz_paths(bounds):
+    """The city point-cloud tiles under bounds that exist locally (work-3x3 mirror first)."""
+    found = []
+    for tile in C.laz_tiles_for_bbox(bounds):
+        for path in (
+            C.raw_dir("laz-3x3") / f"{tile.name}.laz",
+            C.raw_dir("laz") / "pistepilvi" / f"{tile.name}.laz",
+        ):
+            if path.exists():
+                found.append(path)
+                break
+    return found
+
+
+def read_returns(paths, bounds, classes):
+    """x/y/z and class of the returns of the given classes within bounds."""
+    import laspy
+
+    points, labels = [], []
+    for path in paths:
+        with laspy.open(path) as reader:
+            for chunk in reader.chunk_iterator(1_000_000):
+                x = np.asarray(chunk.x) - C.ORIGIN_E
+                z = C.ORIGIN_N - np.asarray(chunk.y)
+                cls = np.asarray(chunk.classification)
+                keep = (x >= bounds.xmin) & (x <= bounds.xmax) & (z >= bounds.zmin)
+                keep &= (z <= bounds.zmax) & np.isin(cls, classes)
+                points.append(np.c_[x[keep], np.asarray(chunk.z)[keep], z[keep]])
+                labels.append(cls[keep])
+    if not points:
+        return np.empty((0, 3)), np.empty(0, np.uint8)
+    return np.concatenate(points), np.concatenate(labels)
 
 
 def read_lidar(paths, bounds):
@@ -86,12 +121,7 @@ def vectors(paths, bounds):
     for key, line in lines:
         unique.setdefault(shapely.normalize(line).wkb, (key, line))
     osm = gpd.read_parquet(paths["osm"])
-    water = []
-    for _, row in osm[osm.natural == "water"].iterrows():
-        water.extend(parts(shapely.make_valid(shapely.force_2d(row.geometry_local)), ("Polygon",)))
-    if not water:
-        raise ValueError("No OSM water polygons: refusing to bridge the Aura with ground")
-    water = shapely.union_all(water).intersection(envelope)
+    water = shapely.union_all(list(bodies(paths["osm"], bounds).values())).intersection(envelope)
     buildings = shapely.union_all(
         [
             shapely.make_valid(shapely.force_2d(p))

@@ -7,8 +7,8 @@ A build never downloads: when lidar, ortho or WFS data for the tile is not on di
 Each dataset is reduced to what the build needs and cached under ``<coarse root>/.inputs/<tile>/``
 as ``<dataset>.<key>.pkl``: ``ground`` (key points of the tile + POINT_MARGIN and the CELLS grid
 heights interpolated over their TIN), ``ortho`` (ORTHO_PX RGB), ``wfs`` (building shells,
-street-area polygons with their collision material, water polygons) and ``roads`` (the tile's
-encoded OSM street graph, ``roads.json``). The key hashes this module's source and the identities
+street-area polygons with their collision material, water polygons), ``roads`` (the tile's
+encoded OSM street graph, ``roads.json``) and ``trees`` (the OSM ``natural=tree`` points in it). The key hashes this module's source and the identities
 (path, size, mtime) of the raw files read, so new raw data or changed code prepares it again.
 ``prepare`` fills the cache for whatever is on disk; the prefetcher runs it in the background for
 the tiles near the player, so the build itself starts from the small cached files.
@@ -56,7 +56,8 @@ class Inputs:
     )  # prepare_roads: roads.json of the tile's street graph; None before OSM lands
     sources: dict  # provenance: prepared dataset -> raw paths
     seconds: dict
-    key: str = ""  # Sources.input_key: the raw files' identities, recorded in the manifest
+    key: str = ""
+    trees: list = ()  # prepare_trees: (id, x, z, height, conifer) in the tile; () before OSM lands  # Sources.input_key: the raw files' identities, recorded in the manifest
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -221,6 +222,35 @@ def prepare_roads(tile: C.VisualTile, osm: Path) -> dict:
     return {"json": encode(graph), "nodes": len(graph["nodes"]) // 2, "edges": len(graph["edges"])}
 
 
+def prepare_trees(tile: C.VisualTile, osm: Path) -> list:
+    """The OSM ``natural=tree`` points in the tile: (id, x, z, height, conifer)."""
+    import json
+
+    import pyarrow.parquet as pq
+
+    names = pq.read_schema(osm).names
+    table = pq.read_table(
+        osm, columns=[c for c in ("osm_id", "tags", "geometry_local") if c in names]
+    )
+    trees = []
+    for k, row in enumerate(table.to_pylist()):
+        tags = json.loads(row["tags"]) if row["tags"] else {}
+        if tags.get("natural") != "tree":
+            continue
+        point = shapely.from_wkb(row["geometry_local"])
+        if point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
+            continue
+        try:
+            height = float(str(tags.get("height", "10")).removesuffix(" m"))
+        except ValueError:
+            height = 10.0
+        conifer = tags.get("leaf_type") == "needleleaved"
+        trees.append(
+            (f"osm:{row.get('osm_id', k)}", point.x, point.y, min(max(height, 3.0), 35.0), conifer)
+        )
+    return trees
+
+
 # -- cache ----------------------------------------------------------------------------------------
 
 
@@ -268,6 +298,7 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs] if all(found for found, _ in wfs) else None,
         "roads": [osm] if osm else None,
+        "trees": [osm] if osm else None,
     }
 
 
@@ -278,6 +309,8 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         return read_ortho(paths[0], tile)
     if dataset == "roads":
         return prepare_roads(tile, paths[0])
+    if dataset == "trees":
+        return prepare_trees(tile, paths[0])
     bldg, streets, water = paths
     return prepare_wfs(tile, bldg, streets, water)
 
@@ -325,7 +358,7 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance = {}, {}, {}
     for dataset, paths in _sources(tile, sources).items():
-        if paths is None:  # only the optional roads: no OSM clip yet
+        if paths is None:  # only the optional roads and trees: no OSM clip yet
             values[dataset] = None
             continue
         t = time.perf_counter()
@@ -349,4 +382,5 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         provenance,
         seconds,
         sources.input_key(tile) or "",
+        values["trees"] or (),
     )

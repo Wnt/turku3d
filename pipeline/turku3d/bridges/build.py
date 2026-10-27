@@ -17,8 +17,6 @@ from turku3d.structures.geometry import Faces, planar_uv, profile_wall
 
 from .shore import approaches, at, span, strip
 
-BOUNDS = C.BBoxLocal(0, 0, 500, 500)
-
 
 @dataclass
 class Crossing:
@@ -29,9 +27,9 @@ class Crossing:
     source_ids: list[str]
 
 
-def crossings(city, osm):
-    """City bridge outlines win; OSM adds missing paths and bridge meaning."""
-    region = box(*BOUNDS.as_tuple())
+def crossings(city, osm, bounds):
+    """Bridges whose OSM ways meet bounds: city outlines win; OSM adds missing paths and meaning."""
+    region = box(*bounds.as_tuple())
     roads = {}
     for row in osm.itertuples():
         tags = json.loads(row.tags)
@@ -78,7 +76,7 @@ def crossings(city, osm):
     ]
 
 
-def lidar_points(paths):
+def lidar_points(paths, bounds):
     import laspy
 
     points, classes = [], []
@@ -88,7 +86,8 @@ def lidar_points(paths):
                 x = np.asarray(chunk.x) - C.ORIGIN_E
                 z = C.ORIGIN_N - np.asarray(chunk.y)
                 cls = np.asarray(chunk.classification)
-                keep = (x >= -40) & (x <= 520) & (z >= -20) & (z <= 520)
+                keep = (x >= bounds.xmin) & (x <= bounds.xmax)
+                keep &= (z >= bounds.zmin) & (z <= bounds.zmax)
                 keep &= np.isin(cls, (2, 9, 12, 17))
                 if keep.any():
                     points.append(np.column_stack((x[keep], np.asarray(chunk.z)[keep], z[keep])))
@@ -136,6 +135,8 @@ def profile(crossing, points, classes):
             if len(nearby) < 4:
                 nearby = support.query_ball_point(xy[endpoint], 5)
             if len(nearby) < 4:
+                if np.isfinite(heights).any():
+                    continue  # The deck returns reach this end's neighbours; hold their level.
                 raise ValueError(f"{crossing.name}: unsupported abutment")
             heights[endpoint] = float(np.median(abutment[nearby, 1]))
         water = points[classes == 9]

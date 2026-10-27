@@ -145,7 +145,13 @@ def built_mesh():
     tiles = [C.CollisionTile(0, 0), C.CollisionTile(1, 0)]
     water = box(80, 40, 120, 60)
     mesh, info = build_mesh(
-        surface, C.BBoxLocal(0, 0, 125, 62.5), tiles, curbs, water, -0.25, ConstantMaterials()
+        surface,
+        C.BBoxLocal(0, 0, 125, 62.5),
+        tiles,
+        curbs,
+        water,
+        [(water, -0.25)],
+        ConstantMaterials(),
     )
     return mesh, tiles, water
 
@@ -191,7 +197,7 @@ def test_cdt_seams_hold_on_a_2x3_grid_with_an_added_column():
         tiles,
         [],
         shapely.Polygon(),
-        0.0,
+        [],
         ConstantMaterials(),
     )
     meshes = {t: tile_mesh(mesh, t) for t in tiles}
@@ -217,7 +223,7 @@ def test_unsupported_shore_is_bounded_and_bridge_cuts_land():
         [],
         [],
         water,
-        0,
+        [(water, 0)],
         ConstantMaterials(),
         bridges=bridge,
     )
@@ -240,7 +246,7 @@ def test_constrained_curb_is_sharp_and_visual_is_separate(curb_cloud):
         [],
         curbs,
         shapely.Polygon(),
-        0,
+        [],
         ConstantMaterials(),
     )
     query = HeightQuery(mesh)
@@ -282,7 +288,7 @@ def test_measured_wall_keeps_height_and_renders_collision_face(curb_cloud):
         [],
         walls,
         shapely.Polygon(),
-        0,
+        [],
         ConstantMaterials(),
     )
     assert mat_id("wall") in mesh.material
@@ -328,8 +334,8 @@ def test_collision_mesh_step_coverage_counts_actual_height(tmp_path, curb_cloud)
     bounds = C.BBoxLocal(0, 0, 5, 12)
     flat = Surface(curb_cloud.copy())
     flat.points[:, 1] -= (flat.points[:, 0] > 2) * 0.15
-    before, _ = build_mesh(flat, bounds, [], [], shapely.Polygon(), 0, ConstantMaterials())
-    after, _ = build_mesh(surface, bounds, [], [curb], shapely.Polygon(), 0, ConstantMaterials())
+    before, _ = build_mesh(flat, bounds, [], [], shapely.Polygon(), [], ConstantMaterials())
+    after, _ = build_mesh(surface, bounds, [], [curb], shapely.Polygon(), [], ConstantMaterials())
     old, new = tmp_path / "before", tmp_path / "after"
     before.save(old / "c_0_0.col.npz")
     after.save(new / "c_0_0.col.npz")
@@ -354,7 +360,9 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
     ortho.write_text("<VRTDataset/>")
     source = tmp_path / "source.laz"
     source.write_bytes(b"synthetic source identity")
-    monkeypatch.setattr(builder, "source_paths", lambda *args: {"ortho": ortho, "lidar": source})
+    monkeypatch.setattr(
+        builder, "source_paths", lambda *args: {"ortho": ortho, "lidar": source, "osm": source}
+    )
     x, z = np.meshgrid(np.arange(8.0), np.arange(8.0))
     cloud = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
     monkeypatch.setattr(
@@ -365,6 +373,7 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
         "vectors",
         lambda *args: ([], shapely.Polygon(), shapely.Polygon(), shapely.Polygon(), None, []),
     )
+    monkeypatch.setattr(builder, "water_bodies", lambda *args: {})
     monkeypatch.setattr(builder, "Materials", lambda *args: ConstantMaterials())
     calls = []
 
@@ -515,7 +524,7 @@ def test_curb_qa_uses_withheld_returns_not_cached_fitting_heights(curb_cloud):
     surface = Surface(train)
     curbs = fit_curbs([("independent", LineString([(2.15, 0), (2.15, 12)]))], surface)[0]
     bounds = C.BBoxLocal(-1, -1, 5, 14)
-    mesh, _ = build_mesh(surface, bounds, [], curbs, shapely.Polygon(), 0, ConstantMaterials())
+    mesh, _ = build_mesh(surface, bounds, [], curbs, shapely.Polygon(), [], ConstantMaterials())
     before = mesh.positions.copy()
     tiles = {C.CollisionTile(0, 0): mesh}
     good = evaluate(
@@ -623,7 +632,7 @@ def test_plain_ground_acceptance_rejects_interior_hole(built_mesh):
     from turku3d.ground.water import add_river_bed
 
     mesh, tiles, water = built_mesh
-    mesh = add_river_bed(mesh, -0.25)
+    mesh = add_river_bed(mesh)
     assert np.any(mesh.positions[:, 1] == -3.25)
     x, z = np.meshgrid(np.arange(0.5, 125), np.arange(0.5, 62.5))
     accepted = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
@@ -664,7 +673,7 @@ def test_tiles_meshed_in_different_envelopes_are_byte_identical():
             cells,
             [],
             shapely.Polygon(),
-            0,
+            [],
             ConstantMaterials(),
             tolerance=0.02,
         )
@@ -691,7 +700,9 @@ def test_adding_a_tile_builds_only_that_tile(monkeypatch, tmp_path):
     ortho.write_text("<VRTDataset/>")
     source = tmp_path / "source.laz"
     source.write_bytes(b"synthetic source identity")
-    monkeypatch.setattr(builder, "source_paths", lambda *args: {"ortho": ortho, "lidar": source})
+    monkeypatch.setattr(
+        builder, "source_paths", lambda *args: {"ortho": ortho, "lidar": source, "osm": source}
+    )
     x, z = np.meshgrid(np.arange(8.0), np.arange(8.0))
     cloud = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
     monkeypatch.setattr(
@@ -702,6 +713,7 @@ def test_adding_a_tile_builds_only_that_tile(monkeypatch, tmp_path):
         "vectors",
         lambda *args: ([], shapely.Polygon(), shapely.Polygon(), shapely.Polygon(), None, []),
     )
+    monkeypatch.setattr(builder, "water_bodies", lambda *args: {})
     monkeypatch.setattr(builder, "Materials", lambda *args: ConstantMaterials())
     built = []
 

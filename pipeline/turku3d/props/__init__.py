@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
+import shapely
+import shapely.ops
 from shapely.strtree import STRtree
 
 from turku3d import config as C
@@ -83,11 +85,123 @@ def face_road(x: float, z: float, roads: STRtree | None) -> tuple[float, str]:
     return heading("lamp", x, z, roads)
 
 
+# OSM sign nodes: highway=give_way/stop, and traffic_sign=FI:<code>[;FI:<code>...].
+SIGN_HIGHWAYS = {"give_way": "B5", "stop": "B6"}
+SIGN_REGISTER_REACH = 25.0  # a register sign of the same code this close already marks it
+ROADSIDE_OFFSET = 0.7  # a node on the carriageway moves this far past its nearest edge
+# Lit streets without lamps in any source get lamps by a spacing rule, on their right side.
+LIT_STREETS = {
+    "primary",
+    "secondary",
+    "tertiary",
+    "unclassified",
+    "residential",
+    "living_street",
+    "pedestrian",
+    "service",
+}
+LAMP_SPACING = 30.0
+LAMP_REACH = 20.0  # a station with any lamp this close is lit already
+
+
+def sign_codes(tags: dict) -> list[str]:
+    codes = [SIGN_HIGHWAYS[tags["highway"]]] if tags.get("highway") in SIGN_HIGHWAYS else []
+    for value in str(tags.get("traffic_sign", "")).replace(",", ";").split(";"):
+        code = value.strip()
+        if code.casefold().startswith("fi:"):
+            code = code[3:]
+        if code and code not in codes:
+            codes.append(code)
+    return codes
+
+
+def roadside(x, z, carriageway):
+    """A point on the carriageway moved just past its nearest edge (OSM maps signs on the way)."""
+    point = shapely.Point(x, z)
+    if carriageway.is_empty or not carriageway.covers(point):
+        return x, z
+    edge = shapely.ops.nearest_points(carriageway.boundary, point)[0]
+    dx, dz = edge.x - x, edge.y - z
+    length = math.hypot(dx, dz) or 1.0
+    return edge.x + dx / length * ROADSIDE_OFFSET, edge.y + dz / length * ROADSIDE_OFFSET
+
+
+def osm_props(frame, bbox, register, carriageway, skipped):
+    """Lamps, bollards and signs mapped in OSM, plus spacing-rule lamps along lit streets."""
+    result, lit = [], []
+    reach = bbox.buffered(LAMP_REACH)
+    for row in frame.to_dict("records"):
+        tags = row.get("tags", {})
+        tags = dict(json.loads(tags) if isinstance(tags, str) else tags or {})
+        g = row["geometry_local"]
+        if g is None or g.is_empty:
+            continue
+        oid = f"osm:{row['osm_id']}"
+        if g.geom_type == "LineString":
+            if tags.get("lit") == "yes" and tags.get("highway") in LIT_STREETS:
+                lit.append((oid, g, tags))
+            continue
+        if g.geom_type != "Point" or not reach.contains(g.x, g.y):
+            continue
+        if tags.get("highway") == "street_lamp":
+            result.append(Prop(oid, "lamp", g.x, 0, g.y, source="osm"))
+        elif tags.get("barrier") == "bollard":
+            result.append(Prop(oid, "bollard", g.x, 0, g.y, source="osm"))
+        for code in sign_codes(tags):
+            if any(
+                q.kind == "sign"
+                and q.code == code
+                and math.hypot(q.x - g.x, q.z - g.y) < SIGN_REGISTER_REACH
+                for q in register
+            ):
+                skipped["osm_sign_in_register"] += 1
+                continue
+            x, z = roadside(g.x, g.y, carriageway)
+            supported = code in SUPPORTED_SIGNS
+            if not supported:
+                skipped["unsupported_sign:" + code] += 1
+            result.append(
+                Prop(
+                    f"{oid}:{code}",
+                    "sign" if supported else "post",
+                    x,
+                    0,
+                    z,
+                    code=code if supported else "",
+                    source="osm",
+                )
+            )
+    lamps = [(p.x, p.z) for p in [*register, *result] if p.kind == "lamp"]
+    tree = STRtree([shapely.Point(xz) for xz in lamps]) if lamps else None
+    for oid, line, tags in lit:
+        try:
+            half = float(tags.get("width", float(tags.get("lanes", 2)) * 3)) / 2
+        except ValueError:
+            half = 3.0
+        # Engine z points south, so a positive (left in x/y) offset is right of the way.
+        side = line.offset_curve(half + 1.0)
+        if side.is_empty or side.geom_type != "LineString":
+            continue
+        for n, distance in enumerate(np.arange(LAMP_SPACING / 2, side.length, LAMP_SPACING)):
+            station = side.interpolate(float(distance))
+            if not bbox.contains(station.x, station.y):
+                continue
+            if tree is not None and len(
+                tree.query(station, predicate="dwithin", distance=LAMP_REACH)
+            ):
+                continue
+            result.append(
+                Prop(f"{oid}:lamp:{n}", "lamp", station.x, 0, station.y, source="osm_lit_street")
+            )
+    return [p for p in result if bbox.contains(p.x, p.z)]
+
+
 def read_sources(bbox, source_area="work-3x3"):
     import geopandas as gpd
 
     missing, candidates, skipped = [], [], Counter()
     root = C.raw_dir("wfs") / source_area
+    outer = bbox.buffered(max(SIGN_REGISTER_REACH, LAMP_REACH))
 
     def load(path):
         frame = gpd.read_parquet(path)
@@ -119,7 +233,8 @@ def read_sources(bbox, source_area="work-3x3"):
             if p is None or p.is_empty or p.geom_type != "Point":
                 skipped["non_point"] += 1
                 continue
-            if not bbox.contains(p.x, p.y):
+            # Register objects just past the edge still mark signs and lamps as present.
+            if not outer.contains(p.x, p.y):
                 continue
             kind = default or classify(row)
             code = str(row.get("Varustelaji_koodi") or "") if kind == "sign" else ""
@@ -133,21 +248,24 @@ def read_sources(bbox, source_area="work-3x3"):
         missing.append("osm/*.parquet")
     else:
         # Dated fetch snapshot: consume the latest one once, never overlapping epochs.
-        path = osm_paths[-1]
-        for row in load(path).to_dict("records"):
-            tags = row.get("tags", {})
-            if isinstance(tags, str):
-                tags = json.loads(tags)
-            tags = dict(tags or {})
-            kind = (
-                "lamp"
-                if tags.get("highway") == "street_lamp"
-                else ("bollard" if tags.get("barrier") == "bollard" else None)
+        streets = root / "GIS_Katualueet.parquet"
+        # Carriageway areas near the tile (city polygons can be invalid: repair before union).
+        window = shapely.box(*outer.as_tuple())
+        carriageway = (
+            shapely.union_all(
+                [
+                    shapely.make_valid(shapely.force_2d(r["geometry_local"]))
+                    for r in load(streets).to_dict("records")
+                    if r["Katuosalaji"] == "Ajorata"
+                    and r["geometry_local"] is not None
+                    and r["geometry_local"].intersects(window)
+                ]
             )
-            p = row["geometry_local"]
-            if kind and p is not None and p.geom_type == "Point" and bbox.contains(p.x, p.y):
-                oid = str(row.get("osm_id", row.get("id")))
-                candidates.append(Prop("osm:" + oid, kind, p.x, 0, p.y, source="osm"))
+            if streets.exists()
+            else shapely.Polygon()
+        )
+        candidates += osm_props(load(osm_paths[-1]), bbox, candidates, carriageway, skipped)
+    candidates = [p for p in candidates if bbox.contains(p.x, p.z)]
     # Preserve separate signs; collapse only same-kind duplicate records at the same location.
     props, seen, locations = [], set(), defaultdict(list)
     for p in sorted(candidates, key=lambda p: (p.source == "osm", p.object_id)):
@@ -363,7 +481,7 @@ def build_tile(tile, staging):
     area = C.source_area(tile)
     props, metadata = read_sources(tile.bbox, area)
     if props:
-        props = place_objects(props, "props", tile.bbox, {}, area, report=f"props/{tile.id}")
+        props = place_objects(props, "props", tile.bbox, area, report=f"props/{tile.id}")
     # A repair may move an object up to 2 m; one that left its tile is dropped, not handed over.
     inside = [p for p in props if tile.bbox.contains(p.x, p.z)]
     metrics = write_tile(inside, staging, tile)

@@ -3,11 +3,12 @@ import json
 import numpy as np
 import pytest
 from shapely.geometry import LineString
+from turku3d import config as C
 from turku3d.col.materials import mat_id, material_class
-from turku3d.layers import read_collision, read_manifest
+from turku3d.layers import read_collision
 from turku3d.package.gltf import accessor_array, read_glb
 from turku3d.structures.geometry import profile_wall, quay, ramp, stairs
-from turku3d.structures.layer import write_layer
+from turku3d.structures.layer import omit_failed, write_tile
 from turku3d.structures.survey import Lidar, group_flights
 
 
@@ -109,10 +110,11 @@ def test_ramp_preserves_positions_and_quay_is_closed():
         assert (np.linalg.norm(normals, axis=1) > 0).all()
 
 
-def test_whole_object_reaches_each_collision_cell_without_clipping(tmp_path):
+def test_whole_object_reaches_each_collision_cell_of_its_tile_without_clipping(tmp_path):
     mesh = stairs("corner", [60.1234, 2.718, 60.234], [65.567, 4.8, 65.897], 3)[0][0]
     out = tmp_path / "structures"
-    write_layer([mesh], out, inputs={}, params={}, metrics={})
+    out.mkdir()
+    write_tile([mesh], out, C.VisualTile(0, 0, 0))
     files = list(out.glob("*.col.npz"))
     assert {path.stem.removesuffix(".col") for path in files} == {
         "c_0_0",
@@ -125,13 +127,13 @@ def test_whole_object_reaches_each_collision_cell_without_clipping(tmp_path):
         np.testing.assert_array_equal(
             exported.positions[exported.indices], mesh.positions[mesh.indices]
         )
-    assert read_manifest(out)["params"]["seams"] == "objects"
 
 
 def test_collision_edge_coordinates_are_exact_in_both_tiles(tmp_path):
     mesh = stairs("edge", [3, 0, 60], [3, 1, 62.5 - 5e-14], 2)[0][0]
     out = tmp_path / "structures"
-    write_layer([mesh], out, inputs={}, params={}, metrics={})
+    out.mkdir()
+    write_tile([mesh], out, C.VisualTile(0, 0, 0))
     for tile in ("c_0_0", "c_0_1"):
         points = read_collision(out / f"{tile}.col.npz").positions
         edge = points[np.abs(points[:, 2] - 62.5) < 1e-8, 2]
@@ -139,16 +141,14 @@ def test_collision_edge_coordinates_are_exact_in_both_tiles(tmp_path):
         assert np.all(edge == 62.5)
 
 
-def test_layer_contract_glb_cache_and_stale_output(tmp_path):
-    meshes, metrics = stairs("cross-tile", [247, 2, 247], [253, 4, 253], 3)
+def test_tile_contract_glb_and_an_object_across_the_tile_edge(tmp_path):
+    """A flight across the t0_0_0/t0_1_1 corner stays whole, in its owner tile's cells only."""
+    meshes, _ = stairs("cross-tile", [247, 2, 247], [253, 4, 253], 3)
     out = tmp_path / "structures"
-    manifest, cached = write_layer(
-        meshes, out, inputs={"fixture": "abc"}, params={}, metrics=metrics
-    )
-    assert not cached
-    assert len(list(out.glob("*.vis.glb"))) >= 1
-    assert read_manifest(out)["format"] == "turku3d-layer"
-    assert not list(out.glob("*.col"))
+    out.mkdir()
+    write_tile(meshes, out, C.VisualTile(0, 0, 0))
+    assert sorted(p.name for p in out.glob("*.col.npz")) == ["c_3_3.col.npz"]
+    assert [p.name for p in out.glob("*.vis.glb")] == ["t0_0_0.vis.glb"]
     materials = set()
     for path in out.glob("*.col.npz"):
         with np.load(path, allow_pickle=False) as d:
@@ -158,24 +158,25 @@ def test_layer_contract_glb_cache_and_stale_output(tmp_path):
             assert len(d["material"]) == len(d["indices"])
             materials.update(d["material"])
     assert materials == {16, 17, 19}
-    for path in out.glob("*.vis.glb"):
-        js, binary = read_glb(path.read_bytes())
-        for node in js["nodes"][1:]:
-            assert node["extras"]["layer"] == "structures"
-            assert node["extras"]["material_key"]
-            prim = js["meshes"][node["mesh"]]["primitives"][0]
-            uv = accessor_array(js, binary, prim["attributes"]["TEXCOORD_0"])
-            assert np.isfinite(uv).all()
-    before = (out / "MANIFEST.json").stat().st_mtime_ns
-    assert write_layer(meshes, out, inputs={"fixture": "abc"}, params={}, metrics=metrics)[1]
-    assert before == (out / "MANIFEST.json").stat().st_mtime_ns
-    damaged = out / next(iter(manifest["tiles"]))
-    damaged.write_bytes(b"bad")
-    assert not write_layer(meshes, out, inputs={"fixture": "abc"}, params={}, metrics=metrics)[1]
-    smaller, metrics = stairs("small", [1, 0, 1], [5, 1, 1], 1)
-    write_layer(smaller, out, inputs={"fixture": "def"}, params={}, metrics=metrics)
-    assert len(list(out.glob("*.vis.glb"))) == 1
-    assert json.loads((out / "MANIFEST.json").read_text())["layer"] == "structures"
+    js, binary = read_glb((out / "t0_0_0.vis.glb").read_bytes())
+    for node in js["nodes"][1:]:
+        assert node["extras"]["layer"] == "structures"
+        assert node["extras"]["material_key"]
+        prim = js["meshes"][node["mesh"]]["primitives"][0]
+        uv = accessor_array(js, binary, prim["attributes"]["TEXCOORD_0"])
+        assert np.isfinite(uv).all()
+
+
+def test_failed_objects_are_omitted_with_their_parts():
+    good, _ = stairs("city:good", [1, 0, 1], [5, 1, 1], 1)
+    bad, _ = stairs("flight:bad", [1, 0, 5], [5, 1, 5], 1)
+    wall = profile_wall("osm:way:9:0", np.array([[0, 9], [4, 9]]), [0, 0], [1, 1])
+    issues = [
+        {"object_id": "flight:bad", "reason": "stair landing/ground mismatch"},
+        {"object_id": "osm:way:9:0:route:0", "reason": "real-data Rapier traversal failed"},
+    ]
+    kept, omitted = omit_failed([*good, *bad, wall], issues)
+    assert kept == good and omitted == len(bad) + 1
 
 
 def ground_fixture(tmp_path, *, quays=None, material="sidewalk"):
@@ -270,6 +271,16 @@ def test_missing_lidar_uses_surveyed_stair_with_ground_contact(tmp_path):
     assert not metrics["issues"]
 
 
+def test_an_inconsistent_flight_is_rejected_by_its_nosing_not_a_supporting_edge():
+    lines = [
+        ("a-edge", LineString([(1.75, 0.5), (2.06, 0.5)]), "66618"),
+        ("b-nosing", LineString([(0, 0), (2, 0)]), "66626"),
+    ]
+    flights, rejected = group_flights(lines)
+    assert flights == []
+    assert rejected == [{"object_id": "b-nosing", "reason": "inconsistent flight widths"}]
+
+
 def test_inconclusive_osm_wall_top_uses_reported_survey_only_height(tmp_path):
     from turku3d.structures.build import build
 
@@ -315,18 +326,6 @@ def test_retaining_wall_uses_measured_ground_sides(tmp_path):
     wall = metrics["measurements"][0]
     assert wall["height_evidence"] == {"source": "ground_sides", "offset_m": 0.6}
     assert min(np.array(wall["upper_y"]) - wall["lower_y"]) == pytest.approx(0.24)
-
-
-def test_cli_writes_blocking_report_without_false_layer_manifest(tmp_path, monkeypatch):
-    from turku3d.structures import __main__ as cli
-
-    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
-    monkeypatch.setattr(cli, "read_surveys", lambda bounds: [])
-    assert cli.main(["--ground-layer", str(tmp_path / "missing-ground")]) == 1
-    metrics = json.loads((tmp_path / "reports/structures/metrics.json").read_text())
-    assert metrics["status"] == "BLOCKED"
-    assert "W1-01 ground layer is required" in metrics["issues"][0]["reason"]
-    assert not (tmp_path / "build/layers/structures/MANIFEST.json").exists()
 
 
 def test_city_wins_only_where_osm_is_covered_and_clips_to_aoi(monkeypatch):
@@ -478,16 +477,6 @@ def test_real_barrier_probe_crosses_segment_interior_not_its_open_end(tmp_path):
     assert sorted([route["start"][0], route["target"][0]]) == [0, 4]
 
 
-def test_default_scope_is_exact_office_core():
-    from turku3d import config as C
-    from turku3d.structures.inputs import office_bounds
-
-    assert office_bounds() == C.OFFICE_BLOCK.core
-    assert {t.id for t in C.collision_tiles_for_bbox(office_bounds())} == {
-        f"c_{i}_{j}" for i in range(1, 5) for j in range(2, 6)
-    }
-
-
 def test_v1_snapshot_ignores_unlisted_tiles_and_rejects_corruption(tmp_path, monkeypatch):
     from turku3d.layers import CollisionLayer, write_collision, write_manifest
     from turku3d.structures.snapshot import snapshot_ground
@@ -505,3 +494,40 @@ def test_v1_snapshot_ignores_unlisted_tiles_and_rejects_corruption(tmp_path, mon
     (source / "c_1_2.col.npz").write_bytes(b"corrupted declared data")
     with pytest.raises(ValueError, match="differs from its manifest"):
         snapshot_ground(source)
+
+
+def test_structures_are_built_per_tile_from_survey_and_osm(tmp_path, monkeypatch):
+    """OSM fence and tagged wall in t0_0_0 are probed on the ground; flat steps are excluded."""
+    import producer_world as world
+    from turku3d import tile_layer
+    from turku3d.layers import layer_root, read_manifest
+    from turku3d.structures.producer import PRODUCER
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_JOBS", "1")
+    world.ground(["t0_0_0", "t0_1_0"])
+    world.write_wfs("kanta_Rakenne", [], [], columns=("kplkoodi", "feature_key"))
+    world.write_osm(
+        [
+            ({"barrier": "fence"}, LineString([(20, 20), (40, 20)])),
+            ({"barrier": "wall", "height": "2"}, LineString([(20, 60), (20, 80)])),
+            ({"highway": "steps"}, LineString([(100, 100), (100, 104)])),
+            ({"barrier": "fence"}, LineString([(300, 20), (320, 20)])),  # in t0_1_0
+        ]
+    )
+    xs, zs = np.meshgrid(np.arange(-10.25, 260, 1.0), np.arange(-10.25, 260, 1.0))
+    ground = np.c_[xs.ravel(), np.full(xs.size, world.GROUND_Y), zs.ravel()]
+    world.lidar(ground, np.full(len(ground), 2), C.BBoxLocal(-10, -10, 260, 260))
+    out = layer_root() / "structures"
+    tile_layer.run(out, PRODUCER, ["t0_0_0"])
+    manifest = read_manifest(out)
+    assert manifest["params"]["acceptance_passed"]
+    assert set(manifest["tiles"]) == {"t0_0_0.vis.glb", "c_0_0.col.npz", "c_0_1.col.npz"}
+    metrics = json.loads((out / "metrics.json").read_text())
+    assert metrics["object_counts"] == {"fence": 1, "wall": 1}
+    assert [s["object_id"] for s in metrics["tiles"]["t0_0_0"]["excluded_sources"]] == [
+        "osm:way:3:0"
+    ]
+    wall = read_collision(out / "c_0_1.col.npz")
+    assert wall.positions[:, 1].max() == pytest.approx(world.GROUND_Y + 2)

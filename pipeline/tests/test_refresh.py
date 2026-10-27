@@ -213,92 +213,6 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     assert len(calls) == 13
 
 
-def test_structures_refresh_requires_passed_real_acceptance(tmp_path, monkeypatch):
-    from turku3d.layers import write_manifest
-
-    layers = tmp_path / "layers"
-    source = tmp_path / "ground.json"
-    source.write_text("ground-v1")
-    directory = layers / "structures"
-    write_manifest(
-        directory,
-        inputs={str(source): refresh.sha(source)},
-        params={"acceptance_passed": False},
-        code=refresh.structures_code_hash(),
-        tiles=[],
-    )
-    calls = []
-    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
-    assert refresh.structures(layers) == "rebuilt"
-    assert calls == [
-        ("turku3d.structures", "--area", "office-block", "--ground-layer", str(layers / "ground"))
-    ]
-    calls.clear()
-    write_manifest(
-        directory,
-        inputs={str(source): refresh.sha(source)},
-        params={"acceptance_passed": True},
-        code=refresh.structures_code_hash(),
-        tiles=[],
-    )
-    assert refresh.structures(layers) == "cached"
-    assert not calls
-
-
-def test_bridge_refresh_rebuilds_for_stale_ground_or_code(tmp_path, monkeypatch):
-    from turku3d.layers import write_manifest
-
-    layers = tmp_path / "layers"
-    source = tmp_path / "ground.json"
-    source.write_text("ground-v1")
-    bridge = layers / "bridges"
-    write_manifest(
-        bridge,
-        inputs={str(source): refresh.sha(source)},
-        params={},
-        code=refresh.bridges_code_hash(),
-        tiles=[],
-    )
-    calls = []
-    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
-    assert refresh.bridges(layers) == "cached"
-    source.write_text("ground-v2")
-    assert refresh.bridges(layers) == "rebuilt"
-    assert calls == [("turku3d.bridges",)]
-    calls.clear()
-    monkeypatch.setattr(refresh, "bridges_code_hash", lambda: "changed-code")
-    assert refresh.bridges(layers) == "rebuilt"
-    assert calls == [("turku3d.bridges",)]
-
-
-def test_parked_refresh_rebuilds_when_structures_change(tmp_path, monkeypatch):
-    # Both layers follow the tile list; keep the sandbox's own list out of the test.
-    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
-    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
-    from turku3d.layers import write_manifest
-
-    layers = tmp_path / "build/layers"
-    structures = layers / "structures/MANIFEST.json"
-    structures.parent.mkdir(parents=True)
-    structures.write_text('{"version": 1}')
-    write_manifest(
-        layers / "traffic_static",
-        inputs={
-            str(structures): refresh.sha(structures),
-            "placements.json": "own audit output, not an input",
-        },
-        params={},
-        code=refresh.code_hash([refresh.C.REPO_ROOT / "pipeline/turku3d/parked"]),
-        tiles=[],
-    )
-    calls = []
-    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
-    assert refresh.parked(layers) == "cached"
-    structures.write_text('{"version": 2}')
-    assert refresh.parked(layers) == "rebuilt"
-    assert calls == [("turku3d.parked",)]
-
-
 def test_ground_target_ignores_unrelated_stale_buildings(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(refresh, "ground", lambda layers: calls.append("ground") or "cached")
@@ -341,31 +255,6 @@ def test_facade_target_runs_buildings_before_migration(monkeypatch, tmp_path):
     assert result == {"buildings": "cached", "facades": "rebuilt"}
 
 
-def test_vegetation_refresh_rebuilds_when_props_change(tmp_path, monkeypatch):
-    # Both layers follow the tile list; keep the sandbox's own list out of the test.
-    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
-    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
-    from turku3d.layers import write_manifest
-
-    layers = tmp_path / "build/layers"
-    props = layers / "props/instances.json"
-    props.parent.mkdir(parents=True)
-    props.write_text("[]")
-    write_manifest(
-        layers / "vegetation",
-        inputs={str(props): refresh.sha(props), "placement_report": "audit output"},
-        params={},
-        code=refresh.vegetation_code_hash(),
-        tiles=[],
-    )
-    calls = []
-    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
-    assert refresh.vegetation(layers) == "cached"
-    props.write_text('[{"object_id": "bench"}]')
-    assert refresh.vegetation(layers) == "rebuilt"
-    assert calls == [("turku3d.vegetation",)]
-
-
 def test_per_tile_layers_rebuild_only_when_a_tile_is_stale(tmp_path, monkeypatch):
     monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
@@ -380,4 +269,15 @@ def test_per_tile_layers_rebuild_only_when_a_tile_is_stale(tmp_path, monkeypatch
     assert refresh.props(layers) == "cached"
     stale.append("t0_0_0")
     assert refresh.props(layers) == refresh.roads(layers) == "rebuilt"
-    assert calls == [("turku3d.props",), ("turku3d.props",), ("turku3d.roads",)]
+    assert refresh.bridges(layers) == refresh.vegetation(layers) == refresh.parked(layers)
+    assert refresh.outer_buildings(layers) == refresh.structures(layers) == "rebuilt"
+    assert calls == [
+        ("turku3d.props",),
+        ("turku3d.props",),
+        ("turku3d.roads",),
+        ("turku3d.bridges",),
+        ("turku3d.vegetation",),
+        ("turku3d.parked",),
+        ("turku3d.buildings.outer",),
+        ("turku3d.structures",),
+    ]

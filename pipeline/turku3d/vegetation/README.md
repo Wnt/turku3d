@@ -2,30 +2,29 @@
 
 ```sh
 source ../sandbox.env
-bash pipeline/env/run.sh python -m turku3d.vegetation  # every listed playable tile + margin
-bash pipeline/env/run.sh python -m turku3d.vegetation --scope office-block  # office core + margin
+bash pipeline/env/run.sh python -m turku3d.vegetation                  # every listed tile; only stale ones rebuild
+bash pipeline/env/run.sh python -m turku3d.vegetation --tiles t0_3_0   # one tile
 .venv/bin/python -m pytest pipeline/tests/test_vegetation.py -q
 scripts/dev/gate
 ```
 
-`make refresh` rebuilds this layer after props and before traffic_static whenever
-`code_hash()` (this package plus config, layers and glTF packaging), the placement
-code or a declared input (sources, LAZ, assets, published surface layers, props
-inventory) changes; office assembly fails without it.
-The default output is `$TURKU3D_WORK/build/layers/vegetation`; `--out PATH` changes
-that directory. The default scope follows the playable tile list (`playable-tiles.json`): trees
-whose trunk lies in a listed L0 tile or its 50 m margin, so a tile added with `make tile-add`
-gets the register's trees with lidar heights where they exist. Refresh records the list in
-`PLAYABLE_TILES.json` and rebuilds for a new list. `--scope office-block` is the office core plus
-50 m. Whole
-trees belong to their trunk point's visual/collision tile, including margin tiles;
-assembly of just the four core tiles consumes their files normally.
+The layer is built per listed L0 tile ([`turku3d.tile_layer`](../tile_layer.py), `layer.py`).
+A tile reads the tree register of its own input area (`config.source_area`: work-3x3 while it
+holds the tile, else `tile-<id>`) and the lidar under the tile plus `READ_MARGIN` (12 m), so
+trunks near its edges compete for canopy returns as in one large build, and it keeps the trees
+whose trunk lies in the tile: its `t0_i_j.vis.glb`, the trunk cylinders of its collision tiles
+and `t0_i_j.records.json`. Its key covers the four register layers, the LAZ files, the assets,
+the placement context (`placement.inputs.context_key`: collision within 20 m, earlier
+inventories within 30 m) and the code, so a tile added with `make tile-add` builds only that
+tile. Trees of unlisted neighbours (the old 50 m margin) are no longer built. `make refresh`
+runs this layer after props and before traffic_static. Each LAZ file is read once and reduced
+to its class-2 ground (first return per 0.5 m cell) and class-5 canopy (highest return per
+0.5 m cell), cached by content in `$TURKU3D_WORK/cache/vegetation`; a tile crops the cells it
+needs. `trees.json` is combined from every listed tile's records.
 
 `GIS_Puut` wins over mapped `kanta_Lehtipuu` / `kanta_Havupuu` points within 2 m.
 Register coordinates are never moved. `kanta_Lehtipuurivi` is sampled at 8 m and
 requires lidar support, because a line does not identify individual trunk locations.
-Class-2 ground and class-5 canopy are cropped from immutable LAZ in chunks and
-cached by source content hash, bounds and coordinate contract in the sandbox.
 One observed ground point per 0.5 m cell limits memory. Ground height is the median
 of six nearby samples; points without ground support within 12 m are omitted.
 
@@ -65,5 +64,5 @@ After canopy measurement, the [shared validator](../placement/README.md) snaps t
 bases to published ground/structures triangles and checks grass/soil/tree-pit semantics,
 water, missing bridge decks, buildings, access and other object bases. Corrections are
 limited to 2 m; omitted trees and original/final positions are retained in JSON/HTML
-orthophoto reports under `$TURKU3D_WORK/reports/placement/vegetation`. Residual hard
+orthophoto reports under `$TURKU3D_WORK/reports/placement/vegetation/<tile>`. Residual hard
 violations fail publication. Ground and building layers must exist before this build.
