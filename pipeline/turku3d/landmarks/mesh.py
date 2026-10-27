@@ -194,9 +194,7 @@ def shell(
     holes = np.array(
         [np.asarray(Polygon(r).representative_point().coords[0]) for r in rings[1:]]
     ).reshape(-1, 2)
-    # Base triangulation of the corner rings alone: the smallest closed shell.
-    spacing = field.cell
-    bxy, bfixed, bring, border = _boundary_samples(rings, spacing)
+    bxy, bfixed, bring, border = _boundary_samples(rings, field.cell)
     bheight = field.sample(*_inward(footprint, bxy, field.cell).T)
     # Interior samples: cell centres at least half a cell inside the footprint.
     rows, cols = field.heights.shape
@@ -213,6 +211,7 @@ def shell(
     def closed_triangles(top_tris, n_boundary, n_base_tris):
         return top_tris + 2 * n_boundary + n_base_tris
 
+    # The smallest closed shell: the corner rings alone, as roof and as base.
     base_tris = len(_triangulate(*_pslg(bxy[bfixed], bring[bfixed], holes)[:2], holes))
     minimum = closed_triangles(base_tris, corners, base_tris)
     if budget < minimum:
