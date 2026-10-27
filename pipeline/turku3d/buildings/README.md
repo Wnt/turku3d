@@ -172,4 +172,5 @@ make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 
 Outer LOD2 massing exports separate wall and roof nodes. Walls carry the shared facade-kit
 parameters (register levels/era or height defaults, upgraded by the parameter store); roofs keep
-their roof material. The permanent register id, when present in LOD2, is the shared facade key.
+their roof material. Both surfaces retain the original `outer-lod2-<id>` object id; the
+`surface` field distinguishes them. The permanent register id, when present in LOD2, is the shared facade key.

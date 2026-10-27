@@ -178,7 +178,8 @@ fetched or planned, and blocks under a listed playable tile's input area are nev
 
 Draft walls use a 42-module, content-addressed procedural facade atlas (albedo, normal and ORM),
 rendered once with `turkutex.facade_fast_render` and reused through `shared/`. Per-building colour,
-bay spacing and storey height cost only parameters; roofs retain the ortho. The game samples the
+bay spacing and storey height travel in per-vertex kit attributes, with one shared kit material
+per tile/layer (the same package binder as published tiles); roofs retain the ortho. The game samples the
 upper bay repeatedly and the ground-floor row only at the base on both renderer backends. Published
 walls without an approved generated, derived or fast map use the same kit. Pure mapping checks:
 `PYTHONPATH=pipeline:textures .venv/bin/python -m pytest pipeline/tests/test_facade_kit.py -q`.
