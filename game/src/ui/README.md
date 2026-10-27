@@ -7,14 +7,39 @@ DOM overlays drawn over the WebGPU/WebGL canvas. Styles live in `game/index.html
 | `hud.ts` | Debug HUD (H): backend, frame times, resident tiles, collision, player position |
 | `startScreen.ts` | Controls, controller status and the story intro of a new game; closes with A or the button |
 | `shopMenu.ts` | `ShopMenu`: the full-screen shop menu that renders a `ShopView` from the mission system |
+| `fullscreen.ts` | `FullscreenPolicy`: touch play runs the scene in fullscreen; the "Tap to continue in fullscreen" overlay |
+
+## Touch play and fullscreen
+
+The touch controls themselves are an input source (`game/src/input/README.md`). On a touch player
+(`input.source === 'touch'`) the start screen works in the normal browser view and shows a touch line.
+Closing it calls `FullscreenPolicy.enterScene` synchronously inside the tap: `requestFullscreen()` on the
+document element, then `screen.orientation.lock('landscape')`, and a screen wake lock (re-taken when the page
+becomes visible again); every rejection is ignored. While the scene runs, `update()` each frame applies
+`mustBlock`: a touch player outside fullscreen gets the overlay, the touch buttons hide and the game pauses
+(`guardPause` resumes only a pause the policy made). A tap on the overlay requests fullscreen again.
+
+- A Home Screen launch (`display-mode: standalone` or `fullscreen`, or iOS `navigator.standalone`) counts as
+  fullscreen. `game/public/manifest.webmanifest` asks for `display: fullscreen`, landscape.
+- Where the browser cannot fullscreen an element (iPhone Safari), the start screen shows "For fullscreen on
+  iPhone add the page to the Home Screen." and play continues without the overlay.
+- Keyboard and gamepad players are never blocked or sent to fullscreen.
+- In touch play the help line, the audio panel and the time slider are hidden (CSS in `index.html`) so the
+  thumb buttons own the bottom-right corner; the corner minimap shrinks to 45 % of the viewport height, at
+  most 240 px, so the HUD stays readable at 844×390.
+- Touch devices without `?backend=` use WebGL2 unless `navigator.gpu.requestAdapter()` returns an adapter
+  (`defaultBackend` in `render/renderer.ts`).
+
+Unit tests: `cd game && npx vitest run tests/unit/touch.test.ts`. Browser: `tests/e2e/touch.spec.ts`.
 
 ## Shop menu
 
 `main.ts` calls `shopMenu.render(missions.shop, input)` every frame (cheap when the view object is
 unchanged) and, while `shopMenu.open`, `shopMenu.handle(input)` before the mission update. `handle`
 moves the selection with `menuUp` / `menuDown` (D-pad, left stick, arrows, W/S) and returns
-`{ choose, leave }`: `menuSelect` (A, Enter, E, or a mouse click on a row) chooses the selected
-option, `menuBack` (B, Escape, Backspace) leaves. The mission system decides what a choice does;
+`{ choose, leave }`: `menuSelect` (A, Enter, E, or a click or tap on a row) chooses the selected
+option, `menuBack` (B, Escape, Backspace, the touch Back button) leaves. Rows react to `pointerup`, so a
+tap selects and chooses at once. The mission system decides what a choice does;
 the menu only shows its result. The layout is the shop's background illustration with a dark
 gradient on the left, the shop name, cash and permit counter, the shopkeeper's latest line (the
 same text the HUD shows, so the voice clip plays), and one row per option: icon, label, detail

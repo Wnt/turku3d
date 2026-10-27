@@ -2,6 +2,15 @@
 import * as THREE from 'three/webgpu';
 import { renderPixelRatio } from './quality';
 
+/**
+ * Mobile performance guard: without an explicit ?backend=, touch devices (phones, tablets) use WebGL2 unless
+ * WebGPU reports an adapter. Other devices keep the requested backend.
+ */
+export async function defaultBackend(want: 'webgpu' | 'webgl', given: boolean): Promise<'webgpu' | 'webgl'> {
+  if (given || want === 'webgl' || !((navigator.maxTouchPoints ?? 0) > 0)) return want;
+  try { return await navigator.gpu?.requestAdapter() ? 'webgpu' : 'webgl'; } catch { return 'webgl'; }
+}
+
 interface RendererInfo { renderer: THREE.WebGPURenderer; backend: 'WebGPU' | 'WebGL2' }
 
 /** opts.qa: canvas 1:1 with the viewport (pixel ratio 1, qa/README.md §2); opts.idPass: no antialiasing. */

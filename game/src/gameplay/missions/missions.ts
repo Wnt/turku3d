@@ -64,7 +64,7 @@ export interface MissionFrame {
   /** The interaction button was pressed this frame (opens a shop or hands over a pizza). */
   interact: boolean;
   /** Selects the button glyph in prompts. */
-  input: 'keyboard' | 'gamepad';
+  input: 'keyboard' | 'gamepad' | 'touch';
   /** Physics id of the vehicle the player drives, or null on foot. */
   vehicleId: string | null;
   /** The menu option the player selected this frame in the open shop. */
@@ -461,7 +461,7 @@ export class MissionSystem implements MissionHudSource {
     if (this.queue.length) return this.queue[0].id;
     if (this.open) return null; // the menu shows the shopkeeper; no prompt behind it
     const action = this.frame ? this.action(this.frame) : null;
-    if (action && this.s.phase !== 'idle') return `${action.prompt}_${this.frame!.input === 'gamepad' ? 'pad' : 'key'}`;
+    if (action && this.s.phase !== 'idle') return `${action.prompt}_${this.frame!.input === 'keyboard' ? 'key' : 'pad'}`;
     switch (this.s.phase) {
       case 'idle': return null;
       case 'permit_needed': return 'hint_permit';

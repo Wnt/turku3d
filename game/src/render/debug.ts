@@ -1,6 +1,7 @@
 /** UTC minutes on the selected date; label includes Europe/Helsinki local time and date (DST-safe). */
 export function timeControl(initial: Date, onChange: (date: Date) => void): HTMLLabelElement {
   const label = document.createElement('label');
+  label.id = 'time-control';
   label.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:3;padding:8px;background:#101820cc;color:white;font:12px monospace';
   const text = document.createElement('span');
   const slider = document.createElement('input');
