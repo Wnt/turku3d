@@ -31,8 +31,8 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
+from turku3d.facade_kit import candidates, ensure_kit, parameter_hash, parameters
 from turku3d.facade_kit import code_hash as kit_hash
-from turku3d.facade_kit import ensure_kit, parameters
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
@@ -424,6 +424,7 @@ def build(
 
     t = time.perf_counter()
     blds = inputs.buildings
+    facade_params = parameter_hash(b.facade_key for b in blds)
     shells = [(b, extrude(b)) for b in blds]
     seconds["buildings"] = time.perf_counter() - t
 
@@ -498,7 +499,7 @@ def build(
         ]
         for b, (_, _, _, _, walls, wuv, widx) in shells:
             width = max(float(wuv[:, 0].max()), 1.0)
-            params = parameters(str(b.key), b.top - b.base, width, getattr(b, "attributes", {}))
+            params = parameters(b.facade_key, b.top - b.base, width, getattr(b, "attributes", {}))
             meshes.append(
                 GlbMesh(
                     f"walls_{b.key}",
@@ -509,7 +510,7 @@ def build(
                     extras=dict(
                         layer="buildings",
                         object_id=f"walls_{b.key}",
-                        building_id=str(b.key),
+                        building_id=b.facade_key,
                         material_key="facade_kit",
                         base_height=b.base,
                         top_height=b.top,
@@ -558,6 +559,7 @@ def build(
 
     roads = inputs.roads
 
+    _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     _write(out / "vis.glb", vis)
     if roads is not None:
         _write(out / "roads.json", roads["json"])
@@ -591,6 +593,8 @@ def build(
             else None
         ),
         buildings=len(blds),
+        building_keys=[b.facade_key for b in blds],
+        facade_params=facade_params,
         trees=len(trees),
         barriers=barrier_stats,
         bridges=decks,

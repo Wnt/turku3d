@@ -22,8 +22,7 @@
 // draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
 // Never active off localhost (GitHub Pages) or when the service is not running.
 import * as THREE from 'three/webgpu';
-import { facadeKitMaterial } from '../render/facadeKit';
-import { materialColor, saturation, vec3 } from 'three/tsl';
+import { tintDraft } from '../render/facadeKit';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -142,7 +141,7 @@ interface Entry {
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
-  version?: number;
+  version?: number; visualHash?: string; refreshing?: boolean;
 }
 
 export interface CoarseHost {
@@ -267,6 +266,8 @@ export class CoarseTiles {
     for (const id of wanted) {
       const e = this.entry(id);
       if (due(e)) void this.poll(id, e, distToL0(id, x, z), true);
+      else if (e.state === 'draft' && !e.refreshing && (now >= e.nextPoll || (e.version ?? -1) < this.version))
+        void this.refreshDraft(id, e, distToL0(id, x, z));
     }
     // Ahead of a moving player only the build is requested; the tile loads once it enters the 3x3 window.
     for (const id of ahead) {
@@ -371,6 +372,36 @@ export class CoarseTiles {
     } catch { this.down(); }
   }
 
+  /** Keep resident collision and geometry until an upgraded draft is fully ready. */
+  private async refreshDraft(id: string, e: Entry, d: number) {
+    e.refreshing = true; e.version = this.version; e.nextPoll = this.clock + 15_000;
+    try {
+      const res = await this.request(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`);
+      if (!res.ok || res.status === 202) return;
+      const fragment = await res.json() as CoarseFragment;
+      if (!fragment.coarse || fragment.tile !== id || fragment.visual[id]?.sha256 === e.visualHash) return;
+      const base = new URL(`${COARSE_ROOT}${id}/`, this.page);
+      const changed = Object.entries(fragment.collision).filter(([cid, entry]) => entry.sha256 !== e.collision.get(cid)?.sha256);
+      await Promise.all(changed.map(async ([cid, entry]) => {
+        const col = await this.request(new URL(entry.url, base).href);
+        if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
+        const buf = await col.arrayBuffer();
+        if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
+        await this.host.checkCollision(buf);
+      }));
+      const model = await this.load(new URL(fragment.visual[id].url, base).href);
+      if (this.entries.get(id) !== e || e.state !== 'draft') { this.dispose(model); return; }
+      this.host.style?.(model); tintDraft(model, this.host.renderer);
+      this.host.scene.add(model);
+      const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
+      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
+      if (old) { this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
+    } catch (err) {
+      if (err instanceof ServiceDown) this.down();
+      else console.warn(`[coarse] ${id} facade refresh: ${(err as Error).message}`);
+    } finally { e.refreshing = false; }
+  }
+
   private async poll(id: string, e: Entry, d: number, load: boolean) {
     e.state = 'loading';
     e.version = this.version;
@@ -411,11 +442,11 @@ export class CoarseTiles {
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
       this.host.style?.(model);
-      tint(model, this.host.renderer);
+      tintDraft(model, this.host.renderer);
       this.host.scene.add(model);
       e.model = model;
       this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
-      e.state = 'draft';
+      e.state = 'draft'; e.visualHash = fragment.visual[id].sha256; e.nextPoll = this.clock + 15_000;
       this.updateParents();
       if (roads) { e.roads = roads; this.onMapChange?.(); }
     } catch (err) {
@@ -539,23 +570,4 @@ export class CoarseTiles {
     const resident = new Set([...this.entries].filter(([, e]) => e.state === 'draft' || e.state === 'published').map(([id]) => id));
     for (const [id, scene] of this.parents) scene.visible = !parentCovered(id, resident);
   }
-}
-
-/** Draft look: 55 % saturation with a slight cool cast; drawn just in front of coplanar published terrain. */
-function tint(model: THREE.Object3D, renderer: THREE.WebGPURenderer) {
-  const cache = new Map<THREE.Material, THREE.Material>();
-  model.traverse(o => {
-    const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    const style = (source: THREE.Material) => {
-      if (cache.has(source)) return cache.get(source)!;
-      const node = facadeKitMaterial(source, renderer) ?? ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
-      node.colorNode = saturation(node.colorNode ?? materialColor.rgb, 0.55).mul(vec3(0.94, 0.97, 1.04));
-      node.polygonOffset = true; node.polygonOffsetFactor = -1; node.polygonOffsetUnits = -2;
-      cache.set(source, node);
-      return node;
-    };
-    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
-  });
 }

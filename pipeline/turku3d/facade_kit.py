@@ -44,13 +44,17 @@ def store_path(key: str, root: Path | None = None) -> Path:
     )
 
 
-def read_description(key: str, root: Path | None = None) -> dict | None:
+def read_description(key: str, root: Path | None = None, width: float | None = None) -> dict | None:
     try:
         row = json.loads(store_path(key, root).read_text())
         description = row["description"]
         if row["building_key"] == str(key) and not renderer().validate(
             description, description["facade_id"]
         ):
+            if width and row.get("width_m"):
+                return renderer().adopt(
+                    description, description["facade_id"], width, row["width_m"]
+                )
             return description
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -58,7 +62,12 @@ def read_description(key: str, root: Path | None = None) -> dict | None:
 
 
 def write_description(
-    key: str, description: dict, source: str, reference_hash: str, root: Path | None = None
+    key: str,
+    description: dict,
+    source: str,
+    reference_hash: str,
+    root: Path | None = None,
+    width: float | None = None,
 ):
     problems = renderer().validate(description, description.get("facade_id", ""))
     if problems:
@@ -66,7 +75,11 @@ def write_description(
     dest = store_path(key, root)
     dest.parent.mkdir(parents=True, exist_ok=True)
     row = dict(
-        building_key=str(key), description=description, source=source, reference_hash=reference_hash
+        building_key=str(key),
+        description=description,
+        source=source,
+        reference_hash=reference_hash,
+        width_m=width,
     )
     with tempfile.NamedTemporaryFile(mode="w", dir=dest.parent, delete=False) as f:
         json.dump(row, f, sort_keys=True)
@@ -83,14 +96,14 @@ def parameters(
     fr = renderer()
     d = (
         description
-        or read_description(key)
+        or read_description(key, width=width)
         or fr.register_description(str(key), str(key), attributes or {}, width, height)
     )
     plan = fr.layout(d, max(width, 1.0), max(height, 1.0))
     module = (
-        MATERIALS.index(d["material"]) * 4
-        + int(d["window_width"] > 0.55) * 2
-        + int(d["ground_floor"] in ("shops", "doors"))
+        MATERIALS.index(d["material"]) * 6
+        + int(d["window_width"] > 0.55) * 3
+        + {"windows": 0, "plain": 0, "doors": 1, "shops": 2}[d["ground_floor"]]
     )
     return dict(
         module=module,
@@ -112,9 +125,9 @@ def ensure_kit(root: Path) -> dict:
     fr = renderer()
     with tempfile.TemporaryDirectory(prefix="facade-kit-", dir=root) as tmp:
         stage = Path(tmp)
-        maps = {s: np.zeros((1024, 1024, 3), np.uint8) for s in ("albedo", "normal", "orm")}
-        for module in range(28):
-            material, variant = divmod(module, 4)
+        maps = {s: np.zeros((2048, 1024, 3), np.uint8) for s in ("albedo", "normal", "orm")}
+        for module in range(42):
+            material, variant = divmod(module, 6)
             d = fr.register_description("kit", "kit", {}, 3.0, 6.4)
             d.update(
                 material=MATERIALS[material],
@@ -122,9 +135,9 @@ def ensure_kit(root: Path) -> dict:
                 trim_colour="#b0b0b0",
                 storeys=2,
                 window_columns=1,
-                window_width=0.65 if variant // 2 else 0.45,
-                ground_floor="doors" if variant % 2 else "windows",
-                ground_openings=1 if variant % 2 else 0,
+                window_width=0.65 if variant // 3 else 0.45,
+                ground_floor=("windows", "doors", "shops")[variant % 3],
+                ground_openings=1 if variant % 3 else 0,
                 roof_line="none",
                 plinth=False,
                 features=[],
@@ -133,9 +146,13 @@ def ensure_kit(root: Path) -> dict:
                 d, 3.0, 6.4, (CELL - 2 * GUTTER, 2 * (CELL - 2 * GUTTER)), f"kit-{module}"
             )
             col, row = module % 7, module // 7
+            split = round(240 * (6.4 - rendered["layout"]["ground_m"]) / 6.4)
             for slot, atlas in maps.items():
                 for floor in range(2):
-                    image = rendered[slot][floor * 120 : (floor + 1) * 120]
+                    image = rendered[slot][:split] if floor == 0 else rendered[slot][split:]
+                    image = np.asarray(
+                        Image.fromarray(image).resize((120, 120), Image.Resampling.BILINEAR)
+                    )
                     atlas[
                         (row * 2 + floor) * CELL : (row * 2 + floor + 1) * CELL,
                         col * CELL : (col + 1) * CELL,
@@ -171,3 +188,62 @@ def ensure_kit(root: Path) -> dict:
             if not meta.exists():
                 raise
     return json.loads(meta.read_text())
+
+
+def parameter_hash(keys, root: Path | None = None) -> str:
+    """Only this tile's descriptions invalidate its draft, including a newly created record."""
+    h = hashlib.sha256()
+    for key in sorted(set(map(str, keys))):
+        h.update(key.encode())
+        path = store_path(key, root)
+        try:
+            h.update(path.read_bytes())
+        except FileNotFoundError:
+            h.update(b"missing")
+    return h.hexdigest()[:24]
+
+
+def kit_request(root: Path, keys=()) -> dict:
+    result = ensure_kit(root)
+    descriptions = {str(key): d for key in keys if (d := read_description(str(key)))}
+    widths = {}
+    for key in descriptions:
+        try:
+            widths[key] = json.loads(store_path(key).read_text()).get("width_m")
+        except (OSError, ValueError):
+            pass
+    return {**result, "descriptions": descriptions, "referenceWidths": widths}
+
+
+def candidates(buildings) -> dict:
+    """Four widest exterior walls per draft building; parameters/geometry only, never pixels."""
+    features = []
+    for b in buildings:
+        ring = np.asarray(b.footprint.exterior.coords)[:, :2]
+        edges = [
+            (i, a, q, float(np.linalg.norm(q - a)))
+            for i, (a, q) in enumerate(zip(ring[:-1], ring[1:], strict=True))
+        ]
+        for index, a, q, length in sorted(edges, key=lambda e: -e[3])[:4]:
+            if length < 2:
+                continue
+            fid = "draft_" + hashlib.sha256(str(b.key).encode()).hexdigest()[:24] + f"_{index}"
+            features.append(
+                dict(
+                    type="Feature",
+                    properties=dict(
+                        id=fid,
+                        building_id=b.facade_key,
+                        height_m=b.top - b.base,
+                        base_h=b.base,
+                        normal="left",
+                    ),
+                    geometry=dict(
+                        type="LineString",
+                        coordinates=[
+                            [float(p[0] + C.ORIGIN_E), float(C.ORIGIN_N - p[1])] for p in (a, q)
+                        ],
+                    ),
+                )
+            )
+    return dict(type="FeatureCollection", features=features)

@@ -12,11 +12,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 import shapely
 
 from turku3d import config as C
 from turku3d import tile_layer
+from turku3d.facade_kit import parameters
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 from turku3d.package.manifest import _atomic_write
@@ -86,6 +86,8 @@ def code_hash():
         Path(__file__),
         base / "coarse/build.py",
         base / "coarse/inputs.py",
+        base / "facade_kit.py",
+        C.REPO_ROOT / "textures/turkutex/facade_fast_render.py",
         base / "tile_layer.py",
         base / "config.py",
         base / "layers.py",
@@ -116,26 +118,32 @@ def build_tile(tile, staging):
         if not listed.is_empty and b.footprint.distance(listed) < EDGE_M:
             continue
         roof, roof_idx, _, _, walls, wall_uv, wall_idx = extrude(b)
-        positions = np.concatenate([walls, roof]) - tile.origin
-        indices = np.concatenate([wall_idx, roof_idx + len(walls)]).astype(np.uint32)
-        uvs = np.concatenate([wall_uv, roof[:, [0, 2]]])
         ident = f"outer-lod2-{b.key}"
-        meshes.append(
-            GlbMesh(
-                ident,
-                positions,
-                indices,
-                uvs=uvs,
-                color=(0.8, 0.8, 0.8, 1.0),
-                extras={
-                    "layer": "buildings_outer",
-                    "object_id": ident,
-                    "building_id": ident,
-                    "material_key": b.material_key,
-                    "lidar_massing": False,
-                },
-            )
+        params = parameters(
+            b.facade_key, b.top - b.base, max(float(wall_uv[:, 0].max()), 1.0), b.attributes
         )
+        for suffix, positions, indices, uvs, material, extra in (
+            ("walls", walls, wall_idx, wall_uv, "facade_kit", {"facade_kit": params}),
+            ("roof", roof, roof_idx, roof[:, [0, 2]], "roof_metal_gray", {}),
+        ):
+            meshes.append(
+                GlbMesh(
+                    f"{ident}/{suffix}",
+                    positions - tile.origin,
+                    indices,
+                    uvs=uvs,
+                    color=(0.8, 0.8, 0.8, 1.0),
+                    extras={
+                        "layer": "buildings_outer",
+                        "object_id": f"{ident}/{suffix}",
+                        "building_id": b.facade_key,
+                        "material_key": material,
+                        "surface": suffix,
+                        "lidar_massing": False,
+                        **extra,
+                    },
+                )
+            )
         records.append({"source_id": b.key, "base": b.base, "top": b.top})
     if meshes:
         write_visual(

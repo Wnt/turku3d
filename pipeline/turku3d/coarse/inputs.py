@@ -43,6 +43,8 @@ class Building:
     def __init__(self, key, footprint, base, top, material_key):
         self.key, self.footprint, self.base, self.top = key, footprint, base, top
         self.material_key = material_key
+        self.facade_key = str(key)
+        self.attributes = {}
 
 
 @dataclass
@@ -188,11 +190,33 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
             top = base + float(group.measuredHeight.astype(float).iloc[0])
         if not np.isfinite(top) or top < base + 2.0:
             top = base + 3.0
-        out.append(
-            Building(
-                key, shapely.geometry.polygon.orient(footprint, 1.0), base, top, "facade_plaster"
-            )
+        building = Building(
+            key, shapely.geometry.polygon.orient(footprint, 1.0), base, top, "facade_plaster"
         )
+
+        def value(*columns, group=group):
+            for column in columns:
+                if column in group.columns:
+                    v = str(group[column].iloc[0])
+                    if v not in ("", "0", "None", "nan", "<NA>"):
+                        return v
+            return ""
+
+        building.facade_key = value("pysyvarakennustunnus") or str(key)
+        levels = value("kerrosluku", "storeysAboveGround")
+        year = value("yearOfConstruction", "valmistunut")[:4]
+        year = int(year) if year.isdigit() else 2000
+        building.attributes = dict(
+            levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
+            era="pre-1850"
+            if year < 1850
+            else "1850-1919"
+            if year < 1920
+            else "1920-1959"
+            if year < 1960
+            else "1960+",
+        )
+        out.append(building)
     return out
 
 

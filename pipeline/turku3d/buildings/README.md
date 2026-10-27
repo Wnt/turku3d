@@ -169,3 +169,7 @@ Shared manifest and assembler verification (reuses the published layer):
 bash pipeline/env/run.sh python -c 'from turku3d.layers import layer_root, read_manifest; m = read_manifest(layer_root() / "buildings"); print(m["format"], len(m["tiles"]))'
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 ```
+
+Outer LOD2 massing exports separate wall and roof nodes. Walls carry the shared facade-kit
+parameters (register levels/era or height defaults, upgraded by the parameter store); roofs keep
+their roof material. The permanent register id, when present in LOD2, is the shared facade key.
