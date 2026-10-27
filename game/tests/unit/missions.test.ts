@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_HUD_STATE, emptyHudSource, type MissionHudState, type Router, type WorldPoint } from '../../src/gameplay/contract';
+import { EMPTY_HUD_STATE, emptyHudSource, type MissionHudState } from '../../src/gameplay/contract';
 import {
   BASE_PAY, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, MAX_TIP, PAR_HANDLING_SECONDS, PERMIT_DELIVERIES, PERMIT_MAX,
   PERMIT_PRICE, PERMIT_WARN_AT, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, START_MONEY, VEHICLE_PRICE, WARNING_PRICE,
@@ -8,52 +8,11 @@ import {
 import { DIALOGUE, dialogueLine, lineText } from '../../src/gameplay/content/dialogue';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
-import { SHOPS, ZONE_LABELS, optionDetail, optionLabel, type OptionId } from '../../src/gameplay/content/shops';
+import { SHOPS, ZONE_LABELS, optionDetail, optionLabel } from '../../src/gameplay/content/shops';
 import {
-  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, ownedVehicleId, lineSeconds, missionSummary,
-  type MissionFrame, type PaidDropoff,
+  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, ownedVehicleId, lineSeconds, missionSummary, type PaidDropoff,
 } from '../../src/gameplay/missions/missions';
-import { parseSave } from '../../src/gameplay/missions/save';
-
-/** Synthetic router: an L-shaped path (x first, then z), so route length differs from the straight line. */
-const lRouter: Router = {
-  route: (from, to) => [from, { x: to.x, z: from.z }, to],
-  distance: path => path.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - path[i].x, p.z - path[i].z), 0),
-};
-const lDistance = (a: WorldPoint, b: WorldPoint) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
-
-const near = (p: WorldPoint, dx = 1): WorldPoint => ({ x: p.x + dx, z: p.z });
-const far: WorldPoint = { x: -500, z: -500 };
-
-/** A mission system, continued from a `serialize()` text when `saved` is given. */
-function harness(saved: string | null = null, onPaid?: (drop: PaidDropoff) => void) {
-  const missions = new MissionSystem({ router: lRouter, onPaid });
-  if (saved !== null) missions.restore(saved);
-  const states: MissionHudState[] = [];
-  missions.subscribe(s => states.push(s));
-  const frame = (position: WorldPoint, extra: Partial<MissionFrame> = {}): MissionFrame =>
-    ({ position, interact: false, input: 'keyboard', vehicleId: null, ...extra });
-  const at = (position: WorldPoint, dt = 0.1, extra: Partial<MissionFrame> = {}) => missions.update(dt, frame(position, extra));
-  const press = (position: WorldPoint, extra: Partial<MissionFrame> = {}) => at(position, 0.1, { ...extra, interact: true });
-  /** Lets the dialogue queue drain without moving. */
-  const wait = (position: WorldPoint, seconds: number) => { for (let t = 0; t < seconds; t += 0.5) at(position, 0.5); };
-  /** Selects a menu option in the shop at `point`, opening the shop first when it is closed. */
-  const choose = (point: WorldPoint, id: OptionId, extra: Partial<MissionFrame> = {}) => {
-    if (!missions.shop) press(near(point), extra);
-    return at(near(point), 0.1, { ...extra, choose: id });
-  };
-  const leave = (point: WorldPoint) => at(near(point), 0.1, { leave: true });
-  const option = (id: OptionId) => missions.shop!.options.find(o => o.id === id)!;
-  /** Rents a permit (start money) and runs deliveries until `money` is reached. */
-  const earn = (money: number) => {
-    while (missions.money < money) {
-      if (missions.permit === 0) { choose(MARKET.point, 'rent_permit'); leave(MARKET.point); }
-      choose(PIZZERIA.point, 'take_order');
-      press(near(missions.currentStop.point));
-    }
-  };
-  return { missions, states, at, press, wait, choose, leave, option, earn, last: () => states[states.length - 1] };
-}
+import { far, harness, lDistance, lRouter, near } from './missionHarness';
 
 describe('contract', () => {
   it('emptyHudSource reports the empty state once and unsubscribes', () => {
@@ -417,30 +376,6 @@ describe('mission state machine', () => {
     expect(h.missions.shop!.line).toBe(lineText('dealer_bought_back'));
   });
 
-  it('sells the trophy truck for 1000 €: its own physics vehicle, its line, its par speed', () => {
-    const h = harness();
-    h.missions.begin();
-    h.choose(MARKET.point, 'rent_permit');
-    h.leave(MARKET.point);
-    h.press(near(DEALER.point));
-    expect(h.option('buy_truck')).toMatchObject({ label: 'Trophy truck', icon: 'icon_truck', price: 1000, enabled: false,
-      reason: lineText('reason_no_money') });
-    h.leave(DEALER.point);
-    h.earn(VEHICLE_PRICE.truck);
-    const money = h.missions.money;
-    expect(h.choose(DEALER.point, 'buy_truck').bought).toBe('truck');
-    expect(h.missions).toMatchObject({ vehicle: 'truck', money: money - VEHICLE_PRICE.truck, shop: null });
-    expect(h.last().message).toBe(lineText('dealer_sold_truck'));
-    expect(ownedVehicleId('truck')).toBe(TRUCK_ID);
-    h.choose(PIZZERIA.point, 'take_order', { vehicleId: OWN_VEHICLE_ID });
-    expect(h.missions.phase).not.toBe('carrying');
-    h.choose(PIZZERIA.point, 'take_order', { vehicleId: TRUCK_ID });
-    expect(h.missions.phase).toBe('carrying');
-    expect(h.missions.snapshot().par).toBeCloseTo(parSeconds(lDistance(PIZZERIA.point, h.missions.currentStop.point), 'truck'));
-    expect(h.missions.mayDrive(TRUCK_ID)).toBe(true);
-    expect(h.missions.mayDrive(OWN_VEHICLE_ID)).toBe(false);
-  });
-
   it('uses the owned vehicle for par time and allows only that vehicle while carrying', () => {
     const h = harness();
     h.missions.begin();
@@ -551,18 +486,6 @@ describe('mission state machine', () => {
     expect(missionSummary(h.missions.serialize())).toEqual({ deliveries: h.missions.deliveries, money: h.missions.money,
       devMoney: 0, lastAddress: h.missions.lastAddress });
     expect(missionSummary('not json')).toEqual({ deliveries: 0, money: START_MONEY, devMoney: 0, lastAddress: null });
-  });
-
-  it('keeps an owned truck in the save; every save version accepts the value', () => {
-    const v2 = { version: 2, phase: 'at_pizzeria', money: 40, permit: 3, plates: false, kidney: false, warning: false,
-      vehicle: 'truck', delivery: 4, elapsed: 0, par: 0 };
-    const h = harness(JSON.stringify(v2));
-    expect(h.missions).toMatchObject({ vehicle: 'truck', money: 40, permit: 3 });
-    const v3 = JSON.parse(h.missions.serialize());
-    expect(v3).toMatchObject({ version: 3, vehicle: 'truck' });
-    expect(harness(JSON.stringify(v3)).missions.vehicle).toBe('truck');
-    expect(parseSave(JSON.stringify(v3), 1).vehicle).toBe('truck');
-    expect(parseSave(JSON.stringify({ ...v3, vehicle: 'monster-truck' }), 1).vehicle).toBe('none');
   });
 
   it('migrates an owned bicycle in any save version to the scooter', () => {

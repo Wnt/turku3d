@@ -22,8 +22,7 @@ type BoughtVehicle = Exclude<VehicleOwnership, 'none'>;
 export const INTERACT_RADIUS = 3;
 /** An open shop closes when the player is moved further than this from its zone centre. */
 const SHOP_LEAVE_RADIUS = 6;
-/** Physics vehicle ids: the player's own car (also the start car), and the scooter and the trophy truck, which exist
- *  once bought. */
+/** Physics vehicle ids: the player's own car (also the start car); the scooter and truck exist once bought. */
 export const OWN_VEHICLE_ID = 'player';
 export const SCOOTER_ID = 'scooter';
 export const TRUCK_ID = 'truck';

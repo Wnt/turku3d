@@ -18,7 +18,7 @@ const UP = new THREE.Vector3(0, 1, 0), hub = new THREE.Vector3(), span = new THR
 const LENS = new THREE.MeshStandardMaterial({ color: 0xfff4d6, emissive: 0xfff1c4, emissiveIntensity: 0.6, roughness: 0.3 });
 
 /** Kenney body-local point to the chassis frame (+X forward, +Y up, -Z left). */
-export function truckBodyPoint(x: number, y: number, z: number): THREE.Vector3 {
+function truckBodyPoint(x: number, y: number, z: number): THREE.Vector3 {
   const d = z - KENNEY.axle, half = TRUCK.wheels[0].x;
   const forward = Math.abs(d) <= KENNEY.halfBase ? d * half / KENNEY.halfBase
     : Math.sign(d) * (half + (Math.abs(d) - KENNEY.halfBase) * SCALE);
