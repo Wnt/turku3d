@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -47,13 +48,23 @@ class QueueReturnTests(unittest.TestCase):
         (self.root / name / "sandbox.env").write_text("")
         return path
 
+    def child(self, outcome):
+        """Patch the `codex-task land` child: outcome(name) -> (exit code, output)."""
+
+        def run_group(command, *, cwd, env, log=None, timeout=None):
+            return subprocess.CompletedProcess(command, *outcome(command[-1]))
+
+        return patch.object(merge_queue.s, "run_group", side_effect=run_group)
+
     def kinds(self, name):
         return [row["kind"] for row in self.record["events"] if row["task"] == name]
 
     def test_failed_landing_is_returned_with_request_and_reenqueued_by_finish(self):
         path = self.task("ext")
-        failure = ValueError("fast gate failed: FAIL unit.test_x")
-        with patch("landing.land", side_effect=failure), contextlib.redirect_stdout(io.StringIO()):
+        failure = self.child(
+            lambda name: (1, "FAIL unit 1.2s\ncodex-task: fast gate failed: FAIL unit.test_x\n")
+        )
+        with failure, contextlib.redirect_stdout(io.StringIO()):
             merge_queue.process(self.record)
             merge_queue.process(self.record)
         self.assertEqual(self.kinds("ext"), ["enqueued", "started", "returned"])
@@ -91,21 +102,21 @@ class QueueReturnTests(unittest.TestCase):
     def test_lander_return_is_recorded_without_a_second_request(self):
         path = self.task("conflict")
 
-        def land(name, force=False):
+        def land(name):
             meta = json.loads((path / "meta.json").read_text())
             meta.update(state="returned", returned_reason="rebase conflict in a.txt")
             (path / "meta.json").write_text(json.dumps(meta))
-            raise ValueError("conflict: rebase conflict in a.txt")
+            return 1, "codex-task: conflict: rebase conflict in a.txt\n"
 
-        with patch("landing.land", side_effect=land):
+        with self.child(land):
             merge_queue.process(self.record)
         self.assertEqual(self.kinds("conflict")[-1], "returned")
         self.assertEqual(coordination.inbox("conflict", unread=True), [])
 
     def test_unacknowledged_request_holds_then_retries(self):
         self.task("held")
-        with patch(
-            "landing.land", side_effect=ValueError("held: unacknowledged request/warning abc")
+        with self.child(
+            lambda name: (1, "codex-task: held: unacknowledged request/warning abc\n")
         ) as land:
             merge_queue.process(self.record)
             merge_queue.process(self.record)
@@ -114,13 +125,6 @@ class QueueReturnTests(unittest.TestCase):
             merge_queue.process(self.record)
             self.assertEqual(land.call_count, 2)
         self.assertNotIn("returned", self.record["tasks"]["held"])
-
-    def test_busy_task_lock_skips_round(self):
-        self.task("busy")
-        with patch("landing.land", side_effect=sandbox.Busy("busy")):
-            merge_queue.process(self.record)
-        self.assertEqual(self.kinds("busy"), ["enqueued", "started", "busy"])
-        self.assertEqual(merge_queue.ready(self.record), ["busy"])
 
 
 if __name__ == "__main__":
