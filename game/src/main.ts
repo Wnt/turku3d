@@ -11,6 +11,7 @@ import { PostProcessing } from './render/post';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { renderPixelRatio } from './render/quality';
 import { MaterialStyler } from './render/materials';
+import { UnbuiltArea } from './render/unbuilt';
 import { VisualTiles } from './world/tiles';
 import { loadManifest, type Manifest } from './world/manifest';
 import { CollisionStreamer } from './world/collisionStreaming';
@@ -78,11 +79,20 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   env.setTime(date);
   if (!idPass) env.updateIBL();
 } };
-const renderFrame = () => { if (post) post.render(); else renderer.render(scene, camera); };
 const tiles = new VisualTiles(params.tileset, renderer, camera, scene, !!idPass);
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa, params.tileset);
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.apply(model));
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.release(model));
+// Play mode: far LOD outside the playable tiles (published L0 and drawn drafts) is drawn unbuilt grey (render/unbuilt.ts).
+const unbuilt = params.qa || idPass ? null : new UnbuiltArea(renderer);
+let builtTiles: () => Iterable<string> = () => [];
+tiles.events.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) =>
+  unbuilt?.apply(model, tile?.extras?.id));
+tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => unbuilt?.release(model));
+const renderFrame = () => {
+  if (unbuilt && clock.frames % 15 === 0) unbuilt.setBuilt(builtTiles());
+  if (post) post.render(); else renderer.render(scene, camera);
+};
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -97,7 +107,7 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
-window.__game = { backend, params, errors, tiles, clock, three: THREE.REVISION };
+window.__game = { backend, params, errors, tiles, clock, unbuilt, three: THREE.REVISION };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
@@ -218,6 +228,7 @@ async function runPlay() {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids), checkCollision: buffer => physics.checkTile(buffer),
     style: m => materials?.apply(m), unstyle: m => materials?.release(m) });
+  builtTiles = () => [...Object.keys(manifest.visual), ...coarse?.drawn() ?? []];
 
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const selected = params.spawnGiven ? undefined : manifest.spawn;

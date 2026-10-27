@@ -30,6 +30,19 @@ the player from falling through visible ground:
    (`CollisionStreamer.refresh`). A release swap leaves cells a draft holds to the draft (`CoarseTiles.held`) and
    hands it the release's entries to return (`CoarseTiles.release`).
 
+**The visible edge**: the player sees where the drivable world ends before reaching it.
+
+- `edgeMarker.ts` draws a low translucent band with amber and dark diagonal stripes (1.1 m above the ground, opaque
+  at the bottom, a bright line on top) along every true edge (`CollisionStreamer.trueEdges`, the sides the worker
+  walls off). It follows the ground, sampled by 26 downward rays per 62.5 m edge just inside the loaded tile, and
+  leaves when the edge does (a neighbour's collision arrived). The play session owns it (`__game.edgeMarker`).
+- `render/unbuilt.ts` draws far LOD (500 m and 1 km tiles) flat grey with faint stripes wherever no full-detail
+  tile is: no published L0 tile and no drawn draft (`CoarseTiles.drawn`). Ground drawn only by the far LOD has at
+  most the published margin ring of collision and never buildings or props, so it reads as unbuilt; it turns
+  coloured once a draft is drawn there. A 250 m mask texture over the L0 grid drives it; QA renders are unchanged.
+- The HUD edge notice and the minimap's red outline of the collision area (`gameplay/recovery.ts`) mark the same
+  edge.
+
 **Prefetch**: besides the 3x3 window it loads, `CoarseTiles` asks the service to build every cell within the next 30 s
 of travel along the player's heading plus a one-tile ring (`aheadTiles`; speed from the positions of its 1 s checks,
 a jump above 100 m/s is a teleport). Those tiles are only built (state `built`), not loaded, until they enter the
@@ -72,6 +85,8 @@ cached bytes of the previous release. Production builds have no swap path (`impo
 
 ```bash
 cd game && npx vitest run tests/unit/release-swap.test.ts tests/unit/streaming.test.ts tests/unit/coarse-tiles.test.ts \
-  tests/unit/edge-walls.test.ts
+  tests/unit/edge-walls.test.ts tests/unit/edge-marker.test.ts
 python3 ../scripts/dev/host_slots.py browser -- node_modules/.bin/playwright test -c playwright.hotswap.config.ts
+# Full throttle to the true edge on the dev tiles with a fake draft; screenshot in $TURKU3D_WORK/reports/fix-edge-walls-streaming/
+npm run build && python3 ../scripts/dev/host_slots.py browser -- node_modules/.bin/playwright test edge-walls.spec.ts coarse-drafts.spec.ts
 ```

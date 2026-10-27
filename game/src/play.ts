@@ -45,6 +45,7 @@ import { DT } from './physics/constants';
 import type { PhysicsClient } from './physics/client';
 import type { Manifest } from './world/manifest';
 import { holdCar, holdFoot, type CollisionStreamer } from './world/collisionStreaming';
+import { EdgeMarker } from './world/edgeMarker';
 import type { CoarseTiles } from './world/coarseTiles';
 import type { VisualTiles } from './world/tiles';
 import type { Telemetry } from './telemetry';
@@ -119,6 +120,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const root = new THREE.Group();
   root.name = 'play-session';
   scene.add(root);
+  const edgeMarker = new EdgeMarker(physics, manifest.collision); // the visible edge of the world (world/edgeMarker.ts)
+  root.add(edgeMarker.group);
   const listeners = new AbortController();
   const audio = hot?.audio ?? new GameAudio();
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
@@ -311,7 +314,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         remotes: remotePlayers.markers(), remoteVisuals: remotePlayers.visualBounds(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
   Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, multiplayerClient: () => multiplayer, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, edgeMarker, streamer, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.close();
   else if (resume) saveGame.hooks.play(resume);
@@ -415,8 +418,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         : { throttle: input.actions.throttle, steer: input.actions.steer,
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
-    // Collision that exists but has not streamed in yet holds the player gently (no edge wall faces it).
-    if (carIn && vs) carIn = holdCar(carIn, vs.forwardSpeed, streamer.speedLimit(feet.x, feet.z, vel.x, vel.z));
+    if (carIn && vs) carIn = holdCar(carIn, vs.forwardSpeed, streamer.speedLimit(feet.x, feet.z, vel.x, vel.z)); // unloaded collision ahead
     else if (!fly?.active) charIn = holdFoot(charIn, streamer.speedLimit(feet.x, feet.z, charIn.vx, charIn.vz));
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
@@ -520,6 +522,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const streamAt = saveGame.streamPoint(feet);
     coarse?.update(streamAt.x, streamAt.z);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
+    edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
     tiles.update(camera);
     renderFrame();

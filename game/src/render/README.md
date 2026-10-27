@@ -63,6 +63,13 @@ provide the surface. The small periodic normal map is generated locally; there i
 Water geometry must be planar and have upward normals; vertical quay faces use their stone material instead.
 The fixture tests render all material paths, water and the ID pass on both backends at all three tiers.
 
+## Unbuilt far LOD
+
+`unbuilt.ts` (play mode only) clones the materials of far LOD tile models (500 m and 1 km tiles) into node materials
+whose colour turns grey at 70 % luminance with faint 8 m world-space stripes wherever the 250 m mask over the L0 grid
+says no full-detail tile is drawn (published L0 tiles and drawn drafts, refreshed every 15 frames by `main.ts`).
+Released models get their source materials back. Rationale and the edge marker: `world/README.md`, "The visible edge".
+
 ## HiDPI and screen-space error
 
 **SSE is measured in drawing-buffer pixels**, never CSS pixels. `VisualTiles` passes
