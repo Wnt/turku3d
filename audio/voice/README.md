@@ -48,7 +48,8 @@ loaded host); unchanged lines cost nothing.
   Finnish tap `ɾ` to an American flap that is heard as "d".
 - Lines with `"voiced": false` (HUD prompts) get no clip.
 - `phrases.json` has twelve clips per announcement pool. Address clips use stable `address_<slug>` ids;
-  `make voice-build` reads every published address pool from the shared and sandbox tile roots, so a new
+  `make voice-build` reads every published address pool from the shared and sandbox tile roots and writes
+  the voiced inventory to committed `audio/voice/addresses.json`, so a new
   tile's addresses receive clips on the next voice build. The four scripted opening addresses are included
   even when a pool is unavailable. Run `make voice-build` after adding a tile and commit its clips.
 - The British `bm_george` pizzeria voice speaks address clips. Existing listening checks found
@@ -74,4 +75,4 @@ loaded host); unchanged lines cost nothing.
 The clips are committed, each below the 512 KiB per-file budget in `scripts/dev/gate.toml`.
 `make game-build` (and so the live release) copies `game/public/assets/voice/` like the other
 audio; nobody needs the model to build the game. `make voice-check` verifies the committed set
-against the current dialogue, phrase pools and published addresses.
+against the current dialogue, phrase pools and committed address inventory. Checks never read live tile data.

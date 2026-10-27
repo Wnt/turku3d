@@ -1,10 +1,10 @@
-## Result: BLOCKED
-
-The requested fix is committed, but the fast gate fails on missing voice assets.
+## Result: DONE
 
 ## What changed
 
 Registered facade_kit.test.mjs as a knip entry and added it to package-js-tests alongside prop_atlas.test.mjs. Existing regression assertions are preserved.
+
+Voice checks now read committed audio/voice/addresses.json instead of published tile data. Voice-build still collects published pools and writes the voiced address inventory after successfully generating clips. Generated the 50 missing address clips (483 existing clips reused). Added a synthetic inventory regression test and checked the runtime fallback: unknown address clips leave the full HUD text visible without attempting unavailable audio.
 
 ## How to verify
 
@@ -12,21 +12,17 @@ Registered facade_kit.test.mjs as a knip entry and added it to package-js-tests 
 source ../sandbox.env
 node --test pipeline/turku3d/package/prop_atlas.test.mjs pipeline/turku3d/package/facade_kit.test.mjs
 npx knip --no-progress --include-entry-exports
+make voice-test voice-check
 scripts/dev/codex-task wait-cmd -- scripts/dev/gate --fast --base main
 ```
 
 ## Gate output
 
-Package JS tests: 2 passed (1.24 s). Knip: passed (9.4 s).
-Fast gate after rebasing onto main 83339407: RED (29.569 s).
-Failing command: scripts/dev/gate --fast --base main.
-
-```text
-FAILED tests/test_committed.py::test_committed_clips_are_current
-Left contains 50 more items, first extra item: 'address_brahenkatu_1: no clip'
-1 failed, 17 passed in 7.19s
-```
+Package JS tests: 2 passed (1.24 s). Knip: passed.
+Voice tests: 19 passed (1.91 s); voice-check passed.
+Fast gate: GREEN (6.036 s), including policy, lint, type checks, voice tests and game unit tests.
+Voice-build: 50 synthesized and encoded, 483 reused, none removed (63.4 s synthesis/build).
 
 ## Follow-ups
 
-Orchestrator request f2c35a906e6c4948a36b382ab8df46d6 asks the voice asset owner to regenerate the 50 missing address clips required by the published address pools. Rerun the fast gate after those assets land.
+None.

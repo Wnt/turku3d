@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { GameAudio } from '../../src/audio';
 import { duckGain, VOICE_CUT_SECONDS } from '../../src/audio/mix';
-import { VoicePlayer, type VoiceManifest, type VoiceOutput } from '../../src/audio/voice';
+import { sentenceClips, VoicePlayer, type VoiceManifest, type VoiceOutput } from '../../src/audio/voice';
 import { EMPTY_HUD_STATE, type HudStateListener, type MissionHudSource } from '../../src/gameplay/contract';
 
 class Param {
@@ -128,6 +128,21 @@ test('a double announcement speaks its phrase and both address clips in order', 
     ctx.sources[i].end();
   }
   expect(player.snapshot().played).toEqual(lines.map(line => line.id));
+});
+
+test('an address without a committed clip leaves its full HUD text visible', async () => {
+  const { player, unlock } = rig();
+  await player.ready;
+  await unlock();
+  const phrase = 'Delivery: ';
+  const message = `${phrase}Unvoiced Street 99.`;
+  expect(sentenceClips(message, [{ id: 'phrase_order_1', speaker: 'pizzeria', file: 'phrase.ogg',
+    seconds: 1, text: phrase, textSha256: 'phrase' }])).toEqual([]);
+  player.show(message);
+  await settle();
+  expect(player.snapshot().shown).toBe(message);
+  expect(player.snapshot().played).toEqual([]);
+  expect(player.snapshot().errors).toEqual([]);
 });
 
 test('lines shown before unlock wait for it, unless replaced first', async () => {
