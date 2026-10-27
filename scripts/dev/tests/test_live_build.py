@@ -404,43 +404,80 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)
             self.assertEqual(report["facade_ground_audit"]["sampled"], 2)
 
-    def test_join_before_first_expensive_stage_restarts_on_the_new_head(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo, work, published = self.stage_fixture(root)
-            calls, joins = [], []
+    def join_build(self, root, updates, cached=()):
+        """Build with a join callback that returns `updates` in turn; stages in `cached` are
+        cache hits. Returns (stage commands run, the stages each join call saw, log, report)."""
+        repo, work, published = self.stage_fixture(root)
+        (repo / ".git").mkdir()
+        calls, joins = [], []
+        updates = list(updates)
 
-            def join():
-                joins.append(len(calls))
-                if len(joins) == 1:
-                    return {"commit": "m2", "landing_class": "code", "reason": "joined reason"}
-                return None
+        def join(restored):
+            joins.append(restored)
+            return updates.pop(0) if updates else None
 
-            with (
-                RUN_GROUP,
-                patch.object(live_build.s, "run_group", side_effect=self.stage_runner(work, calls)),
-                patch.object(live_build, "phase", return_value=contextlib.nullcontext()) as phase,
-            ):
-                report = live_build.build(
-                    repo,
-                    work,
-                    published,
-                    {"TURKU3D_WORK": str(work)},
-                    root / "build.log",
-                    landing_class="data",
-                    join=join,
-                )
-            # Refresh is preparation; the join point is the first later stage. The restart
-            # runs refresh again (a cache hit in real builds) and the joined class's stages.
-            self.assertEqual(joins, [1, 2])
-            self.assertEqual(
-                [call[0][1] for call in calls[:3]], ["refresh", "refresh", "tile-build"]
+        with (
+            RUN_GROUP,
+            patch.object(live_build.s, "run_group", side_effect=self.stage_runner(work, calls)),
+            patch.object(live_build, "phase", return_value=contextlib.nullcontext()),
+            patch.object(live_build, "store_tiles"),
+            patch.object(live_build.live_cache, "digest", side_effect=lambda *a: f"key-{a[3]}"),
+            patch.object(
+                live_build.live_cache,
+                "restore",
+                side_effect=lambda _p, _w, stage, _k: {} if stage in cached else None,
+            ),
+            patch.object(live_build.live_cache, "store"),
+        ):
+            timings = {}
+            report = live_build.build(
+                repo,
+                work,
+                published,
+                {"TURKU3D_WORK": str(work)},
+                root / "build.log",
+                landing_class="data",
+                join=join,
+                timings=timings,
             )
+        stages = [call[0][1] for call in calls if call[0][0] == "make"]
+        return stages, joins, (root / "build.log").read_text(), report, timings
+
+    def test_landing_during_a_real_refresh_never_restarts_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            # Main had not moved when refresh started; a head landing while it runs is not
+            # offered again: the build is frozen once refresh runs for real.
+            stages, joins, log, report, _ = self.join_build(Path(temp), [None])
+            self.assertEqual(joins, [()])
+            self.assertEqual(stages[:2], ["refresh", "tile-build"])
+            self.assertEqual(stages.count("refresh"), 1)
+            self.assertNotIn("== join", log)
             self.assertEqual(list(report["seconds"])[-1], "chrome")
-            phase.assert_called_once_with("chrome")
-            log = (root / "build.log").read_text()
-            self.assertIn("== join: rebuilding m2 as code ==", log)
-            self.assertLess(log.index("== join"), log.rindex("== refresh"))
+
+    def test_landing_before_refresh_joins_and_refresh_runs_once(self):
+        update = {"commit": "m2", "landing_class": "code", "reason": "joined reason"}
+        with tempfile.TemporaryDirectory() as temp:
+            stages, joins, log, report, timings = self.join_build(Path(temp), [update])
+            # The join is taken before refresh starts: nothing ran yet, so nothing is lost;
+            # the rebuild offers once more (main has not moved again) and then runs.
+            self.assertEqual(joins, [(), ()])
+            self.assertEqual(stages.count("refresh"), 1)
+            self.assertIn("collision-sweep", stages)
+            self.assertLess(log.index("== join: rebuilding m2 as code =="), log.rindex("== refresh"))
+            self.assertEqual(set(timings), set(report["seconds"]))
+
+    def test_cached_refresh_allows_a_join_at_the_first_real_stage(self):
+        update = {"commit": "m2", "landing_class": "data", "reason": None}
+        with tempfile.TemporaryDirectory() as temp:
+            stages, joins, log, report, timings = self.join_build(
+                Path(temp), [update], cached=("refresh",)
+            )
+            # The cached refresh is all a restart repeats; tile-build then runs for real once.
+            self.assertEqual(joins, [("refresh",), ("refresh",)])
+            self.assertNotIn("refresh", stages)
+            self.assertEqual(stages.count("tile-build"), 1)
+            self.assertEqual(log.count("cache hit key-refresh"), 2)
+            self.assertEqual((report["cache_hits"], timings["refresh"]), (["refresh"], 0.0))
 
     def test_data_build_runs_no_unselected_chrome_and_carries_unchanged_car_result(self):
         self.assertEqual(live_build.stages_for("inert"), ())
