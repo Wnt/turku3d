@@ -43,7 +43,7 @@ reservoir.
 
 ```sh
 source ../sandbox.env
-make tile-add T=t0_2_0          # sandbox: list, fetch, seed, refresh, assemble; ~15 min per tile
+make tile-add T=t0_2_0          # sandbox: list, fetch, seed, refresh, assemble the new tile
 cat $TURKU3D_WORK/reports/tile-add/t0_2_0.json   # stage and layer seconds, tile size, layers
 bash pipeline/env/run.sh python -m turku3d.region list-tile t0_2_0   # orchestrator: list it for live
 ```
@@ -54,9 +54,24 @@ the tile to `$TURKU3D_WORK/playable-tiles.json` and checks the reservoir's input
 missing ones through `turku3d.fetch`. It clones the published layers, textures and tiles into an
 empty sandbox, then runs `turku3d.refresh` and `turku3d.package.assemble --area playable-tiles`
 for the whole list. Ground, buildings, outer massing, roads and props follow the list: refresh
-records the list it built each one for in `<layer>/PLAYABLE_TILES.json` and rebuilds a layer
-built for another list. Ground is one canonical CDT over all listed tiles, so new seams match
-bytewise. Structures, bridges, vegetation and parked cars stay on the measured office core.
+records the list it built each one for in `<layer>/PLAYABLE_TILES.json` and reruns a layer
+built for another list. Structures, bridges, vegetation and parked cars stay on the measured
+office core.
+
+Only the new tile is built. Ground meshes each listed L0 tile in its own envelope: its 16
+collision tiles, one ring of collision tiles and the 50 m margin (`ground.build.envelope`).
+Constraint segments close every collision tile, so a collision tile depends only on the samples
+inside it. A tile built alone therefore matches a tile built in any other envelope, and
+separately built neighbours share their seams bytewise
+(`test_tiles_meshed_in_different_envelopes_are_byte_identical`). Tile meshes are written in
+canonical vertex order. The Aura level is measured once over the office core. The layer
+manifest's `tile_builds` keeps every tile's build key and file hashes, so a seeded sandbox or the
+integrator rebuilds only tiles whose inputs changed. Margin collision tiles of unlisted
+neighbours ship from the first listed tile whose envelope holds them (`ground.build.owners`).
+Ground textures keep an ortho key and a tile key in `<tile>/.build-key.json`. A tile with an
+unchanged tile key is reused, and one with unchanged orthos rebuilds only its splats. Assembly
+keys each visual tile by its own layer files and ground binding, and each collision tile by its
+layer files, with sandbox-relative paths. Its neighbours stay packed.
 Coarse visual-only L0 leaves fill the other quadrants of a 500 m parent that contains a new tile
 (massing and coarse DTM, no collision) so REPLACE refinement leaves no hole. `list-tile` appends
 to `$TURKU3D_DATA/playable-tiles.json` only. The next integration then builds and publishes the tile.
