@@ -130,8 +130,9 @@ The view spans 200 m on foot, 320 m in a car and 650 m in the large map. Everyth
 playable area (`setArea`, below) is darkened and its edge outlined, red within 20 m of it. A redraw measured
 0.1–0.6 ms in Chrome on both backends, well inside the 60 fps budget.
 
-## Safe reset (`recovery.ts`)
+## Safe reset (`recovery.ts`, `safeReset.ts`)
 
+`safeReset.ts` (`SafeReset`) is the frame-loop driver `main.ts` calls; `recovery.ts` holds the rules.
 The playable area is `PlayableArea`: the union of the manifest's collision tiles (a tile list, holes
 included), with its bounding box. It reads the live `manifest.collision` record, so collision tiles added at
 runtime (draft coarse tiles) join the area, and the box grows once the player stands on one. `RecoveryMonitor` gets a `Probe` from `main.ts` every unpaused
