@@ -38,32 +38,99 @@ class QueueTests(unittest.TestCase):
         (path / "meta.json").write_text(json.dumps(meta))
         (path / "last.md").write_text("## Result: DONE\n")
 
+    def land_child(self, outcomes):
+        """Patch run_group with a fake `codex-task land` child; return the commands it ran."""
+        commands = []
+
+        def run_group(command, *, cwd, env, log=None, timeout=None):
+            commands.append((command, cwd, log, timeout))
+            name = command[-1]
+            code, output = outcomes.get(name, (0, f"{name}: landed"))
+            if code == 0:
+                path = self.tasks / name / "meta.json"
+                meta = json.loads(path.read_text())
+                meta["landed"] = {
+                    "commit": name,
+                    "merge_wall_seconds": 0.5,
+                    "fast_gate_seconds": 2.0,
+                }
+                path.write_text(json.dumps(meta))
+            return subprocess.CompletedProcess(command, code, output)
+
+        patcher = patch.object(merge_queue.s, "run_group", side_effect=run_group)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return commands
+
     def test_finished_tasks_land_once_in_first_finished_order(self):
         # "late" finished again after "early", but its first finish came first.
         self.task("early", finished=20)
         self.task("late", finished=30, first=10)
         record = {"tasks": {}, "events": []}
-        calls = []
-
-        def land(name, force=False):
-            calls.append(name)
-            path = self.tasks / name / "meta.json"
-            meta = json.loads(path.read_text())
-            meta["landed"] = {"commit": name}
-            path.write_text(json.dumps(meta))
-            return {"commit": name, "merge_wall_seconds": 0.5, "fast_gate_seconds": 2.0}
-
-        with (
-            patch("landing.land", side_effect=land),
-            patch.object(merge_queue, "integrate") as integrate,
-        ):
+        commands = self.land_child({})
+        with patch.object(merge_queue, "integrate") as integrate:
             merge_queue.process(record, published=self.root / "data")
             merge_queue.process(record, published=self.root / "data")
-        self.assertEqual(calls, ["late", "early"])
+        self.assertEqual([command[-1] for command, *_ in commands], ["late", "early"])
         self.assertEqual(integrate.call_count, 2)
         landed = [row for row in record["events"] if row["kind"] == "landed"]
         self.assertEqual([row["commit"] for row in landed], ["late", "early"])
         self.assertEqual(landed[0]["fast_gate_seconds"], 2.0)
+
+    def test_landing_runs_mains_current_lander_in_a_child(self):
+        self.task("child", finished=20)
+        record = {"tasks": {}, "events": []}
+        commands = self.land_child({})
+        merge_queue.land("child", record)
+        [(command, cwd, log, timeout)] = commands
+        self.assertEqual(
+            command[1:], [str(merge_queue.s.REPO / "scripts/dev/codex-task"), "land", "child"]
+        )
+        self.assertEqual(cwd, merge_queue.s.REPO)
+        self.assertEqual(log, self.tasks / "child" / "land.log")
+        self.assertEqual(timeout, merge_queue.LAND_TIMEOUT_SECONDS)
+        self.assertEqual(record["events"][-1]["kind"], "landed")
+
+    def test_daemon_reloads_after_a_round_once_main_tooling_changed(self):
+        class Reloaded(Exception):
+            pass
+
+        # The tree changes after round one; round two still runs an integration child,
+        # so the reload waits for round three.
+        trees = iter(["tree-a", "tree-b", "tree-b"])
+        polls = iter([None, 0])
+        merge_queue._child = type("Child", (), {"poll": lambda self: next(polls)})()
+        self.addCleanup(setattr, merge_queue, "_child", None)
+        with (
+            patch.object(merge_queue, "tooling_tree", side_effect=lambda: next(trees)),
+            patch.object(merge_queue, "process") as process,
+            patch.object(merge_queue.time, "sleep"),
+            patch.object(merge_queue, "reload", side_effect=Reloaded) as reload,
+        ):
+            with self.assertRaises(Reloaded):
+                merge_queue.run(interval=0)
+        self.assertEqual(process.call_count, 2)
+        reload.assert_called_once_with()
+        [event] = [row for row in merge_queue.state()["events"] if row["kind"] == "reloaded"]
+        self.assertEqual((event["from"], event["to"]), ("tree-a", "tree-b"))
+
+    def test_daemon_keeps_running_while_main_tooling_is_unchanged(self):
+        rounds = []
+
+        def process(record, limit):
+            rounds.append(limit)
+            if len(rounds) == 3:
+                raise KeyboardInterrupt
+
+        with (
+            patch.object(merge_queue, "tooling_tree", return_value="tree-a"),
+            patch.object(merge_queue, "process", side_effect=process),
+            patch.object(merge_queue.time, "sleep"),
+            patch.object(merge_queue, "reload") as reload,
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                merge_queue.run(interval=0)
+        reload.assert_not_called()
 
     def test_task_landed_by_hand_leaves_the_ready_list(self):
         self.task("manual", finished=20)

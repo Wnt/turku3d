@@ -1,9 +1,11 @@
 """Merge-queue daemon: land finished tasks in finish order, then integrate main asynchronously.
 
-Each round (every 5 s) lands DONE tasks through the lander (`landing.land`: rebase, fast
-gate, fast-forward) and, when main has moved past the last integration and none is
-running, starts one `integrator.py run` child. The queue never resumes a worker: a
-returned or failed landing is recorded and the task gets an inbox request.
+Each round (every 5 s) lands DONE tasks, each through a `codex-task land <task>` child
+(rebase, fast gate, fast-forward), so a landing always runs main's current lander, and,
+when main has moved past the last integration and none is running, starts one
+`integrator.py run` child. The queue never resumes a worker: a returned or failed landing
+is recorded and the task gets an inbox request. When a landing changes main's
+`scripts/dev/` tree, the daemon re-executes itself once its integration child is done.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -24,6 +27,8 @@ import sandbox as s
 TERMINAL = ("landed", "returned")
 # A landing held by an unacknowledged inbox request is retried at this interval.
 HELD_SECONDS = 60
+# The lander's own budget is 180 s; this also covers waiting for land.lock.
+LAND_TIMEOUT_SECONDS = 600
 
 
 def state_path():
@@ -116,37 +121,48 @@ def give_back(name, reason, record, notify=True):
         event(record, name, "notify_failed", reason=str(exc))
 
 
-def land(name, record):
-    import landing
+def failure(output):
+    """The reason a `codex-task land` child printed: its `codex-task:` error, else its tail."""
+    lines = [line for line in output.splitlines() if line.strip()]
+    errors = [i for i, line in enumerate(lines) if line.startswith("codex-task: ")]
+    if errors:
+        lines = lines[errors[-1] :]
+        lines[0] = lines[0][len("codex-task: ") :]
+    return "\n".join(lines[-20:])[-1000:] or "landing exited without output"
 
+
+def land(name, record):
+    """Land one task through a `codex-task land` child running main's current lander."""
     event(record, name, "started")
-    try:
-        row = landing.land(name)
-    except s.Busy:
-        event(record, name, "busy")
-        return
-    except (ValueError, OSError, RuntimeError, subprocess.CalledProcessError) as exc:
-        reason = str(exc)[-1000:]
-        if "unacknowledged request/warning" in reason:
-            event(record, name, "held", reason=reason)
-            return
-        meta = s.read_json(s.tasks_root() / name / "meta.json", {})
-        # A rebase conflict is returned by the lander itself, inbox request included.
-        give_back(name, reason, record, notify=meta.get("state") != "returned")
-        return
-    meta = s.read_json(s.tasks_root() / name / "meta.json", {})
-    if "returned" in (meta.get("state"), (row or {}).get("state")):
-        reason = (row or {}).get("reason") or meta.get("returned_reason") or "lander returned"
-        give_back(name, reason, record, notify=False)
-        return
-    event(
-        record,
-        name,
-        "landed",
-        commit=row["commit"],
-        merge_wall_seconds=row.get("merge_wall_seconds"),
-        fast_gate_seconds=row.get("fast_gate_seconds"),
+    command = [sys.executable, str(s.REPO / "scripts/dev/codex-task"), "land", name]
+    result = s.run_group(
+        command,
+        cwd=s.REPO,
+        env=dict(os.environ),
+        log=s.tasks_root() / name / "land.log",
+        timeout=LAND_TIMEOUT_SECONDS,
     )
+    meta = s.read_json(s.tasks_root() / name / "meta.json", {})
+    if result.returncode == 0 and meta.get("landed"):
+        row = meta["landed"]
+        event(
+            record,
+            name,
+            "landed",
+            commit=row["commit"],
+            merge_wall_seconds=row.get("merge_wall_seconds"),
+            fast_gate_seconds=row.get("fast_gate_seconds"),
+        )
+        return
+    reason = failure(result.stdout)
+    if result.returncode == 124:
+        reason = f"landing exceeded {LAND_TIMEOUT_SECONDS}s: {reason}"
+    if "unacknowledged request/warning" in reason:
+        event(record, name, "held", reason=reason)
+        return
+    # A rebase conflict or a returned batch member is returned by the lander itself,
+    # inbox request included.
+    give_back(name, reason, record, notify=meta.get("state") != "returned")
 
 
 def published_root():
@@ -168,6 +184,43 @@ def integrate(record, published):
     record["integration_started"] = {"time": time.time(), "to": main, "pid": _child.pid}
     save(record)
     return True
+
+
+def integrating():
+    """True while this daemon's integration child runs."""
+    return bool(_child and _child.poll() is None)
+
+
+def tooling_tree():
+    """Main's tree hash for scripts/dev/: the code this daemon imported."""
+    return s.git("rev-parse", "main:scripts/dev")
+
+
+def reload():
+    """Replace this process with a fresh `queue run` that imports main's current tooling."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
+def reload_if_changed(started):
+    """Re-execute when main's scripts/dev/ tree moved since `started` and no child integrates."""
+    if integrating():
+        return
+    try:
+        current = tooling_tree()
+    except subprocess.CalledProcessError:
+        return
+    if current == started:
+        return
+    record = state()
+    record["events"].append(
+        {"time": time.time(), "kind": "reloaded", "from": started, "to": current}
+    )
+    save(record)
+    print(f"merge queue: reloaded {started} -> {current}", flush=True)
+    # exec closes the queue lock's fd (not inheritable); the new process takes the lock again.
+    reload()
 
 
 def process(record, limit=4, published=None):
@@ -247,6 +300,7 @@ def run(interval=5, once=False, limit=4):
         file.truncate()
         file.write(f"{os.getpid()}\n")
         file.flush()
+        started_tree = tooling_tree()
         while True:
             record = state()
             try:
@@ -256,4 +310,5 @@ def run(interval=5, once=False, limit=4):
                 save(record)
             if once:
                 return
+            reload_if_changed(started_tree)
             time.sleep(interval)

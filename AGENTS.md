@@ -40,6 +40,10 @@ progress updates and final reports. This overrides personal default language set
 9. **Language: English for everything in this project**: code, comments, docs, commit messages, progress updates
    and your final report. This overrides any personal default language setting. Match the surrounding style and keep
    each area's README current with exact commands.
+10. **No street imagery in the repo.** Main's tree is published to the public GitHub repository on every landing,
+    so never commit Street View, Look Around, Mapillary or Bing imagery (or crops, previews, contact sheets of it)
+    or raw city data; the gate's policy stage enforces this and `docs/published-images.toml` lists the source and
+    licence of any marked or large image.
 
 ## Isolated work and task tools
 

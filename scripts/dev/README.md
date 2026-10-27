@@ -114,36 +114,33 @@ reading only. Tests use a fake `codex` on PATH and synthetic repositories; no re
 
 ### Landing (`codex-task land`, `landing.land`)
 
-Landing is serialized with `wt/.registry/land.lock` and the task lock. It requires a successful
-completed task (`finish` for external workers), an exact `## Result: DONE` line, clean worker and main
-worktrees and no unacknowledged inbox request or warning (`--force` overrides only the messages). The
-lander rebases the worker branch onto main. A conflict aborts the rebase, posts a `request` to the task
-inbox naming the conflicting files, sets `state: returned` and `returned_reason` in `meta.json` (shown
-by `ls`/`status`) and leaves main unchanged; the worker acks it, rebases, and runs `finish` again. It then
-runs `scripts/dev/gate --fast --base <main>` in the sandbox environment (output in `gate.log`) and
-`git merge --ff-only` in the main checkout (a compare-and-swap `git update-ref` when main has no
-checkout). If main moved during the gate it rebases and gates again, at most three times. A red gate
-leaves main unchanged and names the failing stage, host load and log. There is no host slot, live
-build or receipt. `merge_queue.run` calls the same `landing.land(name, force=False)`, which returns
-the ledger row.
+Landing is serialized with `wt/.registry/land.lock` and the task lock. It requires a successful completed task
+(`finish` for external workers), an exact `## Result: DONE` line, clean worker and main worktrees and no
+unacknowledged inbox request or warning (`--force` overrides only the messages). The lander rebases the worker branch
+onto main. A conflict aborts the rebase, posts a `request` to the task inbox naming the conflicting files, sets
+`state: returned` and `returned_reason` in `meta.json` (shown by `ls`/`status`) and leaves main unchanged; the worker
+acks it, rebases, and runs `finish` again. It then runs `scripts/dev/gate --fast --base <main>` in the sandbox
+environment (output in `gate.log`) and `git merge --ff-only` in the main checkout (a compare-and-swap `git update-ref`
+when main has no checkout). If main moved during the gate it rebases and gates again, at most three times. A red gate
+leaves main unchanged and names the failing stage, host load and log. There is no host slot, live build or receipt.
+`merge_queue.run` runs the same lander as a child, `codex-task land <task>`, which stores the ledger row in
+`meta.json` as `landed`.
 
-The whole landing has a hard budget of 180 s (`landing.BUDGET_SECONDS`); the gate's process group is
-terminated at the deadline. Over budget the landing raises `merge_slow`, records `merge_slow` (seconds,
-step) in `meta.json`, and leaves main unchanged. Each landing appends one row per task to
-`wt/.registry/landed.jsonl`: `name`, `before`, `commit` (the new main head), `source`, `time`,
-`merge_wall_seconds`, `merge_slow`, `fast_gate_seconds`, `fast_gate_stages`, `first_done_time` (the
-first `finish`, kept in `meta.first_finished` and never overwritten), `done_time` and
-`facade_regression_reason` (from the result's `Facade regression reason:` line; the integrator reads
-it from here), plus `batch` for batch members. `land --batch a b c` cherry-picks the members in order
-into a temporary integration sandbox and runs one fast gate over the batch. A red batch is bisected
-by prefix; the green prefix lands, the first red member is returned with a request, and members after
-it stay DONE for the next landing. A batch gets 180 s per member. After a fast-forward, `land` and
-each landed batch member remove clean, stopped sandboxes and report the bytes freed. A retained
-sandbox prints the reason; remove it later with `scripts/dev/wt rm <name>` or
-`scripts/dev/wt prune-landed`.
-Then `push_public` publishes to `origin` (github.com/Wnt/turku3d) best-effort within 60 s: main's tree becomes one
-commit on `refs/public/main`, which began as a squashed import (`docs/HISTORY.md`), and that line is pushed to
-origin's `main`. Local `main` is never pushed. The row records `push` (`commit`, `seconds`) or `push: {error}`.
+The whole landing has a hard budget of 180 s (`landing.BUDGET_SECONDS`); the gate's process group is terminated at the
+deadline. Over budget the landing raises `merge_slow`, records `merge_slow` (seconds, step) in `meta.json`, and leaves
+main unchanged. Each landing appends one row per task to `wt/.registry/landed.jsonl`: `name`, `before`, `commit` (the
+new main head), `source`, `time`, `merge_wall_seconds`, `merge_slow`, `fast_gate_seconds`, `fast_gate_stages`,
+`first_done_time` (the first `finish`, kept in `meta.first_finished` and never overwritten), `done_time` and
+`facade_regression_reason` (from the result's `Facade regression reason:` line; the integrator reads it from here),
+plus `batch` for batch members. `land --batch a b c` cherry-picks the members in order into a temporary integration
+sandbox and runs one fast gate over the batch. A red batch is bisected by prefix; the green prefix lands, the first
+red member is returned with a request, and members after it stay DONE for the next landing. A batch gets 180 s per
+member. After a fast-forward, `land` and each landed batch member remove clean, stopped sandboxes and report the bytes
+freed. A retained sandbox prints the reason; remove it later with `scripts/dev/wt rm <name>` or `scripts/dev/wt
+prune-landed`. Then `push_public` publishes to `origin` (github.com/Wnt/turku3d) best-effort within 60 s: main's tree
+becomes one commit on `refs/public/main`, which began as a squashed import (`docs/HISTORY.md`), and that line is
+pushed to origin's `main`. Local `main` is never pushed. The row records `push` (`commit`, `seconds`) or `push:
+{error}`.
 
 Deleted on 2026-10-27, because a finished branch waited a median of 80 minutes (worst 147) for main
 although the merge takes a second (`~/turku3d/logs/merge-latency-study/report.md`): the precheck
@@ -507,12 +504,19 @@ Remove the losing implementation, flag call and registry entry together.
 
 ### Repository budgets and generated files
 
-`budgets.lines` caps source lines by extension. Oversized sources must be split, or listed in
-`budgets.exceptions` with a concrete reason (for example a vendored runtime). The binary cap is
-512 KiB outside the explicitly allowed runtime asset directories. New untracked files are checked
-too, so a new 2 MiB PNG cannot slip through. Research evidence is external, under
-`~/turku3d/research/w0-gate/`; [the archive ledger](../../docs/research/ARCHIVED-ASSETS.md)
-lists removed paths, byte sizes and historical Git blobs for the final squash.
+`budgets.lines` caps source lines by extension. Oversized sources must be split, or listed in `budgets.exceptions`
+with a concrete reason (for example a vendored runtime). The binary cap is 512 KiB outside the explicitly allowed
+runtime asset directories. New untracked files are checked too, so a new 2 MiB PNG cannot slip through. Research
+evidence is external, under `~/turku3d/research/w0-gate/`; [the archive
+ledger](../../docs/research/ARCHIVED-ASSETS.md) lists removed paths, byte sizes and historical Git blobs for the final
+squash. Landings publish main's tree to the public GitHub repo, so the policy stage (`checks.check_published_images`)
+fails on an image (`.png .jpg .jpeg .webp .heic .gif`) under `docs/`, `textures/`, `qa/`, `game/public/` or a `tests/`
+directory whose path, sidecar (`<image>.json`, `<stem>.txt|.toml|.yaml`) or Markdown alt text has a street-imagery
+marker (`streetview`, `street-view`, `lookaround`, `look-around`, `mapillary`, `streetside`, `pano`, `contact-`,
+`reference`, `refs/`; `_` and spaces count as `-`) or that exceeds 512 KiB, unless `docs/published-images.toml` lists
+it with `path`, `source`, `licence` and a one-line `reason`. Entries must exist; one naming Google, Street View,
+Apple, Look Around, Mapillary, Bing or Streetside as source or licence fails. Street-level imagery and raw city data
+stay local.
 
 Generated materials are compared byte-for-byte against the generator without writing files.
 Regenerate intentionally with `PYTHONPATH=pipeline .venv/bin/python -m turku3d.col.materials --write`.
@@ -676,33 +680,31 @@ python3 scripts/dev/integrator.py status  # running integration and last ledger 
 python3 scripts/dev/integrator.py run --published /path/to/data-copy --main-repo /path/to/clone --sandbox integration-measure
 ```
 
-`queue run` (`merge_queue.run`) polls every 5 s. Each round it (a) discovers DONE results
-(exact `## Result: DONE`, a new `meta.finished`) and lands them in `first_finished` order by
-calling the lander, `landing.land(name)`; and (b) when no integration is running and main has
-moved past both the live commit and the last integration's `to` (or the data key changed since
-that integration), it starts
-`integrator.py run` as a detached child (log `wt/.registry/integration.log`). The queue never
-resumes a worker. A failed landing records event `returned` with the reason in
-`merge-queue.json` and posts a `request` to the task inbox (a rebase conflict is returned by the
-lander, which already posted it); the worker rebases, fixes, acks and runs `codex-task finish`
-again, which re-enqueues it. An unacknowledged request/warning records `held` and retries after
-60 s; a held task lock records `busy` and retries next round. `codex-task ls`/`status`, the
-board's idle list and the sentinel show `returned: <reason>`. `queue status` shows the tasks
-waiting to land, the last landing, the integration in progress (from → to, stage, elapsed),
-the live and main commits, how far live is behind, and red or data-red runs awaiting a fix.
+`queue run` (`merge_queue.run`) polls every 5 s. Each round it (a) discovers DONE results (exact `## Result: DONE`, a
+new `meta.finished`) and lands them in `first_finished` order, each through a child `codex-task land <task>` (log
+`tasks/<task>/land.log`, 600 s timeout) that runs main's current lander; and (b) when no integration is running and
+main has moved past both the live commit and the last integration's `to` (or the data key changed since that
+integration), it starts `integrator.py run` as a detached child (log `wt/.registry/integration.log`). The queue never
+resumes a worker. A failed landing records event `returned` with the reason in `merge-queue.json` and posts a
+`request` to the task inbox (a rebase conflict is returned by the lander, which already posted it); the worker
+rebases, fixes, acks and runs `codex-task finish` again, which re-enqueues it. An unacknowledged request/warning
+records `held` and retries after 60 s. `codex-task ls`/`status`, the board's idle list and the sentinel show
+`returned: <reason>`. `queue status` shows the tasks waiting to land, the last landing, the integration in progress
+(from → to, stage, elapsed), the live and main commits, how far live is behind, and red or data-red runs awaiting a
+fix. The daemon follows main's tooling: when main's `scripts/dev/` tree hash (`git rev-parse main:scripts/dev`)
+differs from the one it started with, it finishes the round, waits for its integration child, appends event `reloaded`
+(`from`, `to`) to `merge-queue.json`, prints `merge queue: reloaded <old> -> <new>` and re-executes itself
+(`os.execv`, same argv).
 
-`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json` and M
-from main. The diff G..M is classified by the live stage inputs (`live_cache.INPUTS`): when no
-path is a declared input and every path is gate prose or under `scripts/dev/`, `docs/` or
-`.githooks/`, the batch is `skipped`. Unknown paths count as affected. Otherwise it takes the
-`integration` host slot, resets the reused `integration` sandbox to M and runs
-`live_build.build` with the published release as the previous release: refresh and tile-build
-hit the shared cache for game-only batches, and changed layer meshes select only the affected
-tiles. A batch facade count below the published baseline is red unless a `landed.jsonl` row in
-the batch carries `facade_regression_reason` (the lander copies it from the result's
-`Facade regression reason:` line). Green runs `prepare` and `publish` (main is already at M, so
-only the `live` link moves; `publish` restores the previous link if any stable path fails to
-resolve into the new release).
+`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json` and M from main. The diff
+G..M is classified by the live stage inputs (`live_cache.INPUTS`): when no path is a declared input and every path is
+gate prose or under `scripts/dev/`, `docs/` or `.githooks/`, the batch is `skipped`. Unknown paths count as affected.
+Otherwise it takes the `integration` host slot, resets the reused `integration` sandbox to M and runs
+`live_build.build` with the published release as the previous release: refresh and tile-build hit the shared cache for
+game-only batches, and changed layer meshes select only the affected tiles. A batch facade count below the published
+baseline is red unless a `landed.jsonl` row in the batch carries `facade_regression_reason` (the lander copies it from
+the result's `Facade regression reason:` line). Green runs `prepare` and `publish` (main is already at M, so only the
+`live` link moves; `publish` restores the previous link if any stable path fails to resolve into the new release).
 
 A red head is never blamed on a commit before the base check: the integrator builds G itself
 against the current data root (its stages are mostly cache hits). G was green when it was
