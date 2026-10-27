@@ -17,8 +17,7 @@ import { timeControl } from './render/debug';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
-import { ScooterVisual } from './actors/scooter';
-import { TruckVisual } from './actors/truck';
+import { SeatedVehicles } from './actors/seatedVehicles';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
@@ -141,20 +140,16 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   clockControl.element.hidden = !hud.visible;
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
-  const scooter = new ScooterVisual(root);
-  const truck = new TruckVisual(root);
+  const seated = new SeatedVehicles(root, physics, groundAt);
   const parkedVisuals = new ParkedCarVisuals(root);
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
   orbit.yaw = yaw0;
   await Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
-    scooter.load(`${import.meta.env.BASE_URL}assets/vehicles/scooter.glb`),
-    truck.load(`${import.meta.env.BASE_URL}assets/vehicles/truck.glb`),
+    seated.load(import.meta.env.BASE_URL),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]);
-  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter, truck, parked: parkedVisuals });
-  /** The bought vehicles that seat a visible rider or driver, by physics id. */
-  const seated: Record<string, ScooterVisual | TruckVisual> = { [SCOOTER_ID]: scooter, [TRUCK_ID]: truck };
+  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals });
   const scoreboard = new Scoreboard(document.body);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
@@ -169,9 +164,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     multiplayer?.sendDelivery({ orderId: `${multiplayerRunId}:order-${drop.orderIndex}:stop-${drop.stopIndex}`,
       addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters });
   } });
-  // The scooter and the truck exist once bought (a loaded game places them in gameplay/saveGame.ts).
-  const parkBought = async (kind: 'scooter' | 'truck', spot: V3 & { yaw: number }) => physics.spawnVehicle(
-    { x: spot.x, y: await groundAt(spot.x, spot.z) + SPAWN_HEIGHT[kind], z: spot.z }, spot.yaw, { id: ownedVehicleId(kind)!, kind });
   minimap.setSource(missions);
   voice.attach(missions);
   // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement. A drop-off's
@@ -231,9 +223,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const enterVehicle = (id: string) => {
     fly?.set(false);
     drivenId = id;
-    if (drivenId !== 'player' && !seated[drivenId]) parkedVisuals.takeOver(drivenId);
+    if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId);
     mode = 'car';
-    player.root.visible = !!seated[drivenId];
+    player.root.visible = !!seated.of(drivenId);
     orbit.distance = 8;
   };
   // Developer tools (localhost or ?dev=1 only): fly mode and the pause menu's Developer page (ui/devMenu.ts).
@@ -300,11 +292,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const en = engineToEN(feet.x, feet.y, feet.z);
     const v = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
     return { mode, paused, locomotion: player.locomotion, contacts: player.contacts, visualFeet: player.root.position.toArray(), visualVehicle: car.root.position.toArray(), cameraYaw: orbit.yaw, inputSource: input.source, feet: feet.toArray(), vel: vel.toArray(), grounded, groundMaterial: groundMat, E: en.E, N: en.N, H: en.H,
-      vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : seated[v.id ?? '']?.loaded ?? true } : null,
-      scooter: { visible: scooter.root.visible, lean: scooter.leanAngle, rider: player.root.visible && player.locomotion === 'ride',
-        riderPos: player.root.position.toArray(), seatPos: scooter.seat.getWorldPosition(new THREE.Vector3()).toArray() },
-      truck: { visible: truck.root.visible, driver: player.root.visible && player.locomotion === 'ride' && drivenId === TRUCK_ID,
-        seatPos: truck.seat.getWorldPosition(new THREE.Vector3()).toArray() },
+      vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : seated.of(v.id)?.loaded ?? true } : null,
+      ...seated.snapshot(player, drivenId),
       vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
@@ -447,7 +436,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     else if (missions.vehicle !== owned) {
       owned = missions.vehicle;
       const spot = DEALER_VEHICLE_SPOT;
-      if ((owned === 'scooter' || owned === 'truck') && drivenId !== ownedVehicleId(owned)) void parkBought(owned, { ...spot, y: 0 });
+      if ((owned === 'scooter' || owned === 'truck') && drivenId !== ownedVehicleId(owned)) void seated.park(owned, { ...spot, y: 0 });
       if (owned === 'car' && drivenId !== OWN_VEHICLE_ID) {
         void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + SPAWN_HEIGHT.car, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
       }
@@ -496,12 +485,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     // renderVehicle interpolates the driven vehicle (the start car while on foot); the others follow the latest step.
     const latestOf = (id: string) => (drivenId ?? 'player') === id ? renderVehicle : st?.vehicles.find(v => v.id === id) ?? null;
-    const carState = latestOf('player'), scooterState = latestOf(SCOOTER_ID), truckState = latestOf(TRUCK_ID);
+    const carState = latestOf('player');
     if (carState) car.update(carState);
-    if (scooterState) scooter.update(dt, scooterState);
-    if (truckState) truck.update(truckState);
-    if (mode === 'car' && drivenId === SCOOTER_ID && scooterState) player.ride(dt, scooter.seat);
-    if (mode === 'car' && drivenId === TRUCK_ID && truckState) player.ride(dt, truck.seat);
+    seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
@@ -510,7 +496,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
 
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
-    const chaseVehicle = drivenId && drivenId !== 'player' && !seated[drivenId]
+    const chaseVehicle = drivenId && drivenId !== 'player' && !seated.of(drivenId)
       ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
     if (mode === 'car' && chaseVehicle && !paused) {
       chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
