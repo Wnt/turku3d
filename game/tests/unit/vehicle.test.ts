@@ -3,7 +3,9 @@ import * as R from '@dimforge/rapier3d';
 import { curbResponse, isCurbMaterial } from '../../src/vehicle/curbStrike';
 import { handling } from '../../src/vehicle/handling';
 import { MAT } from '../../src/shared/col/materials';
-import { CURB_SCENARIOS, vehicleFixture, runCurbScenario } from '../fixtures/vehicle';
+import { CURB_SCENARIOS, vehicleFixture, runCurbScenario, bumpsAlong, trimeshWallFixture } from '../fixtures/vehicle';
+import { IMPACT_MIN_DELTA_V } from '../../src/vehicle/vehicle';
+import { STEP_WINDOW } from '../../src/vehicle/bumps';
 
 const coast = { throttle: 0, brake: 0, steer: 0, handbrake: false };
 
@@ -124,3 +126,50 @@ test('solver collision impulses produce one bounded-rate impact event, with quie
   vehicle.reset({ x: -5, y: 0.8, z: 0 }, 0); expect(vehicle.state().impact).toBeNull();
   world.free();
 });
+
+// A lidar kerb: 15 cm over 0.6 m, sidewalk material (no curb strike). Road: 2 cm undulation over 5 m. Hill: 10 % grade.
+const KERB = [[-60, 0], [0, 0], [0.6, 0.15], [40, 0.15]] as const;
+const ROAD = Array.from({ length: 121 }, (_, k) => [-60 + k, 0.02 * Math.sin(k * 2 * Math.PI / 5)] as const);
+const HILL = [[-60, 0], [0, 0], [40, 4]] as const;
+const steps = (bumps: { height: number }[]) => bumps.filter(b => b.height).map(b => b.height);
+
+for (const kind of ['car', 'scooter'] as const) {
+  test(`${kind}: a kerb slope reports one step per axle at 2–12 m/s; road texture and a steady hill report no kerb`, () => {
+    for (const speed of [2, 5, 12]) {
+      const { bumps, state } = bumpsAlong(R, KERB, speed, 62 / speed, kind);
+      expect(state.pos.x).toBeGreaterThan(2);
+      expect(state.curbStrike).toBeNull();
+      const up = steps(bumps);
+      expect(up.length, `${kind} ${speed} m/s: ${up}`).toBeGreaterThanOrEqual(1);
+      expect(up.length).toBeLessThanOrEqual(2);
+      for (const h of up) { expect(h).toBeGreaterThan(0.11); expect(h).toBeLessThan(0.17); }
+      expect(bumps.every(b => Math.abs(b.speed - speed) < 0.1 * speed + 0.3)).toBe(true);
+    }
+    for (const speed of [8, 14]) expect(bumpsAlong(R, ROAD, speed, 4, kind).bumps.filter(b => b.height || b.jolt > 1)).toEqual([]);
+    expect(steps(bumpsAlong(R, HILL, 8, 5, kind).bumps).every(h => Math.abs(h) < 0.07)).toBe(true);
+  });
+}
+
+test('the step measure ignores its own trailing lobe: no downward step follows a kerb within the lobe distance', () => {
+  const { bumps } = bumpsAlong(R, KERB, 3, 22, 'car');
+  expect(bumps.filter(b => b.height < 0)).toEqual([]);
+  expect(STEP_WINDOW).toBeGreaterThan(0.5);
+});
+
+for (const [kind, speed] of [['car', 8], ['scooter', 2.5]] as const) {
+  test(`${kind} at ${speed} m/s into a trimesh wall reports an impact of the momentum it loses`, () => {
+    const { world, vehicle } = trimeshWallFixture(R, 6, kind);
+    expect(vehicle.state().impact).toBeNull();
+    vehicle.body.setLinvel({ x: speed, y: 0, z: 0 }, true);
+    let peak = 0;
+    for (let i = 0; i < 150; i++) {
+      vehicle.step(1 / 60, coast); world.step(); vehicle.afterStep(1 / 60);
+      peak = Math.max(peak, vehicle.state().impact?.impulse ?? 0);
+    }
+    const mass = vehicle.body.mass();
+    expect(peak).toBeGreaterThan(IMPACT_MIN_DELTA_V * mass);
+    expect(peak / mass).toBeGreaterThan(speed * 0.6);
+    expect(peak / mass).toBeLessThan(speed * 1.3);
+    world.free();
+  });
+}

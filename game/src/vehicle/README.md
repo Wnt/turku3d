@@ -45,7 +45,7 @@ pitch/roll. Impulse is proportional to speed × height up to a saturation limit 
 Contact suppression releases after 0.9 m of chassis travel. Steps above 0.25 m stop inward motion below 3 m/s;
 the barrier is applied after engine forces each tick. Chassis CCD handles building walls at high speed.
 `state.curbStrike` carries a monotonically increasing event id, wheel, measured height/speed, loss, blocked status
-and rumble strength. The render loop sends each new event to W1-06's `Input.rumble` once.
+and rumble strength. `input/haptics.ts` turns each new event into one rumble (input/README.md "Haptics").
 
 Handling uses rear drive, analog RT/LT pedals, brake-then-reverse, speed-sensitive steering with a steering rate limit,
 progressive tyre grip and rear-only handbrake slip. Top speed is limited by engine torque taper plus quadratic drag.
@@ -140,9 +140,27 @@ scripted routes. Its nine low-curb scenarios measure 2.48–8.77° pitch and
 curb faces through the shared adapter, and catches deliberately absent registrations.
 Run `node --test tools/validator/test/acceptance.test.ts` from the repository root.
 
-## Audio collision telemetry
+## Bumps
 
-Call `vehicle.afterStep(dt)` after `world.step()` to collect solver contact impulses (the physics worker
-already does so). `state().impact` is null until a collision exceeds 600 N·s, then retains the latest
-`{id, impulse}` for consumers to deduplicate. Reports are limited to one per 150 ms and reset clears
-the retained event. The audio adapter uses this value for positional impact loudness.
+`bumps.ts` reports what a tyre feels on any surface, curb material or not: the real tiles' kerbs are lidar slopes
+(10–20 cm over about 0.6 m) that the ray wheels roll up smoothly, so they never strike a curb face. Each fixed step
+`BumpDetector` reads every wheel's suspension length and ground contact height (`wheelContactPoint`):
+
+- **step**: the change of slope of the wheel's ground path over travelled distance s, h(s) − 2h(s − 0.6) + h(s − 1.2).
+  A kerb of height h reads about h whatever its ramp width up to 0.6 m; a steady hill reads 0; 2 cm road texture
+  stays far below the 5 cm floor. The measure swings to the opposite sign one window later, so a wheel reports one
+  step per burst and ignores that lobe for 1.8 m. A wheel in the air starts a new path when it lands.
+- **jolt**: suspension compression speed from 0.5 m/s (humps and potholes at speed, landings).
+
+Each channel holds its peak while it grows and publishes `state().bump = {id, wheel, height, jolt, speed}` on the first
+tick it stops growing, so both front wheels on one kerb give one event and the rear axle a second.
+
+## Collision telemetry
+
+Call `vehicle.afterStep(dt)` after `world.step()` (the physics worker already does so). The collision impulse is the
+chassis momentum the world step changed beyond gravity: every wheel, drag and curb impulse of the tick is applied
+before the step, so only contacts and CCD remain. Rapier 0.21 reports no contact manifold impulses between the
+chassis and a trimesh wall (every building in the tiles), so the manifolds cannot measure crashes. `state().impact`
+is null until a speed change of 0.5 m/s (`IMPACT_MIN_DELTA_V`, 600 N·s for the car, 95 N·s for the scooter), then
+retains the latest `{id, impulse}` for consumers to deduplicate. Reports are limited to one per 150 ms and reset
+clears the retained event. The audio adapter uses it for positional impact loudness, haptics for the crash rumble.

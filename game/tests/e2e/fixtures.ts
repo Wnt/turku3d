@@ -16,10 +16,12 @@ interface GameState {
   collision: { tiles: number; tris: number; colBytes: number; estWasmBytes: number };
   visTris: number; visModels: number; tilesSettled: boolean; frameMs: number; errors: string[];
 }
+interface PadRumble { type: string; time: number; duration: number; startDelay: number; strongMagnitude: number; weakMagnitude: number }
 export interface RouteSample { time: number; feet: number[]; speed: number; grounded: boolean; mode: string; frameMs: number; ground: number | null; groundChecked: boolean }
 declare global {
   interface Window {
-    __virtualPad: { connected: boolean; axes: number[]; buttons: number[] };
+    /** `rumbles` records every playEffect call the game sends to the virtual pad's vibration actuator. */
+    __virtualPad: { connected: boolean; axes: number[]; buttons: number[]; rumbles: PadRumble[] };
     __routeSamples: RouteSample[];
   }
 }
@@ -92,11 +94,18 @@ export const cachedTest = isolatedTest.extend<object, { cachedContext: BrowserCo
 });
 export async function installPad(page: Page) {
   await page.addInitScript(() => {
-    const virtual = { connected: true, axes: [0, 0, 0, 0], buttons: Array<number>(17).fill(0) };
+    const virtual = { connected: true, axes: [0, 0, 0, 0], buttons: Array<number>(17).fill(0), rumbles: [] as PadRumble[] };
     window.__virtualPad = virtual;
+    const vibrationActuator = {
+      playEffect: (type: string, params: Omit<PadRumble, 'type' | 'time'>) => {
+        virtual.rumbles.push({ type, time: performance.now(), ...params });
+        return Promise.resolve('complete');
+      },
+      reset: () => Promise.resolve('complete'),
+    };
     Object.defineProperty(navigator, 'getGamepads', { value: () => virtual.connected ? [{
       id: 'Xbox Wireless Controller', index: 0, mapping: 'standard', connected: true, timestamp: performance.now(),
-      axes: virtual.axes, buttons: virtual.buttons.map(value => ({ value, pressed: value > 0.5, touched: value > 0 })),
+      axes: virtual.axes, buttons: virtual.buttons.map(value => ({ value, pressed: value > 0.5, touched: value > 0 })), vibrationActuator,
     }] : [] });
   });
 }

@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Page, TestInfo } from '@playwright/test';
 import { test, expect, installPad, padAxes, padButton, gameState } from '../e2e/fixtures';
 import { OFFICE_EN, engineToEN, VISUAL_L0 } from '../../src/core/origin';
 import type { PhysicsClient } from '../../src/physics/client';
@@ -142,6 +142,82 @@ test('AOI curb: Xbox car strikes measured road-to-sidewalk step', { tag: ['@driv
   expect(driven.vehicle.curbStrike.speed).toBeGreaterThan(3);
   expect(driven.vehicle.curbStrike.blocked).toBe(false);
   await safety(page, 20);
+});
+
+type HapticRecord = { cause: string; strong: number; weak: number; duration: number };
+const hapticLog = (page: Page) => page.evaluate(() => (window.__game!.haptics as { log: HapticRecord[] }).log);
+const padRumbles = (page: Page) => page.evaluate(() => window.__virtualPad.rumbles);
+async function hapticEvidence(page: Page, info: TestInfo, log: HapticRecord[], rumbles: unknown[]) {
+  const counts = await page.evaluate(() => (window.__game!.haptics as { counts: Record<string, number> }).counts);
+  console.log(`[haptics] ${info.title}: ${rumbles.length} playEffect calls, ${JSON.stringify(counts)}`);
+  await info.attach('haptics', { body: JSON.stringify({ counts, log, rumbles }, null, 1), contentType: 'application/json' });
+}
+
+test('AOI haptics: Xbox car rumbles at the surveyed kerb and at the building behind it', { tag: ['@drive', '@curb', '@vehicle', '@haptics', '@aoi'] }, async ({ page }, info) => {
+  test.skip(info.project.name !== 'webgpu', 'Haptics are backend independent; the WebGPU route covers them');
+  const carX = curb.x - 9 * curb.nx, carZ = curb.z - 9 * curb.nz;
+  const yaw = -curb.heading * Math.PI / 180;
+  const en = engineToEN(carX - 6 * Math.cos(yaw), 0, carZ + 6 * Math.sin(yaw));
+  await start(page, info.project.name, en.E, en.N, curb.heading, 'low');
+  await surveyedCurb(page);
+  await padAxes(page, 1, 0);
+  await page.waitForFunction(() => {
+    const s = (window.__game!.state as () => any)();
+    return Math.hypot(s.feet[0] - s.vehicle.pos[0], s.feet[2] - s.vehicle.pos[2]) < 3.2;
+  });
+  await padAxes(page, 0, 0); await padButton(page, 3, 1); await padButton(page, 3, 0);
+  await expect.poll(async () => (await gameState(page)).mode).toBe('car');
+  const before = (await padRumbles(page)).length;
+  await padButton(page, 7, 0.7);
+  // The real kerb is a lidar slope with no curb material: the wheel's step is what rumbles, then the facade 3.5 m on.
+  await page.waitForFunction(() => {
+    const log = (window.__game!.haptics as { log: { cause: string }[] }).log;
+    return log.some(r => r.cause === 'bump') && log.some(r => r.cause === 'impact');
+  }, null, { timeout: 15_000 });
+  await padButton(page, 7, 0); await padButton(page, 6, 1);
+  await expect.poll(async () => (await gameState(page)).vehicle!.speed).toBeLessThan(0.5);
+  await padButton(page, 6, 0);
+  const log = await hapticLog(page), rumbles = (await padRumbles(page)).slice(before);
+  const driven = await page.evaluate(() => (window.__game!.state as () => any)());
+  expect(driven.vehicle.curbStrike, 'The surveyed kerb carries no curb material: haptics must not depend on it').toBeNull();
+  const kerb = log.find(r => r.cause === 'bump')!, crash = log.find(r => r.cause === 'impact')!;
+  expect(kerb.strong).toBeGreaterThan(0.2);
+  expect(crash.strong).toBeGreaterThan(kerb.strong);
+  // Every effect reached the pad as a dual-rumble; the engine hums on the weak motor while RT is held.
+  expect(rumbles.every(r => r.type === 'dual-rumble' && r.strongMagnitude >= 0 && r.strongMagnitude <= 1 && r.weakMagnitude <= 1)).toBe(true);
+  expect(rumbles.filter(r => r.strongMagnitude === 0 && r.weakMagnitude > 0).length, 'engine pulses').toBeGreaterThan(5);
+  expect(rumbles.some(r => r.strongMagnitude === kerb.strong && r.duration === kerb.duration)).toBe(true);
+  expect(rumbles.some(r => r.strongMagnitude === crash.strong && r.duration === crash.duration)).toBe(true);
+  await hapticEvidence(page, info, log, rumbles);
+  await safety(page, 20);
+});
+
+// A stair flight from Läntinen Rantakatu down to the quay, east of the office (stair_slope from z 259.3 to 261.2).
+const stairs = { x: 188.75, top: 257, bottom: 262.4 };
+test('AOI haptics: Xbox walk down and up a real stair flight ticks on every stair footstep', { tag: ['@walk', '@character', '@structures', '@haptics', '@aoi'] }, async ({ page }, info) => {
+  test.skip(info.project.name !== 'webgpu', 'Haptics are backend independent; the WebGPU route covers them');
+  const en = engineToEN(stairs.x, 0, stairs.top);
+  await start(page, info.project.name, en.E, en.N, 180, 'low');
+  const from = await gameState(page);
+  for (const [y, target] of [[-1, stairs.bottom], [1, stairs.top + 0.5]] as const) {
+    await padAxes(page, 0, y);
+    await page.waitForFunction(({ y, target }) => {
+      const z = (window.__game!.state as () => any)().feet[2];
+      if (y < 0 ? z < target : z > target) return false;
+      window.__virtualPad.axes = [0, 0, 0, 0];
+      return true;
+    }, { y, target }, { timeout: 10_000 });
+    await expect.poll(async () => Math.hypot(...(await gameState(page)).vel)).toBeLessThan(0.15);
+  }
+  const end = await gameState(page);
+  expect(end.feet[1]).toBeGreaterThan(from.feet[1] - 0.3);
+  const log = await hapticLog(page), rumbles = await padRumbles(page);
+  const steps = log.filter(r => r.cause === 'stairs');
+  expect(steps.length, 'stair footsteps down and up').toBeGreaterThanOrEqual(3);
+  expect(log.filter(r => r.cause === 'landing'), 'walking a stair flight is no fall').toEqual([]);
+  expect(rumbles.filter(r => r.duration === steps[0].duration && r.strongMagnitude === steps[0].strong).length).toBe(steps.length);
+  await hapticEvidence(page, info, log, rumbles);
+  await safety(page, 7);
 });
 
 test('AOI office: Xbox enters the parked car, drives, brakes and exits', { tag: ['@drive', '@vehicle', '@ground', '@input', '@aoi'] }, async ({ page }, info) => {
