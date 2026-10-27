@@ -677,3 +677,37 @@ review; this variant also fails the count target, so Astra remains the default. 
 frozen DINOv2 experiments, grouped splits, learning curves, pinned preparation commands and
 the distinction between 278 direct labels and 147 fallbacks are documented in
 [the priors report](../docs/research/facade-cv-priors.md).
+
+### Local facade model research
+
+`facade_fast describe --engine cv-models` is the opt-in combination of publisher-pinned
+Grounding DINO tiny storeys (800 px, opening-only query) and CMP SegFormer columns/colour.
+It always marks output `needs_review`; Astra remains the bulk default because columns and
+colour fail the reviewed benchmark. See [the model study](../docs/research/facade-cv-models.md)
+for accuracy, runtime, limitations and all ablations. No inference command downloads weights.
+
+```sh
+source ../sandbox.env
+uv pip install --python textures/.venv/bin/python -e './pipeline' -e './textures[cv-models]'
+textures/.venv/bin/python -m turkutex.facade_models prepare grounding-dino
+textures/.venv/bin/python -m turkutex.facade_models prepare cmp
+# Use a separate run directory containing its own plan.json.
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 textures/.venv/bin/python -m turkutex.facade_fast describe \
+  --engine cv-models --run "$RUN" --inventory "$FACADES" --refs "$REFS"
+textures/.venv/bin/python -m turkutex.facade_models_benchmark --engine cv-models \
+  --fixture "$FIXTURE" --assembly "$TURKU3D_DATA/facade-approvals/assembly" \
+  --output "$TURKU3D_WORK/reports/models/reviewed.json"
+textures/.venv/bin/python -m turkutex.facade_models_benchmark --engine cv-models \
+  --pseudo-root "$HOME/turku3d/research/facade-cv" \
+  --output "$TURKU3D_WORK/reports/models/pseudo.json"
+```
+
+Caches live under `~/turku3d/tools/cv/cvr-models/` with a 10 GB preparation cap.
+Other selectable experiments: `cmp`, `cmp-grid`, `grounding-dino`,
+`grounding-dino-openings`, `smolvlm`, `qwen`. VLM experiments require their explicit
+`prepare` download and constrained JSON dependencies from `cv-models`; Qwen's full schema
+prompt is the CLI default, while SmolVLM uses the short prompt and classic estimates for
+unqueried fields. Benchmark `--short` tests the compact five-field VLM prompt; `--size`
+controls VLM thumbnail side or detector shortest edge. Florence needs its separate pinned
+runtime; [the research scripts](../tools/research/facade_models/README.md) reproduce it and
+the material probe. None of the experimental confidence scores is a calibrated probability.
