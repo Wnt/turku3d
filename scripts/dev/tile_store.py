@@ -76,9 +76,14 @@ def _data(published):
     return json.dumps(landing_class.data_parts(published), sort_keys=True).encode()
 
 
-def key(repo, commit, published):
-    """Content key of the tile build of commit against the data root published."""
-    return _key(repo, commit, _data(published))
+def key(repo, commit, published, release=None):
+    """Content key using the release's recorded inputs, or the current data root."""
+    data = (
+        json.dumps(landing_class.release_parts(release), sort_keys=True).encode()
+        if release
+        else _data(published)
+    )
+    return _key(repo, commit, data)
 
 
 def is_ancestor(repo, commit, head):
@@ -246,7 +251,7 @@ def base_release(repo, head, published, data):
     live_dir = (live / "tiles").resolve()
     try:
         live_commit = json.loads((live / "live-build.json").read_text())["commit"]
-        live_key = _key(repo, live_commit, data)
+        live_key = key(repo, live_commit, published, release=live)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError):
         live_commit, live_key = None, None
     best = {
@@ -346,6 +351,8 @@ def main(argv=None):
         p.add_argument("--repo", type=Path, default=Path.cwd())
         p.add_argument("--commit", default="HEAD")
         p.add_argument("--published", type=Path, default=os.environ.get("TURKU3D_DATA"))
+        if name == "key":
+            p.add_argument("--release", type=Path, help="key of what this release was built from")
         if name == "quick-build":
             p.add_argument("--work", type=Path, required=True)
             p.add_argument(
@@ -368,7 +375,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     commit = git(args.repo, "rev-parse", args.commit).strip()
     if args.command == "key":
-        print(key(args.repo, commit, args.published))
+        print(key(args.repo, commit, args.published, args.release))
     elif args.command == "served":
         print(json.dumps(served(args.repo, commit, args.published)))
     elif args.command == "put":
