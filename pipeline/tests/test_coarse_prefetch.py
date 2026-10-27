@@ -658,3 +658,41 @@ def test_persistent_workers_build_tiles_and_report_pending_ones(raw, tmp_path):
     finally:
         workers.close()
     assert proc.poll() is not None
+
+
+def test_drive_replicates_the_hooks_window_and_ahead_cells_and_summarises():
+    from turku3d.coarse import drive as D
+
+    assert D.window(125, 125, {"t0_0_0"}) == [
+        "t0_-1_-1",
+        "t0_-1_0",
+        "t0_-1_1",
+        "t0_0_-1",
+        "t0_0_1",
+        "t0_1_-1",
+        "t0_1_0",
+        "t0_1_1",
+    ]
+    assert D.ahead(100, 100, 0.5, 0, set()) == set()
+    east = D.ahead(100, 100, 20, 0, set())  # coarseTiles.test.ts: 5 x 3 cells out to x 700
+    assert len(east) == 15 and "t0_3_1" in east and "t0_4_0" not in east
+    tiles = {
+        "t0_5_0": {"ring": 40.0, "built": 41.5},
+        "t0_6_0": {"ring": 50.0, "built": 48.0},  # built before it entered the ring
+        "t0_7_0": {"ring": 60.0, "built": None, "why": "pending-data"},
+        "t0_8_0": {
+            "ring": 70.0,
+            "built": None,
+            "why": "t0_8_0: only 0 ground key points (NoCoverage)",
+        },
+        "t0_1_0": {"ring": 0.0, "built": 30.0},  # the first kilometre
+    }
+    prefetch = {
+        "datasets": {
+            "lidar": {"units": 2, "bytes": 3_000_000},
+            "wfs": {"units": 1, "bytes": 2_400_000},
+        }
+    }
+    s = D.summary(tiles, 27.0, 2700.0, prefetch)
+    assert (s["tiles"], s["built"], s["under_10_s"], s["max_s"]) == (3, 2, 2, 1.5)
+    assert s["mb_per_km"] == 2.0 and s["units"] == {"lidar": 2, "wfs": 1}
