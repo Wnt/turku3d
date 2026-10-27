@@ -9,7 +9,7 @@ Rantakatu 15 with an Xbox controller or keyboard and mouse.
 
 ## Multiplayer server
 
-The [multiplayer server](server/README.md) runs on osgallery-dev behind
+The [multiplayer server](server/README.md) targets osgallery-dev behind
 `wss://turku.lab.madekivi.fi`, providing presence and Finnish-hour delivery
 scoreboards for the later browser client. See its [protocol](server/PROTOCOL.md)
 and the [project architecture](docs/ARCHITECTURE.md).
