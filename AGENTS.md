@@ -90,6 +90,11 @@ reason. The rules below are the ones that stay hard.
 
 ## Coordination
 
+- **When you are stuck, say so instead of waiting or guessing.** Post a `request` to the orchestrator
+  (`scripts/dev/codex-task msg orchestrator --kind request --subject "..." "what blocks you, what you tried, what you
+  need"`), to the task that owns the thing (`msg <task> ...`), or to everyone (`msg all --kind warning ...`) when it
+  affects others; then continue with the parts that are not blocked. The orchestrator watches the inbox and unblocks
+  (data, decisions, other agents, budget). Never wait silently on another task.
 - Check `scripts/dev/codex-task inbox --unread` and `scripts/dev/codex-task board` after each major
   step (each commit) and before finishing. Acknowledge what you act on with `codex-task ack <id>`.
 - Announce interface changes others depend on (schemas, file layouts, module APIs) with
