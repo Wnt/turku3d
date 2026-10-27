@@ -8,6 +8,8 @@
 // Ahead of a moving player the cells within the next 30 s of travel (plus a one-tile ring) are only asked to be built,
 // so at full speed the service (four builds at once) has them ready before they enter the 3x3 window and load.
 // Every 60 s the published manifest is re-read; a tile that has been published there replaces its draft.
+// Once a second the player's position and velocity go to /coarse/want, so the service prefetches the raw data ahead
+// of the player; a tile whose data is still downloading answers 202 pending-data and is polled like a queued one.
 // Never active off localhost (GitHub Pages) or when the service is not running.
 import * as THREE from 'three/webgpu';
 import { materialColor, saturation, vec3 } from 'three/tsl';
@@ -202,6 +204,7 @@ export class CoarseTiles {
     if (now < this.nextCheck) return;
     this.nextCheck = now + POLL_MS;
     this.track(x, z, now);
+    void this.want(x, z);
     const wanted = wantedTiles(x, z, this.published, this.leaves);
     const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built') && now >= e.nextPoll;
@@ -224,9 +227,10 @@ export class CoarseTiles {
     const building = states.filter(e => e.state === 'pending' || e.state === 'loading').length;
     const loaded = [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort();
     const at = this.entries.get(here);
+    const waiting = at?.state === 'pending' && at.error ? ` ${at.error}` : ' building...';
     const head = at?.state === 'draft' ? `draft tile ${here}`
       : at?.state === 'published' ? `published tile ${here} streamed in place of its draft (reload for LOD)`
-        : at ? `draft tile ${here} ${at.state === 'failed' ? `unavailable: ${at.error}` : 'building...'}` : '';
+        : at ? `draft tile ${here}${at.state === 'failed' ? ` unavailable: ${at.error}` : waiting}` : '';
     this.status = [head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '']
       .filter(Boolean).join(' · ');
     if (this.badge) { this.badge.textContent = this.status; this.badge.style.display = this.status ? '' : 'none'; }
@@ -248,11 +252,23 @@ export class CoarseTiles {
     this.velocity = { x: 0.5 * this.velocity.x + 0.5 * vx, z: 0.5 * this.velocity.z + 0.5 * vz };
   }
 
+  /** Position and velocity for the service's raw-data prefetch (pipeline/turku3d/coarse/prefetch.py). */
+  private async want(x: number, z: number) {
+    const q = [x, z, this.velocity.x, this.velocity.z].map(v => v.toFixed(1));
+    const url = new URL(`${COARSE_ROOT}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`, this.page).href;
+    try { await this.fetch(url, { cache: 'no-store' }); } catch { /* the next second retries */ }
+  }
+
   private async poll(id: string, e: Entry, d: number, load: boolean) {
     e.state = 'loading';
     try {
       const res = await this.fetch(new URL(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`, this.page).href, { cache: 'no-store' });
-      if (res.status === 202) { e.state = 'pending'; e.nextPoll = this.clock + 2000; return; }
+      if (res.status === 202) {
+        const body = await res.json().catch(() => ({})) as { state?: string; missing?: string[] };
+        e.error = body.state === 'pending-data' ? `waiting for ${[...new Set(body.missing?.map(u => u.split('/')[0]))].join(', ')} data`
+          : undefined;
+        e.state = 'pending'; e.nextPoll = this.clock + 2000; return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;

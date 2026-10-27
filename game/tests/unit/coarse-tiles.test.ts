@@ -180,3 +180,26 @@ test('a moving player gets builds ahead requested without loading them; they loa
   coarse.update(5000, 5000, 9000); await settle();
   expect(coarse.velocity).toEqual({ x: 0, z: 0 });
 });
+
+test('reports the player motion once a second and names the data a waiting tile needs', async () => {
+  const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])), collision: {} } as unknown as Manifest;
+  const wants: string[] = [];
+  const fetch = (async (url: string) => {
+    const u = new URL(url);
+    const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
+    if (u.pathname === '/coarse/want') { wants.push(u.search); return json(200, { queued: 3, fetching: [] }); }
+    if (u.pathname === '/coarse/status') return json(200, { state: 'idle' });
+    return json(202, { state: 'pending-data', missing: ['lidar/23460000_6704500', 'lidar/23460500_6704500', 'wfs/23460000_6704500'] });
+  }) as typeof globalThis.fetch;
+  const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
+    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {},
+    checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() }))!;
+  const settle = () => new Promise(r => setTimeout(r, 0));
+  coarse.update(600, 100, 0); await settle(); await settle();
+  coarse.update(610, 100, 500); await settle();
+  expect(wants).toEqual(['?x=600.0&z=100.0&vx=0.0&vz=0.0']); // throttled to the 1 s check
+  expect(coarse.entries.get('t0_2_0')?.state).toBe('pending');
+  coarse.update(627, 100, 1000); await settle();
+  expect(wants[1]).toBe('?x=627.0&z=100.0&vx=13.5&vz=0.0'); // the smoothed ground velocity
+  expect(coarse.status).toMatch(/^draft tile t0_2_0 waiting for lidar, wfs data/);
+});

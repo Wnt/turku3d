@@ -124,7 +124,7 @@ def inputs(tmp_path):
 
 def test_coarse_tile_is_a_published_tile(tmp_path, inputs):
     out = tmp_path / "coarse" / TILE.id
-    m = build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library", log=lambda *_: None)
+    m = build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library")
     assert m["coarse"] is True and m["tile"] == TILE.id and m["buildings"] == 1
     vis = (out / "vis.glb").read_bytes()
     entry = m["visual"][TILE.id]
@@ -265,7 +265,7 @@ def test_builder_runs_four_builds_at_once(tmp_path):
 def test_service_http_routes(tmp_path):
     order = []
     builder = Builder(tmp_path, command=_fake_command(order), code="test")
-    server, _ = serve(0, tmp_path, builder=builder)
+    server, _, _ = serve(0, tmp_path, builder=builder)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}/coarse/"
 

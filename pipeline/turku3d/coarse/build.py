@@ -391,7 +391,7 @@ def _write(path: Path, data: bytes) -> None:
 
 
 def build(
-    tile_id: str, out: Path, *, inputs: Inputs | None = None, library: Path | None = None, log=print
+    tile_id: str, out: Path, *, inputs: Inputs | None = None, library: Path | None = None
 ) -> dict:
     """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
 
@@ -402,7 +402,7 @@ def build(
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
-    inputs = inputs or gather(tile, log)
+    inputs = inputs or gather(tile)
     seconds = dict(inputs.seconds)
 
     t = time.perf_counter()
@@ -574,6 +574,7 @@ def build(
         bridges=decks,
         water_level=level,
         sources=inputs.sources,
+        inputs=inputs.key,
         seconds={k: round(v, 3) for k, v in seconds.items()},
     )
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
