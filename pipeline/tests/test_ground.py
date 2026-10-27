@@ -388,7 +388,11 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
     monkeypatch.setattr(
         builder,
         "evaluate_ground",
-        lambda *args: {"passed": False, "checks": {"coverage": False}, "metrics": {}},
+        lambda *args: {
+            "passed": False,
+            "checks": {"coverage": False},
+            "metrics": {"coverage": {"open_cells": 10, "occupied_fraction": 0.5}},
+        },
     )
 
     def report(data, directory):
@@ -721,17 +725,24 @@ def test_adding_a_tile_builds_only_that_tile(monkeypatch, tmp_path):
     monkeypatch.setattr(
         builder,
         "evaluate_ground",
-        lambda *args: {"passed": True, "checks": {"coverage": True}, "metrics": {}},
+        # One tile alone is below 95 % observed; coverage is checked over all listed tiles.
+        lambda meshes, accepted, water, buildings, bounds, *rest: {
+            "passed": bounds.xmin > 0,
+            "checks": {"coverage": bounds.xmin > 0},
+            "metrics": {
+                "coverage": {"open_cells": 100, "occupied_fraction": 0.99 if bounds.xmin else 0.94}
+            },
+        },
     )
     monkeypatch.setattr(builder, "write_report", lambda *args: None)
     output = tmp_path / "build/layers/ground"
-    assert builder.run(Namespace(tiles=["t0_0_0"], source_area="fixture", water_level=None)) == 0
+    assert builder.run(Namespace(tiles=["t0_0_0"], source_area="fixture", water_level=None)) == 2
     assert len(built) == 1
     # The east margin of t0_0_0 lies in unlisted t0_1_0 and ships from t0_0_0's build.
     assert (output / "c_4_0.col.npz").exists() and not (output / "t0_1_0.vis.glb").exists()
     before = {p.name: p.stat().st_mtime_ns for p in output.iterdir()}
     args = Namespace(tiles=["t0_0_0", "t0_1_0"], source_area="fixture", water_level=None)
-    assert builder.run(args) == 0
+    assert builder.run(args) == 0  # 96.5 % observed over both tiles
     assert len(built) == 2  # Only the new tile is meshed.
     after = {p.name: p.stat().st_mtime_ns for p in output.iterdir()}
     for name in ("t0_0_0.vis.glb", "c_0_0.col.npz", "c_3_3.col.npz", "c_-1_0.col.npz"):

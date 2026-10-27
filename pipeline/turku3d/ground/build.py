@@ -364,8 +364,8 @@ def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
     return {
         "key": key,
         "artifacts": {p.name: sha(p) for p in sorted(staging.iterdir())},
-        "passed": report["passed"],
         "checks": report["checks"],
+        "coverage": report["metrics"]["coverage"],
         "ramps": ramp_records,
         "report": report,
     }
@@ -507,7 +507,16 @@ def run(args):
     for tile in visual:
         for check, value in builds[tile.id]["checks"].items():
             checks[check] = checks.get(check, True) and value
-    passed = all(builds[t.id]["passed"] for t in visual)
+    # Coverage is an area-wide data check, as it was over one mesh: the open cells of all
+    # listed tiles together must be at least 95 % observed.
+    open_cells = sum(builds[t.id]["coverage"]["open_cells"] for t in visual)
+    observed = sum(
+        builds[t.id]["coverage"]["open_cells"] * builds[t.id]["coverage"]["occupied_fraction"]
+        for t in visual
+    )
+    coverage = observed / open_cells if open_cells else 0.0
+    checks["coverage"] = coverage >= 0.95
+    passed = all(checks.values())
     tile_builds = {t.id: builds[t.id] for t in visual}
     layer_key = digest([tile_builds, sorted(side_files)])
     if (
@@ -520,7 +529,10 @@ def run(args):
     report = {
         "passed": passed,
         "checks": checks,
-        "metrics": {t.id: f"{t.id}.json" for t in visual},
+        "metrics": {
+            "coverage": {"open_cells": open_cells, "occupied_fraction": coverage},
+            "tiles": {t.id: f"{t.id}.json" for t in visual},
+        },
         "acceptance": "Plain lidar ground per L0 tile; curb accuracy deferred by user decision",
         "rebuilt": sorted(built),
         "water_level": water.value,

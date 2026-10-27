@@ -120,3 +120,17 @@ def test_expansion_tile_on_a_2x3_grid_keeps_seams_and_fills_its_parent(tmp_path,
 
     children = {c["extras"]["id"] for c in node(tileset["root"], "t1_1_0")["children"]}
     assert children == {"t0_2_0", "t0_3_0", "t0_2_1"}
+
+
+def test_adding_a_tile_keeps_the_neighbour_visual_cached(tmp_path):
+    layers, out = tmp_path / "layers", tmp_path / "dist"
+    fixture(layers, ids=("t0_0_0", "t0_1_0"))
+    assemble(["t0_0_0"], layers=layers, out=out, area="work-3x3")
+    before = json.loads((out / "manifest.json").read_text())
+    result = assemble(["t0_0_0", "t0_1_0"], layers=layers, out=out, area="work-3x3")
+    after = json.loads((out / "manifest.json").read_text())
+    assert "t0_1_0" in result["changed"] and "t0_0_0" not in result["changed"]
+    assert after["visual"]["t0_0_0"] == before["visual"]["t0_0_0"]
+    # Collision tiles whose layer files did not change keep their published bytes.
+    assert after["collision"]["c_0_0"]["sha256"] == before["collision"]["c_0_0"]["sha256"]
+    assert assemble(["t0_0_0", "t0_1_0"], layers=layers, out=out, area="work-3x3")["changed"] == []
