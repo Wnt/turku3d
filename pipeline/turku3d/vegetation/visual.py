@@ -80,7 +80,11 @@ def write_instances(path, tile, trees):
     for name in sorted({t.variant for t in trees}):
         batch = [t for t in trees if t.variant == name]
         for mesh in prototypes(name):
-            mesh.extras.update(instance_object_ids=[t.object_id for t in batch], variant=name)
+            mesh.extras.update(
+                instance_object_ids=[t.object_id for t in batch],
+                variant=name,
+                vegetation_instances={"version": 1, "cell_size": 50},
+            )
             meshes.append(mesh)
             batches.append(batch)
             triangles += len(mesh.indices) * len(batch)

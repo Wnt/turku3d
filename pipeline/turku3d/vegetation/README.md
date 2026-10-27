@@ -66,3 +66,16 @@ water, missing bridge decks, buildings, access and other object bases. Correctio
 limited to 2 m; omitted trees and original/final positions are retained in JSON/HTML
 orthophoto reports under `$TURKU3D_WORK/reports/placement/vegetation/<tile>`. Residual hard
 violations fail publication. Ground and building layers must exist before this build.
+
+## Runtime instance contract v1
+
+Both draft and published producers call `write_instances(path, tile, trees)`. Each
+prototype/material node has `layer=vegetation`, `variant`, `material_key`,
+`instance_object_ids` (in accessor order), and `vegetation_instances={version:1,
+cell_size:50}` extras. `EXT_mesh_gpu_instancing` carries tile-local TRANSLATION,
+SCALE=(crown radius, height, crown radius) and deterministic yaw ROTATION. The
+root carries the tile origin. Geometry is normalized to height 1 and radius 1;
+foliage and bark share instance transforms. The game buckets these into 50 m cells
+and generates cheaper representations; no image assets or sidecars are needed.
+Legacy vegetation instances without the version marker remain supported. Collision
+continues to use independent trunk cylinders and never depends on visual LOD.
