@@ -4,7 +4,7 @@
 import type { Input } from '../input';
 import { MANUAL_SLOTS, SLOT_IDS, SLOT_NAMES, formatDetails, type SaveGame, type SaveStore, type SlotId } from '../core/save';
 
-export interface MenuRow { id: string; enabled: boolean }
+interface MenuRow { id: string; enabled: boolean }
 
 /**
  * A vertical list of rows with one selected row. `fill` builds each row's content; a pick (menu select, or a pointer
@@ -173,7 +173,7 @@ export interface GameHooks {
 }
 
 /** A slot row: its name and label, and the details line, or "Empty". */
-export function slotItem(store: SaveStore, id: SlotId, enabledEmpty: boolean, run: (game: SaveGame | null) => void): MenuItem {
+function slotItem(store: SaveStore, id: SlotId, enabledEmpty: boolean, run: (game: SaveGame | null) => void): MenuItem {
   const game = store.get(id);
   return { id, label: game ? `${SLOT_NAMES[id]} · ${game.label}` : `${SLOT_NAMES[id]} · Empty`,
     detail: game ? formatDetails(game) : null, enabled: game !== null || enabledEmpty, run: () => run(game) };

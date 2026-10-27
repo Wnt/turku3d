@@ -72,10 +72,10 @@ interface MissionOptions {
 }
 
 /** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
-export type Checkpoint = 'delivery' | 'purchase';
+type Checkpoint = 'delivery' | 'purchase';
 
 /** What a save slot shows about a mission save without restoring it. */
-export interface MissionSummary { deliveries: number; money: number; lastAddress: string | null }
+interface MissionSummary { deliveries: number; money: number; lastAddress: string | null }
 
 /** What the pizzeria quotes before an order is accepted. */
 export interface OrderQuote { address: string; metres: number; par: number }

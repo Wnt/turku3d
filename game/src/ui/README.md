@@ -57,11 +57,12 @@ game runs (never from the start screen).
   locked like in a shop menu. Menu resumes from any page; Escape and B go back one page (resume on the
   first); the touch context is `menu`, so the touch Back button does the same. The fullscreen overlay
   rule is unchanged: a pause the player chose survives a trip out of fullscreen.
-- **Load / new game** (`main.ts` `place`): leaves the car, restores the missions (a running order keeps
+- **Load / new game** (`gameplay/saveGame.ts` `SaveGameController`): leaves the car, restores the missions (a running order keeps
   its timer), the clock and the time slider, puts the own car at its saved pose when one is owned (else at
   its spawn parking), streams the collision tile under the saved position and snaps the player onto the
   ground with a downward ray from 2 m above the saved height (from the sky when that misses), then waits
-  paused until the physics worker reports the character there.
+  paused until the physics worker reports the character there. Safe reset then restarts its sampling
+  there (`SafeReset.restart`), so a later fall never returns the player to the previous game's spot.
 
 All menus share `MenuList`: `menuUp` / `menuDown` (D-pad, left stick, arrows, W/S) move the selection,
 `menuSelect` (A, Enter, E) or a `pointerup` on a row picks it, `menuBack` (B, Escape, Backspace, touch

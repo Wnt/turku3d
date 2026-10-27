@@ -12,6 +12,7 @@ Story, locations, economy and the state machine are specified in
 | File | Role |
 |---|---|
 | `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; `serialize()` / `restore(text \| null)` for the save slots (format 2, migrates format 1; `core/save.ts` stores the text) |
+| `saveGame.ts` | `SaveGameController`: captures the running game into a save slot, places a loaded or new game (missions, clock, own car, player on the ground), autosave triggers, the pause menu's frame handling (`game/src/ui/README.md`, "Main menu, pause menu and save slots") |
 | `economy.ts` | Prices, permit rental, payouts, base pay, tip formula, par time, deadline |
 | `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
 | `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
