@@ -48,6 +48,9 @@ cat $TURKU3D_WORK/reports/tile-add/t0_2_0.json   # stage and layer seconds, tile
 bash pipeline/env/run.sh python -m turku3d.region list-tile t0_2_0   # orchestrator: list it for live
 ```
 
+`make tile-add` installs the validator Node dependencies before refresh, since the structures
+producer runs Rapier acceptance while building the layer.
+
 `add-tile` accepts an L0 tile that shares an edge with a listed tile and whose input area lies in
 the city lidar coverage (`data-manifests/laz-tiles.csv`). A tile's input area,
 `config.tile_input_area(tile)` (named `tile-<id>`), is its ground envelope: the tile plus 112.5 m,
