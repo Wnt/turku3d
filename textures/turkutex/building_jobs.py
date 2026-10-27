@@ -370,36 +370,48 @@ def generate_jobs(
         if guide:
             images.append(str(guide))
         count = f.props.get("bay_count")
+        wall_vars = {
+            "width_m": f"{f.length:.3f}",
+            "height_m": f"{f.height_m:.3f}",
+            "aspect": f"{ratio:.4f}:1",
+            "bay_instruction": (
+                f"The authoritative geometry calls for {int(count)} bays."
+                if count is not None
+                else "Infer the opening grid from the references; do not invent a geometry bay count."
+            ),
+            "view_list": "\n".join(v["files"]["rectified"] for v in views),
+            "label_instruction": json.dumps(specs[f.id]) if f.id in specs else "",
+            "grid_instruction": grid_instruction(grid),
+            "layout_instruction": (
+                f"The last attachment is a layout guide, not a photo. Put the complete wall "
+                f"inside its grey rectangle at {ratio:.4f}:1 and leave the white canvas outside."
+                if guide
+                else ""
+            ),
+            "retry_instruction": (
+                "A previous image of this wall was rejected in review: "
+                f"{feedback[f.id]} Correct that while following every rule below."
+                if feedback
+                else ""
+            ),
+        }
+        # The wall-specific part of the prompt, kept with every candidate (facade_candidates);
+        # meta is not part of the cache key.
+        summary = " ".join(
+            wall_vars[k]
+            for k in (
+                "bay_instruction",
+                "grid_instruction",
+                "layout_instruction",
+                "retry_instruction",
+            )
+            if wall_vars[k]
+        )
         result.append(
             {
                 "id": f"{f.id}.generate",
                 "prompt_file": str(PROMPTS_DIR / "facade_generate.md"),
-                "vars": {
-                    "width_m": f"{f.length:.3f}",
-                    "height_m": f"{f.height_m:.3f}",
-                    "aspect": f"{ratio:.4f}:1",
-                    "bay_instruction": (
-                        f"The authoritative geometry calls for {int(count)} bays."
-                        if count is not None
-                        else "Infer the opening grid from the references; do not invent a geometry bay count."
-                    ),
-                    "view_list": "\n".join(v["files"]["rectified"] for v in views),
-                    "label_instruction": json.dumps(specs[f.id]) if f.id in specs else "",
-                    "grid_instruction": grid_instruction(grid),
-                    "layout_instruction": (
-                        f"The last attachment is a layout guide, not a photo. Put the complete wall "
-                        f"inside its grey rectangle at {ratio:.4f}:1 and leave the white canvas outside."
-                        if guide
-                        else ""
-                    ),
-                    "retry_instruction": (
-                        "A previous image of this wall was rejected in review: "
-                        f"{feedback[f.id]} Correct that while following every rule below."
-                        if feedback
-                        else ""
-                    ),
-                    **fragments,
-                },
+                "vars": {**wall_vars, **fragments},
                 "images": images,
                 "expect_images": 1,
                 "timeout": 900,
@@ -412,6 +424,8 @@ def generate_jobs(
                     "height_m": f.height_m,
                     "bay_count": count,
                     "views_used": [v["view_id"] for v in views],
+                    "feedback": feedback[f.id] if feedback else None,
+                    "prompt_summary": f"{f.length:.2f} x {f.height_m:.2f} m, {ratio:.4f}:1. {summary}",
                 },
             }
         )

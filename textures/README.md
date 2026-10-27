@@ -93,6 +93,21 @@ the prompt, and their latest record replaces the old one. Then rerun `visualqa`,
 `post` and the audit. The model comparison is in
 `docs/reports/w1-09g-generated-office.md`.
 
+Every `visualqa` run also keeps each wall it reviewed, accepted or rejected, outside the
+sandbox (`turkutex.facade_candidates`): `$TURKU3D_DATA/facade-approvals/candidates/<task>/<facade_id>/<n>.png`
+(the reviewed generated wall, never a reference or a street photo) and `<n>.json` (reviewer
+answer and problems, image model, retry feedback, prompt summary, wall centre, spawn and L0
+tile), with `<task>/index.json` per task. `<task>` is `--task`, default `$TURKU3D_SANDBOX`; `n`
+counts the distinct images of a wall, so a retry adds one and a rerun on the same bytes does
+not. The acceptance audit (`facade_generated_qa`, same `--task`) adds its verdict to the
+candidate with the audited bytes. Nothing is pruned. View them at
+http://localhost:5171/facades/candidates/<task>/ (`tools/dev/README.md`). To keep a run
+reviewed before this existed:
+
+```sh
+textures/.venv/bin/python -m turkutex.facade_candidates keep --run "$RUN" --facades "$FACADES" --task NAME
+```
+
 ### Generated rollout batches
 
 `turkutex.facade_rollout` ranks every street-facing wall of the approved inventory

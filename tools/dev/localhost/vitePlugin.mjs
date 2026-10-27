@@ -5,10 +5,12 @@
 //  POST /telemetry          play telemetry (http.mjs)
 //  GET  /__localhost/status the badge status: { service, commit, verification, tiles }; { service: false } without it
 //  POST /__localhost/event  the game reports a loaded page, a hot swap or a tile release swap; appended to state.events
+//  GET  /facades/candidates/ every reviewed generated facade candidate (../facadeCandidates.mjs)
 // A changed state file is pushed to open tabs as the custom HMR event `turku3d:status`.
 // `vite preview` (the browser checks' server) gets POST /telemetry only, into the same directory.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import { candidatesRoot, facadeCandidates, isFacadeCandidates } from '../facadeCandidates.mjs';
 import { resolveUnder, serveFile, telemetryHandler } from '../http.mjs';
 
 /** The part of the service state the game sees. */
@@ -27,8 +29,9 @@ const json = (res, status, body) => {
   res.end(JSON.stringify(body));
 };
 
-/** `statePath`: the service's state.json (TURKU3D_LOCALHOST_STATE), or undefined for a plain `make game-dev`. */
-export function localhostGame({ statePath, tiles, telemetryDir }) {
+/** `statePath`: the service's state.json (TURKU3D_LOCALHOST_STATE), or undefined for a plain `make game-dev`;
+ *  `candidates`: the kept facade candidates directory. */
+export function localhostGame({ statePath, tiles, telemetryDir, candidates = candidatesRoot }) {
   const telemetry = telemetryHandler(telemetryDir);
   /** POST /telemetry on the dev and the preview server; whether it was this request. */
   const postTelemetry = (req, res, next) => {
@@ -51,6 +54,7 @@ export function localhostGame({ statePath, tiles, telemetryDir }) {
         });
         server.httpServer?.on('close', () => fs.unwatchFile(statePath));
       }
+      const viewer = facadeCandidates({ root: candidates });
       server.middlewares.use((req, res, next) => {
         if (postTelemetry(req, res, next)) return;
         const url = req.url ?? '/';
@@ -58,6 +62,7 @@ export function localhostGame({ statePath, tiles, telemetryDir }) {
         if (p === '/__localhost/status') return json(res, 200, publicStatus(state));
         if (req.method === 'POST' && p === '/__localhost/event') return void event(req, res, state).catch(next);
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+        if (isFacadeCandidates(p)) return void Promise.resolve(viewer(req, res)).catch(next);
         let file = null;
         if (p.startsWith('/tiles/')) file = resolveUnder(state?.tiles?.dir ?? tiles, url.slice('/tiles'.length));
         else if (p.startsWith('/tile-store/') && state?.store) file = resolveUnder(state.store, url.slice('/tile-store'.length));

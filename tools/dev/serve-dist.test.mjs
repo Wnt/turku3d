@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { port } from './environment.mjs';
+// The facade candidate viewer is a serve-dist route; its handler tests run with these.
+import './facadeCandidates.test.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-dist-'));
 const tiles = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-tiles-'));
@@ -17,7 +19,7 @@ fs.writeFileSync(path.join(tiles, 'collision', 'c_0_0.col'), big);
 const PORT = port(3);
 let srv;
 before(async () => {
-  srv = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', String(PORT), '--mount', `/tiles=${tiles}`]);
+  srv = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', String(PORT), '--mount', `/tiles=${tiles}`, '--candidates', tiles]);
   await new Promise((res, reject) => {
     srv.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
     srv.stdout.on('data', (d) => /serve-dist/.test(d) && res());
@@ -161,4 +163,9 @@ test('/coarse/* is proxied to the coarse tile service; offline status when it is
     await Promise.all(servers.map((child) => new Promise((resolve) => { child.once('exit', resolve); child.kill(); })));
     await new Promise((r) => upstream.close(r));
   }
+});
+test('facade candidate viewer', async () => {
+  const r = await fetch(url('/facades/candidates/'));
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /Generated facade candidates[\s\S]*No candidates kept yet/);
 });
