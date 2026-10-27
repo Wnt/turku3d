@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "facade_fast_description v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "facade_id",
+    "wall_visible",
+    "problem",
+    "material",
+    "wall_colour",
+    "trim_colour",
+    "storeys",
+    "window_columns",
+    "window_width",
+    "window_height",
+    "ground_floor",
+    "ground_openings",
+    "roof_line",
+    "plinth",
+    "features"
+  ],
+  "properties": {
+    "facade_id": {"type": "string"},
+    "wall_visible": {"type": "boolean"},
+    "problem": {"type": "string"},
+    "material": {
+      "type": "string",
+      "enum": ["plaster", "brick", "stone", "wood", "concrete", "glass", "metal"]
+    },
+    "wall_colour": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+    "trim_colour": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+    "storeys": {"type": "integer", "minimum": 0, "maximum": 30},
+    "window_columns": {"type": "integer", "minimum": 0, "maximum": 60},
+    "window_width": {"type": "number", "minimum": 0, "maximum": 1},
+    "window_height": {"type": "number", "minimum": 0, "maximum": 1},
+    "ground_floor": {"type": "string", "enum": ["shops", "doors", "windows", "plain"]},
+    "ground_openings": {"type": "integer", "minimum": 0, "maximum": 60},
+    "roof_line": {"type": "string", "enum": ["cornice", "eaves", "parapet", "none"]},
+    "plinth": {"type": "boolean"},
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["balconies", "pilasters", "string_courses", "shutters", "ornament", "arcade"]
+      }
+    }
+  }
+}
