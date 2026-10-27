@@ -23,8 +23,10 @@ export const RECOVERY = {
   edgeMargin: 2, carMargin: 2.3,
   /** The HUD and the minimap mark the edge of the built area within this distance (m). */
   edgeWarning: 20,
-  /** Assessment pauses this long after a reset, until the physics state reflects the new position (s). */
+  /** Assessment pauses this long after a reset or placement, until the physics state reflects the new position (s). */
   grace: 0.5,
+  /** A placement of the player farther than this from where they stood is a teleport: sampling starts afresh (m). */
+  teleport: 10,
 } as const;
 
 /** The playable area: the union of the manifest's collision tiles (since 57eaed4 a tile list, not a rectangle). It
@@ -109,7 +111,7 @@ export function lowestGround(ids: Iterable<string>, collision: Record<string, { 
   return low;
 }
 
-export interface SafeSample { time: number; x: number; y: number; z: number; heading: number; inVehicle: boolean }
+interface SafeSample { time: number; x: number; y: number; z: number; heading: number; inVehicle: boolean }
 
 /** What the frame loop knows about the player (on foot: the feet; in a car: its body). */
 export interface Probe extends SafeSample {
@@ -127,18 +129,23 @@ export interface Probe extends SafeSample {
 
 export type LostReason = 'below' | 'outside' | 'water' | 'airborne';
 
-/** Tracks the safe samples and decides when the player is lost and when the countdown resets them. */
+/**
+ * Tracks the safe samples and decides when the player is lost and when the countdown resets them. The lost rules
+ * arm only with the first safe frame since the start or the last teleport: a player who has not yet stood on safe
+ * ground (a spawn in the river, a placement before its collision arrived) has nowhere known to return to.
+ */
 export class RecoveryMonitor {
   readonly samples: SafeSample[] = [];
   lost: { reason: LostReason; since: number } | null = null;
   resets = 0;
+  armed = false;
   private lastSample = -Infinity;
   private lastSafe = -Infinity;
   private waterSince: number | null = null;
   private airSince: number | null = null;
   private graceUntil = -Infinity;
 
-  constructor(private readonly area: PlayableArea, private fallback: SafeSample) {}
+  constructor(private readonly area: PlayableArea) {}
 
   /** Seconds left before the automatic reset, or null when not lost. */
   countdown(time: number) { return this.lost ? Math.max(0, this.lost.since + RECOVERY.countdown - time) : null; }
@@ -153,35 +160,41 @@ export class RecoveryMonitor {
     if (p.time < this.graceUntil) return false;
     const safe = this.safe(p);
     if (safe) {
+      this.armed = true;
       this.lastSafe = p.time;
       if (p.time - this.lastSample >= RECOVERY.sampleEvery) this.record(p);
     }
+    if (!this.armed) return false;
+    // Streaming: the collision under the player belongs to the area but has not arrived yet. Nothing to stand on
+    // is no fall yet; once it loads, a player who sank below it is lost by the `below` rule.
+    const streaming = !p.loaded && this.area.has(p.x, p.z);
     this.waterSince = (p.waterDepth ?? -1) > RECOVERY.waterDepth ? this.waterSince ?? p.time : null;
-    this.airSince = p.grounded ? null : this.airSince ?? p.time;
-    const reason = lostReason(p, minGround, this.area, this.waterSince, this.airSince);
+    this.airSince = p.grounded || streaming ? null : this.airSince ?? p.time;
+    const reason = streaming ? null : lostReason(p, minGround, this.area, this.waterSince, this.airSince);
     if (reason && !this.lost) this.lost = { reason, since: p.time };
     // A fall that lands on solid ground inside the area (a long jump, a high kerb) needs no reset.
     else if (!reason && this.lost && safe) this.lost = null;
     return this.lost !== null && p.time >= this.lost.since + RECOVERY.countdown;
   }
 
-  /** The newest sample from `lookBack` seconds before the player stopped being safe, moved inside the edge. */
+  /** The newest sample from `lookBack` seconds before the player stopped being safe (else the oldest one), moved
+   *  inside the edge. Only while lost: an armed monitor always holds a sample. */
   target(): SafeSample {
     const before = this.lastSafe - RECOVERY.lookBack;
-    const sample = [...this.samples].reverse().find(s => s.time <= before) ?? this.samples[0] ?? this.fallback;
+    const sample = [...this.samples].reverse().find(s => s.time <= before) ?? this.samples[0];
     const margin = RECOVERY.edgeMargin + (sample.inVehicle ? RECOVERY.carMargin : 0);
     return { ...sample, ...this.area.inset(sample, margin) };
   }
 
-  /** A loaded or new game put the player at `start`: older samples and any lost state belong to the old game. */
-  restart(start: SafeSample) {
-    this.fallback = start;
+  /** A loaded or new game, or a teleport, placed the player at `time`: older samples and any lost state belong to
+   *  the old place. The rules wait for the first safe frame at the new place. */
+  restart(time: number) {
     this.samples.length = 0;
     this.lost = null;
+    this.armed = false;
     this.waterSince = this.airSince = null;
-    this.lastSafe = start.time;
-    this.lastSample = start.time - RECOVERY.sampleEvery;
-    this.graceUntil = start.time + RECOVERY.grace;
+    this.lastSafe = this.lastSample = -Infinity;
+    this.graceUntil = time + RECOVERY.grace;
   }
 
   /** The player was put back at `target` at `time`: newer samples led to the fall and are dropped. */

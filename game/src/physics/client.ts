@@ -18,6 +18,9 @@ export class PhysicsClient {
   readonly vehicleRender = new VehicleInterpolation();
   latest: StateMsg | null = null;
   readonly loaded = new Map<string, TileStats>();
+  /** The newest explicit placement of the character (`actor` 'character') or a vehicle (its id): a teleport, a reset
+   *  or a loaded game. `seq` counts them; safe reset (gameplay/safeReset.ts) restarts sampling after a teleport. */
+  placement: { seq: number; actor: string; pos: V3 } = { seq: 0, actor: '', pos: { x: 0, y: 0, z: 0 } };
   onError: (e: string) => void = (e) => console.error('[physics]', e);
   ready: Promise<string>;
   colReader = '';
@@ -70,10 +73,14 @@ export class PhysicsClient {
   }
   unloadTile(id: string) { this.send({ type: 'unloadTile', id }); this.loaded.delete(id); }
   spawnCharacter(pos: V3) { this.send({ type: 'spawnCharacter', pos }); }
-  setCharacterEnabled(enabled: boolean, pos?: V3) { this.send({ type: 'setCharacterEnabled', enabled, pos }); }
+  setCharacterEnabled(enabled: boolean, pos?: V3) {
+    if (enabled && pos) this.placed('character', pos);
+    this.send({ type: 'setCharacterEnabled', enabled, pos });
+  }
   spawnVehicle(pos: V3, yaw: number, spec: Partial<VehicleSpec> = {}) { this.send({ type: 'spawnVehicle', spec: { id: spec.id ?? 'player', pos, yaw, ...spec } }); }
   driveVehicle(id: string | null) { this.send({ type: 'driveVehicle', id }); }
-  resetVehicle(pos: V3, yaw: number, id = 'player') { this.send({ type: 'resetVehicle', id, pos, yaw }); }
+  resetVehicle(pos: V3, yaw: number, id = 'player') { this.placed(id, pos); this.send({ type: 'resetVehicle', id, pos, yaw }); }
+  private placed(actor: string, pos: V3) { this.placement = { seq: this.placement.seq + 1, actor, pos: { ...pos } }; }
 
   /** Queues dt; sends one step at a time (single in flight) so the worker never falls behind. */
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null) {
