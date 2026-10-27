@@ -39,8 +39,18 @@ def config(published):
 
 
 def generated(meta):
-    """Generated-style facade maps: the only facade class allowed in a public release."""
-    return meta.get("source_mode") == "generate" and bool(meta.get("generated_qa"))
+    """Facade maps allowed in a public release: generated-style maps and maps derived from them.
+
+    A derived map (`derived`, `derived-neighbour`) is cut from a generated map's style record and
+    carries no street imagery; a photo-derived map has a `method` and no generated provenance.
+    """
+    if meta.get("method"):
+        return False
+    if meta.get("source_mode") == "generate":
+        return bool(meta.get("generated_qa"))
+    return meta.get("source_mode") in ("derived", "derived-neighbour") and bool(
+        meta.get("derived_from")
+    )
 
 
 def check_facades(release):
