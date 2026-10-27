@@ -31,6 +31,8 @@ const DEFAULT_TIME = '2026-10-15T14:00:00+03:00';
  *  another host (e.g. `make game-serve-dist` on the sandbox dist port) keeps its origin, otherwise the manifest would be fetched from
  *  the game server. */
 function defaultManifest(tileset: string): string {
+  // A page-relative tileset (e.g. the Pages build's `../tiles/tileset.json`) keeps its own directory.
+  if (!/^([a-z][a-z\d+.-]*:|\/)/i.test(tileset)) return tileset.replace(/[^/]*$/, 'manifest.json');
   const u = new URL('manifest.json', new URL(tileset, 'http://x/'));
   return u.origin === 'http://x' ? u.pathname.replace(/^\//, '') : u.href;
 }

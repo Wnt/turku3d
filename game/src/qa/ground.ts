@@ -51,7 +51,7 @@ let heading: number;
 const assetBase = query.get('assets');
 if (assetBase) {
   const base = new URL(assetBase, location.href).href;
-  const loader = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(renderer);
+  const loader = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
   const library = await loadGroundLibrary(new URL('library/', base).href, loader);
   const poses = [
     { tile: 't0_0_1', x: 147.292, z: 271.906, yaw: 38.637 },

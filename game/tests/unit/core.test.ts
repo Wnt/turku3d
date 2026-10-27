@@ -24,6 +24,7 @@ test('url params', () => {
   expect(p.time.toISOString()).toBe('2026-07-01T10:00:00.000Z');
   expect(p.manifest).toBe('dev-tiles/manifest.json');
   expect(parseParams('?tiles=/tiles/tileset.json').manifest).toBe('tiles/manifest.json');
+  expect(parseParams('?tiles=../tiles/tileset.json').manifest).toBe('../tiles/manifest.json');
   expect(parseParams('?tiles=http://tiles.example/tiles/tileset.json').manifest).toBe('http://tiles.example/tiles/manifest.json');
   expect(() => parseParams('?colRadius=abc')).toThrow(/colRadius/);
   expect(() => parseParams('?cam=1,2,3')).toThrow();

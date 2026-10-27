@@ -57,6 +57,9 @@ npm run dev-tiles      # regenerate public/dev-tiles/ (dummy tileset)
 TILE_DIST="$TURKU3D_WORK/dist/tiles" npx playwright test -c playwright.tile.config.ts   # after npm run build: pipeline stub tiles (make tile)
 npm run probe -- "http://localhost:${TURKU3D_PORT_BASE:-5170}/?backend=webgl" out.png 6000   # debug: console, HUD and screenshot of any URL
 ```
+The build uses a relative base and needs no COOP/COEP headers, so the integrator's live release is also
+published to [GitHub Pages](https://wnt.github.io/turku-game/) (`scripts/dev/README.md`, "GitHub Pages").
+A page-relative `?tiles=` (e.g. `../tiles/tileset.json`) reads `manifest.json` from the same directory.
 The same commands are available from the repo root through `mk/game.mk`: `make game-dev`, `make game-build`, `make game-test`, `make game-e2e`, `make game-dev-tiles`, `make game-preview`, `make game-serve-dist` and `make game-test-all`.
 
 ## Audio

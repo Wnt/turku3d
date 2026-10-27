@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Publish the live release (or --release DIR) to the GitHub Pages repo in publish/pages.json."""
+
+import sys
+
+from pages import main
+
+if __name__ == "__main__":
+    sys.exit(main())

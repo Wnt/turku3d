@@ -205,6 +205,17 @@ or `autodeploy.sh` on main; `make refresh` refuses the published data root. Run 
 Do not update main outside the lander while landing. A missing gate fails closed; there is no
 legacy Make fallback.
 
+### GitHub Pages (`publish-pages`)
+
+https://wnt.github.io/turku-game/ serves the live release. With `$TURKU3D_DATA/publish/pages.json`
+(`{"repo": "Wnt/turku-game", "branch": "gh-pages"}`) the integrator calls `pages.publish` after a
+green publish: one parentless commit of the release's `game/`, `tiles/` and `pages-site/` files is
+force-pushed (the branch holds one release, about 115 MB) and Pages is enabled once. The result or
+`error` goes into the integration row as `pages`; a failure never rolls back the local publish. It
+refuses a release that binds any facade without `source_mode: generate` and `generated_qa`. By hand:
+`scripts/dev/codex-task wait-cmd -- scripts/dev/publish-pages [--release DIR]`. The game build uses
+a relative base, so it runs under `/turku-game/` without COOP/COEP.
+
 ### Long commands (agents)
 
 Run anything that can take longer than 30 s as one blocking call instead of polling it:

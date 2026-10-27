@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import coordination  # noqa: E402
 import integrator  # noqa: E402
 import live_build  # noqa: E402
+import pages  # noqa: E402
 
 GATE = "#!/bin/sh\necho PASS fast-gate 0.01s\n"
 
@@ -289,6 +290,27 @@ class IntegratorTests(unittest.TestCase):
         head = self.land("later", "game/a.ts", "a")
         row = self.integrate()
         self.assertEqual((row["result"], row["facades_bound"]), ("green", 1))
+        self.assertEqual(integrator.live_commit(self.published), head)
+
+    def test_green_publish_deploys_pages_when_configured(self):
+        head = self.land("game", "game/a.ts", "a")
+        (self.published / "publish").mkdir()
+        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
+        deployed = {"url": "https://o.github.io/site/", "release": head}
+        with patch.object(pages, "publish", return_value=deployed) as publish:
+            row = self.integrate()
+        publish.assert_called_once_with(self.published)
+        self.assertEqual((row["result"], row["pages"]), ("green", deployed))
+
+    def test_pages_failure_is_recorded_and_keeps_the_local_release(self):
+        head = self.land("game", "game/a.ts", "a")
+        (self.published / "publish").mkdir()
+        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
+        failure = pages.PhotoFacades("2 bound facades are not generated-style")
+        with patch.object(pages, "publish", side_effect=failure):
+            row = self.integrate()
+        self.assertEqual(row["result"], "green")
+        self.assertIn("not generated-style", row["pages"]["error"])
         self.assertEqual(integrator.live_commit(self.published), head)
 
     def test_failed_publish_leaves_live_on_verified_release(self):

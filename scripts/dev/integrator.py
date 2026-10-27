@@ -459,7 +459,28 @@ def integrate(run, base, start, end):
         live_build.publish(published, end)
     except (ValueError, OSError) as exc:
         return record(run, {**row, "result": "failed", "failure": {"detail": str(exc)}})
-    return record(run, {**row, "result": "green"})
+    row["result"] = "green"
+    deployed = publish_pages(published)
+    if deployed:
+        row["pages"] = deployed
+    return record(run, row)
+
+
+def publish_pages(published):
+    """Deploy the new live release to GitHub Pages when publish/pages.json exists.
+
+    A failure is reported in the integration row; the local publication stands.
+    """
+    import pages
+
+    try:
+        if pages.config(published) is None:
+            return None
+        return pages.publish(published)
+    except subprocess.CalledProcessError as exc:
+        return {"error": f"{' '.join(map(str, exc.cmd[:3]))}: {(exc.stderr or '').strip()[-500:]}"}
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        return {"error": str(exc)[-500:]}
 
 
 def run_once(published, main_repo=s.REPO, name=NAME):

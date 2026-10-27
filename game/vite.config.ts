@@ -3,10 +3,13 @@ import { gameDist, port, workRoot } from '../tools/dev/environment.mjs';
 import path from 'node:path';
 import wasm from 'vite-plugin-wasm';
 
-// COOP/COEP so crossOriginIsolated / SharedArrayBuffer are available (tools/dev/serve-dist.mjs sends the same).
+// COOP/COEP for local servers (tools/dev/serve-dist.mjs sends the same). The game uses no SharedArrayBuffer and runs
+// without them, e.g. on GitHub Pages.
 const isolation = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
 
 export default defineConfig({
+  // Relative asset URLs: the same build runs at / locally and under /turku-game/ on GitHub Pages.
+  base: './',
   cacheDir: path.join(workRoot, 'cache/vite'),
   plugins: [wasm()],
   worker: { format: 'es', plugins: () => [wasm()] },
