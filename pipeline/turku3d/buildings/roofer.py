@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -16,7 +17,9 @@ FLAGS = ["--srs", C.CRS_HORIZONTAL, "--id-attribute", "building_id", "--lod22", 
 
 
 def version() -> str:
-    return subprocess.check_output(["roofer", "--version"], text=True).strip()
+    # Roofer writes roofer.log.json into its working directory, even for --version.
+    with tempfile.TemporaryDirectory(prefix="roofer-version-") as scratch:
+        return subprocess.check_output(["roofer", "--version"], text=True, cwd=scratch).strip()
 
 
 def run(pointclouds, footprints, output, jobs=4):
