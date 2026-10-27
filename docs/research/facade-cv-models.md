@@ -189,3 +189,18 @@ remains uncalibrated; do not auto-publish them or use a numeric confidence thres
 claim equivalence to Astra. A useful next dataset would contain human counts and opening
 boxes for broad, fully visible walls from new buildings, especially curtain walls and
 shopfronts, rather than more propagated labels or narrow footprint slivers.
+
+## Verification
+
+The six pure synthetic CV/model tests pass. The real `facade_fast.describe` dispatcher
+completed **20/20** walls, **zero calls**, no missing references or failures, with
+`socket.socket.connect` replaced by an exception for the entire model-loading/describe
+operation and Hugging Face offline variables enabled. Every record retained `needs_review`.
+The first smoke attempt correctly rejected the archived full-inventory plan paired with
+its subset GeoJSON; the reproducer creates a fresh plan with `plan_walls` and does not
+bypass the hash guard. Run `tools/research/facade_models/offline_smoke.py` to repeat it.
+
+The fast gate passed; Chrome and deep suites were not required or run. All changes are
+committed in the isolated `cvr-models` branch. The intermediate `codex-task finish` rejected
+the active runner; final landing is delegated to the explicitly configured turn-end runner,
+with no manual merge into main. Quota was 48% at start and remained below the 80% stop limit.

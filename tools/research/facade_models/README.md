@@ -11,6 +11,8 @@ PY=textures/.venv/bin/python
 FIXTURE="$HOME/turku3d/wt/textures-fast-facade-pass/work/textures/fast-measure"
 $PY -m turkutex.facade_models prepare siglip
 $PY tools/research/facade_models/material.py
+# Real dispatcher with socket connections forbidden; fresh plan for the archived20-wall subset.
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 $PY tools/research/facade_models/offline_smoke.py
 # Replays boxes in reports/models/grounding-dino-800.json; does not rerun the detector.
 $PY tools/research/facade_models/box_grid.py
 ```
