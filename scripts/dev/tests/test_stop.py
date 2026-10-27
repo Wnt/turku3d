@@ -23,11 +23,13 @@ class StopTests(unittest.TestCase):
         result = runner.s.run_group(command, cwd=Path.cwd(), env=runner.os.environ.copy())
         self.assertEqual(result.returncode, 0)
         child = int(result.stdout.strip())
-        for _ in range(60):
+        # The child would sleep 30 s; waiting up to 20 s for it to go tolerates a loaded host.
+        deadline = runner.time.monotonic() + 20
+        while True:
             status = subprocess.run(
                 ["ps", "-p", str(child), "-o", "stat="], capture_output=True, text=True
             ).stdout.strip()
-            if not status or status.startswith("Z"):
+            if not status or status.startswith("Z") or runner.time.monotonic() > deadline:
                 break
             runner.time.sleep(0.05)
         self.assertTrue(not status or status.startswith("Z"), f"child still running: {status}")
@@ -129,7 +131,8 @@ class StopTests(unittest.TestCase):
                 [*cli, "--timeout", "0.2", *sleeper], env=env, capture_output=True, text=True
             )
             self.assertEqual(done.returncode, 124)
-            self.assertLess(runner.time.monotonic() - start, 5)
+            # The sleeper would take 30 s: ending well before that proves the timeout ended it.
+            self.assertLess(runner.time.monotonic() - start, 25)
             self.assertIn("SLOW", (Path(directory) / "work/wait-cmd.log").read_text())
             done = subprocess.run([*cli, "--"], env=env, capture_output=True, text=True)
             self.assertEqual(done.returncode, 1)

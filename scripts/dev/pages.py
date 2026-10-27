@@ -1,10 +1,12 @@
-"""Publish a verified live release to GitHub Pages as one orphan commit.
+"""Publish a live release to GitHub Pages as one orphan commit.
 
 The deploy repository named in `$TURKU3D_DATA/publish/pages.json`
 (`{"repo": "owner/name", "branch": "gh-pages"}`) only ever holds the latest release:
 `game/` and `tiles/` from the release, the site files in `pages-site/` and `.nojekyll`.
 Each publish force-pushes a new parentless commit, so the repository never accumulates
-older releases. No source code, pipeline data or street imagery is published.
+older releases. No source code, pipeline data or street imagery is published: every bound
+facade must be generated-style. The commit message is the release notes: the commits since
+the previous Pages release and the advisory checks the release failed (known-broken).
 """
 
 from __future__ import annotations
@@ -19,6 +21,10 @@ import time
 from pathlib import Path
 
 CONFIG = "publish/pages.json"
+# The last release this data root pushed to Pages; the next notes list commits since it.
+STATE = "publish/pages-last.json"
+REPO = Path(__file__).resolve().parents[2]
+NOTE_COMMITS = 40
 SITE = Path(__file__).resolve().parent / "pages-site"
 PUSH_TIMEOUT = 900
 
@@ -105,6 +111,53 @@ def assemble(release, target, repo, branch):
     return sum(path.stat().st_size for path in target.rglob("*") if path.is_file())
 
 
+def commit_lines(since, commit, repo=REPO):
+    """`<sha12> <subject>` per first-parent commit in since..commit (at most NOTE_COMMITS)."""
+    try:
+        log = git("log", "--first-parent", "--format=%H %s", f"{since}..{commit}", cwd=repo)
+    except (subprocess.SubprocessError, OSError):
+        return [f"  (commit log unavailable for {since[:12]}..{commit[:12]})"]
+    lines = [f"  {line[:12]} {line[41:]}" for line in log.splitlines()]
+    if len(lines) > NOTE_COMMITS:
+        lines = [*lines[:NOTE_COMMITS], f"  ... and {len(lines) - NOTE_COMMITS} older commits"]
+    return lines
+
+
+def notes(record, since, date, repo=REPO):
+    """The gh-pages commit message: release, commit range and advisory failures."""
+    commit = record["commit"]
+    lines = [f"Release {commit[:12]} {date}", ""]
+    if since and since != commit:
+        lines += [f"Commits {since[:12]}..{commit[:12]}:", *commit_lines(since, commit, repo)]
+    else:
+        lines.append(f"Commits: no new commits since the previous Pages release ({commit[:12]})")
+    advisory = record.get("advisory")
+    lines.append("")
+    if advisory is None:
+        lines.append("Advisory checks: not recorded for this release")
+    elif not advisory:
+        lines.append("Advisory checks: all green")
+    else:
+        lines.append("Known broken (advisory checks that failed; published anyway):")
+        for entry in advisory:
+            parts = entry.get("specs") or entry.get("checks") or ()
+            first = entry.get("detail", "").splitlines()[0][:200] if entry.get("detail") else ""
+            lines.append(f"  {entry['stage']}: {first}")
+            lines += [f"    {part}" for part in parts]
+    cars = record.get("car_validation")
+    if cars and cars.get("status") == "fail":
+        lines.append(
+            f"Car report (accepted known red): {cars['failed_tiles']}/{cars['tested_tiles']} "
+            "tiles fail"
+        )
+    chrome = record.get("chrome") or {}
+    if record.get("full_suite"):
+        lines.append("Chrome: scheduled full suite")
+    elif chrome:
+        lines.append(f"Chrome: {len(chrome.get('selected', ()))} selected spec runs")
+    return "\n".join(lines) + "\n"
+
+
 def remote_url(repo):
     return f"git@github.com:{repo}.git"
 
@@ -159,29 +212,36 @@ def enable_pages(repo, branch):
     return json.loads(current.stdout)["html_url"]
 
 
-def publish(published, release=None):
+def publish(published, release=None, repo=REPO):
     """Publish release (default: the live release) to the configured Pages repository.
 
-    Only a release that a green full Chrome suite verified (`full_suite` in its record)."""
+    Any built release may go: its advisory failures are listed in the release notes. Only
+    the generated-facade rule refuses one (check_facades)."""
     published = Path(published)
     target = config(published)
     if target is None:
         raise ValueError(f"{published / CONFIG} does not exist")
     release = Path(release or (published / "live")).resolve()
     record = json.loads((release / "live-build.json").read_text())
-    if not record.get("full_suite"):
-        raise ValueError(
-            f"{release} has no green full Chrome suite; run `scripts/dev/integrator.py run --full`"
-        )
     facades = check_facades(release)
     started = time.monotonic()
-    date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
-    message = f"Release {record['commit'][:12]} {date}"
+    date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
+    state_path = published / STATE
+    try:
+        since = json.loads(state_path.read_text()).get("release")
+    except (OSError, ValueError):
+        since = None
+    if since in (None, record["commit"]):
+        since = record.get("from", since)
+    message = notes(record, since, date, repo)
     with tempfile.TemporaryDirectory(prefix="pages-") as temp:
         site = Path(temp) / "site"
         size = assemble(release, site, target["repo"], target["branch"])
         commit = push(site, target["repo"], target["branch"], message)
     url = enable_pages(target["repo"], target["branch"])
+    pending = state_path.with_suffix(".tmp")
+    pending.write_text(json.dumps({"release": record["commit"], "commit": commit}) + "\n")
+    os.replace(pending, state_path)
     return {
         "repo": target["repo"],
         "branch": target["branch"],
@@ -195,13 +255,9 @@ def publish(published, release=None):
 
 
 def deploy(published):
-    """The integrator's Pages step: publish the live release when publish/pages.json exists
-    and a green full Chrome suite verified it, else None. A failure is returned as
-    {"error"} for the integration row; the local publication stands."""
-    import integration_chrome
-
-    if not integration_chrome.verified(published):
-        return None
+    """The integrator's Pages step after every publication: publish the live release when
+    publish/pages.json exists, else None. A failure is returned as {"error"} for the
+    integration row; the local publication stands."""
     try:
         if config(published) is None:
             return None
@@ -217,7 +273,7 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--published", type=Path, default=os.environ.get("TURKU3D_DATA"))
-    parser.add_argument("--release", type=Path, help="release dir (default: <published>/live)")
+    parser.add_argument("--release", type=Path, help="any release dir (default: <published>/live)")
     args = parser.parse_args(argv)
     if not args.published:
         parser.error("--published or TURKU3D_DATA is required")

@@ -1,7 +1,8 @@
 # The localhost game (`tools/dev/localhost-game`)
 
 The localhost game runs **main, hot**: a landing reaches the open tab within seconds, and the integrator's verdict
-arrives later on a badge. `live` and GitHub Pages stay verified-only; only localhost shows unverified builds.
+arrives later on a badge. `live` and GitHub Pages get every batch that builds (its advisory test results ride
+along); only localhost shows builds the integrator has not built yet.
 
 ```bash
 tools/dev/localhost-game                 # main: http://127.0.0.1:5171/?tiles=/tiles/tileset.json
@@ -89,9 +90,11 @@ commit, the layers it refreshed are the data root's, so the commit's key is the 
 
 `GET /__localhost/status` and the custom HMR event `turku3d:status` carry `{service, commit, verification, tiles}`.
 `ui/buildBadge.ts` shows `main <commit> · unverified` (with `verifying: <stage>` while an integration covering the
-commit runs), `verified` once the newest integration row covering it is green (or the commit is in the live
-release), and `verification failed: <stage>` when that row is red with its culprit in the commit, data-red or an
-infrastructure failure (`status.mjs`). A quick tile build adds `building tiles <ids>`.
+commit runs), `verified` once the newest integration row covering it is green with no advisory failure (or no row
+covers it and it is in the live release), `tests red: <stages>` when that row was published with failing advisory
+checks (Chrome, audits, car report, facade baseline), and `verification failed: <stage>` when that row is red with
+its culprit in the commit, data-red or an infrastructure failure (`status.mjs`). A quick tile build adds
+`building tiles <ids>`.
 
 ## Files
 

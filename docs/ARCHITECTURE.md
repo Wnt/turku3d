@@ -83,9 +83,11 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   500 m leaf once all four quadrants are drafted. When the published manifest later gains the tile, the draft is
   swapped out. The coarse tier skips curbs, stairs, walls, bridges, props, vegetation, parked cars, facade maps and
   roof shapes; it is never published to Pages or written into the data root's published layers.
-- **Localhost runs main, hot (user decision 2026-10-27).** `live` and Pages serve verified releases only; the
-  localhost game (`tools/dev/localhost-game`) runs main's checkout through the Vite dev server with a badge
-  `main <commit> · unverified | verified | verification failed: <stage>` from the integration rows. `main.ts` owns the
+- **Localhost runs main, hot (user decision 2026-10-27).** `live` and Pages serve every release that builds
+  (user decision 2026-10-27 21:00: advisory checks never block them); the localhost game
+  (`tools/dev/localhost-game`) runs main's checkout through the Vite dev server with a badge
+  `main <commit> · unverified | verified | tests red: <stage> | verification failed: <stage>` from the integration
+  rows. `main.ts` owns the
   world (renderer, tiles, physics worker with the character and vehicles) and hot-swaps `play.ts`, the play session,
   carrying missions, money, permit, clock and the driven vehicle; changes outside the session autosave and reload
   into the autosave. `/tiles` there serves a content-addressed tile release (`$TURKU3D_DATA/tile-store/<key>`, key =
@@ -199,14 +201,20 @@ Pipeline principles:
 Landing and integration: each agent lands its own green slice with `codex-task finish` (rebase, fast gate,
 fast-forward; conflicts are the agent's to resolve) and every landing sends a `landed` message to the other
 running agents, who rebase at their next natural point; unlanded branches are never shared, so an interface
-change lands first as its own compatible slice. The landing starts the integrator (nothing polls), which verifies
-`main` once per batch and moves `live` (and GitHub Pages) only to a verified release. Each landing and batch has a
+change lands first as its own compatible slice. The landing starts the integrator (nothing polls), which builds
+`main` once per batch and moves `live` and GitHub Pages to every batch whose build stages succeed (refresh,
+tile-build, tile-validate's format and seams, game-build; the fast gate already enforced policy on landing). The
+other stages (car report, facade ground audit, collision sweep and audit, tile-validate's walk checks, the facade
+baseline, Chrome) are advisory: recorded in the ledger row and the release, shown on the localhost badge, listed in
+the Pages release notes and sent to the batch's authors as an inbox warning when new; they never block, bisect or
+revert. Only a build failure bisects (build stages only) and reverts the culprit landing. Each landing and batch has a
 class (`scripts/dev/landing_class.py`, conservative allowlists): `inert` (docs, prose) re-points `live` to the
-new commit with the verified content and builds nothing; `data` (voice clips, the address pool, or a changed data
+new commit with the published content and builds nothing; `data` (voice clips, the address pool, or a changed data
 root: facade approvals, the playable tile list, layers) runs refresh, tile reassembly and validation, the facade
 ground audit and the game build without Chrome; `code` runs every live stage. Landings join a running batch
 only while that is free (before its first stage that is not a cache hit, at most 3 heads); a second (data) lane verifies data-root changes while a code batch runs, and
-publication is serialised so no lane publishes over a release it did not build on. The integrator's Chrome stage
+publication is serialised so no lane publishes over a release it did not build on. A full Chrome suite runs on live
+every 2 h with landings, as information. The integrator's Chrome stage
 gets 4 workers below load 60 (else 2), and agents' Chrome suites queue behind it. Details and ledger fields:
 `scripts/dev/README.md`, "Landing", "Landing and integration" and "Host slots".
 

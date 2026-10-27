@@ -359,7 +359,7 @@ def run(
     in `cache` (default cache_dir()).
 
     runner(command, cwd, env) returns an object with returncode and stdout. Returns
-    (returncode, output, stats) with selected, run, cached and skipped `project:spec`
+    (returncode, output, stats) with selected, run, cached, failed and skipped `project:spec`
     lists (skipped = specs of this config the plan did not select) and wall seconds.
     """
     root = Path(root)
@@ -389,7 +389,7 @@ def run(
         names = tuple(spec for spec, p in pending if p == project)
         if names:
             groups.setdefault(names, []).append(project)
-    code, output, ran = 0, [], []
+    code, output, ran, failed = 0, [], [], []
     report_path = Path(env.get("TURKU3D_WORK", root)) / "reports/spec-results.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     for names, projects in groups.items():
@@ -421,6 +421,8 @@ def run(
             ran.append(pair)
             if results.get(pair):
                 store(cache, keys[pair], {"spec": pair[0], "project": pair[1], "time": time.time()})
+            else:
+                failed.append(pair)
     label = [f"{project}:{spec}" for spec, project in pairs]
     stats = {
         "full_suite": bool(plan.get("full_suite")),
@@ -428,6 +430,7 @@ def run(
         "selected": label,
         "run": [f"{project}:{spec}" for spec, project in ran],
         "cached": [f"{project}:{spec}" for spec, project in cached],
+        "failed": [f"{project}:{spec}" for spec, project in failed],
         "skipped": [
             f"{project}:{spec}"
             for project in PROJECTS

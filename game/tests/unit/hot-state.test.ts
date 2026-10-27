@@ -76,8 +76,10 @@ describe('build badge', () => {
     expect(badgeText({ service: true, commit, verification: { state: 'unverified', detail: 'verifying: chrome' } }))
       .toBe('main 0123456 · unverified (verifying: chrome)');
     expect(badgeText({ service: true, commit, verification: { state: 'verified' } })).toBe('main 0123456 · verified');
-    expect(badgeText({ service: true, commit, verification: { state: 'failed', stage: 'chrome' } }))
-      .toBe('main 0123456 · verification failed: chrome');
+    expect(badgeText({ service: true, commit, verification: { state: 'failed', stage: 'tile-build' } }))
+      .toBe('main 0123456 · verification failed: tile-build');
+    expect(badgeText({ service: true, commit, verification: { state: 'tests-red', stage: 'chrome' } }))
+      .toBe('main 0123456 · tests red: chrome');
     expect(badgeText({ service: true, commit, verification: { state: 'unverified' }, tiles: { key: 'k', source: 'live', building: ['t0_1_1'] } }))
       .toBe('main 0123456 · unverified · building tiles t0_1_1');
   });

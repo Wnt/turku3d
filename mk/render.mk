@@ -12,7 +12,7 @@ render-perf: game-build ## Fixed-path 1440p CPU/GPU/frame budgets, per-commit JS
 	cd $(GAME_DIR) && python3 $(REPO)/scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test -c playwright.render.config.ts performance.spec.ts functional-budgets.spec.ts
 
 .PHONY: streaming-perf tooling-perf
-streaming-perf: game-install ## Explicit unloaded-host collision streaming budget
+streaming-perf: game-install ## Explicit unloaded-host budgets: collision streaming, router A*
 	cd $(GAME_DIR) && npx vitest run --config vitest.perf.config.ts
 
 tooling-perf: ## Explicit unloaded-host orientation budget
