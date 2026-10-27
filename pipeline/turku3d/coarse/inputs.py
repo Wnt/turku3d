@@ -3,14 +3,16 @@
 A tile inside an already prepared area (for example ``work-3x3``) reads that area's raw files and
 never touches the network. Elsewhere the existing fetchers download only what one 250 m tile needs
 into ``$TURKU3D_DATA/raw`` under the area name ``coarse-<tile>``: the ground key-point LAZ tiles
-(``maanpinta``, about 0.5 MB each), the CityGML LOD2 buildings, street areas and water via WFS, and
-one 1024 px true-ortho WMS request for the whole tile.
+(``maanpinta``, about 0.5 MB each), the CityGML LOD2 buildings, street areas and water via WFS,
+one 1024 px true-ortho WMS request for the whole tile, and an OSM extract clipped with osmium from
+the cached Finland snapshot (the street graph).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +39,7 @@ class Inputs:
     water: Path | None  # kanta_Vesikohde.parquet
     sources: dict  # provenance: source name -> path or area
     seconds: dict
+    osm: Path | None = None  # OSM GeoParquet holding the tile (street graph); None: no streets
 
 
 def coarse_area(tile: C.VisualTile) -> C.Area:
@@ -151,6 +154,29 @@ def ortho(tile: C.VisualTile, log=print) -> tuple[np.ndarray, str]:
     return rgb, s["vrt"]
 
 
+def osm_extract(tile: C.VisualTile, log=print) -> Path | None:
+    """work-3x3's OSM parquet when it holds the tile, else tile-<id>'s, else a coarse-<tile> clip."""
+    from turku3d.fetch import osm
+
+    w, b = C.WORK_3X3.core, tile.bbox
+    inside = w.xmin <= b.xmin and w.zmin <= b.zmin and b.xmax <= w.xmax and b.zmax <= w.zmax
+    areas = ([C.WORK_3X3.name] if inside else []) + [
+        C.tile_input_area(tile).name,
+        coarse_area(tile).name,
+    ]
+    for area in areas:
+        found = sorted((C.raw_dir("osm") / area).glob("*.parquet"))
+        if found:
+            return found[-1]
+    try:
+        osm.fetch_area(coarse_area(tile), log=log)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as e:
+        log(f"{tile.id}: no OSM extract, the draft has no streets ({e})")
+        return None
+    found = sorted((C.raw_dir("osm") / coarse_area(tile).name).glob("*.parquet"))
+    return found[-1] if found else None
+
+
 def gather(tile: C.VisualTile, log=print) -> Inputs:
     import time
 
@@ -164,6 +190,9 @@ def gather(tile: C.VisualTile, log=print) -> Inputs:
     t = time.perf_counter()
     buildings, streets, water = (wfs_layer(name, tile, log) for name in WFS_LAYERS)
     seconds["wfs"] = time.perf_counter() - t
+    t = time.perf_counter()
+    streets_osm = osm_extract(tile, log)
+    seconds["osm"] = time.perf_counter() - t
     if buildings is None:
         raise NoCoverage(f"{tile.id}: no CityGML LOD2 coverage")
     sources = {
@@ -172,5 +201,6 @@ def gather(tile: C.VisualTile, log=print) -> Inputs:
         "buildings": str(buildings),
         "streets": str(streets) if streets else None,
         "water": str(water) if water else None,
+        "osm": str(streets_osm) if streets_osm else None,
     }
-    return Inputs(points, rgb, buildings, streets, water, sources, seconds)
+    return Inputs(points, rgb, buildings, streets, water, sources, seconds, streets_osm)

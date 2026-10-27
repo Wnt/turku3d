@@ -33,6 +33,7 @@ from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
+from turku3d.roads import build_graph, encode, osm_ways
 
 from .inputs import Inputs, gather
 
@@ -392,7 +393,11 @@ def _write(path: Path, data: bytes) -> None:
 def build(
     tile_id: str, out: Path, *, inputs: Inputs | None = None, library: Path | None = None, log=print
 ) -> dict:
-    """Write ``out/{manifest.json, vis.glb, col/c_i_j.col}``; shared library KTX2 go to out/../shared."""
+    """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
+
+    ``roads.json`` is the tile's OSM street graph (``turku3d.roads`` format, clipped to the tile, every
+    connected piece kept); it is absent without an OSM extract.
+    """
     tile = C.VisualTile.parse(tile_id)
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
@@ -516,7 +521,21 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
+    t = time.perf_counter()
+    roads = None
+    if inputs.osm is not None:
+        graph = build_graph(
+            osm_ways(inputs.osm, tile.bbox),
+            tile.bbox.as_tuple(),
+            f"coarse-{tile.id}",
+            connected=False,
+        )
+        roads = encode(graph)
+    seconds["roads"] = time.perf_counter() - t
+
     _write(out / "vis.glb", vis)
+    if roads is not None:
+        _write(out / "roads.json", roads)
     for cid, data in cols.items():
         _write(out / "col" / f"{cid}.col", data)
     seconds["total"] = time.perf_counter() - started
@@ -541,6 +560,16 @@ def build(
             )
         },
         collision=collision,
+        roads=(
+            _entry(
+                "roads.json",
+                roads,
+                nodes=len(graph["nodes"]) // 2,
+                edges=len(graph["edges"]),
+            )
+            if roads is not None
+            else None
+        ),
         buildings=len(blds),
         bridges=decks,
         water_level=level,

@@ -26,7 +26,9 @@ the player from falling through visible ground:
 of travel along the player's heading plus a one-tile ring (`aheadTiles`; speed from the positions of its 1 s checks,
 a jump above 100 m/s is a teleport). Those tiles are only built (state `built`), not loaded, until they enter the
 window. The service builds four at once, so a car at full speed meets built tiles once their raw data is on disk.
-The HUD badge names the tile underfoot, lists the drafts loaded and counts those still building.
+The HUD badge names the tile underfoot, lists the drafts loaded and counts those still building. A draft's street
+graph (`roads.json`) is fetched with it; `roadGraphs()` returns those of the drafts in the scene and `onMapChange`
+tells the map to re-merge (`gameplay/README.md`, "Draft tiles' streets").
 
 Draft entries then join `manifest.collision`, so `CollisionStreamer` loads them with the normal radius, the walls move
 out with them and `SafeReset`'s playable area grows.

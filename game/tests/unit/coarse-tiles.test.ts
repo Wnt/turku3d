@@ -28,6 +28,7 @@ function fakeService(manifest: Manifest) {
   const polls = new Map<string, number>();
   // t0_1_-1 lacks one collision cell; t0_2_-1 ships .col files the worker cannot decode (first byte 0xff).
   const fragment = (id: string) => ({ coarse: true, tile: id, visual: { [id]: { url: 'vis.glb', sha256: '', bytes: 3, tris: 1, h: [0, 1] } },
+    roads: id === 't0_2_0' ? { url: 'roads.json', bytes: 100 } : null,
     collision: Object.fromEntries(cellsOf(id).slice(id === 't0_1_-1' ? 1 : 0)
       .map(cid => [cid, { url: `col/${cid}.col`, sha256: '', bytes: 4, tris: 2, h: [0, 1] }])) });
   let freshManifest: Manifest | null = null;
@@ -37,6 +38,8 @@ function fakeService(manifest: Manifest) {
     const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
     if (u.pathname === '/coarse/status') return json(200, { state: 'idle' });
     if (u.pathname === '/tiles/manifest.json') return json(200, freshManifest ?? manifest);
+    if (u.pathname === '/coarse/t0_2_0/roads.json') return json(200, { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
+      bbox: [500, 0, 750, 250], nodes: [500, 100, 700, 100], edges: [[0, 1, 3, 200]] });
     const c = /^\/coarse\/(t0_-?\d+_-?\d+)\/col\/c_-?\d+_-?\d+\.col$/.exec(u.pathname);
     if (c) {
       const buffer = Uint8Array.of(c[1] === 't0_2_-1' ? 0xff : 1, 2, 3, 4).buffer;
@@ -84,6 +87,8 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
   const html = (async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('<!doctype'); } })) as unknown as typeof globalThis.fetch;
   expect(await CoarseTiles.start({ ...host, fetch: html })).toBeNull();
   const coarse = (await CoarseTiles.start(host))!;
+  let mapChanges = 0;
+  coarse.onMapChange = () => mapChanges++;
   const parent = new THREE.Group();
   tiles.dispatchEvent({ type: 'load-model', scene: parent, tile: { extras: { id: 't1_1_0' } } });
   const settle = () => new Promise(r => setTimeout(r, 0));
@@ -105,7 +110,11 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
     expect(loadedUrls).not.toContain(`http://127.0.0.1:5171/coarse/${id}/vis.glb`);
     expect(cellsOf(id).filter(cid => manifest.collision[cid])).toEqual([]);
   }
-  expect(coarse.status).toMatch(/^draft tile t0_2_0/);
+  coarse.update(600, 100, 4100); await settle(); // the badge follows at the next 1 s check
+  expect(coarse.status).toBe('draft tile t0_2_0 · drafts t0_0_-1 t0_0_-2 t0_1_-2 t0_2_0 t0_2_1 t0_3_0 t0_3_1');
+  // Its street graph is on the map: one graph (t0_2_0's; the other drafts have none), announced once.
+  expect(coarse.roadGraphs().map(g => g.bbox)).toEqual([[500, 0, 750, 250]]);
+  expect(mapChanges).toBe(1);
   const draft = coarse.entries.get('t0_2_0')!.model!;
   expect(draft.parent).toBe(scene);
   const material = (draft.children[0] as THREE.Mesh).material as THREE.MeshStandardNodeMaterial;
@@ -120,6 +129,9 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
   coarse.update(600, 100, 61_000); await settle(); await settle(); await settle();
   expect(coarse.entries.get('t0_2_0')?.state).toBe('published');
   expect(draft.parent).toBeNull();
+  // The published tile's streets come with the release's graph: the draft's leave the map.
+  expect(coarse.roadGraphs()).toEqual([]);
+  expect(mapChanges).toBeGreaterThanOrEqual(2);
   expect(unloaded).toContain('c_8_0');
   expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/tiles/collision/t0_2_0/c_8_0.col');
   expect(loadedUrls).toContain('http://127.0.0.1:5171/tiles/visual/0/t0_2_0.glb');

@@ -16,6 +16,7 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 import type { Manifest, ManifestEntry } from './manifest';
+import type { RoadGraphJson } from '../gameplay/roadGraph';
 
 const COARSE_ROOT = '/coarse/';
 const POLL_MS = 1000;
@@ -106,10 +107,12 @@ export function parentCovered(parent: string, resident: ReadonlySet<string>): bo
   return [0, 1].every(di => [0, 1].every(dj => resident.has(l0(2 * t.i + di, 2 * t.j + dj))));
 }
 
-interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry> }
+interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+  /** The tile's OSM street graph (absent without an OSM extract). */
+  roads?: { url: string; bytes: number } | null }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'published' | 'failed';
-interface Entry { state: State; model?: THREE.Object3D; collision: string[]; nextPoll: number; error?: string }
+interface Entry { state: State; model?: THREE.Object3D; collision: string[]; nextPoll: number; error?: string; roads?: RoadGraphJson }
 
 export interface CoarseHost {
   scene: THREE.Scene;
@@ -146,6 +149,8 @@ export class CoarseTiles {
   private clock = 0;
   private badge: HTMLDivElement | null = null;
   private last: { x: number; z: number; t: number } | null = null;
+  /** Called when the drafts' street graphs change (a draft arrived or left) and after each 60 s manifest poll. */
+  onMapChange: (() => void) | null = null;
   /** Smoothed ground velocity (m/s) of the player, for the prefetch. */
   velocity = { x: 0, z: 0 };
   private page: string;
@@ -270,6 +275,9 @@ export class CoarseTiles {
         if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: ${buf.byteLength} bytes, manifest ${entry.bytes}`);
         await this.host.checkCollision(buf).catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
       }));
+      const roads = fragment.roads ? await this.fetch(new URL(fragment.roads.url, base).href, { cache: 'no-store' })
+        .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null)
+        .catch((err: Error) => { console.warn(`[coarse] ${id} streets: ${err.message}`); return null; }) : null;
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
       this.host.style?.(model);
@@ -282,6 +290,7 @@ export class CoarseTiles {
       }
       e.state = 'draft';
       this.updateParents();
+      if (roads) { e.roads = roads; this.onMapChange?.(); }
     } catch (err) {
       const rejected = err instanceof DraftRejected;
       // A rejected draft is retried like a failed build: the service may rebuild it with a fixed producer.
@@ -289,6 +298,11 @@ export class CoarseTiles {
       if (rejected) e.error = (err as Error).message;
       console.warn(`[coarse] ${id}: ${(err as Error).message}`);
     }
+  }
+
+  /** Street graphs of the drafts in the scene, for the map and the router (gameplay/index.ts StreetMap). */
+  roadGraphs(): RoadGraphJson[] {
+    return [...this.entries.values()].flatMap(e => e.state === 'draft' && e.roads ? [e.roads] : []);
   }
 
   /** A new release's tileset now renders `published` (world/releaseSwap.ts): drafts and streamed copies of those
@@ -302,6 +316,7 @@ export class CoarseTiles {
       this.entries.delete(id);
     }
     this.updateParents();
+    this.onMapChange?.();
   }
 
   /** Re-read the published manifest; a drafted tile that is published now is swapped for the published one. */
@@ -329,6 +344,7 @@ export class CoarseTiles {
         this.published.add(id);
       }
       this.updateParents();
+      this.onMapChange?.();
     } catch (err) {
       console.warn(`[coarse] manifest refresh: ${(err as Error).message}`);
     }
@@ -338,6 +354,7 @@ export class CoarseTiles {
     if (e.model) { this.host.unstyle?.(e.model); e.model.removeFromParent(); this.dispose(e.model); e.model = undefined; }
     for (const cid of e.collision) { delete this.host.manifest.collision[cid]; this.host.unloadCollision(cid); }
     e.collision = [];
+    if (e.roads) { e.roads = undefined; this.onMapChange?.(); }
     if (e.state === 'draft' || e.state === 'published') e.state = 'pending';
     this.updateParents();
   }

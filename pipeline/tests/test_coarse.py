@@ -19,6 +19,7 @@ from turku3d.col.format import read_col
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import read_glb
 from turku3d.package.seams import verify_tile_seams
+from turku3d.roads import validate
 
 TILE = C.VisualTile(0, 3, -2)
 
@@ -101,7 +102,24 @@ def inputs(tmp_path):
         [{"kplkoodi": "water", "geometry": _box_en(x0 + 180, z0 + 180, x0 + 260, z0 + 260)}],
         tmp_path / "water.parquet",
     )
-    return Inputs(points, ortho, buildings, streets, water, {"synthetic": True}, {})
+    # A street crossing the whole tile west to east (clipped at both edges) and a footway inside it.
+    osm = tmp_path / "osm.parquet"
+    gpd.GeoDataFrame(
+        {
+            "highway": ["residential", "footway"],
+            "tags": [json.dumps({"highway": "residential"}), json.dumps({"highway": "footway"})],
+            "geometry_local": gpd.GeoSeries(
+                [
+                    shapely.LineString(
+                        [(x0 - 30, z0 + 46), (x0 + 125, z0 + 46), (x0 + 280, z0 + 46)]
+                    ),
+                    shapely.LineString([(x0 + 125, z0 + 46), (x0 + 125, z0 + 90)]),
+                ]
+            ),
+        },
+        geometry="geometry_local",
+    ).to_parquet(osm)
+    return Inputs(points, ortho, buildings, streets, water, {"synthetic": True}, {}, osm)
 
 
 def test_coarse_tile_is_a_published_tile(tmp_path, inputs):
@@ -136,6 +154,13 @@ def test_coarse_tile_is_a_published_tile(tmp_path, inputs):
     top = roof.world_positions()[np.unique(roof.indices[roof.materials == mat_id("roof")])][:, 1]
     assert np.allclose(top, 23.0, atol=1e-3)
     assert json.loads((out / "manifest.json").read_text())["code"] == m["code"]
+    # The street graph, clipped to the tile: the street splits at the footway junction; both clip points
+    # lie on the tile edges, where the neighbouring tiles' graphs meet it.
+    graph = json.loads((out / "roads.json").read_bytes())
+    assert m["roads"]["url"] == "roads.json" and m["roads"]["edges"] == len(graph["edges"]) == 3
+    validate(graph)
+    xs = graph["nodes"][0::2]
+    assert min(xs) == TILE.origin[0] and max(xs) == TILE.origin[0] + 250
 
 
 def test_bridge_deck_over_water_is_lifted_to_its_abutments():

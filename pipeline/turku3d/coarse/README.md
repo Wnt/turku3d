@@ -15,14 +15,20 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py
 
 Cached shared raw data first (an area such as `work-3x3` that covers the tile), the read-through fetchers otherwise:
 the `maanpinta` ground key points (tile + 20 m), one 1024 px true-ortho WMS image, and the WFS layers CityGML LOD2
-buildings, street areas (`GIS:Katualueet`) and water (`kanta:Vesikohde`). The first tile in a new direction downloads
+buildings, street areas (`GIS:Katualueet`) and water (`kanta:Vesikohde`), and the OSM extract holding the tile. The first tile in a new direction downloads
 its raw data inside the build (up to a few minutes); warm tiles build in 5–10 s.
 
 ## Output (`build.py`)
 
-`<out>/manifest.json` (format `turku3d-coarse-tile` v1: `visual`, `collision`, `buildings`, `bridges`,
-`water_level`, `sources`, `seconds`, and `code`, the producer hash the service compares), `vis.glb` and
-`col/c_i_j.col` for all 16 collision cells; shared KTX2 textures go to `<out>/../shared/`.
+`<out>/manifest.json` (format `turku3d-coarse-tile` v1: `visual`, `collision`, `roads`, `buildings`, `bridges`,
+`water_level`, `sources`, `seconds`, and `code`, the producer hash the service compares), `vis.glb`,
+`col/c_i_j.col` for all 16 collision cells and `roads.json`; shared KTX2 textures go to `<out>/../shared/`.
+
+- **Streets** (`roads.json`, `manifest.roads` = `{url, sha256, bytes, nodes, edges}`): the tile's OSM street graph
+  in the published format (`turku3d.roads`, `turku3d-roadgraph` v1), clipped to the tile and keeping every
+  connected piece (`build_graph(..., connected=False)`), so the game joins it to its neighbours' graphs at the
+  tile edges. OSM comes from work-3x3 when it holds the tile, else `tile-<id>`, else an osmium clip
+  `coarse-<tile>` of the cached Finland snapshot; without any the draft simply has no streets.
 
 - **Ground**: a 128 x 128 cell grid (~2 m) interpolated from the key points, textured with the ortho. Visual and
   collision use the same vertices, so the drawn ground is the collision ground. Street-area polygons set the

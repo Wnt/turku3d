@@ -2,6 +2,7 @@
 // tools/dev/coarse-tiles service: t0_1_0 east of the dev tiles is a good draft (16 flat .col cells at H 2), t0_0_-1
 // north of them lacks one collision cell, every other cell answers "no coverage". The character walks onto the good
 // draft and stands on it; the rejected draft is never drawn and the edge wall stops the walk north into it at z 0.
+// The good draft's street graph joins the minimap and the router.
 // Screenshots: $TURKU3D_WORK/reports/fix-coarse-collision-and-map/.
 import { expect, installPad, isolatedTest as test, type Page } from './fixtures';
 import { frames, untilSim } from './waits';
@@ -60,8 +61,14 @@ async function routeService(page: Page) {
       files.set(`/coarse/${id}/col/c_${i}_${j}.col`, buf);
       collision[`c_${i}_${j}`] = { url: `col/c_${i}_${j}.col`, sha256: '', bytes: buf.length, tris: 2 * N * N, prims: 0, h: [G, G], flags: 0 };
     }
+    // t0_1_0 carries a street graph: an east-west street at z 30 with a side street south at x 400.
+    const roads = id === 't0_1_0' ? Buffer.from(JSON.stringify({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
+      area: 'coarse-t0_1_0', bbox: [250, 0, 500, 250], nodes: [250, 30, 400, 30, 500, 30, 400, 200],
+      edges: [[0, 1, 19, 150], [1, 2, 19, 100], [1, 3, 19, 170]] })) : null;
+    if (roads) files.set(`/coarse/${id}/roads.json`, roads);
     fragments.set(id, { format: 'turku3d-coarse-tile', version: 1, coarse: true, tile: id,
-      visual: { [id]: { url: 'vis.glb', sha256: '', bytes: d.glb.length, level: 0, tris: 2, h: [G, G], coarse: true } }, collision });
+      visual: { [id]: { url: 'vis.glb', sha256: '', bytes: d.glb.length, level: 0, tris: 2, h: [G, G], coarse: true } }, collision,
+      roads: roads && { url: 'roads.json', sha256: '', bytes: roads.length, nodes: 4, edges: 3 } });
   }
   await page.route(/\/coarse\//, route => {
     const url = new URL(route.request().url());
@@ -124,5 +131,13 @@ test('a draft tile with collision is drawn and stood on; one without full collis
   await page.evaluate(() => { (window as any).__game.orbit.yaw = Math.PI / 2; });
   await frames(page, 30);
   await shot(page, '02-standing-on-draft');
+
+  // The draft's streets joined the map (the dev tiles publish none) and the router routes on them.
+  await untilSim(page, () => (window as any).__game.minimap.snapshot().streets === 3, null, 5);
+  const route = await page.evaluate(() => (window as any).__game.router.route({ x: 260, z: 35 }, { x: 405, z: 190 }));
+  expect(route.map((p: { x: number; z: number }) => [Math.round(p.x), Math.round(p.z)])).toEqual([[260, 30], [400, 30], [400, 190]]);
+  await page.evaluate(() => (window as any).__game.minimap.toggleExpanded());
+  await frames(page, 10);
+  await shot(page, '03-map-with-draft-streets');
   expect(errors).toEqual([]);
 });

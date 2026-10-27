@@ -3,7 +3,7 @@
     GET /coarse/status                      queue, current build, built tiles and their timings
     GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 and the tile is queued,
                                             nearest first by the player distance d (latest wins)
-    GET /coarse/<tile>/vis.glb | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
+    GET /coarse/<tile>/vis.glb | roads.json | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
 
 Tiles not re-requested for STALE_SECONDS leave the queue (the player moved on). The game asks for
 the cells ahead of a moving player as well (prefetch), so up to WORKERS builds run at once, each in
@@ -33,7 +33,7 @@ from turku3d import config as C
 from .build import code_hash
 
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
-FILE = re.compile(r"^(vis\.glb|manifest\.json|col/c_-?\d+_-?\d+\.col)$")
+FILE = re.compile(r"^(vis\.glb|manifest\.json|roads\.json|col/c_-?\d+_-?\d+\.col)$")
 SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
 RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried after this

@@ -13,6 +13,8 @@ export const REROUTE_M = 5;
 const SIZE = 240;
 const SPAN_M = { foot: 200, car: 320, expanded: 650 };
 const STATIC_PX_PER_M = 3;
+/** The static street layer stays within this many pixels a side; a city-wide graph gets fewer pixels per metre. */
+const STATIC_MAX_PX = 6000;
 const STATIC_PAD_M = 60;
 // Road widths in metres on the static layer, by class path, service, street, major.
 const ROAD_WIDTH = [1.8, 4, 6, 8];
@@ -80,7 +82,8 @@ export class Minimap {
   private readonly message = document.createElement('div');
   private readonly timer = document.createElement('span');
   private readonly money = document.createElement('span');
-  private readonly streets: HTMLCanvasElement | null;
+  private streets: HTMLCanvasElement | null;
+  private pxPerM = STATIC_PX_PER_M;
   private state: MissionHudState = EMPTY_HUD_STATE;
   private unsubscribe = () => {};
   private dirty = true;
@@ -88,7 +91,7 @@ export class Minimap {
   private cssSize = 0;
   private area: PlayableArea | null = null;
 
-  constructor(parent: HTMLElement, private readonly graph: RoadGraph, router: Router) {
+  constructor(parent: HTMLElement, private graph: RoadGraph, router: Router) {
     this.routes = new RouteTracker(router);
     this.element.id = 'minimap';
     const status = document.createElement('div');
@@ -110,6 +113,13 @@ export class Minimap {
   setSource(source: MissionHudSource) {
     this.unsubscribe();
     this.unsubscribe = source.subscribe(state => this.setState(state));
+  }
+
+  /** Draws `graph` from now on (draft tiles' streets joined the map; gameplay/index.ts StreetMap). */
+  setGraph(graph: RoadGraph) {
+    this.graph = graph;
+    this.streets = this.renderStreets();
+    this.dirty = true;
   }
 
   /** Shades everything outside the built area and outlines its edge. */
@@ -168,10 +178,11 @@ export class Minimap {
     const [x0, z0, x1, z1] = this.graph.bbox;
     if (!this.graph.edges.length) return null;
     const layer = document.createElement('canvas');
-    layer.width = Math.ceil((x1 - x0 + 2 * STATIC_PAD_M) * STATIC_PX_PER_M);
-    layer.height = Math.ceil((z1 - z0 + 2 * STATIC_PAD_M) * STATIC_PX_PER_M);
+    this.pxPerM = Math.min(STATIC_PX_PER_M, STATIC_MAX_PX / (Math.max(x1 - x0, z1 - z0) + 2 * STATIC_PAD_M));
+    layer.width = Math.ceil((x1 - x0 + 2 * STATIC_PAD_M) * this.pxPerM);
+    layer.height = Math.ceil((z1 - z0 + 2 * STATIC_PAD_M) * this.pxPerM);
     const ctx = layer.getContext('2d')!;
-    ctx.scale(STATIC_PX_PER_M, STATIC_PX_PER_M);
+    ctx.scale(this.pxPerM, this.pxPerM);
     ctx.translate(STATIC_PAD_M - x0, STATIC_PAD_M - z0);
     ctx.lineCap = ctx.lineJoin = 'round';
     for (let cls = 0; cls < 4; cls++) {
@@ -231,7 +242,7 @@ export class Minimap {
     if (this.streets) {
       const [x0, z0] = this.graph.bbox;
       ctx.drawImage(this.streets, x0 - STATIC_PAD_M, z0 - STATIC_PAD_M,
-        this.streets.width / STATIC_PX_PER_M, this.streets.height / STATIC_PX_PER_M);
+        this.streets.width / this.pxPerM, this.streets.height / this.pxPerM);
     }
     if (this.area) this.drawArea(this.area, view, span / Math.SQRT1_2 / 2, k);
     const route = this.routes.route;

@@ -122,7 +122,7 @@ To run them on the published tiles without building tiles, add `TILE_DIST=$TURKU
 `main.ts` (play mode) creates both pieces after the manifest and assets load:
 
 ```ts
-const { router, minimap, area } = await createGameplay(manifest, document.body);
+const { router, minimap, area, streets } = await createGameplay(manifest, document.body);
 const missions = new MissionSystem({ router, storage });
 minimap.setSource(missions);   // any MissionHudSource; emptyHudSource shows no targets
 ```
@@ -141,6 +141,14 @@ from the OSM snapshot; `make refresh` keeps it current and `make tile-build` pub
 with the tiles. `roadGraph.ts` loads and decodes it; a manifest without `roads` (the synthetic dev
 tiles) gives an empty graph, so the minimap draws no streets and every route is null.
 
+**Draft tiles' streets** (localhost, `world/coarseTiles.ts`): each draft carries its own OSM graph (`roads.json`
+from `pipeline/turku3d/coarse`, clipped to the 250 m tile, every piece kept). `StreetMap.update(drafts)`
+(`index.ts`) merges the published graph with the drafts' (`mergeRoadGraphs`: nodes merge by coordinate at 0.1 m,
+so streets join where they cross a tile edge; an edge two parts both carry is kept once) and hands the result to
+`StreetRouter.setGraph` and `Minimap.setGraph`. `play.ts` calls it from `CoarseTiles.onMapChange`: when a draft with
+streets arrives or leaves, on a release swap, and after every 60 s manifest poll; the published graph is fetched
+again when `manifest.roads` changed. The router routes onto draft streets as soon as they are on the map.
+
 ### Router (`router.ts`)
 
 `StreetRouter` implements the contract `Router`. `snap()` projects a point onto the nearest
@@ -154,7 +162,8 @@ check on the published graph (1,015 edges) takes 0.3 ms.
 ### Minimap (`minimap.ts`)
 
 A 240 × 240 CSS px rounded canvas at the bottom left, sized by `devicePixelRatio`. All streets
-are drawn once into an offscreen layer (3 px/m, road width by class); each redraw only rotates
+are drawn once into an offscreen layer (3 px/m, fewer when the merged graph is wider than 6,000 px at that
+scale; road width by class), again when the graph changes (`setGraph`); each redraw only rotates
 and scales that layer, then draws the route, markers (`KIND_COLOURS` per `TargetKind`, clamped to
 the rim when off the map, the active one ringed) and the player arrow. It redraws only when the
 view, the HUD state or the size changed. `RouteTracker` re-plans when the active target or travel

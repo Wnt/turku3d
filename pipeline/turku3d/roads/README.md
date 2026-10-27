@@ -46,6 +46,9 @@ An edge row holds its end node indices, flag bits, polyline length and interior 
 `access=no|private`, `area=yes` and indoor ways (corridors) are excluded; `foot=no` and
 `motor_vehicle`/`motorcar`/`vehicle=no` clear the mode; `junction=roundabout` implies oneway.
 
+Draft tiles (`turku3d.coarse`) reuse `osm_ways` and `build_graph(..., connected=False)` to emit one graph per
+250 m tile that keeps every piece; the game merges them with the published graph.
+
 ## Publication
 
 The assembler (`turku3d.package.assemble`) copies the verified graph to the content-addressed
