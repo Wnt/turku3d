@@ -223,7 +223,19 @@ def call_cache() -> Path:
     return config.data_root() / "textures/codex-cache"
 
 
-def describe(run: Path, inventory: Path, refs: Path, parallel: int, max_pct: float) -> dict:
+def describe(
+    run: Path,
+    inventory: Path,
+    refs: Path,
+    parallel: int,
+    max_pct: float,
+    engine: str = "astra",
+    segmentation: str = "classic",
+) -> dict:
+    if engine == "cv":
+        from .facade_cv import describe as describe_cv
+
+        return describe_cv(run, inventory, refs, segmentation=segmentation)
     from .building_jobs import latest
     from .codex.runner import Runner, load_jobs
     from .codex.usage import used_percent
@@ -296,6 +308,7 @@ def descriptions(run: Path, facades, attributes: dict) -> dict[str, dict]:
                 "source": "reference",
                 "description": answer,
                 "reference": record["meta"]["reference"],
+                **({"cv": record["meta"]["cv"]} if "cv" in record["meta"] else {}),
                 "call": {
                     "model": record["model"],
                     "effort": record["effort"],
@@ -591,6 +604,8 @@ def main(argv=None) -> int:
         if name == "describe":
             p.add_argument("-j", type=int, default=8)
             p.add_argument("--max-pct", type=float, default=90)
+            p.add_argument("--engine", choices=("astra", "cv"), default="astra")
+            p.add_argument("--segmentation", choices=("classic", "segformer"), default="classic")
         if name in ("render", "publish", "contact"):
             p.add_argument("--staging", type=Path, required=True)
         if name == "render":
@@ -613,7 +628,7 @@ def main(argv=None) -> int:
         result = {"walls": len(facades), "errors": errors, "seconds": round(time.time() - start, 1)}
         write_json(a.run / "refs.json", result)
     elif a.command == "describe":
-        result = describe(a.run, a.inventory, a.refs, a.j, a.max_pct)
+        result = describe(a.run, a.inventory, a.refs, a.j, a.max_pct, a.engine, a.segmentation)
         result = {k: v for k, v in result.items() if k != "no_reference"} | {
             "no_reference": len(result["no_reference"])
         }
