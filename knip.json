@@ -61,6 +61,7 @@
     },
     "qa/render": {
       "entry": [
+        "kupittaa.mjs",
         "test/**/*.mjs"
       ],
       "project": [
