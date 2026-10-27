@@ -158,8 +158,8 @@ source ../sandbox.env
 A="$TURKU3D_DATA/facade-approvals/assembly"; R="$TURKU3D_WORK/textures/fast/t0_0_0"; PY=textures/.venv/bin/python
 COMMON=(--run "$R" --inventory "$A/APPROVED_INVENTORY.geojson")
 $PY -m turkutex.facade_fast plan "${COMMON[@]}" --assembly "$A" --tiles t0_0_0   # or --walls ID,ID
-$PY -m turkutex.facade_fast refs "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/refs"
-$PY -m turkutex.facade_fast describe "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/refs" -j 8
+$PY -m turkutex.facade_fast refs "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/fast-refs"
+$PY -m turkutex.facade_fast describe "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/fast-refs" -j 8
 $PY -m turkutex.facade_fast render "${COMMON[@]}" --staging "$R/staging" --wfs "$TURKU3D_DATA/raw/wfs/work-3x3"
 $PY -m turkutex.facade_fast contact "${COMMON[@]}" --staging "$R/staging" --assembly "$A" --output SHEET.jpg
 $PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --assembly "$A"
@@ -170,6 +170,10 @@ $PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --asse
   (`building`), else a description from the building register's facade material, era and storeys
   (`register`, no call). Implausible counts (storeys outside 2.4–5.5 m, window spacing outside
   0.9–8 m) are replaced by ones from the wall size.
+- **References** are rendered at lower resolution than the rollout's (Google zoom 3, Look Around
+  zoom 2, 768 px crops, at most two views), so keep them in their own directory (`fast-refs`): the
+  reference key includes these parameters. The usual black and sharpness screen applies; small
+  walls fail it more often at this resolution and take a fallback description.
 - **Calls are cached** in `$TURKU3D_DATA/textures/codex-cache` by prompt and crop hash, so a rerun
   in any sandbox makes no new call; the runner stops below `--max-pct` (default 90).
 - **Maps** are 16 px/m (the top of the packager's density ladder) with `min_pixels_per_metre` 0,

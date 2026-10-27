@@ -35,6 +35,9 @@ from .streetview.facades import load_facades
 PPM = 16  # the top of the packager's density ladder (pipeline/turku3d/package/facades.py)
 MAX_SIDE = 2048
 CROP_SIDE = 768  # long side of the crop the vision call sees
+# Panorama resolution for the fast pass: Google zoom 3 and Look Around zoom 2 are about 4k px
+# equirects, plenty for a 768 px crop, and decode about 16 times faster than the rollout's.
+GOOGLE_ZOOM, LOOKAROUND_ZOOM = 3, 2
 ENCODINGS = {"albedo": ("etc1s", False), "orm": ("etc1s", True), "normal": ("uastc-normal", True)}
 MAP_KINDS = ("albedo", "normal", "orm")
 PROMPT_VERSION = "facade-fast-describe-v1"
@@ -133,7 +136,9 @@ def make_refs(facades, refs: Path, sources: tuple[str, ...], workers: int, max_v
     from .streetview.refs import SelectParams, facade_refs
 
     cache = PanoCache()
-    params = SelectParams(max_views=max_views)
+    params = SelectParams(
+        max_views=max_views, zoom=GOOGLE_ZOOM, la_zoom=LOOKAROUND_ZOOM, long_side=CROP_SIDE
+    )
     errors = {}
     with cf.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(facade_refs, cache, f, refs, params, sources): f for f in facades}

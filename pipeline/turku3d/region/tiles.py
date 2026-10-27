@@ -208,7 +208,7 @@ def fast_facades(tile_id: str, work: Path, log) -> dict:
     one cached vision call per wall, procedural maps bound in the sandbox's facade assembly."""
     assembly = work / "textures/assembly"
     run, common = fast_run(tile_id, work)
-    refs = ["--refs", str(work / "textures/refs")]
+    refs = ["--refs", str(work / "textures/fast-refs")]
     staging = ["--staging", str(run / "staging")]
     wfs = C.raw_dir("wfs") / C.source_area(tile_id)
     result = {

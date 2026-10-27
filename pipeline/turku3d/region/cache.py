@@ -14,28 +14,52 @@ from pathlib import Path
 
 from turku3d import config as C
 
-_THREAD_LOCK = threading.RLock()
 _DEPTH = threading.local()
+# The size limit walks the whole cache tree (tens of thousands of files, seconds under load)
+# under the exclusive cache lock, so a process enforces it at most this often, not per call.
+ENFORCE_INTERVAL_S = 300.0
+_LAST_ENFORCED: dict[Path, float] = {}
 
 
 def synchronized(method):
-    """Serialize cache readers/writers across processes; allow nested pano operations."""
+    """Cache readers and downloaders share the cache lock across threads and processes; only
+    eviction takes it exclusively. Building one key twice at once is prevented per key by the
+    caller (build_lock) and publication is atomic (atomic_target)."""
 
     @wraps(method)
     def wrapped(self, *args, **kwargs):
-        with _THREAD_LOCK:
-            depth = getattr(_DEPTH, "value", 0)
-            if depth:
-                return method(self, *args, **kwargs)
-            with cache_lock(self.root):
-                _DEPTH.value = depth + 1
-                try:
-                    return method(self, *args, **kwargs)
-                finally:
-                    _DEPTH.value = depth
-                    _enforce_limit(self.root, cache_limit())
+        if getattr(_DEPTH, "value", 0):
+            return method(self, *args, **kwargs)
+        with cache_lock(self.root, shared=True):
+            _DEPTH.value = 1
+            try:
+                result = method(self, *args, **kwargs)
+            finally:
+                _DEPTH.value = 0
+        if _enforce_due(self.root):
+            _try_enforce(self.root)
+        return result
 
     return wrapped
+
+
+def _enforce_due(root: Path) -> bool:
+    now = time.monotonic()
+    if now - _LAST_ENFORCED.get(root, -ENFORCE_INTERVAL_S) < ENFORCE_INTERVAL_S:
+        return False
+    _LAST_ENFORCED[root] = now
+    return True
+
+
+def _try_enforce(root: Path):
+    """Evict to the size limit when no reader holds the cache; otherwise retry next interval.
+    The cache can exceed the limit by what is downloaded in between."""
+    with (root / ".cache.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        _enforce_limit(root, cache_limit())
 
 
 def cache_root():
@@ -43,19 +67,26 @@ def cache_root():
 
 
 @contextmanager
-def cache_lock(root: Path, key: str | None = None):
+def cache_lock(root: Path, key: str | None = None, shared: bool = False):
     root.mkdir(parents=True, exist_ok=True)
     name = ".cache.lock" if key is None else f".lock-{hashlib.sha256(key.encode()).hexdigest()}"
     with (root / name).open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
         yield
+
+
+def build_lock(root: Path, path: Path):
+    """Exclusive per-key lock for building one cache entry (distinct from atomic_target's
+    publication lock on the same key, which is taken inside it)."""
+    return cache_lock(root, f"build:{path.relative_to(root)}")
 
 
 @contextmanager
 def atomic_target(path: Path, root: Path | None = None):
     """Publish a complete download, keeping the final image suffix for encoders."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.stem}.{os.getpid()}.part{path.suffix}")
+    writer = f"{os.getpid()}.{threading.get_ident()}"
+    temp = path.with_name(f".{path.stem}.{writer}.part{path.suffix}")
     try:
         yield temp
         if root is None:
@@ -69,7 +100,7 @@ def atomic_target(path: Path, root: Path | None = None):
                 if not blob.exists():
                     os.link(temp, blob)
                 temp.unlink()
-                link = path.with_name(f".{path.name}.{os.getpid()}.link")
+                link = path.with_name(f".{path.name}.{writer}.link")
                 try:
                     os.link(blob, link)
                     os.replace(link, path)

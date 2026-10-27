@@ -124,6 +124,28 @@ def test_shared_cache_content_hash_and_lru(tmp_path):
     assert len(list((root / ".objects").iterdir())) == 1
 
 
+def test_cache_calls_scan_for_the_limit_at_most_once_per_interval(tmp_path, monkeypatch):
+    from turku3d.region import cache
+
+    scans = []
+    monkeypatch.setattr(cache, "_enforce_limit", lambda root, limit: scans.append(root))
+    monkeypatch.setattr(cache, "_LAST_ENFORCED", {})
+
+    class Panos:
+        root = tmp_path / "shared"
+
+        @cache.synchronized
+        def read(self):
+            return 1
+
+    panos = Panos()
+    assert [panos.read() for _ in range(3)] == [1, 1, 1]
+    assert scans == [panos.root]
+    monkeypatch.setitem(cache._LAST_ENFORCED, panos.root, -2 * cache.ENFORCE_INTERVAL_S)
+    panos.read()
+    assert len(scans) == 2
+
+
 def test_import_preserves_metadata_and_source(tmp_path):
     old, shared = tmp_path / "old", tmp_path / "shared"
     (old / "google/a").mkdir(parents=True)
