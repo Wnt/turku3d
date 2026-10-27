@@ -29,6 +29,20 @@ class Mesh:
             self.material.astype(np.uint8),
         )
 
+    def canonical(self):
+        """Compact with vertices in coordinate order and triangles in index order.
+
+        Equal geometry then gives equal bytes, whichever envelope a tile was cut from."""
+        mesh = self.compact()
+        order = np.lexsort(mesh.positions.T[::-1])
+        rank = np.empty(len(order), np.uint32)
+        rank[order] = np.arange(len(order), dtype=np.uint32)
+        faces = rank[mesh.indices]
+        # Rotate each triangle to start at its lowest index; the winding is kept.
+        faces = np.take_along_axis(faces, (faces.argmin(axis=1)[:, None] + np.arange(3)) % 3, 1)
+        rows = np.lexsort((faces[:, 2], faces[:, 1], faces[:, 0], mesh.material))
+        return Mesh(mesh.positions[order], faces[rows], mesh.material[rows])
+
     def save(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
@@ -282,7 +296,7 @@ def tile_mesh(mesh, tile):
         & (centers[:, 2] >= b.zmin)
         & (centers[:, 2] < b.zmax)
     )
-    return Mesh(mesh.positions, mesh.indices[inside], mesh.material[inside]).compact()
+    return Mesh(mesh.positions, mesh.indices[inside], mesh.material[inside]).canonical()
 
 
 def seam_errors(meshes):

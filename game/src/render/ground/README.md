@@ -86,7 +86,7 @@ The assembler reports and enforces L0 geometry plus ground-map wire bytes agains
 ```sh
 source ../sandbox.env
 PYTHONPATH=textures:pipeline bash pipeline/env/run.sh python -m turkutex.ground.build \
-  --splats-only --ground-layer "$TURKU3D_DATA/build/layers/ground"
+  --ground-layer "$TURKU3D_DATA/build/layers/ground"
 bash pipeline/env/run.sh python -m turku3d.package.assemble \
   --layers "$TURKU3D_DATA/build/layers" --tile t0_0_0 t0_0_1 t0_1_0 t0_1_1
 node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/dist" --port 5314 --no-compress

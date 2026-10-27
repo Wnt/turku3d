@@ -27,10 +27,19 @@ BRIDGE = Path(__file__).with_name("visual.mjs")
 HEADROOM_BYTES = 7_600_000
 
 
+def _portable(path: Path) -> str:
+    """A path relative to the sandbox, data root or repo, so seeded copies share cache keys."""
+    resolved = path.resolve()
+    for base in (C.work_root(), C.data_root(), C.REPO_ROOT):
+        if resolved.is_relative_to(base.resolve()):
+            return str(resolved.relative_to(base.resolve()))
+    return str(resolved)
+
+
 def digest(files: list[Path], extra=None) -> str:
     h = hashlib.sha256(json.dumps(extra, sort_keys=True).encode())
-    for p in sorted(set(files)):
-        h.update(str(p).encode())
+    for p in sorted(set(files), key=_portable):
+        h.update(_portable(p).encode())
         h.update(p.read_bytes())
     return h.hexdigest()
 
@@ -503,15 +512,22 @@ def assemble(
         ]
     )
     code = digest(code_files)
+    # Shared maps only; a tile's own ground maps enter its key through its binding.
     textures = [
         p
-        for d in (library, facades, ground, ground.parent / "library")
+        for d in (library, facades, ground.parent / "library")
         if d.exists()
         for p in d.rglob("*")
         if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
     ]
     texture_hash = digest(textures)
+    layer_ids = {
+        name: [m.get("code"), m["params"].get("seams")]
+        for name, m in manifests.items()
+        if name != "roads"
+    }
     available = set(tree.collision)
+    published_cells = set()
     for t in requested:
         for c in C.collision_tiles_for_bbox(t.bbox.buffered(C.MESH_MARGIN)):
             if c.visual_parent() in area_visuals and c.visual_parent() not in requested:
@@ -519,6 +535,7 @@ def assemble(
             available.discard(c.id)
             if any(c.id in v for v in collision.values()):
                 available.add(c.id)
+                published_cells.add(c)
     changed, pending_inputs, pending_collision, keys = [], {}, {}, {}
     coarse_ids, points_cache = set(), {}
     tree_valid = (out / "manifest.json").exists() and not verify_tree(out)
@@ -537,14 +554,26 @@ def assemble(
             terrain = coarse.discover(tile) if tile.level > 0 or tile in coarse_leaves else None
             if tile in coarse_leaves and not inputs and not terrain:
                 continue  # Nothing to show there: no massing and no terrain coverage.
-            # The road graph and the address pool are published beside the tiles and do not change their content.
-            files = inputs + [
-                root / name / "MANIFEST.json" for name in manifests if name != "roads"
-            ]
-            files += osm_sources()
+            # A tile's key covers its own layer files, never another tile's: adding a tile
+            # leaves its neighbours' packed visuals cached. Collision is keyed per tile below.
+            files = inputs + osm_sources()
             if terrain:
                 files += terrain["files"]
-            key = digest(files, [code, texture_hash, bindings, tile.id, sorted(available), area])
+            role = (
+                "coarse" if tile in coarse_leaves else "playable" if tile in requested else "parent"
+            )
+            key = digest(
+                files,
+                [
+                    code,
+                    texture_hash,
+                    bindings,
+                    tile.id,
+                    role,
+                    layer_ids,
+                    ground_bindings.get(tile.id),
+                ],
+            )
             keys[tile.id] = key
             if (
                 cache.get(tile.id) == key
@@ -559,23 +588,23 @@ def assemble(
                 coarse_ids.add(tile.id)
             pending_inputs[tile] = inputs
             changed.append(tile.id)
-            if tile.level == 0 and tile not in coarse_leaves:
-                for c in tile.collision_tiles():
-                    if c.id in available:
-                        pending_collision[c] = collision_tile(
-                            c, collision, manifests, available, dynamic_traffic=True
-                        )
-        # The ground layer covers the meshing margin too. Publish its adjacent
-        # collision tiles so bridges crossing an L0 edge have a supported shore.
-        for tile in requested:
-            for c in C.collision_tiles_for_bbox(tile.bbox.buffered(C.MESH_MARGIN)):
-                if c.visual_parent() in area_visuals and c.visual_parent() not in requested:
-                    continue
-                if c.id in available and c not in pending_collision:
-                    pending_collision[c] = collision_tile(
-                        c, collision, manifests, available, dynamic_traffic=True
-                    )
-        if not changed:
+        # Every listed tile's collision tiles, and the meshing margin the ground layer covers
+        # too, so bridges crossing an L0 edge have a supported shore. Each collision tile is
+        # rebuilt only when one of its layer files changed; border flags are refreshed below.
+        for c in sorted(published_cells, key=lambda c: c.id):
+            files = {
+                name: m["tiles"][f"{c.id}.col.npz"]["sha256"]
+                for name, m in manifests.items()
+                if f"{c.id}.col.npz" in m["tiles"]
+            }
+            key = digest([], [code, c.id, files, layer_ids])
+            keys[f"collision:{c.id}"] = key
+            if cache.get(f"collision:{c.id}") == key and c.id in tree.collision and tree_valid:
+                continue
+            pending_collision[c] = collision_tile(
+                c, collision, manifests, available, dynamic_traffic=True
+            )
+        if not changed and not pending_collision and not set(tree.collision) - available:
             if roads_changed:
                 tree.commit(code=git_sha())
             return {
@@ -584,15 +613,19 @@ def assemble(
                 "facades_bound": len(bindings),
                 "manifest": str(out / "manifest.json"),
             }
-        pending_visual = visual_tiles(
-            pending_inputs,
-            stage,
-            library,
-            facades,
-            out.parent / ".texture-cache",
-            coarse_ids,
-            bindings,
-            ground_bindings,
+        pending_visual = (
+            visual_tiles(
+                pending_inputs,
+                stage,
+                library,
+                facades,
+                out.parent / ".texture-cache",
+                coarse_ids,
+                bindings,
+                ground_bindings,
+            )
+            if pending_inputs
+            else {}
         )
         budget_before = {
             tile.id: stats["brotli_bytes"]

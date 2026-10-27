@@ -388,7 +388,11 @@ def test_layer_cache_noop_and_missing_tile_repair(monkeypatch, tmp_path):
     monkeypatch.setattr(
         builder,
         "evaluate_ground",
-        lambda *args: {"passed": False, "checks": {"coverage": False}, "metrics": {}},
+        lambda *args: {
+            "passed": False,
+            "checks": {"coverage": False},
+            "metrics": {"coverage": {"open_cells": 10, "occupied_fraction": 0.5}},
+        },
     )
 
     def report(data, directory):
@@ -636,3 +640,117 @@ def test_plain_ground_acceptance_rejects_interior_hole(built_mesh):
     broken = evaluate_ground(meshes, accepted, water, shapely.Polygon(), bounds)
     assert not broken["checks"]["holes"]
     assert broken["metrics"]["mesh"]["interior_open_edges"] == 3
+
+
+def test_tiles_meshed_in_different_envelopes_are_byte_identical():
+    """Per-tile ground: a collision tile depends only on samples inside it, not on the envelope."""
+    rng = np.random.default_rng(3)
+    xz = rng.uniform([-25, -25], [275, 87.5], (12000, 2))
+    y = 0.3 * np.sin(xz[:, 0] / 9) + 0.2 * np.cos(xz[:, 1] / 7) + rng.normal(0, 0.004, len(xz))
+    cloud = np.c_[xz[:, 0], y, xz[:, 1]]
+
+    def build(columns):
+        cells = [C.CollisionTile(i, 0) for i in columns]
+        bounds = C.BBoxLocal(columns[0] * 62.5 - 20, -20, (columns[-1] + 1) * 62.5 + 20, 82.5)
+        inside = (
+            (cloud[:, 0] >= bounds.xmin)
+            & (cloud[:, 0] <= bounds.xmax)
+            & (cloud[:, 2] >= bounds.zmin)
+            & (cloud[:, 2] <= bounds.zmax)
+        )
+        mesh, _ = build_mesh(
+            Surface(cloud[inside]),
+            bounds,
+            cells,
+            [],
+            shapely.Polygon(),
+            0,
+            ConstantMaterials(),
+            tolerance=0.02,
+        )
+        return {c: tile_mesh(mesh, c) for c in cells}
+
+    left, right = build([0, 1, 2]), build([1, 2, 3])
+    for cell in (C.CollisionTile(1, 0), C.CollisionTile(2, 0)):
+        for field in ("positions", "indices", "material"):
+            assert getattr(left[cell], field).tobytes() == getattr(right[cell], field).tobytes()
+    mixed = {C.CollisionTile(0, 0): left[C.CollisionTile(0, 0)]}
+    mixed |= {c: right[c] for c in (C.CollisionTile(1, 0), C.CollisionTile(3, 0))}
+    mixed[C.CollisionTile(2, 0)] = left[C.CollisionTile(2, 0)]
+    assert seam_errors(mixed) == []
+
+
+def test_adding_a_tile_builds_only_that_tile(monkeypatch, tmp_path):
+    import json
+    from argparse import Namespace
+
+    from turku3d.ground import build as builder
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
+    ortho = tmp_path / "source.vrt"
+    ortho.write_text("<VRTDataset/>")
+    source = tmp_path / "source.laz"
+    source.write_bytes(b"synthetic source identity")
+    monkeypatch.setattr(builder, "source_paths", lambda *args: {"ortho": ortho, "lidar": source})
+    x, z = np.meshgrid(np.arange(8.0), np.arange(8.0))
+    cloud = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
+    monkeypatch.setattr(
+        builder, "read_lidar", lambda *args: (cloud, np.full(len(cloud), 2), np.zeros(30))
+    )
+    monkeypatch.setattr(
+        builder,
+        "vectors",
+        lambda *args: ([], shapely.Polygon(), shapely.Polygon(), shapely.Polygon(), None, []),
+    )
+    monkeypatch.setattr(builder, "Materials", lambda *args: ConstantMaterials())
+    built = []
+
+    def fake_cdt(surface, bounds, cells, *args, **kwargs):
+        built.append(bounds)
+        p, f = [], []
+        for cell in cells:
+            b = cell.bbox
+            start = len(p)
+            p.extend(
+                [[b.xmin, 0, b.zmin], [b.xmax, 0, b.zmin], [b.xmax, 0, b.zmax], [b.xmin, 0, b.zmax]]
+            )
+            f.extend([[start, start + 2, start + 1], [start, start + 3, start + 2]])
+        return Mesh(
+            np.array(p, np.float64),
+            np.array(f, np.uint32),
+            np.full(len(f), mat_id("road"), np.uint8),
+        ), {}
+
+    monkeypatch.setattr(builder, "build_mesh", fake_cdt)
+    monkeypatch.setattr(
+        builder,
+        "evaluate_ground",
+        # One tile alone is below 95 % observed; coverage is checked over all listed tiles.
+        lambda meshes, accepted, water, buildings, bounds, *rest: {
+            "passed": bounds.xmin > 0,
+            "checks": {"coverage": bounds.xmin > 0},
+            "metrics": {
+                "coverage": {"open_cells": 100, "occupied_fraction": 0.99 if bounds.xmin else 0.94}
+            },
+        },
+    )
+    monkeypatch.setattr(builder, "write_report", lambda *args: None)
+    output = tmp_path / "build/layers/ground"
+    assert builder.run(Namespace(tiles=["t0_0_0"], source_area="fixture", water_level=None)) == 2
+    assert len(built) == 1
+    # The east margin of t0_0_0 lies in unlisted t0_1_0 and ships from t0_0_0's build.
+    assert (output / "c_4_0.col.npz").exists() and not (output / "t0_1_0.vis.glb").exists()
+    before = {p.name: p.stat().st_mtime_ns for p in output.iterdir()}
+    args = Namespace(tiles=["t0_0_0", "t0_1_0"], source_area="fixture", water_level=None)
+    assert builder.run(args) == 0  # 96.5 % observed over both tiles
+    assert len(built) == 2  # Only the new tile is meshed.
+    after = {p.name: p.stat().st_mtime_ns for p in output.iterdir()}
+    for name in ("t0_0_0.vis.glb", "c_0_0.col.npz", "c_3_3.col.npz", "c_-1_0.col.npz"):
+        assert after[name] == before[name]
+    assert (output / "t0_1_0.vis.glb").exists() and (output / "c_8_0.col.npz").exists()
+    manifest = json.loads((output / "MANIFEST.json").read_text())
+    assert set(manifest["tile_builds"]) == {"t0_0_0", "t0_1_0"}
+    assert manifest["params"]["visual_tiles"] == ["t0_0_0", "t0_1_0"]
+    assert builder.owners([C.VisualTile(0, 0, 0), C.VisualTile(0, 1, 0)])[
+        "c_4_0.col.npz"
+    ] == C.VisualTile(0, 1, 0)
