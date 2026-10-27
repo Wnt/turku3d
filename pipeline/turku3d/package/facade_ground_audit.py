@@ -29,12 +29,14 @@ def ground_height(ground, x, z, cache):
     hits = np.flatnonzero(valid & (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6))
     if not len(hits):
         raise ValueError(f"No ground triangle at ({x:.2f}, {z:.2f})")
-    i = hits[0]
-    return float(
-        triangles[i, 0, 1]
-        + u[i] * (triangles[i, 1, 1] - triangles[i, 0, 1])
-        + v[i] * (triangles[i, 2, 1] - triangles[i, 0, 1])
+    heights = (
+        triangles[hits, 0, 1]
+        + u[hits] * (triangles[hits, 1, 1] - triangles[hits, 0, 1])
+        + v[hits] * (triangles[hits, 2, 1] - triangles[hits, 0, 1])
     )
+    # Over the river the collision tile stacks the water surface on a synthetic bed 3 m
+    # below it; the ground a wall stands on is the top surface, whatever the triangle order.
+    return float(heights.max())
 
 
 def audit(work, radius=None, tolerance=0.3):
