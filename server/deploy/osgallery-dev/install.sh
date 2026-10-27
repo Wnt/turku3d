@@ -8,6 +8,8 @@ bin_dir="$HOME/turku3d-mp/bin"
 config_dir="$HOME/.config/turku3d"
 unit_dir="$HOME/.config/systemd/user"
 unit_source="$repo_dir/server/deploy/osgallery-dev"
+token_source_host="${TOKEN_SOURCE_HOST:-lab}"
+token_source_file="${TOKEN_SOURCE_FILE:-/etc/forwarder-agent/agent.env}"
 
 if [[ "$(git -C "$repo_dir" branch --show-current)" != wt/mp-server ]]; then
   echo 'Install requires the wt/mp-server branch.' >&2
@@ -34,8 +36,12 @@ install -m 755 "$download_dir/forwarder-agent-linux-amd64" "$bin_dir/forwarder-a
 mv -f "$bin_dir/forwarder-agent-linux-amd64.next" "$bin_dir/forwarder-agent-linux-amd64"
 echo "Forwarder agent downloaded from successful CI run $run_id."
 
-if ! ssh -o BatchMode=yes -o ConnectTimeout=10 lab 'grep FORWARDER_AGENT_TOKEN /etc/forwarder/forwarder.env' > "$token_file"; then
-  echo 'BLOCKED: ssh lab could not read FORWARDER_AGENT_TOKEN from /etc/forwarder/forwarder.env. No units were changed.' >&2
+# SSH passes its command through a remote shell; quote the configurable path there too.
+quoted_source_file="$(python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$token_source_file")"
+if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -- "$token_source_host" \
+  "grep '^FORWARDER_AGENT_TOKEN=' -- $quoted_source_file" > "$token_file"; then
+  printf 'BLOCKED: ssh %s could not read FORWARDER_AGENT_TOKEN from %s. No units were changed.\n' \
+    "$token_source_host" "$token_source_file" >&2
   exit 1
 fi
 # Validate without sourcing, evaluating or printing the secret. Preserve only the assignment.
