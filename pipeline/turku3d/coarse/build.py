@@ -229,7 +229,7 @@ def ortho_uv(tile: C.VisualTile, positions: np.ndarray) -> np.ndarray:
     )
 
 
-def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells):
+def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None):
     """Split the ground grid along the 62.5 m grid; each building goes to its centroid's tile."""
     per = CELLS // C.COLLISION_PER_VISUAL
     out = {}
@@ -239,6 +239,8 @@ def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells):
         cols = np.arange(ci * per, (ci + 1) * per)
         cells = (rows[:, None] * CELLS + cols[None, :]).ravel()
         tris = np.stack([2 * cells, 2 * cells + 1], axis=1).ravel()
+        if ground_keep is not None:
+            tris = tris[ground_keep[tris]]
         mesh = Mesh(grid_pos, grid_idx[tris], materials[tris]).compact()
         mesh = add_river_bed(mesh, level)
         positions, indices, material = [mesh.positions], [mesh.indices], [mesh.material]
@@ -436,6 +438,22 @@ def build(
     shells = [(b, extrude(b)) for b in blds]
     seconds["buildings"] = time.perf_counter() - t
 
+    from .tunnels import ground_sampler
+    from .tunnels import produce as produce_tunnels
+
+    t = time.perf_counter()
+    tunnels = produce_tunnels(
+        tile,
+        inputs.tunnels,
+        grid_pos,
+        grid_idx,
+        shells,
+        extrude,
+        ground_sampler(lambda x, z: grid_height(tile, grid_pos, x, z)),
+    )
+    shells = tunnels.shells
+    seconds["tunnels"] = time.perf_counter() - t
+
     t = time.perf_counter()
     image = jpeg(inputs.ortho)
     origin = np.asarray(tile.origin)
@@ -446,7 +464,7 @@ def build(
         GlbMesh(
             f"ground_{tile.id}",
             grid_pos - origin,
-            grid_idx[~wet],
+            grid_idx[~wet & tunnels.keep],
             uvs=ortho_uv(tile, grid_pos),
             image=image,
             extras=dict(
@@ -476,6 +494,9 @@ def build(
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
     bridges.visual(osm_decks, tile, stage, layer_files)
+    if tunnels.meshes:
+        write_visual(stage / "tunnels.vis.glb", tunnels.visuals(tile), root_translation=tile.origin)
+        layer_files.append(stage / "tunnels.vis.glb")
     from .forests import BUSH_CAP, TREE_CAP, produce
 
     vegetation_start = time.perf_counter()
@@ -557,9 +578,10 @@ def build(
     collision = {}
     cols = {}
     for ct, (pos, idx, mat) in collision_tiles(
-        tile, grid_pos, grid_idx, materials, level, shells
+        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep
     ).items():
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
+        pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         data = write_col(col, encoding="meshopt", optimize=False)
@@ -576,7 +598,7 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
-    roads = bridges.road_heights(inputs.roads, osm_decks)
+    roads = tunnels.roads(bridges.road_heights(inputs.roads, osm_decks))
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     _write(out / "vis.glb", vis)
@@ -623,6 +645,7 @@ def build(
             measured=sum(t.measured for t in trees),
         ),
         bridges=decks + len(osm_decks),
+        tunnels=tunnels.count,
         water_level=level,
         sources=inputs.sources,
         inputs=inputs.key,

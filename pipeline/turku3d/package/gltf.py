@@ -35,6 +35,7 @@ class GlbMesh:
     roughness: float = 0.95
     repeat: bool = False  # Texture wraps (REPEAT) instead of clamping to its edge
     extras: dict = field(default_factory=dict)
+    emissive: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 def vertex_normals(pos: np.ndarray, idx: np.ndarray) -> np.ndarray:
@@ -141,7 +142,13 @@ def build_glb(
             )
             pbr["baseColorTexture"] = {"index": len(gltf["textures"]) - 1}
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
-        gltf["materials"].append({"name": f"{m.name}_mat", "pbrMetallicRoughness": pbr})
+        gltf["materials"].append(
+            {
+                "name": f"{m.name}_mat",
+                "pbrMetallicRoughness": pbr,
+                "emissiveFactor": list(m.emissive),
+            }
+        )
         prim = {
             "attributes": attrs,
             "indices": accessor(idx, UINT32, "SCALAR", ELEMENT_ARRAY_BUFFER),

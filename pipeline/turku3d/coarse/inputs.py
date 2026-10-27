@@ -37,6 +37,7 @@ CODE = hashlib.sha256(
     + Path(__file__).with_name("fences.py").read_bytes()
     + Path(__file__).with_name("bridges.py").read_bytes()
     + Path(__file__).with_name("forests.py").read_bytes()
+    + Path(__file__).with_name("tunnels.py").read_bytes()
 ).hexdigest()[:16]
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -68,6 +69,7 @@ class Inputs:
     barriers: list = ()  # OSM barrier geometries, tags and deliberate road membership
     forests: list = ()
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    tunnels: list = ()  # OSM full tunnel ways, with tags
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -347,10 +349,15 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
+        "tunnels": [osm] if osm else None,
     }
 
 
 def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
+    if dataset == "tunnels":
+        from .tunnels import prepare as prepare_tunnels
+
+        return prepare_tunnels(tile, paths[0])
     if dataset == "ground":
         canopy = []
         ground = prepare_ground(tile, ground_points(tile, paths, canopy))
@@ -445,4 +452,5 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         forests=values["forests"] or (),
         canopy=ground.get("canopy", np.empty((0, 3))),
         trees=values["trees"] or (),
+        tunnels=values["tunnels"] or (),
     )
