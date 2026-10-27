@@ -10,6 +10,8 @@ and the release record; `warn` sends the new ones to the batch's authors.
 from __future__ import annotations
 
 import json
+import re
+import time
 
 import coordination as coord
 import landing
@@ -76,6 +78,23 @@ def car_report(path, returncode):
         "report": "reports/validate-cars.json",
         "known_red_reason": "Published car probes still fail curb response and four wall/building crossings",
     }
+
+
+def deep_gate(repo, env, log):
+    """Run the deep gate tier (`gate --deep --all`, cached per stage input hash) in the
+    published commit's checkout: (seconds, advisory entries; [] when green)."""
+    started = time.monotonic()
+    try:
+        proc = s.run_group([str(repo / "scripts/dev/gate"), "--deep", "--all"], cwd=repo, env=env)
+        log.write_text(proc.stdout)
+    except OSError as exc:
+        return None, [{"stage": "deep-gate", "detail": str(exc)[-1000:], "log": str(log)}]
+    seconds = round(time.monotonic() - started, 3)
+    if not proc.returncode:
+        return seconds, []
+    detail = f"deep gate red ({proc.returncode}): {s.failure_detail(proc.stdout)}"
+    entry = {"stage": "deep-gate", "detail": detail[-1000:], "log": str(log)}
+    return seconds, [{**entry, "checks": re.findall(r"^FAIL\s+(\S+)", proc.stdout, re.M)}]
 
 
 def labels(entries):

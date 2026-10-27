@@ -167,5 +167,5 @@ so at most three test workers run at once. Walker counts and assertions are unch
 ```sh
 tools/validator/node_modules/.bin/tsc -p tools/validator/tsconfig.json
 PIPELINE_PY="$PWD/.venv/bin/python" node --test --test-concurrency=1 \
-  tools/validator/test/*.test.ts game/tests/headless/vehicle.test.ts
+  tools/validator/test/*.test.ts
 ```

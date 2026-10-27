@@ -28,8 +28,7 @@ class LanderTests(Fixture):
         self.git("commit", "-qm", "Main moved")
         return self.git("rev-parse", "main")
 
-    # The 5 s wall budget of this landing is an unloaded-host check (perf_tooling.py); here the
-    # lander's own 180 s budget (merge_slow) bounds it, so host load cannot turn it red.
+    # The lander's own 180 s budget (merge_slow) bounds this landing; no wall-time assertion.
     def test_lands_after_main_moved_without_live_build(self):
         repo = self.adopt()
         self.commit(repo, "change.md")

@@ -148,8 +148,11 @@ def flags_in_code(path, text):
     """Literal, unaliased calls only, so registry uses are mechanically auditable."""
     names, errors = set(), []
     if path.endswith(".py"):
+        # Parsing is the policy stage's main cost; a file without the name has no call or
+        # alias to check (python-lint reports syntax errors).
+        empty = ast.Module(body=[], type_ignores=[])
         try:
-            tree = ast.parse(text)
+            tree = ast.parse(text) if "feature_flag" in text else empty
         except SyntaxError as exc:
             return names, [f"{path}: {exc}"]
         for node in ast.walk(tree):

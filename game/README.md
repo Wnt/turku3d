@@ -241,7 +241,7 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 ## Vehicle acceptance (W1-07)
 
 ```bash
-# From the repository root. The vehicle target installs the validator's Node WASM dependency.
+# From the repository root.
 make game-test game-vehicle-test game-build
 cd game
 npx playwright test tests/e2e/vehicle.spec.ts --workers=2

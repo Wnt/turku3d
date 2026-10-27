@@ -119,9 +119,10 @@ cd game
 npx playwright test tests/e2e/vehicle.spec.ts --workers=2
 ```
 
-`game-vehicle-test` runs the same small fixtures on game WASM and native Node/validator WASM. The reusable fixture
-factory, `CURB_SCENARIOS` and `runCurbScenario` live in `game/tests/fixtures/vehicle.ts`. Native acceptance is
-`game/tests/headless/vehicle.test.ts`. No real tiles or network access are needed after dependency installation.
+`game-vehicle-test` runs the small curb, CCD and impact fixtures on the game's Rapier WASM; the validator's car
+report checks the same vehicle code on its Node WASM against the published tiles in the integrator. The reusable
+fixture factory, `CURB_SCENARIOS` and `runCurbScenario` live in `game/tests/fixtures/vehicle.ts`. No real tiles or
+network access are needed after dependency installation.
 The `.col` integration test additionally drives over the committed development tile and checks helper unload.
 
 Measured on the 9 low-curb scenarios: peak pitch 2.43–8.77°, horizontal speed loss 9.13–18.28%. Loss compares the tick

@@ -36,11 +36,11 @@ class BrowserBudgetTests(unittest.TestCase):
 
     def test_debits_accumulate_wall_seconds_times_workers(self):
         account = self.read()
-        self.assertEqual((account["budget_minutes"], account["used_minutes"]), (20.0, 0))
+        self.assertEqual((account["budget_minutes"], account["used_minutes"]), (5.0, 0))
         command = ["/a/playwright", "test", "tests/e2e/smoke.spec.ts", "--project", "webgl"]
         browser_budget.debit("demo", command, 120, 2, tasks=self.tasks)
         account = browser_budget.debit("demo", ["/a/playwright", "test"], 30, 1, tasks=self.tasks)
-        self.assertEqual((account["used_minutes"], account["remaining_minutes"]), (4.5, 15.5))
+        self.assertEqual((account["used_minutes"], account["remaining_minutes"]), (4.5, 0.5))
         first = account["runs"][0]
         self.assertEqual(
             (first["specs"], first["projects"]), (["tests/e2e/smoke.spec.ts"], ["webgl"])
@@ -50,7 +50,7 @@ class BrowserBudgetTests(unittest.TestCase):
         )
         saved = json.loads((self.tasks / "demo/browser-budget.json").read_text())
         self.assertEqual(len(saved["runs"]), 2)
-        self.assertIn("4.5 of 20 browser-minutes used, 15.5 left", browser_budget.summary(account))
+        self.assertIn("4.5 of 5 browser-minutes used, 0.5 left", browser_budget.summary(account))
         self.assertIsNone(browser_budget.refusal(account))
 
     def test_spent_budget_refuses_and_a_brief_line_overrides_it(self):

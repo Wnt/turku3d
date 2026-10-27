@@ -28,12 +28,16 @@ reason. The rules below are the ones that stay hard.
 2. **No feature flags** unless you are A/B-measuring two real alternatives. Then register the flag (owner, reason,
    removal condition counted in landed merges, at most 10) and remove it with the losing path once decided.
 3. **Dead code is deleted**, not kept "just in case".
-4. **Green before done.** Run the fast gate (`scripts/dev/gate --fast --base main`: lint, policy, unit and tooling
-   tests) for what you touched; the Chrome suite is never required to finish (browser runs are your choice within the
-   budget). If you cannot make the fast gate green, finish with `## Result: BLOCKED`, the failing command and its
-   output. Never weaken a test or a check to pass.
-5. **Fast tests.** Run only the tests relevant to your change, in parallel. Unit tests use small synthetic fixtures, not
-   real tiles. The target is 5–20 s for the gate on a typical change. If yours is slower, fix that too.
+4. **Green before done** means `scripts/dev/gate --fast --base main` is green: lint and format, type checks, the
+   policy stage and the unit-test stages that stay under 20 s. The Chrome suite and the deep tier (`make gate-deep`:
+   pipeline, validator, tooling and other slow test stages) are never required to finish; the integrator runs them
+   after publishing and sends you new failures as an advisory warning. Do not add browser specs or slow tests unless
+   your brief asks for them. If you cannot make the fast gate green, finish with `## Result: BLOCKED`, the failing
+   command and its output. Never weaken a test or a check to pass.
+5. **Fast tests.** `gate --fast` finishes in under 30 s at host load 100; a stage whose full run takes over 20 s gets
+   `tier = "deep"` in `scripts/dev/gate.toml`. New tests are small unit tests of pure functions on synthetic
+   fixtures, never tests that build tiles, drive the car or start a server. Time budgets are checked by hand only
+   (`make streaming-perf`, `make render-perf`), never in a gate.
    Long commands (over 30 s) go through `scripts/dev/codex-task wait-cmd -- <command>` or are polled every 30 s.
 6. **Commit** on your branch with clear messages, and end each message with
    `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`. You land your own slices on `main` with
