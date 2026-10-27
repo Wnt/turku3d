@@ -315,7 +315,7 @@ def read_address_points() -> list[tuple[str, tuple[float, float]]]:
 
 
 def read_streets(osm: Path) -> dict[str, list[list[tuple[float, float]]]]:
-    """Named OSM highway centre lines (engine x/z) by `street_key`, from the road graph's OSM snapshot."""
+    """Named OSM highway centre lines (engine x/z) by `street_key` from one OSM clip."""
     import geopandas as gpd
 
     frame = gpd.read_parquet(osm, columns=["highway", "tags", "geometry_local"])
@@ -462,7 +462,13 @@ def publish(root: Path, tree, tiles: set[str]) -> bool:
         return previous is not None
     manifest = json.loads(graph_manifest.read_text())
     graph = json.loads((root / "roads" / manifest["params"]["graph"]["file"]).read_text())
-    streets = read_streets(Path(manifest["inputs"]["osm"]["path"]))
+    # Named streets from the OSM clip of each tile's own input area (the roads layer's sources).
+    from turku3d.tile_layer import osm
+
+    streets: dict[str, list] = {}
+    for path in sorted({osm(tile) for tile in tiles}):
+        for key, lines in read_streets(path).items():
+            streets.setdefault(key, []).extend(lines)
     pool = build_pool(buildings, graph, read_address_points(), PIZZERIA, tiles, streets)
     data = encode(pool)
     entry = tree._put(f"addresses/{hashlib.sha256(data).hexdigest()[:16]}.json", data)
