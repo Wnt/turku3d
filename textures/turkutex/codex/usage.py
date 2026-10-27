@@ -120,3 +120,7 @@ def snapshot(codex_bin: str = "codex") -> dict:
         "limit_reached": lim.get("rateLimitReachedType"),
         "t": time.time(),
     }
+
+
+if __name__ == "__main__":
+    print(json.dumps(snapshot()))

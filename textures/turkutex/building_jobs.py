@@ -42,14 +42,35 @@ def reference_matches(facade, root: Path) -> bool:
     )
 
 
-def has_wall_pixels(path: Path, max_blank: float = 0.2) -> bool:
-    """False for a rectified view that is mostly pure black, i.e. outside panorama coverage."""
+def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
+    """Valid full-wall views, best first in fallback source order, or the reason there is none.
+
+    A view is valid when its rectified crop passes the black-fraction and sharpness screen,
+    measured from the file so a recalibrated screen never reads stale numbers.
+    """
     import numpy as np
     from PIL import Image
 
-    with Image.open(path) as image:
-        pixels = np.asarray(image.convert("RGB"))
-    return float((pixels.max(-1) <= 2).mean()) <= max_blank
+    from .streetview.refs import screen_pixels, screen_problem, source_rank
+
+    if not reference_matches(facade, root):
+        return [], "no current reference set"
+    d = root / facade.id
+    full = [v for v in _views(d) if v.get("part") == "full"]
+    if not full:
+        return [], "no full-wall view in any source"
+    valid, problems = [], []
+    for v in full:
+        with Image.open(d / v["files"]["rectified"]) as image:
+            problem = screen_problem(screen_pixels(np.asarray(image.convert("RGB"))))
+        if problem:
+            problems.append(f"{v['source']} {v['view_id']}: {problem}")
+        else:
+            valid.append(v)
+    valid.sort(key=lambda v: (source_rank(v["source"]), -(v.get("score") or 0)))
+    if not valid:
+        return [], "no valid full-wall view: " + "; ".join(problems)
+    return valid, None
 
 
 def groups(facades):
@@ -261,19 +282,15 @@ def generate_jobs(
     }
     result = []
     for f in load_facades(facades_path):
-        if not f.props.get("street_facing", True) or not reference_matches(f, refs_root):
+        if not f.props.get("street_facing", True):
             continue
         if feedback is not None and f.id not in feedback:
             continue
         d = refs_root / f.id
-        views = [
-            v
-            for v in _views(d)
-            if v.get("part") == "full" and has_wall_pixels(d / v["files"]["rectified"])
-        ][:3]
+        views = screened_full_views(f, refs_root)[0][:3]
         if not views:
             continue
-        best = max(views, key=lambda v: v.get("score") or 0)
+        best = views[0]
         ratio = f.length / f.height_m
         guide = layout_guide(f, d) if ratio > 3 or ratio < 1 / 3 else None
         images = [str(d / v["files"]["rectified"]) for v in views]

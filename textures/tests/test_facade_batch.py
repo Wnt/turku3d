@@ -14,6 +14,13 @@ from turkutex.streetview.panos import PanoCache
 from turkutex.streetview.refs import rectified_points
 
 
+def wall_photo():
+    """A sharp synthetic reference: plaster noise around a grid of windows."""
+    pixels = np.random.default_rng(0).normal(186, 8, (16, 32, 3))
+    pixels[4:10, 4:28:6] = 50
+    return Image.fromarray(np.clip(pixels, 0, 255).astype(np.uint8))
+
+
 def inventory(tmp_path):
     fs = [
         Facade(
@@ -44,7 +51,7 @@ def inventory(tmp_path):
         vid = f.id + "_view"
         files = {k: vid + "_" + k + ".jpg" for k in ("crop", "outline", "rectified")}
         for name in files.values():
-            Image.new("RGB", (32, 16), "#bcbaba").save(d / name)
+            wall_photo().save(d / name)
         (d / (vid + ".json")).write_text(
             json.dumps(
                 {

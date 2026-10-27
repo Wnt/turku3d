@@ -9,6 +9,8 @@ For each facade:
  3. score = cos(theta)^0.8 * exp(-((d - d_opt)/d_sigma)^2) * (1 - 0.8 occ) * res_factor (+ recency tie-break);
     greedy pick with diversity (signed angle differs by >= min_sep_deg, or spot >= 6 m apart).
  4. render: pinhole crop aimed at the facade centre (mid-height), FOV fitted to the 4 corners.
+    Each rectified view is screened (black fraction, sharpness); with no valid full view, more
+    full views are rendered in SOURCE_ORDER until one passes.
     Outputs per view: <view>.jpg (plain crop), <view>_outline.jpg (target facade outlined in red),
     <view>_mask.png (255 facade visible, 128 facade but occluded by depth proxy, 0 not facade),
     <view>.json (pose + scores + provenance).
@@ -36,7 +38,51 @@ from . import camera as C
 from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 
-REFS_VERSION = "3-calibrated-mapillary"
+REFS_VERSION = "4-screened-fallback"
+
+# Reference fallback order when the best-scored full view fails screening.
+SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")
+MAX_BLACK_FRACTION = 0.2  # more pure black is a crop outside panorama coverage
+# Variance of the Laplacian over the intensity variance at SHARPNESS_SIDE px. Calibrated on
+# W1-09g references: motion-blurred Look Around views 0.019 and 0.053, the softest view of an
+# accepted wall 0.081 (docs/reports/w1-09h-facade-rollout.md).
+MIN_SHARPNESS = 0.065
+SHARPNESS_SIDE = 512
+
+
+def screen_pixels(pixels: np.ndarray) -> dict:
+    """Black fraction and sharpness of a rectified RGB view."""
+    rgb = np.asarray(pixels)[..., :3]
+    black = rgb.max(-1) <= 2
+    image = Image.fromarray(rgb.astype(np.uint8)).convert("L")
+    scale = SHARPNESS_SIDE / max(image.size)
+    if scale < 1:
+        size = (max(3, round(image.width * scale)), max(3, round(image.height * scale)))
+        image = image.resize(size, Image.Resampling.BOX)
+    gray = np.asarray(image, dtype=np.float32)
+    lap = gray[1:-1, :-2] + gray[1:-1, 2:] + gray[:-2, 1:-1] + gray[2:, 1:-1] - 4 * gray[1:-1, 1:-1]
+    # Ignore the uncovered black area and its edge, which would read as false detail.
+    valid = gray > 2
+    valid = (
+        valid[1:-1, 1:-1] & valid[1:-1, :-2] & valid[1:-1, 2:] & valid[:-2, 1:-1] & valid[2:, 1:-1]
+    )
+    inner = gray[1:-1, 1:-1][valid]
+    contrast = float(inner.var()) if inner.size >= 64 else 0.0
+    sharpness = float(lap[valid].var()) / contrast if contrast > 1.0 else 0.0
+    return {"black_fraction": round(float(black.mean()), 4), "sharpness": round(sharpness, 4)}
+
+
+def screen_problem(screen: dict) -> str | None:
+    """Why a rectified view cannot serve as a generation reference, or None."""
+    if screen["black_fraction"] > MAX_BLACK_FRACTION:
+        return f"{screen['black_fraction']:.0%} pure black"
+    if screen["sharpness"] < MIN_SHARPNESS:
+        return f"blurred (sharpness {screen['sharpness']:.3f} < {MIN_SHARPNESS})"
+    return None
+
+
+def source_rank(source: str) -> int:
+    return SOURCE_ORDER.index(source) if source in SOURCE_ORDER else len(SOURCE_ORDER)
 
 
 def rectified_points(corners: np.ndarray, long_side: int) -> np.ndarray:
@@ -68,6 +114,7 @@ class SelectParams:
     zoom: int = 5
     la_zoom: int = 0
     max_occluded: float = 0.5  # reject views whose facade is mostly behind a nearer depth plane
+    fallback_per_source: int = 4  # extra full views rendered per source when none passes screening
 
 
 def coverage_points(centre_en: np.ndarray, radius: float) -> list[tuple[float, float]]:
@@ -405,6 +452,7 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
         "facade_corners_px": [[round(float(v), 1) for v in p] for p in px],
         "facade_visible_frac": round(float((mask == 255).sum() / max(1, (mask > 0).sum())), 3),
         "source_visible_fraction": e.get("source_visible_fraction", 1.0),
+        "screen": screen_pixels(rectified),
         "source_camera_model": {
             k: m.extra.get(k)
             for k in ("camera_type", "camera_parameters", "computed_rotation", "pose_confidence")
@@ -524,6 +572,38 @@ def facade_refs(
             views.append(view)
         if len(views) == P.max_views or (len(views) == len(chosen) and not errors):
             break
+    fallback = {"needed": False, "tried": [], "found": None}
+    if not any(v["part"] == "full" and screen_problem(v["screen"]) is None for v in views):
+        fallback["needed"] = True
+        rendered = {(v["source"], v["pano_id"], v["part"]) for v in views}
+        pending = [
+            e
+            for e in evals
+            if e["part"] == "full" and (e["meta"].source, e["meta"].id, "full") not in rendered
+        ]
+        pending.sort(key=lambda e: (source_rank(e["meta"].source), -e["score"]))
+        tried_per_source: dict[str, int] = {}
+        for e in pending:
+            source = e["meta"].source
+            if tried_per_source.get(source, 0) >= P.fallback_per_source:
+                continue
+            tried_per_source[source] = tried_per_source.get(source, 0) + 1
+            k = len(views)
+            view = network_result(
+                lambda e=e, k=k: render_view(
+                    cache, e, out, f"{f.id}_v{k}_f_{e['meta'].source[0]}_{e['meta'].id[:12]}", P
+                ),
+                errors,
+                source,
+                None,
+            )
+            if view is None:
+                continue
+            views.append(view)
+            fallback["tried"].append(view["view_id"])
+            if screen_problem(view["screen"]) is None:
+                fallback["found"] = view["view_id"]
+                break
     summary = {
         "key": key,
         "facade": f.to_feature(),
@@ -555,6 +635,7 @@ def facade_refs(
             key=lambda r: -r["score"],
         ),
         "views": [v["view_id"] for v in views],
+        "fallback": fallback,
         "params": P.__dict__,
         "source_errors": errors,
     }
