@@ -583,8 +583,8 @@ Admission is budgeted, not exclusive. The host has 10 CPU job units and 6 browse
 workers (`BUDGET`). A `build` costs 2 job units (at most three at once, each with
 `TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (at most two, `TURKU3D_JOBS` = 1), the
 single `integration` reservation (the integrator's code lane) 6 job units plus 4 browser
-workers, and the single `integration-data` reservation (its data lane, no Chrome) 4 job units
-(`COST`). Builds and browser suites keep being admitted beside a running integration within the
+workers, and the single `integration-data` reservation (its data lane, no Chrome; stored as kind
+`integration` with `lane`, so older tooling counts it) 4 job units (`COST`). Builds and browser suites keep being admitted beside a running integration within the
 remaining capacity. A waiting `integration` is not starved: later admissions are taken only if
 it still fits after them, so at most the builds already running finish first. The integration
 and every build or browser command nested in it (`TURKU3D_INTEGRATION_OWNER`) use its lane's

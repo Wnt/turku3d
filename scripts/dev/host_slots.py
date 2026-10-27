@@ -16,6 +16,8 @@ from pathlib import Path
 
 LIMITS = {"build": 3, "browser": 2, "integration": 1, "integration-data": 1}
 # The code lane (`integration`, with Chrome) and the data lane (no Chrome) of the integrator.
+# Both are stored as kind `integration` with their `lane`, so tooling that predates the data
+# lane counts it as an integration instead of failing on an unknown kind.
 INTEGRATIONS = ("integration", "integration-data")
 
 # Host budget in CPU job units and browser (GPU) workers. One integration reserves a
@@ -45,14 +47,18 @@ def integration_jobs(kind="build", lane="integration"):
     return browser_workers() if kind == "browser" else COST[lane]["jobs"]
 
 
+def lane(entry):
+    """The slot class of an entry: its integration lane, else its kind."""
+    return entry.get("lane", entry["kind"])
+
+
 def fits(entries, kind):
     """Whether `kind` fits beside the running entries within every budgeted resource."""
     running = [e for e in entries if e["state"] == "running"]
-    if sum(e["kind"] == kind for e in running) >= LIMITS[kind]:
+    if sum(lane(e) == kind for e in running) >= LIMITS[kind]:
         return False
     return all(
-        sum(COST[e["kind"]].get(resource, 0) for e in running) + COST[kind].get(resource, 0)
-        <= budget
+        sum(COST[lane(e)].get(resource, 0) for e in running) + COST[kind].get(resource, 0) <= budget
         for resource, budget in BUDGET.items()
     )
 
@@ -60,20 +66,20 @@ def fits(entries, kind):
 def admissible(entries, entry):
     """Admit within budget; later admissions never starve a waiting integration, and
     agents' Chrome suites queue while the integrator's Chrome stage runs."""
-    if not fits(entries, entry["kind"]):
+    if not fits(entries, lane(entry)):
         return False
     if entry["kind"] == "browser" and any(
-        e["kind"] == "integration" and e.get("phase") == "chrome" for e in entries
+        lane(e) == "integration" and e.get("phase") == "chrome" for e in entries
     ):
         return False
     older = any(
-        e["kind"] == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]
+        lane(e) == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]
         for e in entries
     )
     if not older:
         return True
     # Admit only what still leaves room for the waiting integration.
-    return entry["kind"] != "integration" and fits(
+    return lane(entry) != "integration" and fits(
         [*entries, {**entry, "state": "running"}], "integration"
     )
 
@@ -142,7 +148,10 @@ def phase(name):
             return
         with state() as data:
             for entry in data["entries"]:
-                if entry["kind"] in INTEGRATIONS and (str(entry["pid"]), entry["identity"]) == held:
+                if (
+                    entry["kind"] == "integration"
+                    and (str(entry["pid"]), entry["identity"]) == held
+                ):
                     entry["phase"] = value
 
     mark(name)
@@ -160,7 +169,7 @@ def snapshot(directory=None):
 def waiting(sandbox):
     return next(
         (
-            entry["kind"]
+            lane(entry)
             for entry in snapshot()
             if entry["sandbox"] == sandbox and entry["state"] == "waiting"
         ),
@@ -178,9 +187,9 @@ def slot(kind):
         with state() as data:
             inherited = next(
                 (
-                    entry["kind"]
+                    lane(entry)
                     for entry in data["entries"]
-                    if entry["kind"] in INTEGRATIONS
+                    if entry["kind"] == "integration"
                     and entry["state"] == "running"
                     and (str(entry["pid"]), entry["identity"]) == held
                 ),
@@ -196,11 +205,13 @@ def slot(kind):
     entry = {
         "pid": pid,
         "identity": started,
-        "kind": kind,
+        "kind": "integration" if kind in INTEGRATIONS else kind,
         "state": "waiting",
         "sandbox": os.environ.get("TURKU3D_SANDBOX", "main"),
         "since": time.time(),
     }
+    if kind in INTEGRATIONS:
+        entry["lane"] = kind
     try:
         announced = False
         while True:

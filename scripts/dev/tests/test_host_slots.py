@@ -59,7 +59,7 @@ class HostSlotsTest(unittest.TestCase):
         self.fail(f"slot state did not converge: {self.snapshot()}")
 
     def kinds(self, child):
-        return [(e["kind"], e["state"]) for e in self.snapshot() if e["pid"] == child.pid]
+        return [(host_slots.lane(e), e["state"]) for e in self.snapshot() if e["pid"] == child.pid]
 
     def test_integration_reservation_leaves_build_budget(self):
         integration = self.start("integration")
@@ -199,7 +199,7 @@ class HostSlotsTest(unittest.TestCase):
         # The marked entry is still released as the same admission.
         os.killpg(integration.pid, signal.SIGTERM)
         integration.wait(timeout=3)
-        self.until(lambda: [e["kind"] for e in self.snapshot()] == ["browser"])
+        self.until(lambda: [host_slots.lane(e) for e in self.snapshot()] == ["browser"])
 
     def test_code_and_data_lanes_hold_their_own_slots(self):
         code = self.start("integration")
@@ -212,6 +212,14 @@ class HostSlotsTest(unittest.TestCase):
                     ("integration-data", "running"),
                 ]
             )
+        )
+        # Stored as kind `integration` with a lane: tooling that predates the data lane counts it.
+        self.assertEqual(
+            {(e["kind"], e.get("lane")) for e in self.snapshot()},
+            {
+                ("integration", "integration"),
+                ("integration", "integration-data"),
+            },
         )
         # 6 + 4 jobs fill the budget: a build waits, a second data lane waits for its slot.
         build = self.start("build")
