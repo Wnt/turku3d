@@ -235,7 +235,7 @@ after (`8e246c1`, with batch 1):
 `103295901U_29` becomes a sharp modernist elevation.
 
 In the same view, the neighbouring wall `103295901U_26` keeps its binding but looks blurrier after.
-It shares tile `t0_0_1` with at least three of the new 32 px/m maps (`103295901U_11`, `_23` and `_29`, the same building). That is consistent with the packager
+It shares tile `t0_0_1` with four of the new 32 px/m maps. That is consistent with the packager
 lowering other walls' density to stay under the 8 MB cap. Its photo approval has since been
 retired by `tool-public-release`, so it will fall back to library material.
 
