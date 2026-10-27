@@ -6,12 +6,15 @@ import type { V3 } from '../core/origin.ts';
 import type { VehicleInput, VehicleState } from '../physics/protocol.ts';
 import { VEHICLES, type VehicleKind, type VehicleTuning } from '../physics/constants.ts';
 import { GROUP } from '../shared/col/materials.ts';
+import { BumpDetector } from './bumps.ts';
 import { curbResponse, isCurbMaterial } from './curbStrike.ts';
 import { handling } from './handling.ts';
 import { rotate } from './math.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
+/** Contact impulse, as a speed change of the whole vehicle (m/s), that counts as a collision. */
+export const IMPACT_MIN_DELTA_V = 0.5;
 
 export class Vehicle {
   readonly body: Rapier.RigidBody;
@@ -26,6 +29,9 @@ export class Vehicle {
   private impact: VehicleState['impact'] = null;
   private impactCooldown = 0;
   private readonly drive: number[];
+  /** Velocity once every wheel, drag and curb impulse of the tick is applied: what the world step then changes. */
+  private beforeSolve: V3 | null = null;
+  private bumps = new BumpDetector();
 
   private R: RapierApi;
   private world: Rapier.World;
@@ -75,9 +81,12 @@ export class Vehicle {
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.impact = null; this.impactCooldown = 0;
+    this.beforeSolve = null;
+    this.bumps.reset();
   }
 
   step(dt: number, input: VehicleInput | null) {
+    this.beforeSolve = null;
     if (!input && this.body.isSleeping()) return;
     const v = this.controller, b = this.body;
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
@@ -98,6 +107,17 @@ export class Vehicle {
     const drag = Math.min(0.15, (0.015 + horizontal * 0.004) * dt);
     b.applyImpulse({ x: -vel.x * b.mass() * drag, y: 0, z: -vel.z * b.mass() * drag }, true);
     this.strikeCurbs(dt, input);
+    this.detectBump(dt);
+    this.beforeSolve = { ...b.linvel() };
+  }
+
+  /** Feeds every wheel's suspension length and ground contact height to the bump detector (bumps.ts). */
+  private detectBump(dt: number) {
+    const v = this.controller, t = this.tuning, lv = this.body.linvel();
+    this.bumps.update(dt, Math.hypot(lv.x, lv.z), t.wheels.map((_, i) => ({
+      length: v.wheelSuspensionLength(i) ?? t.rest,
+      ground: v.wheelIsInContact(i) ? v.wheelContactPoint(i)?.y ?? null : null,
+    })));
   }
 
   private strikeCurbs(dt: number, input: VehicleInput | null) {
@@ -144,18 +164,16 @@ export class Vehicle {
     }
   }
 
-  /** Read solver impulses after each fixed world step; resting contacts stay below the threshold. */
+  /** After each fixed world step: the collision impulse is the chassis momentum the step changed beyond gravity.
+   *  Rapier reports no contact impulses between the chassis and trimesh walls (every building in the tiles), so the
+   *  manifolds cannot measure crashes; resting contacts change nothing and stay quiet. */
   afterStep(dt: number) {
-    if (this.body.isSleeping()) return;
+    const before = this.beforeSolve;
+    if (!before || this.body.isSleeping()) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);
-    const chassis = this.body.collider(0);
-    let impulse = 0;
-    this.world.contactPairsWith(chassis, other => {
-      this.world.contactPair(chassis, other, manifold => {
-        for (let i = 0; i < manifold.numContacts(); i++) impulse += manifold.contactImpulse(i);
-      });
-    });
-    if (impulse > 600 && this.impactCooldown === 0) {
+    const v = this.body.linvel(), g = this.world.gravity.y * dt;
+    const impulse = Math.hypot(v.x - before.x, v.y - before.y - g, v.z - before.z) * this.body.mass();
+    if (impulse > IMPACT_MIN_DELTA_V * this.body.mass() && this.impactCooldown === 0) {
       this.impact = { id: ++this.impactId, impulse };
       this.impactCooldown = 0.15;
     }
@@ -166,7 +184,7 @@ export class Vehicle {
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
     return { kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
-      curbStrike: this.lastStrike, impact: this.impact,
+      curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.tuning.wheels.map((cp, i) => {
         const suspension = v.wheelSuspensionLength(i) ?? this.tuning.rest;
         return { pos: { x: cp.x, y: cp.y - suspension, z: cp.z }, steer: v.wheelSteering(i) ?? 0,

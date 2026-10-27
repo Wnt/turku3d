@@ -9,6 +9,7 @@ device indices; `tests/unit/input.test.ts` fails if code outside `src/input/` li
 | `bindings.ts` | Actions, serializable default bindings (keyboard codes, Standard Gamepad buttons and axes), the radial stick curve, `mapActions` and `glyph` |
 | `index.ts` | `Input`: listeners, per-frame merge of keyboard, gamepad and touch, edges, sprint burst, rumble |
 | `touch.ts` | Touch source: `TouchPad` (pointer bookkeeping, no DOM) and `TouchOverlay` (thumb buttons and the floating stick) |
+| `haptics.ts` | `Haptics`: controller rumble from what the player feels; pure mappers (impulse, step, speed -> strength and duration) |
 
 ## Sources
 
@@ -27,6 +28,34 @@ car upright in place.
 
 `flyUp` (Xbox X, RT, Space) and `flyDown` (Xbox B, LT, Q) are held values read only while the developer fly mode
 is on (localhost only, `gameplay/flyMode.ts`, `ui/README.md`); a double tap of `jump` toggles it.
+
+## Haptics
+
+`play.ts` feeds `Haptics.update` once per render frame (driven vehicle state and input, or the character's
+grounded flag and vertical speed) and `Haptics.footstep` from the audio stride events; every effect goes to
+`Input.rumble` as one `dual-rumble` (strong = low-frequency motor, weak = high-frequency motor). Nothing rumbles
+while paused, in a menu or on the start screen, and a vehicle's old events never replay when it is entered.
+`__game.haptics` exposes `counts` per cause and a `log` of the latest transients.
+
+Strength ladder, weakest first (`haptics.ts` holds the constants):
+
+| Cause | Trigger | Strong | Weak | ms |
+|---|---|---|---|---|
+| Engine (car) | RT (or LT reversing) above 5 %; strongest pulling away | 0 | up to 0.14 | 150, renewed every 100 |
+| Engine (scooter) | always while ridden, rising with throttle and speed | 0 | 0.05–0.18 | 150, renewed every 100 |
+| Stairs | each footstep on a `STAIR` material | 0.10 | 0.08 | 45 |
+| Landing | touchdown after falling at 2 m/s or faster (a jump is 4.6 m/s) | 0.15–0.8 | 0.1–0.5 | 70–180 |
+| Kerb | a wheel's ground path steps 7 cm or more (`VehicleState.bump.height`), or a curb-material strike | speed × height × 0.8 (drops × 0.7) | 0.6 × strong | 120 |
+| Jolt | suspension compression at 1 m/s or faster (humps, potholes, landings) | 0.2–0.8 (at 4 m/s) | 0.12–0.62 | 70–150 |
+| Collision | chassis speed change of 0.5 m/s or more (`impact.impulse / mass`) | 0.35–1 (at 8 m/s) | 0.5–1 | 120–350 |
+
+Kerbs in the real tiles are lidar slopes without curb material (10–20 cm over about 0.6 m), so they rumble through
+the wheel step (vehicle/README.md "Bumps") with the same strength the synthetic scene's curb faces give through
+the curb-strike module: a 12 cm kerb at 4 m/s plays 0.38 strong either way. The engine uses only the weak motor so
+every transient stays distinct. One transient plays at a time: a new one preempts a running one only when it is
+stronger, and the engine pulses pause until it ends. Measured on the same 24 s car route (three kerb crossings at
+3, 5 and 8 m/s, two cruises at 8 and 12 m/s, a building crash) the synthetic scene went from 15 to 35 transient
+rumbles per minute and the real tiles from 0 to 67.5; the real tiles' rough paving is felt as well as the kerb.
 
 ## Touch
 
@@ -55,9 +84,17 @@ Styles (`#touch-controls`, `.touch-*`) live in `game/index.html` and respect the
 ## Tests
 
 ```sh
-cd game && npx vitest run tests/unit/input.test.ts tests/unit/touch.test.ts
+cd game && npx vitest run tests/unit/input.test.ts tests/unit/touch.test.ts tests/unit/haptics.test.ts
 # Chrome, synthetic tiles, both backends (after make game-build):
 cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test gamepad.spec.ts touch.spec.ts
+```
+
+The virtual pad of `tests/e2e/fixtures.ts` records every `playEffect` call in `__virtualPad.rumbles`. The real-tile
+haptics routes (a surveyed lidar kerb and the building behind it by car, a stair flight down to the quay on foot)
+are in `tests/e2e-playtest/aoi.spec.ts`, WebGPU only:
+
+```sh
+TILE_DIST="$TURKU3D_DATA/dist/tiles" make playtest PLAYTEST_ARGS='--project webgpu --grep @haptics'
 ```
 
 `tests/e2e/touch.spec.ts` runs at 844×390 with `hasTouch` and `isMobile`, sends multi-finger touches through

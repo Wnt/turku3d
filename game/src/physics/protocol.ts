@@ -22,7 +22,11 @@ export interface RayHit { toi: number; point: V3; normal: V3; material: number; 
 export interface CharacterState { pos: V3; vel: V3; grounded: boolean; enabled: boolean; groundMaterial: number }
 export interface WheelState { pos: V3; steer: number; rotation: number; contact: boolean; suspension: number }
 export interface CurbStrikeState { id: number; wheel: number; height: number; speed: number; loss: number; blocked: boolean; rumble: number }
-export interface VehicleState { id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
+/** The latest wheel bump (vehicle/bumps.ts), with a monotonically increasing id: `height` is the step in the wheel's
+ *  ground path (m, + up, - down; 0 when only the suspension jolted), `jolt` the peak suspension compression speed
+ *  (m/s; 0 below the floor), `speed` the horizontal vehicle speed (m/s). */
+export interface BumpState { id: number; wheel: number; height: number; jolt: number; speed: number }
+export interface VehicleState { id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; bump?: BumpState | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
 export interface VehicleSpec { id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean }
 export interface RemoteBody { id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 

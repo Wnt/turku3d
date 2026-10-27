@@ -12,6 +12,7 @@ import { GameAudio } from './audio';
 import { showAudioPage } from './audio/menu';
 import { deadlineProgress, musicMuffle, musicScene } from './audio/music/playState';
 import { GameplayAudio } from './audio/gameplay';
+import { Haptics } from './input/haptics';
 import { VoicePlayer } from './audio/voice';
 import { timeControl } from './render/debug';
 import { PlayerVisual, SPEED } from './actors/player';
@@ -120,8 +121,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   scene.add(root);
   const listeners = new AbortController();
   const audio = hot?.audio ?? new GameAudio();
-  const audioGameplay = new GameplayAudio(event => audio.emit(event));
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
+  const haptics = new Haptics(r => void input.rumble(r.duration, r.strong, r.weak));
+  const audioGameplay = new GameplayAudio(event => {
+    audio.emit(event);
+    if (event.type === 'footstep') haptics.footstep(event.material);
+  });
   audio.mount(document.body);
   const voice = new VoicePlayer(audio.voiceOutput());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true, signal: listeners.signal });
@@ -187,9 +192,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let mode: 'foot' | 'car' = 'foot';
   let drivenId: string | null = null;
   let paused = false;
-  let lastRumble = 0;
   let lastCrash = 0;
-  let wasGrounded = false;
   const desiredVelocity = new THREE.Vector2();
   const feet = new THREE.Vector3(spawn.x, spawn.y, spawn.z);
   const placed = physics.latest?.character?.pos;
@@ -306,7 +309,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         players: multiplayer.state.players.length, scores: multiplayer.state.scores,
         remotes: remotePlayers.markers(), remoteVisuals: remotePlayers.visualBounds(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
+  Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.close();
@@ -457,17 +460,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       parkedVisuals.update(st.vehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {
-        const strike = activeCar.curbStrike;
-        if (strike && strike.id !== lastRumble) {
-          lastRumble = strike.id;
-          if (mode === 'car') void input.rumble(120, strike.rumble, strike.rumble * 0.6);
-        }
         if (multiplayerPlaying && mode === 'car' && activeCar.impact && activeCar.impact.id !== lastCrash) {
           lastCrash = activeCar.impact.id;
           crashFlash.style.transition = 'none';
           crashFlash.style.opacity = String(Math.min(0.5, activeCar.impact.impulse / 12000));
           requestAnimationFrame(() => { crashFlash.style.transition = 'opacity 450ms ease-out'; crashFlash.style.opacity = '0'; });
-          void input.rumble(150, 0.35, 0.6);
         }
         if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - VEHICLE_POSE_HEIGHT, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
@@ -491,8 +488,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
-      if (grounded && !wasGrounded) void input.rumble(90, 0.2, 0.1);
-      wasGrounded = grounded;
     }
 
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
@@ -515,6 +510,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,
       position: camera.position, forward: camera.getWorldDirection(audioForward),
       up: audioUp.set(0, 1, 0).applyQuaternion(camera.quaternion) });
+    haptics.update({ now, active: !paused && !startScreen.active && !menuOpen,
+      vehicle: mode === 'car' ? st?.vehicles.find(v => v.id === drivenId) ?? null : null, vehicleId: mode === 'car' ? drivenId : null,
+      input: carIn, character: mode === 'foot' ? { grounded, vy: vel.y } : null });
     const streamAt = saveGame.streamPoint(feet);
     coarse?.update(streamAt.x, streamAt.z);
     streamer.update(streamAt.x, streamAt.z);

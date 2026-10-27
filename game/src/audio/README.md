@@ -19,8 +19,8 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
   for the trophy truck, the loudest layer); the other engine loops stay silent. Rolling follows speed with wheel contact;
   screech follows lateral velocity/handbrake slip with wheel contact.
 - Curb events consume W1-07 `curbStrike.id` once. Collision events use optional
-  `VehicleState.impact = {id, impulse}` (N·s), measured by summing Rapier contact manifold impulses
-  after each fixed step. A 600 N·s threshold and 150 ms cooldown suppress resting-contact chatter.
+  `VehicleState.impact = {id, impulse}` (N·s): the chassis momentum each fixed world step changes beyond gravity
+  (vehicle/README.md "Collision telemetry"). A 0.5 m/s speed-change threshold and 150 ms cooldown keep resting contact quiet.
 - Entering and leaving a car open the door, then close it after 300 ms; the scooter has no door sounds. Gamepad connection emits one blip.
 - City bed, wind and distant traffic mix with a positional river/gull pair. River position is the
   nearest point on an approximate Aura centreline in engine coordinates; the water/gull mix fades
