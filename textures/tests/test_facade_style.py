@@ -203,6 +203,24 @@ def wall_feature(building, index, e0, width, height, base=2.0):
     }
 
 
+def test_selected_building_includes_street_walls_outside_core(tmp_path):
+    inventory = tmp_path / "facades.geojson"
+    inventory.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    wall_feature("target", 0, CORE_E + 2000, 8, 12),
+                    wall_feature("target", 1, CORE_E, 6, 12),
+                    wall_feature("other", 0, CORE_E + 2000, 8, 12),
+                ],
+            }
+        )
+    )
+    assert {wall.id for wall in fd.core_walls(inventory)} == {"target_1"}
+    assert {wall.id for wall in fd.core_walls(inventory, "target")} == {"target_0", "target_1"}
+
+
 @pytest.mark.skipif(
     fd.tools_dir().joinpath("ktx/bin/ktx").is_file() is False
     or __import__("turkutex.post.pipeline", fromlist=["x"]).native_encoder() is None,

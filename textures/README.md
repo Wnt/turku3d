@@ -145,6 +145,17 @@ $PY -m turkutex.facade_derive contact "${COMMON[@]}" --output SHEET.jpg
 $PY -m turkutex.facade_derive publish "${COMMON[@]}"   # export lock; never replaces a generated map
 ```
 
+For a newly generated building outside the office core, pass `--building ID` to
+`styles` and `plan`. This includes all its street-facing inventory walls while
+keeping the original approval inventory for `derive` and `publish`:
+
+```sh
+$PY -m turkutex.facade_derive styles "${COMMON[@]}" --wfs "$TURKU3D_DATA/raw/wfs/work-3x3" --building 103304672S
+$PY -m turkutex.facade_derive plan "${COMMON[@]}" --building 103304672S
+$PY -m turkutex.facade_derive derive "${COMMON[@]}"
+$PY -m turkutex.facade_derive publish "${COMMON[@]}"
+```
+
 - **Reading a map.** Window glass is near-neutral (C\*ab < 20) and much darker than the
   bright part of its own row; the mask is closed over glazing bars and reflections.
   Window rows and, per section (upper storeys, ground floor), window columns are runs
