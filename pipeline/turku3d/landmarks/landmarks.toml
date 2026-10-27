@@ -47,5 +47,5 @@ visual_triangles = 8000
 collision_triangles = 600
 wall = "render"
 wall_rgb = [232, 232, 226]  # white painted hull and superstructure
-classes = [1]
+classes = [1, 12]  # class 12 (overlap) carries half of the deck returns
 base = "water"

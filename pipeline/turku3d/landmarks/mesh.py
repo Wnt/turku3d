@@ -39,6 +39,15 @@ class Heightfield:
     heights: np.ndarray  # (rows, cols) float64, filled
     measured: np.ndarray  # (rows, cols) bool, True where a return fell in the cell
 
+    def coverage(self, polygon: Polygon) -> float:
+        """Share of the cells centred inside `polygon` that a return fell in."""
+        rows, cols = self.heights.shape
+        gz, gx = np.mgrid[0:rows, 0:cols]
+        inside = shapely.contains_xy(
+            polygon, self.x0 + (gx + 0.5) * self.cell, self.z0 + (gz + 0.5) * self.cell
+        )
+        return float(self.measured[inside].mean()) if inside.any() else 0.0
+
     def sample(self, x, z):
         col = np.clip(
             ((np.asarray(x) - self.x0) / self.cell).astype(int), 0, self.heights.shape[1] - 1

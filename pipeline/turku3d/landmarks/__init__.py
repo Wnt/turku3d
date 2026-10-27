@@ -252,7 +252,7 @@ def build_landmark(landmark: Landmark, polygon: Polygon, tile) -> dict:
         "footprint_m2": round(polygon.area, 1),
         "points_object": int(len(building)),
         f"points_{landmark.base}": int(len(ground)),
-        "measured_cells": round(float(field.measured.mean()), 3),
+        "measured_cells": round(field.coverage(polygon), 3),
         "base_m": round(base, 3),
         "top_m": round(float(visual.positions[:, 1].max()), 3),
         "visual": {
