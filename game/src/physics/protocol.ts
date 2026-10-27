@@ -29,6 +29,8 @@ export type ToWorker =
   | { type: 'init' }
   | { type: 'loadTile'; id: string; buffer: ArrayBuffer }
   | { type: 'unloadTile'; id: string }
+  /** Decode a tile without adding it; answered with 'checkResult'. */
+  | { type: 'checkTile'; id: number; buffer: ArrayBuffer }
   | { type: 'spawnCharacter'; pos: V3 }
   | { type: 'setCharacterEnabled'; enabled: boolean; pos?: V3 }
   | { type: 'spawnVehicle'; spec: VehicleSpec }
@@ -45,6 +47,7 @@ export type FromWorker =
   | { type: 'tileLoaded'; stats: TileStats }
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }
+  | { type: 'checkResult'; id: number; tris: number; error: string | null }
   | { type: 'state'; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[] }
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hit: RayHit | null }

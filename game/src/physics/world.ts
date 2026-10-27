@@ -5,6 +5,7 @@ import type { V3 } from '../core/origin';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
+import { EdgeWalls } from './edgeWalls';
 import { CHARACTER, DT } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
@@ -19,7 +20,7 @@ const MAX_SUBSTEPS = 5;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 interface ColliderInfo { tile: string; triMat: Uint8Array | null; mat: number; locator: TriLocator | null }
-interface LoadedTile { stats: TileStats; colliders: RAPIER_NS.Collider[] }
+interface LoadedTile { stats: TileStats; colliders: RAPIER_NS.Collider[]; cell: [number, number] }
 
 export class PhysicsWorld {
   readonly world: RAPIER_NS.World;
@@ -46,11 +47,14 @@ export class PhysicsWorld {
   private nearbyVehicles = new Set<string>();
   get vehicle(): Vehicle | null { return this.vehicles.get('player') ?? null; }
   private curbQueries: CurbQueries;
+  /** Walls along the open edges of the loaded tiles (edgeWalls.ts). */
+  readonly edges: EdgeWalls;
 
   constructor(private readonly R: R) {
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.curbQueries = new CurbQueries(R, this.world);
+    this.edges = new EdgeWalls(R, this.world);
   }
 
   // ------------------------------------------------------------------ tiles
@@ -60,8 +64,17 @@ export class PhysicsWorld {
     const col = await readCol(buffer);
     const colliders = this.buildTile(id, col);
     const stats: TileStats = { id, tris: col.indices.length / 3, prims: col.prims.length, bytes: buffer.byteLength, buildMs: +(performance.now() - t0).toFixed(2), colliders: colliders.length, curbTris: colliders.reduce((n, c) => n + this.curbQueries.triangleCount(c.handle), 0) };
-    this.tiles.set(id, { stats, colliders });
+    this.tiles.set(id, { stats, colliders, cell: [col.tileI, col.tileJ] });
+    const [lo, hi] = heightRange(col);
+    this.edges.add(col.tileI, col.tileJ, lo, hi);
     return stats;
+  }
+
+  /** Decodes a tile without adding it (draft tiles are drawn only after their collision passes this). */
+  async checkTile(buffer: ArrayBuffer): Promise<{ tris: number; prims: number }> {
+    const col = await readCol(buffer);
+    if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
+    return { tris: col.indices.length / 3, prims: col.prims.length };
   }
 
   private buildTile(id: string, col: ColTile): RAPIER_NS.Collider[] {
@@ -118,6 +131,7 @@ export class PhysicsWorld {
     if (!t) return false;
     for (const c of t.colliders) { this.colliderInfo.delete(c.handle); this.curbQueries.remove(c.handle); this.world.removeCollider(c, false); }
     this.tiles.delete(id);
+    this.edges.remove(...t.cell);
     return true;
   }
 
@@ -333,4 +347,12 @@ export class PhysicsWorld {
     for (const t of this.tiles.values()) { tris += t.stats.tris; bytes += t.stats.bytes; curbTris += t.stats.curbTris ?? 0; }
     return { tris, colBytes: bytes, estWasmBytes: (tris + curbTris) * 135 }; // ~135 B/tri measured (engine.md 2.2)
   }
+}
+
+/** World heights spanned by a tile's triangles and primitives. */
+function heightRange(col: ColTile): [number, number] {
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 1; k < col.positions.length; k += 3) { lo = Math.min(lo, col.positions[k]); hi = Math.max(hi, col.positions[k]); }
+  for (const p of col.prims) { lo = Math.min(lo, p.center[1]); hi = Math.max(hi, p.center[1]); }
+  return Number.isFinite(lo) ? [lo + col.origin[1], hi + col.origin[1]] : [col.origin[1], col.origin[1]];
 }

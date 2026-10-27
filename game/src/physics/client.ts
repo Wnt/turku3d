@@ -43,7 +43,7 @@ export class PhysicsClient {
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
         case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
-        case 'cameraCastResult': case 'raycastResult': case 'statsResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
+        case 'cameraCastResult': case 'raycastResult': case 'statsResult': case 'checkResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
         case 'stepError':
           if (m.seq === this.seq) { this.inFlight = false; this.pendingDt = 0; }
           this.onError(`step ${m.seq}: ${m.error}`);
@@ -70,6 +70,18 @@ export class PhysicsClient {
     const p = new Promise<TileStats>((resolve, reject) => this.tileWaiters.set(id, { resolve, reject }));
     this.send({ type: 'loadTile', id, buffer }, [buffer]);
     return p;
+  }
+  /** Decodes a .col in the worker without adding it: resolves with its triangle count, rejects when unreadable or
+   *  empty. Transfers the buffer. */
+  checkTile(buffer: ArrayBuffer): Promise<number> {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, (m) => {
+        if (m.type !== 'checkResult') return reject(new Error(`unexpected ${m.type}`));
+        if (m.error === null) resolve(m.tris); else reject(new Error(m.error));
+      });
+      this.send({ type: 'checkTile', id, buffer }, [buffer]);
+    });
   }
   unloadTile(id: string) { this.send({ type: 'unloadTile', id }); this.loaded.delete(id); }
   spawnCharacter(pos: V3) { this.send({ type: 'spawnCharacter', pos }); }

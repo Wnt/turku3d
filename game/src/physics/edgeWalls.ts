@@ -1,0 +1,76 @@
+// Invisible walls along the open edges of the loaded collision: wherever a loaded .col tile borders a cell whose
+// collision is not in the world (outside the built area, a draft tile still building, a tile still streaming or one
+// that failed to load), a tall box closes that edge. The character and every vehicle stop there instead of walking
+// or driving onto visible ground (a far LOD, a draft) that has nothing to stand on. Scene queries (rays, the camera
+// cast) pass through: the walls are members of STATIC_SOLID but filter only the bodies that move.
+import type * as RAPIER_NS from '@dimforge/rapier3d';
+import { COLLISION_TILE } from '../core/origin';
+import { GROUP } from '../shared/col/materials';
+
+type R = typeof RAPIER_NS;
+
+export const EDGE_WALL = {
+  /** Half thickness (m); the wall lies wholly outside the loaded tile. A car at 40 m/s moves 0.67 m per 60 Hz step. */
+  half: 1,
+  /** Reach below the tile's lowest and above its highest collision vertex (m). */
+  below: 20, above: 40,
+} as const;
+
+/** Neighbour offsets: +x, -x, +z, -z. */
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
+interface Cell { i: number; j: number; lo: number; hi: number }
+
+export class EdgeWalls {
+  private cells = new Map<string, Cell>();
+  private walls = new Map<string, RAPIER_NS.Collider>();
+
+  constructor(private readonly R: R, private readonly world: RAPIER_NS.World) {}
+
+  /** A collision tile at grid cell (i, j), its vertices spanning heights lo..hi, is now in the world. */
+  add(i: number, j: number, lo: number, hi: number) {
+    this.cells.set(key(i, j), { i, j, lo, hi });
+    this.sync(i, j);
+    for (const [di, dj] of SIDES) this.sync(i + di, j + dj);
+  }
+
+  /** The collision tile at (i, j) left the world. */
+  remove(i: number, j: number) {
+    if (!this.cells.delete(key(i, j))) return;
+    this.sync(i, j);
+    for (const [di, dj] of SIDES) this.sync(i + di, j + dj);
+  }
+
+  /** Open edges as [i, j, side] with side an index into +x, -x, +z, -z (tests and stats). */
+  edges(): [number, number, number][] {
+    return [...this.walls.keys()].map(k => k.split('_').map(Number) as [number, number, number]).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  }
+
+  private sync(i: number, j: number) {
+    const cell = this.cells.get(key(i, j));
+    SIDES.forEach(([di, dj], side) => {
+      const id = `${key(i, j)}_${side}`;
+      const open = cell !== undefined && !this.cells.has(key(i + di, j + dj));
+      const wall = this.walls.get(id);
+      if (open && !wall) this.walls.set(id, this.build(cell, side));
+      else if (!open && wall) { this.world.removeCollider(wall, false); this.walls.delete(id); }
+    });
+  }
+
+  private build(c: Cell, side: number): RAPIER_NS.Collider {
+    const { half, below, above } = EDGE_WALL;
+    const [di, dj] = SIDES[side];
+    const y0 = c.lo - below, y1 = c.hi + above;
+    const cx = (c.i + 0.5) * COLLISION_TILE, cz = (c.j + 0.5) * COLLISION_TILE;
+    const out = COLLISION_TILE / 2 + half;
+    // Along the edge the wall overhangs both corners by its thickness, so two walls meeting at a corner close it.
+    const along = COLLISION_TILE / 2 + 2 * half;
+    const desc = this.R.ColliderDesc.cuboid(di ? half : along, (y1 - y0) / 2, dj ? half : along)
+      .setTranslation(cx + di * out, (y0 + y1) / 2, cz + dj * out)
+      .setFriction(0)
+      .setCollisionGroups(((GROUP.STATIC_SOLID & 0xffff) << 16) | (GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC));
+    return this.world.createCollider(desc);
+  }
+}
+
+const key = (i: number, j: number) => `${i}_${j}`;

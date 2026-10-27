@@ -21,7 +21,7 @@ async function start(page: Page, backend: string, spawn: string) {
 }
 const shot = async (page: Page, name: string) => page.screenshot({ path: path.join(SHOTS, `${test.info().project.name}-${name}.png`) });
 
-test('a car driven off the east edge is reset onto the ground, automatically and with R', { tag: ['@drive', '@vehicle', '@gameplay'] }, async ({ page }, info) => {
+test('a car driven at the east edge stops at it; a car driven into the river is reset, automatically and with R', { tag: ['@drive', '@vehicle', '@gameplay'] }, async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
@@ -36,41 +36,59 @@ test('a car driven off the east edge is reset onto the ground, automatically and
   await page.keyboard.press('KeyF');
   await untilSim(page, () => (window as any).__game.state().mode === 'car', null, 10);
 
-  const driveOff = async () => {
-    await page.keyboard.down('KeyW');
-    await untilSim(page, edge => (window as any).__game.state().vehicle.pos[0] > edge, EAST_EDGE, 40);
-    await untilSim(page, () => (window as any).__game.state().recovery.lost !== null, null, 20);
-    await page.keyboard.up('KeyW');
-  };
-  await driveOff();
+  // The edge of the built area is an invisible wall (physics/edgeWalls.ts): full throttle into it, the car stays
+  // on the ground inside the edge and is never lost.
+  await page.keyboard.down('KeyW');
+  await untilSim(page, edge => (window as any).__game.state().vehicle.pos[0] > edge - 8, EAST_EDGE, 20);
+  await frames(page, 120);
   let s = await state(page);
-  expect(s.recovery.lost.reason).toMatch(/below|outside|airborne/);
-  expect(s.recovery.hud.line).toContain('You left the map. Press R to return to solid ground');
-  await shot(page, '01-car-left-map');
+  await page.keyboard.up('KeyW');
+  expect(s.vehicle.pos[0]).toBeLessThan(EAST_EDGE);
+  expect(s.vehicle.pos[1]).toBeGreaterThan(2.2);
+  expect(s.recovery.lost).toBeNull();
+  expect(s.recovery.hud.edge).toBe(true);
+  await shot(page, '01-car-at-edge');
 
-  // The 5 s countdown resets the car: upright, still, on the ground inside the edge, still driving.
+  // West into the river pond (c_1_2, x 78..109, bed 2 m down): brake on its bed and wait for the reset.
+  await page.evaluate(() => { (window as any).__game.physics.resetVehicle({ x: 200, y: 2.75, z: 156 }, Math.PI, 'player'); });
+  await untilSim(page, () => { const s = (window as any).__game.state(); return s.vehicle.speed < 0.3 && s.vehicle.wheels.every((w: any) => w.contact); }, null, 10);
+  await frames(page, 40); // the placement's grace and a first safe sample
+  const driveIn = async () => {
+    await page.keyboard.down('KeyW');
+    await untilSim(page, () => (window as any).__game.state().vehicle.pos[0] < 104, null, 30);
+    await page.keyboard.up('KeyW');
+    await page.keyboard.down('KeyS');
+    await untilSim(page, () => (window as any).__game.state().recovery.lost !== null, null, 20);
+    await page.keyboard.up('KeyS');
+  };
+  await driveIn();
+  s = await state(page);
+  expect(s.recovery.lost.reason).toBe('water');
+  expect(s.recovery.hud.line).toContain('Press R to return to solid ground');
+  await shot(page, '02-car-in-river');
+
+  // The 5 s countdown resets the car: upright, still, on the ground east of the pond, still driving.
   await untilSim(page, () => (window as any).__game.state().recovery.resets === 1, null, 10);
   await untilSim(page, () => { const s = (window as any).__game.state(); return s.vehicle.speed < 0.3 && s.vehicle.wheels.every((w: any) => w.contact); }, null, 10);
   s = await state(page);
   expect(s.mode).toBe('car');
-  expect(s.vehicle.pos[0]).toBeGreaterThan(200);
-  expect(s.vehicle.pos[0]).toBeLessThan(EAST_EDGE - 4);
+  expect(s.vehicle.pos[0]).toBeGreaterThan(109);
   expect(s.vehicle.pos[1]).toBeGreaterThan(2.2);
   expect(s.vehicle.pos[1]).toBeLessThan(3.2);
   expect(s.recovery.lost).toBeNull();
   expect(s.recovery.hud.line).toBe('Back on solid ground');
   expect(missionState(s)).toEqual(before);
-  await shot(page, '02-car-reset');
+  await shot(page, '03-car-reset');
   await untilSim(page, () => (window as any).__game.state().recovery.hud.line === null, null, 6);
 
-  // Again, and R (vehicleReset) resets at once.
-  await driveOff();
+  // Again (the reset keeps the westward heading of its sample), and R (vehicleReset) resets at once.
+  await driveIn();
   const countdown = (await state(page)).recovery.countdown;
   await page.keyboard.press('KeyR');
   await untilSim(page, () => (window as any).__game.state().recovery.resets === 2, null, 2);
   s = await state(page);
   expect(countdown).toBeGreaterThan(4);
-  expect(s.vehicle.pos[0]).toBeLessThan(EAST_EDGE - 4);
+  expect(s.vehicle.pos[0]).toBeGreaterThan(109);
   expect(missionState(s)).toEqual(before);
   expect(errors).toEqual([]);
 });

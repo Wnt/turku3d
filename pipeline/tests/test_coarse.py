@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import shapely
 from turku3d import config as C
-from turku3d.coarse.build import CELLS, WIRE_CAP, build
+from turku3d.coarse.build import CELLS, WIRE_CAP, bridge_decks, build, grid_mesh
 from turku3d.coarse.inputs import Inputs
 from turku3d.coarse.service import Builder, serve
 from turku3d.col.format import read_col
@@ -136,6 +136,31 @@ def test_coarse_tile_is_a_published_tile(tmp_path, inputs):
     top = roof.world_positions()[np.unique(roof.indices[roof.materials == mat_id("roof")])][:, 1]
     assert np.allclose(top, 23.0, atol=1e-3)
     assert json.loads((out / "manifest.json").read_text())["code"] == m["code"]
+
+
+def test_bridge_deck_over_water_is_lifted_to_its_abutments():
+    """A 50 m river at H 0 between 6 m quays, a deck across it and a viaduct-like deck on dry land."""
+    tile = C.VisualTile(0, 0, 0)
+    step = tile.size / CELLS
+    xs = np.arange(CELLS + 1) * step
+    heights = np.where((xs[None, :] > 100) & (xs[None, :] < 150), 0.0, 6.0) * np.ones((CELLS + 1, 1))
+    pos, idx = grid_mesh(tile, heights)
+    centroid = pos[idx].mean(axis=1)
+    river = (centroid[:, 0] > 100) & (centroid[:, 0] < 150)
+    on_deck = (np.abs(centroid[:, 2] - 125) < 5) & (centroid[:, 0] > 95) & (centroid[:, 0] < 155)
+    viaduct = (np.abs(centroid[:, 2] - 40) < 5) & (centroid[:, 0] > 20) & (centroid[:, 0] < 60)
+    materials = np.full(len(idx), mat_id("road"), np.uint8)
+    materials[river] = mat_id("water")
+    materials[on_deck | viaduct] = mat_id("bridge_deck")
+    wet = river & ~on_deck
+    before = pos.copy()
+    assert bridge_decks(pos, idx, materials, wet) == 1
+    deck = np.unique(idx[on_deck])
+    assert np.allclose(pos[deck, 1], 6.0)
+    # The river beside the deck and the viaduct on land keep their heights.
+    beside = np.unique(idx[river & (np.abs(centroid[:, 2] - 125) > 12)])
+    assert np.array_equal(pos[beside], before[beside])
+    assert np.array_equal(pos[np.unique(idx[viaduct])], before[np.unique(idx[viaduct])])
 
 
 def _fake_command(order):

@@ -1,7 +1,9 @@
 // Coarse (draft) tiles on localhost: when the player comes within one tile of an L0 cell the published tileset lacks,
 // the companion service (tools/dev/coarse-tiles, proxied at /coarse/) builds it in seconds and this module streams it
 // in like a published tile: the GLB goes into the scene, its .col entries into the manifest so CollisionStreamer
-// loads them with the normal residency rules. Draft tiles get a desaturated tint and a HUD line. Published 500 m
+// loads them with the normal residency rules. Collision comes first: a draft is drawn only when all 16 of its cells
+// have collision and the physics worker has decoded each of its .col files; one that fails is never drawn (the
+// physics edge walls keep the player out of cells without loaded collision). Draft tiles get a desaturated tint and a HUD line. Published 500 m
 // leaf tiles are hidden once all four of their quadrants are drafted (the same REPLACE rule as the tileset).
 // Every 60 s the published manifest is re-read; a tile that has been published there replaces its draft.
 // Never active off localhost (GitHub Pages) or when the service is not running.
@@ -10,12 +12,14 @@ import { materialColor, saturation, vec3 } from 'three/tsl';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { VISUAL_L0 } from '../core/origin';
+import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 import type { Manifest, ManifestEntry } from './manifest';
 
 const COARSE_ROOT = '/coarse/';
 const POLL_MS = 1000;
 const MANIFEST_POLL_MS = 60_000;
+/** A failed or rejected draft is asked for again after this (ms); the service retries failed builds after 120 s. */
+const RETRY_MS = 120_000;
 /** Drafts farther than this (m, to the tile footprint) are unloaded. */
 const KEEP_M = 2 * VISUAL_L0;
 
@@ -65,6 +69,17 @@ export function wantedTiles(x: number, z: number, published: ReadonlySet<string>
     .map(t => t.id);
 }
 
+/** The 16 collision cells (62.5 m) of L0 tile `id`. */
+export function cellsOf(id: string): string[] {
+  const t = parse(id);
+  if (!t || t.level !== 0) return [];
+  const per = VISUAL_L0 / COLLISION_TILE;
+  return Array.from({ length: per * per }, (_, k) => `c_${t.i * per + (k % per)}_${t.j * per + Math.floor(k / per)}`);
+}
+
+/** The draft's collision is missing or unreadable: the tile is not drawn. */
+class DraftRejected extends Error {}
+
 /** A published leaf parent is hidden while every one of its quadrants is resident as a draft or swapped tile. */
 export function parentCovered(parent: string, resident: ReadonlySet<string>): boolean {
   const t = parse(parent);
@@ -86,6 +101,8 @@ export interface CoarseHost {
   tiles: THREE.EventDispatcher<{ 'load-model': { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } };
     'dispose-model': { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } } }>;
   unloadCollision: (id: string) => void;
+  /** Decodes a draft .col in the physics worker (PhysicsClient.checkTile); rejects when the worker cannot use it. */
+  checkCollision: (buffer: ArrayBuffer) => Promise<unknown>;
   style?: (model: THREE.Object3D) => void;
   unstyle?: (model: THREE.Object3D) => void;
   fetch?: typeof fetch;
@@ -160,7 +177,7 @@ export class CoarseTiles {
     for (const id of wanted) {
       const e = this.entries.get(id) ?? { state: 'pending' as State, collision: [], nextPoll: 0 };
       this.entries.set(id, e);
-      if (e.state === 'pending' && now >= e.nextPoll) void this.poll(id, e, distToL0(id, x, z));
+      if ((e.state === 'pending' || e.state === 'failed') && now >= e.nextPoll) void this.poll(id, e, distToL0(id, x, z));
     }
     for (const [id, e] of this.entries) {
       if (wanted.includes(id) || distToL0(id, x, z) <= KEEP_M) continue;
@@ -186,27 +203,42 @@ export class CoarseTiles {
       if (res.status === 202) { e.state = 'pending'; e.nextPoll = this.clock + 2000; return; }
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string };
-        e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`;
+        e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;
         return;
       }
       const fragment = await res.json() as CoarseFragment;
       if (!fragment.coarse || fragment.tile !== id) throw new Error(`${id}: not a coarse tile fragment`);
       const base = new URL(`${COARSE_ROOT}${id}/`, this.page);
+      // Collision before visibility: every cell of the tile needs a collision entry (a published one wins), and every
+      // draft entry must decode in the physics worker. A draft that fails is never drawn; the edge walls
+      // (physics/edgeWalls.ts) keep the player out of it and the HUD names the reason.
+      const own = Object.entries(fragment.collision).filter(([cid]) => !this.host.manifest.collision[cid]);
+      const uncovered = cellsOf(id).filter(cid => !fragment.collision[cid] && !this.host.manifest.collision[cid]);
+      if (uncovered.length) throw new DraftRejected(`no collision for ${uncovered.length} of 16 cells (${uncovered[0]})`);
+      await Promise.all(own.map(async ([cid, entry]) => {
+        const col = await this.fetch(new URL(entry.url, base).href, { cache: 'no-store' });
+        if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
+        const buf = await col.arrayBuffer();
+        if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: ${buf.byteLength} bytes, manifest ${entry.bytes}`);
+        await this.host.checkCollision(buf).catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
+      }));
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
       this.host.style?.(model);
       tint(model, this.host.renderer);
       this.host.scene.add(model);
       e.model = model;
-      for (const [cid, entry] of Object.entries(fragment.collision)) {
-        if (this.host.manifest.collision[cid]) continue; // never shadow a published collision tile
+      for (const [cid, entry] of own) {
         this.host.manifest.collision[cid] = { ...entry, url: new URL(entry.url, base).href };
         e.collision.push(cid);
       }
       e.state = 'draft';
       this.updateParents();
     } catch (err) {
-      e.state = 'pending'; e.nextPoll = this.clock + 5000;
+      const rejected = err instanceof DraftRejected;
+      // A rejected draft is retried like a failed build: the service may rebuild it with a fixed producer.
+      e.state = rejected ? 'failed' : 'pending'; e.nextPoll = this.clock + (rejected ? RETRY_MS : 5000);
+      if (rejected) e.error = (err as Error).message;
       console.warn(`[coarse] ${id}: ${(err as Error).message}`);
     }
   }

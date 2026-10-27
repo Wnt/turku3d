@@ -185,7 +185,9 @@ frame (the feet on foot, the body of the driven car in a car) and applies one ru
   the rules wait for the next safe frame. Nearer placements (leaving a car, R in a car) keep them.
 - **Lost**: below the lowest ground of the loaded tiles (manifest `h[0]`) minus 5 m, more than 5 m
   outside the area's bounding box, more than 2 s with the feet or car body over 0.3 m under the
-  river surface (no swimming), or more than 3 s without ground contact. Landing safely again
+  river surface (no swimming), or more than 3 s without ground contact. The edge of the built area is
+  closed by the physics edge walls (`physics/edgeWalls.ts`, `world/README.md`), so in play the lost rules
+  catch the river, a fall through a hole and a placement off the loaded tiles, not a drive off the edge. Landing safely again
   cancels it. Over a cell of the area whose collision has not arrived yet the player is streaming,
   not lost; once it loads, a player who sank below it is lost by the first rule.
 - **Reset**: the newest sample at least 3 s older than the last safe frame (before the slide
