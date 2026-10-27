@@ -402,3 +402,81 @@ def test_osm_deck_height_keeps_high_abutments_and_clears_ground():
         [12, 13, 14]
     )
     assert deck_profile(s, np.array([1, 18, 3]), (12, 14)) == pytest.approx([17, 18, 19])
+
+
+def test_forest_scatter_density_spacing_and_exclusions():
+    from scipy.spatial.distance import pdist
+    from turku3d.coarse.forests import scatter
+
+    area = shapely.box(0, 0, 100, 100)
+    building = shapely.box(10, 10, 30, 30)
+    road = shapely.box(45, 0, 55, 100)
+    water = shapely.box(70, 60, 100, 100)
+    blocked = shapely.union_all([building, road, water])
+    points = scatter(area, 0.01, blocked, 42)
+    assert len(points) == 100
+    assert min(pdist(points)) >= 5
+    assert all(
+        area.contains(shapely.Point(p)) and not blocked.covers(shapely.Point(p)) for p in points
+    )
+    assert points == scatter(area, 0.01, blocked, 42)
+    assert len(scatter(area, 0.005, blocked, 42)) == 50
+    occupied = [(35, 35), (39, 35)]
+    samples = scatter(area, 0.01, blocked, 43, occupied=occupied)
+    assert all(np.hypot(x - a, z - b) >= 5 for x, z in samples for a, b in occupied)
+
+
+def test_forest_rows_canopy_and_bushes():
+    from dataclasses import replace
+
+    from turku3d.coarse.forests import BUSH_CAP, TREE_CAP, produce
+    from turku3d.coarse.inputs import Inputs
+
+    tile = C.VisualTile(0, 0, 0)
+    empty = Inputs(
+        np.empty((0, 3)), np.empty((0, 0)), np.empty((0, 0, 3)), [], [], [], None, {}, {}
+    )
+    forest = ("wood", shapely.box(0, 0, 100, 100), "wood", "needleleaved")
+    row = ("row", shapely.LineString([(120, 20), (200, 20)]), "tree_row", "broadleaved")
+    inputs = replace(empty, forests=[forest, row], canopy=np.array([[20, 25, 20], [40, 18, 40]]))
+    trees, bushes = produce(tile, inputs, lambda x, z: 5.0, [])
+    measured = [t for t in trees if t.measured]
+    assert [t.height for t in measured] == [20, 13]
+    assert all(t.variant == "tree_pineDefaultA" for t in measured)
+    assert len([t for t in trees if t.object_id.startswith("row:")]) == 10
+    assert len(trees) <= TREE_CAP and 0 < len(bushes) <= BUSH_CAP
+    assert all(t.trunk_radius == 0 and t.height < 2 for t in bushes)
+
+
+def test_forest_osm_types_clip_to_tile(tmp_path, monkeypatch):
+    import producer_world as world
+    from turku3d.coarse.forests import read_areas
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path))
+    path = world.write_osm(
+        [
+            ({"landuse": "forest"}, shapely.box(-10, -10, 20, 20)),
+            ({"natural": "wood"}, shapely.box(30, 30, 50, 50)),
+            ({"natural": "scrub"}, shapely.box(60, 60, 70, 70)),
+            ({"natural": "heath"}, shapely.box(80, 80, 90, 90)),
+            ({"leisure": "park"}, shapely.box(100, 100, 120, 120)),
+            ({"leisure": "garden"}, shapely.box(130, 130, 140, 140)),
+            (
+                {"natural": "tree_row", "leaf_type": "broadleaved"},
+                shapely.LineString([(-10, 10), (20, 10)]),
+            ),
+            ({"landuse": "residential"}, shapely.box(0, 0, 250, 250)),
+        ]
+    )
+    areas = read_areas(C.VisualTile(0, 0, 0), path)
+    assert {a[2] for a in areas} == {
+        "forest",
+        "wood",
+        "scrub",
+        "heath",
+        "park",
+        "garden",
+        "tree_row",
+    }
+    assert areas[0][1].bounds == (0, 0, 20, 20)
+    assert areas[-1][3] == "broadleaved"

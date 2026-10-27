@@ -189,3 +189,15 @@ the existing street-area water-bridge lift remains. `roads.json` has optional `e
 Y array per edge vertex sequence (including ends), or null for unsurveyed edges. Graph merging and
 the router preserve these deck/approach heights. Verify the pure clearance rules with
 `bash pipeline/env/run.sh pytest -q pipeline/tests/test_coarse.py -k osm_deck_height`.
+
+
+Area vegetation (`forests.py`) uses OSM forest/wood, scrub/heath, parks/gardens and tree rows,
+with seeded Poisson-disc fallback (5 m trunk spacing; 180/ha woodland, 40/ha park).
+Buildings, city street polygons, OSM road/path corridors and water exclude new trunks.
+Classes 3–5, when present in the existing ground LAZ, supply canopy positions/heights above
+that same ground grid; ground-only `maanpinta` normally needs the fallback. No extra LAZ is fetched.
+The budget is 192 trees plus 24 low edge-bush instances per 250 m tile, using the shared
+`vegetation.visual.write_instances` LOD contract and prototypes. Collision reuses the existing
+trunk cylinders only; bushes and crowns have none. Manifest `vegetation` records the caps and
+measured/bush counts; `seconds.vegetation_scatter` records added producer time per tile.
+Pure synthetic checks: `bash pipeline/env/run.sh python -m pytest pipeline/tests/test_coarse.py -k forest -q`.
