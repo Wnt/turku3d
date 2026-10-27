@@ -13,7 +13,7 @@ type GameplayManifest = Pick<Manifest, 'roads' | 'addresses' | 'visual' | 'baseU
 
 /** The street map the router and the minimap share: the published graph (read again when a release changes
  *  `manifest.roads`) merged with the draft tiles' graphs. `update` is serialised; the latest call wins. */
-export class StreetMap {
+class StreetMap {
   private published: RoadGraphJson | null;
   private sha: string | undefined;
   private chain = Promise.resolve();
