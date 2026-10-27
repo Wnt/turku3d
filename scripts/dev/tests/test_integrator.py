@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import advisory  # noqa: E402
 import coordination  # noqa: E402
 import integrator  # noqa: E402
+import landing_class  # noqa: E402
 import live_build  # noqa: E402
 import pages  # noqa: E402
 import served  # noqa: E402
@@ -203,19 +204,11 @@ class IntegratorFixture(unittest.TestCase):
             (work / "build/game/asset.bin").write_text(self.git("rev-parse", "HEAD", cwd=repo))
             manifest = work / "dist/tiles/manifest.json"
             facades = record["facades_bound"]
-            listed = live_build.released_tiles(previous)
+            listed = landing_class.released_tiles(previous)
         report = live_build.inspect(
             manifest, facades, live_build.baseline(published), listed, reason
         )
         failures = [drop] if (drop := advisory.facade_drop(report)) else []
-        chrome_stats = chrome and {"full_suite": chrome["full_suite"], "selected": chrome["specs"]}
-        full_red = (repo / "game/full-red.ts").exists() and chrome and chrome["full_suite"]
-        if checks and (self.chrome_red or full_red):
-            self.chrome_red = max(0, self.chrome_red - 1)
-            spec = "webgpu:game/tests/e2e-tile/tile.spec.ts"
-            failures.append(
-                {"stage": "chrome", "detail": f"chrome failed (1); {log}", "specs": [spec]}
-            )
         if kind == "data":
             report["tiles_built"] = list(listed)
         else:
@@ -229,9 +222,24 @@ class IntegratorFixture(unittest.TestCase):
             **report,
             "seconds": {stage: 0.01},
             "cache_hits": ["refresh"] if kind == "data" else [],
-            "chrome": chrome_stats,
+            "chrome": None,
             "advisory": failures,
         }
+
+    def fake_advise(self, repo, work, published, env, log, report, *, chrome, **kwargs):
+        report["chrome"] = chrome and {
+            "full_suite": chrome["full_suite"],
+            "selected": chrome["specs"],
+        }
+        failures = report["advisory"]
+        full_red = (repo / "game/full-red.ts").exists() and chrome and chrome["full_suite"]
+        if self.chrome_red or full_red:
+            self.chrome_red = max(0, self.chrome_red - 1)
+            spec = "webgpu:game/tests/e2e-tile/tile.spec.ts"
+            failures.append(
+                {"stage": "chrome", "detail": f"chrome failed (1); {log}", "specs": [spec]}
+            )
+        return report
 
     def land(self, name, path, text, reason=None, when=None):
         (self.main / path).parent.mkdir(parents=True, exist_ok=True)
@@ -251,11 +259,17 @@ class IntegratorFixture(unittest.TestCase):
         return commit
 
     def integrate(self, full=False):
-        with patch.object(live_build, "build", side_effect=self.fake_build):
+        with (
+            patch.object(live_build, "build", side_effect=self.fake_build),
+            patch.object(live_build, "post_publish", side_effect=self.fake_advise),
+        ):
             return integrator.run_once(self.published, self.main, full=full)
 
     def data(self, refresh_stale=False):
-        with patch.object(live_build, "build", side_effect=self.fake_build):
+        with (
+            patch.object(live_build, "build", side_effect=self.fake_build),
+            patch.object(live_build, "post_publish", side_effect=self.fake_advise),
+        ):
             return integrator.run_data(self.published, self.main, refresh_stale=refresh_stale)
 
     def live_record(self):

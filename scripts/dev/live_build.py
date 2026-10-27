@@ -43,7 +43,7 @@ STAGES = {
     # The code lane, for every batch that is not inert: main's game bundle (voice clips and the
     # address pool are part of it) with the served tile set.
     "code": ("game-build",),
-    # The scheduled full Chrome suite (advisory) on the same release.
+    # Full runs build the same bundle; Chrome is selected only after publication.
     "full": ("game-build", "chrome"),
     # The data lane: the tiles a changed data root affects, with the live tiles' tile code; the
     # live game bundle is carried. Chrome runs what spec_selection picks: nothing unless the
@@ -52,6 +52,7 @@ STAGES = {
         "refresh",
         "tile-build",
         "tile-validate",
+        "collision-checks",
         "car-report",
         "facade-ground-audit",
         "chrome",
@@ -60,12 +61,17 @@ STAGES = {
 }
 
 
-def stages_for(kind, checks=True):
+def stages_for(kind, checks=True, *, post_publish=False):
     """The live stages a build of this kind runs: the one seam for stage selection.
 
-    checks=False keeps only the build stages (the base check and bisection builds, which only
-    ask whether a commit builds)."""
-    return tuple(stage for stage in STAGES[kind] if checks or stage in advisory_check.BUILD_STAGES)
+    By default only build stages run. post_publish selects diagnostics instead;
+    checks=False excludes diagnostics for base checks and bisection builds."""
+    return tuple(
+        stage
+        for stage in STAGES[kind]
+        if (stage not in advisory_check.BUILD_STAGES) == post_publish
+        and (checks or stage in advisory_check.BUILD_STAGES)
+    )
 
 
 def parked_changed(previous, work):
@@ -273,21 +279,20 @@ def build(
     chrome=None,
     timings=None,
     checks=True,
+    release_report=None,
+    cancelled=None,
 ):
     """Run the kind's live stages on repo; the caller holds the integration host reservation.
 
+    Build stages run before publication; release_report selects only post-publish stages
+    using the existing artifacts. cancelled preempts owned command groups for a newer landing.
     A build stage that fails raises StageFailed; an advisory stage that fails is appended to
     report["advisory"] ({"stage", "detail", "log"}, plus "specs" for Chrome and "checks" for
     tile-validate) and the build goes on. checks=False runs the build stages only.
 
-    A code or full build ships the served tile set (served.ship) and checks the tiles it
-    carries; a data build seeds the live release and rebuilds tiles. previous_release is the
-    published release directory the batch starts from; tile-build and collision checks then
-    only rebuild what the layer delta affects. A data build runs the car report only when the
-    parked-car layer changed, else it carries the previous release's result forward.
-    A code build reports the tile set it ships in report["shipped"] (served.tiles), a data
-    build the tiles it rebuilt in report["tiles_built"] (served.built); the integrator turns
-    either into the release record's provenance (served.provenance).
+    Code/full builds ship served tiles; data builds seed the previous release and rebuild
+    affected tiles. Shipped/rebuilt provenance goes into report["shipped"]/report["tiles_built"].
+    Post-publish car reports carry the previous result when parked cars are unchanged.
 
     join is offered only while the build is free to restart: once, before the first stage
     that is not a cache hit (refresh included), so a stage that runs for real is never
@@ -303,13 +308,16 @@ def build(
     chrome is the spec_selection plan for the Chrome stage (None runs the full suite);
     passing specs are cached per spec and project, and report["chrome"] records what ran.
     """
-    stages = stages_for(kind, checks)
+    stages = stages_for(kind, checks, post_publish=release_report is not None)
     chrome = chrome or spec_selection.full_plan("no selection given")
     minimum = baseline(published)
-    advisory = []
-    report = None
+    advisory = list(release_report.get("advisory", [])) if release_report else []
+    report = release_report
     seeded = None
-    if "tile-build" in stages:
+    if release_report is not None:
+        listed = tuple(report["tiles"])
+        data_time = report["data_time"]
+    elif "tile-build" in stages:
         seeded = {"time": time.time(), "parts": data_parts(published)}
         seed(work, published)
         listed = tiles(published)
@@ -327,6 +335,8 @@ def build(
         report["shipped"] = {
             name: value for name, value in shipped.items() if name not in ("dir", "facades_bound")
         }
+    if release_report is not None:
+        report["advisory"] = advisory
     durations = {}
     timings = {} if timings is None else timings
     cache_hits = []
@@ -349,8 +359,20 @@ def build(
                 "tile-validate",
                 "T=" + " ".join(listed),
                 "TILE_WALKERS=128",
+                "VALIDATOR_REQUIRE=format,seams",
+                "VALIDATOR_ARGS=--checks format,seams",
+            ],
+            repo,
+        ),
+        (
+            "collision-checks",
+            [
+                "make",
+                "tile-validate",
+                "T=" + " ".join(listed),
+                "TILE_WALKERS=128",
                 "VALIDATOR_REQUIRE=buildings,curbs",
-                "VALIDATOR_ARGS=--checks format,seams,buildings,curbs --walk-seconds 2",
+                "VALIDATOR_ARGS=--checks buildings,curbs --walk-seconds 2",
             ],
             repo,
         ),
@@ -373,6 +395,8 @@ def build(
         for stage, command, cwd in commands:
             if stage not in stages:
                 continue
+            if cancelled and cancelled():
+                raise InterruptedError("newer landing waiting; advisory checks cut short")
             if (
                 stage == "car-report"
                 and kind == "data"
@@ -390,10 +414,10 @@ def build(
                     if selected and same_tree(prior / "textures", work / "textures"):
                         command = [*command[:3], "T=" + " ".join(selected)]
                         scopes[stage] = selected
-            if stage in ("tile-validate", "car-report"):
+            if stage in ("tile-validate", "collision-checks", "car-report"):
                 selected = scopes.get("tile-build") or listed
                 files = affected_collision_files(previous_release, work, selected)
-                if stage == "tile-validate":
+                if stage in ("tile-validate", "collision-checks"):
                     command[2] = "T=" + " ".join(selected)
                     if files:
                         command.append("VALIDATOR_INPUTS=" + " ".join(map(str, files)))
@@ -410,7 +434,7 @@ def build(
             # Chrome results are cached per spec by spec_selection, not per stage.
             key = (
                 live_cache.digest(repo, work, published, stage, previous, scopes.get(stage))
-                if cache_enabled and stage != "chrome"
+                if cache_enabled and stage not in ("chrome", "collision-checks")
                 else None
             )
             if key:
@@ -470,7 +494,7 @@ def build(
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
             load_before = os.getloadavg()
-            if stage == "tile-validate":
+            if stage in ("tile-validate", "collision-checks"):
                 (work / "reports/validate-aoi.json").unlink(missing_ok=True)
             if stage.startswith("chrome"):
                 run_env["TURKU3D_JOBS"] = str(integration_jobs("browser"))
@@ -486,12 +510,14 @@ def build(
                         env=run_env,
                         bundle_dir=work / "build/game",
                         tiles_manifest=work / "dist/tiles/manifest.json",
-                        runner=lambda command, cwd, env: s.run_group(command, cwd=cwd, env=env),
+                        runner=lambda command, cwd, env: s.run_group(
+                            command, cwd=cwd, env=env, cancelled=cancelled
+                        ),
                         log=log,
                     )
                     proc = subprocess.CompletedProcess(command, code, output)
                 else:
-                    proc = s.run_group(command, cwd=cwd, env=run_env)
+                    proc = s.run_group(command, cwd=cwd, env=run_env, cancelled=cancelled)
             log.write(proc.stdout)
             durations[stage] = round(time.monotonic() - start, 3)
             timings[stage] = round(timings.get(stage, 0.0) + durations[stage], 3)
@@ -518,12 +544,15 @@ def build(
                     )
                 except ValueError as exc:
                     failure = f"{exc}; {detail}"
-            elif stage == "tile-validate":
+            elif stage in ("tile-validate", "collision-checks"):
                 path = work / "reports/validate-aoi.json"
                 try:
                     failing = advisory_check.tile_checks(path, proc.returncode)
                 except ValueError as exc:
-                    raise StageFailed(stage, f"{exc}; {detail}") from exc
+                    if stage == "tile-validate":
+                        raise StageFailed(stage, f"{exc}; {detail}") from exc
+                    failing = []
+                    failure = f"{exc}; {detail}"
                 if failing:
                     failure = f"tile-validate checks failed: {', '.join(failing)}; {detail}"
                     extra = {"checks": failing}
@@ -578,13 +607,32 @@ def build(
     if "tile-build" in stages:
         report["tiles_built"] = list(scopes.get("tile-build") or listed)
     report["data_time"] = data_time  # when the shipped tiles' build read the data root
-    report["seconds"] = durations
-    report["cache_hits"] = cache_hits
-    report["input_hashes"] = input_hashes
+    if release_report is None:
+        report["seconds"] = durations
+        report["cache_hits"] = cache_hits
+        report["input_hashes"] = input_hashes
+    else:
+        report["advisory_seconds"] = durations
     report["browser_load"] = browser_loads
     report["chrome"] = chrome_stats
     report["advisory"] = advisory
     return report
+
+
+def post_publish(repo, work, published, env, log, report, *, kind, previous, chrome, cancelled):
+    """Run diagnostics on the already published build, without reseeding its artifacts."""
+    return build(
+        repo,
+        work,
+        published,
+        env,
+        log,
+        previous_release=previous,
+        kind=kind,
+        chrome=chrome,
+        release_report=report,
+        cancelled=cancelled,
+    )
 
 
 def prepare(work, published, commit, report, release_id=None):

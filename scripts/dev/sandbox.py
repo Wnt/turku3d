@@ -26,12 +26,13 @@ def run(*args, cwd=REPO, check=True, **kwargs):
     return subprocess.run(args, cwd=cwd, check=check, text=True, capture_output=True, **kwargs)
 
 
-def run_group(command, *, cwd, env, log=None, timeout=None, hand_over=()):
+def run_group(command, *, cwd, env, log=None, timeout=None, hand_over=(), cancelled=None):
     """Own the entire command tree, including a Playwright server and Chrome.
 
     Output streams to `log` when given (readable while the command runs), else to a
     private temporary file. `timeout` seconds bound the run like a queue deadline.
     `hand_over` lists lock paths this process holds; the command holds them too.
+    `cancelled` is polled each second; interruption cleans up this command tree and raises InterruptedError.
     """
     fds = {str(Path(path).resolve()): held_fd(path) for path in hand_over}
     if fds:
@@ -61,7 +62,23 @@ def run_group(command, *, cwd, env, log=None, timeout=None, hand_over=()):
                 else None
             )
             try:
-                rc = proc.wait(timeout=limit)
+                if cancelled is None:
+                    rc = proc.wait(timeout=limit)
+                else:
+                    until = time.monotonic() + limit if limit is not None else None
+                    while True:
+                        if cancelled():
+                            raise InterruptedError(
+                                "newer landing waiting; advisory checks cut short"
+                            )
+                        remaining = until - time.monotonic() if until is not None else None
+                        if remaining is not None and remaining <= 0:
+                            raise subprocess.TimeoutExpired(command, limit)
+                        try:
+                            rc = proc.wait(timeout=min(1, remaining) if remaining else 1)
+                            break
+                        except subprocess.TimeoutExpired:
+                            continue
             except subprocess.TimeoutExpired:
                 os.killpg(proc.pid, signal.SIGTERM)
                 try:
@@ -103,6 +120,7 @@ def run_group(command, *, cwd, env, log=None, timeout=None, hand_over=()):
                     os.kill(pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+            proc.wait()
         output.seek(0)
         return subprocess.CompletedProcess(command, rc, output.read())
 

@@ -155,16 +155,14 @@ pushed to origin's `main`. Local `main` is never pushed. The row records `push` 
 
 ### Live build (`live_build.build`; tile selection in `live_layers.py`)
 
-Live and Pages publish what localhost serves (Jonni, 2026-10-27 22:55). `live_build.stages_for(kind)`: `code` (every
-non-inert batch) runs only `make game-build` and ships the served tiles (`served.tiles`: the tile store entry for
-main's tile key when it records `facades_bound`, else the live tiles, layers and facade assembly); `full` adds the full
-Chrome suite. `data` seeds APFS copies of the live layers, textures, tiles and game, replaces the texture assembly with
-`$TURKU3D_DATA/facade-approvals/assembly`, and for the tiles in `$TURKU3D_DATA/playable-tiles.json` runs `make
-refresh`, `make tile-build AREA=playable-tiles T=...` (changed or newly listed tiles), a bounded `make tile-validate`
-on changed collision tiles, a known-red car report, the facade ground audit and, when the tile list changed, the
-@streaming Chrome specs; the live game is carried. Each release record names `tiles_from` (`source` live, store or
-build; builder `commit`), `tile_commits` and `stale_by_code` (tiles whose builder's `tile_store.PATTERNS` blobs
-differ from the release commit's).
+Live and Pages publish as soon as the build passes: code/full batches run `game-build` with the served tiles;
+data batches run refresh, tile-build and format/seam validation, carrying the live game. Only after live and Pages
+are published do selected or scheduled full Chrome, collision/walk checks, car reports, facade ground audits and
+(code lane) the deep gate run in that build's checkout. Results update the exact release record, ledger advisory
+list, inbox warnings and Pages commit notes (a notes-only update protected against newer deployments).
+A newer main landing cancels owned advisory command groups, records `advisory_interrupted`, and frees the lane
+for the next batch; interrupted full Chrome runs are not marked complete. `publish_seconds` records time through
+the first Pages deployment, while `wall_seconds` includes advisory time and `pages.seconds` is deployment time.
 
 **Build stages and advisory stages** (user decision 2026-10-27 21:00). Only `live_build.BUILD_STAGES`
 (refresh, tile-build, tile-validate, game-build) and the manifest check (geometry, ground textures and < 8 MB
@@ -174,7 +172,7 @@ is advisory: the car report (failing cars are an accepted known red, validator e
 ground audit, tile-validate's `buildings`/`curbs`, the facade baseline
 (`facade-baseline`: fewer `facades_bound` than the published release with no `Facade regression reason:` line in
 a batch landing's ledger row) and Chrome. Each failure is appended to `report["advisory"]` (`stage`, `detail`,
-`log`, Chrome `specs`, tile-validate `checks`), the build continues, and a failed advisory stage is not cached.
+`log`, Chrome `specs`, tile-validate `checks`), publication stands, and a failed advisory stage is not cached.
 `stages_for(kind, checks=False)` runs the build stages only (base check and bisection builds). Every 2 h with a
 landing since the last full run (or `integrator.py run --full`) all specs run on both projects on live
 (`full_suite: true`, `integration_chrome.py`), as information. Stage times and output are in `live-build.log`.
@@ -663,7 +661,7 @@ integrator code lane (asynchronous, one run at a time, `integration` host reserv
         class by paths (landing_class.classify): inert → live_build.repoint(M), no build, no slot
         else → live_build.build(M, code): game-build + served tiles; joins only while free
         builds: publish(M) under publish.lock, recomposed on a data-lane release published meanwhile
-               → Pages → gate --deep --all → new advisory failures: warning to the batch's authors
+               → Pages → Chrome/audits/deep gate (cancelled for newer landings) → new advisory failures: warning to the batch's authors
         build red: base check: live_build.build(G, build stages)
                G red:   data-red, revert nothing, warning to all, live stays at G until main moves
                G green: bisect G..M (build stages) → revert the culprit landing as one
