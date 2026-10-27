@@ -74,6 +74,17 @@ export class CollisionStreamer {
       this.loading.delete(id);
     }
   }
+  /** A new tile release changed these entries: loaded ones are fetched again and replace their colliders in one
+   *  worker message (no step in between), the rest load from the new entry when the player comes near. */
+  refresh(ids: Iterable<string>) {
+    for (const id of ids) {
+      this.failed.delete(id);
+      this.retries.delete(id);
+      if (!this.physics.loaded.has(id) || this.loading.has(id) || !this.manifest.collision[id]) continue;
+      this.loading.add(id);
+      void this.fetchAndLoad(id);
+    }
+  }
   get pending(): number { return this.loading.size; }
   /** Ids within radius that are not loaded yet (ignores failed ones). */
   missingNear(x: number, z: number, r: number): string[] {

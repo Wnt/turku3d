@@ -1,7 +1,8 @@
 // The localhost game's landing paths on a Vite dev server (tools/dev/localhost/README.md): a HUD module change swaps
 // the play session in place (new text, same position and money, no page load); a physics worker change autosaves,
-// reloads and continues at the same place without the start menu. The server runs on a copy of game/ and tools/dev
-// under $TURKU3D_WORK/tmp, so the edits never touch the checkout.
+// reloads and continues at the same place without the start menu; a new tile release behind /tiles swaps in place.
+// The server runs on a copy of game/ and tools/dev under $TURKU3D_WORK/tmp with a state file the spec writes in
+// place of the localhost service, so the edits never touch the checkout.
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +17,16 @@ const repo = path.resolve(import.meta.dirname, '../../..');
 const copy = path.join(workRoot, 'tmp', `hotswap-${process.pid}`);
 const PORT = Number(process.env.E2E_HOTSWAP_PORT ?? port(4));
 const shots = path.join(reportsRoot, 'tool-localhost-hotswap');
+const statePath = path.join(copy, 'state.json');
 let vite: ChildProcess | null = null;
+
+/** Points /tiles at the release `name` under the copy, as the service's state.json does. */
+function serveRelease(name: string) {
+  const state = { commit: 'c0ffee'.padEnd(40, '0'), verification: { state: 'unverified' }, events: path.join(copy, 'events.jsonl'),
+    store: path.join(copy, 'releases'), tiles: { dir: path.join(copy, 'releases', name), key: name, source: 'localhost' } };
+  fs.writeFileSync(`${statePath}.tmp`, JSON.stringify(state));
+  fs.renameSync(`${statePath}.tmp`, statePath);
+}
 
 test.beforeAll(async () => {
   fs.rmSync(copy, { recursive: true, force: true });
@@ -26,8 +36,9 @@ test.beforeAll(async () => {
   }
   fs.cpSync(path.join(repo, 'tools/dev'), path.join(copy, 'tools/dev'), { recursive: true });
   for (const name of ['node_modules', 'public']) fs.symlinkSync(path.join(repo, 'game', name), path.join(copy, 'game', name));
-  const env = { ...process.env };
-  delete env.TURKU3D_LOCALHOST_STATE;
+  fs.cpSync(path.join(repo, 'game/public/dev-tiles'), path.join(copy, 'releases/A'), { recursive: true });
+  serveRelease('A');
+  const env = { ...process.env, TURKU3D_LOCALHOST_STATE: statePath };
   vite = spawn(path.join(copy, 'game/node_modules/.bin/vite'), ['--port', String(PORT), '--strictPort'],
     { cwd: path.join(copy, 'game'), env, stdio: 'ignore' });
   for (let i = 0; ; i++) {
@@ -107,4 +118,45 @@ test('a physics worker change autosaves, reloads and continues in place', async 
   expect(Math.hypot(after.feet[0] - before.feet[0], after.feet[2] - before.feet[2])).toBeLessThan(0.3);
   expect(await missionsOf(page)).toEqual(wallet);
   expect(after.errors).toEqual([]);
+});
+
+test('a new tile release behind /tiles swaps in place: tileset, changed collision, same position', async ({ page }) => {
+  let loads = 0;
+  page.on('load', () => { loads++; });
+  await open(page, '/?tiles=/tiles/tileset.json');
+  await page.getByRole('option', { name: 'New game' }).click();
+  await placed(page);
+  await untilSim(page, () => (window.__game!.state as () => { tilesSettled: boolean })().tilesSettled, null, 30);
+  const markers = () => page.evaluate(() => {
+    const names: string[] = [];
+    (window.__game!.tiles as { tiles: { group: { traverse(f: (o: { name: string }) => void): void } } }).tiles.group
+      .traverse(o => { if (o.name.startsWith('marker_n')) names.push(o.name); });
+    return [...new Set(names)];
+  });
+  expect(await markers()).toContain('marker_ne');
+  const before = await gameState(page);
+  const tile = `c_${Math.floor(before.feet[0] / 62.5)}_${Math.floor(before.feet[2] / 62.5)}`;
+  await page.evaluate(id => { (window as unknown as { __colBefore: unknown }).__colBefore =
+    (window.__game!.physics as { loaded: Map<string, unknown> }).loaded.get(id); }, tile);
+  // Release B: the visual tile's marker is renamed (same byte length) and the collision tile under the player
+  // is announced as changed, as a data landing's tile build would.
+  const b = path.join(copy, 'releases/B');
+  fs.cpSync(path.join(copy, 'releases/A'), b, { recursive: true });
+  const glb = path.join(b, 'visual/0/t0_0_0.glb');
+  fs.writeFileSync(glb, Buffer.from(fs.readFileSync(glb).toString('latin1').replaceAll('marker_ne', 'marker_nX'), 'latin1'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(b, 'manifest.json'), 'utf8'));
+  manifest.visual.t0_0_0.sha256 = 'b'.repeat(64);
+  manifest.collision[tile].sha256 = 'c'.repeat(64);
+  fs.writeFileSync(path.join(b, 'manifest.json'), JSON.stringify(manifest));
+  serveRelease('B');
+  await untilSim(page, () => (window.__game!.tiles as { swaps: number }).swaps === 1, null, 30);
+  expect(await markers()).toEqual(['marker_nX']);
+  await untilSim(page, id => (window.__game!.physics as { loaded: Map<string, unknown> }).loaded.get(id)
+    !== (window as unknown as { __colBefore: unknown }).__colBefore, tile, 10);
+  const after = await gameState(page);
+  expect(loads, 'no page load').toBe(1);
+  expect(Math.hypot(after.feet[0] - before.feet[0], after.feet[2] - before.feet[2])).toBeLessThan(0.05);
+  expect(after.grounded).toBe(true);
+  expect(after.errors).toEqual([]);
+  await page.screenshot({ path: path.join(shots, 'e2e-tile-release-swapped.png') });
 });

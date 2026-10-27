@@ -185,6 +185,7 @@ src/render/gpuTimer.ts      whole-frame WebGPU timestamp / WebGL2 disjoint queri
 src/world/tiles.ts          TilesRenderer + GLTFExtensionsPlugin(KTX2Loader, MeshoptDecoder); group.rotation.x = -PI/2
 src/world/manifest.ts       manifest.json loader + origin/grid assertions
 src/world/collisionStreaming.ts   .col tiles within radius -> worker (transferable ArrayBuffer)
+src/world/releaseSwap.ts    a new tile release behind /tiles applied in place (localhost game; see src/world/README.md)
 src/physics/protocol.ts     worker message protocol (typed)
 src/physics/worker.ts       the worker; src/physics/client.ts is the main-thread side
 src/physics/world.ts        Rapier world: tile colliders, KCC, vehicle integration, camera sphere casts and raycasts
