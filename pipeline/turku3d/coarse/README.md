@@ -53,7 +53,21 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   Run `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_fences.py` for synthetic placement
   and road-clipping checks. `manifest.barriers.seconds` records the extra producer seconds on each built tile.
 
-No curbs, stairs, other structures, props, facade maps or LOD parents.
+- **Tunnels** (`tunnels.py`): OSM road/path/rail `tunnel=yes|building_passage|culvert`, plus
+  `covered=yes` with negative `layer`, become box sections with portal wings, solid walls,
+  roof, emissive light strips and a road/path floor. Width/maxheight override class defaults
+  (7 m / 4.5 m for roads, 3 m / 2.5 m for paths). Full-block lidar samples keep a measured dip;
+  buried stretches follow the portal chord. Ground obstructing the clear box is cut with exact
+  polygon remainders, while overburden above its roof remains walkable. Building passages split
+  the draft shell below the ceiling and retain the upper building. Walls reuse structures
+  `profile_wall` and all faces reuse `Faces`; tube collision reaches every intersecting cell.
+  `manifest.tunnels` counts ways; `seconds.tunnels` records producer overhead separately.
+  Optional `roads.json.edgeHeights` stores floor Y per edge vertex, shared with draft bridges.
+  Missing remote portal lidar falls back to the local grid; stacked/intersecting tunnels and
+  abrupt OSM way splits still need surveyed profiles. Pure synthetic checks:
+  `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_tunnels.py`.
+
+No curbs, stairs, props, facade maps or LOD parents.
 
 ## Service (`service.py`)
 
