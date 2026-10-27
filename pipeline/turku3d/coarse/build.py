@@ -17,6 +17,7 @@ import io
 import json
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -259,6 +260,37 @@ def default_library() -> Path:
     return library if library.exists() else C.data_root() / "live/textures/assembly/library"
 
 
+class Packager:
+    """One persistent ``node visual.mjs --serve`` per process: a build worker packages every tile
+    without starting node and loading glTF-Transform again (about 0.3 s CPU, seconds of wall time
+    on a loaded host). A packager that died is started again on the next tile."""
+
+    def __init__(self):
+        self.proc: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+
+    def package(self, requests: Path) -> None:
+        with self.lock:
+            if self.proc is None or self.proc.poll() is not None:
+                self.proc = subprocess.Popen(
+                    ["node", str(BRIDGE), "--serve"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                )
+            self.proc.stdin.write(f"{requests}\n")
+            self.proc.stdin.flush()
+            answer = self.proc.stdout.readline().strip()
+        if answer != "ok":
+            message = answer.removeprefix("error ")
+            if answer.startswith("error "):
+                message = json.loads(message)
+            raise RuntimeError(f"visual packaging failed\n{message or 'the packager exited'}")
+
+
+PACKAGER = Packager()
+
+
 def package_visual(
     tile: C.VisualTile, layer_files: list[Path], stage: Path, work: Path, library: Path
 ) -> tuple[bytes, dict]:
@@ -280,9 +312,7 @@ def package_visual(
     (stage / "out").mkdir(parents=True, exist_ok=True)
     req = stage / "requests.json"
     req.write_text(json.dumps([request]))
-    proc = subprocess.run(["node", str(BRIDGE), str(req)], capture_output=True, text=True)
-    if proc.returncode:
-        raise RuntimeError(f"visual packaging failed\n{proc.stdout}\n{proc.stderr}")
+    PACKAGER.package(req)
     stats = json.loads((stage / "out" / "stats.json").read_text())
     shared = stage / "shared"
     if shared.exists():
@@ -306,7 +336,12 @@ def _write(path: Path, data: bytes) -> None:
 
 
 def build(
-    tile_id: str, out: Path, *, inputs: Inputs | None = None, library: Path | None = None
+    tile_id: str,
+    out: Path,
+    *,
+    inputs: Inputs | None = None,
+    library: Path | None = None,
+    sources=None,
 ) -> dict:
     """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
 
@@ -317,7 +352,7 @@ def build(
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
-    inputs = inputs or gather(tile, out.parent)
+    inputs = inputs or gather(tile, out.parent, sources)
     seconds = dict(inputs.seconds)
 
     t = time.perf_counter()

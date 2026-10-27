@@ -262,4 +262,21 @@ async function assembleVisual(request) {
     textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()), facade_shares:facadeShares }));
 
 }
-for (const request of JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))) await assembleVisual(request);
+// `node visual.mjs requests.json` packages once; `--serve` keeps the modules loaded and packages one requests file per
+// stdin line, answering `ok` or `error <JSON message>` per line (the coarse tile workers' persistent packager).
+if (process.argv[2] === '--serve') {
+  const { createInterface } = await import('node:readline');
+  const { format } = await import('node:util');
+  // stdout carries only the answers: glTF-Transform's logger and any other console output go to stderr.
+  for (const level of ['log', 'info', 'debug', 'warn']) console[level] = (...args) => process.stderr.write(format(...args) + '\n');
+  for await (const line of createInterface({ input: process.stdin })) {
+    try {
+      for (const request of JSON.parse(fs.readFileSync(line, 'utf8'))) await assembleVisual(request);
+      process.stdout.write('ok\n');
+    } catch (error) {
+      process.stdout.write(`error ${JSON.stringify(String(error?.stack ?? error))}\n`);
+    }
+  }
+} else {
+  for (const request of JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))) await assembleVisual(request);
+}

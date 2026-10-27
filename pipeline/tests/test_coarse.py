@@ -1,6 +1,7 @@
 """Coarse tiles: published tile format from synthetic inputs, and the localhost build service."""
 
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -22,6 +23,11 @@ from turku3d.package.seams import verify_tile_seams
 from turku3d.roads import validate
 
 TILE = C.VisualTile(0, 3, -2)
+
+
+def one_shot(command):
+    """A Builder runner that starts command(tile, out) once per tile."""
+    return lambda tile, out: subprocess.run(command(tile, out), capture_output=True, text=True)
 
 
 def _frame(rows, path):
@@ -227,7 +233,7 @@ def _wait(predicate, timeout=20.0):
 
 def test_builder_queues_nearest_first_and_reports_failures(tmp_path):
     order = []
-    builder = Builder(tmp_path, command=_fake_command(order), code="test", workers=1)
+    builder = Builder(tmp_path, run=one_shot(_fake_command(order)), code="test", workers=1)
     try:
         assert builder.request("t0_5_5", 900)["state"] == "queued"
         _wait(lambda: builder.building)
@@ -246,7 +252,7 @@ def test_builder_queues_nearest_first_and_reports_failures(tmp_path):
 
 def test_builder_drops_tiles_the_game_stopped_asking_for(tmp_path, monkeypatch):
     order = []
-    builder = Builder(tmp_path, command=_fake_command(order), code="test", workers=1)
+    builder = Builder(tmp_path, run=one_shot(_fake_command(order)), code="test", workers=1)
     try:
         builder.request("t0_1_1", 10)
         _wait(lambda: builder.building)
@@ -261,7 +267,7 @@ def test_builder_drops_tiles_the_game_stopped_asking_for(tmp_path, monkeypatch):
 
 def test_builder_runs_four_builds_at_once(tmp_path):
     order = []
-    builder = Builder(tmp_path, command=_fake_command(order, seconds=2.0), code="test")
+    builder = Builder(tmp_path, run=one_shot(_fake_command(order, seconds=2.0)), code="test")
     try:
         tiles = [f"t0_{i}_0" for i in range(6)]
         for d, tile in enumerate(tiles):
@@ -276,7 +282,7 @@ def test_builder_runs_four_builds_at_once(tmp_path):
 
 def test_service_http_routes(tmp_path):
     order = []
-    builder = Builder(tmp_path, command=_fake_command(order), code="test")
+    builder = Builder(tmp_path, run=one_shot(_fake_command(order)), code="test")
     server, _, _ = serve(0, tmp_path, builder=builder)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}/coarse/"
@@ -305,7 +311,9 @@ def test_service_http_routes(tmp_path):
 
 def test_service_drain_lets_running_builds_finish_and_starts_no_more(tmp_path):
     order = []
-    builder = Builder(tmp_path, command=_fake_command(order, seconds=0.5), code="test", workers=1)
+    builder = Builder(
+        tmp_path, run=one_shot(_fake_command(order, seconds=0.5)), code="test", workers=1
+    )
     server, _, _ = serve(0, tmp_path, builder=builder)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}/coarse/"

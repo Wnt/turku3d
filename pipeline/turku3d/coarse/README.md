@@ -79,7 +79,10 @@ The prefetch workers prepare the complete tiles within 1 km of the player in the
 (`python -m turku3d.coarse prepare <tile> --root <coarse root>`), so a build reads a few small
 pickles instead of decoding LAZ, 5 cm ortho mosaics and whole-area GeoParquet files, and imports
 neither geopandas nor rasterio nor laspy. The draft ortho is encoded with the fastest ETC1S effort
-(`draftTextures` in the visual packager request, `--clevel 0`).
+(`draftTextures` in the visual packager request, `--clevel 0`). The service builds on persistent
+workers (`python -m turku3d.coarse worker`, one per build slot) that keep the producer imported and
+one `node visual.mjs --serve` packager running, so a tile pays neither interpreter nor node start-up
+(each about 0.3 s CPU and, on a host at load 250, 3-5 s of wall time).
 
 ## Prefetcher (`prefetch.py`)
 
