@@ -211,9 +211,8 @@ the quality thresholds of the release's tile ledger, `turku3d.region quality`) a
 (one release, about 150 MB) and Pages is enabled once. The commit message is the release notes: the commits since
 the previous Pages release (`publish/pages-last.json`, else the record's `from`), the advisory failures the release
 shipped with and the shipped and excluded tiles with the reasons. The result or `error` goes into the integration
-row as `pages`; a failure never rolls back the local publish. It refuses only a release that binds a facade that is
-none of: `source_mode: generate` with `generated_qa`, `derived`/`derived-neighbour` with `derived_from`, or `fast`
-with a `fast_description` and no references (`pages.generated`). By hand, any release dir: `scripts/dev/codex-task wait-cmd --
+row as `pages`; a failure never rolls back the local publish. It refuses a release binding a facade map that is not
+generated-style, derived or fast (`pages.generated`). By hand, any release dir: `scripts/dev/codex-task wait-cmd --
 scripts/dev/publish-pages [--release DIR]`; `--plan` prints the selection and publishes nothing. The game build
 uses a relative base, so it runs under `/turku-game/` without COOP/COEP.
 
