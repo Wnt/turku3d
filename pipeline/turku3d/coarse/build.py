@@ -8,7 +8,7 @@ water sensor over a synthetic bed and a visible water surface (``material_key`` 
 ``maanpinta`` has no points on bridge decks, so a street-area bridge over water is lifted to the
 line through its abutments (``bridge_decks``). OSM ``natural=tree`` points become GPU-instanced
 vegetation prototypes (unmeasured, 10 m unless tagged) with trunk cylinders in the collision. The
-tile has no curbs, stairs, structures, props, facade maps or LOD parents: the full pipeline
+tile has no curbs, stairs, structures, props, unique facade maps or LOD parents: the full pipeline
 replaces it when the tile is published.
 """
 
@@ -31,6 +31,8 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
+from turku3d.facade_kit import code_hash as kit_hash
+from turku3d.facade_kit import ensure_kit, parameters
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
@@ -47,8 +49,8 @@ WIRE_CAP = 8_000_000
 
 def code_hash() -> str:
     """Producer identity: the coarse sources plus the shared visual packager they call."""
-    h = hashlib.sha256()
-    for p in sorted([*Path(__file__).parent.glob("*.py"), BRIDGE]):
+    h = hashlib.sha256(kit_hash().encode())
+    for p in sorted([*Path(__file__).parent.glob("*.py"), *BRIDGE.parent.glob("*.mjs")]):
         h.update(p.name.encode())
         h.update(p.read_bytes())
     return h.hexdigest()[:16]
@@ -355,6 +357,7 @@ def package_visual(
         textureCache=str(work / ".texture-cache"),
         coarseTerrain=False,
         draftTextures=True,
+        facadeKit=ensure_kit(work / "shared"),
     )
     (stage / "out").mkdir(parents=True, exist_ok=True)
     req = stage / "requests.json"
@@ -470,16 +473,12 @@ def build(
         write_instances(stage / "vegetation.vis.glb", tile, trees)
         layer_files.append(stage / "vegetation.vis.glb")
     if shells:
-        roof_pos, roof_idx, wall_pos, wall_uv, wall_idx = [], [], [], [], []
-        rc = wc = 0
-        for _, (roof, ridx, _, _, walls, wuv, widx) in shells:
+        roof_pos, roof_idx = [], []
+        rc = 0
+        for _, (roof, ridx, _, _, _walls, _wuv, _widx) in shells:
             roof_pos.append(roof)
             roof_idx.append(ridx + rc)
             rc += len(roof)
-            wall_pos.append(walls)
-            wall_uv.append(wuv)
-            wall_idx.append(widx + wc)
-            wc += len(walls)
         roof_pos = np.concatenate(roof_pos)
         meshes = [
             GlbMesh(
@@ -496,17 +495,28 @@ def build(
                     texture_uv="normalized",
                 ),
             ),
-            GlbMesh(
-                f"walls_{tile.id}",
-                np.concatenate(wall_pos) - origin,
-                np.concatenate(wall_idx),
-                uvs=np.concatenate(wall_uv),
-                color=(0.78, 0.75, 0.70, 1.0),
-                extras=dict(
-                    layer="buildings", object_id=f"walls_{tile.id}", material_key="facade_plaster"
-                ),
-            ),
         ]
+        for b, (_, _, _, _, walls, wuv, widx) in shells:
+            width = max(float(wuv[:, 0].max()), 1.0)
+            params = parameters(str(b.key), b.top - b.base, width, getattr(b, "attributes", {}))
+            meshes.append(
+                GlbMesh(
+                    f"walls_{b.key}",
+                    walls - origin,
+                    widx,
+                    uvs=wuv,
+                    color=(1, 1, 1, 1),
+                    extras=dict(
+                        layer="buildings",
+                        object_id=f"walls_{b.key}",
+                        building_id=str(b.key),
+                        material_key="facade_kit",
+                        base_height=b.base,
+                        top_height=b.top,
+                        facade_kit=params,
+                    ),
+                )
+            )
         write_visual(stage / "buildings.vis.glb", meshes, root_translation=tile.origin)
         layer_files.append(stage / "buildings.vis.glb")
     barrier_cols, barrier_stats = fences.produce(

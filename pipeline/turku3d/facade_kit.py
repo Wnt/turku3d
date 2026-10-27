@@ -1,0 +1,173 @@
+"""Shared procedural facade floor: parameter-only buildings and a content-addressed atlas."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from turku3d import config as C
+
+MATERIALS = ("plaster", "brick", "stone", "wood", "concrete", "glass", "metal")
+CELL = 128
+GUTTER = 4
+
+
+def renderer():
+    # The pipeline is also usable with only pipeline/ on PYTHONPATH.
+    import sys
+
+    path = str(C.REPO_ROOT / "textures")
+    if path not in sys.path:
+        sys.path.insert(0, path)
+    from turkutex import facade_fast_render
+
+    return facade_fast_render
+
+
+def code_hash() -> str:
+    h = hashlib.sha256(Path(__file__).read_bytes())
+    h.update(Path(renderer().__file__).read_bytes())
+    return h.hexdigest()[:16]
+
+
+def store_path(key: str, root: Path | None = None) -> Path:
+    """Opaque WFS/building ids cannot escape the parameter store."""
+    return (root or C.data_root() / "facade-params") / (
+        hashlib.sha256(str(key).encode()).hexdigest() + ".json"
+    )
+
+
+def read_description(key: str, root: Path | None = None) -> dict | None:
+    try:
+        row = json.loads(store_path(key, root).read_text())
+        description = row["description"]
+        if row["building_key"] == str(key) and not renderer().validate(
+            description, description["facade_id"]
+        ):
+            return description
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def write_description(
+    key: str, description: dict, source: str, reference_hash: str, root: Path | None = None
+):
+    problems = renderer().validate(description, description.get("facade_id", ""))
+    if problems:
+        raise ValueError(problems)
+    dest = store_path(key, root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    row = dict(
+        building_key=str(key), description=description, source=source, reference_hash=reference_hash
+    )
+    with tempfile.NamedTemporaryFile(mode="w", dir=dest.parent, delete=False) as f:
+        json.dump(row, f, sort_keys=True)
+    Path(f.name).replace(dest)
+
+
+def parameters(
+    key: str,
+    height: float,
+    width: float,
+    attributes: dict | None = None,
+    description: dict | None = None,
+) -> dict:
+    fr = renderer()
+    d = (
+        description
+        or read_description(key)
+        or fr.register_description(str(key), str(key), attributes or {}, width, height)
+    )
+    plan = fr.layout(d, max(width, 1.0), max(height, 1.0))
+    module = (
+        MATERIALS.index(d["material"]) * 4
+        + int(d["window_width"] > 0.55) * 2
+        + int(d["ground_floor"] in ("shops", "doors"))
+    )
+    return dict(
+        module=module,
+        wall=d["wall_colour"],
+        trim=d["trim_colour"],
+        bay=plan["bay_m"],
+        storey=max(1.0, height / plan["storeys"]),
+    )
+
+
+def ensure_kit(root: Path) -> dict:
+    """Render and encode once per renderer hash. No panorama, model calls or per-wall images."""
+    key = code_hash()
+    target = root / ("facade-kit-" + key)
+    meta = target / "kit.json"
+    if meta.exists():
+        return json.loads(meta.read_text())
+    root.mkdir(parents=True, exist_ok=True)
+    fr = renderer()
+    with tempfile.TemporaryDirectory(prefix="facade-kit-", dir=root) as tmp:
+        stage = Path(tmp)
+        maps = {s: np.zeros((1024, 1024, 3), np.uint8) for s in ("albedo", "normal", "orm")}
+        for module in range(28):
+            material, variant = divmod(module, 4)
+            d = fr.register_description("kit", "kit", {}, 3.0, 6.4)
+            d.update(
+                material=MATERIALS[material],
+                wall_colour="#ffffff",
+                trim_colour="#b0b0b0",
+                storeys=2,
+                window_columns=1,
+                window_width=0.65 if variant // 2 else 0.45,
+                ground_floor="doors" if variant % 2 else "windows",
+                ground_openings=1 if variant % 2 else 0,
+                roof_line="none",
+                plinth=False,
+                features=[],
+            )
+            rendered = fr.render(
+                d, 3.0, 6.4, (CELL - 2 * GUTTER, 2 * (CELL - 2 * GUTTER)), f"kit-{module}"
+            )
+            col, row = module % 7, module // 7
+            for slot, atlas in maps.items():
+                for floor in range(2):
+                    image = rendered[slot][floor * 120 : (floor + 1) * 120]
+                    atlas[
+                        (row * 2 + floor) * CELL : (row * 2 + floor + 1) * CELL,
+                        col * CELL : (col + 1) * CELL,
+                    ] = np.pad(image, ((GUTTER, GUTTER), (GUTTER, GUTTER), (0, 0)), mode="wrap")
+        paths = {}
+        for slot, atlas in maps.items():
+            src = stage / f"{slot}.png"
+            Image.fromarray(atlas).save(src)
+            dest = stage / f"{slot}.ktx2"
+            command = [
+                "toktx",
+                "--t2",
+                "--genmipmap",
+                "--threads",
+                "2",
+                "--assign_oetf",
+                "srgb" if slot == "albedo" else "linear",
+                "--encode",
+                "etc1s",
+                "--clevel",
+                "0",
+                str(dest),
+                str(src),
+            ]
+            subprocess.run(command, check=True, capture_output=True)
+            src.unlink()
+            paths[slot] = str(target / dest.name)
+        result = dict(key=key, maps=paths)
+        (stage / "kit.json").write_text(json.dumps(result))
+        try:
+            os.rename(stage, target)
+        except OSError:
+            if not meta.exists():
+                raise
+    return json.loads(meta.read_text())

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { bindFacadeKit } from './facade_kit.mjs';
 
 // W1-03 colour/material classes mapped deliberately to the five available W1-09 assets.
 // Brick, timber and tile are approximations until corresponding library materials exist.
@@ -78,7 +79,9 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
   }
   return (material, prim, e) => {
     const key = LIBRARY_FALLBACKS[e.material_key] ?? e.material_key;
-    const selected = facade(e) ?? library(key);
+    const own = facade(e);
+    if (!own && request.facadeKit && bindFacadeKit(doc, request, material, prim, e, texture)) return;
+    const selected = own ?? library(key);
     const { albedo, normal, orm } = selected.maps;
     if ((albedo || normal || orm) && !prim.getAttribute('TEXCOORD_0')) throw new Error(`Missing UVs: ${e.object_id}`);
     // The source mesh name and semantic key are per object, not per GPU material.

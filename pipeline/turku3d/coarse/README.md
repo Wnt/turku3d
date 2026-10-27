@@ -159,3 +159,12 @@ After each landing the ledger keeps the newest 20 GB of prefetched units and del
 recently used ones, together with their fetch-registry records (`MANIFEST.jsonl`, `SHA256SUMS`).
 A unit is used when a plan includes it again. Files the prefetcher did not fetch, units being
 fetched or planned, and blocks under a listed playable tile's input area are never pruned.
+
+## Shared facade floor
+
+Draft walls use a 28-module, content-addressed procedural facade atlas (albedo, normal and ORM),
+rendered once with `turkutex.facade_fast_render` and reused through `shared/`. Per-building colour,
+bay spacing and storey height cost only parameters; roofs retain the ortho. The game samples the
+upper bay repeatedly and the ground-floor row only at the base on both renderer backends. Published
+walls without an approved generated, derived or fast map use the same kit. Pure mapping checks:
+`PYTHONPATH=pipeline:textures .venv/bin/python -m pytest pipeline/tests/test_facade_kit.py -q`.

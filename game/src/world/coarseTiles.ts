@@ -22,6 +22,7 @@
 // draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
 // Never active off localhost (GitHub Pages) or when the service is not running.
 import * as THREE from 'three/webgpu';
+import { facadeKitMaterial } from '../render/facadeKit';
 import { materialColor, saturation, vec3 } from 'three/tsl';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
@@ -549,7 +550,7 @@ function tint(model: THREE.Object3D, renderer: THREE.WebGPURenderer) {
     mesh.castShadow = true; mesh.receiveShadow = true;
     const style = (source: THREE.Material) => {
       if (cache.has(source)) return cache.get(source)!;
-      const node = ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
+      const node = facadeKitMaterial(source, renderer) ?? ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
       node.colorNode = saturation(node.colorNode ?? materialColor.rgb, 0.55).mul(vec3(0.94, 0.97, 1.04));
       node.polygonOffset = true; node.polygonOffsetFactor = -1; node.polygonOffsetUnits = -2;
       cache.set(source, node);
