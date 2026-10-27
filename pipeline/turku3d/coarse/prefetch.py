@@ -44,7 +44,8 @@ FOOT_DEPTH = 500.0  # cone depth on foot (m)
 CAR_DEPTH = 1500.0  # cone depth at the car's top speed (m)
 RING = 500.0  # radius around the player (m)
 BAND = 500.0  # m: units are fetched band by band of distance, every dataset of a band first
-HALF_ANGLE = math.radians(30.0)  # cone half-angle around the direction of travel
+SIDE_WEIGHT = 2.0  # a metre beside the path counts as this many along it
+HALF_ANGLE = math.radians(20.0)  # cone half-angle around the direction of travel
 MIN_SPEED = 1.0  # below this the direction is noise: ring only
 DOWNLOADS = 2
 NICE = 10
@@ -76,18 +77,30 @@ def area(x: float, z: float, vx: float = 0.0, vz: float = 0.0):
     return ring.union(shapely.Polygon([(x, z), *arc]))
 
 
+def reach(box, x: float, z: float, vx: float, vz: float) -> float:
+    """How soon the player needs a block (m): its distance standing; moving, the distance along the
+    path to it plus SIDE_WEIGHT times how far it lies beside the path, so the blocks the car drives
+    through come before those beside it at the same distance."""
+    speed = math.hypot(vx, vz)
+    if speed < MIN_SPEED:
+        return box.distance(shapely.Point(x, z))
+    (cx, cz), half = box.centroid.coords[0], C.LAZ_TILE_SIZE / 2
+    along = ((cx - x) * vx + (cz - z) * vz) / speed
+    side = abs((cx - x) * vz - (cz - z) * vx) / speed
+    return max(abs(along) - half, 0.0) + SIDE_WEIGHT * max(side - half, 0.0)
+
+
 def plan(x: float, z: float, vx: float, vz: float, covered=lambda block: True) -> list[Unit]:
-    """Units over the prefetch area in fetch order: by BAND of distance to the block, within a band
-    lidar, ortho, WFS, OSM, then nearest first; an OSM square already planned is not planned again."""
+    """Units over the prefetch area in fetch order: by BAND of ``reach``, within a band lidar,
+    ortho, WFS, OSM, then the nearest first; an OSM square already planned is not planned again."""
     geom = area(x, z, vx, vz)
     bounds = C.BBoxLocal(*geom.bounds)
-    here = shapely.Point(x, z)
     blocks = []
     for block in C.laz_tiles_for_bbox(bounds):
         b = block_bbox(block)
         box = shapely.box(b.xmin, b.zmin, b.xmax, b.zmax)
         if covered(block) and box.intersects(geom):
-            blocks.append((box.distance(here), block))
+            blocks.append((reach(box, x, z, vx, vz), block))
     blocks.sort(key=lambda db: (db[0], db[1]))
     units, squares = [], set()
     for d, block in blocks:
