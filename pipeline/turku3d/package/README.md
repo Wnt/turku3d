@@ -89,10 +89,13 @@ and supply all three `files` and matching SHA-256 `hashes`. Changed exported map
 Facade maps have a package-time texel density cap: 48 pixels per metre for full-height
 walls and 72 pixels per metre for short, ground-floor walls, never exceeding the source
 dimensions. When a tile reaches the 7.6 MB headroom target including ground maps, the
-assembler estimates the savings from each facade's exported map bytes and reduces the
-farthest bound facades from the office spawn to 4 pixels per metre first. It extends
-that set, then uses 2 or 1 pixels per metre only if measured wire bytes still exceed
-the target. The fixed 8 MB wire limit remains enforced. The source files and QA hashes remain intact;
+assembler steps facades down the density ladder 16, 8, 4, 2, 1 pixels per metre, one
+level at a time: always the facade with the highest planned density, the farthest from
+the office spawn among equals, so every far facade drops to 16 before any drops to 8.
+A facade stops at its declared minimum density. The planner estimates the savings from
+each facade's exported map bytes and source density for a first batch, then extends by
+a tenth of the tile's facades while measured wire bytes still exceed the target. Only
+when every facade is at its minimum (or 1 pixel per metre) does it step below minimums. The fixed 8 MB wire limit remains enforced. The source files and QA hashes remain intact;
 encoded variants are cached outside the export. The manifest records each tile's wire
 size before and after adaptation as `budget_before_bytes` and `wire_bytes`.
 For L0 tiles with multiple unique facade maps, the packager resizes maps directly
