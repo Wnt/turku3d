@@ -94,8 +94,12 @@ raw/streetview and colon-separated TURKUTEX_READ_CACHE roots are reused read-onl
 `python -m turku3d.region.cache --import-cache /path/to/old/cache` preserves source files and
 uses content-addressed hardlinks to deduplicate imported images. Conflicting existing keys
 are retained. Downloads use SHA256 object storage, per-key publication locks and atomic
-links. `TURKU3D_STREETLEVEL_CACHE_GB` sets the LRU limit (default 60 GiB); the cache evicts
-oldest complete keys after writes and imports. Metadata JSON is retained with imported keys.
+links. Panorama cache calls share the cache lock across threads and processes and build each
+key under its own lock; only eviction takes the cache lock exclusively, and skips a round when
+readers hold it. `TURKU3D_STREETLEVEL_CACHE_GB` sets the LRU limit (default 60 GiB); the cache evicts
+oldest complete keys after imports and, from the panorama cache calls, at most every five minutes
+per process (`ENFORCE_INTERVAL_S`; the scan walks the whole tree under the cache lock, so it no
+longer runs on every call). Metadata JSON is retained with imported keys.
 `make cache-gc APPLY=1` removes only stale partials. Size reports count unique inodes
 separately from logical paths.
 

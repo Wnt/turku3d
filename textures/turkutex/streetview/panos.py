@@ -31,7 +31,13 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from turku3d import config
-from turku3d.region.cache import atomic_target, cache_lock, import_cache, synchronized
+from turku3d.region.cache import (
+    atomic_target,
+    build_lock,
+    cache_lock,
+    import_cache,
+    synchronized,
+)
 
 from ..paths import streetview_dir
 
@@ -200,7 +206,7 @@ class PanoCache:
         key = digest.hexdigest()
         target = self.decoded_root / f"{key}.npy"
         if not target.is_file():
-            with cache_lock(self.decoded_root):
+            with cache_lock(self.decoded_root, key):
                 if not target.is_file():
                     with Image.open(source) as image:
                         pixels = np.asarray(image.convert("RGB"))
@@ -244,14 +250,22 @@ class PanoCache:
 
     @synchronized
     def google_meta(self, pid: str) -> PanoMeta | None:
-        d = self.root / "google" / pid
-        f = d / "meta.json"
+        f = self.root / "google" / pid / "meta.json"
         cached = self.read_json(f.relative_to(self.root))
         if cached is not None:
             return PanoMeta.from_dict(cached)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with build_lock(self.root, f):
+            cached = self.read_json(f.relative_to(self.root))
+            if cached is not None:
+                return PanoMeta.from_dict(cached)
+            return self._fetch_google_meta(pid)
+
+    def _fetch_google_meta(self, pid: str) -> PanoMeta | None:
         from .sl import streetview
 
-        d.mkdir(parents=True, exist_ok=True)
+        d = self.root / "google" / pid
+        f = d / "meta.json"
         pano, depth_err = None, None
         try:
             pano = streetview.find_panorama_by_id(pid, download_depth=True)
@@ -320,11 +334,14 @@ class PanoCache:
             return cached
         from .sl import streetview
 
-        pano = streetview.find_panorama_by_id(pid, download_depth=False)
-        img = streetview.get_panorama(pano, zoom=zoom)
         f.parent.mkdir(parents=True, exist_ok=True)
-        with atomic_target(f, self.root) as temp:
-            img.save(temp, quality=93)
+        with build_lock(self.root, f):
+            if f.exists():
+                return f
+            pano = streetview.find_panorama_by_id(pid, download_depth=False)
+            img = streetview.get_panorama(pano, zoom=zoom)
+            with atomic_target(f, self.root) as temp:
+                img.save(temp, quality=93)
         time.sleep(self.sleep)
         return f
 
@@ -424,26 +441,30 @@ class PanoCache:
         cached = self.read_path(f.relative_to(self.root))
         if cached.exists():
             return cached
-        from pillow_heif import register_heif_opener
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with build_lock(self.root, f):
+            if f.exists():
+                return f
+            from pillow_heif import register_heif_opener
 
-        register_heif_opener()
-        faces = [Image.open(p).convert("RGB") for p in self.lookaround_faces(m, zoom)]
-        cams = m.extra["cameras"]
-        full_w = round(faces[0].width * (1024 / 5632)) * 16
-        full_h = full_w // 2
-        st = Image.new("RGB", (full_w, full_h))
-        for k in range(3, -1, -1):
-            c = cams[k]
-            phi0 = math.pi + c["yaw"] - c["fov_s"] / 2
-            if phi0 < 0:
-                phi0 += 2 * math.pi
-            th0 = math.pi / 2 - c["fov_h"] / 2 - c["cy"]
-            fw, fh = c["fov_s"] * full_h / math.pi, c["fov_h"] * full_h / math.pi
-            x, y = phi0 * full_h / math.pi, th0 * full_h / math.pi
-            sc = faces[k].resize((math.ceil(fw), math.ceil(fh)), Image.LANCZOS)
-            st.paste(sc, (math.ceil(x), math.ceil(y)))
-            if x + sc.width > full_w:
-                st.paste(sc, (math.ceil(x - full_w), math.ceil(y)))
-        with atomic_target(f, self.root) as temp:
-            st.save(temp, quality=93)
+            register_heif_opener()
+            faces = [Image.open(p).convert("RGB") for p in self.lookaround_faces(m, zoom)]
+            cams = m.extra["cameras"]
+            full_w = round(faces[0].width * (1024 / 5632)) * 16
+            full_h = full_w // 2
+            st = Image.new("RGB", (full_w, full_h))
+            for k in range(3, -1, -1):
+                c = cams[k]
+                phi0 = math.pi + c["yaw"] - c["fov_s"] / 2
+                if phi0 < 0:
+                    phi0 += 2 * math.pi
+                th0 = math.pi / 2 - c["fov_h"] / 2 - c["cy"]
+                fw, fh = c["fov_s"] * full_h / math.pi, c["fov_h"] * full_h / math.pi
+                x, y = phi0 * full_h / math.pi, th0 * full_h / math.pi
+                sc = faces[k].resize((math.ceil(fw), math.ceil(fh)), Image.LANCZOS)
+                st.paste(sc, (math.ceil(x), math.ceil(y)))
+                if x + sc.width > full_w:
+                    st.paste(sc, (math.ceil(x - full_w), math.ceil(y)))
+            with atomic_target(f, self.root) as temp:
+                st.save(temp, quality=93)
         return f

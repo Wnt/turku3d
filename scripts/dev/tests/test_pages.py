@@ -202,6 +202,18 @@ class PagesTests(unittest.TestCase):
         release = self.release("eeeeeeeeeeee", [GENERATED, derived, neighbour])
         self.assertEqual(pages.check_facades(release), 3)
 
+    def test_fast_maps_drawn_from_a_description_are_published(self):
+        fast = {
+            "source_mode": "fast",
+            "fast_description": {"source": "reference"},
+            "references": [],
+        }
+        self.assertTrue(pages.generated(fast))
+        self.assertFalse(pages.generated({"source_mode": "fast", "references": []}))
+        self.assertFalse(pages.generated({**fast, "references": [{"view_id": "v"}]}))
+        release = self.release("ffffffffffff", [GENERATED, fast])
+        self.assertEqual(pages.check_facades(release), 2)
+
     def test_photo_derived_facades_are_never_published(self):
         self.release("cccccccccccc", [GENERATED, PHOTO])
         with self.assertRaisesRegex(pages.PhotoFacades, "1 bound facades.*b_1"):

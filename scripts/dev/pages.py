@@ -55,15 +55,20 @@ def config(published):
 
 
 def generated(meta):
-    """Facade maps allowed in a public release: generated-style maps and maps derived from them.
+    """Facade maps allowed in a public release: generated-style maps, maps derived from them and
+    fast-pass maps.
 
     A derived map (`derived`, `derived-neighbour`) is cut from a generated map's style record and
-    carries no street imagery; a photo-derived map has a `method` and no generated provenance.
+    carries no street imagery. A fast map (`turkutex.facade_fast`) is drawn procedurally from a
+    recorded description of a few parameters and has no reference pixels. A photo-derived map has
+    a `method` and no generated provenance.
     """
     if meta.get("method"):
         return False
     if meta.get("source_mode") == "generate":
         return bool(meta.get("generated_qa"))
+    if meta.get("source_mode") == "fast":
+        return bool(meta.get("fast_description")) and not meta.get("references")
     return meta.get("source_mode") in ("derived", "derived-neighbour") and bool(
         meta.get("derived_from")
     )

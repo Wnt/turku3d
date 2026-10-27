@@ -63,8 +63,14 @@ to the origin, so a chunk another area already holds is cloned, not downloaded. 
 `inputs` records the area, missing files, fetch seconds and bytes. Ground and ground textures
 read each tile's own source area, and the colour calibration stays on `work-3x3`. It
 appends the tile to `$TURKU3D_WORK/playable-tiles.json`. It clones the published layers, textures and tiles into an
-empty sandbox, then runs `turku3d.refresh` and `turku3d.package.assemble --area playable-tiles`
-for the whole list.
+empty sandbox, then runs `turku3d.refresh`, the fast facade pass for the new tile and
+`turku3d.package.assemble --area playable-tiles` for the whole list.
+
+The `facades-fast` stage runs `turkutex.facade_fast` plan, refs, describe, render and publish
+(`textures/README.md`, "Fast facade pass") with the textures venv: the tile's street walls with no
+generated or derived map get rough procedural maps from one cached gpt-6-astra/low call per wall,
+bound in the sandbox's `textures/assembly`. The report's `facades_fast` has each step's counts and
+seconds; `$TURKU3D_WORK/textures/fast/<tile>/` keeps the run and staging.
 
 ### Per-tile producers
 
@@ -116,7 +122,10 @@ for a new tile therefore repacks only that tile, the seam neighbours whose build
 and the 500 m and 1 km parents above them.
 Coarse visual-only L0 leaves fill the other quadrants of a 500 m parent that contains a new tile
 (massing and coarse DTM, no collision) so REPLACE refinement leaves no hole. `list-tile` appends
-to `$TURKU3D_DATA/playable-tiles.json` only. The next integration then builds and publishes the tile.
+to `$TURKU3D_DATA/playable-tiles.json` and, when the sandbox has a fast pass for the tile, publishes
+its maps into `$TURKU3D_DATA/facade-approvals/assembly` under the export lock (walls missing from
+the approved inventory or holding a generated or derived map are skipped). The next integration
+then builds and publishes the tile.
 
 `collision-audit` reads `$TURKU3D_WORK/build/layers` and the spawn in
 `$TURKU3D_WORK/dist/tiles/manifest.json`; it writes `reports/collision-audit/issues.json`
