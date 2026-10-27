@@ -9,25 +9,27 @@ const triangle = () => {
   return geometry;
 };
 
-test('one shadow mesh preserves ordinary and instanced world triangles without ground', () => {
+test('one shadow mesh preserves buildings and instanced props without ground or vegetation', () => {
   const model = new THREE.Group();
   model.position.set(10, 0, 20);
   const building = new THREE.Mesh(triangle(), new THREE.MeshBasicMaterial());
   building.userData.layer = 'buildings';
   building.position.x = 2;
-  const trees = new THREE.InstancedMesh(triangle(), new THREE.MeshBasicMaterial(), 2);
+  const props = new THREE.InstancedMesh(triangle(), new THREE.MeshBasicMaterial(), 2);
+  props.userData.layer = 'props';
+  props.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 2, 0));
+  props.setMatrixAt(1, new THREE.Matrix4().makeTranslation(3, 0, 0));
+  const trees = new THREE.InstancedMesh(triangle(), new THREE.MeshBasicMaterial(), 20);
   trees.userData.layer = 'vegetation';
-  trees.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 2, 0));
-  trees.setMatrixAt(1, new THREE.Matrix4().makeTranslation(3, 0, 0));
   const ground = new THREE.Mesh(triangle(), new THREE.MeshBasicMaterial());
   ground.userData.layer = 'ground';
-  model.add(building, trees, ground);
+  model.add(building, props, trees, ground);
 
   const shadow = batchTileShadows(model)!;
   expect(shadow.geometry.getIndex()!.count).toBe(9);
   expect(shadow.geometry.getAttribute('position').count).toBe(9);
   expect(shadow.castShadow).toBe(true);
-  expect([building, trees, ground].map(mesh => mesh.castShadow)).toEqual([false, false, false]);
+  expect([building, props, trees, ground].map(mesh => mesh.castShadow)).toEqual([false, false, false, false]);
   const pos = shadow.geometry.getAttribute('position');
   expect([0, 3, 6].map(i => [pos.getX(i), pos.getY(i), pos.getZ(i)])).toEqual([
     [2, 0, 0], [0, 2, 0], [3, 0, 0],

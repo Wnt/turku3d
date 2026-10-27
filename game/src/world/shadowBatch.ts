@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { vegetationOwner } from './vegetationLod';
 
 // The tile materials must stay separate for facades and object IDs. Shadows only
 // need their geometry, so one mesh can cast the same silhouette for the tile.
@@ -17,6 +18,10 @@ export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
     let owner: THREE.Object3D | null = mesh;
     while (owner && !owner.userData.layer) owner = owner.parent;
     if (owner?.userData.layer === 'ground') {
+      mesh.castShadow = false;
+      return;
+    }
+    if (vegetationOwner(mesh)) {
       mesh.castShadow = false;
       return;
     }

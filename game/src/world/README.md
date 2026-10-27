@@ -3,7 +3,7 @@
 Streaming of the published tiles (`docs/specs/tiles.md`): `manifest.ts` loads and checks `manifest.json`, `tiles.ts`
 streams the visual tileset with 3DTilesRendererJS, `residency.ts` caps refined L0 tiles at nine (nearest 500 m
 parents first), `collisionStreaming.ts` keeps the `.col` tiles within the collision radius in the physics worker,
-`shadowBatch.ts` merges each tile's shadow casters, and `coarseTiles.ts` streams localhost draft tiles for cells the
+`shadowBatch.ts` merges non-vegetation shadow casters, and `coarseTiles.ts` streams localhost draft tiles for cells the
 tileset lacks (`tools/dev/coarse-tiles`).
 The draft badge's building count comes from `/coarse/want` (`queued` plus the running `building` ids), so retained
 client entries outside the requested area do not count as work. Verify locally with `scripts/dev/gate --fast --base main`.
@@ -94,3 +94,20 @@ python3 ../scripts/dev/host_slots.py browser -- node_modules/.bin/playwright tes
 # Full throttle to the true edge on the dev tiles with a fake draft; screenshot in $TURKU3D_WORK/reports/fix-edge-walls-streaming/
 npm run build && python3 ../scripts/dev/host_slots.py browser -- node_modules/.bin/playwright test edge-walls.spec.ts coarse-drafts.spec.ts
 ```
+
+## Vegetation LOD
+
+`vegetationLod.ts` handles both published and draft `EXT_mesh_gpu_instancing` trees
+(including older tiles): 50 m cells cull against the camera frustum and distance,
+then compact visible matrices into at most three draws per tile/prototype/material.
+Near trees retain the source mesh and cast shadows; mid trees use vertex-clustered
+prototypes; far foliage uses 32-triangle opaque crossed silhouettes sampled from
+the same prototype. Bark disappears at far distance. No imagery or alpha testing
+is needed. `render/quality.ts` bounds near/mid/far submitted instances globally
+per frame (material parts each count); overflow uses a cheaper LOD, then culls.
+Stationary cell selections reuse their matrix buffers. Tile disposal releases the
+derived meshes, and release reuse retains them. Draft registration runs after tint
+through `CoarseHost.styled`. Independent trunk collisions are unchanged. Verify
+with `scripts/dev/gate --fast --base main`; pure geometry/culling tests are in
+`game/tests/unit/vegetation-lod.test.ts`. The producer adds only constant metadata
+per prototype, with no added tile-build stage; build-time overhead was not timed.
