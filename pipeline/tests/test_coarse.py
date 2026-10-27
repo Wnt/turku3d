@@ -240,7 +240,7 @@ def test_builder_queues_nearest_first_and_reports_failures(tmp_path):
         for tile, d in (("t0_6_5", 700), ("t0_7_5", 100), ("t0_8_5", 300)):
             builder.request(tile, d)
         builder.request("t0_6_5", 50)  # the player moved: the latest distance wins
-        _wait(lambda: len(builder.status()["built"]) == 4)
+        _wait(lambda: builder.status()["built"] == 4)
         assert order == ["t0_5_5", "t0_6_5", "t0_7_5", "t0_8_5"]
         assert builder.request("t0_7_5", 0) == {"state": "built"}
         builder.request("t0_9_9", 1)
@@ -259,7 +259,7 @@ def test_builder_drops_tiles_the_game_stopped_asking_for(tmp_path, monkeypatch):
         builder.request("t0_2_2", 20)
         builder.request("t0_3_3", 30)
         builder.requested["t0_2_2"] -= 60
-        _wait(lambda: len(builder.status()["built"]) == 2)
+        _wait(lambda: builder.status()["built"] == 2)
         assert order == ["t0_1_1", "t0_3_3"]
     finally:
         builder.stop()
@@ -275,7 +275,7 @@ def test_builder_runs_four_builds_at_once(tmp_path):
         _wait(lambda: len(builder.status()["building"]) == 4)
         assert builder.status()["building"] == tiles[:4]
         assert builder.request("t0_0_0", 0)["state"] == "building"
-        _wait(lambda: len(builder.status()["built"]) == 6)
+        _wait(lambda: builder.status()["built"] == 6)
     finally:
         builder.stop()
 
@@ -300,7 +300,7 @@ def test_service_http_routes(tmp_path):
         assert status == 202 and json.loads(body)["state"] in ("queued", "building")
         _wait(lambda: get("t0_4_4/manifest.json?d=12")[0] == 200)
         assert get("t0_4_4/vis.glb") == (200, b"glb")
-        assert json.loads(get("status")[1])["built"] == ["t0_4_4"]
+        assert json.loads(get("status")[1])["built"] == 1
         for bad in ("../secret", "t0_4_4/../../x", "t1_0_0/manifest.json", "shared/zz.ktx2"):
             assert get(bad)[0] == 404
     finally:
@@ -332,7 +332,7 @@ def test_service_drain_lets_running_builds_finish_and_starts_no_more(tmp_path):
         _wait(lambda: not status()["building"])
         time.sleep(0.2)  # a worker that would take t0_2_0 has had its chance
         s = status()
-        assert s["built"] == ["t0_1_0"] and s["queue"] == ["t0_2_0"] and s["draining"] is True
+        assert s["built"] == 1 and s["queue"] == ["t0_2_0"] and s["draining"] is True
         assert order == ["t0_1_0"]
         assert isinstance(s["started"], float)
         assert "pipeline/turku3d/coarse/service.py" in s["modules"]
