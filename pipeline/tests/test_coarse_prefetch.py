@@ -644,6 +644,44 @@ def test_status_answers_from_memory_and_stays_small(tmp_path):
     assert len(json.dumps(s)) < 4000
 
 
+def test_tile_files_are_servable_only_after_validation_without_rechecking(tmp_path, monkeypatch):
+    builder = Builder(tmp_path / "coarse", code="test", workers=0)
+    tile = "t0_0_0"
+    root = builder.root / tile
+    (root / "col").mkdir(parents=True)
+    files = ("vis.glb", "col/c_0_0.col", "roads.json")
+    for name in files:
+        (root / name).write_bytes(b"payload")
+    handler_class = S.handler(builder)
+    handler = handler_class.__new__(handler_class)
+    replies = []
+    handler._json = lambda status, body: replies.append((status, body))
+    handler._send = lambda status, body, *args: replies.append((status, body))
+    handler.path = f"/coarse/{tile}/vis.glb"
+    handler.do_GET()
+    assert replies[-1][0] == 404  # files on disk alone are not a recorded build
+
+    monkeypatch.setattr(builder, "built", lambda _: True)
+    assert builder.request(tile, 0) == {"state": "built"}  # admits an existing draft
+
+    def unread(*_):
+        raise AssertionError("file serving rechecked a manifest or input")
+
+    with monkeypatch.context() as serving:
+        for name in ("built", "manifest", "code", "input_key", "inputs"):
+            serving.setattr(builder, name, unread)
+        serving.setattr(builder, "lock", None)  # neither admission nor sending takes the lock
+        for name in files:
+            handler.path = f"/coarse/{tile}/{name}"
+            handler.do_GET()
+            assert replies[-1] == (200, b"payload")
+
+    monkeypatch.setattr(builder, "built", lambda _: False)
+    builder.request(tile, 0)  # the next manifest request discovers a stale draft
+    handler.do_GET()
+    assert replies[-1][0] == 404
+
+
 def test_a_build_that_is_stale_on_arrival_is_built_again(tmp_path):
     key = ["a"]
     order = []
@@ -669,6 +707,7 @@ def test_a_build_that_is_stale_on_arrival_is_built_again(tmp_path):
     try:
         builder.request("t0_0_0", 0)
         _wait(lambda: builder.status()["built"] == 1)
+        assert "t0_0_0" in builder.servable
         assert order == ["t0_0_0", "t0_0_0"] and "t0_0_0" not in builder.status()["failed"]
     finally:
         builder.stop()
