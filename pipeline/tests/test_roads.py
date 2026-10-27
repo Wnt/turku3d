@@ -67,6 +67,26 @@ def test_graph_keeps_only_the_largest_network_per_mode():
     assert flags == [(30.0, FOOT | STREET), (50.0, FOOT), (100.0, FOOT | CAR | STREET)]
 
 
+def test_corner_adjacent_playable_tile_keeps_its_roads(tmp_path):
+    from turku3d.roads.layer import combine
+
+    tiles = {
+        "t0_0_0": {"records": [([(0, 0), (100, 0)], FOOT | CAR | STREET)]},
+        "t0_1_1": {
+            "records": [
+                ([(300, 300), (400, 300)], FOOT | CAR | STREET),
+                ([(450, 450), (455, 450)], FOOT | CAR | STREET),
+            ]
+        },
+    }
+    combine(tmp_path, tiles)
+    graph = json.loads((tmp_path / "roadgraph.json").read_text())
+    nodes = list(zip(graph["nodes"][::2], graph["nodes"][1::2], strict=True))
+    assert (300, 300) in nodes and (400, 300) in nodes
+    assert (450, 450) not in nodes
+    assert len(graph["edges"]) == 2
+
+
 def test_validate_rejects_bad_graphs():
     good = build_graph([([(0, 0), (5, 0)], FOOT)], (0, 0, 10, 10), "test")
     for broken in (

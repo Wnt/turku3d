@@ -106,6 +106,9 @@ a tenth of the tile's facades while measured wire bytes still exceed the target.
 when every facade is at its minimum (or 1 pixel per metre) does it step below minimums. The fixed 8 MB wire limit remains enforced. The source files and QA hashes remain intact;
 encoded variants are cached outside the export. The manifest records each tile's wire
 size before and after adaptation as `budget_before_bytes` and `wire_bytes`.
+The package step resamples the shipped ground ortho from its 4 cm source grid to a
+5,600-pixel tile core (about 4.46 cm sampling). This remains finer than the native
+2022/2025 imagery and saves wire bytes without changing the source texture or splat maps.
 For L0 tiles with multiple unique facade maps, the packager resizes maps directly
 from their source KTX2 files and packs them into per-tile 2048-pixel atlas pages.
 The atlas preserves glTF's top-left image coordinate: a source facade's lower

@@ -316,6 +316,29 @@ class PerTileTests(unittest.TestCase):
         )
         self.assertEqual([Path(p).parent.name for p in put], ["t0_0_0"])
 
+    def test_road_only_change_gets_a_new_tile_entry(self):
+        first = self.put()
+        road = self.built / "roads/updated.json"
+        road.parent.mkdir(parents=True, exist_ok=True)
+        road.write_bytes(b"new road graph")
+        manifest_path = self.built / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["roads"] = {
+            "url": "roads/updated.json",
+            "sha256": sha(road.read_bytes()),
+            "bytes": road.stat().st_size,
+        }
+        manifest_path.write_bytes(tile_compose._dumps(manifest))
+        second = self.put()
+        self.assertNotEqual(first, second)
+        self.assertEqual((second / "roads/updated.json").read_bytes(), b"new road graph")
+        self.assertFalse(
+            tile_compose.same_bytes(
+                json.loads((second / "TILE.json").read_text())["fragment"],
+                json.loads((self.base / "manifest.json").read_text()),
+            )
+        )
+
     def test_compose_lays_a_newer_entry_over_the_release(self):
         self.put()
         result = self.compose()
