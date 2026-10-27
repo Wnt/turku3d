@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import advisory
 import live_build
 import spec_selection
 
@@ -290,8 +291,11 @@ class LiveBuildTests(unittest.TestCase):
         )
         return repo, work, published
 
-    def stage_runner(self, work, calls):
-        """A run_group stand-in that records each stage command and fakes its output."""
+    def stage_runner(self, work, calls, failing=(), checks=None):
+        """A run_group stand-in that records each stage command and fakes its output.
+
+        Stages in `failing` exit 1; `checks` are tile-validate's check statuses."""
+        checks = checks or {"format": "pass", "seams": "pass", "buildings": "pass", "curbs": "pass"}
 
         def run(command, **kwargs):
             load_log = kwargs["env"].get("TURKU3D_BROWSER_LOAD_LOG")
@@ -329,6 +333,22 @@ class LiveBuildTests(unittest.TestCase):
                     )
                 )
                 return type("Completed", (), {"returncode": 1, "stdout": "cars FAIL\n"})()
+            if "tile-validate" in command:
+                (work / "reports").mkdir(exist_ok=True)
+                report = {"checks": {name: {"status": s} for name, s in checks.items()}}
+                (work / "reports/validate-aoi.json").write_text(json.dumps(report))
+                code = 1 if "fail" in checks.values() else 0
+                return type("Completed", (), {"returncode": code, "stdout": "validated\n"})()
+            stage = next(
+                (
+                    name
+                    for name in failing
+                    if name in command or f"turku3d.package.{name}" in command
+                ),
+                None,
+            )
+            if stage or (command[0].endswith("playwright") and "chrome" in failing):
+                return type("Completed", (), {"returncode": 1, "stdout": "Error: broke\n"})()
             if "tile-build" in command:
                 output = '{"facades_bound": 2}\n'
             elif any(part.endswith("facade_ground_audit") for part in command):
@@ -403,6 +423,82 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(list(report["browser_load"]), ["chrome"])
             self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)
             self.assertEqual(report["facade_ground_audit"]["sampled"], 2)
+            self.assertEqual(report["advisory"], [])
+
+    def failing_build(self, root, failing=(), statuses=None, **kwargs):
+        """A code build whose `failing` stages exit 1; returns (report, stage commands)."""
+        repo, work, published = self.stage_fixture(root)
+        calls = []
+        with (
+            RUN_GROUP,
+            patch.object(
+                live_build.s,
+                "run_group",
+                side_effect=self.stage_runner(work, calls, failing, statuses),
+            ),
+        ):
+            report = live_build.build(
+                repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log", **kwargs
+            )
+        return report, calls
+
+    def test_failing_audits_chrome_and_walk_checks_are_advisory(self):
+        failing = ("facade_ground_audit", "collision-sweep", "collision-audit", "chrome")
+        statuses = {"format": "pass", "seams": "pass", "buildings": "pass", "curbs": "fail"}
+        with tempfile.TemporaryDirectory() as temp:
+            report, calls = self.failing_build(Path(temp), failing, statuses)
+        # Every stage still ran; the game bundle and tiles are there to publish.
+        self.assertEqual(len(calls), 9)
+        stages = [entry["stage"] for entry in report["advisory"]]
+        self.assertEqual(
+            stages,
+            [
+                "tile-validate",
+                "facade-ground-audit",
+                "collision-sweep",
+                "collision-audit",
+                "chrome",
+            ],
+        )
+        self.assertEqual(report["advisory"][0]["checks"], ["curbs"])
+        self.assertEqual(
+            report["advisory"][-1]["specs"],
+            ["webgpu:game/tests/e2e-tile/tile.spec.ts", "webgl:game/tests/e2e-tile/tile.spec.ts"],
+        )
+        self.assertIn("facade-ground-audit failed (1)", report["advisory"][1]["detail"])
+        self.assertNotIn("facade_ground_audit", report)
+
+    def test_build_stage_or_blocking_tile_check_failure_is_red(self):
+        for failing, statuses, stage in (
+            (("game-build",), None, "game-build"),
+            (("refresh",), None, "refresh"),
+            ((), {"format": "pass", "seams": "fail", "buildings": "fail"}, "tile-validate"),
+        ):
+            with tempfile.TemporaryDirectory() as temp:
+                with self.assertRaises(live_build.StageFailed) as caught:
+                    self.failing_build(Path(temp), failing, statuses)
+            self.assertEqual(caught.exception.stage, stage)
+        self.assertIn("seams", str(caught.exception))
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "validate-aoi.json"
+            with self.assertRaisesRegex(ValueError, "no validator report"):
+                advisory.tile_checks(path, 0)
+            path.write_text(json.dumps({"checks": {"format": {"status": "pass"}}}))
+            with self.assertRaisesRegex(ValueError, "validator exit 2"):
+                advisory.tile_checks(path, 2)
+            self.assertEqual(advisory.tile_checks(path, 0), [])
+
+    def test_build_stages_only_skip_every_advisory_stage(self):
+        self.assertEqual(
+            live_build.stages_for("code", checks=False),
+            ("refresh", "tile-build", "tile-validate", "game-build"),
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            report, calls = self.failing_build(Path(temp), ("chrome",), checks=False)
+        self.assertEqual(
+            list(report["seconds"]), ["refresh", "tile-build", "tile-validate", "game-build"]
+        )
+        self.assertEqual((len(calls), report["advisory"]), (4, []))
 
     def join_build(self, root, updates, cached=()):
         """Build with a join callback that returns `updates` in turn; stages in `cached` are
@@ -550,14 +646,14 @@ class LiveBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "cars.json"
             with self.assertRaisesRegex(ValueError, "report missing"):
-                live_build.inspect_car_report(path, 1)
+                advisory.car_report(path, 1)
             path.write_text(json.dumps({"pass": False, "checks": {"cars": {"status": "fail"}}}))
             with self.assertRaisesRegex(ValueError, "exit code disagrees"):
-                live_build.inspect_car_report(path, 0)
+                advisory.car_report(path, 0)
             with self.assertRaisesRegex(ValueError, "validator error"):
-                live_build.inspect_car_report(path, 2)
+                advisory.car_report(path, 2)
 
-    def test_inspect_requires_bound_ground_budget_and_facade_floor(self):
+    def test_inspect_requires_bound_ground_budget_and_reports_a_facade_drop(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "manifest.json"
             manifest = {
@@ -569,12 +665,13 @@ class LiveBuildTests(unittest.TestCase):
             }
             path.write_text(json.dumps(manifest))
             self.assertEqual(live_build.inspect(path, 4, 4, CORE)["facades_bound"], 4)
-            with self.assertRaisesRegex(ValueError, "facades_bound regressed"):
-                live_build.inspect(path, 3, 4, CORE)
-            self.assertEqual(
-                live_build.inspect(path, 3, 4, CORE, "source removed")["facade_regression_reason"],
-                "source removed",
-            )
+            self.assertIsNone(advisory.facade_drop(live_build.inspect(path, 4, 4, CORE)))
+            drop = advisory.facade_drop(live_build.inspect(path, 3, 4, CORE))
+            self.assertEqual((drop["stage"], drop["facades_bound"]), ("facade-baseline", 3))
+            self.assertIn("facades_bound regressed: 3 < 4", drop["detail"])
+            reported = live_build.inspect(path, 3, 4, CORE, "source removed")
+            self.assertEqual(reported["facade_regression_reason"], "source removed")
+            self.assertIsNone(advisory.facade_drop(reported))
             manifest["visual"][live_build.C.CORE_TILES[0]]["ground_texture_bytes"] = 0
             path.write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "ground textures"):

@@ -3,6 +3,8 @@
 import time
 import unittest
 
+import test_lander
+import test_tooling
 from test_gate import Fixture
 from test_tooling import ToolingTests
 
@@ -24,3 +26,16 @@ class OrientationPerformance(unittest.TestCase):
         start = time.monotonic()
         self.assertIn("main | main", self.cli("here").stdout)
         self.assertLess(time.monotonic() - start, 2)
+
+
+class LandingPerformance(test_tooling.Fixture):
+    advance_main = test_lander.LanderTests.advance_main
+    ledger = test_lander.LanderTests.ledger
+
+    def test_inert_landing_after_main_moved_budget(self):
+        repo = self.adopt()
+        self.commit(repo, "change.md")
+        self.advance_main()
+        self.finish()
+        (row,) = self.ledger()
+        self.assertLess(row["merge_wall_seconds"], 5, row)

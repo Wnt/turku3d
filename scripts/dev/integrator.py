@@ -1,13 +1,16 @@
-"""Build, verify and publish the live release for main once per landed batch.
+"""Build and publish the live release (and GitHub Pages) for main once per landed batch.
 
 The lander fast-forwards main after the fast gate. This integrator then classifies the batch
 G..M (G = commit of the published live release, M = main head; landing_class.py): `inert`
 re-points live to M without a build, `data` and `code` build M once in its own sandbox with
-the class's stages (live_build.stages_for). Green publishes M. Red builds G against the
+the class's stages (live_build.stages_for). A batch whose build stages succeed is published
+to live and Pages; its advisory checks (Chrome, audits, car report, facade baseline) are
+recorded in the row and the release, and new failures are sent to the batch's authors as an
+inbox warning. They never block, bisect or revert. A build failure builds G against the
 current data root first: a red G is `data-red` (the data root changed, no commit is blamed
-or reverted). Only a green G bisects the batch's landings and reverts the one culprit
-landing on main through the land lock and the fast gate, tells its author and leaves live
-at G.
+or reverted). Only a green G bisects the batch's landings (build stages only) and reverts the
+one culprit landing on main through the land lock and the fast gate, tells its author and
+leaves live at G.
 
 Nothing polls: each landing starts a run when none is going (ensure), and a finished run starts
 the next when main or the data root moved meanwhile. A newer main joins only while that is free
@@ -30,6 +33,7 @@ import sys
 import time
 from pathlib import Path
 
+import advisory
 import coordination as coord
 import host_slots
 import integration_chrome as chrome
@@ -179,7 +183,7 @@ class Run:
         self.main_repo = main_repo
         self.name = name
         self.lane = lane
-        # The Chrome plan; bisection builds reuse it so the failing specs rerun.
+        # Whether this run is the scheduled full Chrome suite; self.chrome is its plan.
         self.full = full
         self.chrome = None
         # The batch end M and its class fields; a join moves both to a newer main.
@@ -235,11 +239,13 @@ class Run:
     def timed(self, commit, started):
         self.builds.append({"commit": commit, "seconds": round(time.monotonic() - started, 3)})
 
-    def build(self, start, commit, join=False, kind=None):
-        """(report, None) when commit builds green, else (None, failure).
+    def build(self, start, commit, join=False, kind=None, checks=True):
+        """(report, None) when commit builds, else (None, failure); report["advisory"] lists
+        the advisory checks that failed.
 
         join lets main heads that land before the first expensive stage join (self.end);
-        kind overrides the batch class (a data rebuild on top of another lane's release).
+        kind overrides the batch class (a data rebuild on top of another lane's release);
+        checks=False runs the build stages only (base check and bisection).
         """
         # Imported here: the daemon imports this module, and the lander path must not
         # load the live build.
@@ -249,42 +255,32 @@ class Run:
         env = environment(repo, self.published, self.lane)
         work = Path(env["TURKU3D_WORK"])
         reason = landing.facade_reason_in(start, commit, repo)
-        for attempt in (1, 2):
-            if join and commit != self.end:
-                commit, reason = self.end, landing.facade_reason_in(start, self.end, repo)
-            log = registry() / f"integration-{commit[:12]}-{len(self.builds) + 1}.log"
-            status(self.lane, commit=commit, log=str(log))
-            started = time.monotonic()
-            try:
-                report = live_build.build(
-                    repo,
-                    work,
-                    self.published,
-                    env,
-                    log,
-                    reason,
-                    self.previous,
-                    kind or self.landing_class,
-                    (lambda cached: self.join(start, cached)) if join else None,
-                    chrome=chrome.data_plan(self.published) if kind == "data" else self.chrome,
-                    timings=self.stage_seconds,
-                )
-            except live_build.StageFailed as exc:
-                self.timed(self.end if join else commit, started)
-                # One rerun guards against a flaky Chrome stage; cached stages are free.
-                if exc.stage.startswith("chrome") and attempt == 1:
-                    continue
-                failure = {"stage": exc.stage, "detail": str(exc)[-1000:], "log": str(log)}
-                if isinstance(exc, live_build.FacadeRegression):
-                    failure["facades_bound"] = exc.bound
-                    failure["facades_baseline"] = exc.baseline
-                return None, failure
-            except (ValueError, OSError, subprocess.CalledProcessError) as exc:
-                self.timed(self.end if join else commit, started)
-                return None, {"stage": "build", "detail": str(exc)[-1000:], "log": str(log)}
+        log = registry() / f"integration-{commit[:12]}-{len(self.builds) + 1}.log"
+        status(self.lane, commit=commit, log=str(log))
+        started = time.monotonic()
+        try:
+            report = live_build.build(
+                repo,
+                work,
+                self.published,
+                env,
+                log,
+                reason,
+                self.previous,
+                kind or self.landing_class,
+                (lambda cached: self.join(start, cached)) if join else None,
+                chrome=chrome.data_plan(self.published) if kind == "data" else self.chrome,
+                timings=self.stage_seconds,
+                checks=checks,
+            )
+        except live_build.StageFailed as exc:
+            failure = {"stage": exc.stage, "detail": str(exc)[-1000:], "log": str(log)}
+            return None, failure
+        except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+            return None, {"stage": "build", "detail": str(exc)[-1000:], "log": str(log)}
+        finally:
             self.timed(self.end if join else commit, started)
-            return {**report, "work": str(work)}, None
-        raise AssertionError("unreachable")
+        return {**report, "work": str(work)}, None
 
 
 def bisect(run, start, end, failure):
@@ -294,7 +290,7 @@ def bisect(run, start, end, failure):
     failures = {high: failure}
     while high - low > 1:
         middle = (low + high) // 2
-        report, failed = run.build(start, points[middle])
+        report, failed = run.build(start, points[middle], checks=False)
         if report:
             low = middle
         else:
@@ -390,7 +386,7 @@ def notify(run, task, culprit, failure, reverted):
     body = (
         f"Integration {run.id} is red at your landing {culprit[:12]}: {failure['stage']} "
         f"failed. Log: {failure['log']}. Detail: {failure['detail'][-400:]}\n"
-        f"The change is {detail}; live stays on the last verified release. Rebase onto "
+        f"The change is {detail}; live stays on the last published release. Rebase onto "
         "main, fix it, and run codex-task finish again."
     )
     recipient = task if task and (s.tasks_root() / task / "meta.json").exists() else "orchestrator"
@@ -402,14 +398,8 @@ def notify(run, task, culprit, failure, reverted):
 
 
 def warn_data_red(run, row):
-    """Tell everyone the data root, not a commit, turned the batch red; returns the message id."""
+    """Tell everyone the data root, not a commit, turned the batch red; returns the subject."""
     failure = row["failure"]
-    counts = (
-        f" ({failure['facades_bound']} facades bound, published baseline "
-        f"{failure['facades_baseline']})"
-        if "facades_bound" in failure
-        else ""
-    )
     cause = (
         "The facade approval root's MANIFEST.json differs from the published release's."
         if row["data_cause"] == "approval-root-changed"
@@ -417,11 +407,9 @@ def warn_data_red(run, row):
     )
     body = (
         f"Integration {run.id} ({row['from'][:12]}..{row['to'][:12]}) is data-red: the base "
-        f"{row['from'][:12]} builds red at {failure['stage']}{counts}. {cause} No commit "
-        f"was reverted; live stays on {row['from'][:12]}. The run is retried when main moves "
-        "or the data root changes. Accept a deliberate facade drop by landing a commit whose "
-        "result carries `Facade regression reason: ...`. "
-        f"Log: {failure['log']}. Detail: {failure['detail'][-400:]}"
+        f"{row['from'][:12]} builds red at {failure['stage']}. {cause} No commit was "
+        f"reverted; live stays on {row['from'][:12]}. The run is retried when main moves or "
+        f"the data root changes. Log: {failure['log']}. Detail: {failure['detail'][-400:]}"
     )
     subject = f"integration {run.id} data-red at {failure['stage']}"
     try:
@@ -474,7 +462,8 @@ def data_red(run, base, head_failure, base_failure):
 
 
 def integrate(run, base, start, end):
-    """Build M; publish when green. Red: build G; red G is data-red, green G bisects."""
+    """Build M; publish it and Pages when it builds, whatever its advisory checks say.
+    A build failure builds G; red G is data-red, green G bisects."""
     import live_build
 
     published = run.published
@@ -482,9 +471,9 @@ def integrate(run, base, start, end):
     end = run.end
     base.update(run.landing, to=end, batch_joined=run.joined, chrome_plan=run.chrome)
     if report is None:
-        # Base check before blame: G was green when published, so a red G means the data
+        # Base check before blame: G built when published, so a red G means the data
         # root changed under it, and no commit in the batch caused the failure.
-        _, base_failure = run.build(start, start)
+        _, base_failure = run.build(start, start, checks=False)
         if base_failure:
             return data_red(run, base, failure, base_failure)
         parent, culprit, failure = bisect(run, start, end, failure)
@@ -513,14 +502,17 @@ def integrate(run, base, start, end):
     }
     while True:
         work = Path(report.pop("work"))
+        row["advisory"] = report["advisory"]
         with publish_lock():
             live = (published / "live").resolve()
+            known = advisory.release_advisory(live)
             if landing_class.release_parts(live) == run.live_parts:
                 try:
-                    if end == live_commit(published):  # a full run verifies live in place
-                        chrome.mark_full_suite(published)
+                    if end == live_commit(published):  # a full run checks live in place
+                        chrome.mark_full_suite(published, report["advisory"])
                     else:
-                        live_build.prepare(work, published, end, {**report, "full_suite": run.full})
+                        record_fields = {**report, "full_suite": run.full, "from": start}
+                        live_build.prepare(work, published, end, record_fields)
                         # Main is already at M; only the live link moves, and publish rolls
                         # it back to G if a stable path does not resolve into the release.
                         live_build.publish(published, end)
@@ -540,6 +532,7 @@ def integrate(run, base, start, end):
         if report is None:
             return data_red(run, base, failure, failure)
     row["result"] = "green"
+    row["warned"] = advisory.warn(run, row, known)
     deployed = pages.deploy(published)
     if deployed:
         row["pages"] = deployed
@@ -547,7 +540,7 @@ def integrate(run, base, start, end):
 
 
 def repoint(run, base, start, end):
-    """Inert batch: no build; live moves to end with the content of the verified release."""
+    """Inert batch: no build; live moves to end with the content of the live release."""
     import live_build
 
     row = {**base, "skipped": True, "culprit": None}
@@ -596,7 +589,7 @@ def run_once(published, main_repo=s.REPO, name=NAME, full=False):
     full = full or full_due(published)
     if live == end and not full:
         return None
-    start = chrome.full_base(code_rows(published), main_repo, live, end) if full else live
+    start = live
     landing = batch_class(published, start, end, main_repo)
     landing = {**landing, "class": "code"} if full else landing
     run = Run(published, main_repo, name, end, landing, full=full)
@@ -673,6 +666,7 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME):
                 "seconds": report["seconds"],
                 "cache_hits": report["cache_hits"],
                 "facades_bound": report["facades_bound"],
+                "advisory": report["advisory"],
                 "culprit": None,
             }
             work = Path(report.pop("work"))
@@ -681,13 +675,14 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME):
                     # The code lane published first; the next round rebuilds on top of it.
                     return record(run, {**row, "result": "superseded"})
                 release = f"{start}-{key[:12]}"
-                live_build.prepare(work, published, start, report, release)
+                live_build.prepare(work, published, start, {**report, "from": start}, release)
                 live_build.publish(published, start, release)
         except (ValueError, OSError, subprocess.CalledProcessError) as exc:
             return record(
                 run, {**base, "result": "failed", "failure": {"detail": str(exc)[-1000:]}}
             )
     row["result"] = "green"
+    row["warned"] = advisory.warn(run, row, advisory.release_advisory(live))
     deployed = pages.deploy(published)
     if deployed:
         row["pages"] = deployed
@@ -762,7 +757,7 @@ def main():
     parser.add_argument("--lane", choices=tuple(LANES), default="code")
     parser.add_argument("--sandbox", help="integration sandbox (default: the lane's)")
     parser.add_argument(
-        "--full", action="store_true", help="code lane: the full Chrome suite now (before Pages)"
+        "--full", action="store_true", help="code lane: the full Chrome suite now (advisory)"
     )
     args = parser.parse_args()
     lane = LANES[args.lane]

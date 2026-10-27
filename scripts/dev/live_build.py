@@ -1,4 +1,11 @@
-"""Build, check and publish the real office distribution for the integrator."""
+"""Build, check and publish the real office distribution for the integrator.
+
+Only the build stages decide whether a release is published: a batch whose layers, tiles,
+tile format and seams or game bundle cannot be built is red. Every other stage (car report,
+facade ground audit, collision sweep and audit, the buildings and curbs checks of
+tile-validate, the facade baseline and Chrome) is advisory: its failure is recorded in
+report["advisory"] and the release is published anyway.
+"""
 
 import contextlib
 import filecmp
@@ -10,6 +17,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import advisory as advisory_check
 import live_cache
 import sandbox as s
 import spec_selection
@@ -50,9 +58,14 @@ STAGES = {
 }
 
 
-def stages_for(landing_class):
-    """The live stages a batch of this class runs: the one seam for stage selection."""
-    return STAGES[landing_class]
+def stages_for(landing_class, checks=True):
+    """The live stages a batch of this class runs: the one seam for stage selection.
+
+    checks=False keeps only the build stages (the base check and bisection builds, which only
+    ask whether a commit builds)."""
+    return tuple(
+        stage for stage in STAGES[landing_class] if checks or stage in advisory_check.BUILD_STAGES
+    )
 
 
 def parked_changed(previous, work):
@@ -78,23 +91,11 @@ def carry_car_report(previous, work):
 
 
 class StageFailed(ValueError):
-    """A live stage failed; `stage` names it so the integrator can rerun Chrome once."""
+    """A build stage failed; `stage` names it. The batch cannot be published."""
 
     def __init__(self, stage, message):
         super().__init__(message)
         self.stage = stage
-
-
-class FacadeRegression(StageFailed):
-    """The assembler bound fewer facades than the published release, with no reported reason."""
-
-    def __init__(self, bound, baseline):
-        super().__init__(
-            "facade-baseline",
-            f"facades_bound regressed: {bound} < {baseline}; no reported reason",
-        )
-        self.bound = bound
-        self.baseline = baseline
 
 
 def approval_manifests(published):
@@ -262,8 +263,6 @@ def inspect(manifest_path, facade_count, minimum, listed, reason=None):
             raise ValueError(f"{tile}: ground textures are unbound")
         if entry.get("wire_bytes", 8_000_001) >= 8_000_000:
             raise ValueError(f"{tile}: L0 wire size exceeds 8 MB")
-    if facade_count < minimum and not reason:
-        raise FacadeRegression(facade_count, minimum)
     if not manifest.get("spawn"):
         raise ValueError("live build has no spawn")
     return {
@@ -315,31 +314,6 @@ def load_summary(load):
     )
 
 
-def inspect_car_report(path, returncode):
-    """Preserve known-red car diagnostics without accepting validator load errors."""
-    if returncode not in (0, 1) or not path.is_file():
-        raise ValueError(
-            f"car report failed ({returncode}); report missing or validator error: {path}"
-        )
-    data = json.loads(path.read_text())
-    cars = data.get("checks", {}).get("cars", {})
-    status = cars.get("status")
-    if status not in ("pass", "fail") or bool(data.get("pass")) != (status == "pass"):
-        raise ValueError(f"car report has no usable car result: {path}")
-    if returncode != (0 if status == "pass" else 1):
-        raise ValueError(f"car report exit code disagrees with result: {path}")
-    per_tile = cars.get("perTile", [])
-    if not per_tile:
-        raise ValueError(f"car report has no tested tiles: {path}")
-    return {
-        "status": status,
-        "failed_tiles": sum(tile.get("status") == "fail" for tile in per_tile),
-        "tested_tiles": len(per_tile),
-        "report": "reports/validate-cars.json",
-        "known_red_reason": "Published car probes still fail curb response and four wall/building crossings",
-    }
-
-
 def store_tiles(repo, work, published, built):
     """Offer the unverified tile build to the localhost game (tile_store.py) before the checks run."""
     import tile_store
@@ -368,8 +342,13 @@ def build(
     joined=(),
     chrome=None,
     timings=None,
+    checks=True,
 ):
     """Run the class's live stages on repo; the caller holds the integration host reservation.
+
+    A build stage that fails raises StageFailed; an advisory stage that fails is appended to
+    report["advisory"] ({"stage", "detail", "log"}, plus "specs" for Chrome and "checks" for
+    tile-validate) and the build goes on. checks=False runs the build stages only.
 
     previous_release is the published release directory the batch starts from; tile-build
     and collision checks then only rebuild what the layer delta affects. A data build runs
@@ -390,7 +369,7 @@ def build(
     chrome is the spec_selection plan for the Chrome stage (None runs the full suite);
     passing specs are cached per spec and project, and report["chrome"] records what ran.
     """
-    stages = stages_for(landing_class)
+    stages = stages_for(landing_class, checks)
     chrome = chrome or spec_selection.full_plan("no selection given")
     seed(work, published)
     minimum = baseline(published)
@@ -400,6 +379,7 @@ def build(
     cache_hits = []
     input_hashes = {}
     browser_loads = {}
+    advisory = []
     chrome_stats = None
     report = None
     previous = ""
@@ -504,6 +484,8 @@ def build(
                         listed,
                         reason,
                     )
+                    if drop := advisory_check.facade_drop(report):
+                        advisory.append(drop)
                     store_tiles(repo, work, published, scopes.get(stage) or listed)
                 if stage == "facade-ground-audit":
                     report["facade_ground_audit"] = cached["facade_ground_audit"]
@@ -529,10 +511,13 @@ def build(
                         (*joined, update["commit"]),
                         update.get("chrome", chrome),
                         timings,
+                        checks,
                     )
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
             load_before = os.getloadavg()
+            if stage == "tile-validate":
+                (work / "reports/validate-aoi.json").unlink(missing_ok=True)
             if stage.startswith("chrome"):
                 run_env["TURKU3D_JOBS"] = str(integration_jobs("browser"))
                 load_rows.parent.mkdir(parents=True, exist_ok=True)
@@ -567,19 +552,38 @@ def build(
                 log.write(f"{stage} load: {json.dumps(load)}\n")
                 log.write(f"{stage} selection: {json.dumps(chrome_stats)}\n")
             log.flush()
+            conditions = load_summary(load) if load else f"host load {s.host_load()}"
+            detail = f"{s.failure_detail(proc.stdout)}; {conditions}: {log_path}"
+            failure, extra = None, {}
             if stage == "car-report":
-                car_report = inspect_car_report(
-                    work / "reports/validate-cars.json", proc.returncode
-                )
                 if report is None:
                     raise ValueError("tile-build report is unavailable before car validation")
-                report["car_validation"] = car_report
+                try:
+                    report["car_validation"] = advisory_check.car_report(
+                        work / "reports/validate-cars.json", proc.returncode
+                    )
+                except ValueError as exc:
+                    failure = f"{exc}; {detail}"
+            elif stage == "tile-validate":
+                path = work / "reports/validate-aoi.json"
+                try:
+                    failing = advisory_check.tile_checks(path, proc.returncode)
+                except ValueError as exc:
+                    raise StageFailed(stage, f"{exc}; {detail}") from exc
+                if failing:
+                    failure = f"tile-validate checks failed: {', '.join(failing)}; {detail}"
+                    extra = {"checks": failing}
             elif proc.returncode:
-                conditions = load_summary(load) if load else f"host load {s.host_load()}"
-                raise StageFailed(
-                    stage,
-                    f"{stage} failed ({proc.returncode}); {s.failure_detail(proc.stdout)}; {conditions}: {log_path}",
+                failure = f"{stage} failed ({proc.returncode}); {detail}"
+                if stage in advisory_check.BUILD_STAGES:
+                    raise StageFailed(stage, failure)
+                if stage == "chrome":
+                    extra = {"specs": chrome_stats["failed"]}
+            if failure:
+                advisory.append(
+                    {"stage": stage, "detail": failure[-1000:], "log": str(log_path), **extra}
                 )
+                log.write(f"advisory: {stage} failed; the release is published anyway\n")
             if stage == "tile-build":
                 facade_count = None
                 for line in reversed(proc.stdout.splitlines()):
@@ -593,11 +597,14 @@ def build(
                 report = inspect(
                     work / "dist/tiles/manifest.json", facade_count, minimum, listed, reason
                 )
+                if drop := advisory_check.facade_drop(report):
+                    advisory.append(drop)
                 if cache_enabled:
                     store_tiles(repo, work, published, scopes.get(stage) or listed)
-            if stage == "facade-ground-audit":
+            if stage == "facade-ground-audit" and not failure:
                 report["facade_ground_audit"] = json.loads(proc.stdout.splitlines()[-1])
-            if key and stage != "car-report":
+            # A failed advisory stage is not cached: the next build with its inputs reruns it.
+            if key and stage != "car-report" and not failure:
                 live_cache.store(
                     published,
                     work,
@@ -617,11 +624,12 @@ def build(
     report["input_hashes"] = input_hashes
     report["browser_load"] = browser_loads
     report["chrome"] = chrome_stats
+    report["advisory"] = advisory
     return report
 
 
 def prepare(work, published, commit, report, release_id=None):
-    """Copy the verified release into live-releases; publish() then moves the live link."""
+    """Copy the built release into live-releases; publish() then moves the live link."""
     releases = published / "live-releases"
     releases.mkdir(parents=True, exist_ok=True)
     release = releases / (release_id or commit)

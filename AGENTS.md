@@ -28,9 +28,10 @@ reason. The rules below are the ones that stay hard.
 2. **No feature flags** unless you are A/B-measuring two real alternatives. Then register the flag (owner, reason,
    removal condition counted in landed merges, at most 10) and remove it with the losing path once decided.
 3. **Dead code is deleted**, not kept "just in case".
-4. **Green before done.** Run the quality gate (`scripts/dev/gate` once Wave 0 lands; until then the area's `make
-   *-test` targets) for what you touched. If you cannot make it green, finish with `## Result: BLOCKED`, the failing
-   command and its output. Never weaken a test or a check to pass.
+4. **Green before done.** Run the fast gate (`scripts/dev/gate --fast --base main`: lint, policy, unit and tooling
+   tests) for what you touched; the Chrome suite is never required to finish (browser runs are your choice within the
+   budget). If you cannot make the fast gate green, finish with `## Result: BLOCKED`, the failing command and its
+   output. Never weaken a test or a check to pass.
 5. **Fast tests.** Run only the tests relevant to your change, in parallel. Unit tests use small synthetic fixtures, not
    real tiles. The target is 5–20 s for the gate on a typical change. If yours is slower, fix that too.
    Long commands (over 30 s) go through `scripts/dev/codex-task wait-cmd -- <command>` or are polled every 30 s.
@@ -79,10 +80,13 @@ reason. The rules below are the ones that stay hard.
   main before your next gate and resolve conflicts yourself; `codex-task status <name>` shows how many
   landings you are behind. Unlanded branches are never shared: land an interface or data-structure change
   first as a small compatible slice, then build on it; never ask others to merge your branch.
-- The integrator builds and verifies the live release asynchronously; a red batch is bisected and the
-  culprit reverted with an inbox message to its author. Live only ever points to a verified release.
-  A facade count below the published baseline requires a `Facade regression reason: ...` line in the task
-  result. Workers commit on their own branch.
+- The integrator builds every landed batch asynchronously and publishes it to `live` and GitHub Pages as soon
+  as its build stages succeed (refresh, tile build, tile format and seams, game build). Chrome specs, the facade
+  ground audit, the car report, the collision sweep and audit, the walk checks and the facade baseline are
+  advisory: a new failure reaches the batch's authors as an inbox `warning` and is listed in the Pages release
+  notes; fix yours in a new landing. Only a batch that cannot be built is bisected and its culprit reverted with
+  an inbox `request`. A facade count below the published baseline without a `Facade regression reason: ...` line
+  in the task result is such an advisory failure. Workers commit on their own branch.
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.
   `--force` explicitly discards dirty or unmerged work; it never kills processes. `wt gc` only prunes missing entries.
 - Exact commands and troubleshooting: `scripts/dev/README.md`. No new API keys or paid services.

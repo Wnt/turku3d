@@ -205,9 +205,12 @@ class SelectionTests(unittest.TestCase):
                 "webgl:game/tests/e2e-tile/missions.spec.ts",
             ],
         )
+        # The failing pairs are named for the integrator's advisory warning.
+        self.assertEqual(stats["failed"], stats["run"])
         # Failures are not cached: the next run repeats the spec.
         code, _, stats = self.run_plan(plan, self.runner()[0])
         self.assertEqual((code, stats["cached"], len(stats["run"])), (0, [], 2))
+        self.assertEqual(stats["failed"], [])
         run, calls = self.runner()
         code, _, stats = self.run_plan(plan, run)
         self.assertEqual((code, calls, stats["run"]), (0, [], []))
@@ -276,7 +279,6 @@ class SelectionTests(unittest.TestCase):
         self.assertFalse(chrome.full_due(rows, landed, 100.0 + hour))
         self.assertTrue(chrome.full_due(rows, landed, 100.0 + 2 * hour))
         rows.append({"full_suite": False, "time": 300.0, "result": "green", "to": "b"})
-        self.assertIsNone(chrome.last_full(rows, green=True))
         self.assertEqual(chrome.last_full(rows)["time"], 100.0)
 
 

@@ -2,8 +2,10 @@ import { describe, expect, test } from 'vitest';
 import { CAR, EMPTY_ROAD_GRAPH, FOOT, ONEWAY, loadRoadGraphJson, mergeRoadGraphs, parseRoadGraph, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { MAX_SNAP_M, StreetRouter } from '../../src/gameplay/router';
 import type { WorldPoint } from '../../src/gameplay/contract';
+import { streetGrid } from '../fixtures/streetGrid';
 
 const STREET = FOOT | CAR | 2 << 3;
+
 // 100 m square: three street sides (one bent through (100,50)) and a footway on the west side.
 const square = (eastFlags = STREET) => parseRoadGraph({
   format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [0, 0, 100, 100],
@@ -62,17 +64,10 @@ describe('road graph router', () => {
     expect(mergeRoadGraphs([])).toBe(EMPTY_ROAD_GRAPH);
   });
 
-  test('A* stays fast on a 60 x 60 street grid', () => {
-    const k = 60, nodes: number[] = [], edges: number[][] = [];
-    for (let j = 0; j < k; j++) for (let i = 0; i < k; i++) {
-      nodes.push(i * 20, j * 20);
-      if (i) edges.push([j * k + i - 1, j * k + i, STREET, 20]);
-      if (j) edges.push([(j - 1) * k + i, j * k + i, STREET, 20]);
-    }
-    const grid = new StreetRouter(parseRoadGraph({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [0, 0, 1180, 1180], nodes, edges }));
-    const t0 = performance.now();
+  // Its time budget is an unloaded-host check: tests/perf/router.test.ts (make streaming-perf).
+  test('A* crosses a 60 x 60 street grid on a shortest path', () => {
+    const grid = streetGrid(60);
     const path = grid.route({ x: 3, z: 1 }, { x: 1170, z: 1177 })!;
-    expect(performance.now() - t0).toBeLessThan(50);
     expect(grid.distance(path)).toBeCloseTo(1180 - 3 + 1180 - 10, 0);
   });
 });

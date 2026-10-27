@@ -1,5 +1,5 @@
 """Synthetic integration batches: classes, publish, re-point, base check, bisect, facades,
-and which lanes a landing or a finished run starts."""
+advisory checks, and which lanes a landing or a finished run starts."""
 
 import contextlib
 import io
@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import advisory  # noqa: E402
 import coordination  # noqa: E402
 import integrator  # noqa: E402
 import landing  # noqa: E402
@@ -30,7 +31,9 @@ SPECS = {
 }
 
 
-class IntegratorTests(unittest.TestCase):
+class IntegratorFixture(unittest.TestCase):
+    """A synthetic main, published root and integration sandboxes; no tests of its own."""
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -93,7 +96,10 @@ class IntegratorTests(unittest.TestCase):
         # refresh), `during` after it (the first expensive stage has started).
         self.preparing = []
         self.during = []
-        self.chrome_flakes = 0
+        # Builds whose Chrome stage still fails (advisory), and whether bisection asked
+        # for the build stages only.
+        self.chrome_red = 0
+        self.checks = []
 
     def git(self, *args, cwd=None):
         return subprocess.run(
@@ -126,8 +132,7 @@ class IntegratorTests(unittest.TestCase):
         self.approve(2)
         work = self.root / "seed"
         self.outputs(work, 2)
-        # The seed release counts as verified by a full Chrome suite.
-        report = {"facades_bound": 2, "seconds": {}, "cache_hits": [], "full_suite": True}
+        report = {"facades_bound": 2, "seconds": {}, "cache_hits": [], "advisory": []}
         for parent in ("build", "dist"):
             (self.published / parent).mkdir(parents=True, exist_ok=True)
         live_build.prepare(work, self.published, commit, report)
@@ -146,13 +151,15 @@ class IntegratorTests(unittest.TestCase):
         join=None,
         chrome=None,
         timings=None,
+        checks=True,
     ):
         """Stands in for the real stages: red on game/bad.ts, real facade inspection.
 
         Before its first real stage it calls join with no restored stages, like
         live_build.build before a refresh that is not a cache hit, and then rebuilds the
         joined head; `self.during` runs as that stage starts.
-        game/full-red.ts fails only the full Chrome suite.
+        Advisory failures: game/full-red.ts fails the full Chrome suite, `chrome_red` the
+        next builds' Chrome stage, and a facade drop without reason the facade baseline.
         """
         if self.preparing:
             self.preparing.pop(0)()
@@ -160,9 +167,7 @@ class IntegratorTests(unittest.TestCase):
             landing_class = update["landing_class"]
             chrome = update.get("chrome", chrome)
         self.plans.append(chrome)
-        if (repo / "game/full-red.ts").exists() and chrome["full_suite"]:
-            self.builds.append(self.git("rev-parse", "HEAD", cwd=repo))
-            raise live_build.StageFailed("chrome", f"chrome failed (1); {log}")
+        self.checks.append(checks)
         self.assertEqual(previous, (published / "live").resolve())
         self.builds.append(self.git("rev-parse", "HEAD", cwd=repo))
         self.classes.append(landing_class)
@@ -174,9 +179,6 @@ class IntegratorTests(unittest.TestCase):
             raise live_build.StageFailed("tile-build", f"tile-build failed (2); {log}")
         if (published / "raw-broken").exists():
             raise live_build.StageFailed("refresh", f"refresh failed (1); {log}")
-        if self.chrome_flakes:
-            self.chrome_flakes -= 1
-            raise live_build.StageFailed("chrome", f"chrome failed (1); {log}")
         # The assembler binds the walls the code places that the approval root still holds.
         approved = len(json.loads(self.approvals().read_text())["bound"])
         facades = min(int((repo / "game/facades.txt").read_text()), approved)
@@ -184,12 +186,21 @@ class IntegratorTests(unittest.TestCase):
         report = live_build.inspect(
             manifest, facades, live_build.baseline(published), live_build.tiles(published), reason
         )
+        failures = [drop] if (drop := advisory.facade_drop(report)) else []
         chrome_stats = {"full_suite": chrome["full_suite"], "selected": chrome["specs"]}
+        full_red = (repo / "game/full-red.ts").exists() and chrome["full_suite"]
+        if checks and (self.chrome_red or full_red):
+            self.chrome_red = max(0, self.chrome_red - 1)
+            spec = "webgpu:game/tests/e2e-tile/tile.spec.ts"
+            failures.append(
+                {"stage": "chrome", "detail": f"chrome failed (1); {log}", "specs": [spec]}
+            )
         return {
             **report,
             "seconds": {"tile-build": 0.01},
             "cache_hits": ["refresh"],
             "chrome": chrome_stats,
+            "advisory": failures,
         }
 
     def land(self, name, path, text, reason=None, when=None):
@@ -216,6 +227,13 @@ class IntegratorTests(unittest.TestCase):
     def live_record(self):
         return json.loads((self.published / "live/live-build.json").read_text())
 
+    def pages(self):
+        (self.published / "publish").mkdir(exist_ok=True)
+        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
+        return patch.object(pages, "publish", return_value={"url": "https://o.github.io/site/"})
+
+
+class IntegratorTests(IntegratorFixture):
     def test_green_batch_publishes_main_head(self):
         self.land("one", "game/a.ts", "a")
         head = self.land("two", "game/b.ts", "b")
@@ -448,9 +466,11 @@ class IntegratorTests(unittest.TestCase):
         row = self.integrate()
         self.assertEqual(row["result"], "red")
         self.assertEqual((row["culprit"], row["culprit_task"]), (commits[2], "task-3"))
-        # Head, then the base check on G, then ceil(log2 5) - 1 bisection builds.
+        # Head, then the base check on G, then ceil(log2 5) - 1 bisection builds; only the
+        # head build runs the advisory checks.
         self.assertEqual(self.builds[:2], [commits[-1], self.base])
         self.assertEqual(row["builds"], 4)
+        self.assertEqual(self.checks, [True, False, False, False])
         self.assertEqual(row["failure"]["stage"], "tile-build")
         self.assertEqual(integrator.live_commit(self.published), self.base)
         # The revert landed on main through the fast gate and removed only the culprit.
@@ -472,19 +492,6 @@ class IntegratorTests(unittest.TestCase):
         self.builds.clear()
         self.assertEqual(self.integrate()["result"], "green")
         self.assertEqual(integrator.live_commit(self.published), main)
-
-    def test_flaky_chrome_stage_that_passes_on_rerun_is_green(self):
-        head = self.land("game", "game/a.ts", "a")
-        self.chrome_flakes = 1
-        row = self.integrate()
-        self.assertEqual((row["result"], row["builds"]), ("green", 2))
-        self.assertEqual(integrator.live_commit(self.published), head)
-
-    def test_chrome_red_twice_is_red(self):
-        self.land("game", "game/a.ts", "a")
-        self.chrome_flakes = 2
-        row = self.integrate()
-        self.assertEqual((row["result"], row["failure"]["stage"]), ("red", "chrome"))
 
     def test_revert_message_names_integration_stage_and_commits(self):
         self.land("good", "game/a.ts", "a")
@@ -533,33 +540,6 @@ class IntegratorTests(unittest.TestCase):
         self.assertTrue(integrator.settled(self.published, head))
         self.assertFalse(integrator.settled(self.published, self.land("next", "game/c.ts", "c")))
 
-    def test_facade_drop_without_reason_is_red(self):
-        culprit = self.land("drop", "game/facades.txt", "1\n")
-        row = self.integrate()
-        self.assertEqual((row["result"], row["culprit"]), ("red", culprit))
-        self.assertEqual(row["failure"]["stage"], "facade-baseline")
-        self.assertIn("facades_bound regressed", row["failure"]["detail"])
-        self.assertEqual(integrator.live_commit(self.published), self.base)
-
-    def test_facade_drop_from_changed_approvals_is_data_red(self):
-        head = self.land("docs-and-prompts", "game/a.ts", "a")
-        published = live_build.approval_manifests(self.published)["published"]
-        self.approve(1)
-        row = self.integrate()
-        self.assertEqual((row["result"], row["culprit"]), ("data-red", None))
-        self.assertEqual(row["data_cause"], "approval-root-changed")
-        self.assertEqual(
-            (row["failure"]["stage"], row["failure"]["facades_bound"]), ("facade-baseline", 1)
-        )
-        self.assertEqual(row["failure"]["facades_baseline"], 2)
-        self.assertEqual(row["approval_manifest"]["published"], published)
-        self.assertNotEqual(row["approval_manifest"]["current"], published)
-        self.assertEqual(self.git("rev-parse", "main"), head)
-        self.assertEqual(integrator.live_commit(self.published), self.base)
-        [warning] = [m for m in coordination.board() if m["kind"] == "warning"]
-        self.assertIn("1 facades bound, published baseline 2", warning["body"])
-        self.assertIn("MANIFEST.json differs", warning["body"])
-
     def test_approval_drop_with_ledger_reason_is_green(self):
         self.approve(1)
         self.land("accept", "docs/a.ts", "a", reason="photo facades retired by decision")
@@ -575,29 +555,6 @@ class IntegratorTests(unittest.TestCase):
         row = self.integrate()
         self.assertEqual((row["result"], row["facades_bound"]), ("green", 1))
         self.assertEqual(integrator.live_commit(self.published), head)
-
-    def test_green_full_run_deploys_pages_when_configured(self):
-        head = self.land("game", "game/a.ts", "a")
-        (self.published / "publish").mkdir()
-        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
-        deployed = {"url": "https://o.github.io/site/", "release": head}
-        with patch.object(pages, "publish", return_value=deployed) as publish:
-            row = self.integrate(full=True)
-        publish.assert_called_once_with(self.published)
-        self.assertEqual((row["result"], row["pages"]), ("green", deployed))
-        self.assertTrue(row["full_suite"])
-        self.assertTrue(self.live_record()["full_suite"])
-
-    def test_selected_green_run_publishes_live_but_not_pages(self):
-        head = self.land("game", "game/src/render/a.ts", "a")
-        (self.published / "publish").mkdir()
-        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
-        with patch.object(pages, "publish") as publish:
-            row = self.integrate()
-        publish.assert_not_called()
-        self.assertEqual((row["result"], row["full_suite"]), ("green", False))
-        self.assertEqual(integrator.live_commit(self.published), head)
-        self.assertFalse(self.live_record()["full_suite"])
 
     def test_code_batch_runs_the_specs_its_paths_select(self):
         self.land("render", "game/src/render/a.ts", "a")
@@ -632,7 +589,7 @@ class IntegratorTests(unittest.TestCase):
         self.assertFalse(integrator.full_due(self.published, last + 7199))
         self.assertTrue(integrator.full_due(self.published, last + 7201))
 
-    def test_due_full_run_of_live_main_verifies_the_release_in_place(self):
+    def test_due_full_run_of_live_main_checks_the_release_in_place(self):
         head = self.land("game", "game/a.ts", "a")
         self.assertEqual(self.integrate()["result"], "green")
         self.assertFalse(self.live_record()["full_suite"])
@@ -647,29 +604,14 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual(self.plans[-1]["projects"], ["webgpu", "webgl"])
         self.assertEqual(integrator.live_commit(self.published), head)
         self.assertTrue(self.live_record()["full_suite"])
-
-    def test_red_full_run_bisects_landings_since_the_last_green_full_run(self):
-        first = self.land("first", "game/a.ts", "a")
-        self.assertEqual(self.integrate(full=True)["result"], "green")
-        culprit = self.land("culprit", "game/full-red.ts", "x")
-        self.assertEqual(self.integrate()["result"], "green")
-        head = self.land("later", "game/c.ts", "c")
-        self.assertEqual(self.integrate()["result"], "green")
-        self.builds.clear()
-        row = self.integrate(full=True)
-        self.assertEqual((row["result"], row["from"], row["culprit"]), ("red", first, culprit))
-        # Head (and its one Chrome rerun), then the base check on the last green full run.
-        self.assertEqual(self.builds[:3], [head, head, first])
-        self.assertFalse((self.main / "game/full-red.ts").exists())
-        self.assertTrue((self.main / "game/c.ts").exists())
+        self.assertEqual(self.live_record()["advisory"], [])
 
     def test_pages_failure_is_recorded_and_keeps_the_local_release(self):
         head = self.land("game", "game/a.ts", "a")
-        (self.published / "publish").mkdir()
-        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
         failure = pages.PhotoFacades("2 bound facades are not generated-style")
-        with patch.object(pages, "publish", side_effect=failure):
-            row = self.integrate(full=True)
+        with self.pages() as publish:
+            publish.side_effect = failure
+            row = self.integrate()
         self.assertEqual(row["result"], "green")
         self.assertIn("not generated-style", row["pages"]["error"])
         self.assertEqual(integrator.live_commit(self.published), head)

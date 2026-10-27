@@ -160,31 +160,23 @@ replaces the texture assembly with `$TURKU3D_DATA/facade-approvals/assembly`, so
 leave the release. For the L0 tiles in `$TURKU3D_DATA/playable-tiles.json` it runs `make refresh`,
 `make tile-build AREA=playable-tiles T=...` (changed or newly listed tiles), a bounded
 `make tile-validate` on changed collision tiles (all selected tiles when only validator code
-changed), followed by a separate known-red car report over the same collision tiles. The release gate requires
-buildings and curbs; car failures are recorded in `reports/validate-cars.json` and `live-build.json`
-while car content and vehicle response are repaired. Car validator load errors and missing reports
-still fail the live build. The full `make tile-validate` command still requires cars. Then `bash pipeline/env/run.sh python -m
+changed), then a known-red car report over the same collision tiles, `bash pipeline/env/run.sh python -m
 turku3d.package.facade_ground_audit`, `make game-build`, `make collision-sweep`, `make collision-audit`,
 and the real-tile Playwright specs `spec_selection.py` selects (rules in its docstring) in Chrome on the
-sandbox dist port; passing specs are cached in `wt/.registry/spec-results/`. Every 2 h with a landing
-since the last full run (or `integrator.py run --full`) all specs run on both projects from the last
-green full run's commit (`full_suite: true`, `integration_chrome.py`); only that goes to Pages. The full suite checks
-spawn loading on WebGPU and WebGL2, sweeps 24 street poses in all four L0 tiles plus an aerial view,
-and requires fewer than 500 draws at every street pose and the bridge gameplay pose.
-The facade audit reports all approved facades, including buried bases on slopes, and
-blocks floating or missing walls and incorrect photo UVs. The manifest check requires geometry,
-ground textures and < 8 MB on the wire for every listed tile; `live-build.json` records the list as
-`tiles`, and the integrator's data key includes it. The assembler's `facades_bound` count must meet the current
-published release's count; a drop fails as stage `facade-baseline` with both counts. A task may report
-an intentional reduction with `Facade regression reason: <specific reason>` in its result; the lander
-copies it into the ledger row. Stage times and output are in `live-build.log`.
+sandbox dist port; passing specs are cached in `wt/.registry/spec-results/`.
 
-A deliberate data-level drop (facade maps retired from `$TURKU3D_DATA/facade-approvals/assembly`)
-turns every batch `data-red` until it is accepted. To accept it, land any commit (a one-line note
-is enough) whose result carries the reason line, for example
-`Facade regression reason: photo-derived maps retired by user decision 2026-10-27`. The lander
-copies it into that landing's `landed.jsonl` row, the next integration finds it in its batch and
-publishes the lower count, which becomes the new baseline.
+**Build stages and advisory stages** (user decision 2026-10-27 21:00). Only `live_build.BUILD_STAGES`
+(refresh, tile-build, tile-validate, game-build) and the manifest check (geometry, ground textures and < 8 MB
+on the wire for every listed tile, a spawn) raise `StageFailed`: the batch cannot be built. Of tile-validate's
+checks only `format` and `seams` block (`BLOCKING_CHECKS`; read from `reports/validate-aoi.json`). Everything else
+is advisory: the car report (failing cars are an accepted known red, validator errors are advisory), the facade
+ground audit, the collision sweep and audit, tile-validate's `buildings`/`curbs`, the facade baseline
+(`facade-baseline`: fewer `facades_bound` than the published release with no `Facade regression reason:` line in
+a batch landing's ledger row) and Chrome. Each failure is appended to `report["advisory"]` (`stage`, `detail`,
+`log`, Chrome `specs`, tile-validate `checks`), the build continues, and a failed advisory stage is not cached.
+`stages_for(class, checks=False)` runs the build stages only (base check and bisection builds). Every 2 h with a
+landing since the last full run (or `integrator.py run --full`) all specs run on both projects on live
+(`full_suite: true`, `integration_chrome.py`), as information. Stage times and output are in `live-build.log`.
 Each gate and live-build command runs in its own process group, which is terminated on exit.
 Failures name the failing stage or test and include the host load and log path. For a Playwright
 suite the detail is the first failing test and its first error, so a test timeout reads as
@@ -197,7 +189,7 @@ regression at a glance. Browser specs wait on game time and retry once only abov
 For the first landing, the baseline comes from the legacy `deploy-once.log` assembler result (164 on
 2026-10-26); later landings read the previous release's `live-build.json`.
 
-Publication APFS-copies the verified game, tiles, layers and textures into
+Publication APFS-copies the built game, tiles, layers and textures into
 `$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
 swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
 that link, so static servers on them need no restart (:5171 runs main hot: `tools/dev/localhost/README.md`).
@@ -212,11 +204,14 @@ legacy Make fallback.
 ### GitHub Pages (`publish-pages`)
 
 https://wnt.github.io/turku-game/ serves the live release. With `$TURKU3D_DATA/publish/pages.json`
-(`{"repo": "Wnt/turku-game", "branch": "gh-pages"}`) the integrator calls `pages.publish` after a
-green full suite: one parentless commit of the release's `game/`, `tiles/` and `pages-site/` files is
-force-pushed (the branch holds one release, about 115 MB) and Pages is enabled once. The result or
-`error` goes into the integration row as `pages`; a failure never rolls back the local publish. It
-refuses a release that binds any facade without `source_mode: generate` and `generated_qa`. By hand:
+(`{"repo": "Wnt/turku-game", "branch": "gh-pages"}`) the integrator calls `pages.publish` after every
+publication (inert batches only when `docs/published-images.toml` changed): one parentless commit of the
+release's `game/`, `tiles/` and `pages-site/` files is force-pushed (the branch holds one release, about
+150 MB) and Pages is enabled once. The commit message is the release notes: the commits since the previous
+Pages release (`publish/pages-last.json`, else the record's `from`) and the advisory failures the release
+shipped with. The result or `error` goes into the integration row as `pages`; a failure never rolls back the
+local publish. It refuses only a release that binds any facade without `source_mode: generate` and
+`generated_qa`. By hand, any release dir:
 `scripts/dev/codex-task wait-cmd -- scripts/dev/publish-pages [--release DIR]`. The game build uses
 a relative base, so it runs under `/turku-game/` without COOP/COEP.
 
@@ -536,7 +531,7 @@ The test runner accepts file patterns, for example:
 
 ```sh
 .venv/bin/python scripts/dev/tests/run.py test_tooling.py test_environment.py
-.venv/bin/python -m unittest scripts/dev/tests/test_integrator.py
+.venv/bin/python -m unittest scripts/dev/tests/test_integrator.py scripts/dev/tests/test_advisory.py
 ```
 
 ## Gate speed and reproducible routing probes
@@ -650,8 +645,7 @@ and the preceding stage key.
 ### Landing and integration
 
 Main only requires the fast gate; the live build and Chrome run once per batch after the merge.
-Main may be red for one integration cycle; live only ever points to a release built and
-verified from exactly the commit it names.
+Live and Pages point to a release built from exactly the commit it names; its advisory results ride along.
 
 ```
 worker: commit → gate --fast → codex-task finish (no precheck, no polling, no daemon)
@@ -661,12 +655,12 @@ integrator code lane (asynchronous, one run at a time, `integration` host reserv
         batch = landings from the published commit G up to main M
         class (landing_class.classify): inert → live_build.repoint(M), no build, no slot
         data/code → live_build.build(M, stages_for(class)); landings join only while free (batch_joined)
-        green: publish(M) under publish.lock, on top of a data-lane release published meanwhile
-        red:   rerun a red Chrome stage once (flake guard)
-               → base check: live_build.build(G) against the current data root
+        builds: publish(M) under publish.lock, on top of a data-lane release published meanwhile
+               → Pages → advisory failures new since G's release: warning to the batch's authors
+        build red: base check: live_build.build(G, build stages) against the current data root
                G red:   data-red, revert nothing, warning to all, live stays at G;
                         no retry until main moves or the data key changes
-               G green: bisect G..M over landed heads → revert the culprit landing as one
+               G green: bisect G..M (build stages) → revert the culprit landing as one
                         commit through land.lock + gate --fast → request to its author
                         → live stays at G; the next run integrates the rest plus the revert
 data lane (`--lane data`): build(G, data stages) on a changed data root → release <G>-<key12>
@@ -704,25 +698,27 @@ tile-validate, car-report (only when `layers/traffic_static` changed, else the p
 with `carried_from`), facade-ground-audit and game-build. **Join** only while free: the build re-reads main once,
 before its first stage that is not a cache hit (refresh included); a newer head (at most `JOIN_LIMIT` = 3) is checked
 out, reclassified and built instead (`batch_joined`), repeating only its cached stages, each at most `RESTART_LIMIT`
-= 1 times. After a stage has run for real the batch is frozen; later landings wait for the next run. A facade count below the published
-baseline is red unless a `landed.jsonl` row in the batch carries `facade_regression_reason`. Green publishes under
+= 1 times. After a stage has run for real the batch is frozen; later landings wait for the next run. A batch that
+builds publishes under
 `wt/.registry/publish.lock`; if the data lane published meanwhile (live parts changed), M is first rebuilt with the
 data stages on that release (`rebuilt_on`), so no lane publishes over a release it did not build on; a batch
 rebuilds at most once, and live changing again during that rebuild records `failed` for the next run to publish. The data lane
 (`run_data`) builds G on the changed data root and publishes `<G>-<data key 12>` (record `commit` G) only if live
-is unchanged, else records `superseded`.
+is unchanged, else records `superseded`. After publishing, both lanes deploy Pages and send the advisory failures
+that the replaced release did not have (`failing` labels: `chrome <project:spec>`, `tile-validate <check>`, a stage)
+to the authors of the batch's landings as one `warning` (the orchestrator for the data lane and in-place full runs;
+`warned` in the row); known failures stay in the row, the release record (`advisory`, `from`) and the notes.
 
-A red head is never blamed on a commit before the base check: the integrator builds G itself
-against the current data root (its stages are mostly cache hits). G was green when it was
+A head that does not build is never blamed on a commit before the base check: the integrator
+builds G's build stages against the current data root (mostly cache hits). G built when it was
 published, so a red G means the data root changed under it. The run is then `data-red`: it
-records G's failing stage (`failure`, with `facades_bound`/`facades_baseline` for a facade drop),
-the head's failure (`head_failure`), `data_cause` (`approval-root-changed` when the SHA-256 of
+records G's failing stage (`failure`), the head's failure (`head_failure`), `data_cause` (`approval-root-changed` when the SHA-256 of
 `facade-approvals/assembly/MANIFEST.json` differs from the published release's
 `textures/assembly/MANIFEST.json`, else `data-root`) and both hashes (`approval_manifest`). It
 reverts nothing, posts a `warning` to the board and keeps live at G. A new run for the same main
 head starts only when `data_key` (a hash of `landing_class.data_parts`) changes (`settled`).
 
-Only a green G bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further builds) and reverts the
+Only a green G bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further build-stage builds) and reverts the
 culprit landing `parent..culprit` on current main as one commit under `wt/.registry/land.lock`
 after `gate --fast` in the integration sandbox. A run makes at most one revert; a second culprit
 is only blamed by a later run, which first builds the reverted main and checks the base again.
@@ -733,7 +729,7 @@ conflict, an empty revert or a red revert gate is reported in the same request; 
 
 Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`), `published`,
 `from`, `to`, `data_key`, the class fields (`class`, `paths`, `changed_paths`, `data_delta`, `tiles`),
-`full_suite`, `chrome_plan`, `chrome`, `batch_joined`, `joins`, `restarts` (per stage), `stage_seconds` (per stage,
+`full_suite`, `chrome_plan`, `chrome`, `advisory`, `warned`, `pages`, `batch_joined`, `joins`, `restarts` (per stage), `stage_seconds` (per stage,
 summed over all builds of the run), `rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
 `red`, `data-red`, `failed`, `superseded`), `seconds`, `cache_hits`, `facades_bound`, `builds`,
 `wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`, `approval_manifest`,
