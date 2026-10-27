@@ -351,3 +351,33 @@ def test_service_builds_ready_tiles_while_another_tiles_data_downloads(raw, tmp_
         server.server_close()
         builder.stop()
         p.stop()
+
+
+def test_a_draft_built_from_other_raw_files_is_stale(raw, tmp_path):
+    key = ["a"]
+    builder = Builder(
+        tmp_path / "coarse",
+        command=_fake_build([]),
+        code="test",
+        workers=0,
+        input_key=lambda tile: key[0],
+    )
+    (tmp_path / "coarse" / "t0_0_0").mkdir(parents=True)
+    manifest = {"coarse": True, "tile": "t0_0_0", "code": "test", "inputs": "a"}
+    (tmp_path / "coarse" / "t0_0_0" / "manifest.json").write_text(json.dumps(manifest))
+    assert builder.built("t0_0_0")
+    key[0] = "b"  # a raw file under the tile was replaced (refetched, repaired)
+    assert not builder.built("t0_0_0")
+    key[0] = None  # inputs pruned from the cache: the built draft stays valid
+    assert builder.built("t0_0_0")
+    put_lidar(BLOCK)
+    sources = Sources()
+    sources._listed = {b.name for b in tile_blocks(C.VisualTile(0, 1, 1))}
+    for block in tile_blocks(C.VisualTile(0, 1, 1)):
+        put_lidar(block)
+    put_ortho(BLOCK), put_wfs(BLOCK), put_osm(BLOCK)
+    first = sources.input_key(C.VisualTile(0, 1, 1))
+    assert first and first == sources.input_key(C.VisualTile(0, 1, 1))
+    lidar = C.raw_dir("laz") / "maanpinta" / f"{BLOCK.name}.laz"
+    lidar.write_bytes(b"LASF" * 200)
+    assert sources.input_key(C.VisualTile(0, 1, 1)) != first

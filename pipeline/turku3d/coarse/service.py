@@ -68,10 +68,13 @@ class Builder:
         workers: int = WORKERS,
         inputs=None,
         on_missing=None,
+        input_key=None,
     ):
         """``inputs(tile)`` lists the unit keys a tile still needs (raises NoCoverage outside the
         sources); ``on_missing(units)`` hands them to the prefetcher. Without ``inputs`` every
-        tile is assumed to have its data."""
+        tile is assumed to have its data. ``input_key(tile)`` identifies the raw files a build
+        would read now (None: unknown); a draft built from other files is stale and rebuilt."""
+        self.input_key = input_key or (lambda tile: None)
         self.root = root
         self.inputs = inputs or (lambda tile: [])
         self.on_missing = on_missing or (lambda units: None)
@@ -112,9 +115,16 @@ class Builder:
         if not path.exists():
             return False
         try:
-            return json.loads(path.read_text()).get("code") == self.code()
+            m = json.loads(path.read_text())
         except (OSError, ValueError):
             return False
+        if m.get("code") != self.code():
+            return False
+        try:
+            now = self.input_key(tile)
+        except NoCoverage:
+            return True
+        return now is None or m.get("inputs") == now
 
     def request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
@@ -328,6 +338,7 @@ def serve(
             root,
             inputs=inputs,
             on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
+            input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
         )
         prefetcher.on_landed = lambda unit: builder.landed()
     server = Server((host, port), handler(builder, prefetcher))

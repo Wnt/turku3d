@@ -574,6 +574,7 @@ def build(
         bridges=decks,
         water_level=level,
         sources=inputs.sources,
+        inputs=inputs.key,
         seconds={k: round(v, 3) for k, v in seconds.items()},
     )
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())

@@ -38,6 +38,7 @@ class Inputs:
     sources: dict  # provenance: source name -> path or area
     seconds: dict
     osm: Path | None = None  # OSM GeoParquet holding the tile (street graph)
+    key: str = ""  # Sources.input_key: the raw files' identities, recorded in the manifest
 
 
 def ground_points(tile: C.VisualTile, paths: list[Path]) -> np.ndarray:
@@ -105,4 +106,5 @@ def gather(tile: C.VisualTile, sources: Sources | None = None) -> Inputs:
         "water": str(water) if water else None,
         "osm": str(osm),
     }
-    return Inputs(points, rgb, buildings, streets, water, provenance, seconds, osm)
+    key = sources.input_key(tile) or ""
+    return Inputs(points, rgb, buildings, streets, water, provenance, seconds, osm, key)

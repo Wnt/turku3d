@@ -19,6 +19,7 @@ the network; the service runs it in the background prefetcher, never inside a bu
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import math
 import threading
@@ -283,6 +284,24 @@ class Sources:
         if self.osm_source(tile) is None:
             out.append(Unit("osm", block_of(tile)))
         return out
+
+    def input_key(self, tile: C.VisualTile) -> str | None:
+        """Identity (path, size, mtime) of every raw file the tile's build reads; None while some
+        are missing. A draft built from other files than these is stale."""
+        laz, missing = self.lidar_paths(tile)
+        ortho, osm = self.ortho_source(tile), self.osm_source(tile)
+        wfs = [self.wfs_source(name, tile) for name in WFS_LAYERS]
+        if missing or ortho is None or osm is None or not all(found for found, _ in wfs):
+            return None
+        chunks = ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")
+        h = hashlib.sha256()
+        for path in [*laz, ortho, chunks, *(p for _, p in wfs if p), osm]:
+            try:
+                st = path.stat()
+            except OSError:
+                return None
+            h.update(f"{path}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+        return h.hexdigest()[:24]
 
     def unit_present(self, unit: Unit) -> bool:
         if unit.dataset == "lidar":
