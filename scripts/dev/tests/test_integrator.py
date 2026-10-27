@@ -20,6 +20,8 @@ import landing  # noqa: E402
 import live_build  # noqa: E402
 import pages  # noqa: E402
 
+# The cases patch os.environ: tests/run.py runs them one by one in a process of their own.
+SERIAL = True
 GATE = "#!/bin/sh\necho PASS fast-gate 0.01s\n"
 REPO = Path(__file__).resolve().parents[3]
 SPECS = {
@@ -46,6 +48,18 @@ class IntegratorTests(unittest.TestCase):
         patcher = patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Every ledger, status and lock path goes through registry(): it refuses to leave
+        # the temporary root, so a lost environment patch fails instead of writing live rows.
+        real_registry = integrator.registry
+
+        def registry():
+            path = real_registry()
+            self.assertTrue(path.is_relative_to(self.root), f"real registry reached: {path}")
+            return path
+
+        guard = patch.object(integrator, "registry", side_effect=registry)
+        guard.start()
+        self.addCleanup(guard.stop)
         self.main = self.root / "origin"
         self.main.mkdir()
         self.git("init", "-q", "-b", "main")
@@ -295,6 +309,11 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual(
             (self.integrate()["from"], integrator.live_commit(self.published)), (head, late[0])
         )
+
+    def test_registry_outside_the_temporary_root_is_refused(self):
+        with patch.dict(os.environ, {"TURKU3D_WT_ROOT": str(Path.home() / "turku3d/wt")}):
+            with self.assertRaisesRegex(AssertionError, "real registry reached"):
+                integrator.ledger_path()
 
     def test_join_repeats_a_cached_stage_at_most_once_and_takes_three_heads(self):
         start = self.base

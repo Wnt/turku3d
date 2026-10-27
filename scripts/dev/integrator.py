@@ -10,12 +10,8 @@ landing on main through the land lock and the fast gate, tells its author and le
 at G.
 
 Nothing polls: each landing starts a run when none is going (ensure), and a finished run starts
-the next when main or the data root moved meanwhile. A newer main joins the running batch only
-while joining is free: before the build's first stage that is not a cache hit (refresh
-included). Once a stage has run for real the batch is frozen and later landings wait for the
-next run; a batch takes at most JOIN_LIMIT joins, repeats each cached stage at most
-RESTART_LIMIT times and rebuilds on top of a newer data release at most once. A second
-lane (`--lane data`, sandbox `integration-data`) builds the live commit G against a changed
+the next when main or the data root moved meanwhile. A newer main joins only while that is free
+(before the first stage that is not a cache hit); then the batch is frozen. A second lane (`--lane data`, sandbox `integration-data`) builds the live commit G against a changed
 data root while the code lane is busy; publication is serialised under `publish.lock`, and a
 lane whose live release changed meanwhile rebuilds on top of it instead of publishing over it.
 """
@@ -45,10 +41,8 @@ import sandbox as s
 NAME = "integration"
 DATA_NAME = "integration-data"
 LANES = {"code": NAME, "data": DATA_NAME}
-# Main heads one batch may take in before its first stage that runs for real.
+# Main heads one batch may take in, and how often joins may repeat one (cached) stage.
 JOIN_LIMIT = 3
-# How often joins may repeat one stage in a batch (a join repeats the stages its build
-# restored from the cache; it never discards a stage that ran for real).
 RESTART_LIMIT = 1
 # An inert batch republishes Pages only when the image licence list changed.
 PAGES_INPUTS = ("docs/published-images.toml",)

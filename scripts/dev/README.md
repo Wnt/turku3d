@@ -701,12 +701,10 @@ the live release to `live-releases/<M>` (record `commit` M, `verified_commit`, `
 `code` take the `integration` slot and run `live_build.build` on M in the `integration` sandbox with
 `live_build.stages_for(class)`, the one stage-selection seam: `code` all nine stages; `data` refresh, tile-build,
 tile-validate, car-report (only when `layers/traffic_static` changed, else the previous result is carried forward
-with `carried_from`), facade-ground-audit and game-build. **Join:** a newer main joins only while that is free.
-The head build re-reads main once, before its first stage that is not a cache hit (refresh included); a newer head
-is checked out, reclassified and built instead (`batch_joined`), and the restart repeats only the stages it had
-restored from the cache. Once a stage has run for real the batch is frozen and later landings wait for the next run
-(`ensure` starts it when this one ends). A batch takes at most `JOIN_LIMIT` = 3 heads and repeats each cached
-stage at most `RESTART_LIMIT` = 1 times (`restarts`); a Chrome rerun may join on the same terms. A facade count below the published
+with `carried_from`), facade-ground-audit and game-build. **Join** only while free: the build re-reads main once,
+before its first stage that is not a cache hit (refresh included); a newer head (at most `JOIN_LIMIT` = 3) is checked
+out, reclassified and built instead (`batch_joined`), repeating only its cached stages, each at most `RESTART_LIMIT`
+= 1 times. After a stage has run for real the batch is frozen; later landings wait for the next run. A facade count below the published
 baseline is red unless a `landed.jsonl` row in the batch carries `facade_regression_reason`. Green publishes under
 `wt/.registry/publish.lock`; if the data lane published meanwhile (live parts changed), M is first rebuilt with the
 data stages on that release (`rebuilt_on`), so no lane publishes over a release it did not build on; a batch
@@ -735,9 +733,8 @@ conflict, an empty revert or a red revert gate is reported in the same request; 
 
 Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`), `published`,
 `from`, `to`, `data_key`, the class fields (`class`, `paths`, `changed_paths`, `data_delta`, `tiles`),
-`full_suite`, `chrome_plan`, `chrome`, `batch_joined`, `joins`, `restarts` (per stage: how often a join repeated
-it), `stage_seconds` (per stage, summed over every build of the run: restarts, rebuilds, base check and bisection),
-`rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
+`full_suite`, `chrome_plan`, `chrome`, `batch_joined`, `joins`, `restarts` (per stage), `stage_seconds` (per stage,
+summed over all builds of the run), `rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
 `red`, `data-red`, `failed`, `superseded`), `seconds`, `cache_hits`, `facades_bound`, `builds`,
 `wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`, `approval_manifest`,
 `revert`. `integration.json`/`integration-data.json` name each lane's running integration and log.
