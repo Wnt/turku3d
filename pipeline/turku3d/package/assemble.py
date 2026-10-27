@@ -292,6 +292,49 @@ def facade_source_bytes(facades: Path, facade_id: str) -> int:
     return sum((directory / filename).stat().st_size for filename in meta["files"].values())
 
 
+# Packaged facade densities in pixels per metre, highest first. A planned facade steps down
+# one level at a time.
+DENSITY_LADDER = (16, 8, 4, 2, 1)
+
+
+def halve_densities(
+    plan: dict[str, int],
+    ranked: list[str],
+    floors: dict[str, int],
+    count: int,
+    *,
+    below_floors: bool = False,
+) -> list[tuple[str, int, int]]:
+    """Step `count` facades one ladder level down, always the facade with the highest planned
+    density, the farthest from spawn among equals (ranked is farthest first). Unplanned
+    facades keep their source density, above every ladder level. A facade stops at its
+    declared minimum density unless below_floors. Returns (facade_id, old, new) per step;
+    empty when no facade can step down."""
+    order = {facade_id: index for index, facade_id in enumerate(ranked)}
+
+    def lower(facade_id):
+        current = plan.get(facade_id, 64)
+        level = next((level for level in DENSITY_LADDER if level < current), None)
+        return level if level and (below_floors or level >= floors[facade_id]) else None
+
+    steps = []
+    for _ in range(count):
+        candidates = [fid for fid in ranked if lower(fid)]
+        if not candidates:
+            break
+        facade_id = min(candidates, key=lambda fid: (-plan.get(fid, 64), order[fid]))
+        old, new = plan.get(facade_id, 64), lower(facade_id)
+        plan[facade_id] = new
+        steps.append((facade_id, old, new))
+    return steps
+
+
+def facade_source_density(facades: Path, facade_id: str) -> float:
+    building_id, index = facade_id.rsplit("_", 1)
+    meta = json.loads((facades / building_id / f"{index}.json").read_text())
+    return float(meta["pixels_per_metre"][0])
+
+
 def facade_density_floor(facades: Path, facade_id: str) -> int:
     building_id, index = facade_id.rsplit("_", 1)
     meta = json.loads((facades / building_id / f"{index}.json").read_text())
@@ -543,14 +586,19 @@ def assemble(
                 # estimate selects a first batch; measured wire bytes decide
                 # whether to extend it. Near-spawn facades retain source detail.
                 needed = wire_bytes - (HEADROOM_BYTES - 100_000)
-                predicted = 0
-                for facade_id in ranked:
-                    if floors[facade_id]:
-                        continue
-                    plan[facade_id] = 4
-                    predicted += facade_source_bytes(facades, facade_id) * 0.94
-                    if predicted >= needed:
+                predicted = 0.0
+                while predicted < needed:
+                    step = halve_densities(plan, ranked, floors, 1)
+                    if not step:
                         break
+                    facade_id, old, new = step[0]
+                    source = facade_source_density(facades, facade_id)
+                    predicted += (
+                        facade_source_bytes(facades, facade_id)
+                        * 0.94
+                        * (min(old, source) ** 2 - new**2)
+                        / source**2
+                    )
             while wire_bytes >= HEADROOM_BYTES and ranked:
                 if plan:
                     data, stats = visual_tiles(
@@ -570,29 +618,11 @@ def assemble(
                     )
                     if wire_bytes < HEADROOM_BYTES:
                         break
-                remaining = [
-                    facade_id
-                    for facade_id in ranked
-                    if facade_id not in plan and not floors[facade_id]
-                ]
-                if remaining:
-                    for facade_id in remaining[: max(1, math.ceil(len(ranked) * 0.1))]:
-                        plan[facade_id] = 4
-                else:
-                    four = [fid for fid in ranked if plan.get(fid) == 4 and not floors[fid]]
-                    two = [fid for fid in ranked if plan.get(fid) == 2 and not floors[fid]]
-                    protected = [fid for fid in ranked if fid not in plan and floors[fid]]
-                    if four:
-                        plan.update(
-                            {fid: 2 for fid in four[: max(1, math.ceil(len(ranked) * 0.1))]}
-                        )
-                    elif two:
-                        plan.update({fid: 1 for fid in two[: max(1, math.ceil(len(ranked) * 0.1))]})
-                    elif protected:
-                        for facade_id in protected[: max(1, math.ceil(len(ranked) * 0.1))]:
-                            plan[facade_id] = floors[facade_id]
-                    else:
-                        break
+                batch = max(1, math.ceil(len(ranked) * 0.1))
+                if not halve_densities(plan, ranked, floors, batch) and not halve_densities(
+                    plan, ranked, floors, batch, below_floors=True
+                ):
+                    break
             if wire_bytes > 8_000_000:
                 raise ValueError(
                     f"{tile.id}: visual plus ground textures exceeds 8 MB after facade scaling: {wire_bytes}"
