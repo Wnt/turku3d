@@ -4,7 +4,7 @@ import type { Hour, MultiplayerClient, Score } from './client';
 
 /** Top three plus self, with duplicate entries removed when self is already on the podium. */
 export function compactScores(scores: readonly Score[], nick: string | null): Score[] {
-  const podium = scores.filter(s => s.rank <= 3);
+  const podium = scores.slice(0, 3);
   const self = nick ? scores.find(s => s.nick === nick) : null;
   return self && !podium.includes(self) ? [...podium, self] : podium;
 }

@@ -9,4 +9,6 @@ test('HUD keeps competition-rank podium and adds self once', () => {
   expect(compactScores(scores, 'DD').map(s => s.nick)).toEqual(['AA', 'BB', 'CC', 'DD']);
   expect(compactScores(scores, 'BB').map(s => s.nick)).toEqual(['AA', 'BB', 'CC']);
   expect(compactScores([], 'BB')).toEqual([]);
+  expect(compactScores(scores.map(s => ({ ...s, rank: 1 })), 'DD').map(s => s.nick))
+    .toEqual(['AA', 'BB', 'CC', 'DD']);
 });
