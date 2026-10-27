@@ -111,7 +111,15 @@ class PagesTests(unittest.TestCase):
         self.assertTrue(pages.generated(derived))
         self.assertTrue(pages.generated(neighbour))
         self.assertFalse(pages.generated({"source_mode": "derived"}))
-        self.assertFalse(pages.generated({"source_mode": "derived", "derived_from": "k1", "method": "rectified-photo-bay-inpaint-v1"}))
+        self.assertFalse(
+            pages.generated(
+                {
+                    "source_mode": "derived",
+                    "derived_from": "k1",
+                    "method": "rectified-photo-bay-inpaint-v1",
+                }
+            )
+        )
         release = self.release("eeeeeeeeeeee", [GENERATED, derived, neighbour])
         self.assertEqual(pages.check_facades(release), 3)
 

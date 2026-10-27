@@ -48,7 +48,9 @@ def generated(meta):
         return False
     if meta.get("source_mode") == "generate":
         return bool(meta.get("generated_qa"))
-    return meta.get("source_mode") in ("derived", "derived-neighbour") and bool(meta.get("derived_from"))
+    return meta.get("source_mode") in ("derived", "derived-neighbour") and bool(
+        meta.get("derived_from")
+    )
 
 
 def check_facades(release):
