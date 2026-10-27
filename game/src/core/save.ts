@@ -34,7 +34,8 @@ export interface SaveGame {
   vehicle: (SavedPose & { owned: boolean }) | null;
   /** ISO time of the sun clock, or null for the default time. */
   clock: { timeOfDay: string } | null;
-  stats: { deliveries: number; money: number };
+  /** `devMoney`: euros of `money` from the developer tools (localhost only); missing in older saves. */
+  stats: { deliveries: number; money: number; devMoney?: number };
 }
 
 interface SaveFile { version: 1; slots: Partial<Record<SlotId, SaveGame>> }
@@ -55,6 +56,7 @@ function validGame(v: unknown): SaveGame | null {
   if (g.vehicle !== null && !(pose(g.vehicle) && typeof g.vehicle?.owned === 'boolean')) return null;
   if (g.clock !== null && !(typeof g.clock?.timeOfDay === 'string' && Number.isFinite(Date.parse(g.clock.timeOfDay)))) return null;
   if (!finite(g.stats?.deliveries) || !finite(g.stats?.money)) return null;
+  if (g.stats.devMoney !== undefined && !finite(g.stats.devMoney)) return null;
   return g as SaveGame;
 }
 
@@ -68,7 +70,8 @@ export function formatLabel(lastAddress: string | null, time: Date): string {
 export function formatDetails(game: SaveGame, locale?: string): string {
   const n = game.stats.deliveries;
   const when = new Date(game.savedAt).toLocaleString(locale ?? 'en-GB', { dateStyle: 'short', timeStyle: 'short' });
-  return `${n} ${n === 1 ? 'delivery' : 'deliveries'} · ${game.stats.money} € · saved ${when}`;
+  const dev = game.stats.devMoney ? ` (${game.stats.devMoney} € dev)` : '';
+  return `${n} ${n === 1 ? 'delivery' : 'deliveries'} · ${game.stats.money} €${dev} · saved ${when}`;
 }
 
 export class SaveStore {
@@ -79,7 +82,7 @@ export class SaveStore {
    * A null storage (blocked by the browser) keeps the slots in memory for this page only.
    */
   constructor(private readonly storage: KeyValueStore | null,
-    summarize: (mission: string) => { deliveries: number; money: number; lastAddress: string | null }) {
+    summarize: (mission: string) => { deliveries: number; money: number; devMoney: number; lastAddress: string | null }) {
     this.file = this.read();
     const legacy = this.storage?.getItem(LEGACY_MISSION_KEY) ?? null;
     if (legacy === null) return;
@@ -87,7 +90,8 @@ export class SaveStore {
       const s = summarize(legacy);
       // The old save had no position or clock: it continues from the spawn point at the default time.
       this.file.slots.slot1 = { version: 1, savedAt: Date.now(), label: formatLabel(s.lastAddress, new Date()),
-        mission: legacy, player: null, vehicle: null, clock: null, stats: { deliveries: s.deliveries, money: s.money } };
+        mission: legacy, player: null, vehicle: null, clock: null,
+        stats: { deliveries: s.deliveries, money: s.money, devMoney: s.devMoney } };
       this.flush();
     }
     this.storage?.removeItem(LEGACY_MISSION_KEY);

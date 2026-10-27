@@ -23,6 +23,11 @@ same in a car. Both are read only while the player is lost (gameplay/recovery.ts
 while lost `interact` is swallowed so Y never enters or leaves a car. Outside the lost state R keeps flipping the
 car upright in place.
 
+## Fly mode
+
+`flyUp` (Xbox X, RT, Space) and `flyDown` (Xbox B, LT, Q) are held values read only while the developer fly mode
+is on (localhost only, `gameplay/flyMode.ts`, `ui/README.md`); a double tap of `jump` toggles it.
+
 ## Touch
 
 Touch is enabled when `navigator.maxTouchPoints > 0` or on the first touch pointer event; it then becomes

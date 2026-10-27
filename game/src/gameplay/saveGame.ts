@@ -1,7 +1,7 @@
 // The running game's side of the save slots (core/save.ts) and menus (ui/menu.ts): capture the game into a slot,
 // place a loaded or new game in the world, the autosave triggers and the pause menu's frame handling.
 import * as THREE from 'three/webgpu';
-import { collisionTileAt, enToEngine, engineToEN, type V3 } from '../core/origin';
+import { collisionTileAt, enToEngine, engineToEN, headingToYaw, type V3 } from '../core/origin';
 import { Autosave, formatLabel, type SaveGame, type SaveStore } from '../core/save';
 import type { Input } from '../input';
 import type { PhysicsClient } from '../physics/client';
@@ -53,8 +53,13 @@ interface SaveGameOptions {
   multiplayer?: () => void;
   scoreboardStart?: () => void;
   scoreboardPause?: () => void;
+  /** Opens the pause menu's Developer page (localhost only, ui/devMenu.ts). */
+  developer?: () => void;
   onQuit?: () => void;
 }
+
+/** A teleport where no ground is found (outside the built area) arrives at this height (N2000 m), flying. */
+const TELEPORT_AIR_HEIGHT = 60;
 
 export class SaveGameController {
   /** A loaded or new game is being placed: the world waits (paused) until the player stands on the ground. */
@@ -81,7 +86,7 @@ export class SaveGameController {
       },
     };
     this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer, o.scoreboardStart);
-    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause);
+    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer);
     this.autosave = new Autosave(o.saves, () => o.startScreen.active || this.loading ? null : this.capture());
     this.detach = this.autosave.attach(window, document);
   }
@@ -106,7 +111,7 @@ export class SaveGameController {
       // In a car the camera sits behind the chassis: its yaw is the chassis yaw minus a quarter turn.
       player: { E: p.E, N: p.N, H: p.H, yaw: driven ? yawOf(driven.rot) - Math.PI / 2 : view.cameraYaw },
       vehicle: own && c ? { owned: missions.vehicle !== 'none', E: c.E, N: c.N, H: c.H, yaw: yawOf(own.rot) } : null,
-      clock: { timeOfDay: clock.toISOString() }, stats: { deliveries: missions.deliveries, money: missions.money } };
+      clock: { timeOfDay: clock.toISOString() }, stats: { deliveries: missions.deliveries, money: missions.money, devMoney: missions.devMoney } };
   }
 
   /**
@@ -172,18 +177,46 @@ export class SaveGameController {
     }
     const at = override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
     const y = override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y);
-    physics.setCharacterEnabled(true, { x: at.x, y: y + 0.05, z: at.z });
+    await this.putCharacter({ x: at.x, y, z: at.z }, at.yaw);
+    missions.begin();
+  }
+
+  /**
+   * Developer teleport (localhost only) with `?spawn=E,N,heading` semantics: the ground under E/N seen from the sky,
+   * placed like a loaded game (the world waits paused, safe reset restarts there). Without ground (outside the
+   * built area) the player arrives at TELEPORT_AIR_HEIGHT; resolves whether ground was found.
+   */
+  async teleport(E: number, N: number, headingDeg: number): Promise<boolean> {
+    this.o.pauseMenu.close();
+    this.loading = true;
+    this.o.setPaused(true);
+    try {
+      if (this.o.view().mode === 'car') this.o.leaveCar();
+      const at = enToEngine(E, N, 0);
+      await this.settle(at.x, at.z);
+      const ground = (await this.o.physics.raycast({ x: at.x, y: 500, z: at.z }, down, 1000))?.point.y ?? null;
+      await this.putCharacter({ x: at.x, y: ground ?? TELEPORT_AIR_HEIGHT, z: at.z }, headingToYaw(headingDeg));
+      return ground !== null;
+    } finally {
+      this.loading = false;
+      this.o.setPaused(false);
+    }
+  }
+
+  /** Puts the character's feet at `feet` and waits (paused) until the worker reports it there; safe reset restarts. */
+  private async putCharacter(feet: V3, yaw: number) {
+    const { physics } = this.o;
+    physics.setCharacterEnabled(true, { x: feet.x, y: feet.y + 0.05, z: feet.z });
     // The world stays paused until the worker reports the character at its new place, so nothing reads the old one.
     const t0 = performance.now();
-    const arrived = () => { const c = physics.latest?.character?.pos; return !!c && Math.hypot(c.x - at.x, c.z - at.z) < 0.5; };
+    const arrived = () => { const c = physics.latest?.character?.pos; return !!c && Math.hypot(c.x - feet.x, c.z - feet.z) < 0.5; };
     while (!arrived()) {
       if (performance.now() - t0 > 10000) throw new Error('the placed character did not arrive');
       physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
       await new Promise(r => setTimeout(r, 20));
     }
-    this.o.placed({ x: at.x, y, z: at.z }, at.yaw);
+    this.o.placed(feet, yaw);
     this.o.recovery.restart();
-    missions.begin();
   }
 
   /** Streams the collision tile under (x, z) and waits until queries see it. */

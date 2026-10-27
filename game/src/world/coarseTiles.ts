@@ -17,6 +17,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
+import { isLocalHost } from '../core/localOnly';
 import type { Manifest, ManifestEntry } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
@@ -29,10 +30,6 @@ const RETRY_MS = 120_000;
 const PREFETCH_SECONDS = 30, MAX_SPEED = 100;
 /** Drafts farther than this (m, to the tile footprint) are unloaded. */
 const KEEP_M = 2 * VISUAL_L0;
-
-export function isLocalHost(hostname: string): boolean {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
-}
 
 const l0 = (i: number, j: number) => `t0_${i}_${j}`;
 /** Distance (m) from (x,z) to the footprint of L0 tile `id`. */

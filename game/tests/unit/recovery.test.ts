@@ -161,3 +161,36 @@ describe('lost rules', () => {
     expect(m.armed).toBe(true);
   });
 });
+
+describe('developer fly mode', () => {
+  test('hold: nobody is lost while flying; the rules re-arm at the first grounded contact with the old samples', () => {
+    const m = new RecoveryMonitor(area);
+    for (let t = 0; t <= 4; t++) m.update(probe(t, 30), 0);
+    expect(m.armed).toBe(true);
+    const samples = m.samples.length;
+    // Flying 200 m up and outside the area for a minute: held every frame, nothing sampled, never lost.
+    for (let t = 5; t < 65; t++) {
+      m.hold();
+      expect(m.update(probe(t, 300, { y: 200, grounded: false, vy: 0 }), 0)).toBe(false);
+    }
+    expect(m.lost).toBeNull();
+    expect(m.armed).toBe(false);
+    // Flight off: a fall without ground stays unarmed until the first grounded contact.
+    for (let t = 65; t < 75; t++) expect(m.update(probe(t, 300, { y: 200 - (t - 65) * 10, grounded: false, vy: -10 }), 0)).toBe(false);
+    expect(m.armed).toBe(false);
+    expect(m.samples.length).toBe(samples);
+    // Landing in the river: grounded, so the rules arm with the samples from before the flight and the river counts.
+    m.update(probe(75, 30, { waterDepth: 1 }), 0);
+    expect(m.armed).toBe(true);
+    m.update(probe(78, 30, { waterDepth: 1 }), 0);
+    expect(m.lost?.reason).toBe('water');
+    expect(m.target().x).toBe(30);
+  });
+  test('a teleport (restart) ends the hold: the first safe frame arms as usual', () => {
+    const m = new RecoveryMonitor(area);
+    m.hold();
+    m.restart(0);
+    m.update(probe(1, 30), 0);
+    expect(m.armed).toBe(true);
+  });
+});

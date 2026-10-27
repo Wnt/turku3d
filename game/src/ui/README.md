@@ -9,6 +9,7 @@ DOM overlays drawn over the WebGPU/WebGL canvas. Styles live in `game/index.html
 | `menu.ts` | `MenuList` (the row list every menu uses), `MenuPanel` (a titled menu page), `PauseMenu`, and `SaveMenuFlow` (start, pause, save, load and confirm pages over `core/save.ts`) |
 | `shopMenu.ts` | `ShopMenu`: the full-screen shop menu that renders a `ShopView` from the mission system |
 | `fullscreen.ts` | `FullscreenPolicy`: touch play runs the scene in fullscreen; the "Tap to continue in fullscreen" overlay |
+| `devMenu.ts` | `DevMenuFlow`: the pause menu's Developer pages (localhost only): money, fly mode, teleport, time of day |
 
 ## Touch play and fullscreen
 
@@ -73,6 +74,36 @@ Unit tests (no DOM): `cd game && npx vitest run tests/unit/save.test.ts tests/un
 (slot CRUD, corrupt storage, migration, labels, autosave triggers, every menu page). Browser, both
 backends, screenshots in `$TURKU3D_WORK/reports/gameplay-save-menu/`:
 `cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test tests/e2e/save-menu.spec.ts`.
+
+## Developer tools (localhost only)
+
+`core/localOnly.ts` `devToolsEnabled(location)` is the same environment check as play telemetry: on for
+`localhost`, `127.0.0.1` and `[::1]` and with `?dev=1` on another host, off with `?dev=0`, and always off on
+`github.io` (the published Pages build), where neither the Developer row nor fly mode exists. Where it is on, the
+pause menu lists **Developer** (before Quit), whose pages (`devMenu.ts`, wired in `play.ts`) are:
+
+- **Money +1 000 €**, **Money +10 000 €**: `MissionSystem.grantDevMoney` adds to the local wallet only. Nothing is
+  sent to the multiplayer server (it counts only paid drop-offs), and the mission save and the slot's
+  `stats.devMoney` keep the total, so a scoreboard can leave it out; the slot details show `(N € dev)`.
+- **Fly mode on/off** (also a double tap of jump in the game, `gameplay/flyMode.ts`): Minecraft-style flight
+  without gravity at three times walking speed (`FLY`), ten times with sprint. The move stick or keys move in
+  the camera's ground plane; `flyUp` (Ⓧ, RT, Space) rises and `flyDown` (Ⓑ, LT, Q) sinks. The physics worker
+  keeps the character's collisions (`CharacterInput.fly`), so walls and roofs stop it; the camera is the on-foot
+  orbit camera. Safe reset holds while flying and re-arms at the first grounded contact after it
+  (`RecoveryMonitor.hold`, `gameplay/README.md`). Entering a vehicle ends the flight.
+- **Teleport to...**: the named places of `gameplay/content/places.ts` (Office, Pizzeria, Tuomiokirkko, Turun
+  linna, Kauppatori, Aurakatu 6a) and **Enter E,N** (a browser prompt for `E,N[,heading]`, EPSG:3877, like
+  `?spawn=`). `SaveGameController.teleport` places the player like a loaded game: it streams the collision tile,
+  takes the ground under E/N from the sky (the `?spawn=` rule), waits paused until the worker reports the
+  character there and restarts safe reset. A place whose collision tile is not built says "Not built: arrives
+  flying": the player arrives at 60 m (N2000) with fly mode on.
+- **Time of day**: dawn, noon, dusk or night (`core/sun.ts` `phaseTime`: the sun at 4° rising, highest, at 4°
+  setting, lowest in the night after) on the game clock's day; the time slider follows.
+
+Unit tests: `cd game && npx vitest run tests/unit/dev-tools.test.ts tests/unit/recovery.test.ts tests/unit/physics.test.ts`
+(the gate, the fly controller, dev money in the save, the day phases, the pages, the recovery hold, flight
+collisions). Browser (WebGPU, synthetic tiles, screenshots in `$TURKU3D_WORK/reports/gameplay-dev-tools/`):
+`cd game && npm run build && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test tests/e2e/dev-tools.spec.ts --project webgpu`.
 
 ## Shop menu
 

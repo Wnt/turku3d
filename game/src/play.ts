@@ -4,7 +4,9 @@
 // removes the session's DOM, scene objects and listeners and returns a HotPlay (gameplay/hotState.ts), and the new
 // module's `startPlay` continues from it without the start menu. Production builds have no hot path.
 import * as THREE from 'three/webgpu';
-import { engineToEN, collisionTileAt, yawToHeading, type V3 } from './core/origin';
+import { engineToEN, enToEngine, collisionTileAt, yawToHeading, type V3 } from './core/origin';
+import { devToolsEnabled } from './core/localOnly';
+import { phaseTime } from './core/sun';
 import { Input } from './input';
 import { GameAudio } from './audio';
 import { GameplayAudio } from './audio/gameplay';
@@ -21,6 +23,8 @@ import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
 import { ShopMenu } from './ui/shopMenu';
 import { RecoveryHud } from './ui/recovery';
 import { PauseMenu } from './ui/menu';
+import { DevMenuFlow } from './ui/devMenu';
+import { FlyMode } from './gameplay/flyMode';
 import { SaveStore } from './core/save';
 import { SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
 import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, missionSummary } from './gameplay/missions/missions';
@@ -33,7 +37,7 @@ import { DropoffGuard } from './gameplay/missions/dropoffs';
 import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
 import { applyHot, markResume, takeResume, type HotPlay } from './gameplay/hotState';
 import { MATERIALS } from './shared/col/materials';
-import type { VehicleInput } from './physics/protocol';
+import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
 import type { PhysicsClient } from './physics/client';
 import type { Manifest } from './world/manifest';
@@ -217,12 +221,27 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   };
   /** In the vehicle `id`: a rider stays visible on the scooter; a driver disappears into the car. */
   const enterVehicle = (id: string) => {
+    fly?.set(false);
     drivenId = id;
     if (drivenId !== 'player' && drivenId !== SCOOTER_ID) parkedVisuals.takeOver(drivenId);
     mode = 'car';
     player.root.visible = drivenId === SCOOTER_ID;
     orbit.distance = 8;
   };
+  // Developer tools (localhost or ?dev=1 only): fly mode and the pause menu's Developer page (ui/devMenu.ts).
+  const fly = devToolsEnabled(location) ? new FlyMode() : null;
+  const devFlow = fly ? new DevMenuFlow(pauseMenu, {
+    money: () => missions.money,
+    addMoney: euros => missions.grantDevMoney(euros),
+    flying: () => fly.active,
+    setFlying: on => fly.set(on),
+    built: (E, N) => { const p = enToEngine(E, N); const t = collisionTileAt(p.x, p.z); return `c_${t.i}_${t.j}` in manifest.collision; },
+    teleport: ({ E, N, headingDeg }) => {
+      void saveGame.teleport(E, N, headingDeg).then(ground => { if (!ground) fly.set(true); }).catch(fail);
+    },
+    ask: question => window.prompt(question),
+    setTime: phase => { const time = phaseTime(world.clockTime(), phase); world.setClock(time); clockControl.set(time); },
+  }, () => saveGame.pausePage()) : null;
   // Save slots (core/save.ts), the start and pause menus (ui/menu.ts) and loading a game (gameplay/saveGame.ts).
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     clockControl, defaultTime: params.time, clock: world.clockTime, setClock: world.setClock,
@@ -234,6 +253,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       minimap.setRemotes([]); scoreboard.setClient(null); },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
+    developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
     multiplayer: () => {
       multiplayer?.disconnect();
       multiplayerRunId = crypto.randomUUID();
@@ -278,7 +298,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
       frameMs: frameEma, missions: missions.snapshot(), zones: zones.snapshot(),
       recovery: recovery.snapshot(feet),
-      shopMenu: { open: shopMenu.open, selected: shopMenu.selected },
+      shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, fly: fly?.active ?? null,
       pauseMenu: { open: pauseMenu.open, page: pauseMenu.panel.page?.id ?? null, selected: pauseMenu.panel.selected },
       startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors,
       multiplayer: multiplayer ? { connected: multiplayer.state.connected, nick: multiplayer.state.you?.nick,
@@ -356,15 +376,25 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       physics.resetVehicle({ x: vs.pos.x, y: vs.pos.y + 1.5, z: vs.pos.z }, yawOf(vs.rot), drivenId ?? 'player');
     }
 
-    let charIn = { vx: 0, vz: 0, jump: false };
+    let charIn: CharacterInput = { vx: 0, vz: 0, jump: false };
     let carIn: VehicleInput | null = null;
     if (mode === 'foot') {
       const b = orbit.basis();
       const mx = b.fx * fwd + b.rx * side, mz = b.fz * fwd + b.rz * side;
-      const speed = input.actions.walk > 0.5 ? SPEED.walk : (input.sprinting ? SPEED.sprint : SPEED.run) * missions.runFactor;
-      const blend = 1 - Math.exp(-dt * (Math.hypot(mx, mz) > 0 ? 14 : 22));
-      desiredVelocity.lerp(new THREE.Vector2(mx * speed, mz * speed), blend);
-      charIn = { vx: desiredVelocity.x, vz: desiredVelocity.y, jump: input.consume('jump') };
+      const jump = input.consume('jump');
+      // Developer fly mode: a double tap of jump toggles it (the first tap still jumps).
+      if (fly && jump && !paused) fly.tap(now / 1000);
+      if (fly?.active) {
+        const v = fly.velocity({ x: mx, z: mz, up: menuOpen ? 0 : input.actions.flyUp, down: menuOpen ? 0 : input.actions.flyDown,
+          fast: input.sprinting });
+        desiredVelocity.set(v.vx, v.vz);
+        charIn = { vx: v.vx, vz: v.vz, jump: false, fly: { vy: v.vy } };
+      } else {
+        const speed = input.actions.walk > 0.5 ? SPEED.walk : (input.sprinting ? SPEED.sprint : SPEED.run) * missions.runFactor;
+        const blend = 1 - Math.exp(-dt * (Math.hypot(mx, mz) > 0 ? 14 : 22));
+        desiredVelocity.lerp(new THREE.Vector2(mx * speed, mz * speed), blend);
+        charIn = { vx: desiredVelocity.x, vz: desiredVelocity.y, jump };
+      }
     } else {
       desiredVelocity.set(0, 0);
       carIn = menuOpen ? { throttle: 0, steer: 0, brake: 0, handbrake: true }
@@ -429,7 +459,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         carrying: missions.phase === 'carrying' });
     }
     if (!paused && !startScreen.active && !menuOpen) {
-      recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y }, resetNow);
+      recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y,
+        flying: mode === 'foot' && !!fly?.active }, resetNow);
     }
     // renderVehicle interpolates the driven vehicle (the start car while on foot); the others follow the latest step.
     const latestOf = (id: string) => (drivenId ?? 'player') === id ? renderVehicle : st?.vehicles.find(v => v.id === id) ?? null;
@@ -502,6 +533,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const help = document.getElementById('help')!;
     help.textContent = paused ? `${input.prompt('pause')} Resume`
       : recovery.lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
+      : mode === 'foot' && fly?.active
+      ? `Flying · ${input.prompt('moveY')} move · ${input.prompt('flyUp')} up · ${input.prompt('flyDown')} down · ${input.prompt('sprint')} fast · ${input.prompt('jump')} ${input.prompt('jump')} land · ${input.prompt('pause')} pause`
       : mode === 'foot'
       ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter vehicle · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`;

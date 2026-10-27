@@ -125,6 +125,25 @@ describe('physics world on dev tiles', () => {
     expect(maxY).toBeGreaterThan(G + 0.8);
     expect(pw.characterState()!.pos.y).toBeCloseTo(G, 1);
   });
+  test('fly mode: no gravity, the commanded climb, the building wall and its roof still collide', () => {
+    const fly = (vx: number, vy: number, seconds: number) => {
+      for (let k = 0; k < Math.round(seconds / DT); k++) pw.fixedStep({ vx, vz: 0, jump: true, fly: { vy } }, null);
+      return pw.characterState()!;
+    };
+    pw.spawnCharacter({ x: 186, y: G, z: 208 });
+    walk(pw, 0, 0, 0.3);
+    expect(fly(0, 4.5, 1).pos.y).toBeCloseTo(G + 4.5, 1); // the jump input is ignored while flying
+    expect(fly(0, 0, 1).pos.y).toBeCloseTo(G + 4.5, 1); // hovering: no gravity
+    const blocked = fly(3, 0, 3); // into the 12 m building east of x 192
+    expect(blocked.pos.x).toBeLessThan(192 - CHARACTER.radius + 0.05);
+    expect(blocked.pos.y).toBeCloseTo(G + 4.5, 1);
+    fly(0, 4.5, 2); // above the roof at G + 12
+    expect(fly(3, 0, 2).pos.x).toBeGreaterThan(195);
+    expect(fly(0, -4.5, 2).pos.y).toBeCloseTo(G + 12, 1); // sinks onto the roof, not through it
+    const landed = walk(pw, 0, 0, 1); // flight off: walking again, on the roof
+    expect(landed.grounded).toBe(true);
+    expect(landed.pos.y).toBeCloseTo(G + 12, 1);
+  });
   test('car drives north on the road', () => {
     pw.setCharacterEnabled(false);
     pw.spawnVehicle({ x: 120, y: G + 0.8, z: 150 }, Math.PI / 2); // yaw +90 deg: chassis +X -> -Z (north)

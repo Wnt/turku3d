@@ -37,6 +37,9 @@ export interface MissionSave {
   par: number;
   /** Par seconds to the first drop-off of a double order (0 for a single). */
   firstPar: number;
+  /** Euros the developer tools added to `money` (localhost only, ui/devMenu.ts), so no scoreboard counts them.
+   *  Missing in saves from before the tools: 0. */
+  devMoney: number;
 }
 
 /** The save format of main e323e39 (four looping deliveries, no address pool). */
@@ -74,7 +77,7 @@ export const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 export function freshSave(seed: number): MissionSave {
   return { version: 3, phase: 'idle', money: START_MONEY, permit: 0, plates: false, kidney: false, warning: false,
     vehicle: 'none', delivery: 0, pizzas: 0, seed, delivered: [], order: [], lastAddress: null, stop: 0, elapsed: 0,
-    par: 0, firstPar: 0 };
+    par: 0, firstPar: 0, devMoney: 0 };
 }
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
@@ -106,7 +109,7 @@ function validV2(s: Partial<MissionSaveV2>): MissionSaveV2 | null {
  *  and the address pool starts unused. */
 function migrateV2(s: MissionSaveV2, seed: number): MissionSave {
   const delivery = Math.floor(s.delivery);
-  return { ...s, version: 3, delivery, pizzas: delivery, seed, delivered: [], stop: 0, firstPar: 0,
+  return { ...s, version: 3, delivery, pizzas: delivery, seed, delivered: [], stop: 0, firstPar: 0, devMoney: 0,
     order: s.phase === 'carrying' ? [DELIVERIES[delivery % DELIVERIES.length].id] : [],
     lastAddress: delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null };
 }
@@ -114,7 +117,8 @@ function migrateV2(s: MissionSaveV2, seed: number): MissionSave {
 function validV3(s: Partial<MissionSave>): MissionSave | null {
   const v2 = validV2({ ...s, version: 2 } as Partial<MissionSaveV2>);
   if (!v2 || !num(s.pizzas) || !num(s.seed) || !ids(s.delivered) || !ids(s.order) || !num(s.stop)
-    || !num(s.firstPar) || !(s.lastAddress === null || typeof s.lastAddress === 'string')) {
+    || !num(s.firstPar) || !(s.lastAddress === null || typeof s.lastAddress === 'string')
+    || !(s.devMoney === undefined || num(s.devMoney))) {
     return null;
   }
   return s as MissionSave;
@@ -135,7 +139,7 @@ export function parseSave(raw: string | null, seed: number): MissionSave {
       save.phase = save.permit > 0 ? 'at_pizzeria' : 'permit_needed';
     }
     return { ...save, money: Math.round(save.money), permit: Math.floor(save.permit), delivery: Math.floor(save.delivery),
-      pizzas: Math.floor(save.pizzas), stop: Math.floor(save.stop) };
+      pizzas: Math.floor(save.pizzas), stop: Math.floor(save.stop), devMoney: Math.round(save.devMoney ?? 0) };
   } catch {
     return freshSave(seed);
   }

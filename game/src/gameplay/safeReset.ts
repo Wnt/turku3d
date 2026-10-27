@@ -17,6 +17,8 @@ interface PlayerFrame {
   grounded: boolean;
   /** The character's facing (`PlayerVisual.root.rotation.y`, forward = (sin, cos) in x/z). */
   facing: number;
+  /** Developer fly mode is on: the rules hold until the first grounded contact after it. */
+  flying: boolean;
 }
 
 const tileId = (x: number, z: number) => { const t = collisionTileAt(x, z); return `c_${t.i}_${t.j}`; };
@@ -51,6 +53,11 @@ export class SafeReset {
     if (this.recovering) return;
     this.time += dt;
     this.followPlacement(player);
+    if (player.flying) {
+      this.monitor.hold();
+      this.waterDepth = null;
+      return;
+    }
     const probe = this.probe(player);
     if (!probe) return;
     this.at.set(probe.x, probe.y, probe.z);
