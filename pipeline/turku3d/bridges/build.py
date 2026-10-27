@@ -135,6 +135,8 @@ def profile(crossing, points, classes):
             if len(nearby) < 4:
                 nearby = support.query_ball_point(xy[endpoint], 5)
             if len(nearby) < 4:
+                if np.isfinite(heights).any():
+                    continue  # The deck returns reach this end's neighbours; hold their level.
                 raise ValueError(f"{crossing.name}: unsupported abutment")
             heights[endpoint] = float(np.median(abutment[nearby, 1]))
         water = points[classes == 9]

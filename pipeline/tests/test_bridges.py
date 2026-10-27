@@ -87,6 +87,17 @@ def test_short_bridge_interpolates_between_ground_abutments():
     assert abs(heights[-1] - 3.1) < 0.05
 
 
+def test_deck_end_without_abutment_holds_the_measured_deck_level():
+    """The way runs 6 m past the surveyed deck over water: no ground there, the deck level holds."""
+    crossing = Crossing("long", box(0, -2, 30, 2), LineString([(0, 0), (36, 0)]), True, [])
+    deck = np.array([[x, 6.0, z] for x in np.arange(0, 30.5, 0.5) for z in (-1.5, 0, 1.5)])
+    bank = np.array([[x, 5.0, z] for x in np.arange(-7, -5, 0.5) for z in (-1, 0, 1)])
+    classes = np.r_[np.full(len(deck), 12), np.full(len(bank), 2)]
+    _, heights, source = profile(crossing, np.r_[deck, bank], classes)
+    assert source == "class12_and_abutments"
+    assert np.allclose(heights, 6.0)
+
+
 def test_approach_matches_full_width_shore_contact_and_waterline():
     crossing = Crossing("footbridge", box(0, -1, 20, 1), LineString([(0, 0), (20, 0)]), False, [])
     contact = Shore("start", 10, 0, np.array([-1, 0, 1]), np.array([2.5, 2.55, 2.5]), 0.02, 0, None)
