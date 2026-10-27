@@ -163,20 +163,20 @@ name = "gate-tests"
 inputs = ["pipeline/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
 triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "docs/flags.toml"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py", "test_gate_state.py"]]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py", "test_gate_state.py", "test_spec_selection.py"]]
 
 [[stages]]
 name = "tooling-tests"
 inputs = ["pipeline/turku3d/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
-triggers = ["scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/host_slots.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_lander.py", "scripts/dev/tests/test_live_build.py", "scripts/dev/tests/test_host_slots.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
+triggers = ["scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/spec_selection.py", "scripts/dev/host_slots.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_lander.py", "scripts/dev/tests/test_live_build.py", "scripts/dev/tests/test_host_slots.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
 commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_lander.py", "test_live_build.py", "test_host_slots.py", "test_environment.py", "test_stop.py"]]
 
 # The queue tests patch module globals and os.environ, so they run serially in their own process.
 [[stages]]
 name = "queue-tests"
 kind = "command"
-triggers = ["scripts/dev/merge_queue.py", "scripts/dev/integrator.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
+triggers = ["scripts/dev/merge_queue.py", "scripts/dev/integrator.py", "scripts/dev/integration_chrome.py", "scripts/dev/spec_selection.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
 commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py"]]
 
 [[stages]]
@@ -249,10 +249,18 @@ name = "game-e2e"
 inputs = ["game/*", "pipeline/*", "tools/validator/*", "qa/tests/golden_projection.json"]
 kind = "e2e"
 tile_tags = ["@walk", "@pipeline", "@render", "@qa", "@ground", "@character", "@streaming", "@gameplay"]
-triggers = ["tools/dev/environment.*", "game/src/main.ts", "game/src/ui/*", "game/src/vehicle/*", "game/src/input/*", "game/src/render/*", "game/src/actors/*", "game/src/physics/*", "game/src/core/*", "game/src/shared/col/*", "game/src/world/*", "game/src/gameplay/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/tests/e2e-playtest/*", "game/*config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/ground/*"]
-# Subsystem tags are declared on the specs; unmapped e2e triggers select all.
+triggers = ["tools/dev/environment.*", "tools/dev/serve-dist.mjs", "game/src/*", "game/tests/e2e/*", "game/tests/e2e-tile/*", "game/playwright.config.ts", "game/playwright.tile.config.ts", "game/vite.config.ts", "game/public/*", "game/index.html", "game/package*.json", "qa/tests/golden_projection.json", "pipeline/turku3d/ground/*"]
+# Pipeline code that changes the assembled tiles. Only the integrator's real-tile Chrome stage
+# selects specs for these paths; the gate's tile suite runs on synthetic fixtures.
+tile_triggers = ["pipeline/turku3d/package/*", "pipeline/turku3d/layers.py", "pipeline/turku3d/buildings/*", "pipeline/turku3d/roads/*", "pipeline/turku3d/props/*", "pipeline/turku3d/placement/*", "pipeline/turku3d/parked/*", "pipeline/turku3d/structures/*", "pipeline/turku3d/bridges/*", "pipeline/turku3d/coarse/*", "pipeline/turku3d/content/*", "pipeline/turku3d/region/*"]
+# Both Chrome projects (webgpu and webgl) run only for these paths; everything else runs webgpu.
+both_projects = ["game/src/render/*", "game/src/vehicle/*", "game/src/physics/*", "game/playwright.config.ts", "game/playwright.tile.config.ts", "game/package*.json", "game/public/basis/*"]
+# scripts/dev/spec_selection.py maps each trigger path to specs: a changed spec selects itself,
+# a changed helper or directly imported module selects the specs importing it, a changed
+# Playwright config selects its test directory, and these rows add specs by tag (`tags`, as
+# declared on the specs) or by path (`specs`). Every trigger has a row or an import route.
 [[stages.related]]
-paths = ["game/src/render/*", "game/src/world/materials.ts", "qa/tests/golden_projection.json", "game/tests/e2e/render-*.spec.ts"]
+paths = ["game/src/render/*", "qa/tests/golden_projection.json", "game/tests/e2e/render-*.spec.ts", "game/src/world/shadowBatch.ts", "game/src/core/sun.ts", "game/public/basis/*"]
 tags = ["@render", "@qa"]
 [[stages.related]]
 paths = ["game/src/actors/*", "game/src/physics/*", "game/src/shared/col/*"]
@@ -267,20 +275,67 @@ paths = ["game/src/vehicle/*", "game/tests/e2e/vehicle.spec.ts"]
 tags = ["@drive", "@vehicle"]
 
 [[stages.related]]
-paths = ["game/src/ui/*", "game/tests/e2e/start.spec.ts"]
+paths = ["game/src/ui/*", "game/tests/e2e/start.spec.ts", "game/index.html", "game/public/manifest.webmanifest", "game/public/assets/ui/*"]
 tags = ["@launch"]
 
 [[stages.related]]
-paths = ["game/src/world/tiles.ts"]
-tags = ["@streaming"]
+paths = ["game/src/world/*", "game/src/core/origin.ts"]
+tags = ["@streaming", "@aoi"]
 
 [[stages.related]]
-paths = ["game/src/gameplay/*"]
+paths = ["game/src/main.ts", "game/src/core/params.ts", "game/src/core/flags.ts"]
+tags = ["@launch", "@walk", "@drive", "@qa"]
+
+[[stages.related]]
+paths = ["game/src/gameplay/*", "game/src/core/save.ts"]
 tags = ["@gameplay", "@launch"]
 
 [[stages.related]]
+paths = ["game/src/audio/*", "game/public/assets/audio/*"]
+tags = ["@audio"]
+
+[[stages.related]]
+paths = ["game/public/assets/voice/*"]
+tags = ["@voice"]
+
+[[stages.related]]
+paths = ["game/public/assets/car/*", "game/public/assets/vehicles/*"]
+tags = ["@drive"]
+
+[[stages.related]]
+paths = ["game/public/assets/character/*"]
+tags = ["@character", "@walk"]
+
+[[stages.related]]
+paths = ["game/src/qa/*"]
+tags = ["@qa"]
+
+# Play telemetry is off under webdriver; the .d.mts only declares types.
+[[stages.related]]
+paths = ["game/src/telemetry/*", "tools/dev/environment.d.mts"]
+tags = []
+
+[[stages.related]]
+paths = ["game/public/dev-tiles/*"]
+specs = ["game/tests/e2e/*"]
+
+[[stages.related]]
+paths = ["tools/dev/serve-dist.mjs"]
+specs = ["game/tests/e2e-tile/*"]
+
+# Bundler and dependency changes reach every spec.
+[[stages.related]]
+paths = ["game/vite.config.ts", "game/package*.json"]
+specs = ["game/tests/*"]
+
+[[stages.related]]
 paths = ["pipeline/turku3d/ground/*", "pipeline/tests/test_ground.py"]
-tags = ["@curb"]
+tags = ["@curb", "@ground"]
+
+# Tile products the assembled-tile suite checks in Chrome.
+[[stages.related]]
+paths = ["pipeline/turku3d/package/*", "pipeline/turku3d/layers.py", "pipeline/turku3d/buildings/*", "pipeline/turku3d/roads/*", "pipeline/turku3d/props/*", "pipeline/turku3d/placement/*", "pipeline/turku3d/parked/*", "pipeline/turku3d/structures/*", "pipeline/turku3d/bridges/*", "pipeline/turku3d/coarse/*", "pipeline/turku3d/content/*", "pipeline/turku3d/region/*"]
+tags = ["@pipeline"]
 
 [[stages]]
 name = "vehicle-node-tests"
@@ -298,5 +353,5 @@ commands = [["{python}", "scripts/dev/check_imports.py"]]
 [[stages]]
 name = "playtest-tools"
 kind = "command"
-triggers = ["tools/dev/play*", "tools/dev/environment.*", "game/tools/*", "game/tests/e2e-playtest/*", "mk/play.mk"]
+triggers = ["tools/dev/play*", "tools/dev/environment.*", "game/tools/*", "game/tests/e2e-playtest/*", "game/playwright.playtest.config.ts", "mk/play.mk"]
 commands = [["node", "--test", "tools/dev/play.test.mjs"]]

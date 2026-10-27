@@ -155,8 +155,11 @@ buildings and curbs; car failures are recorded in `reports/validate-cars.json` a
 while car content and vehicle response are repaired. Car validator load errors and missing reports
 still fail the live build. The full `make tile-validate` command still requires cars. Then `bash pipeline/env/run.sh python -m
 turku3d.package.facade_ground_audit`, `make game-build`, `make collision-sweep`, `make collision-audit`,
-and the real-tile Playwright suite in Chrome on the sandbox dist port. The suite checks spawn loading on
-WebGPU and WebGL2, sweeps 24 street poses in all four L0 tiles plus an aerial view,
+and the real-tile Playwright specs `spec_selection.py` selects (rules in its docstring) in Chrome on the
+sandbox dist port; passing specs are cached in `wt/.registry/spec-results/`. Every 2 h with a landing
+since the last full run (or `integrator.py run --full`) all specs run on both projects from the last
+green full run's commit (`full_suite: true`, `integration_chrome.py`); only that goes to Pages. The full suite checks
+spawn loading on WebGPU and WebGL2, sweeps 24 street poses in all four L0 tiles plus an aerial view,
 and requires fewer than 500 draws at every street pose and the bridge gameplay pose.
 The facade audit reports all approved facades, including buried bases on slopes, and
 blocks floating or missing walls and incorrect photo UVs. The manifest check requires geometry,
@@ -200,7 +203,7 @@ legacy Make fallback.
 
 https://wnt.github.io/turku-game/ serves the live release. With `$TURKU3D_DATA/publish/pages.json`
 (`{"repo": "Wnt/turku-game", "branch": "gh-pages"}`) the integrator calls `pages.publish` after a
-green publish: one parentless commit of the release's `game/`, `tiles/` and `pages-site/` files is
+green full suite: one parentless commit of the release's `game/`, `tiles/` and `pages-site/` files is
 force-pushed (the branch holds one release, about 115 MB) and Pages is enabled once. The result or
 `error` goes into the integration row as `pages`; a failure never rolls back the local publish. It
 refuses a release that binds any facade without `source_mode: generate` and `generated_qa`. By hand:
@@ -440,7 +443,7 @@ Validator Node tests remain Node tests, preserving their cross-language round-tr
 
 Playwright paths are explicitly tagged in the table. Specs use `@walk`, `@drive`, `@render`,
 `@qa`, `@input` and `@pipeline`; the table's `related.tags` selects the affected subsets. A new/unmapped
-browser trigger selects all specs. Both WebGPU and WebGL2 run. The pipeline browser fixture publishes four synthetic ground layers with a deterministic RGB texture,
+browser trigger selects all specs (`test_spec_selection.py` fails until the map covers it). Both WebGPU and WebGL2 run. The pipeline browser fixture publishes four synthetic ground layers with a deterministic RGB texture,
 then runs the production assembler into `.cache/gate-tiles`. Its separate empty input root prevents
 reading shared raw data. This exercises the four L0 seams as well as compression and rendering.
 The long browser stage is deliberately excluded from ordinary pure-core/unit changes.
@@ -733,17 +736,14 @@ conflict, an empty revert or a red revert gate is reported in the same request; 
 
 Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`), `published`,
 `from`, `to`, `data_key`, the class fields (`class`, `paths`, `changed_paths`, `data_delta`, `tiles`),
-`batch_joined`, `rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
+`full_suite`, `chrome_plan`, `chrome`, `batch_joined`, `rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
 `red`, `data-red`, `failed`, `superseded`), `seconds`, `cache_hits`, `facades_bound`, `builds`,
 `wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`, `approval_manifest`,
 `revert`. `integration.json`/`integration-data.json` name each lane's running integration and log.
 
-Deleted on 2026-10-27 (`~/turku3d/logs/merge-latency-study/report.md`: a finished branch waited a median
-of 80 min for main): precheck receipts (`codex-task precheck`, `verification.py`, `land --prechecked`/`--dry-run`),
-the live build inside `land`, the queue's `reverify` recheck, `speculative` prefixes, `QUEUE_STAGE_BUDGETS`, Codex
-resume from the queue, `queue_sweep.py`, `warm_queue.py`, `warm_browser.mjs` and `affected_browser.py`. Main only
-requires the fast gate; the integrator verifies once per batch after the merge, so main may be red for one
-integration cycle while live never is.
+Deleted on 2026-10-27 (a branch waited a median 80 min; `~/turku3d/logs/merge-latency-study/report.md`):
+precheck receipts, the live build inside `land`, queue rechecks, speculative prefixes, queue budgets, Codex
+resume, the queue sweep and the warm browser service. Main may be red for one integration; live never is.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA

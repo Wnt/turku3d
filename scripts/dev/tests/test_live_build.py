@@ -4,14 +4,20 @@ import contextlib
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import live_build
+import spec_selection
 
 CORE = live_build.C.CORE_TILES
+GATE = spec_selection.gate_config()
+# tests/run.py runs cases in threads; patches of the shared live_build.s.run_group must not
+# overlap, or one test's build runs the real stage commands.
+RUN_GROUP = threading.Lock()
 
 
 class LiveBuildTests(unittest.TestCase):
@@ -261,7 +267,9 @@ class LiveBuildTests(unittest.TestCase):
     def stage_fixture(self, root):
         """repo, work and published roots with one assembled manifest of the core tiles."""
         repo, work, published = root / "repo", root / "work", root / "data"
-        repo.mkdir()
+        (repo / "game/tests/e2e-tile").mkdir(parents=True)
+        (repo / "game/playwright.tile.config.ts").write_text("export default {};\n")
+        (repo / "game/tests/e2e-tile/tile.spec.ts").write_text("test('walks', f);\n")
         (published / "textures/assembly").mkdir(parents=True)
         (published / "textures/assembly/MANIFEST.json").write_text(
             json.dumps({"bound": ["one", "two"]})
@@ -336,6 +344,7 @@ class LiveBuildTests(unittest.TestCase):
             calls = []
             run = self.stage_runner(work, calls)
             with (
+                RUN_GROUP,
                 patch.object(live_build.s, "run_group", side_effect=run),
                 patch("os.getloadavg", return_value=(12.0, 11.0, 10.0)),
             ):
@@ -368,6 +377,24 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(report["car_validation"]["status"], "fail")
             self.assertEqual(report["car_validation"]["failed_tiles"], 1)
             self.assertEqual(calls[-1][1], repo / "game")
+            # Without a selection the full suite runs on both projects; nothing passed, so
+            # nothing is cached.
+            self.assertEqual(
+                calls[-1][0][1:],
+                [
+                    "test",
+                    "-c",
+                    "playwright.tile.config.ts",
+                    "--reporter=list,json",
+                    "tests/e2e-tile/tile.spec.ts",
+                    "--project",
+                    "webgpu",
+                    "--project",
+                    "webgl",
+                ],
+            )
+            self.assertEqual(report["chrome"]["cached"], [])
+            self.assertEqual(len(report["chrome"]["run"]), 2)
             # Chrome runs with the integration reservation's four workers under load 60.
             self.assertEqual(calls[-1][3], "4")
             self.assertEqual(report["facades_bound"], 2)
@@ -388,6 +415,7 @@ class LiveBuildTests(unittest.TestCase):
                 return None
 
             with (
+                RUN_GROUP,
                 patch.object(live_build.s, "run_group", side_effect=self.stage_runner(work, calls)),
                 patch.object(live_build, "phase", return_value=contextlib.nullcontext()) as phase,
             ):
@@ -412,9 +440,9 @@ class LiveBuildTests(unittest.TestCase):
             self.assertIn("== join: rebuilding m2 as code ==", log)
             self.assertLess(log.index("== join"), log.rindex("== refresh"))
 
-    def test_data_build_skips_chrome_and_collision_and_carries_unchanged_car_result(self):
+    def test_data_build_runs_no_unselected_chrome_and_carries_unchanged_car_result(self):
         self.assertEqual(live_build.stages_for("inert"), ())
-        self.assertNotIn("chrome", live_build.stages_for("data"))
+        self.assertEqual(live_build.stages_for("data")[-1], "chrome")
         self.assertEqual(live_build.stages_for("code")[-1], "chrome")
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -432,8 +460,11 @@ class LiveBuildTests(unittest.TestCase):
 
             def build():
                 calls = []
-                with patch.object(
-                    live_build.s, "run_group", side_effect=self.stage_runner(work, calls)
+                with (
+                    RUN_GROUP,
+                    patch.object(
+                        live_build.s, "run_group", side_effect=self.stage_runner(work, calls)
+                    ),
                 ):
                     report = live_build.build(
                         repo,
@@ -443,21 +474,31 @@ class LiveBuildTests(unittest.TestCase):
                         root / "build.log",
                         previous_release=previous,
                         landing_class="data",
+                        chrome=spec_selection.select([], "data", root=repo, config=GATE),
                     )
                 return report, calls
 
             report, calls = build()
             self.assertEqual(
                 list(report["seconds"]),
-                ["refresh", "tile-build", "tile-validate", "facade-ground-audit", "game-build"],
+                [
+                    "refresh",
+                    "tile-build",
+                    "tile-validate",
+                    "facade-ground-audit",
+                    "game-build",
+                    "chrome",
+                ],
             )
+            # The unchanged tile list selects no spec, so Chrome never starts.
             self.assertEqual(len(calls), 5)
+            self.assertEqual((report["chrome"]["selected"], report["chrome"]["run"]), ([], []))
             self.assertEqual(report["car_validation"], {**car, "carried_from": "g" * 40})
             self.assertEqual(
                 (work / "reports/validate-cars.json").read_text(), '{"previous": true}'
             )
             self.assertIn("parked cars unchanged", (root / "build.log").read_text())
-            # Changed parked cars run the car report again, still without Chrome.
+            # Changed parked cars run the car report again, still without a browser.
             (work / "build/layers/traffic_static/placements.json").write_text("[2]")
             report, calls = build()
             self.assertIn("car-report", report["seconds"])

@@ -58,7 +58,7 @@ def related(stage, changed, key):
         if not rows:
             return None
         for row in rows:
-            selected.update(row[key])
+            selected.update(row.get(key, ()))
     return sorted(selected) or None
 
 
