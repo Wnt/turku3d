@@ -56,8 +56,14 @@ curl -s "localhost:$((TURKU3D_PORT_BASE+1))/coarse/t0_2_0/manifest.json?d=40"   
 node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build/game" --mount "/tiles=$TURKU3D_DATA/live/tiles"
 ```
 
-`GET /coarse/<tile>/manifest.json?d=<m>` queues the tile (nearest to the player first; the latest
-distance wins; tiles not re-requested within 10 s leave the queue) and answers 202 until it is built.
+`GET /coarse/<tile>/manifest.json?d=<m>` queues the tile and answers 202 `{"state": "queued",
+"position": n, "eta": s}` (or `"building"` with its `eta`) until it is built; tiles not re-requested
+within 10 s leave the queue. With a moving player (`/coarse/want`) the queue builds the tiles on the
+path ahead first, by their distance along the heading, and the ring around the player after them;
+standing, nearest first by the reported distance `d`. The ETA is the mean of the last eight builds
+over the free workers. `/coarse/want` answers the build counter `version`; when it moves the game
+polls its waiting tiles at once, so a finished draft arrives within a frame of the next check
+instead of on the tile's own 2 s poll. The badge shows "ready in N s" and "next tile in N s".
 Up to four builds run at once, each in a child process: the game also asks for the cells within the next
 30 s of travel along the player's heading (`world/coarseTiles.ts`), so a cold tile's minutes of raw-data
 download overlap with the warm builds. `/coarse/status` lists the tiles `building`. Built tiles are reused

@@ -517,3 +517,29 @@ def test_prefetcher_prepares_complete_tiles_near_the_player(raw, tmp_path):
     assert (
         max(t.i for t in tiles) == 5 and min(t.i for t in tiles) == -1
     )  # 1 km ahead, 500 m behind
+
+
+def test_queue_builds_the_path_ahead_first_and_estimates_when_tiles_are_ready(tmp_path):
+    from turku3d.coarse.service import score
+
+    builder = Builder(tmp_path / "coarse", command=_fake_build([]), code="test", workers=0)
+    for tile, d in (
+        ("t0_1_0", 0),
+        ("t0_0_1", 0),
+        ("t0_2_0", 125),
+        ("t0_-1_0", 125),
+        ("t0_3_1", 400),
+    ):
+        builder.request(tile, d)
+    assert builder.order()[:2] in (["t0_0_1", "t0_1_0"], ["t0_1_0", "t0_0_1"])  # standing: nearest
+    builder.steer(260, 125, 27, 0)  # driving east through t0_1_0
+    assert builder.order() == ["t0_1_0", "t0_2_0", "t0_3_1", "t0_0_1", "t0_-1_0"]
+    assert score("t0_3_1", 400, builder.motion) < score(
+        "t0_0_1", 0, builder.motion
+    )  # ahead beats beside
+    builder.workers = 2
+    builder.recent = [4.0, 6.0]
+    eta = builder.eta()
+    assert [eta[t] for t in builder.order()] == [5.0, 5.0, 10.0, 10.0, 15.0]
+    assert builder.request("t0_2_0", 125) == {"state": "queued", "position": 1, "eta": 5.0}
+    assert builder.status()["version"] == 0
