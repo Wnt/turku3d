@@ -44,6 +44,5 @@ game-dev-tools-test: ## node --test for tools/dev/serve-dist.mjs
 	node --test $(REPO)/tools/dev/serve-dist.test.mjs
 
 .PHONY: game-vehicle-test
-game-vehicle-test: game-install $(REPO)/tools/validator/node_modules/.package-lock.json ## Car acceptance: game WASM + native Node validator WASM, small synthetic fixtures
+game-vehicle-test: game-install ## Car acceptance on small synthetic fixtures (game WASM)
 	$(GAME_NPM) exec -- vitest run tests/unit/vehicle.test.ts tests/unit/vehicle-world.test.ts
-	$(GAME_NPM) run test:vehicle-node

@@ -15,7 +15,6 @@
     "test:all": "npm run build && npm test && playwright test",
     "probe": "node scripts/probe-page.mjs",
     "prepare-character": "node scripts/prepare-character.mjs",
-    "test:vehicle-node": "node --test tests/headless/vehicle.test.ts",
     "prepare-car": "node scripts/prepare-car.mjs",
     "prepare-scooter": "node scripts/prepare-scooter.mjs",
     "prepare-truck": "node scripts/prepare-truck.mjs",

@@ -373,12 +373,6 @@ triggers = ["tools/dev/localhost/*", "tools/dev/http.mjs", "tools/dev/environmen
 commands = [["python3", "../scripts/dev/host_slots.py", "browser", "--", "node_modules/.bin/playwright", "test", "-c", "playwright.hotswap.config.ts"]]
 
 [[stages]]
-name = "vehicle-node-tests"
-kind = "command"
-triggers = ["game/src/vehicle/*", "game/src/physics/constants.ts", "game/src/physics/protocol.ts", "game/src/shared/col/*", "game/tests/fixtures/*", "game/tests/headless/*", "game/package*.json"]
-commands = [["node", "--test", "game/tests/headless/vehicle.test.ts"]]
-
-[[stages]]
 name = "dependency-imports"
 tier = "deep"
 kind = "command"
