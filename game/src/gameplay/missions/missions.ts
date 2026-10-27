@@ -48,10 +48,10 @@ interface MissionOptions {
 }
 
 /** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
-export type Checkpoint = 'delivery' | 'purchase';
+type Checkpoint = 'delivery' | 'purchase';
 
 /** What a save slot shows about a mission save without restoring it. */
-export interface MissionSummary { deliveries: number; money: number; lastAddress: string | null }
+interface MissionSummary { deliveries: number; money: number; lastAddress: string | null }
 
 /** Slot details of a `MissionSystem.serialize()` text (an invalid text reads as a new game). */
 export function missionSummary(text: string | null): MissionSummary {
