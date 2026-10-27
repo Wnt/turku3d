@@ -18,7 +18,13 @@ import shapely
 from turku3d import config as C
 from turku3d.bridges.build import crossings as bridge_crossings
 from turku3d.col.materials import mat_id, table
-from turku3d.layers import CollisionLayer, write_collision, write_manifest, write_visual
+from turku3d.layers import (
+    CollisionLayer,
+    read_collision,
+    write_collision,
+    write_manifest,
+    write_visual,
+)
 from turku3d.package.gltf import GlbMesh
 from turku3d.package.manifest import _atomic_write
 
@@ -26,7 +32,7 @@ from .breaklines import clamp_curb_heights, load_breaklines, records, validation
 from .ground_qa import evaluate_ground
 from .inputs import fingerprints, read_lidar, source_paths, vectors
 from .materials import Materials
-from .mesh import Mesh, build_mesh, parts, tile_mesh
+from .mesh import Mesh, build_mesh, parts, seam_errors, tile_mesh
 from .points import Surface, select_ground, split_points
 from .qa import write_report
 from .ramps import classify_ramps
@@ -148,13 +154,8 @@ def envelope(tile):
     the samples inside it; any envelope that contains a tile with this margin yields the same
     tile. Neighbouring tiles built separately therefore share their seams exactly."""
     cells = C.collision_tiles_for_bbox(tile.bbox.buffered(C.MESH_MARGIN))
-    cell_bounds = C.BBoxLocal(
-        min(c.bbox.xmin for c in cells),
-        min(c.bbox.zmin for c in cells),
-        max(c.bbox.xmax for c in cells),
-        max(c.bbox.zmax for c in cells),
-    )
-    return cells, cell_bounds.buffered(C.MESH_MARGIN)
+    # The tile's input area (config.tile_input_area) is exactly these cells plus the margin.
+    return cells, C.tile_input_area(tile).core
 
 
 def tile_paths(bounds, source_area, breaklines=None):
@@ -391,6 +392,29 @@ def owners(visual):
     return result
 
 
+def tile_seam_errors(output, owned):
+    """Seam mismatches between neighbouring collision tiles published by different builds."""
+    cells = {
+        C.CollisionTile.parse(name.removesuffix(".col.npz")): tile
+        for name, tile in owned.items()
+        if name.endswith(".col.npz")
+    }
+    pairs = set()
+    for cell, tile in cells.items():
+        for neighbour in (C.CollisionTile(cell.i + 1, cell.j), C.CollisionTile(cell.i, cell.j + 1)):
+            if cells.get(neighbour, tile) != tile:
+                pairs.add((cell, neighbour))
+    meshes = {}
+    for cell in {c for pair in pairs for c in pair}:
+        layer = read_collision(output / f"{cell.id}.col.npz")
+        meshes[cell] = Mesh(layer.positions, layer.indices, layer.material)
+    return [
+        error
+        for a, b in sorted(pairs, key=lambda pair: (pair[0].id, pair[1].id))
+        for error in seam_errors({a: meshes[a], b: meshes[b]})
+    ]
+
+
 def _build_one(job):
     tile_id, paths, inputs, key, breaklines, water, staging = job
     curbs = clamp_curb_heights(load_breaklines(breaklines)) if breaklines else []
@@ -413,11 +437,15 @@ def run(args):
     manifest_path = output / "MANIFEST.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     breaklines = getattr(args, "breaklines", None)
-    water = WaterLevel(args.source_area, args.water_level, previous.get("water_level"))
+    # The office core always lies in work-3x3; each tile reads its own input area otherwise.
+    water = WaterLevel(
+        args.source_area or C.WORK_3X3.name, args.water_level, previous.get("water_level")
+    )
     code = code_hash()
     plans = {}
     for tile in visual:
-        paths = tile_paths(envelope(tile)[1], args.source_area, breaklines)
+        source = args.source_area or C.source_area(tile)
+        paths = tile_paths(envelope(tile)[1], source, breaklines)
         inputs = fingerprints(paths)
         key = digest(
             {
@@ -516,6 +544,9 @@ def run(args):
     )
     coverage = observed / open_cells if open_cells else 0.0
     checks["coverage"] = coverage >= 0.95
+    # Seams between tiles from different builds, where envelope independence must hold.
+    cross_seams = tile_seam_errors(output, owned)
+    checks["seams"] = checks.get("seams", True) and not cross_seams
     passed = all(checks.values())
     tile_builds = {t.id: builds[t.id] for t in visual}
     layer_key = digest([tile_builds, sorted(side_files)])
@@ -535,6 +566,7 @@ def run(args):
         },
         "acceptance": "Plain lidar ground per L0 tile; curb accuracy deferred by user decision",
         "rebuilt": sorted(built),
+        "cross_tile_seam_mismatches": cross_seams,
         "water_level": water.value,
         "river_bed": {
             "source": "synthetic collision fallback; no measured bathymetry",
@@ -594,7 +626,9 @@ def main(argv=None):
     parser.add_argument(
         "--breaklines", type=Path, help="Measured breakline JSON; matching IDs replace city fits"
     )
-    parser.add_argument("--source-area", default="work-3x3")
+    parser.add_argument(
+        "--source-area", help="input area for every tile (default: config.source_area per tile)"
+    )
     parser.add_argument(
         "--water-level",
         type=float,

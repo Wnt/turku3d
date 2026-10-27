@@ -260,10 +260,18 @@ def main(argv=None):
         raise FileNotFoundError("OSM GeoParquet is required")
     attach_osm(buildings, osm_paths[-1])
     # Include complete buildings crossing the AOI boundary, not only points inside the AOI.
-    bounds = unary_union([b.footprint for b in buildings]).bounds
-    bounds = C.BBoxLocal(*bounds).buffered(5)
+    # Only the LAZ tiles under some building: an L-shaped tile list's bounding box can reach
+    # lidar tiles nobody fetched because nothing there is built.
     laz = [
-        C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz") for t in C.laz_tiles_for_bbox(bounds)
+        C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz")
+        for t in sorted(
+            {
+                t
+                for b in buildings
+                for t in C.laz_tiles_for_bbox(C.BBoxLocal(*b.footprint.bounds).buffered(5))
+            },
+            key=lambda t: t.name,
+        )
     ]
 
     def reconstruction_key(source_buildings):

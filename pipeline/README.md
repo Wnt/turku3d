@@ -36,8 +36,8 @@ The playable area is the L0 tile list `$TURKU3D_DATA/playable-tiles.json`
 missing). A sandbox's `$TURKU3D_WORK/playable-tiles.json` shadows it. `config.playable_tile_ids()`,
 the `playable-tiles` area (`config.area("playable-tiles")`), refresh and the live build follow it.
 Core tiles (`config.CORE_TILES`) require every layer in `make tile-build`; other listed tiles require
-ground (their `.vis.glb` and all 16 colliders), buildings and roads. `work-3x3` is the larger input
-reservoir.
+ground (their `.vis.glb` and all 16 colliders), buildings and roads. `work-3x3` is the larger
+shared input area; a tile beyond it reads its own `tile-<id>` input area.
 
 ### Growing the playable area: `make tile-add T=t0_i_j`
 
@@ -48,10 +48,19 @@ cat $TURKU3D_WORK/reports/tile-add/t0_2_0.json   # stage and layer seconds, tile
 bash pipeline/env/run.sh python -m turku3d.region list-tile t0_2_0   # orchestrator: list it for live
 ```
 
-`add-tile` accepts an L0 tile that shares an edge with a listed tile and whose 50 m margin lies
-inside the `work-3x3` input reservoir (every producer reads `--source-area work-3x3`). It appends
-the tile to `$TURKU3D_WORK/playable-tiles.json` and checks the reservoir's inputs, downloading any
-missing ones through `turku3d.fetch`. It clones the published layers, textures and tiles into an
+`add-tile` accepts an L0 tile that shares an edge with a listed tile and whose input area lies in
+the city lidar coverage (`data-manifests/laz-tiles.csv`). A tile's input area,
+`config.tile_input_area(tile)` (named `tile-<id>`), is its ground envelope: the tile plus 112.5 m,
+which is one ring of collision tiles and the 50 m margin. `config.source_area(tile)` is
+`work-3x3` while that holds the input area; `work-3x3` stays the union cache, not a boundary.
+Otherwise it is the tile's own area. `add-tile` checks that area's inputs and fetches the missing ones
+read-through into `$TURKU3D_DATA/raw` (`python -m turku3d.fetch all --area tile-t0_3_0`: LAZ
+tiles intersecting it, WFS layers, both orthophotos and OSM by bbox). Ortho chunks are aligned
+to the origin, so a chunk another area already holds is cloned, not downloaded. The report's
+`inputs` records the area, missing files, fetch seconds and bytes. Ground and ground textures
+read each tile's own source area, and the colour calibration stays on `work-3x3`. The other
+producers still read `work-3x3`; they cover a tile only while the tile itself lies inside it. It
+appends the tile to `$TURKU3D_WORK/playable-tiles.json`. It clones the published layers, textures and tiles into an
 empty sandbox, then runs `turku3d.refresh` and `turku3d.package.assemble --area playable-tiles`
 for the whole list. Ground, buildings, outer massing, roads and props follow the list: refresh
 records the list it built each one for in `<layer>/PLAYABLE_TILES.json` and reruns a layer

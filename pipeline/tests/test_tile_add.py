@@ -25,7 +25,7 @@ def roots(tmp_path, monkeypatch):
     return data, work
 
 
-def test_plan_grows_the_area_by_one_adjacent_tile_inside_the_reservoir():
+def test_plan_grows_the_area_by_one_adjacent_tile_anywhere_the_lidar_covers(monkeypatch):
     assert T.plan("t0_2_0", CORE) == [*CORE, "t0_2_0"]
     assert T.plan("t0_-1_1", CORE)[0] == "t0_-1_1"
     with pytest.raises(ValueError, match="already playable"):
@@ -36,11 +36,57 @@ def test_plan_grows_the_area_by_one_adjacent_tile_inside_the_reservoir():
         T.plan("t0_2_2", CORE)  # diagonal only
     with pytest.raises(ValueError, match="L0"):
         T.plan("t1_1_0", CORE)
-    # t0_3_0 touches t0_2_0 but its margin crosses the work-3x3 reservoir edge at x = 1000.
-    with pytest.raises(
-        ValueError, match=r"E 23460200\.\.23460550.*outside the work-3x3 input reservoir"
-    ):
-        T.plan("t0_3_0", [*CORE, "t0_2_0"])
+    # t0_3_0's input area leaves work-3x3 at x = 1000; it reads its own area instead.
+    assert T.plan("t0_3_0", [*CORE, "t0_2_0"])[-1] == "t0_3_0"
+    assert C.source_area("t0_2_0") == "work-3x3"
+    assert C.source_area("t0_3_0") == "tile-t0_3_0"
+    assert C.source_area("t0_1_-1") == "work-3x3"
+    from turku3d.fetch import laz
+
+    monkeypatch.setattr(laz, "known_tiles", lambda: {("pistepilvi", "23459500_6704500")})
+    with pytest.raises(ValueError, match="lidar tiles the city does not publish"):
+        T.plan("t0_2_0", CORE)
+
+
+def test_tile_input_area_is_the_ground_envelope():
+    from turku3d.ground.build import envelope
+
+    tile = C.VisualTile.parse("t0_3_0")
+    area = C.area("tile-t0_3_0")
+    assert area == C.tile_input_area(tile)
+    assert area.core == envelope(tile)[1]
+    assert area.with_margin.to_en().as_tuple() == (23460137.5, 6704137.5, 23460612.5, 6704612.5)
+    assert sorted(t.name for t in area.laz_tiles) == [
+        "23460000_6704500",
+        "23460000_6705000",
+        "23460500_6704500",
+        "23460500_6705000",
+    ]
+    assert C.area_arg("tile-t0_3_0") == "tile-t0_3_0"
+    with pytest.raises(ValueError):
+        C.area_arg("tile-t1_0_0")
+
+
+def test_ensure_inputs_fetches_only_outside_work_3x3(monkeypatch):
+    from turku3d.fetch import cached
+
+    checked, fetched = [], []
+    state = {"missing": ["raw/wfs/tile-t0_3_0/x.parquet"]}
+
+    def check(area):
+        checked.append(area.name)
+        return state["missing"] if area.name != "work-3x3" else []
+
+    def run(command, check):
+        fetched.append(command[-1])
+        state["missing"] = []
+
+    monkeypatch.setattr(cached, "check", check)
+    monkeypatch.setattr(T.subprocess, "run", run)
+    assert T.ensure_inputs("t0_2_0")["area"] == "work-3x3" and not fetched
+    result = T.ensure_inputs("t0_3_0")
+    assert fetched == ["tile-t0_3_0"] and result["area"] == "tile-t0_3_0"
+    assert result["missing"] == 1 and "fetch_seconds" in result
 
 
 def test_list_tile_appends_to_the_data_root_list_only(roots):

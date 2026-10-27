@@ -34,7 +34,7 @@ def source_hashes(paths: list[Path], cache: Path) -> list[dict]:
     """Content hashes with a stat-keyed index so repeated builds avoid hashing raw imagery."""
     cache.parent.mkdir(parents=True, exist_ok=True)
     old = json.loads(cache.read_text()) if cache.exists() else {}
-    updated = {}
+    updated = dict(old)  # Several input areas share one index.
     result = []
     for path in sorted(set(paths)):
         stat = path.stat()
@@ -278,8 +278,6 @@ def main(argv=None):
     tiles = [C.VisualTile.parse(t) for t in a.tiles]
     if any(t.level != 0 for t in tiles):
         ap.error("ground textures require L0 tiles")
-    primary = C.raw_dir("ortho") / "ortho2022to" / f"{a.area}.vrt"
-    recent = C.raw_dir("ortho") / "ortho2025" / f"{a.area}.vrt"
     cache = C.work_root() / "cache/ground-textures"
     code = hashlib.sha256()
     for path in sorted(Path(__file__).parent.glob("*.py")):
@@ -287,14 +285,21 @@ def main(argv=None):
     code_version = code.hexdigest()
     import rasterio
 
-    vrt_files = []
-    for vrt in (primary, recent):
-        with rasterio.open(vrt) as ds:
-            vrt_files.extend(Path(f) for f in ds.files)
-    inputs = source_hashes(vrt_files, cache / "source-hashes.json")
-    input_key = digest(inputs)
-    calibration_file = cache / f"calibration-{digest([a.area, input_key])}.json"
-    # Stable calibration footprint is the named raw area, independent of tile order/subsets.
+    def ortho_source(area: str):
+        """A named input area's two ortho mosaics and the hashes of the images they reference."""
+        primary = C.raw_dir("ortho") / "ortho2022to" / f"{area}.vrt"
+        recent = C.raw_dir("ortho") / "ortho2025" / f"{area}.vrt"
+        files = []
+        for vrt in (primary, recent):
+            with rasterio.open(vrt) as ds:
+                files.extend(Path(f) for f in ds.files)
+        return primary, recent, source_hashes(files, cache / "source-hashes.json")
+
+    # Each tile reads its own input area (work-3x3 while that holds it); the colour
+    # calibration stays on the one fixed --area footprint so every tile shares it.
+    sources = {name: ortho_source(name) for name in sorted({a.area, *map(C.source_area, tiles)})}
+    primary, recent, reference = sources[a.area]
+    calibration_file = cache / f"calibration-{digest([a.area, digest(reference)])}.json"
     if calibration_file.exists():
         calibration = json.loads(calibration_file.read_text())
     else:
@@ -308,6 +313,10 @@ def main(argv=None):
         r, rv = read_ortho(recent, area.xmin, area.zmin, step, width, height)
         calibration = colour_calibration(p, r, pv & rv)
         calibration_file.write_text(json.dumps(calibration))
+    inputs = sorted(
+        {item["path"]: item for _, _, items in sources.values() for item in items}.values(),
+        key=lambda item: item["path"],
+    )
     a.out.mkdir(parents=True, exist_ok=True)
     ground_paths = sorted({path for tile in tiles for path in semantic_paths(a.ground_layer, tile)})
     ground_hashes = {
@@ -324,11 +333,13 @@ def main(argv=None):
         tile_inputs = [
             (path.name, ground_hashes[str(path)]) for path in semantic_paths(a.ground_layer, tile)
         ]
+        tile_primary, tile_recent, tile_source = sources[C.source_area(tile)]
+        input_key = digest(tile_source)
         ortho_key = digest([tile.id, input_key, calibration, code_version])
         return build_tile(
             tile,
-            primary,
-            recent,
+            tile_primary,
+            tile_recent,
             calibration,
             a.out / tile.id,
             a.ground_layer,
