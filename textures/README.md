@@ -75,6 +75,12 @@ Google Street View → Mapillary and stops at the first valid one (`fallback` in
 `refs.json`). Generate jobs use the valid full views in that source order, best
 score first within a source; a wall with no valid view in any source gets no job,
 and `building_jobs.screened_full_views` returns the reason.
+Before `generate`, the `refgrid` stage (same arguments as `visualqa`, reviewer route
+`reference_grid`, gpt-6-astra/low) reads each wall's valid references into
+`facade_reference_grid.schema.json`: whether they show the outlined wall at all, and its
+storeys, window columns, ground-floor openings, plinth, cornice and cladding. `generate`
+then skips walls whose references do not show them and writes the measured grid and the
+exact aspect into the prompt as hard constraints, also for `--feedback` retries.
 `TURKU3D_CODEX_MODEL` and `TURKU3D_CODEX_EFFORT` select the image model for one
 run. The `visualqa` stage writes the reviewed wall content, without layout-guide
 margins, to `$RUN/generated/<facade_id>.png` and asks the fixed reviewer
@@ -90,7 +96,9 @@ the prompt, and their latest record replaces the old one. Then rerun `visualqa`,
 ### Generated rollout batches
 
 `turkutex.facade_rollout` ranks every street-facing wall of the approved inventory
-without a generated map into `$TURKU3D_WORK/textures/rollout-queue.json`, written once:
+without a generated map into a queue file written once. Keep it outside the sandbox
+(the rollout uses `~/turku3d/logs/facade-rollout/rollout-queue.json`): landing a batch
+removes the sandbox, and the queue records which walls earlier batches consumed. Order:
 office-core walls ≥ 4 m, the other core walls, then 50 m rings outward from the core
 bbox; within a group wider walls nearer the spawn first. Walls beyond 3.5:1 (either
 way) are `deferred` and never batched, because the layout guide misses the 3% aspect
@@ -99,18 +107,19 @@ check. Each batch takes the next 25 walls and records the starting quota:
 ```sh
 source ../sandbox.env
 T="$TURKU3D_WORK/textures"; A="$TURKU3D_DATA/facade-approvals/assembly"; N=1
+LOGS=~/turku3d/logs/facade-rollout; Q="$LOGS/rollout-queue.json"
 R="$T/rollout/batch-$(printf %02d $N)"; PY=textures/.venv/bin/python
 $PY -m turkutex.facade_rollout queue --inventory "$A/APPROVED_INVENTORY.geojson" --assembly "$A" \
-  --tiles-manifest "$TURKU3D_DATA/live/tiles/manifest.json" --output "$T/rollout-queue.json"
-$PY -m turkutex.facade_rollout batch $N --queue "$T/rollout-queue.json" --run "$R" \
+  --tiles-manifest "$TURKU3D_DATA/live/tiles/manifest.json" --output "$Q"
+$PY -m turkutex.facade_rollout batch $N --queue "$Q" --run "$R" \
   --inventory "$A/APPROVED_INVENTORY.geojson" --refs "$T/refs" --size 25
 $PY -m turkutex facade-batch refs "$R/facades.geojson" --run "$R" --refs "$T/refs" \
   --output "$R/staging" --sources lookaround,google,mapillary --ref-workers 8
 # generate (luna/low), visualqa, post --ppm 32 --post-workers 4 and the audit as above, then
 # write $R/manual.json ({facade_id: {"ok": bool, "note": str}}) from the contact sheet
-$PY -m turkutex.facade_rollout contact $N --queue "$T/rollout-queue.json" --run "$R" --output SHEET.jpg
-$PY -m turkutex.facade_rollout summary $N --queue "$T/rollout-queue.json" --run "$R" --logs ~/turku3d/logs/facade-rollout
-$PY -m turkutex.facade_rollout publish $N --queue "$T/rollout-queue.json" --run "$R" \
+$PY -m turkutex.facade_rollout contact $N --queue "$Q" --run "$R" --output SHEET.jpg
+$PY -m turkutex.facade_rollout summary $N --queue "$Q" --run "$R" --logs "$LOGS"
+$PY -m turkutex.facade_rollout publish $N --queue "$Q" --run "$R" \
   --inventory "$A/APPROVED_INVENTORY.geojson" --assembly "$A"
 ```
 

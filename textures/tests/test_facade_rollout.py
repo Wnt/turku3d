@@ -192,3 +192,39 @@ def test_queue_ranks_core_walls_then_rings_and_excludes_generated_maps(tmp_path)
     rollout.subset(inventory, ["far_1", "near_0"], tmp_path / "batch.geojson")
     batch = json.loads((tmp_path / "batch.geojson").read_text())["features"]
     assert [f["properties"]["building_id"] for f in batch] == ["far", "near"]
+
+
+def grid_answer(fid, visible=True):
+    return {
+        "id": f"{fid}.refgrid",
+        "ok": True,
+        "answer": {
+            "facade_id": fid,
+            "wall_visible": visible,
+            "problem": "" if visible else "pavement only",
+            "storeys": 4,
+            "window_columns": 7,
+            "ground_openings": 5,
+            "plinth": True,
+            "cornice": False,
+            "cladding": "pink granite",
+        },
+    }
+
+
+def test_reference_grid_gates_generation_and_becomes_a_hard_constraint(tmp_path):
+    sharp = facade_texture()
+    wall, path, refs = refs_dir(tmp_path, [("lookaround", 0.9, sharp), ("google", 0.8, sharp)])
+    grid_jobs = jobs.reference_grid_jobs(path, refs)
+    assert [j["id"] for j in grid_jobs] == ["wall.refgrid"]
+    assert grid_jobs[0]["meta"]["kind"] == "reference_grid"
+    assert grid_jobs[0]["images"][-1].endswith("wall_v0_lookaround_outline.jpg")
+    grids = tmp_path / "refgrid.jsonl"
+    grids.write_text(json.dumps(grid_answer("wall")) + "\n")
+    prompt = jobs.generate_jobs(path, refs, grids_out=grids)[0]["vars"]["grid_instruction"]
+    assert "4 storeys" in prompt and "exactly 7 window openings" in prompt
+    assert "5 ground-floor openings" in prompt and "no distinct cornice" in prompt
+    grids.write_text(json.dumps(grid_answer("wall", visible=False)) + "\n")
+    assert jobs.generate_jobs(path, refs, grids_out=grids) == []
+    views, grid, reason = jobs.reference_status(wall, refs, jobs.latest(grids))
+    assert views == [] and reason == "reference does not show the wall: pavement only"

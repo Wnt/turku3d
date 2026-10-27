@@ -489,7 +489,17 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "stage",
-        choices=["refs", "label", "improve", "generate", "visualqa", "post", "report", "all"],
+        choices=[
+            "refs",
+            "label",
+            "improve",
+            "refgrid",
+            "generate",
+            "visualqa",
+            "post",
+            "report",
+            "all",
+        ],
     )
     ap.add_argument("facades", type=Path)
     ap.add_argument("--run", type=Path, default=textures_data_dir("aoi"))
@@ -554,10 +564,11 @@ def main(argv=None) -> int:
                             }
                         )
                         print(f"{f.id}: reference failed ({type(exc).__name__})", flush=True)
-        elif stage in ("label", "improve", "generate", "visualqa"):
+        elif stage in ("label", "improve", "refgrid", "generate", "visualqa"):
             builder = {
                 "label": jobs.label_jobs,
                 "improve": jobs.improve_jobs,
+                "refgrid": jobs.reference_grid_jobs,
                 "generate": jobs.generate_jobs,
                 "visualqa": jobs.visual_qa_jobs,
             }[stage]
@@ -568,6 +579,8 @@ def main(argv=None) -> int:
                 label_path = a.run / "run_label/out.jsonl"
                 args.append(label_path if label_path.exists() else None)
                 args.append(json.loads(a.feedback.read_text()) if a.feedback else None)
+                grid_path = a.run / "run_refgrid/out.jsonl"
+                args.append(grid_path if grid_path.exists() else None)
             if stage == "visualqa":
                 args += [a.run / "run_generate/out.jsonl", a.run / "generated"]
             job_path = a.run / f"{stage}_jobs.jsonl"

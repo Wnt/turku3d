@@ -7,6 +7,8 @@ Raw accounting per batch: `~/turku3d/logs/facade-rollout/batch-NN.json`, running
 
 ## Settings
 
+- Every batch runs in its own sandbox and task (`w1-09h-facade-rollout`, `-b02`, …), because landing
+  removes the sandbox. The queue, ledger and batch JSONs live in `~/turku3d/logs/facade-rollout/`.
 - Generation `gpt-6-luna`/low, reviewer `gpt-6-astra`/low (routing `generated_visual_qa`), runner
   `--max-pct 52`. Batch 1 ran at `-j 8` as the validation batch.
 - Acceptance: the automated audit (`facade_generated_qa`, which includes the reviewer answer) and my
@@ -41,6 +43,7 @@ Raw accounting per batch: `~/turku3d/logs/facade-rollout/batch-NN.json`, running
 | Batch | Walls | Readable | Accepted | Image calls | Reviewer calls | Quota before → after | Points/accepted | s/image call (mean) | Wall clock |
 | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |
 | 1 (core ≥ 4 m, `-j 8`) | 25 | 23 | 10 | 36 | 35 | 27 → 28 | 0.10 | 47.8 | 12.6 min |
+| 2 (rest of core, `-j 32`, aborted) | 23 | 13 | 0 | 13 (+20 failed with 429) | 13 | 28 → 28 | – | 26.1 | 12.1 min |
 
 ### Batch 1
 
@@ -64,3 +67,27 @@ Raw accounting per batch: `~/turku3d/logs/facade-rollout/batch-NN.json`, running
 - [Contact sheet](w1-09h-facade-rollout/contact-batch-01.jpg).
 - Stop rules: quota 28 % < 52 %, 0.1 points per accepted wall < 0.3, 10 of 23 readable walls
   (43 %) ≥ 40 %. Continue.
+
+### Batch 2 (aborted)
+
+- The orchestrator asked for the remaining 43 core walls as one batch at `-j 32`. 20 of 33 generate
+  calls failed with HTTP 429 ("exceeded retry limit") within 30 s and made no image; those walls
+  went back to the queue (batch 3). `-j 8` had no 429 in batch 1.
+- 10 walls have no valid reference: 7 have no full-wall view, `kanta-c0358…_3` has only 100 %
+  black Look Around crops, and `1032958849_12` / `_15` have only blurred views (sharpness
+  0.003–0.062).
+- None of the 13 images was accepted. Nine references show pavement, water and boats, yard
+  machinery, a railing, parked cars, a glass fence or a construction sign instead of the wall,
+  and the model invented a facade for each. The audit passed `103304670P_39`; I rejected it
+  because its gable is drawn against a white canvas that would be textured onto the rectangular
+  wall. The other three are plausible but tree-occluded or show sky and street strips.
+- [Contact sheet](w1-09h-facade-rollout/contact-batch-02.jpg).
+
+**Change before batch 3.** Wrong-content references cost 9 of 13 images here and 6 of 23 in batch 1.
+They pass the black and blur screen, and the reviewer only notices them after an image has been
+paid for. A new `refgrid` stage asks the fixed reviewer (astra/low, no image) whether the rectified
+references show the outlined wall at all. When they do, it records the wall's storeys, window
+columns, ground-floor openings, plinth, cornice and cladding. `generate` skips walls whose
+references do not show them. For the others it passes the measured grid and the exact aspect to
+the image model as hard constraints, also in `--feedback` retries. This is the orchestrator's
+grid-in-prompt request, plus a gate.

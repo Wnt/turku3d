@@ -73,6 +73,73 @@ def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     return valid, None
 
 
+def reference_status(
+    facade, root: Path, grids: dict | None = None
+) -> tuple[list[dict], dict | None, str | None]:
+    """Screened views, the reference-grid answer, and why the wall gets no image (or None)."""
+    views, reason = screened_full_views(facade, root)
+    grid = (grids or {}).get(f"{facade.id}.refgrid", {}).get("answer")
+    if not reason and grid is not None and not grid["wall_visible"]:
+        reason = f"reference does not show the wall: {grid['problem'] or 'not visible'}"
+    return ([] if reason else views), grid, reason
+
+
+def grid_instruction(grid: dict | None) -> str:
+    if grid is None:
+        return ""
+    single = grid["window_columns"] == 0
+    return (
+        "Measured from the references before drawing; these are hard constraints: "
+        f"{grid['storeys']} storeys including the ground floor; "
+        + (
+            "no upper window rows; "
+            if single
+            else f"exactly {grid['window_columns']} window openings in every full upper row; "
+        )
+        + f"{grid['ground_openings']} ground-floor openings (doors, shop windows, gates); "
+        + ("a distinct plinth band; " if grid["plinth"] else "no distinct plinth band; ")
+        + ("a distinct cornice or eaves band; " if grid["cornice"] else "no distinct cornice; ")
+        + f"cladding: {grid['cladding']}."
+    )
+
+
+def reference_grid_jobs(facades_path: Path, refs_root: Path) -> list[dict]:
+    """One strict-schema reading of the references per wall: is it visible, and its grid."""
+    result = []
+    for f in load_facades(facades_path):
+        if not f.props.get("street_facing", True):
+            continue
+        views = screened_full_views(f, refs_root)[0][:2]
+        if not views:
+            continue
+        d = refs_root / f.id
+        result.append(
+            {
+                "id": f"{f.id}.refgrid",
+                "prompt_file": str(PROMPTS_DIR / "facade_reference_grid.md"),
+                "vars": {
+                    "facade_id": f.id,
+                    "width_m": f"{f.length:.3f}",
+                    "height_m": f"{f.height_m:.3f}",
+                    "aspect": f"{f.length / f.height_m:.4f}:1",
+                    "reference_count": str(len(views)),
+                },
+                "images": [str(d / v["files"]["rectified"]) for v in views]
+                + [str(d / views[0]["files"]["outline"])],
+                "schema": str(SCHEMAS_DIR / "facade_reference_grid.schema.json"),
+                "expect_images": 0,
+                "timeout": 900,
+                "prompt_version": "facade-reference-grid-v1",
+                "meta": {
+                    "kind": "reference_grid",
+                    "facade_id": f.id,
+                    "views": [v["view_id"] for v in views],
+                },
+            }
+        )
+    return result
+
+
 def groups(facades):
     result = {}
     for f in facades:
@@ -269,12 +336,16 @@ def generate_jobs(
     refs_root: Path,
     labels_out: Path | None = None,
     feedback: dict[str, str] | None = None,
+    grids_out: Path | None = None,
 ) -> list[dict]:
     """Build reference-led, fully generated elevations without depending on a label pass.
 
     ``feedback`` maps facade IDs to the rejection reason of a previous image. Only those
     walls get a job, and the reason becomes part of the prompt (and so of the cache key).
+    ``grids_out`` holds reference-grid answers: walls whose references do not show them get
+    no job, and the measured grid becomes a hard constraint in the prompt.
     """
+    grids = latest(grids_out) if grids_out is not None else {}
     specs = labels(labels_out) if labels_out is not None else {}
     fragments = {
         k: (PROMPTS_DIR / "fragments" / f"{k}.md").read_text().strip()
@@ -287,8 +358,9 @@ def generate_jobs(
         if feedback is not None and f.id not in feedback:
             continue
         d = refs_root / f.id
-        views = screened_full_views(f, refs_root)[0][:3]
-        if not views:
+        views, grid, reason = reference_status(f, refs_root, grids)
+        views = views[:3]
+        if reason:
             continue
         best = views[0]
         ratio = f.length / f.height_m
@@ -313,6 +385,7 @@ def generate_jobs(
                     ),
                     "view_list": "\n".join(v["files"]["rectified"] for v in views),
                     "label_instruction": json.dumps(specs[f.id]) if f.id in specs else "",
+                    "grid_instruction": grid_instruction(grid),
                     "layout_instruction": (
                         f"The last attachment is a layout guide, not a photo. Put the complete wall "
                         f"inside its grey rectangle at {ratio:.4f}:1 and leave the white canvas outside."

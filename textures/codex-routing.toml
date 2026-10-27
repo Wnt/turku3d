@@ -30,3 +30,6 @@ effort = "low"
 [generated_visual_qa]
 model = "gpt-6-astra"
 effort = "low"
+[reference_grid]
+model = "gpt-6-astra"
+effort = "low"

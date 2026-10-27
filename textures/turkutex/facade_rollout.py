@@ -20,7 +20,7 @@ from pathlib import Path
 
 from turku3d import config
 
-from .building_jobs import latest, screened_full_views
+from .building_jobs import latest, reference_status
 from .facade_batch import asset_path, report, write_json
 from .jobs import _views
 from .post.pipeline import sha
@@ -196,14 +196,16 @@ def summarize(run: Path, queue: dict, number: int) -> dict:
     facades = load_facades(run / "facades.geojson")
     generate = attempts(run / "run_generate/attempts.jsonl")
     review = attempts(run / "run_visualqa/attempts.jsonl")
+    grid_calls = attempts(run / "run_refgrid/attempts.jsonl")
     final = verdicts(run)
     answers = latest(run / "run_visualqa/out.jsonl")
     after = quota()
     refs_root = Path(state["refs"])
+    grids = latest(run / "run_refgrid/out.jsonl")
     per_wall, skipped, rejected, sources, reasons = [], {}, {}, {}, {}
     fallback_walls = []
     for f in facades:
-        views, reason = screened_full_views(f, refs_root)
+        views, grid, reason = reference_status(f, refs_root, grids)
         refs_summary = (
             json.loads((refs_root / f.id / "refs.json").read_text())
             if (refs_root / f.id / "refs.json").exists()
@@ -238,6 +240,7 @@ def summarize(run: Path, queue: dict, number: int) -> dict:
                     "screen": views[0].get("screen"),
                 },
                 "skipped": reason,
+                "reference_grid": grid,
                 "accepted": bool(verdict and verdict["accepted"]),
                 "generate_calls": len(calls),
                 "image_calls": sum(len(r.get("imagegen_calls", [])) for r in calls),
@@ -278,7 +281,12 @@ def summarize(run: Path, queue: dict, number: int) -> dict:
         "image_calls": sum(len(r.get("imagegen_calls", [])) for r in generate),
         "images_returned": sum(len(r.get("images", [])) for r in generate),
         "qa_calls": len(review),
-        "tokens": {"generate": tokens(generate), "visual_qa": tokens(review)},
+        "reference_grid_calls": len(grid_calls),
+        "tokens": {
+            "generate": tokens(generate),
+            "visual_qa": tokens(review),
+            "reference_grid": tokens(grid_calls),
+        },
         "seconds_per_generate_call": seconds(generate),
         "seconds_per_qa_call": seconds(review),
         "quota_before_percent": before,
@@ -330,9 +338,10 @@ def contact_sheet(run: Path, output: Path, title: str):
 
     final = verdicts(run)
     refs_root = Path(json.loads((run / "state.json").read_text())["refs"])
+    grids = latest(run / "run_refgrid/out.jsonl")
     tiles = []
     for f in load_facades(run / "facades.geojson"):
-        views, reason = screened_full_views(f, refs_root)
+        views, _, reason = reference_status(f, refs_root, grids)
         refs = refs_root / f.id
         if views:
             ref = refs / views[0]["files"]["rectified"]
