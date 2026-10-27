@@ -85,6 +85,7 @@ def code_hash():
     return tile_layer.code_hash(
         Path(__file__),
         base / "coarse/build.py",
+        base / "coarse/inputs.py",
         base / "tile_layer.py",
         base / "config.py",
         base / "layers.py",
@@ -101,7 +102,8 @@ def tile_key(tile):
 
 
 def build_tile(tile, staging):
-    from turku3d.coarse.build import buildings, extrude
+    from turku3d.coarse.build import extrude
+    from turku3d.coarse.inputs import buildings
 
     source = lod2_source(tile)
     if source is None:

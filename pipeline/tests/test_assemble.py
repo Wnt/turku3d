@@ -170,16 +170,10 @@ def test_incremental_tiles_keep_drivable_parked_cars(tmp_path):
         for i, x in enumerate((80, 280))
     ]
     parked = layers / "traffic_static"
-    parked.mkdir(parents=True)
+    write_parked(cars[:1], parked, C.VisualTile(0, 0, 0))
+    write_parked(cars[1:], parked, C.VisualTile(0, 1, 0))
+    write_manifest(parked, inputs={}, params={}, code="t", tiles=[p.name for p in parked.iterdir()])
     (parked / "placements.json").write_text(json.dumps({"cars": cars}))
-    for tile in ("t0_0_0", "t0_1_0"):
-        write_parked(
-            [c for c in cars if C.VisualTile.at(c["x"], c["z"]).id == tile],
-            parked,
-            C.VisualTile.parse(tile),
-        )
-    names = [p.name for p in parked.iterdir() if p.name.endswith((".vis.glb", ".col.npz"))]
-    write_manifest(parked, inputs={}, params={"seams": "objects"}, code="test", tiles=names)
     assemble(["t0_0_0"], layers=layers, out=out)
     first = json.loads((out / "manifest.json").read_text())
     assert [car["object_id"] for car in first["vehicles"]] == ["car-0"]

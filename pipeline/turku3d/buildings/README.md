@@ -55,7 +55,7 @@ lidar or a candidate model is missing. Shared data is never modified.
 ([`outer.py`](outer.py), [`turku3d.tile_layer`](../tile_layer.py)): every unlisted tile within
 two tiles of a listed one (for the four core tiles, exactly work-3x3). A ring tile's massing is
 the city's CityGML LOD2 buildings whose footprint centroid lies in it, extruded from the base to
-the area-weighted mean roof height (`coarse.build.buildings`/`extrude`, the draft tiles' rule),
+the area-weighted mean roof height (`coarse.inputs.buildings`, `coarse.build.extrude`: the draft tiles' rule),
 except buildings within 1 m of a listed tile, which the buildings layer owns. LOD2 comes from
 any prepared raw area covering the tile (work-3x3, `tile-<id>`, the draft prefetcher's blocks);
 `make tile-add` reads it through for new ring tiles (`outer.fetch_missing`, one WFS layer per
