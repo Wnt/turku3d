@@ -51,6 +51,8 @@ interface SaveGameOptions {
   setPaused: (paused: boolean) => void;
   fail: (e: unknown) => void;
   multiplayer?: () => void;
+  scoreboardStart?: () => void;
+  scoreboardPause?: () => void;
   onQuit?: () => void;
 }
 
@@ -78,14 +80,15 @@ export class SaveGameController {
         o.startScreen.reopen(this.startFlow.start());
       },
     };
-    this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer);
-    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks);
+    this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer, o.scoreboardStart);
+    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause);
     this.autosave = new Autosave(o.saves, () => o.startScreen.active || this.loading ? null : this.capture());
     this.detach = this.autosave.attach(window, document);
   }
 
   /** Stops the page-hide autosave (a hot-swapped play session). */
   dispose() { this.detach(); }
+  pausePage() { return this.pauseFlow.pause(); }
 
   /** The running game as a save slot. */
   capture(): SaveGame {

@@ -5,8 +5,8 @@ export interface NetPose {
   vE: number; vN: number; vH: number; mode: 'foot' | 'car' | 'scooter'; carrying: boolean;
 }
 export interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
-interface Score { nick: string; money: number; deliveries: number; rank: number; online: boolean }
-interface Hour { id: string; start: string; end: string; tz: string }
+export interface Score { nick: string; money: number; deliveries: number; rank: number; online: boolean }
+export interface Hour { id: string; start: string; end: string; tz: string }
 interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number }
 interface MultiplayerState {
   connected: boolean; you: { id: string; nick: string; spawn: NetPlayer['spawn'] } | null;
@@ -39,6 +39,9 @@ export class MultiplayerClient extends EventTarget {
   private lastPose: NetPose | null = null;
   private lastSent = -Infinity;
   private token: string | null = null;
+  private pendingDeliveries: Delivery[] = [];
+  private deliveryTimer: ReturnType<typeof setTimeout> | null = null;
+  private claimed = new Set<string>();
 
   constructor(url = multiplayerUrl(), private readonly storage: Storage | null = (() => {
     try { return window.sessionStorage; } catch { return null; }
@@ -73,7 +76,9 @@ export class MultiplayerClient extends EventTarget {
   disconnect() {
     this.closed = true;
     if (this.retry) clearTimeout(this.retry);
+    if (this.deliveryTimer) clearTimeout(this.deliveryTimer);
     this.retry = null;
+    this.deliveryTimer = null;
     this.ws?.close();
     this.ws = null;
     this.state.connected = false;
@@ -88,9 +93,23 @@ export class MultiplayerClient extends EventTarget {
   }
 
   sendDelivery(delivery: Delivery) {
-    if (!this.state.connected) return;
-    this.send({ type: 'delivery', ...delivery });
-    this.lastSent = performance.now(); // delivery replaces a pose in the rate budget
+    if (this.claimed.has(delivery.orderId)) return;
+    this.claimed.add(delivery.orderId);
+    this.pendingDeliveries.push(delivery);
+    this.flushDelivery();
+  }
+
+  private flushDelivery() {
+    if (!this.state.connected || !this.pendingDeliveries.length || this.deliveryTimer) return;
+    const delay = Math.max(0, RATE_MS - (performance.now() - this.lastSent));
+    this.deliveryTimer = setTimeout(() => {
+      this.deliveryTimer = null;
+      if (!this.state.connected) return;
+      const delivery = this.pendingDeliveries.shift()!;
+      this.send({ type: 'delivery', ...delivery });
+      this.lastSent = performance.now();
+      this.flushDelivery();
+    }, delay);
   }
 
   private send(data: object) {
@@ -115,6 +134,7 @@ export class MultiplayerClient extends EventTarget {
         this.state.error = null;
         this.attempts = 0;
         this.lastPose = null; // timestamp epoch may have changed after rejoin
+        this.flushDelivery();
         this.changed();
         this.dispatchEvent(new Event('welcome'));
         break;

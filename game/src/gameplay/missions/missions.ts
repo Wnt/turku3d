@@ -50,6 +50,12 @@ interface MissionOptions {
   addresses?: readonly PoolAddress[];
   /** Seed of a new game (default random); a saved game keeps its own. */
   seed?: number;
+  /** One event per paid drop-off; excludes purchases, starting money and other rewards. */
+  onPaid?: (drop: PaidDropoff) => void;
+}
+
+export interface PaidDropoff {
+  orderIndex: number; stopIndex: number; addressId: string; payout: number; tip: number; routeMeters: number;
 }
 
 /** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
@@ -447,6 +453,10 @@ export class MissionSystem implements MissionHudSource {
     const t = tip(this.s.elapsed, last ? this.s.par : this.s.firstPar);
     const bonus = stops.length > 1 && last && t > 0 ? DOUBLE_BONUS : 0;
     this.s.money += BASE_PAY + t + bonus;
+    this.options.onPaid?.({ orderIndex: this.s.delivery, stopIndex: this.s.stop,
+      addressId: stop.pool?.id ?? stop.id, payout: BASE_PAY + bonus, tip: t,
+      routeMeters: this.s.stop === 0 ? this.metresFromPizzeria(stop, this.parVehicle())
+        : this.streetMetres(stops[this.s.stop - 1].point, stop.point) });
     this.s.pizzas += 1;
     if (!stop.scripted) this.s.delivered.push(stop.id);
     const band: TipBand = t >= 5 ? 'fast' : t >= 1 ? 'ok' : 'slow';
