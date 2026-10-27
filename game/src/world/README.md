@@ -76,7 +76,9 @@ and the service's quick builds composed over it). The service pushes the release
    their colliders in a single worker message (`CollisionStreamer.refresh`), so the player never falls through;
    added ones load when the player comes near. Draft entries (absolute `/coarse/` URLs) are kept.
 3. When any visual tile or the tileset changed, `VisualTiles.reload` loads the new tileset hidden beside the current
-   one and swaps them once it has settled for the current view; listeners subscribe to `VisualTiles.events`, which
+   one and swaps them once it has settled for the current view. `tileReuse.ts` compares visual manifest hashes and
+   transfers unchanged loaded model objects, geometry, materials and shadow batches at the swap; only changed or
+   newly visible models are fetched and styled. The old renderer relinquishes transferred resources before disposal; listeners subscribe to `VisualTiles.events`, which
    carries the models of both, so material styling, ground textures, telemetry and draft-tile parents follow.
    `VisualTiles.swaps` counts swaps. A playable-tile list change arrives the same way: the new tileset has the new
    tiles, and `CoarseTiles.release` retires drafts of tiles it now renders.
