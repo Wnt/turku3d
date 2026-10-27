@@ -17,7 +17,7 @@ from turku3d.col.format import ColTile, Primitive, read_col, write_col
 from turku3d.content.addresses import publish as publish_addresses
 from turku3d.layers import layer_root, read_collision, read_manifest, read_visual
 from turku3d.package import coarse
-from turku3d.package.gltf import GlbMesh, build_glb
+from turku3d.package.gltf import GlbMesh, build_glb, read_glb
 from turku3d.package.manifest import DistTree, _atomic_write, git_sha, verify_tree
 from turku3d.package.seams import edge_equal, verify_tile_seams
 from turku3d.package.spawn import derive_spawn, osm_sources
@@ -242,6 +242,29 @@ def facade_bindings(facades, layers):
     return bound
 
 
+def glb_buildings(data: bytes) -> set[str]:
+    """Building IDs whose meshes a layer GLB carries; facade maps bind by building ID."""
+    js, _ = read_glb(data)
+    return {
+        str(node["extras"]["building_id"])
+        for node in js.get("nodes", [])
+        if node.get("extras", {}).get("building_id") is not None
+    }
+
+
+def facade_inputs(facades: Path, bindings: list[str], buildings: set[str]):
+    """The bound facade IDs and exported facade files of some buildings, for one tile's key."""
+    bound = sorted(f for f in bindings if f.rsplit("_", 1)[0] in buildings)
+    files = [
+        p
+        for b in sorted(buildings)
+        if (facades / b).is_dir()
+        for p in sorted((facades / b).iterdir())
+        if p.is_file()
+    ]
+    return bound, files
+
+
 def visual_tiles(
     tiles,
     stage,
@@ -401,7 +424,7 @@ def assemble(
     manifests, collision = load_layers(root)
     if checked:
         require_layers(manifests, tile_ids)
-    visuals = {}
+    visuals, owners = {}, {}
     for name, m in manifests.items():
         if name == "traffic_static":
             continue
@@ -410,7 +433,7 @@ def assemble(
                 tile = C.VisualTile.parse(filename.removesuffix(".vis.glb"))
                 if tile.level == 0:
                     path = root / name / filename
-                    read_visual(path)
+                    owners[path] = glb_buildings(read_visual(path))
                     visuals.setdefault(tile, []).append(path)
     for t in requested:
         if t not in visuals:
@@ -512,10 +535,11 @@ def assemble(
         ]
     )
     code = digest(code_files)
-    # Shared maps only; a tile's own ground maps enter its key through its binding.
+    # Shared maps only. A tile's own ground maps enter its key through its binding, and the
+    # facade maps of its own buildings through facade_inputs.
     textures = [
         p
-        for d in (library, facades, ground.parent / "library")
+        for d in (library, ground.parent / "library")
         if d.exists()
         for p in d.rglob("*")
         if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
@@ -536,6 +560,9 @@ def assemble(
             if any(c.id in v for v in collision.values()):
                 available.add(c.id)
                 published_cells.add(c)
+    # Facade densities are planned per tile from the facades centred in it, which may belong
+    # to a seam neighbour's buildings; their maps enter that tile's key as well.
+    priorities = facade_priorities(root / "buildings/facades.geojson", bindings, tree.spawn)
     changed, pending_inputs, pending_collision, keys = [], {}, {}, {}
     coarse_ids, points_cache = set(), {}
     tree_valid = (out / "manifest.json").exists() and not verify_tree(out)
@@ -554,9 +581,14 @@ def assemble(
             terrain = coarse.discover(tile) if tile.level > 0 or tile in coarse_leaves else None
             if tile in coarse_leaves and not inputs and not terrain:
                 continue  # Nothing to show there: no massing and no terrain coverage.
-            # A tile's key covers its own layer files, never another tile's: adding a tile
-            # leaves its neighbours' packed visuals cached. Collision is keyed per tile below.
-            files = inputs + osm_sources()
+            # A tile's key covers its own layer files and its own buildings' facades, never
+            # another tile's: adding a tile or rebuilding buildings elsewhere leaves its packed
+            # visual cached. Collision is keyed per tile below.
+            ranked = priorities.get(tile.id, []) if tile.level == 0 else []
+            buildings = set().union(*(owners[p] for p in inputs))
+            buildings |= {facade_id.rsplit("_", 1)[0] for facade_id in ranked}
+            bound, facade_files = facade_inputs(facades, bindings, buildings)
+            files = inputs + osm_sources() + facade_files
             if terrain:
                 files += terrain["files"]
             role = (
@@ -567,7 +599,8 @@ def assemble(
                 [
                     code,
                     texture_hash,
-                    bindings,
+                    bound,
+                    ranked,
                     tile.id,
                     role,
                     layer_ids,
@@ -633,7 +666,6 @@ def assemble(
             for tile, (data, stats) in pending_visual.items()
             if data is not None and tile.level == 0
         }
-        priorities = facade_priorities(root / "buildings/facades.geojson", bindings, tree.spawn)
         floors = {
             facade_id: facade_density_floor(facades, facade_id)
             for ranked in priorities.values()

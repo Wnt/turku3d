@@ -189,8 +189,17 @@ def migrate(source_inventory, inventory, assembly):
                     source = origin.parent / name
                     if sha(source) != meta["hashes"][name]:
                         raise ValueError(f"approved map hash mismatch: {source}")
+                unchanged = (
+                    old.id == new.id
+                    and np.allclose(old.p0, new.p0, rtol=0, atol=0.001)
+                    and np.allclose(old.p1, new.p1, rtol=0, atol=0.001)
+                    and abs(old.base_h - new.base_h) <= 0.001
+                    and abs(old.height_m - new.height_m) <= 0.001
+                )
+                # An unchanged wall keeps its approved mapping bit for bit: reprojecting it onto
+                # itself drifts the last bits and would repack its tile on every rebind.
                 try:
-                    uv = reproject_uv(meta, old, new)
+                    uv = meta["uv"] if unchanged else reproject_uv(meta, old, new)
                     validate_uv(uv, new)
                 except PhotoBoundsError as error:
                     rejected.append({"old": old.id, "new": new.id, "reason": str(error)})
@@ -206,13 +215,6 @@ def migrate(source_inventory, inventory, assembly):
                     destination = target.parent / (target.name + suffix)
                     shutil.copy2(source, destination)
                     files[kind] = destination.name
-                unchanged = (
-                    old.id == new.id
-                    and np.allclose(old.p0, new.p0, rtol=0, atol=0.001)
-                    and np.allclose(old.p1, new.p1, rtol=0, atol=0.001)
-                    and abs(old.base_h - new.base_h) <= 0.001
-                    and abs(old.height_m - new.height_m) <= 0.001
-                )
                 meta.update(
                     facade_id=new.id,
                     building_id=new.props["building_id"],
