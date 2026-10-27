@@ -105,6 +105,16 @@ class PagesTests(unittest.TestCase):
         self.assertRegex(message, r"^Release bbbbbbbbbbbb \d{4}-\d\d-\d\d$")
         self.assertEqual(self.calls, [("Owner/turku-game", "gh-pages")] * 2)
 
+    def test_derived_maps_from_generated_styles_are_published(self):
+        derived = {"source_mode": "derived", "derived_from": "k1", "style": {"path": "style.json"}}
+        neighbour = {"source_mode": "derived-neighbour", "derived_from": "k1"}
+        self.assertTrue(pages.generated(derived))
+        self.assertTrue(pages.generated(neighbour))
+        self.assertFalse(pages.generated({"source_mode": "derived"}))
+        self.assertFalse(pages.generated({"source_mode": "derived", "derived_from": "k1", "method": "rectified-photo-bay-inpaint-v1"}))
+        release = self.release("eeeeeeeeeeee", [GENERATED, derived, neighbour])
+        self.assertEqual(pages.check_facades(release), 3)
+
     def test_photo_derived_facades_are_never_published(self):
         self.release("cccccccccccc", [GENERATED, PHOTO])
         with self.assertRaisesRegex(pages.PhotoFacades, "1 bound facades.*b_1"):
