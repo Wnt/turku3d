@@ -1,6 +1,7 @@
 import type { V3 } from '../core/origin';
 import { ENGINE_SOUND, SOUNDS, ambience, carMix, clamp, duckGain, oneShot, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
+import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
 
 type Voice = { source: AudioBufferSourceNode; gain: GainNode; panner?: PannerNode };
 const CHANNELS: Channel[] = ['master', 'footsteps', 'vehicle', 'ambience', 'voice', 'ui'];
@@ -10,6 +11,13 @@ export class GameAudio {
   private context: AudioContext | null = null;
   private channels = new Map<Channel, GainNode>();
   private ducker: GainNode | null = null;
+  private musicDucker: GainNode | null = null;
+  music: MusicSystem | null = null;
+  private musicState: MusicState = 'menu';
+  private musicDeadline = 0;
+  private musicMuffle = 0;
+  musicVolume = DEFAULT_PARAMETERS.volume;
+  musicMuted = false;
   private ducked = false;
   private running: (() => void)[] = [];
   private buffers = new Map<Sound, AudioBuffer>();
@@ -31,7 +39,22 @@ export class GameAudio {
 
   constructor(private readonly factory = () => new AudioContext(),
     private readonly fetcher: typeof fetch = (...args) => fetch(...args),
-    private readonly base = `${import.meta.env.BASE_URL}assets/audio/`) {}
+    private readonly base = `${import.meta.env.BASE_URL}assets/audio/`) {
+    try {
+      const saved = JSON.parse(globalThis.localStorage?.getItem('turku3d.audio') ?? 'null');
+      if (saved && typeof saved === 'object') {
+        for (const name of CHANNELS) if (typeof saved.volumes?.[name] === 'number') this.volumes[name] = clamp(saved.volumes[name]);
+        if (typeof saved.musicVolume === 'number') this.musicVolume = clamp(saved.musicVolume);
+        this.musicMuted = saved.musicMuted === true;
+        this.muted = saved.muted === true;
+      }
+    } catch { /* storage may be unavailable */ }
+  }
+
+  private persist() {
+    try { globalThis.localStorage?.setItem('turku3d.audio', JSON.stringify({ volumes: this.volumes,
+      musicVolume: this.musicVolume, musicMuted: this.musicMuted, muted: this.muted })); } catch { /* storage may be unavailable */ }
+  }
 
   /** Called synchronously inside the first input handler so Chrome receives user activation. */
   unlock(): Promise<void> {
@@ -50,9 +73,16 @@ export class GameAudio {
         for (const name of CHANNELS.slice(1)) {
           const bus = ctx.createGain(); bus.connect(name === 'ambience' ? ducker : master); this.channels.set(name, bus);
         }
+        this.musicDucker = ctx.createGain(); this.musicDucker.connect(master);
+        this.music = new MusicSystem(ctx, this.musicDucker);
+        this.music.setState(this.musicState);
+        this.music.setDeadline(this.musicDeadline);
+        this.music.setMuffled(this.musicMuffle);
+        this.music.setVolume(this.musicMuted ? 0 : this.musicVolume);
         this.applyVolumes();
       }
       const ctx = this.context;
+      this.music?.start();
       // Do not await asset downloads before resume: the activation would already have expired.
       const resume = ctx.state === 'running' ? Promise.resolve() : ctx.resume();
       this.loading ??= Promise.all(SOUNDS.map(async sound => {
@@ -78,11 +108,11 @@ export class GameAudio {
   emit(event: AudioEvent) {
     if (this.disposed) return;
     if (event.type === 'mute') {
-      this.muted = !this.muted; this.applyVolumes();
-      if (this.muteButton) this.muteButton.textContent = this.muted ? 'Unmute (N / D-pad down)' : 'Mute (N / D-pad down)';
+      this.muted = !this.muted; this.applyVolumes(); this.persist();
+      if (this.muteButton) this.muteButton.textContent = this.muted ? 'Unmute (K / D-pad down)' : 'Mute (K / D-pad down)';
       return;
     }
-    if (event.type === 'volume') { this.volumes[event.channel] = clamp(event.value); this.applyVolumes(); return; }
+    if (event.type === 'volume') { this.volumes[event.channel] = clamp(event.value); this.applyVolumes(); this.persist(); return; }
     if (event.type === 'listener') {
       this.listener = event; this.paused = event.paused;
       if (this.context) {
@@ -105,10 +135,19 @@ export class GameAudio {
     return {
       context: () => (this.disposed ? null : this.context),
       bus: () => this.channels.get('voice') ?? null,
-      duck: active => { this.ducked = active; if (this.ducker) this.param(this.ducker.gain, duckGain(active)); },
+      duck: active => { this.ducked = active; if (this.ducker) this.param(this.ducker.gain, duckGain(active));
+        if (this.musicDucker) this.param(this.musicDucker.gain, duckGain(active)); },
       onRunning: callback => { this.running.push(callback); },
     };
   }
+
+  setMusicState(state: MusicState) { if (state !== this.musicState) { this.musicState = state; this.music?.setState(state); } }
+  setMusicDeadline(progress: number) { this.musicDeadline = clamp(progress); this.music?.setDeadline(this.musicDeadline); }
+  setMusicMuffle(amount: number) { this.musicMuffle = clamp(amount); this.music?.setMuffled(this.musicMuffle); }
+  resolveDelivery() { this.musicDeadline = 0; this.musicState = 'explore'; this.music?.deliver(); }
+  nextTrack() { this.music?.nextTrack(); }
+  setMusicVolume(value: number) { this.musicVolume = clamp(value); this.music?.setVolume(this.musicMuted ? 0 : this.musicVolume); this.persist(); }
+  setMusicMuted(value: boolean) { this.musicMuted = value; this.music?.setVolume(value ? 0 : this.musicVolume); this.persist(); }
 
   private applyVolumes() {
     for (const [name, node] of this.channels) this.param(node.gain, name === 'master' && this.muted ? 0 : this.volumes[name]);
@@ -168,12 +207,13 @@ export class GameAudio {
   }
 
   mount(parent: HTMLElement) {
+    this.panel?.remove();
     const panel = this.panel = document.createElement('details');
     panel.id = 'audio-panel';
     panel.style.cssText = 'position:fixed;right:12px;bottom:44px;color:white;background:#18212b;padding:8px;z-index:5;font:12px sans-serif';
     const summary = this.summary = document.createElement('summary');
     summary.textContent = 'Audio · click to enable'; summary.onclick = () => { void this.unlock(); }; panel.append(summary);
-    this.muteButton = document.createElement('button'); this.muteButton.textContent = 'Mute (N / D-pad down)';
+    this.muteButton = document.createElement('button'); this.muteButton.textContent = this.muted ? 'Unmute (K / D-pad down)' : 'Mute (K / D-pad down)';
     this.muteButton.onclick = () => this.emit({ type: 'mute' }); panel.append(this.muteButton);
     for (const channel of CHANNELS) {
       const label = document.createElement('label'); label.style.display = 'block'; label.textContent = channel;
@@ -186,10 +226,13 @@ export class GameAudio {
   }
 
   snapshot() { return { state: this.context?.state ?? 'locked', loaded: this.buffers.size, loops: this.loops.size,
-    voices: this.voices.size, ducked: this.ducked, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors] }; }
+    voices: this.voices.size, ducked: this.ducked, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors],
+    music: { state: this.musicState, deadline: this.musicDeadline, muffle: this.musicMuffle,
+      volume: this.musicVolume, muted: this.musicMuted, playing: this.music?.snapshot() ?? null } }; }
 
   dispose() {
     this.disposed = true;
+    this.music?.dispose(); this.music = null;
     for (const voice of this.voices) { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); voice.panner?.disconnect(); }
     this.voices.clear(); this.loops.clear(); this.buffers.clear(); this.channels.clear(); this.running = []; this.panel?.remove();
     void this.context?.close().catch(() => {});

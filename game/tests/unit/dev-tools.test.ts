@@ -159,7 +159,7 @@ describe('Developer pages', () => {
       money: () => money, addMoney: euros => { money += euros; calls.push(`money ${euros}`); },
       flying: () => flying, setFlying: on => { flying = on; calls.push(`fly ${on}`); },
       teleport: t => calls.push(`teleport ${t.E},${t.N},${t.headingDeg}`), built: E => E > 23_459_000 && E < 23_459_800,
-      ask: () => answer, setTime: phase => calls.push(`time ${phase}`),
+      ask: () => answer, setTime: phase => calls.push(`time ${phase}`), nextTrack: () => calls.push('next track'),
     };
     const root: MenuPage = { id: 'pause', title: 'Paused', text: null, back: null, items: [] };
     const flow = new DevMenuFlow(host, hooks, () => root);
@@ -170,7 +170,7 @@ describe('Developer pages', () => {
     const { flow, calls, pick, last, root } = setup();
     const page = flow.root();
     expect(page.items.map(i => i.label)).toEqual(['Money +1 000 €', 'Money +10 000 €', 'Fly mode on', 'Teleport to...',
-      'Time of day', 'Back']);
+      'Time of day', 'Next music track', 'Back']);
     expect(page.text).toBe('Money 120 €.');
     pick(page, 'money-10000');
     expect(last().text).toBe('Money 10 120 €.');

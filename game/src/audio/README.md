@@ -25,8 +25,10 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
 - City bed, wind and distant traffic mix with a positional river/gull pair. River position is the
   nearest point on an approximate Aura centreline in engine coordinates; the water/gull mix fades
   to zero over 140 m. This is an office-area approximation, not measured water geometry.
-- D-pad down/N toggles mute; Menu/Escape pauses (View/M is the map). The Audio panel has master, footsteps, vehicle, ambience,
-  voice and UI sliders. Settings are session-local. Pause fades loops and suppresses gameplay one-shots.
+- D-pad down/K toggles master mute; N selects the next music track. Menu/Escape pauses (View/M is the map).
+  The Audio panel has master, footsteps, vehicle, ambience, voice and UI sliders. The pause menu's Audio
+  page has a music slider and mute button. Volumes and mute settings persist in `localStorage`.
+  Pause fades loops and suppresses gameplay one-shots.
 
 ## Voice lines
 
@@ -39,8 +41,8 @@ that was just shown, so the mission system needs no audio API. Rules:
   Messages without a clip (HUD-only prompts, `"voiced": false` in `dialogue.json`) leave the current line alone.
 - Lines never overlap. A new voiced line fades the previous out over 100 ms (`VOICE_CUT_SECONDS`) and
   starts when the fade ends. Of overlapping requests that are still loading, only the newest starts.
-- Clips play on the `voice` bus (own volume slider). While a line plays, ambience passes through a
-  ducker at -6 dB (`VOICE_DUCK_DB`); the ambience volume slider is independent of the duck.
+- Clips play on the `voice` bus (own volume slider). While a line plays, ambience and music pass through
+  separate duckers at -6 dB (`VOICE_DUCK_DB`); their volume sliders remain independent.
 - A line shown before the audio context runs waits for unlock, unless another message replaces it first.
 - `playDialogLine(text, ended)` plays one opening-dialog clip and advances on its natural end;
   `stopDialogLine()` cancels it when the player advances or skips. Unvoiced messages leave it running.
@@ -78,8 +80,13 @@ footsteps and triggers each effect family without errors on WebGPU and WebGL2. `
 exposes `emit`, `snapshot`, `unlock` and `dispose` for diagnostics; `snapshot()` reports graph state,
 loaded count, loop/voice counts, volumes, played counts and errors.
 
-## Procedural music lab
+## Procedural music in play
 
-The reusable, standalone `music/` module and its five generated tracks are documented in
-[`music/README.md`](music/README.md). The game does not instantiate it yet; test and tune it
-with `tools/music-lab` before connecting it to the existing audio buses and mission flow.
+The five-track engine starts on the first audio gesture using the same `AudioContext` as effects and voice.
+The start screen, pause and save/load pages request `menu`; free play requests `explore`; an accepted order
+requests `mission` until hand-over. Delivery progress is elapsed time divided by par time, updated once a
+second. The intro and shop dialogue fully muffle music; driving applies a 0.6 muffle without reducing the
+vehicle engine bus. The engine and its track clock survive a Vite play-session swap. N and the localhost
+Developer page select the next track. `music/params.json` holds the tuned defaults and accepts the lab's
+Copy as JSON object. `window.__game.audio.snapshot().music` exposes the requested scene, progress, muffle
+and the engine's playing snapshot for diagnostics. See [`music/README.md`](music/README.md).

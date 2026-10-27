@@ -13,7 +13,8 @@ class Param {
   linearRampToValueAtTime(value: number, at: number) { this.events.push(['ramp', value, at]); this.value = value; }
 }
 class Node {
-  gain = new Param(); playbackRate = new Param(); threshold = new Param(); ratio = new Param();
+  gain = new Param(); playbackRate = new Param(); threshold = new Param(); ratio = new Param(); frequency = new Param();
+  type = 'sine'; fftSize = 0;
   buffer: unknown; startedAt: number | null = null; stoppedAt: number | null = null;
   onended?: () => void;
   connections: Node[] = [];
@@ -29,6 +30,9 @@ class FakeContext {
   createGain() { return this.node(); }
   createDynamicsCompressor() { return this.node(); }
   createBufferSource() { const node = this.node(); this.sources.push(node); return node; }
+  createBiquadFilter() { return this.node(); }
+  createAnalyser() { return this.node(); }
+  createOscillator() { return this.node(); }
   node() { const node = new Node(); this.nodes.push(node); return node; }
   async resume() { this.state = 'running'; }
   async close() { this.state = 'closed'; }
@@ -206,6 +210,8 @@ test('GameAudio routes voice to its own bus and ducks ambience by 6 dB without t
   expect(audio.volumes.voice).toBe(0.9);
   output.duck(true);
   expect(ducker.gain.value).toBeCloseTo(duckGain(true));
+  const musicDucker = ctx.nodes[8];
+  expect(musicDucker.gain.value).toBeCloseTo(duckGain(true));
   expect(20 * Math.log10(duckGain(true))).toBeCloseTo(-6);
   expect(ambienceBus.gain.value).toBe(audio.volumes.ambience);
   expect(audio.snapshot().ducked).toBe(true);

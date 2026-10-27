@@ -75,6 +75,7 @@ export interface MenuPage {
   title: string;
   /** A status or question line under the title, or null. */
   text: string | null;
+  control?: HTMLElement;
   items: MenuItem[];
   /** Menu back on this page, or null where back does nothing. */
   back: (() => void) | null;
@@ -92,6 +93,7 @@ export class MenuPanel implements MenuHost {
   private source: Input['source'] | null = null;
   private readonly title = document.createElement('h2');
   private readonly text = document.createElement('p');
+  private readonly control = document.createElement('div');
   private readonly hints = document.createElement('p');
   private readonly list = new MenuList<MenuItem>('menu', item => { if (this.enabled && item.enabled) item.run(); });
 
@@ -100,7 +102,7 @@ export class MenuPanel implements MenuHost {
     this.title.className = 'menu-title';
     this.text.className = 'menu-text';
     this.hints.className = 'menu-hints';
-    this.element.append(this.title, this.text, this.list.element, this.hints);
+    this.element.append(this.title, this.text, this.control, this.list.element, this.hints);
   }
 
   get selected() { return this.list.selected; }
@@ -129,6 +131,7 @@ export class MenuPanel implements MenuHost {
     this.title.textContent = page.title;
     this.text.textContent = page.text ?? '';
     this.text.hidden = !page.text;
+    this.control.replaceChildren(...(page.control ? [page.control] : []));
     const rows = page.items.map(item => ({ ...item, enabled: item.enabled && this.enabled }));
     this.list.set(rows, (item, li) => {
       const label = Object.assign(document.createElement('span'), { className: 'menu-label', textContent: item.label });
@@ -189,7 +192,8 @@ export class SaveMenuFlow {
   constructor(private readonly host: MenuHost, private readonly store: SaveStore, private readonly game: GameHooks,
     private readonly multiplayer?: () => void, private readonly scoreboard?: () => void,
     /** Opens the Developer page (ui/devMenu.ts); only where the developer tools run. */
-    private readonly developer?: () => void) {}
+    private readonly developer?: () => void,
+    private readonly audio?: () => void) {}
 
   /** Start screen: Continue (latest save, with its details), New game, Load game. */
   start(): MenuPage {
@@ -220,6 +224,7 @@ export class SaveMenuFlow {
       ...(this.scoreboard ? [{ id: 'scores', label: 'Scoreboard', detail: null, enabled: true, run: this.scoreboard }] : []),
       { id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
       { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) },
+      ...(this.audio ? [{ id: 'audio', label: 'Audio', detail: 'Music volume and mute', enabled: true, run: this.audio }] : []),
       { id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) },
       ...(this.developer ? [{ id: 'dev', label: 'Developer', detail: 'Money, fly mode, teleport, time', enabled: true,
         run: this.developer }] : []),

@@ -9,11 +9,11 @@ test('audio unlocks, decodes the CC0 bank and builds spatial graph without error
   expect(await page.evaluate(() => (window as any).__game.audio.snapshot().state)).toBe('locked');
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
-  await page.keyboard.press('KeyN');
+  await page.keyboard.press('KeyK');
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot()), { timeout: 30_000 })
     .toMatchObject({ state: 'running', loaded: 19, loops: 9, errors: [] });
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot().muted)).toBe(true);
-  await page.keyboard.press('KeyN');
+  await page.keyboard.press('KeyK');
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot().muted)).toBe(false);
   await page.keyboard.down('KeyW');
   await page.waitForFunction(() => Object.keys((window as any).__game.audio.snapshot().played).some(k => k.startsWith('step-')));

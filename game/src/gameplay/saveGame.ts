@@ -62,6 +62,7 @@ interface SaveGameOptions {
   scoreboardPause?: () => void;
   /** Opens the pause menu's Developer page (localhost only, ui/devMenu.ts). */
   developer?: () => void;
+  audio?: () => void;
   onQuit?: () => void;
 }
 
@@ -97,7 +98,7 @@ export class SaveGameController {
       },
     };
     this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer, o.scoreboardStart);
-    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer);
+    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer, o.audio);
     this.autosave = new Autosave(o.saves, () => o.startScreen.active || this.loading ? null : this.capture());
     this.detach = this.autosave.attach(window, document);
   }

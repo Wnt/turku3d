@@ -9,6 +9,8 @@ import { devToolsEnabled } from './core/localOnly';
 import { phaseTime } from './core/sun';
 import { Input } from './input';
 import { GameAudio } from './audio';
+import { showAudioPage } from './audio/menu';
+import { deadlineProgress, musicMuffle, musicScene } from './audio/music/playState';
 import { GameplayAudio } from './audio/gameplay';
 import { VoicePlayer } from './audio/voice';
 import { timeControl } from './render/debug';
@@ -98,7 +100,7 @@ interface PlaySession {
 }
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
-const LOCKED_IN_MENU = ['pause', 'mute', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
+const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
 /** localStorage, or null where the browser blocks it (the save slots then last only for this page). */
 function browserStorage(): Storage | null {
@@ -117,7 +119,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   root.name = 'play-session';
   scene.add(root);
   const listeners = new AbortController();
-  const audio = new GameAudio();
+  const audio = hot?.audio ?? new GameAudio();
   const audioGameplay = new GameplayAudio(event => audio.emit(event));
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
   audio.mount(document.body);
@@ -131,6 +133,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
     onClose: () => fullscreen.enterScene(input.source === 'touch') });
   const introDialog = new IntroDialog(document.body, voice);
+  if (!hot?.audio) audio.setMusicState('menu');
   const hud = new Hud(hudEl);
   const clockControl = timeControl(world.clockTime(), date => world.setClock(date));
   if (hot ? !hot.hudVisible : !params.hud) hud.toggle();
@@ -240,6 +243,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     },
     ask: question => window.prompt(question),
     setTime: phase => { const time = phaseTime(world.clockTime(), phase); world.setClock(time); clockControl.set(time); },
+    nextTrack: () => audio.nextTrack(),
   }, () => saveGame.pausePage()) : null;
   // Save slots (core/save.ts), the start and pause menus (ui/menu.ts) and loading a game (gameplay/saveGame.ts).
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
@@ -253,6 +257,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
+    audio: () => showAudioPage(pauseMenu, audio, () => saveGame.pausePage()),
     multiplayer: () => {
       multiplayer?.disconnect();
       multiplayerRunId = crypto.randomUUID();
@@ -311,6 +316,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   else if (resume) saveGame.hooks.play(resume);
   else startScreen.show(saveGame.startFlow.start());
   startScreen.ready();
+  let lastDeadlineUpdate = -Infinity;
+  let wasCarrying = missions.phase === 'carrying';
   renderer.setAnimationLoop(() => {
     clock.frames++;
     perf.begin();
@@ -351,6 +358,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     paused = fullscreen.update(input.source === 'touch' && !startScreen.active, paused);
     if (input.consume('map')) minimap.toggleExpanded();
     if (input.consume('mute')) audio.emit({ type: 'mute' });
+    if (input.consume('nextTrack')) audio.nextTrack();
     const resetCamera = !paused && input.consume('cameraReset');
     if (mode === 'foot' && !paused) {
       orbit.input(input.lookX, input.lookY, input.zoom);
@@ -410,6 +418,17 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       position: { x: feet.x, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
     });
+    const carrying = missions.phase === 'carrying';
+    if (wasCarrying && !carrying && missions.phase === 'delivered') audio.resolveDelivery();
+    else if (wasCarrying && !carrying) audio.setMusicDeadline(0);
+    wasCarrying = carrying;
+    audio.setMusicState(musicScene(startScreen.active, (paused || pauseMenu.open || saveGame.loading) && !introDialog.open, carrying));
+    audio.setMusicMuffle(musicMuffle(introDialog.open, missions.shop !== null, mode === 'car'));
+    if (carrying && now - lastDeadlineUpdate >= 1000) {
+      const order = missions.snapshot();
+      audio.setMusicDeadline(deadlineProgress(order.elapsed, order.par));
+      lastDeadlineUpdate = now;
+    }
     if (mission.checkpoint) saveGame.autosave.save(mission.checkpoint);
     shopMenu.render(missions.shop, input);
     zones.setHidden(missions.shop !== null);
@@ -548,7 +567,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
 
   return {
     dispose() {
-      const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId,
+      const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId, audio,
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
         multiplayer: multiplayerPlaying };
       renderer.setAnimationLoop(null);
@@ -559,7 +578,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       saveGame.dispose();
       input.dispose();
       voice.dispose();
-      audio.dispose();
       minimap.dispose();
       if (coarse) coarse.onMapChange = null;
       fullscreen.dispose();

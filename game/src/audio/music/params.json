@@ -1,0 +1,11 @@
+{
+  "volume": 0.42,
+  "crossfadeBars": 2,
+  "muffleCutoff": 850,
+  "muffleAmount": 0.7,
+  "muffleMs": 300,
+  "hurryStart": 0.65,
+  "tempoLift": 0.18,
+  "stingerLeadBars": 2,
+  "layerGains": { "pad": 0.6, "bass": 0.62, "drums": 0.5, "lead": 0.52, "percussion": 0.4, "panic": 0.55 }
+}

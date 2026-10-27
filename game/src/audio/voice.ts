@@ -47,6 +47,7 @@ export class VoicePlayer {
       })
       .catch(error => { this.errors.push(`manifest: ${String(error)}`); });
     output.onRunning(() => {
+      if (this.disposed) return;
       const clip = this.pending;
       this.pending = null;
       if (clip) void this.start(clip);
@@ -159,6 +160,7 @@ export class VoicePlayer {
 
   dispose() {
     this.disposed = true;
+    this.pending = null;
     this.queue = [];
     this.unsubscribe?.();
     if (this.playing) { this.playing.source.stop(); this.playing = null; }

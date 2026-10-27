@@ -1,4 +1,5 @@
 import { TRACKS, type Stem, type Track } from './tracks';
+import tunedParameters from './params.json';
 export { STEMS, TRACKS, type Stem } from './tracks';
 export type MusicState = 'explore' | 'mission' | 'menu';
 export interface MusicParameters {
@@ -6,11 +7,7 @@ export interface MusicParameters {
   muffleMs: number; hurryStart: number; tempoLift: number; stingerLeadBars: number;
   layerGains: Record<Stem, number>;
 }
-export const DEFAULT_PARAMETERS: MusicParameters = {
-  volume: 0.42, crossfadeBars: 2, muffleCutoff: 850, muffleAmount: 0.7,
-  muffleMs: 300, hurryStart: 0.65, tempoLift: 0.18, stingerLeadBars: 2,
-  layerGains: { pad: 0.6, bass: 0.62, drums: 0.5, lead: 0.52, percussion: 0.4, panic: 0.55 },
-};
+export const DEFAULT_PARAMETERS: MusicParameters = tunedParameters;
 const clamp = (n: number, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(n) ? n : min));
 export function hurry(progress: number, start: number, lift: number) {
   const x = clamp((clamp(progress) - clamp(start, 0, 0.95)) / (1 - clamp(start, 0, 0.95)));
@@ -38,6 +35,7 @@ export class MusicSystem {
   private disposed = false;
   private lastTempo = TRACKS[0].bpm;
   private activeLayers: Stem[] = [];
+  private voices = new Set<{ oscillator: OscillatorNode; gain: GainNode }>();
   constructor(context: AudioContext, destination: AudioNode = context.destination) {
     this.context = context;
     this.master = context.createGain(); this.filter = context.createBiquadFilter(); this.analyser = context.createAnalyser();
@@ -54,7 +52,13 @@ export class MusicSystem {
     this.tick();
   }
   stop() { if (this.interval) clearInterval(this.interval); this.interval = null; }
-  dispose() { this.stop(); this.disposed = true; this.master.disconnect(); this.filter.disconnect(); this.analyser.disconnect(); }
+  dispose() { this.stop(); this.disposed = true;
+    for (const voice of this.voices) { voice.oscillator.disconnect(); voice.gain.disconnect(); }
+    this.voices.clear(); this.master.disconnect(); this.filter.disconnect(); this.analyser.disconnect(); }
+  private remember(oscillator: OscillatorNode, gain: GainNode) {
+    const voice = { oscillator, gain }; this.voices.add(voice);
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); this.voices.delete(voice); };
+  }
   setState(state: MusicState) { this.request(state, this.track); }
   nextTrack() { this.request(this.state, (this.track + 1) % TRACKS.length); }
   selectTrack(index: number) { if (Number.isInteger(index) && index >= 0 && index < TRACKS.length) this.request(this.state, index); }
@@ -119,7 +123,7 @@ export class MusicSystem {
       env.gain.setValueAtTime(0, time); env.gain.linearRampToValueAtTime(level, time + 0.012);
       env.gain.setTargetAtTime(0, time + Math.min(length, 0.22), Math.max(0.03, length / 4));
       osc.connect(env); env.connect(this.master); osc.start(time); osc.stop(time + length + 0.15);
-      osc.onended = () => { osc.disconnect(); env.disconnect(); };
+      this.remember(osc, env);
     };
     if (beat % 4 === 0) layer('pad', 0.085, hz, 1.45, 'sine');
     if (beat % 2 === 0) layer('bass', mission ? 0.12 : 0.075, hz / 2, 0.32, 'triangle');
@@ -140,7 +144,7 @@ export class MusicSystem {
       osc.type = 'sine'; osc.frequency.setValueAtTime(root * ratio, t);
       gain.gain.setValueAtTime(0, t); gain.gain.linearRampToValueAtTime(0.09, t + 0.01); gain.gain.setTargetAtTime(0, t + 0.07, 0.1);
       osc.connect(gain); gain.connect(this.master); osc.start(t); osc.stop(t + 0.45);
-      osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+      this.remember(osc, gain);
     }
   }
 }
