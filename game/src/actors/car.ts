@@ -10,7 +10,7 @@ export class CarVisual {
   private wheels: THREE.Group[] = [];
   loaded = false;
 
-  constructor(scene: THREE.Scene) { this.root.name = 'car'; scene.add(this.root); }
+  constructor(scene: THREE.Object3D) { this.root.name = 'car'; scene.add(this.root); }
 
   async load(url: string) {
     const { scene } = await new GLTFLoader().loadAsync(url);
@@ -81,7 +81,7 @@ export class ParkedCarVisuals {
   private rotation = new THREE.Quaternion();
   private scale = new THREE.Vector3(1, 1, 1);
 
-  constructor(private readonly scene: THREE.Scene) {}
+  constructor(private readonly scene: THREE.Object3D) {}
 
   async load(manifest: Manifest) {
     const cars = manifest.vehicles ?? [];

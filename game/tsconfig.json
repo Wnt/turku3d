@@ -39,6 +39,8 @@
     "tests/render",
 "vite.ground.config.ts",
     "tests/e2e-playtest",
-    "playwright.playtest.config.ts"
+    "playwright.playtest.config.ts",
+    "tests/e2e-hotswap",
+    "playwright.hotswap.config.ts"
   ]
 }

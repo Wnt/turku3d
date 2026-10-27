@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# The localhost game: main's checkout in ~/turku3d/wt/localhost/repo, followed within a second of every landing and
+# served hot by the Vite dev server on $TURKU3D_PORT_BASE + 1 (main: 5171). See tools/dev/localhost/README.md.
+# Usage: tools/dev/localhost-game [--port PORT] [--worktree DIR] [--state-dir DIR] [--no-build]
+set -euo pipefail
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
+exec node "$REPO/tools/dev/localhost/service.mjs" "$@"

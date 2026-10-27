@@ -34,7 +34,7 @@ export class PlayerVisual {
   private phase = 0;
   get contacts() { return this.ik?.contacts ?? []; }
 
-  constructor(scene: THREE.Scene, private raycast: FootRaycast) {
+  constructor(scene: THREE.Object3D, private raycast: FootRaycast) {
     this.root.name = 'player';
     scene.add(this.root);
   }

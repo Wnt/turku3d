@@ -5,7 +5,7 @@ and the dist server. Source the worker's `sandbox.env` before invoking any tool.
 
 ## Static server
 
-`serve-dist.mjs` sends COOP/COEP, CORP and CORS headers, serves precompressed or on-demand brotli and gzip,
+`serve-dist.mjs` (handlers in `http.mjs`, shared with the localhost game's dev server) sends COOP/COEP, CORP and CORS headers, serves precompressed or on-demand brotli and gzip,
 HTTP byte ranges, ETag/304 and MIME types for wasm, GLB, KTX2 and collision tiles. It defaults to
 `$TURKU3D_WORK/dist` and port `$TURKU3D_PORT_BASE + 1` (main: 5171).
 
@@ -19,6 +19,13 @@ make game-dev-tools-test
 ```
 
 Tests use sandbox ports +3, +6, +7, +8 and +9, including simultaneous servers with separate output roots.
+
+## Localhost game
+
+`localhost-game` runs main hot on port base + 1 through the Vite dev server: HMR for code landings, an autosave
+reload for the rest, tile releases from `$TURKU3D_DATA/tile-store` and a verification badge. The Vite dev server
+(`make game-dev`) serves the same `/tiles`, `POST /telemetry` and status routes through `localhost/vitePlugin.mjs`.
+See [localhost/README.md](localhost/README.md). The hot-path browser check runs its own dev server on port base + 4.
 
 ## Coarse tile service
 

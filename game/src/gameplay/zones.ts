@@ -63,7 +63,7 @@ export class ZoneMarkers {
   private hidden = false;
   private readonly projected = new THREE.Vector3();
 
-  constructor(scene: THREE.Scene, private readonly ground: GroundProbe, parent: HTMLElement) {
+  constructor(scene: THREE.Object3D, private readonly ground: GroundProbe, parent: HTMLElement) {
     this.group.name = 'mission-zones';
     scene.add(this.group);
     this.labels.id = 'zone-labels';

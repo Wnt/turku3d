@@ -83,6 +83,15 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   500 m leaf once all four quadrants are drafted. When the published manifest later gains the tile, the draft is
   swapped out. The coarse tier skips curbs, stairs, walls, bridges, props, vegetation, parked cars, facade maps and
   roof shapes; it is never published to Pages or written into the data root's published layers.
+- **Localhost runs main, hot (user decision 2026-10-27).** `live` and Pages serve verified releases only; the
+  localhost game (`tools/dev/localhost-game`) runs main's checkout through the Vite dev server with a badge
+  `main <commit> · unverified | verified | verification failed: <stage>` from the integration rows. `main.ts` owns the
+  world (renderer, tiles, physics worker with the character and vehicles) and hot-swaps `play.ts`, the play session,
+  carrying missions, money, permit, clock and the driven vehicle; changes outside the session autosave and reload
+  into the autosave. `/tiles` there serves a content-addressed tile release (`$TURKU3D_DATA/tile-store/<key>`, key =
+  tile-build inputs of the commit + the data root's parts) that the integrator fills right after its
+  tile-build stage and the service fills by a quick `make tile-build` of the affected tiles. The hot hooks exist only
+  under `import.meta.hot`; production builds are unchanged. See `tools/dev/localhost/README.md`.
 
 ### D5. Collision vs visual layer strategy (the core decision)
 The two layers are **separate artifacts** built from the same ground truth. They are never derived from each other at runtime.
@@ -238,7 +247,7 @@ gets 4 workers below load 60 (else 2), and agents' Chrome suites queue behind it
 ├── tools/
 │   ├── reconstruction/  research/       existing research scripts
 │   ├── validator/                       Node Rapier tile validator (walkers; cars TBD), reads .col via game/src/shared/col
-│   └── dev/ (serve-dist.mjs with COOP/COEP + brotli, environment helpers)
+│   └── dev/ (serve-dist.mjs with COOP/COEP + brotli, environment helpers, localhost-game: main hot on :5171)
 ├── data-manifests/                      small, committed: what bulk data exists and where
 │   ├── laz-tiles.csv                    copied from leikkipuistodata (read-only source)
 │   ├── sources.yaml                     endpoints, layers, years, licences notes

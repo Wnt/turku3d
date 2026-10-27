@@ -61,6 +61,7 @@ export class SaveGameController {
   private readonly pauseFlow: SaveMenuFlow;
   /** Collision streams around this point instead of the feet until the placed character reports it. */
   private focus: { x: number; z: number } | null = null;
+  private readonly detach: () => void;
 
   constructor(private readonly o: SaveGameOptions) {
     this.hooks = {
@@ -77,8 +78,11 @@ export class SaveGameController {
     this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks);
     this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks);
     this.autosave = new Autosave(o.saves, () => o.startScreen.active || this.loading ? null : this.capture());
-    this.autosave.attach(window, document);
+    this.detach = this.autosave.attach(window, document);
   }
+
+  /** Stops the page-hide autosave (a hot-swapped play session). */
+  dispose() { this.detach(); }
 
   /** The running game as a save slot. */
   capture(): SaveGame {

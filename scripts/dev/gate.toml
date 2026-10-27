@@ -181,8 +181,8 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_la
 [[stages]]
 name = "queue-tests"
 kind = "command"
-triggers = ["scripts/dev/merge_queue.py", "scripts/dev/integrator.py", "scripts/dev/integration_chrome.py", "scripts/dev/spec_selection.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
-commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py"]]
+triggers = ["scripts/dev/merge_queue.py", "scripts/dev/integrator.py", "scripts/dev/integration_chrome.py", "scripts/dev/spec_selection.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/tile_store.py", "scripts/dev/tests/test_tile_store.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
+commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_merge_queue.py", "scripts/dev/tests/test_queue_returns.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "scripts/dev/tests/test_tile_store.py"]]
 
 [[stages]]
 name = "watch-tests"
@@ -232,7 +232,7 @@ commands = [["node", "--test", "--test-concurrency=1", "tools/validator/test/rou
 name = "dev-server-tests"
 kind = "command"
 triggers = ["tools/dev/*.mjs", "tools/dev/*.mts"]
-commands = [["node", "--test", "tools/dev/serve-dist.test.mjs"]]
+commands = [["node", "--test", "tools/dev/serve-dist.test.mjs", "tools/dev/localhost/localhost.test.mjs"]]
 
 [[stages]]
 name = "shell"
@@ -287,7 +287,7 @@ paths = ["game/src/world/*", "game/src/core/origin.ts"]
 tags = ["@streaming", "@aoi"]
 
 [[stages.related]]
-paths = ["game/src/main.ts", "game/src/core/params.ts", "game/src/core/flags.ts"]
+paths = ["game/src/main.ts", "game/src/play.ts", "game/src/core/params.ts", "game/src/core/flags.ts"]
 tags = ["@launch", "@walk", "@drive", "@qa"]
 
 [[stages.related]]
@@ -340,6 +340,15 @@ tags = ["@curb", "@ground"]
 [[stages.related]]
 paths = ["pipeline/turku3d/package/*", "pipeline/turku3d/layers.py", "pipeline/turku3d/buildings/*", "pipeline/turku3d/roads/*", "pipeline/turku3d/props/*", "pipeline/turku3d/placement/*", "pipeline/turku3d/parked/*", "pipeline/turku3d/structures/*", "pipeline/turku3d/bridges/*", "pipeline/turku3d/coarse/*", "pipeline/turku3d/content/*", "pipeline/turku3d/region/*"]
 tags = ["@pipeline"]
+
+# The localhost game's hot path (tools/dev/localhost): HUD hot swap and worker reload on a dev-server copy.
+[[stages]]
+name = "localhost-hotswap-e2e"
+kind = "command"
+browser = true
+cwd = "game"
+triggers = ["tools/dev/localhost/*", "tools/dev/http.mjs", "tools/dev/environment.*", "game/src/main.ts", "game/src/play.ts", "game/src/gameplay/hotState.ts", "game/src/gameplay/saveGame.ts", "game/src/core/save.ts", "game/src/ui/buildBadge.ts", "game/vite.config.ts", "game/playwright.hotswap.config.ts", "game/tests/e2e-hotswap/*", "game/package*.json"]
+commands = [["python3", "../scripts/dev/host_slots.py", "browser", "--", "node_modules/.bin/playwright", "test", "-c", "playwright.hotswap.config.ts"]]
 
 [[stages]]
 name = "vehicle-node-tests"

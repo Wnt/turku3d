@@ -14,7 +14,7 @@ export class ScooterVisual {
   private angle = 0;
   loaded = false;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Object3D) {
     this.root.name = 'scooter';
     this.root.visible = false;
     this.root.add(this.lean);
