@@ -173,17 +173,23 @@ def test_publish_records_a_verified_manifest_entry(tmp_path, monkeypatch):
     (root / "roads/MANIFEST.json").write_text(
         json.dumps(
             {
-                "inputs": {"osm": {"path": str(tmp_path / "osm.parquet")}},
+                "inputs": {},
                 "params": {"graph": {"file": "roadgraph.json"}},
             }
         )
     )
     monkeypatch.setattr(addresses, "PIZZERIA", ORIGIN)
     monkeypatch.setattr(addresses, "read_address_points", lambda: [])
-    monkeypatch.setattr(addresses, "read_streets", lambda osm: {})
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    osm = tmp_path / "data/raw/osm/work-3x3/work-3x3-261024.parquet"
+    osm.parent.mkdir(parents=True)
+    osm.write_bytes(b"")
+    read = []
+    monkeypatch.setattr(addresses, "read_streets", lambda path: read.append(path) or {})
     tree = DistTree(tmp_path / "dist")
     assert addresses.publish(root, tree, {C.VisualTile.at(60, 7.5).id}) is True
     assert tree.addresses["count"] == 1 and tree.addresses["url"].startswith("addresses/")
+    assert read == [osm]  # the listed tile's own OSM clip
     tree.commit(code="test")
     assert verify_tree(tmp_path / "dist") == []
     again = DistTree(tmp_path / "dist")
