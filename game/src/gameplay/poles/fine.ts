@@ -1,4 +1,4 @@
-export const POLE_FINE = 50;
+const POLE_FINE = 50;
 
 /** The wallet cannot go into debt; the hourly score records the full penalty. */
 export function applyPoleFine(wallet: number): number {
