@@ -104,8 +104,12 @@ are absent. See `game/src/render/ground/README.md` for the renderer API and inte
 
 ## Incremental integration
 
-`--splats-only` reuses the existing fused ortho PNGs and calibration manifest, avoiding raw raster
-reads and hashes when only ground semantics change. Pass `--ground-layer` to the published ground
+Every tile keeps a `.build-key.json` with two keys. The ortho key covers the imagery hashes,
+the calibration and the code; the tile key adds the names and hashes of the ground collision
+tiles under the tile and its splat halo. A tile whose tile key matches is reused as is. One whose
+ortho key matches rereads its fused ortho PNG and rebuilds only its splats. Any other tile is built
+in full. Adding a tile therefore builds that tile and leaves the others alone, because per-tile
+ground keeps their collision bytes unchanged. Pass `--ground-layer` to the published ground
 directory. Water-bed collision triangles are excluded by the shared material ID; real surface
 triangles determine all core splats in the current four-tile build.
 Runtime ortho uses ETC1S quality 4 at the same 4 cm output sampling to leave room for building

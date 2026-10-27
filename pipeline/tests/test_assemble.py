@@ -531,6 +531,20 @@ def test_missing_layers_have_actionable_error(tmp_path):
         assemble_office(["t0_0_0"], layers=tmp_path / "missing", out=tmp_path / "out")
 
 
+def test_adding_a_tile_keeps_the_neighbour_visual_cached(tmp_path):
+    layers, out = tmp_path / "layers", tmp_path / "dist"
+    fixture(layers, ids=("t0_0_0", "t0_1_0"))
+    assemble(["t0_0_0"], layers=layers, out=out)
+    before = json.loads((out / "manifest.json").read_text())
+    result = assemble(["t0_0_0", "t0_1_0"], layers=layers, out=out)
+    after = json.loads((out / "manifest.json").read_text())
+    assert "t0_1_0" in result["changed"] and "t0_0_0" not in result["changed"]
+    assert after["visual"]["t0_0_0"] == before["visual"]["t0_0_0"]
+    # Collision tiles whose layer files did not change keep their published bytes.
+    assert after["collision"]["c_0_0"]["sha256"] == before["collision"]["c_0_0"]["sha256"]
+    assert assemble(["t0_0_0", "t0_1_0"], layers=layers, out=out)["changed"] == []
+
+
 def test_incremental_neighbours_and_removed_collision_are_updated(tmp_path):
     from turku3d.col.format import FLAG_AOI_BORDER
     from turku3d.layers import read_manifest

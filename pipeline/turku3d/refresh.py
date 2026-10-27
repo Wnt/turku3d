@@ -301,13 +301,8 @@ def ground_textures(layers, textures):
         return "cached"
     local_directory(root, textures.parent)
     args = ["turkutex.ground.build", "--ground-layer", str(layers / "ground"), "--out", str(root)]
+    # Each tile keeps its maps while its keys match; one with current orthos redoes its splats.
     args += ["--tiles", *tiles]
-    if (
-        manifest.exists()
-        and sources_current
-        and json.loads(manifest.read_text()).get("code_version") == code
-    ):
-        args.insert(1, "--splats-only")
     run(*args, extra_path=C.REPO_ROOT / "textures")
     # Assembly owns publication; this checks that the refreshed binding is usable.
     import tempfile

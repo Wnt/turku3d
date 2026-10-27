@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 from scipy.spatial import cKDTree
 
@@ -18,29 +21,35 @@ class Surface:
 
         Centre the fit at the query to avoid large-coordinate conditioning errors.
         Distance weights limit influence across gaps. No held-out points enter this fit.
+        Each query is fitted on its own, so chunks run on TURKU3D_JOBS threads with
+        results independent of chunking and thread count.
         """
         xz = np.asarray(xz).reshape(-1, 2)
-        heights, noise = [], []
-        for start in range(0, len(xz), 8192):
-            q = xz[start : start + 8192]
-            d, ii = self.tree.query(q, k=min(k, len(self.points)))
-            p = self.points[ii]
-            a = np.concatenate((p[:, :, [0, 2]] - q[:, None], np.ones((*ii.shape, 1))), axis=2)
-            h = p[:, :, 1]
-            weights = 1 / np.maximum(d, 0.1) ** 2
-            for _ in range(3):
-                ata = np.einsum("nki,nk,nkj->nij", a, weights, a)
-                ata += np.eye(3)[None] * 1e-9
-                ah = np.einsum("nki,nk,nk->ni", a, weights, h)
-                coeff = np.linalg.solve(ata, ah[..., None])[..., 0]
-                residual = h - np.einsum("nki,ni->nk", a, coeff)
-                mad = np.median(np.abs(residual - np.median(residual, axis=1)[:, None]), axis=1)
-                weights = (np.abs(residual) <= np.maximum(0.025, 3 * mad)[:, None]) / np.maximum(
-                    d, 0.1
-                ) ** 2
-            heights.append(coeff[:, 2])
-            noise.append(mad)
-        return np.concatenate(heights), np.concatenate(noise)
+        chunks = [xz[start : start + 8192] for start in range(0, len(xz), 8192)]
+        workers = max(1, min(len(chunks), int(os.environ.get("TURKU3D_JOBS", "1"))))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(lambda q: self._fit(q, k), chunks))
+        if not results:
+            return np.empty(0), np.empty(0)
+        return np.concatenate([r[0] for r in results]), np.concatenate([r[1] for r in results])
+
+    def _fit(self, q, k):
+        d, ii = self.tree.query(q, k=min(k, len(self.points)))
+        p = self.points[ii]
+        a = np.concatenate((p[:, :, [0, 2]] - q[:, None], np.ones((*ii.shape, 1))), axis=2)
+        h = p[:, :, 1]
+        weights = 1 / np.maximum(d, 0.1) ** 2
+        for _ in range(3):
+            ata = np.einsum("nki,nk,nkj->nij", a, weights, a)
+            ata += np.eye(3)[None] * 1e-9
+            ah = np.einsum("nki,nk,nk->ni", a, weights, h)
+            coeff = np.linalg.solve(ata, ah[..., None])[..., 0]
+            residual = h - np.einsum("nki,ni->nk", a, coeff)
+            mad = np.median(np.abs(residual - np.median(residual, axis=1)[:, None]), axis=1)
+            weights = (np.abs(residual) <= np.maximum(0.025, 3 * mad)[:, None]) / np.maximum(
+                d, 0.1
+            ) ** 2
+        return coeff[:, 2], mad
 
 
 def split_points(points, classes):
@@ -77,12 +86,19 @@ def select_ground(points, classes):
 
 
 def base_points(points, cell=0.5):
-    """One observed representative per occupied cell, with robust height median."""
+    """One observed representative per occupied cell, with robust height median.
+
+    Per column, the median of each cell's values: the middle value, or the mean of the two
+    middle values for an even count (the same numbers np.median gives, without a cell loop)."""
     keys = np.floor(points[:, [0, 2]] / cell).astype(np.int64)
-    _, inverse = np.unique(keys, axis=0, return_inverse=True)
-    order = np.argsort(inverse, kind="stable")
-    starts = np.r_[0, np.flatnonzero(np.diff(inverse[order])) + 1]
-    ends = np.r_[starts[1:], len(order)]
-    return np.array(
-        [np.median(points[order[a:b]], axis=0) for a, b in zip(starts, ends, strict=True)]
-    )
+    _, inverse, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
+    inverse = inverse.ravel()
+    starts = np.r_[0, np.cumsum(counts)[:-1]]
+    low = starts + (counts - 1) // 2
+    high = starts + counts // 2
+    result = np.empty((len(counts), points.shape[1]), dtype=np.float64)
+    for column in range(points.shape[1]):
+        values = points[:, column]
+        ordered = values[np.lexsort((values, inverse))]
+        result[:, column] = (ordered[low] + ordered[high]) / 2
+    return result

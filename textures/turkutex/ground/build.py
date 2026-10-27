@@ -145,34 +145,53 @@ def build_tile(
     calibration,
     out: Path,
     layer: Path | None,
-    splats_only=False,
     raster_cache: Path | None = None,
     input_key: str = "",
     map_workers: int = 1,
     codec_threads: int = 1,
     tile_key: str | None = None,
+    ortho_key: str | None = None,
 ):
+    """Build one tile's maps, reusing them when its keys match.
+
+    `ortho_key` names the fused orthos (imagery, calibration, code); `tile_key` adds the tile's
+    ground collision inputs. A tile whose orthos are current rebuilds only its splats."""
     start = time.monotonic()
     out.mkdir(parents=True, exist_ok=True)
     key_file = out / ".build-key.json"
-    if tile_key and key_file.exists() and (out / "material.json").exists():
-        previous = json.loads((out / "material.json").read_text())
-        names = ("ortho2022", "ortho2025", "ortho", "splat0", "splat1")
-        if (
-            json.loads(key_file.read_text()) == tile_key
-            and all(
-                (out / f"{name}.png").exists()
-                and (out / f"{name}.ktx2").exists()
-                and sha(out / f"{name}.ktx2") == previous["textures"][name]["sha256"]
-                for name in names
-            )
-            and (out / "uncertainty.png").exists()
-        ):
-            return previous
+    previous_key = json.loads(key_file.read_text()) if key_file.exists() else {}
+    previous = (
+        json.loads((out / "material.json").read_text())
+        if (out / "material.json").exists()
+        else None
+    )
+
+    def current(names):
+        return previous is not None and all(
+            (out / f"{name}.png").exists()
+            and (out / f"{name}.ktx2").exists()
+            and name in previous["textures"]
+            and sha(out / f"{name}.ktx2") == previous["textures"][name]["sha256"]
+            for name in names
+        )
+
+    orthos = ("ortho2022", "ortho2025", "ortho")
+    if (
+        tile_key
+        and previous_key.get("tile") == tile_key
+        and current((*orthos, "splat0", "splat1"))
+        and (out / "uncertainty.png").exists()
+    ):
+        return previous
+    splats_only = bool(
+        ortho_key
+        and previous_key.get("ortho") == ortho_key
+        and current(orthos)
+        and (out / "uncertainty.png").exists()
+    )
     n = CORE_PX + 2 * HALO_PX
     maps = []
     if splats_only:
-        previous = json.loads((out / "material.json").read_text())
         combined = np.asarray(Image.open(out / "ortho.png").convert("RGB"))
         uncertain = np.asarray(Image.open(out / "uncertainty.png"))
         outputs = {k: v for k, v in previous["textures"].items() if k.startswith("ortho")}
@@ -239,7 +258,7 @@ def build_tile(
     }
     (out / "material.json").write_text(json.dumps(result, indent=2) + "\n")
     if tile_key:
-        key_file.write_text(json.dumps(tile_key) + "\n")
+        key_file.write_text(json.dumps({"tile": tile_key, "ortho": ortho_key}) + "\n")
     return result
 
 
@@ -247,11 +266,6 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--tiles", nargs="+", default=["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"])
     ap.add_argument("--area", default="work-3x3")
-    ap.add_argument(
-        "--splats-only",
-        action="store_true",
-        help="Reuse existing fused orthos; rebuild triangle-derived splats",
-    )
     ap.add_argument(
         "--ground-layer",
         type=Path,
@@ -264,39 +278,34 @@ def main(argv=None):
         ap.error("ground textures require L0 tiles")
     primary = C.raw_dir("ortho") / "ortho2022to" / f"{a.area}.vrt"
     recent = C.raw_dir("ortho") / "ortho2025" / f"{a.area}.vrt"
-    previous = json.loads((a.out / "MANIFEST.json").read_text()) if a.splats_only else None
     cache = C.work_root() / "cache/ground-textures"
     code = hashlib.sha256()
     for path in sorted(Path(__file__).parent.glob("*.py")):
         code.update(path.name.encode() + path.read_bytes())
     code_version = code.hexdigest()
-    if previous:
-        calibration = previous["calibration"]
-        inputs = previous["inputs"]
-    else:
-        import rasterio
+    import rasterio
 
-        vrt_files = []
-        for vrt in (primary, recent):
-            with rasterio.open(vrt) as ds:
-                vrt_files.extend(Path(f) for f in ds.files)
-        inputs = source_hashes(vrt_files, cache / "source-hashes.json")
-        input_key = digest(inputs)
-        calibration_file = cache / f"calibration-{digest([a.area, input_key])}.json"
-        # Stable calibration footprint is the named raw area, independent of tile order/subsets.
-        if calibration_file.exists():
-            calibration = json.loads(calibration_file.read_text())
-        else:
-            area = C.area(a.area).core
-            step = 1.0
-            width, height = (
-                round((area.xmax - area.xmin) / step),
-                round((area.zmax - area.zmin) / step),
-            )
-            p, pv = read_ortho(primary, area.xmin, area.zmin, step, width, height)
-            r, rv = read_ortho(recent, area.xmin, area.zmin, step, width, height)
-            calibration = colour_calibration(p, r, pv & rv)
-            calibration_file.write_text(json.dumps(calibration))
+    vrt_files = []
+    for vrt in (primary, recent):
+        with rasterio.open(vrt) as ds:
+            vrt_files.extend(Path(f) for f in ds.files)
+    inputs = source_hashes(vrt_files, cache / "source-hashes.json")
+    input_key = digest(inputs)
+    calibration_file = cache / f"calibration-{digest([a.area, input_key])}.json"
+    # Stable calibration footprint is the named raw area, independent of tile order/subsets.
+    if calibration_file.exists():
+        calibration = json.loads(calibration_file.read_text())
+    else:
+        area = C.area(a.area).core
+        step = 1.0
+        width, height = (
+            round((area.xmax - area.xmin) / step),
+            round((area.zmax - area.zmin) / step),
+        )
+        p, pv = read_ortho(primary, area.xmin, area.zmin, step, width, height)
+        r, rv = read_ortho(recent, area.xmin, area.zmin, step, width, height)
+        calibration = colour_calibration(p, r, pv & rv)
+        calibration_file.write_text(json.dumps(calibration))
     a.out.mkdir(parents=True, exist_ok=True)
     ground_paths = sorted({path for tile in tiles for path in semantic_paths(a.ground_layer, tile)})
     ground_hashes = {
@@ -309,10 +318,11 @@ def main(argv=None):
     codec_threads = max(1, (os.cpu_count() or jobs) // jobs)
 
     def build_one(tile):
+        # Names, not paths: a key computed in one sandbox stays valid in a seeded copy.
         tile_inputs = [
-            (str(path), ground_hashes[str(path)]) for path in semantic_paths(a.ground_layer, tile)
+            (path.name, ground_hashes[str(path)]) for path in semantic_paths(a.ground_layer, tile)
         ]
-        tile_key = digest([digest(inputs), tile_inputs, calibration, code_version, a.splats_only])
+        ortho_key = digest([tile.id, input_key, calibration, code_version])
         return build_tile(
             tile,
             primary,
@@ -320,12 +330,12 @@ def main(argv=None):
             calibration,
             a.out / tile.id,
             a.ground_layer,
-            a.splats_only,
             cache / "rasters",
-            digest(inputs),
+            input_key,
             map_workers,
             codec_threads,
-            tile_key,
+            digest([ortho_key, tile_inputs]),
+            ortho_key,
         )
 
     with ThreadPoolExecutor(max_workers=tile_workers) as pool:

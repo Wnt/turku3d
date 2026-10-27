@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 import numpy as np
 import shapely
@@ -45,27 +46,28 @@ def source_paths(bounds, source_area="work-3x3"):
 
 
 def fingerprints(paths):
-    """Memoized SHA-256s keyed by file identity; raw files are immutable by contract."""
+    """Memoized SHA-256s keyed by file path and identity; raw files are immutable by contract.
+
+    Per-tile builds ask for overlapping path sets, so the memo keeps every path it has seen."""
     cache = C.cache_dir("ground") / "input-hashes.json"
     cache.parent.mkdir(parents=True, exist_ok=True)
     previous = json.loads(cache.read_text()) if cache.exists() else {}
-    result, seen = {}, {}
+    memo = dict(previous)
+    result = {}
     for key, path in paths.items():
         stat = path.stat()
         identity = {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
-        old = previous.get(key, {})
+        old = memo.get(str(path), {})
         if all(old.get(k) == v for k, v in identity.items()):
             identity["sha256"] = old["sha256"]
-        elif path in seen:
-            identity["sha256"] = seen[path]
         else:
             with path.open("rb") as stream:
                 identity["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
-        seen[path] = identity["sha256"]
+        memo[str(path)] = identity
         result[key] = identity
-    if result != previous:
-        temporary = cache.with_suffix(".tmp")
-        temporary.write_text(json.dumps(result, indent=2) + "\n")
+    if memo != previous:
+        temporary = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(memo, indent=2) + "\n")
         temporary.replace(cache)
     return result
 
