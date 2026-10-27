@@ -204,8 +204,8 @@ change lands first as its own compatible slice. The landing starts the integrato
 class (`scripts/dev/landing_class.py`, conservative allowlists): `inert` (docs, prose) re-points `live` to the
 new commit with the verified content and builds nothing; `data` (voice clips, the address pool, or a changed data
 root: facade approvals, the playable tile list, layers) runs refresh, tile reassembly and validation, the facade
-ground audit and the game build without Chrome; `code` runs every live stage. Landings that arrive before a
-batch's first expensive stage join it; a second (data) lane verifies data-root changes while a code batch runs, and
+ground audit and the game build without Chrome; `code` runs every live stage. Landings join a running batch
+only while that is free (before its first stage that is not a cache hit, at most 3 heads); a second (data) lane verifies data-root changes while a code batch runs, and
 publication is serialised so no lane publishes over a release it did not build on. The integrator's Chrome stage
 gets 4 workers below load 60 (else 2), and agents' Chrome suites queue behind it. Details and ledger fields:
 `scripts/dev/README.md`, "Landing", "Landing and integration" and "Host slots".

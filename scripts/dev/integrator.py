@@ -10,9 +10,8 @@ landing on main through the land lock and the fast gate, tells its author and le
 at G.
 
 Nothing polls: each landing starts a run when none is going (ensure), and a finished run starts
-the next when main or the data root moved meanwhile. Landings that reach main before the first
-expensive stage join the running batch. A second
-lane (`--lane data`, sandbox `integration-data`) builds the live commit G against a changed
+the next when main or the data root moved meanwhile. A newer main joins only while that is free
+(before the first stage that is not a cache hit); then the batch is frozen. A second lane (`--lane data`, sandbox `integration-data`) builds the live commit G against a changed
 data root while the code lane is busy; publication is serialised under `publish.lock`, and a
 lane whose live release changed meanwhile rebuilds on top of it instead of publishing over it.
 """
@@ -42,8 +41,9 @@ import sandbox as s
 NAME = "integration"
 DATA_NAME = "integration-data"
 LANES = {"code": NAME, "data": DATA_NAME}
-# Main heads one batch may take in before its first expensive stage.
+# Main heads one batch may take in, and how often joins may repeat one (cached) stage.
 JOIN_LIMIT = 3
+RESTART_LIMIT = 1
 # An inert batch republishes Pages only when the image licence list changed.
 PAGES_INPUTS = ("docs/published-images.toml",)
 
@@ -186,6 +186,10 @@ class Run:
         self.end = end
         self.landing = landing or {"class": "code"}
         self.joined = []
+        # Per stage: how often a join repeated it, and its seconds summed over every build
+        # of the run (restarted, rebuilt and bisection builds included).
+        self.restarts = {}
+        self.stage_seconds = {}
         runs = sum(row.get("to") == end for row in read_rows(ledger_path()))
         # The row id names the integration in revert commits and messages.
         self.id = f"{end[:12]}.{runs + 1}"
@@ -200,11 +204,16 @@ class Run:
     def landing_class(self):
         return self.landing["class"]
 
-    def join(self, start):
-        """Take in a newer main before the first expensive stage; the build update or None."""
+    def join(self, start, cached=()):
+        """Take in a newer main while the build has only restored cached stages; the build
+        update or None. live_build.build offers this once, before its first real stage."""
         head = s.git("rev-parse", "main", cwd=self.main_repo)
         if head == self.end or len(self.joined) >= JOIN_LIMIT:
             return None
+        if any(self.restarts.get(stage, 0) >= RESTART_LIMIT for stage in cached):
+            return None
+        for stage in cached:
+            self.restarts[stage] = self.restarts.get(stage, 0) + 1
         self.landing = batch_class(self.published, start, head, self.main_repo)
         if self.full:
             self.landing = {**self.landing, "class": "code"}
@@ -256,8 +265,9 @@ class Run:
                     reason,
                     self.previous,
                     kind or self.landing_class,
-                    (lambda: self.join(start)) if join else None,
+                    (lambda cached: self.join(start, cached)) if join else None,
                     chrome=chrome.data_plan(self.published) if kind == "data" else self.chrome,
+                    timings=self.stage_seconds,
                 )
             except live_build.StageFailed as exc:
                 self.timed(self.end if join else commit, started)
@@ -429,6 +439,9 @@ def record(run, row):
         "builds": len(run.builds),
         "build_seconds": [build["seconds"] for build in run.builds],
         "wall_seconds": round(time.monotonic() - run.started, 3),
+        "joins": len(run.joined),
+        "restarts": run.restarts,
+        "stage_seconds": run.stage_seconds,
         **row,
     }
     ledger_path().parent.mkdir(parents=True, exist_ok=True)
@@ -498,7 +511,7 @@ def integrate(run, base, start, end):
         "chrome": report.get("chrome"),
         "culprit": None,
     }
-    for _attempt in (1, 2):
+    while True:
         work = Path(report.pop("work"))
         with publish_lock():
             live = (published / "live").resolve()
@@ -517,14 +530,15 @@ def integrate(run, base, start, end):
                 break
         # The data lane published newer data meanwhile: verified code M is rebuilt on top of
         # it with the data stages, as a data landing after M would be, never published over it.
+        # A batch rebuilds at most once; after that the next run builds on the newer release.
+        if "rebuilt_on" in row:
+            detail = f"live changed again during the rebuild (now {live.name}); next run publishes"
+            return record(run, {**row, "result": "failed", "failure": {"detail": detail}})
         run.previous, run.live_parts = live, landing_class.release_parts(live)
         row["rebuilt_on"] = live.name
         report, failure = run.build(start, end, kind="data")
         if report is None:
             return data_red(run, base, failure, failure)
-    else:
-        detail = "live data changed again during the rebuild; the next run publishes"
-        return record(run, {**row, "result": "failed", "failure": {"detail": detail}})
     row["result"] = "green"
     deployed = pages.deploy(published)
     if deployed:

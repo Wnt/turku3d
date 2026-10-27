@@ -367,6 +367,7 @@ def build(
     join=None,
     joined=(),
     chrome=None,
+    timings=None,
 ):
     """Run the class's live stages on repo; the caller holds the integration host reservation.
 
@@ -375,11 +376,16 @@ def build(
     the car report only when the parked-car layer changed, else it carries the previous
     release's result forward.
 
-    join is called before the first expensive stage (the first stage after refresh that is
-    not a cache hit). When it moved repo to a newer main it returns {"commit",
-    "landing_class", "reason"}; the build then starts over on that commit (cached stages
-    are free), appends to the same log and may join again; the caller bounds the joins. The
+    join is offered only while the build is free to restart: once, before the first stage
+    that is not a cache hit (refresh included), so a stage that runs for real is never
+    discarded and the build is frozen from then on. It is called with the stages this build
+    restored from the cache (what a restart repeats). When it moved repo to a newer main it
+    returns {"commit", "landing_class", "reason"}; the build then starts over on that commit,
+    appends to the same log and may join again; the caller bounds joins and restarts. The
     update's "chrome" replaces the Chrome plan.
+
+    timings, when given, accumulates every stage's seconds across restarts and failures (the
+    batch's cost); report["seconds"] holds only this build's.
 
     chrome is the spec_selection plan for the Chrome stage (None runs the full suite);
     passing specs are cached per spec and project, and report["chrome"] records what ran.
@@ -390,6 +396,7 @@ def build(
     minimum = baseline(published)
     listed = tiles(published)
     durations = {}
+    timings = {} if timings is None else timings
     cache_hits = []
     input_hashes = {}
     browser_loads = {}
@@ -487,6 +494,7 @@ def build(
             if cached is not None:
                 log.write(f"cache hit {key}\n")
                 durations[stage] = 0.0
+                timings.setdefault(stage, 0.0)
                 cache_hits.append(stage)
                 if stage == "tile-build":
                     report = inspect(
@@ -501,9 +509,9 @@ def build(
                     report["facade_ground_audit"] = cached["facade_ground_audit"]
                 previous = key
                 continue
-            if join and stage != "refresh":
+            if join:
                 callback, join = join, None
-                if update := callback():
+                if update := callback(tuple(cache_hits)):
                     log.write(
                         f"\n== join: rebuilding {update['commit']} as {update['landing_class']} ==\n"
                     )
@@ -520,6 +528,7 @@ def build(
                         callback,
                         (*joined, update["commit"]),
                         update.get("chrome", chrome),
+                        timings,
                     )
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
@@ -546,6 +555,7 @@ def build(
                     proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             durations[stage] = round(time.monotonic() - start, 3)
+            timings[stage] = round(timings.get(stage, 0.0) + durations[stage], 3)
             load = None
             if stage.startswith("chrome"):
                 load = browser_load(load_rows, load_before)

@@ -660,7 +660,7 @@ lander (in finish, serial under land.lock, seconds, no host slot): validate → 
 integrator code lane (asynchronous, one run at a time, `integration` host reservation):
         batch = landings from the published commit G up to main M
         class (landing_class.classify): inert → live_build.repoint(M), no build, no slot
-        data/code → live_build.build(M, stages_for(class)); early landings join (batch_joined)
+        data/code → live_build.build(M, stages_for(class)); landings join only while free (batch_joined)
         green: publish(M) under publish.lock, on top of a data-lane release published meanwhile
         red:   rerun a red Chrome stage once (flake guard)
                → base check: live_build.build(G) against the current data root
@@ -701,12 +701,14 @@ the live release to `live-releases/<M>` (record `commit` M, `verified_commit`, `
 `code` take the `integration` slot and run `live_build.build` on M in the `integration` sandbox with
 `live_build.stages_for(class)`, the one stage-selection seam: `code` all nine stages; `data` refresh, tile-build,
 tile-validate, car-report (only when `layers/traffic_static` changed, else the previous result is carried forward
-with `carried_from`), facade-ground-audit and game-build. **Join:** before the first expensive stage (the first
-non-cached stage after refresh) the head build re-reads main; a newer head (at most `JOIN_LIMIT` = 3) is checked
-out, reclassified and built instead (`batch_joined`); later landings wait. A facade count below the published
+with `carried_from`), facade-ground-audit and game-build. **Join** only while free: the build re-reads main once,
+before its first stage that is not a cache hit (refresh included); a newer head (at most `JOIN_LIMIT` = 3) is checked
+out, reclassified and built instead (`batch_joined`), repeating only its cached stages, each at most `RESTART_LIMIT`
+= 1 times. After a stage has run for real the batch is frozen; later landings wait for the next run. A facade count below the published
 baseline is red unless a `landed.jsonl` row in the batch carries `facade_regression_reason`. Green publishes under
 `wt/.registry/publish.lock`; if the data lane published meanwhile (live parts changed), M is first rebuilt with the
-data stages on that release (`rebuilt_on`), so no lane publishes over a release it did not build on. The data lane
+data stages on that release (`rebuilt_on`), so no lane publishes over a release it did not build on; a batch
+rebuilds at most once, and live changing again during that rebuild records `failed` for the next run to publish. The data lane
 (`run_data`) builds G on the changed data root and publishes `<G>-<data key 12>` (record `commit` G) only if live
 is unchanged, else records `superseded`.
 
@@ -731,7 +733,8 @@ conflict, an empty revert or a red revert gate is reported in the same request; 
 
 Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`), `published`,
 `from`, `to`, `data_key`, the class fields (`class`, `paths`, `changed_paths`, `data_delta`, `tiles`),
-`full_suite`, `chrome_plan`, `chrome`, `batch_joined`, `rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
+`full_suite`, `chrome_plan`, `chrome`, `batch_joined`, `joins`, `restarts` (per stage), `stage_seconds` (per stage,
+summed over all builds of the run), `rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
 `red`, `data-red`, `failed`, `superseded`), `seconds`, `cache_hits`, `facades_bound`, `builds`,
 `wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`, `approval_manifest`,
 `revert`. `integration.json`/`integration-data.json` name each lane's running integration and log.

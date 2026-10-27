@@ -20,6 +20,8 @@ import landing  # noqa: E402
 import live_build  # noqa: E402
 import pages  # noqa: E402
 
+# The cases patch os.environ: tests/run.py runs them one by one in a process of their own.
+SERIAL = True
 GATE = "#!/bin/sh\necho PASS fast-gate 0.01s\n"
 REPO = Path(__file__).resolve().parents[3]
 SPECS = {
@@ -46,6 +48,18 @@ class IntegratorTests(unittest.TestCase):
         patcher = patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Every ledger, status and lock path goes through registry(): it refuses to leave
+        # the temporary root, so a lost environment patch fails instead of writing live rows.
+        real_registry = integrator.registry
+
+        def registry():
+            path = real_registry()
+            self.assertTrue(path.is_relative_to(self.root), f"real registry reached: {path}")
+            return path
+
+        guard = patch.object(integrator, "registry", side_effect=registry)
+        guard.start()
+        self.addCleanup(guard.stop)
         self.main = self.root / "origin"
         self.main.mkdir()
         self.git("init", "-q", "-b", "main")
@@ -131,16 +145,18 @@ class IntegratorTests(unittest.TestCase):
         landing_class="code",
         join=None,
         chrome=None,
+        timings=None,
     ):
         """Stands in for the real stages: red on game/bad.ts, real facade inspection.
 
-        Before its first expensive stage it calls join, like live_build.build, and then
-        rebuilds the joined head; `self.during` runs as that stage starts.
+        Before its first real stage it calls join with no restored stages, like
+        live_build.build before a refresh that is not a cache hit, and then rebuilds the
+        joined head; `self.during` runs as that stage starts.
         game/full-red.ts fails only the full Chrome suite.
         """
         if self.preparing:
             self.preparing.pop(0)()
-        if join and (update := join()):
+        if join and (update := join(())):
             landing_class = update["landing_class"]
             chrome = update.get("chrome", chrome)
         self.plans.append(chrome)
@@ -153,6 +169,7 @@ class IntegratorTests(unittest.TestCase):
         if self.during:
             self.during.pop(0)()
         log.write_text("== tile-build: make tile-build ==\n")
+        timings["tile-build"] = timings.get("tile-build", 0.0) + 0.01
         if (repo / "game/bad.ts").exists():
             raise live_build.StageFailed("tile-build", f"tile-build failed (2); {log}")
         if (published / "raw-broken").exists():
@@ -293,6 +310,39 @@ class IntegratorTests(unittest.TestCase):
             (self.integrate()["from"], integrator.live_commit(self.published)), (head, late[0])
         )
 
+    def test_registry_outside_the_temporary_root_is_refused(self):
+        with patch.dict(os.environ, {"TURKU3D_WT_ROOT": str(Path.home() / "turku3d/wt")}):
+            with self.assertRaisesRegex(AssertionError, "real registry reached"):
+                integrator.ledger_path()
+
+    def test_join_repeats_a_cached_stage_at_most_once_and_takes_three_heads(self):
+        start = self.base
+        run = integrator.Run(self.published, self.main, integrator.NAME, start)
+        heads = []
+
+        def join(cached):
+            heads.append(self.land(f"head-{len(heads)}", f"game/{len(heads)}.ts", "x"))
+            update = run.join(start, cached)
+            return update and update["commit"]
+
+        # Joins before refresh repeat nothing; after a cached refresh the second repeat of
+        # refresh is refused, and the batch takes at most JOIN_LIMIT heads.
+        self.assertEqual(join(("refresh",)), heads[0])
+        self.assertIsNone(join(("refresh", "tile-build")))
+        self.assertEqual(join(()), heads[2])
+        self.assertEqual(join(("tile-build",)), heads[3])
+        self.assertIsNone(join(()))
+        self.assertEqual(run.joined, [heads[0], heads[2], heads[3]])
+        self.assertEqual((run.end, run.restarts), (heads[3], {"refresh": 1, "tile-build": 1}))
+
+    def test_ledger_row_records_joins_restarts_and_stage_seconds(self):
+        self.land("one", "game/a.ts", "a")
+        later = []
+        self.preparing.append(lambda: later.append(self.land("two", "game/b.ts", "b")))
+        row = self.integrate()
+        self.assertEqual((row["result"], row["joins"], row["restarts"]), ("green", 1, {}))
+        self.assertEqual(row["stage_seconds"], {"tile-build": 0.01})
+
     def test_data_lane_publishes_live_commit_with_new_data(self):
         self.assertFalse(integrator.data_due(self.published, self.main))
         self.approve(3)
@@ -353,6 +403,26 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual(
             len(json.loads((live / "textures/assembly/MANIFEST.json").read_text())["bound"]), 3
         )
+
+    def test_code_lane_rebuilds_on_top_of_a_newer_data_release_at_most_once(self):
+        head = self.land("game", "game/a.ts", "a")
+        data = []
+
+        def data_lane(walls):
+            self.approve(walls)
+            data.append(integrator.run_data(self.published, self.main))
+
+        # The data lane publishes during the code build and again during its rebuild; each
+        # data-lane build pops a hook of its own.
+        self.during.extend((lambda: data_lane(3), lambda: None, lambda: data_lane(4)))
+        row = self.integrate()
+        self.assertEqual([lane["result"] for lane in data], ["green", "green"])
+        self.assertEqual(row["result"], "failed")
+        self.assertIn("again during the rebuild", row["failure"]["detail"])
+        # Code build, data lane, one data rebuild of M, data lane; no second rebuild.
+        self.assertEqual(self.classes, ["code", "data", "data", "data"])
+        self.assertEqual(self.builds, [head, self.base, head, self.base])
+        self.assertEqual(integrator.live_commit(self.published), self.base)
 
     def test_data_lane_never_publishes_over_a_newer_code_release(self):
         self.approve(3)
