@@ -114,7 +114,7 @@ def test_cone_depth_follows_speed():
     assert P.area(0, 0).area == pytest.approx(3.1416 * 500**2, rel=0.01)  # standing: ring only
     car = P.area(0, 0, P.CAR_SPEED, 0)  # east at top speed
     assert car.contains(P.shapely.Point(1490, 0)) and not car.contains(P.shapely.Point(-600, 0))
-    assert car.contains(P.shapely.Point(1200, 600)) and not car.contains(P.shapely.Point(1200, 800))
+    assert car.contains(P.shapely.Point(1200, 400)) and not car.contains(P.shapely.Point(1200, 500))
     walk = P.area(0, 0, 0, -P.FOOT_SPEED)  # north on foot: the cone ends with the ring
     assert not walk.contains(P.shapely.Point(0, -520))
 
@@ -130,15 +130,18 @@ def test_plan_selects_blocks_under_the_area_in_fetch_order():
     east = P.plan(250, 250, P.CAR_SPEED, 0)
     bands = [
         int(
-            P.shapely.box(*P.block_bbox(u.block).as_tuple()).distance(P.shapely.Point(250, 250))
+            P.reach(P.shapely.box(*P.block_bbox(u.block).as_tuple()), 250, 250, P.CAR_SPEED, 0)
             // P.BAND
         )
         for u in east
     ]
-    assert (
-        bands == sorted(bands) and bands[-1] == 2
-    )  # the near blocks' every dataset before far lidar
+    assert bands == sorted(bands)  # the path's every dataset before lidar farther on
     assert east.index(Unit("wfs", BLOCK)) < min(i for i, b in enumerate(bands) if b == 1)
+    ahead, beside = (
+        C.LazTile(BLOCK.xmin + 500, BLOCK.ymax),
+        C.LazTile(BLOCK.xmin + 500, BLOCK.ymax + 500),
+    )
+    assert east.index(Unit("lidar", ahead)) < east.index(Unit("lidar", beside))  # on the path first
     reach = max(u.block.xmin for u in east) - BLOCK.xmin
     assert reach == 1500  # 1.5 km ahead: blocks starting 500, 1000 and 1500 m east of this one
     assert min(u.block.xmin for u in east) - BLOCK.xmin == -500  # the ring behind

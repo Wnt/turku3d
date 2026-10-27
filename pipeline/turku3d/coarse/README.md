@@ -87,9 +87,10 @@ one `node visual.mjs --serve` packager running, so a tile pays neither interpret
 ## Prefetcher (`prefetch.py`)
 
 The game sends `GET /coarse/want?x=&z=&vx=&vz=` once a second (engine metres and m/s). The
-prefetch area is a 500 m ring around the player plus a 60° cone along the velocity, 500 m deep
+prefetch area is a 500 m ring around the player plus a 40° cone along the velocity, 500 m deep
 on foot (up to 6 m/s) and growing linearly to 1.5 km at the car's top speed (27 m/s). Every
-missing unit whose block intersects the area is queued band by band of 500 m distance: within a
+missing unit whose block intersects the area is queued band by band of 500 m of how soon the
+player reaches it (moving: the distance along the path plus twice the distance beside it): within a
 band lidar first (it gates ground and collision), then ortho, WFS and OSM, nearest block first.
 Units a waiting build needs jump the queue. OSM is optional: a draft built before its clip lands has
 no streets and is rebuilt with them afterwards (its manifest's input identity changes). One OSM clip
