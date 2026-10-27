@@ -73,7 +73,9 @@ class TileStoreTests(unittest.TestCase):
         full = tile_store.key(self.repo, commit, self.data)
         self.assertIsNone(tile_store.entry(self.data, full))
         seeded = {"time": 5.0, "parts": tile_store.landing_class.data_parts(self.data)}
-        entry = tile_store.put(self.data, tiles, full, commit, "integrator", ["t0_0_0"], seeded)
+        entry = tile_store.put(
+            self.data, tiles, full, commit, "integrator", ["t0_0_0"], seeded=seeded
+        )
         self.assertEqual((entry / "visual/t0_0_0.glb").read_bytes(), b"glb")
         data = tile_store._data(self.data)
         self.assertEqual(
@@ -229,7 +231,7 @@ class PerTileTests(unittest.TestCase):
             self.head,
             "integrator",
             None,
-            {"time": 100.0, "parts": None},
+            seeded={"time": 100.0, "parts": None},
         )
 
     def tearDown(self):
@@ -309,7 +311,13 @@ class PerTileTests(unittest.TestCase):
         write_dist(newer, *release_tiles())
         later = json.loads((entry / "TILE.json").read_text())["time"] + 1
         superseding = tile_store.put(
-            self.data, newer, "newer", self.head, "integrator", None, {"time": later, "parts": None}
+            self.data,
+            newer,
+            "newer",
+            self.head,
+            "integrator",
+            None,
+            seeded={"time": later, "parts": None},
         )
         result = self.compose(superseding)
         self.assertEqual(
@@ -347,7 +355,7 @@ class PerTileTests(unittest.TestCase):
             self.head,
             "integrator",
             None,
-            {"time": 20.0, "parts": None},
+            seeded={"time": 20.0, "parts": None},
         )
         tile_store.put(
             self.data,
@@ -356,7 +364,7 @@ class PerTileTests(unittest.TestCase):
             side,
             "integrator",
             None,
-            {"time": 30.0, "parts": None},
+            seeded={"time": 30.0, "parts": None},
         )
         self.base.rename(
             self.base.with_name("gone")
@@ -382,7 +390,7 @@ class PerTileTests(unittest.TestCase):
             self.head,
             "integrator",
             None,
-            {"time": 50.0, "parts": None},
+            seeded={"time": 50.0, "parts": None},
         )
         result = self.compose(converged)
         self.assertEqual((result["dir"], result["skipped"]["t0_0_0"]), (str(converged), "absorbed"))

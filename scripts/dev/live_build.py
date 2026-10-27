@@ -295,9 +295,7 @@ def inspect(manifest_path, facade_count, minimum, listed, reason=None):
 
 
 def store_tiles(repo, work, published, built, facades_bound, seeded):
-    """Offer the unverified tile build to the localhost game (tile_store.py) before the checks run.
-
-    seeded is {"time", "parts"} of the build's seed: the localhost game orders it against per-tile entries by it."""
+    """Offer the unverified tile build (seeded: its seed's {"time", "parts"}) to the localhost game (tile_store)."""
     commit = s.git("rev-parse", "HEAD", cwd=repo)
     tile_store.put(
         published,
@@ -306,8 +304,8 @@ def store_tiles(repo, work, published, built, facades_bound, seeded):
         commit,
         "integrator",
         built,
-        seeded,
         {"facades_bound": facades_bound},
+        seeded=seeded,
     )
 
 
@@ -629,8 +627,7 @@ def build(
                 previous = key
     if "tile-build" in stages:
         report["tiles_built"] = list(scopes.get("tile-build") or listed)
-    # When this build read the data root; a release shipping served tiles has theirs.
-    report["data_time"] = data_time
+    report["data_time"] = data_time  # when the shipped tiles' build read the data root
     report["seconds"] = durations
     report["cache_hits"] = cache_hits
     report["input_hashes"] = input_hashes

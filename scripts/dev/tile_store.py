@@ -127,12 +127,12 @@ def _index(directory, record):
         index.write(json.dumps(record) + "\n")
 
 
-def put(published, tiles, store_key, commit, source, built=None, seeded=None, extra=None):
+def put(published, tiles, store_key, commit, source, built=None, extra=None, seeded=None):
     """Clone the tile dist `tiles` into the store under store_key; an existing entry is kept.
 
+    extra: further STORE.json fields (the integrator records `facades_bound`, which served.py ships).
     seeded: {"time", "parts"}, when the build read the data root and its data parts then; compose() orders releases
-    and per-tile entries by the time, served() finds what changed in the data root since by the parts.
-    extra: further STORE.json fields (the integrator records `facades_bound`, which served.py ships)."""
+    and per-tile entries by the time, served() finds what changed in the data root since by the parts."""
     store = root(published)
     target = store / store_key
     if target.exists() or not (Path(tiles) / "manifest.json").is_file():
