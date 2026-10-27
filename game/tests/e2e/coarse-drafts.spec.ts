@@ -74,6 +74,7 @@ async function routeService(page: Page) {
     const url = new URL(route.request().url());
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (url.pathname === '/coarse/status') return json(200, { state: 'idle' });
+    if (url.pathname === '/coarse/want') return json(200, { queued: 0, fetching: [], version: 0 });
     const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/manifest\.json$/.exec(url.pathname);
     if (m) return fragments.has(m[1]) ? json(200, fragments.get(m[1])) : json(404, { state: 'failed', error: 'no coverage' });
     const file = files.get(url.pathname);
