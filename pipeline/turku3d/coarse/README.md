@@ -104,6 +104,31 @@ A tile requested while its units are missing answers `202 {"state": "pending-dat
 [...]}` immediately; other tiles keep building meanwhile, and the tile is queued again as soon as
 its last unit lands.
 
+## Measuring a drive (`drive.py`)
+
+`python -m turku3d.coarse.drive` replays the game hook's requests without a browser against a
+running service: once a second `/coarse/want` with the position and velocity, then the polls of the
+3x3 window and of the cells 30 s ahead. It prints, for the tiles that entered the window after the
+first kilometre, how many were built and how long after entering, and the raw MB fetched per km.
+
+```sh
+tools/dev/coarse-tiles &   # with an empty $TURKU3D_WORK/coarse for a cold run
+bash pipeline/env/run.sh python -m turku3d.coarse.drive --port $((TURKU3D_PORT_BASE+5)) \
+  --start=0,125 --velocity=-27,0 --seconds 200 --log "$TURKU3D_WORK/reports/drive.jsonl"
+```
+
+Measured on 2026-10-27 at 27 m/s over 5.4 km from the core, host load 200-290 (on 10 cores):
+
+| Drive | Tiles after 1 km | Built during the drive | Under 10 s | Longest wait | Mean build | Raw MB/km |
+|---|---|---|---|---|---|---|
+| west, final code | 54 | 54 | 54 | 2.1 s | 3.4 s | 26.5 |
+| south, persistent workers | 47 | 47 | 46 | 12.0 s | 5.4 s | 26.5 |
+| south-east, final code | 55 | 24 | 14 | 39 s | 8.5 s | 16.8 |
+| south-west, before the workers | 65 | 30 | 1 | 35 s | 13.5 s | 40.3 |
+
+Through the dense south-east the two downloads fall behind after about 2.8 km (a WFS block takes
+5-8 s, an ortho block 4-6 s at that load), so tiles wait for data there.
+
 ## Disk bound
 
 Every fetched unit is recorded in `raw/prefetch/ledger.json` (paths, bytes, fetch time, last use).
