@@ -142,6 +142,26 @@ $PY -m turkutex.facade_rollout publish $N --queue "$Q" --run "$R" \
 sources) and regenerates `ledger.md`. `publish` binds only walls that passed the audit
 and the manual look, under the export lock, with the inventory hash unchanged.
 
+### Lidar point colours on walls (measured, not used)
+
+`turkutex.facade_lidar` measures whether the city lidar's RGB could colour walls that have no
+map of their own. It compares the points within 0.6 m of each bound street wall's plane with the
+wall's map at the same u, v, with the roof and ground colours next to the wall, with the default
+library material and with one constant colour (the median of the other buildings' generated
+maps). It reads the raw LAZ with `laspy`, so run it with the repository `.venv`:
+
+```sh
+source ../sandbox.env
+A="$TURKU3D_DATA/facade-approvals/assembly"
+.venv/bin/python -m turkutex.facade_lidar --inventory "$TURKU3D_DATA/build/layers/buildings/facades.geojson" \
+  --assembly "$A" --buildings 103304659B 103304672S 103277350D gis-103277357M \
+  --output "$TURKU3D_WORK/reports/textures-lidar-facade-color/measure"
+```
+
+Result (`docs/reports/textures-lidar-facade-color.md`): wall points carry the roof's or the
+ground's colour (the imagery is nadir), so no lidar colour map is produced; unbound walls keep
+the library material.
+
 ### Building styles and derived walls
 
 `turkutex.facade_derive` gives every street-facing office-core wall the generated style of

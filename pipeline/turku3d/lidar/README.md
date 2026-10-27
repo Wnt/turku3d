@@ -126,6 +126,23 @@ for later props, with low confidence to reflect semantic ambiguity.
 Their `center_xyz` is the horizontal footprint center at ground elevation; `height`
 is separate, so later prop assets can use a ground-level placement origin.
 
+## Wall points
+
+`turku3d.lidar.walls` streams the raw LAZ tiles once and keeps, per building wall, the points
+in a window around the wall rectangle, in the wall's own frame: `u` along the wall from its left
+edge seen from outside, `h` above the wall base, `d` signed distance from the plane (positive
+outward), plus 8-bit RGB, class and returns. `walls_from_features` reads the buildings layer's
+`facades.geojson`. It does not use the point cache, whose dtype has no colour.
+
+```python
+from turku3d.lidar import walls as W
+walls = W.walls_from_features(features)
+points = W.wall_points(walls, W.Window(inside=0.6, outside=0.6))  # {wall_id: records}
+```
+
+The point colours come from the nadir aerial imagery and are mostly the roof's or the
+ground's on walls; see `docs/reports/textures-lidar-facade-color.md`.
+
 ## Experimental mesh comparison
 
 Curbs were deferred from the current playable-block release on the coordination
