@@ -15,6 +15,8 @@ import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId
 import { drawOrder, pickLine } from './orders';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
+import { applyPoleFine } from '../poles/fine';
+export { missionSummary } from './save';
 
 type BoughtVehicle = Exclude<VehicleOwnership, 'none'>;
 
@@ -63,15 +65,6 @@ export interface PaidDropoff {
 
 /** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
 type Checkpoint = 'delivery' | 'purchase';
-
-/** What a save slot shows about a mission save without restoring it. */
-interface MissionSummary { deliveries: number; money: number; devMoney: number; lastAddress: string | null }
-
-/** Slot details of a `MissionSystem.serialize()` text (an invalid text reads as a new game). */
-export function missionSummary(text: string | null): MissionSummary {
-  const s = parseSave(text, 0);
-  return { deliveries: s.delivery, money: s.money, devMoney: s.devMoney, lastAddress: s.lastAddress };
-}
 
 /** What the pizzeria quotes before an order is accepted. */
 export interface OrderQuote {
@@ -222,6 +215,13 @@ export class MissionSystem implements MissionHudSource {
   grantDevMoney(euros: number) {
     this.s.money += euros;
     this.s.devMoney += euros;
+    this.emit();
+  }
+
+
+  /** A pole fine changes the local wallet even if it has less than fifty euros. */
+  finePole() {
+    this.s.money = applyPoleFine(this.s.money);
     this.emit();
   }
 

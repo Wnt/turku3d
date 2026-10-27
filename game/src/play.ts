@@ -1,8 +1,5 @@
-// Play session: input, audio, UI, actors, missions, saves and the frame loop on top of the world that main.ts owns
-// (renderer, tiles, physics worker with the character and vehicles, collision streaming). On the localhost game (Vite
-// dev server) main.ts accepts hot updates of this module and everything only it imports: `dispose()` stops the loop,
-// removes the session's DOM, scene objects and listeners and returns a HotPlay (gameplay/hotState.ts), and the new
-// module's `startPlay` continues from it without the start menu. Production builds have no hot path.
+// Play session over main.ts's persistent world: input, audio, UI, actors, missions, saves and frame loop.
+// Localhost hot updates dispose this session and restore it via gameplay/hotState.ts.
 import * as THREE from 'three/webgpu';
 import { engineToEN, enToEngine, collisionTileAt, yawToHeading, type V3 } from './core/origin';
 import { devToolsEnabled } from './core/localOnly';
@@ -58,6 +55,7 @@ import { RemotePlayers } from './net/remotes';
 import { VEHICLE_POSE_HEIGHT } from './net/height';
 import { vehicleIdentity } from './net/identity';
 import { Scoreboard } from './net/scoreboard';
+import { PoleSession } from './gameplay/poles/session';
 
 type Pose = V3 & { yaw: number };
 
@@ -174,8 +172,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   } });
   minimap.setSource(missions);
   voice.attach(missions);
-  // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement. A drop-off's
-  // marker waits for its street-level check, which moves a drop-off off a roof (gameplay/missions/dropoffs.ts).
+  // Activation zones use a street-level check for drop-offs (gameplay/missions/dropoffs.ts).
   const zoneRay = (x: number, z: number, top: number) => physics.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, top + 60);
   const dropoffs = new DropoffGuard(
     (x, z) => zoneRay(x, z, DEFAULT_ZONE_RAY_TOP).then(hit => hit && { y: hit.point.y, material: hit.material }),
@@ -190,6 +187,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   document.body.append(crashFlash);
   let multiplayer: MultiplayerClient | null = null;
   let multiplayerPlaying = false;
+  const poles = new PoleSession(tiles, physics, missions, voice, document.body);
   const mapDirection = new THREE.Vector3();
 
   let mode: 'foot' | 'car' = 'foot';
@@ -257,7 +255,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
-    onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; remotePlayers.dispose();
+    onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
       minimap.setRemotes([]); scoreboard.setClient(null); },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
@@ -267,6 +265,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       multiplayer?.disconnect();
       multiplayerRunId = crypto.randomUUID();
       const client = new MultiplayerClient();
+      poles.setClient(client);
       multiplayer = client;
       scoreboard.setClient(client);
       client.addEventListener('welcome', () => {
@@ -286,6 +285,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (hot.multiplayer) {
       multiplayerPlaying = true;
       multiplayer = new MultiplayerClient();
+      poles.setClient(multiplayer);
       scoreboard.setClient(multiplayer);
       multiplayer.connect();
     }
@@ -294,7 +294,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const autosaveForReload = () => { if (saveGame.autosave.save('reload')) markResume(sessionStore()); };
   import.meta.hot?.on('vite:beforeFullReload', autosaveForReload);
   import.meta.hot?.on('vite:ws:disconnect', autosaveForReload);
-
   const state = () => {
     const en = engineToEN(feet.x, feet.y, feet.z);
     const v = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
@@ -454,6 +453,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (!paused) physics.step(dt, charIn, carIn);
 
     const st = physics.latest;
+    if (st) poles.update(st.poles);
     clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000);
     if (st) {
@@ -541,7 +541,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (multiplayerPlaying) minimap.setRemotes(remotePlayers.markers());
     minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
     zones.update(dt, camera, { x: feet.x, z: feet.z });
-
     const en = engineToEN(feet.x, feet.y, feet.z);
     const tot = physics.totals();
     const ct = collisionTileAt(feet.x, feet.z);
@@ -574,6 +573,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
       remotePlayers.dispose();
+      poles.dispose();
       scoreboard.dispose();
       listeners.abort();
       saveGame.dispose();

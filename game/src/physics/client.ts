@@ -1,7 +1,7 @@
 // Main-thread side of the physics worker.
 import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
-import type { CharacterInput, FromWorker, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, VehicleInput, VehicleSpec } from './protocol';
+import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, VehicleInput, VehicleSpec } from './protocol';
 
 type StateMsg = Extract<FromWorker, { type: 'state' }>;
 
@@ -95,6 +95,8 @@ export class PhysicsClient {
   driveVehicle(id: string | null) { this.send({ type: 'driveVehicle', id }); }
   resetVehicle(pos: V3, yaw: number, id = 'player') { this.placed(id, pos); this.send({ type: 'resetVehicle', id, pos, yaw }); }
   setRemotes(bodies: RemoteBody[]) { this.send({ type: 'remotes', bodies }); }
+  setPoles(add: PoleSpec[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'poles', add, remove }); }
+  breakPole(id: string) { this.send({ type: 'breakPole', id }); }
   private placed(actor: string, pos: V3) { this.placement = { seq: this.placement.seq + 1, actor, pos: { ...pos } }; }
 
   /** Queues dt; sends one step at a time (single in flight) so the worker never falls behind. */

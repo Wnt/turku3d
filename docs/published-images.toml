@@ -423,3 +423,15 @@ path = "docs/reports/content-facades-1027-1836/gis-103277357M_99-webgpu.jpg"
 source = "Turku3D Chrome game render from a facade street pose"
 licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
 reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "game/public/assets/ui/officer-closed.svg"
+source = "Original project SVG, drawn by Codex for the police notice"
+licence = "MIT (this repository)"
+reason = "Police officer notice portrait, closed mouth frame"
+
+[[images]]
+path = "game/public/assets/ui/officer-open.svg"
+source = "Original project SVG, drawn by Codex for the police notice"
+licence = "MIT (this repository)"
+reason = "Police officer notice portrait, open mouth frame"

@@ -10,6 +10,7 @@ vi.mock('../../src/physics/world', () => ({ PhysicsWorld:class {
   characterState() { return null; }
   vehicleState() { return null; }
   vehicleStates() { return []; }
+  poleStates() { return []; }
 } }));
 
 test('worker reports failed step sequence, continues its queue, and marks corrupt tiles permanent', async () => {

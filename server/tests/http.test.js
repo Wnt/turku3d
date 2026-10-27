@@ -26,6 +26,16 @@ async function socket(url, origin = 'https://wnt.github.io') {
   return ws;
 }
 
+function messageOf(ws, type, accept = () => true) {
+  return new Promise(resolve => {
+    const listener = data => {
+      const message = JSON.parse(data);
+      if (message.type === type && accept(message)) { ws.off('message', listener); resolve(message); }
+    };
+    ws.on('message', listener);
+  });
+}
+
 async function denied(url, origin) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, origin === undefined ? {} : { origin });
@@ -92,4 +102,22 @@ test('wire protocol mismatch sends reload error before close, and oversize frame
   const big = await socket(app.ws);
   const end = once(big, 'close'); big.send('x'.repeat(65_537));
   assert.equal((await end)[0], 1009);
+});
+
+test('ephemeral WebSocket server shares pole breaks and fines', async t => {
+  const app = await start(t);
+  const a = await socket(app.ws), b = await socket(app.ws);
+  const welcomeA = messageOf(a, 'welcome'); a.send(JSON.stringify({ v: 1, type: 'hello' }));
+  const own = await welcomeA;
+  const welcomeB = messageOf(b, 'welcome'); b.send(JSON.stringify({ v: 1, type: 'hello' }));
+  await welcomeB;
+  const world = messageOf(b, 'world'), scores = messageOf(b, 'scores', m => m.scores.some(s => s.nick === own.you.nick && s.money === -50));
+  const poleId = 't0_0_0:GIS_Liikennemerkit:123';
+  a.send(JSON.stringify({ v: 1, type: 'world', action: 'break', poleId, by: own.you.id, t: 1 }));
+  a.send(JSON.stringify({ v: 1, type: 'fine', reason: 'pole', poleId, amount: 50 }));
+  assert.equal((await world).poleId, poleId);
+  assert.equal((await scores).scores.find(s => s.nick === own.you.nick).money, -50);
+  const c = await socket(app.ws), welcomeC = messageOf(c, 'welcome');
+  c.send(JSON.stringify({ v: 1, type: 'hello' }));
+  assert.deepEqual((await welcomeC).brokenPoles.map(p => p.poleId), [poleId]);
 });

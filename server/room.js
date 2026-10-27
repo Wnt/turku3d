@@ -20,6 +20,7 @@ export class Room {
     this.sessions = new Map();
     this.connections = new Set();
     this.usedNicks = new Set();
+    this.brokenPoles = new Map();
     this.spawnIndex = 0;
     this.warned = false;
     this.lastPruneDay = null;
@@ -91,6 +92,8 @@ export class Room {
     if (!c.player) { this.reject(); return; }
     if (m.type === 'pose') { this.pose(c.player, m, now); return; }
     if (m.type === 'delivery') { this.delivery(c.player, m); return; }
+    if (m.type === 'world') { this.breakPole(c.player, m, now); return; }
+    if (m.type === 'fine') { this.fine(c.player, m); return; }
     this.reject();
   }
 
@@ -110,7 +113,7 @@ export class Room {
       this.usedNicks.add(nick);
       p = { id: randomUUID(), session: randomBytes(32).toString('hex'), nick,
         spawn: SPAWNS[this.spawnIndex++ % SPAWNS.length], money: 0, deliveries: 0,
-        orders: new Set(), pose: null, dirty: false };
+        orders: new Set(), finedPoles: new Set(), pose: null, dirty: false };
       this.players.set(p.id, p);
       this.sessions.set(p.session, p);
     }
@@ -125,7 +128,7 @@ export class Room {
   welcome(c) {
     const p = c.player;
     this.send(c, 'welcome', { session: p.session, you: { id: p.id, nick: p.nick, spawn: p.spawn },
-      hour: this.hour, players: this.livePlayers(), scores: this.scores() });
+      hour: this.hour, players: this.livePlayers(), scores: this.scores(), brokenPoles: [...this.brokenPoles.values()] });
   }
 
   livePlayers() {
@@ -177,6 +180,22 @@ export class Room {
     this.broadcast('scores', { scores: this.scores() });
   }
 
+  breakPole(p, m, now) {
+    if (m.action !== 'break' || !identifier(m.poleId) || !finite(m.t, Number.MAX_SAFE_INTEGER)
+      || m.t < 0 || m.by !== p.id || this.brokenPoles.has(m.poleId)) { this.reject(); return; }
+    const event = { action: 'break', poleId: m.poleId, by: p.id, t: m.t };
+    this.brokenPoles.set(m.poleId, event);
+    this.broadcast('world', event);
+  }
+
+  fine(p, m) {
+    if (m.reason !== 'pole' || !identifier(m.poleId) || m.amount !== 50
+      || this.brokenPoles.get(m.poleId)?.by !== p.id || p.finedPoles.has(m.poleId)) { this.reject(); return; }
+    p.finedPoles.add(m.poleId);
+    p.money -= 50;
+    this.broadcast('scores', { scores: this.scores() });
+  }
+
   flushPoses() {
     const dirty = [...this.players.values()].filter(p => p.online && p.dirty);
     if (!dirty.length) return;
@@ -193,11 +212,13 @@ export class Room {
       this.store.write(this.hour, this.scores().map(({ nick, money, deliveries, rank }) => ({ nick, money, deliveries, rank })));
       const continuing = [...this.players.values()].filter(p => p.connection);
       this.hour = hourAt(Date.parse(this.hour.end));
+      this.brokenPoles.clear();
       this.players.clear(); this.sessions.clear(); this.usedNicks.clear();
       for (const p of continuing) {
         p.nick = nickname(this.usedNicks, p.nick);
         this.usedNicks.add(p.nick);
         p.money = 0; p.deliveries = 0;
+        p.finedPoles.clear();
         this.players.set(p.id, p); this.sessions.set(p.session, p);
       }
       this.warned = false;

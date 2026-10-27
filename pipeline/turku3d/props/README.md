@@ -57,7 +57,9 @@ On the four core tiles a tile builds in 30–60 s (t0_0_0, 330 props, about 60 s
   these headings after any position repair.
 - Dimensions are representative, not surveyed. A bike station symbol represents a
   register location, not its reported capacity; rack locations use three hoops.
-- Whole objects belong to their placement-centre collision tile; no clipping or
+- Sign and bus-stop pole nodes carry stable `pole_id` and `pole_height` extras. Their
+  collision is created at runtime as sleeping, breakable Rapier bodies; no static pole
+  primitive is baked for them. Whole other objects belong to their placement-centre collision tile; no clipping or
   duplication at tile edges (`seams: objects`). Cylinders cover posts, lamps and bins;
   benches use seat/base and backrest boxes. Racks use individual upright cylinders
   and top bars, retaining gaps. Material IDs are 25/27/28 from the shared table.

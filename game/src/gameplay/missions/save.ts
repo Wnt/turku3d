@@ -6,6 +6,12 @@ import { DELIVERIES } from '../content/deliveries';
 
 export type Phase = 'idle' | 'permit_needed' | 'at_pizzeria' | 'carrying' | 'delivered' | 'failed';
 
+/** Slot details of a mission save; an invalid text reads as a new game. */
+export function missionSummary(text: string | null) {
+  const s = parseSave(text, 0);
+  return { deliveries: s.delivery, money: s.money, devMoney: s.devMoney, lastAddress: s.lastAddress };
+}
+
 export interface MissionSave {
   version: 3;
   phase: Phase;
