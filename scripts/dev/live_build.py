@@ -334,6 +334,21 @@ def inspect_car_report(path, returncode):
     }
 
 
+def store_tiles(repo, work, published, built):
+    """Offer the unverified tile build to the localhost game (tile_store.py) before the checks run."""
+    import tile_store
+
+    commit = s.git("rev-parse", "HEAD", cwd=repo)
+    tile_store.put(
+        published,
+        work / "dist/tiles",
+        tile_store.key(repo, commit, published),
+        commit,
+        "integrator",
+        built,
+    )
+
+
 def build(
     repo,
     work,
@@ -475,6 +490,7 @@ def build(
                         listed,
                         reason,
                     )
+                    store_tiles(repo, work, published, scopes.get(stage) or listed)
                 if stage == "facade-ground-audit":
                     report["facade_ground_audit"] = cached["facade_ground_audit"]
                 previous = key
@@ -561,6 +577,8 @@ def build(
                 report = inspect(
                     work / "dist/tiles/manifest.json", facade_count, minimum, listed, reason
                 )
+                if cache_enabled:
+                    store_tiles(repo, work, published, scopes.get(stage) or listed)
             if stage == "facade-ground-audit":
                 report["facade_ground_audit"] = json.loads(proc.stdout.splitlines()[-1])
             if key and stage != "car-report":

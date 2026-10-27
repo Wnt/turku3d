@@ -190,7 +190,7 @@ For the first landing, the baseline comes from the legacy `deploy-once.log` asse
 Publication APFS-copies the verified game, tiles, layers and textures into
 `$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
 swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
-that link, so the existing :5171 static server serves the verified files without a process restart.
+that link, so static servers on them need no restart (:5171 runs main hot: `tools/dev/localhost/README.md`).
 Preparation dereferences sandbox links and rejects any link left inside a release. Publication checks
 all four stable paths after the swap and restores the previous `live` link if a path does not resolve
 to its directory in the prepared release.

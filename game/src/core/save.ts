@@ -40,7 +40,7 @@ export interface SaveGame {
 interface SaveFile { version: 1; slots: Partial<Record<SlotId, SaveGame>> }
 
 /** Why the game autosaves. */
-type AutosaveReason = 'delivery' | 'purchase' | 'pagehide' | 'quit';
+type AutosaveReason = 'delivery' | 'purchase' | 'pagehide' | 'quit' | 'reload';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const pose = (v: unknown): v is SavedPose => {

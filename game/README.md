@@ -168,7 +168,8 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 ## Layout
 
 ```
-src/main.ts                 entry: QA mode or play mode (spawn, loop, enter/exit car)
+src/main.ts                 entry: QA mode, or play mode's world (renderer, tiles, physics, spawn) + build badge
+src/play.ts                 play session (input, UI, actors, missions, loop); hot-swapped on the localhost game
 src/core/origin.ts          origin O, EN <-> engine, tile ids (mirror of pipeline/turku3d/config.py)
 src/core/params.ts          URL parameters
 src/audio/                  centralized Web Audio events, positional mix and CC0 sound bank (see its README)

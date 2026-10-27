@@ -39,6 +39,7 @@ export class FullscreenPolicy {
   private inScene = false;
   private own = false;
   private wakeLock: WakeLockSentinel | null = null;
+  private readonly visibility = () => { if (document.visibilityState === 'visible' && this.inScene) this.lockWake(); };
 
   constructor(private readonly root: HTMLElement = document.documentElement) {
     this.supported = typeof root.requestFullscreen === 'function' && document.fullscreenEnabled !== false;
@@ -49,7 +50,14 @@ export class FullscreenPolicy {
     // Tapping anywhere on the overlay is the user gesture the request needs.
     this.overlay.addEventListener('click', () => this.request());
     document.body.append(this.overlay);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && this.inScene) this.lockWake(); });
+    document.addEventListener('visibilitychange', this.visibility);
+  }
+
+  /** Removes the overlay and the page listener and releases the wake lock (a hot-swapped play session). */
+  dispose() {
+    document.removeEventListener('visibilitychange', this.visibility);
+    this.overlay.remove();
+    void this.wakeLock?.release();
   }
 
   get standalone() {
