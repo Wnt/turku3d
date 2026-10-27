@@ -1,7 +1,7 @@
 // Draft (coarse) tiles: which cells are wanted, the published-parent swap rule and the game hook against a fake service.
-import { test, expect } from 'vitest';
+import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CoarseTiles, aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
+import { CoarseTiles, RESTARTING, aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
 import { isLocalHost } from '../../src/core/localOnly';
 import type { Manifest } from '../../src/world/manifest';
 
@@ -38,6 +38,7 @@ function fakeService(manifest: Manifest) {
     const u = new URL(url);
     const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
     if (u.pathname === '/coarse/status') return json(200, { state: 'idle' });
+    if (u.pathname === '/coarse/want') return json(200, {});
     if (u.pathname === '/tiles/manifest.json') return json(200, freshManifest ?? manifest);
     if (u.pathname === '/coarse/t0_2_0/roads.json') return json(200, { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
       bbox: [500, 0, 750, 250], nodes: [500, 100, 700, 100], edges: [[0, 1, 3, 200]] });
@@ -203,4 +204,76 @@ test('reports the player motion once a second and names the data a waiting tile 
   coarse.update(627, 100, 1000); await settle();
   expect(wants[1]).toBe('?x=627.0&z=100.0&vx=13.5&vz=0.0'); // the smoothed ground velocity
   expect(coarse.status).toMatch(/^draft tile t0_2_0 waiting for lidar, wfs data/);
+});
+
+test('a restarting service pauses the drafts: one console line, only status probes, then they resume', async () => {
+  const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])), collision: {} } as unknown as Manifest;
+  // 'up': a running service started at `started`; 'down': the dev server's answers for a stopped one (status 200
+  // offline, everything else 503); 'old': a running service without /coarse/want (404).
+  let mode: 'up' | 'down' | 'old' = 'up', started = 1;
+  const requests: string[] = [];
+  const fetch = (async (url: string) => {
+    const u = new URL(url);
+    requests.push(u.pathname);
+    const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
+    if (u.pathname === '/__localhost/status') return json(200, { service: true, coarse: { commit: 'c', state: 'restarting' } });
+    if (u.pathname === '/coarse/status') return json(200, mode === 'down' ? { state: 'offline' } : { state: 'idle', started });
+    if (mode === 'down') return json(503, { state: 'offline' });
+    if (u.pathname === '/coarse/want') return mode === 'old' ? json(404, { error: 'not found' }) : json(200, {});
+    return json(202, { state: 'queued' });
+  }) as typeof globalThis.fetch;
+  const host: CoarseHost = { scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
+    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {},
+    checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() };
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const settle = async () => { for (let k = 0; k < 4; k++) await new Promise(r => setTimeout(r, 0)); };
+    const coarse = (await CoarseTiles.start(host))!;
+    coarse.update(600, 100, 0); await settle();
+    expect(requests).toContain('/coarse/want');
+    expect(requests).toContain('/coarse/t0_2_0/manifest.json');
+
+    // A landing restarts the service: the dev server answers 503 for it.
+    mode = 'down';
+    coarse.update(600, 100, 2000); await settle();
+    expect(coarse.outage?.reason).toBe('offline');
+    expect(coarse.status).toBe(RESTARTING);
+    requests.length = 0;
+    for (let t = 3000; t <= 12_000; t += 1000) { coarse.update(600, 100, t); await settle(); }
+    expect(new Set(requests)).toEqual(new Set(['/coarse/status'])); // no tile or prefetch request while it is down
+    expect(requests.length).toBeLessThanOrEqual(5); // one probe per 2 s
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(coarse.status).toBe(RESTARTING);
+
+    mode = 'up'; started = 2;
+    coarse.update(600, 100, 14_000); await settle();
+    expect(coarse.outage).toBeNull();
+    expect(info).toHaveBeenCalledTimes(1);
+    requests.length = 0;
+    coarse.update(600, 100, 15_000); await settle();
+    expect(requests).toContain('/coarse/want');
+    expect(requests).toContain('/coarse/t0_2_0/manifest.json');
+    expect(coarse.status).not.toBe(RESTARTING);
+
+    // The game landed a route the still-running old process lacks: paused until another process answers.
+    mode = 'old';
+    coarse.update(600, 100, 16_000); await settle();
+    expect(coarse.outage?.reason).toBe('outdated');
+    for (let t = 17_000; t <= 24_000; t += 1000) { coarse.update(600, 100, t); await settle(); }
+    expect(coarse.outage).not.toBeNull(); // the same process (started 2) still answers
+    expect(requests.filter(p => p === '/coarse/want').length).toBe(2); // the 404 and the one before it
+    mode = 'up'; started = 3;
+    coarse.update(600, 100, 26_000); await settle();
+    expect(coarse.outage).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(2);
+  } finally { warn.mockRestore(); info.mockRestore(); }
+
+  // A page loaded while the supervised service restarts starts paused; without a supervising service, no drafts.
+  mode = 'down';
+  const paused = (await CoarseTiles.start(host))!;
+  expect(paused.outage?.reason).toBe('offline');
+  const unsupervised = (async (url: string) => ({ ok: true, status: 200,
+    json: async () => new URL(url).pathname === '/__localhost/status' ? { service: true, coarse: { commit: null, state: 'off' } } : { state: 'offline' } })) as unknown as typeof globalThis.fetch;
+  expect(await CoarseTiles.start({ ...host, fetch: unsupervised })).toBeNull();
 });

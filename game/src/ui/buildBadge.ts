@@ -9,6 +9,9 @@ export interface BuildStatus {
   verification?: { state: 'verified' | 'unverified' | 'failed'; stage?: string; detail?: string };
   /** The tile release the dev server streams: its store key and how it was produced. */
   tiles?: { key: string | null; source: string; building?: string[] | null };
+  /** The coarse tile service the localhost service supervises: the commit it runs and its state (`running`,
+   *  `starting`, `draining`, `restarting`, `exited`, `port in use`, `off`; tools/dev/localhost/coarse.mjs). */
+  coarse?: { commit: string | null; state: string };
 }
 
 /** The badge line for a status, or null when no localhost service runs. */

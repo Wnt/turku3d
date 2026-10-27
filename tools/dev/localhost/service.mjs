@@ -1,8 +1,9 @@
 // The localhost game service (tools/dev/localhost-game; README.md here). It keeps a checkout of main in a dedicated
 // worktree, fast-forwarded within a second of every landing, and runs the game from it through the Vite dev server,
-// so code landings reach the open tab by HMR (game/src/play.ts) or by an autosave + reload. It writes state.json
-// for the dev-server plugin (vitePlugin.mjs): main's commit, the integrator's verdict for it and the tile release
-// the server streams under /tiles.
+// so code landings reach the open tab by HMR (game/src/play.ts) or by an autosave + reload. The coarse tile service
+// runs from the same worktree as a second supervised child (coarse.mjs). It writes state.json for the dev-server
+// plugin (vitePlugin.mjs): main's commit, the integrator's verdict for it, the tile release the server streams under
+// /tiles and the coarse service's commit and state.
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -10,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { port, workRoot } from '../environment.mjs';
+import { CoarseService } from './coarse.mjs';
 import { landingOf, readRows, runningStage, verdict } from './status.mjs';
 import { TileStore } from './tiles.mjs';
 
@@ -41,6 +43,8 @@ export function options(argv, env = process.env) {
     port: Number(opt('--port', port(1))),
     pollMs: Number(opt('--poll-ms', 1000)),
     build: !argv.includes('--no-build'),
+    coarse: !argv.includes('--no-coarse'),
+    coarsePort: port(5),
   };
 }
 
@@ -55,6 +59,13 @@ export class LocalhostGame {
     this.ancestry = new Map();
     this.written = '';
     this.tiles = new TileStore({ ...o, log: (row) => this.log(row) });
+    // The coarse service is localhost only; the dev server proxies /coarse/* to 127.0.0.1:<port base + 5>.
+    this.coarse = o.coarse ? new CoarseService({
+      command: () => ({ cmd: 'bash', args: [path.join(o.worktree, 'tools/dev/coarse-tiles'), '--port', String(o.coarsePort)],
+        cwd: o.worktree, env: process.env }),
+      head: () => this.current, host: '127.0.0.1', port: o.coarsePort, logFile: path.join(o.stateDir, 'coarse.log'),
+      log: (row) => this.log(row), onState: () => { void this.write(); },
+    }) : null;
   }
 
   git(cwd, ...args) { return run('git', args, { cwd, maxBuffer: 64 << 20 }).then(r => r.stdout.trim()); }
@@ -92,6 +103,7 @@ export class LocalhostGame {
     await this.status();
     await this.selecting;
     this.startVite();
+    void this.coarse?.start();
     // A landing moves refs/heads/<branch> (a lock file renamed into place) and appends to the ledger: react at once;
     // the poll covers packed refs and anything a watch misses.
     const refs = path.join(await this.git(this.o.repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'), 'refs/heads');
@@ -124,7 +136,8 @@ export class LocalhostGame {
     } finally { this.busy = false; }
   }
 
-  /** Moves the worktree to main's head; dependency or dev-server changes restart Vite. */
+  /** Moves the worktree to main's head; dependency or dev-server changes restart Vite, a change to a file the coarse
+   *  service loaded restarts it once its running builds finish (in the background: the follow loop goes on). */
   async follow() {
     const head = await this.git(this.o.repo, 'rev-parse', `refs/heads/${this.o.branch}`);
     if (head === this.current) return;
@@ -136,6 +149,7 @@ export class LocalhostGame {
     this.current = head;
     if (changed.some(p => DEPENDENCIES.includes(p))) { await this.install(); this.restartVite(); }
     else if (changed.some(p => SERVER.includes(p))) this.restartVite();
+    if (this.coarse && await this.coarse.affects(changed)) void this.coarse.restart();
   }
 
   async install() {
@@ -171,8 +185,8 @@ export class LocalhostGame {
 
   async writeNow() {
     const verification = this.verification, tiles = this.tiles.selection;
-    const state = { commit: this.current, verification, tiles, store: this.o.store, events: this.events,
-      worktree: this.o.worktree, port: this.o.port };
+    const state = { commit: this.current, verification, tiles, coarse: this.coarse?.status ?? { commit: null, state: 'off' },
+      store: this.o.store, events: this.events, worktree: this.o.worktree, port: this.o.port };
     const text = JSON.stringify(state, null, 2) + '\n';
     if (text === this.written) return;
     if (JSON.stringify(JSON.parse(this.written || '{}').verification) !== JSON.stringify(verification)) {
@@ -213,6 +227,7 @@ export class LocalhostGame {
     this.stopping = true;
     clearInterval(this.timer);
     this.tiles.stop();
+    this.coarse?.stop();
     this.vite?.kill('SIGTERM');
     fs.rmSync(path.join(this.o.stateDir, 'service.pid'), { force: true });
   }
@@ -221,7 +236,7 @@ export class LocalhostGame {
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(new URL(import.meta.url).pathname)) {
   const service = new LocalhostGame(options(process.argv.slice(2)));
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exit(0));
-  // Never leave the dev server behind: also on an uncaught error.
+  // Never leave the dev server or the coarse service behind: also on an uncaught error.
   process.on('exit', () => service.stop());
   service.start().then(() => console.log(`localhost-game: http://${service.o.host}:${service.o.port}/?tiles=/tiles/tileset.json`
     + ` follows ${service.o.branch} in ${service.o.worktree}`), (e) => { console.error(e); process.exit(1); });

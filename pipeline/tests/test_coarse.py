@@ -301,3 +301,39 @@ def test_service_http_routes(tmp_path):
         server.shutdown()
         server.server_close()
         builder.stop()
+
+
+def test_service_drain_lets_running_builds_finish_and_starts_no_more(tmp_path):
+    order = []
+    builder = Builder(tmp_path, command=_fake_command(order, seconds=0.5), code="test", workers=1)
+    server, _, _ = serve(0, tmp_path, builder=builder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}/coarse/"
+
+    def status():
+        with urllib.request.urlopen(base + "status") as r:
+            return json.loads(r.read())
+
+    try:
+        builder.request("t0_1_0", 10)
+        _wait(lambda: builder.building)
+        drain = urllib.request.Request(base + "drain", method="POST")
+        with urllib.request.urlopen(drain) as r:
+            assert json.loads(r.read()) == {"draining": True, "building": ["t0_1_0"]}
+        assert builder.request("t0_2_0", 20)["state"] == "queued"
+        _wait(lambda: not status()["building"])
+        time.sleep(0.2)  # a worker that would take t0_2_0 has had its chance
+        s = status()
+        assert s["built"] == ["t0_1_0"] and s["queue"] == ["t0_2_0"] and s["draining"] is True
+        assert order == ["t0_1_0"]
+        assert isinstance(s["started"], float)
+        assert "pipeline/turku3d/coarse/service.py" in s["modules"]
+        try:
+            urllib.request.urlopen(urllib.request.Request(base + "elsewhere", method="POST"))
+            raise AssertionError("POST to an unknown route must be 404")
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+        builder.stop()

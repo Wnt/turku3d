@@ -3,7 +3,7 @@
 //  GET  /tiles/*            the tile release the service selected (state.tiles.dir), else `tiles` (the sandbox dist)
 //  GET  /tile-store/<key>/* one immutable tile store release (state.store), for in-place tile swaps
 //  POST /telemetry          play telemetry (http.mjs)
-//  GET  /__localhost/status the badge status: { service, commit, verification, tiles }; { service: false } without it
+//  GET  /__localhost/status the badge status: { service, commit, verification, tiles, coarse }; { service: false } without it
 //  POST /__localhost/event  the game reports a loaded page, a hot swap or a tile release swap; appended to state.events
 //  GET  /facades/candidates/ every reviewed generated facade candidate (../facadeCandidates.mjs)
 // A changed state file is pushed to open tabs as the custom HMR event `turku3d:status`.
@@ -17,7 +17,8 @@ import { resolveUnder, serveFile, telemetryHandler } from '../http.mjs';
 export function publicStatus(state) {
   if (!state?.commit) return { service: false };
   return { service: true, commit: state.commit, verification: state.verification ?? { state: 'unverified' },
-    tiles: state.tiles ? { key: state.tiles.key ?? null, source: state.tiles.source, building: state.tiles.building ?? null } : undefined };
+    tiles: state.tiles ? { key: state.tiles.key ?? null, source: state.tiles.source, building: state.tiles.building ?? null } : undefined,
+    coarse: state.coarse ?? undefined };
 }
 
 function readState(file) {
