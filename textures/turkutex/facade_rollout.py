@@ -350,7 +350,7 @@ def contact_sheet(run: Path, output: Path, title: str):
             text = "REJECTED: " + ("; ".join(verdict["problems"]) if verdict else "no image")
             colour = (160, 20, 20)
         tiles.append((f, ref, generated if generated.exists() else None, text[:170], colour))
-    width, thumb = 1200, 260
+    width, thumb = 900, 180
     sheet = Image.new("RGB", (width, 40 + len(tiles) * (thumb + 40)), (245, 244, 240))
     draw = ImageDraw.Draw(sheet)
     draw.text((10, 10), title, fill=(0, 0, 0))
@@ -368,7 +368,7 @@ def contact_sheet(run: Path, output: Path, title: str):
                 sheet.paste(image, (x0 + (width // 2 - image.width) // 2, y + 20))
         y += thumb + 40
     output.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(output, quality=82)
+    sheet.save(output, quality=72)
 
 
 def publish(run: Path, inventory: Path, assembly: Path) -> dict:
