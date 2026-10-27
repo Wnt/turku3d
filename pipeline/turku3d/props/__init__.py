@@ -249,12 +249,16 @@ def read_sources(bbox, source_area="work-3x3"):
     else:
         # Dated fetch snapshot: consume the latest one once, never overlapping epochs.
         streets = root / "GIS_Katualueet.parquet"
+        # Carriageway areas near the tile (city polygons can be invalid: repair before union).
+        window = shapely.box(*outer.as_tuple())
         carriageway = (
             shapely.union_all(
                 [
-                    r["geometry_local"]
+                    shapely.make_valid(shapely.force_2d(r["geometry_local"]))
                     for r in load(streets).to_dict("records")
-                    if r["Katuosalaji"] == "Ajorata" and r["geometry_local"] is not None
+                    if r["Katuosalaji"] == "Ajorata"
+                    and r["geometry_local"] is not None
+                    and r["geometry_local"].intersects(window)
                 ]
             )
             if streets.exists()
