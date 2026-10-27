@@ -228,15 +228,6 @@ def encode(graph: dict) -> bytes:
     return (json.dumps(graph, separators=(",", ":")) + "\n").encode()
 
 
-def code_hash() -> str:
-    base = Path(__file__).parents[1]
-    sources = sorted(Path(__file__).parent.glob("*.py")) + [base / "config.py", base / "layers.py"]
-    h = hashlib.sha256()
-    for path in sources:
-        h.update(path.name.encode() + path.read_bytes())
-    return h.hexdigest()
-
-
 def publish(layer: Path, tree) -> bool:
     """Copy the layer's graph to a content-addressed dist URL; True when the entry changed.
 

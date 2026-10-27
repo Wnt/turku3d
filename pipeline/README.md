@@ -58,14 +58,33 @@ read-through into `$TURKU3D_DATA/raw` (`python -m turku3d.fetch all --area tile-
 tiles intersecting it, WFS layers, both orthophotos and OSM by bbox). Ortho chunks are aligned
 to the origin, so a chunk another area already holds is cloned, not downloaded. The report's
 `inputs` records the area, missing files, fetch seconds and bytes. Ground and ground textures
-read each tile's own source area, and the colour calibration stays on `work-3x3`. The other
-producers still read `work-3x3`; they cover a tile only while the tile itself lies inside it. It
+read each tile's own source area, and the colour calibration stays on `work-3x3`. It
 appends the tile to `$TURKU3D_WORK/playable-tiles.json`. It clones the published layers, textures and tiles into an
 empty sandbox, then runs `turku3d.refresh` and `turku3d.package.assemble --area playable-tiles`
-for the whole list. Ground, buildings, outer massing, roads and props follow the list: refresh
-records the list it built each one for in `<layer>/PLAYABLE_TILES.json` and reruns a layer
-built for another list. Structures, bridges, vegetation and parked cars stay on the measured
-office core.
+for the whole list.
+
+### Per-tile producers
+
+[`turku3d.tile_layer`](turku3d/tile_layer.py) runs a producer once per listed L0 tile. A tile's
+build reads that tile's own inputs (`tile_layer.wfs(tile, name)`, `tile_layer.osm(tile)`, from
+`config.source_area(tile)`) and owns exactly the tile's layer files: `<tile>.vis.glb`, the
+`.col.npz` of its sixteen collision tiles and `<tile>.records.json` (its objects or clipped
+ways). The layer MANIFEST's `tile_builds` keeps each tile's key, a hash of everything the build
+reads, so refresh (`refresh.per_tile`) and the producer rebuild only stale tiles; layer-wide
+inventories (`props/instances.json`, `roads/roadgraph.json`) are combined from the records.
+Placement-dependent keys include the published collision tiles within 20 m
+(`placement.inputs.context_key`), so an added tile also rebuilds a neighbour only when the
+neighbour's placement context changed.
+
+| Producer | Inputs (per tile) | Cache key | Time per tile |
+|---|---|---|---|
+| ground | LAZ under the envelope, WFS streets/water/buildings, OSM, ortho | `ground/MANIFEST.json` `tile_builds` | 82–160 s |
+| roads | OSM ways (`tile_layer.osm`) | OSM clip + code | < 1 s (+8 s reading the work-3x3 clip) |
+| props | WFS register points, OSM lamps/bollards, placement context | sources + collision within 20 m + footprints + code | 30–60 s |
+
+The other list-following producers (buildings, outer massing, vegetation, parked cars) record
+the list they were built for in `<layer>/PLAYABLE_TILES.json` and rerun for another list.
+Structures and bridges stay on the measured office core.
 
 Only the new tile is built. Ground meshes each listed L0 tile in its own envelope: its 16
 collision tiles, one ring of collision tiles and the 50 m margin (`ground.build.envelope`).

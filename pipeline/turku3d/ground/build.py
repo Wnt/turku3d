@@ -27,10 +27,11 @@ from turku3d.layers import (
 )
 from turku3d.package.gltf import GlbMesh
 from turku3d.package.manifest import _atomic_write
+from turku3d.tile_layer import fingerprints
 
 from .breaklines import clamp_curb_heights, load_breaklines, records, validation_geojson
 from .ground_qa import evaluate_ground
-from .inputs import fingerprints, read_lidar, source_paths, vectors
+from .inputs import read_lidar, source_paths, vectors
 from .materials import Materials
 from .mesh import Mesh, build_mesh, parts, seam_errors, tile_mesh
 from .points import Surface, select_ground, split_points
@@ -240,6 +241,7 @@ def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
     started = time.monotonic()
     cells, bounds = envelope(tile)
     cache = C.cache_dir("ground")
+    cache.mkdir(parents=True, exist_ok=True)
     raw_key = hashlib.sha256(
         json.dumps(
             {k: v for k, v in inputs.items() if v["path"].endswith(".laz")}, sort_keys=True

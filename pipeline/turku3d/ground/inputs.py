@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-
 import numpy as np
 import shapely
 from shapely.geometry import box
@@ -43,33 +39,6 @@ def source_paths(bounds, source_area="work-3x3"):
         if not path.exists():
             raise FileNotFoundError(path)
     return paths
-
-
-def fingerprints(paths):
-    """Memoized SHA-256s keyed by file path and identity; raw files are immutable by contract.
-
-    Per-tile builds ask for overlapping path sets, so the memo keeps every path it has seen."""
-    cache = C.cache_dir("ground") / "input-hashes.json"
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    previous = json.loads(cache.read_text()) if cache.exists() else {}
-    memo = dict(previous)
-    result = {}
-    for key, path in paths.items():
-        stat = path.stat()
-        identity = {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
-        old = memo.get(str(path), {})
-        if all(old.get(k) == v for k, v in identity.items()):
-            identity["sha256"] = old["sha256"]
-        else:
-            with path.open("rb") as stream:
-                identity["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
-        memo[str(path)] = identity
-        result[key] = identity
-    if memo != previous:
-        temporary = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(memo, indent=2) + "\n")
-        temporary.replace(cache)
-    return result
 
 
 def read_lidar(paths, bounds):

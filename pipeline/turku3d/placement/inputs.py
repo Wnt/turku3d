@@ -7,7 +7,7 @@ from dataclasses import asdict
 import numpy as np
 import pyarrow.parquet as pq
 from shapely import force_2d, from_wkb, make_valid, union_all
-from shapely.geometry import box, shape
+from shapely.geometry import Point, box, shape
 
 from turku3d import config as C
 from turku3d.layers import layer_root, read_collision, read_manifest
@@ -28,10 +28,79 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# context() reads ground triangles within this distance of the bounds; the inventories of
+# earlier producers matter a little farther out (their footprints reach into the envelope).
+CONTEXT_MARGIN = 20
+INVENTORY_MARGIN = CONTEXT_MARGIN + 10
+SURFACE_LAYERS = ("ground", "structures", "bridges")
+
+
+def context_key(bounds, layer, source_area):
+    """Identities of everything context() and placed_before() read for these bounds.
+
+    Collision tiles are named by their published hashes, footprints and earlier inventories
+    by the records that reach the envelope, so an unrelated change elsewhere keeps the key."""
+    from turku3d.tile_layer import identities
+
+    envelope = box(*bounds.as_tuple()).buffer(CONTEXT_MARGIN)
+    cells = {}
+    roots = sorted(p for p in layer_root().iterdir() if p.is_dir()) if layer_root().is_dir() else []
+    for root in roots:
+        surface = root.name in SURFACE_LAYERS
+        if not (surface or (layer == "traffic_static" and root.name != layer)):
+            continue
+        manifest = root / "MANIFEST.json"
+        if not manifest.is_file():
+            continue
+        for filename, entry in json.loads(manifest.read_text())["tiles"].items():
+            if filename.endswith(".col.npz"):
+                tile = C.CollisionTile.parse(filename.split(".")[0])
+                if envelope.intersects(box(*tile.bbox.as_tuple())):
+                    cells[f"{root.name}/{filename}"] = entry["sha256"]
+    wfs = C.raw_dir("wfs") / source_area
+    sources = {
+        name: wfs / f"{name}.parquet"
+        for name in ("GIS_Katualueet", "GIS_Keskilinjat", "GIS_Rakennukset")
+    }
+    osm = sorted((C.raw_dir("osm") / source_area).glob("*.parquet"))
+    if osm:
+        sources["osm"] = osm[-1]
+    if layer == "traffic_static":
+        sources["envelope"] = ENVELOPE_PATH
+    reach = envelope.buffer(INVENTORY_MARGIN - CONTEXT_MARGIN)
+    footprints = layer_root() / "buildings/footprints.geojson"
+    nearby = (
+        sorted(
+            json.dumps(f, sort_keys=True)
+            for f in json.loads(footprints.read_text())["features"]
+            if shape(f["geometry"]).intersects(envelope)
+        )
+        if footprints.is_file()
+        else []
+    )
+    before = {}
+    for other in PLACEMENT_ORDER[: PLACEMENT_ORDER.index(layer)]:
+        filename, key = INVENTORIES[other]
+        path = layer_root() / other / filename
+        if path.is_file():
+            records = json.loads(path.read_text())
+            before[other] = sorted(
+                json.dumps(r, sort_keys=True)
+                for r in (records[key] if key else records)
+                if reach.contains(Point(r["x"], r["z"]))
+            )
+    return {
+        "collision": cells,
+        "sources": identities(sources),
+        "footprints": hashlib.sha256("".join(nearby).encode()).hexdigest(),
+        "placed_before": hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest(),
+    }
+
+
 def context(bounds, inputs, source_area="work-3x3", layer="props"):
-    envelope = box(*bounds.as_tuple()).buffer(20)
+    envelope = box(*bounds.as_tuple()).buffer(CONTEXT_MARGIN)
     triangles, materials, decks = [], [], []
-    for name in ("ground", "structures", "bridges"):
+    for name in SURFACE_LAYERS:
         root = layer_root() / name
         if not root.exists() and name in ("structures", "bridges"):
             continue
@@ -196,7 +265,10 @@ def instance(record, layer):
     )
 
 
-def place_objects(objects, layer, bounds, inputs, source_area="work-3x3", validator=None):
+def place_objects(
+    objects, layer, bounds, inputs, source_area="work-3x3", validator=None, report=None
+):
+    """Validate and repair; `report` names the audit directory (default: the layer)."""
     from turku3d.placement.report import write_report
 
     validator = validator or context(bounds, inputs, source_area, layer)
@@ -231,13 +303,13 @@ def place_objects(objects, layer, bounds, inputs, source_area="work-3x3", valida
         for o in (instance(o, layer) for o in accepted)
         if validator.check(o)
     ]
-    report = write_report(layer, bounds, records, hard, source_area)
-    inputs["placement_report"] = digest(report)
+    path = write_report(report or layer, bounds, records, hard, source_area)
+    inputs["placement_report"] = digest(path)
     inputs["placement_code"] = hashlib.sha256(
         b"".join(
             p.read_bytes() for p in sorted(__import__("pathlib").Path(__file__).parent.glob("*.py"))
         )
     ).hexdigest()
     if hard:
-        raise ValueError(f"{layer}: {len(hard)} hard placement violations; see {report}")
+        raise ValueError(f"{layer}: {len(hard)} hard placement violations; see {path}")
     return accepted

@@ -1,25 +1,29 @@
 # Road graph layer
 
 Builds the street routing graph used by the in-game minimap and route guidance
-(`game/src/gameplay/router.ts`) from the read-only OSM snapshot
-`$TURKU3D_DATA/raw/osm/work-3x3/work-3x3-261024.parquet` (`geometry_local` is already in engine x/z).
+(`game/src/gameplay/router.ts`) per listed L0 tile ([`turku3d.tile_layer`](../tile_layer.py)):
+each tile clips the routable ways of its own OSM clip (`raw/osm/<config.source_area(tile)>/`,
+`geometry_local` is already in engine x/z) to the tile and keeps them in
+`t0_i_j.records.json`; the graph is built over every listed tile's ways (`layer.py`).
 
 ```sh
 source ../sandbox.env
-bash pipeline/env/run.sh python -m turku3d.roads          # playable-tiles: engine x/z 0..500 m
+bash pipeline/env/run.sh python -m turku3d.roads          # every listed tile; only stale ones rebuild
 bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_roads.py
 make refresh                                               # rebuilds it when code or OSM changes
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"            # publishes it with the tiles
 ```
 
-Output: `$TURKU3D_WORK/build/layers/roads/{roadgraph.json,MANIFEST.json}`. The manifest has no
-tiles; `params.graph` records the graph file's SHA-256 and size, plus node/edge counts and the
-walkable/drivable kilometres. The real playable area currently gives about 830 nodes,
-1,000 edges, 16 km walkable and 5 km drivable in 35 kB (14 kB gzip).
+Output: `$TURKU3D_WORK/build/layers/roads/{roadgraph.json,t0_i_j.records.json,MANIFEST.json}`.
+The manifest has no tiles; `params.graph` records the graph file's SHA-256 and size, plus
+node/edge counts and the walkable/drivable kilometres, and `tile_builds` each tile's key (its
+OSM clip and the producer code). The four core tiles give 872 nodes, 1,060 edges, 16 km walkable
+and 5 km drivable; a tile builds in under 1 s plus about 8 s to read the work-3x3 OSM clip.
 
 ## Graph
 
-Ways are clipped to the area core. Nodes are way endpoints, clip points and vertices visited by
+Ways are clipped to each listed tile. A way crossing a tile edge is clipped at the same point
+from both sides, so its halves meet in a node there. Nodes are way endpoints, clip points and vertices visited by
 two or more ways or twice by one way. Shared OSM nodes project to identical coordinates, so
 coordinates rounded to 0.1 m identify them; ways that only cross (bridges over streets) stay
 unconnected. Each mode keeps only its largest connected network, so a snap never lands on an

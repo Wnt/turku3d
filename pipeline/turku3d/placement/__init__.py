@@ -36,27 +36,34 @@ class Surfaces:
         self.materials = np.asarray(materials)
         self.decks = np.zeros(len(materials), bool) if decks is None else np.asarray(decks)
         self.tree = STRtree(polygons(self.triangles[:, :, [0, 2]]))
+        # Per-triangle plane terms, computed once: edge vectors, the x/z determinant and
+        # whether the face is flat enough to stand on (at most 40 degrees).
+        t = self.triangles
+        a, b = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]
+        det = a[:, 0] * b[:, 2] - a[:, 2] * b[:, 0]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            slope = np.linalg.norm(np.cross(a, b)[:, [0, 2]], axis=1) / np.abs(det)
+        usable = (np.abs(det) >= 1e-10) & (slope <= math.tan(math.radians(40)))
+        # Plain floats per triangle: the per-sample loop below runs ~10^5 times per tile.
+        rows = np.column_stack((t[:, 0], a, b, det)).tolist()
+        self._rows = [row if ok else None for row, ok in zip(rows, usable.tolist(), strict=True)]
+        self._labels = list(
+            zip(self.materials.astype(int).tolist(), self.decks.astype(bool).tolist(), strict=True)
+        )
 
     def at(self, x, z):
-        hits = []
-        for i in self.tree.query(Point(x, z), predicate="intersects"):
-            t = self.triangles[i]
-            a, b = t[1] - t[0], t[2] - t[0]
-            det = a[0] * b[2] - a[2] * b[0]
-            if abs(det) < 1e-10:
+        best = None
+        for i in self.tree.query(Point(x, z), predicate="intersects").tolist():
+            row = self._rows[i]
+            if row is None:
                 continue
-            u = ((x - t[0, 0]) * b[2] - (z - t[0, 2]) * b[0]) / det
-            v = (a[0] * (z - t[0, 2]) - a[2] * (x - t[0, 0])) / det
-            slope = np.linalg.norm(np.cross(a, b)[[0, 2]]) / abs(det)
-            if slope <= math.tan(math.radians(40)):
-                hits.append(
-                    (
-                        float(t[0, 1] + u * a[1] + v * b[1]),
-                        int(self.materials[i]),
-                        bool(self.decks[i]),
-                    )
-                )
-        return max(hits, default=None, key=lambda h: h[0])
+            x0, y0, z0, ax, ay, az, bx, by, bz, det = row
+            u = ((x - x0) * bz - (z - z0) * bx) / det
+            v = (ax * (z - z0) - az * (x - x0)) / det
+            height = y0 + u * ay + v * by
+            if best is None or height > best[0]:
+                best = (height, *self._labels[i])
+        return best
 
 
 WALK = {

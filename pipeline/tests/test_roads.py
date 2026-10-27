@@ -1,16 +1,13 @@
 import hashlib
 import json
 
-import geopandas as gpd
 import pytest
 from shapely.geometry import LineString
 from test_assemble import assemble, fixture
-from turku3d import config as C
 from turku3d import roads
 from turku3d.layers import write_manifest
 from turku3d.package.manifest import DistTree, verify_tree
 from turku3d.roads import CAR, CLASS_SHIFT, FOOT, ONEWAY, build_graph, way_flags
-from turku3d.roads.__main__ import build as build_layer
 
 STREET = 2 << CLASS_SHIFT
 
@@ -82,46 +79,54 @@ def test_validate_rejects_bad_graphs():
             roads.validate(broken)
 
 
-def osm_fixture(path):
-    rows = [
-        (
-            "residential",
-            {"highway": "residential", "oneway": "-1"},
-            [(-20, 10), (40, 10), (80, 10)],
-        ),
-        ("footway", {"highway": "footway"}, [(40, 10), (40, 60)]),
-        ("corridor", {"highway": "corridor"}, [(40, 60), (40, 90)]),
-        ("bus_stop", {"highway": "bus_stop"}, None),
-    ]
-    frame = gpd.GeoDataFrame(
-        {
-            "highway": [r[0] for r in rows],
-            "tags": [json.dumps(r[1]) for r in rows],
-            "geometry_local": gpd.GeoSeries(
-                [LineString(r[2]) if r[2] else LineString([(0, 0), (0, 0)]).centroid for r in rows]
+def osm_fixture():
+    import producer_world as world
+    from shapely.geometry import Point
+
+    world.write_osm(
+        [
+            (
+                {"highway": "residential", "oneway": "-1"},
+                LineString([(-20, 10), (200, 10), (300, 10), (520, 10)]),
             ),
-        },
-        geometry="geometry_local",
+            ({"highway": "footway"}, LineString([(200, 10), (200, 60)])),
+            ({"highway": "corridor"}, LineString([(200, 60), (200, 90)])),
+            ({"highway": "bus_stop"}, Point(0, 0)),
+        ]
     )
-    frame.to_parquet(path)
 
 
-def test_layer_build_clips_to_area_and_reverses_backward_oneways(tmp_path, monkeypatch):
-    osm = tmp_path / "osm.parquet"
-    osm_fixture(osm)
-    monkeypatch.setitem(C.AREAS, "tiny", C.Area("tiny", "test", C.BBoxLocal(0, 0, 70, 70)))
-    out = tmp_path / "layers/roads"
-    params = build_layer(out, osm, "tiny")
+def test_graph_is_built_per_tile_and_joins_at_tile_edges(monkeypatch):
+    from turku3d import tile_layer
+    from turku3d.layers import layer_root
+    from turku3d.roads.layer import PRODUCER
+
+    monkeypatch.setenv("TURKU3D_JOBS", "1")
+    osm_fixture()
+    out = layer_root() / "roads"
+    tile_layer.run(out, PRODUCER, ["t0_0_0"])
+    one = json.loads((out / "roadgraph.json").read_text())
+    assert max(one["nodes"][0::2]) == 250 and min(one["nodes"][0::2]) == 0  # clipped
+    result = tile_layer.run(out, PRODUCER, ["t0_0_0", "t0_1_0"])
+    assert result["built"] == ["t0_1_0"] and result["cached"] == ["t0_0_0"]
     graph = json.loads((out / "roadgraph.json").read_text())
-    assert params["nodes"] == 4 and params["edges"] == 3 and params["graph"]["bytes"] < 1000
-    xs = graph["nodes"][0::2]
-    assert min(xs) == 0 and max(xs) == 70  # clipped at the area edge
     nodes = graph["nodes"]
+    assert min(nodes[0::2]) == 0 and max(nodes[0::2]) == 500
+    # One street across the seam: its two halves share the clip node at x = 250.
+    street = [e for e in graph["edges"] if e[2] & CAR]
+    assert sum(e[3] for e in street) == 500.0
+    seam = {i for i in range(len(nodes) // 2) if nodes[2 * i] == 250}
+    assert len(seam) == 1 and sum(e[0] in seam or e[1] in seam for e in street) == 2
     for a, b, flags, *_ in graph["edges"]:
         if flags & ONEWAY:
             assert nodes[2 * a] > nodes[2 * b]  # oneway=-1 runs against the drawn direction
     manifest = json.loads((out / "MANIFEST.json").read_text())
-    assert manifest["code"] == roads.code_hash() and manifest["tiles"] == {}
+    assert manifest["code"] == PRODUCER.code() and manifest["tiles"] == {}
+    assert manifest["params"]["edges"] == len(graph["edges"]) == 4  # split at x = 200 and 250
+    assert (
+        manifest["params"]["graph"]["sha256"]
+        == hashlib.sha256((out / "roadgraph.json").read_bytes()).hexdigest()
+    )
 
 
 def roads_layer(root, length):

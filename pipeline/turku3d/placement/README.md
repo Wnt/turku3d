@@ -20,7 +20,7 @@ which covers every pair once.
 
 ```sh
 source ../sandbox.env
-bash pipeline/env/run.sh python -m turku3d.props --area phase1
+bash pipeline/env/run.sh python -m turku3d.props
 bash pipeline/env/run.sh python -m turku3d.vegetation
 bash pipeline/env/run.sh python -m turku3d.parked --seed 16
 bash pipeline/env/run.sh python -m turku3d.placement
@@ -30,12 +30,17 @@ make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 make tile-show
 ```
 
-Props cover the Phase 1 envelope in this command; vegetation covers the office core
-plus its margin, and parked cars cover the office core. Signs belong to props, not a
+Props cover the listed tiles, one tile at a time; vegetation covers the listed tiles plus
+their margin, and parked cars the listed tiles. Signs belong to props, not a
 separate producer. The last two commands assemble and serve on sandbox port base + 1;
 there is no main deployment or merge.
 
-Reports are `$TURKU3D_WORK/reports/placement/<layer>/{placement.json,index.html}`.
+Reports are `$TURKU3D_WORK/reports/placement/<layer>/{placement.json,index.html}`; per-tile
+producers (props) write `reports/placement/<layer>/<tile>/`. `context_key(bounds, layer,
+source_area)` names everything `context()` reads for a tile (collision tiles within 20 m by
+their published hashes, the semantic sources, nearby footprints and earlier inventories), so a
+per-tile producer's cache key changes only when the placement context of that tile changes.
+`python -m turku3d.placement` revalidates every listed tile with its own source area.
 HTML embeds the cached orthophoto and marks accepted/corrected/omitted objects, with
 one row per source violation. JSON retains source and final transforms and residual
 hard violations. Prop/car candidates initially have unassigned height zero: their
