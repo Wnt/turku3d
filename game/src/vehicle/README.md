@@ -53,6 +53,35 @@ The chase camera grows from 6.5 to 10.1 m and from 60° to 73.5° vertical FOV; 
 without look input while moving. A 0.3 m sphere sweep in the physics worker protects its near plane, and only a swept
 pose is committed to the camera. Reset is R3/C. Leaving the car cancels pending camera results.
 
+## Scooter (two-wheeler)
+
+`new Vehicle(R, world, pos, yaw, surfaces, { kind: 'scooter' })` uses the `SCOOTER` tuning instead of `CAR`
+(`physics/constants.ts`, both `VehicleTuning`; `VEHICLES[kind]`). Every wheel loop, the steered/driven wheel
+sets, the handling limits and the curb wheel casts (`castWheel(..., radius)`) read the tuning, so the car is
+unchanged. `VehicleSpec.kind` and `VehicleState.kind` carry the class through the worker protocol.
+
+| | Scooter | Car |
+|---|---|---|
+| Mass (rider included) | 190 kg, centre of mass 0.35 m below the chassis box centre | 1200 kg |
+| Chassis box | 2.04 × 0.6 × 0.6 m | 4.2 × 0.6 × 1.8 m |
+| Wheels | front (steered) and rear (driven) on the centre line, 1.25 m wheelbase, r 0.24 m; two outrigger wheels 0.36 m either side, 0.62 m ahead of the rear wheel | four, r 0.33 m |
+| Top speed | 12.5 m/s = 45 km/h (engine limit 13.8 m/s against drag; measured 12.49 m/s) | about 25 m/s |
+| Acceleration | 600 N on the rear wheel: 0–30 km/h in 2.8 s | 2 × 3200 N |
+| Braking | 12.5 m/s to rest in 11.5 m (about 6.8 m/s²) | |
+| Steering | 0.70 rad lock, half at 6 m/s, 3.2 rad/s rate; full-lock radius about 1.7 m at walking pace | 0.55 rad, half at 10 m/s |
+| Reverse | 2 m/s (pushing back) | 8 m/s |
+
+The outrigger wheels are invisible and keep the ray-cast controller upright; together with the lowered
+centre of mass the chassis stays within 3° of upright in a full-lock turn at top speed. There is no lean
+simulation: `lean.ts` `scooterLean(speed, steer)` gives the cosmetic lean that balances a kinematic bicycle's
+lateral acceleration, capped at 15°, and `actors/scooter.ts` rolls the model and the rider about the tyre
+contact line with it. Curbs: a 12 cm kerb at 4 m/s is felt (strike event, rumble, pitch) and passed; a 30 cm
+step stops the scooter (the barrier rule below 3 m/s, otherwise the chassis box).
+
+Run `npx vitest run tests/unit/scooter.test.ts` (parameters, lean, top speed/acceleration/braking/roll, turning
+radius against the car, kerb and step) and `(cd game && npx playwright test tests/e2e/scooter.spec.ts --workers=2)`
+for the purchase, kerb, 45 km/h, lean and dismount route on WebGPU and WebGL2.
+
 ## Verification
 
 From the repo root:

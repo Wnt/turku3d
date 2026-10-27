@@ -97,7 +97,7 @@ lock and the art are checked in Chrome by `tests/e2e-tile/shops.spec.ts`
 ## Menu art
 
 `game/public/assets/ui/`: three 1280×720 backgrounds and nine 256×256 icons, WebP, each under
-200 KB (largest `bg_dealer.webp`, 129 KB; 345 KB in total). They were generated with the project's
+200 KB (largest `bg_dealer.webp`, 129 KB; 338 KB in total). All but `icon_scooter` were generated with the project's
 Codex image runner and are project-owned (`game/public/assets/LICENSES.md`).
 
 | Job id = file | Used by | Subject (full prompt: `textures/turkutex/ui_art.py`) |
@@ -112,7 +112,7 @@ Codex image runner and are project-owned (`game/public/assets/LICENSES.md`).
 | `icon_pizza_box` | Take the next delivery order | Steaming pizza box |
 | `icon_slice` | A slice for yourself | Pizza slice |
 | `icon_coins` | Tip rules, sell your vehicle back | Coins and banknotes |
-| `icon_bicycle` | Bicycle | City bicycle with a basket |
+| `icon_scooter` | Scooter | Moped scooter with a pizza box on the rear rack (interim hand-drawn file, see below) |
 | `icon_car` | Car | Dented second-hand hatchback |
 
 Every prompt shares one style block (flat-shaded vector illustration, palette navy #141a2e, slate
@@ -134,6 +134,10 @@ cd textures
 .venv/bin/python -m turkutex codex run "$TURKU3D_WORK/ui-art/jobs.jsonl" --out "$TURKU3D_WORK/ui-art/run1" -j 4
 .venv/bin/python -m turkutex.ui_art encode "$TURKU3D_WORK/ui-art/run1" ../game/public/assets/ui
 ```
+
+`icon_scooter.webp` (2026-10-27) is an interim, project-owned flat-vector drawing in the same palette:
+`textures/ui-art/icon_scooter.svg`, rendered at 256×256 in headless Chromium and saved as WebP (quality 90)
+with Pillow. The `ART` entry `icon_scooter` holds its prompt; the next Codex `ui_art` run replaces it.
 
 `encode` centre-crops each primary PNG to its aspect ratio, scales it with Lanczos and writes WebP at
 the highest quality (86 down to 38) that fits 200 KB. To change one picture, edit its subject in

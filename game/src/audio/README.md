@@ -2,7 +2,7 @@
 
 `GameAudio` owns the Web Audio graph: buffer source → per-voice gain → optional HRTF panner →
 channel gain → master gain → compressor → output. The renderer backend has no audio dependency.
-The 18 original CC0 mono Opus effects total 194,444 bytes; sources and licences are in
+The 19 original CC0 mono Opus effects total 218,083 bytes; sources and licences are in
 [`public/assets/audio/LICENSES.md`](../../public/assets/audio/LICENSES.md).
 
 Gameplay emits typed `AudioEvent` objects from `mix.ts`. `GameplayAudio.update` adapts the existing
@@ -13,12 +13,14 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
   material table's `audio` key. Asphalt, stone/granite, grass, gravel and wood have separate samples.
   Soil uses grass; sand uses gravel; concrete/metal use stone; water/none are silent.
 - The positional engine follows throttle and estimated RPM. Vehicle v1 has no simulated drivetrain:
-  a three-gear speed approximation supplies RPM. Rolling follows speed with wheel contact;
+  a three-gear speed approximation supplies the car's RPM; the scooter holds high CVT revs that climb with
+  speed. `ENGINE_SOUND` picks the loop per vehicle class (`engine` for the car, the buzzing two-stroke
+  `scooter` for the scooter, at a higher playback rate); the other engine loop stays silent. Rolling follows speed with wheel contact;
   screech follows lateral velocity/handbrake slip with wheel contact.
 - Curb events consume W1-07 `curbStrike.id` once. Collision events use optional
   `VehicleState.impact = {id, impulse}` (N·s), measured by summing Rapier contact manifold impulses
   after each fixed step. A 600 N·s threshold and 150 ms cooldown suppress resting-contact chatter.
-- Both enter and exit open the door, then close it after 300 ms. Gamepad connection emits one blip.
+- Entering and leaving a car open the door, then close it after 300 ms; the scooter has no door sounds. Gamepad connection emits one blip.
 - City bed, wind and distant traffic mix with a positional river/gull pair. River position is the
   nearest point on an approximate Aura centreline in engine coordinates; the water/gull mix fades
   to zero over 140 m. This is an office-area approximation, not measured water geometry.
