@@ -295,7 +295,13 @@ def pseudo_benchmark(labels, refs, output, variants, segmenter, engine, image_me
             rows=rows,
         )
         write_json(target, result)
-        print(json.dumps({k: v for k, v in result.items() if k != "rows"}), flush=True)
+        print(
+            json.dumps(
+                {k: v for k, v in result.items() if k not in ("rows", "failed")}
+                | {"failed_count": len(failures)}
+            ),
+            flush=True,
+        )
 
 
 def main():
@@ -307,12 +313,22 @@ def main():
         "--assembly", type=Path, default=config.data_root() / "facade-approvals/assembly"
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS[:-1]))
+    parser.add_argument("--variants", nargs="+", choices=VARIANTS)
     parser.add_argument("--segmentation", choices=("classic", "segformer"), default="classic")
     parser.add_argument("--engine", default="cv", help="cv or a landed facade_models.Engine name")
     args = parser.parse_args()
     if bool(args.fixture) == bool(args.labels):
         parser.error("choose --fixture or --labels")
+    if args.variants is None:
+        args.variants = (
+            list(VARIANTS[:-1])
+            if args.engine == "cv"
+            else [v for v in VARIANTS if v not in ("periodic", "contrast", "modelgrid")]
+        )
+    if args.engine != "cv" and any(v in args.variants for v in ("periodic", "contrast")):
+        parser.error("periodic/contrast use --engine cv; use modelgrid for cv-models columns")
+    if "modelgrid" in args.variants and args.engine != "cv-models":
+        parser.error("modelgrid requires --engine cv-models")
     start = time.monotonic()
     image_measure = None
     segmenter = None

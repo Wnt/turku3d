@@ -757,3 +757,13 @@ transforms; `periodic` and `contrast` specifically replace the classic opening-g
 preparation cost recorded in local sidecars and excluded from describe latency. All other
 transform work and additional-view reads are included. Benchmark JSON is overwritten on each
 invocation; run only the desired `--variants` when continuing an experiment. Images stay local.
+
+`facade_fast describe --engine cv-transforms --run "$RUN" --inventory "$FACADES" --refs "$REFS"`
+retains the metric `periodic` reader as an opt-in research engine, with optional
+`--segmentation segformer`. It uses the shared description writer and always requires review.
+Count agreement on the bulk pseudo-labels improves, but reviewer accuracy remains below target,
+so Astra remains the default. `--engine cv-models --variants modelgrid` in the transform benchmark
+tests column votes across metric upper-storey bands while preserving DINO's storey count.
+The benchmark records unsupported model inputs as failures without removing their count targets;
+colour is scored only where a prediction exists, with measured coverage reported explicitly.
+See [the transform study](../docs/research/facade-cv-transforms.md) for the measured outcomes.
