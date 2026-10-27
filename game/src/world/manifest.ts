@@ -13,6 +13,8 @@ export interface Manifest {
   vehicles?: ParkedVehicle[];
   vehicle_models?: Record<string, { url: string; sha256: string; bytes: number }>;
   roads?: { url: string; sha256: string; bytes: number; nodes: number; edges: number };
+  /** Delivery address pool (pipeline/turku3d/content, format turku3d-addresses v1). */
+  addresses?: { url: string; sha256: string; bytes: number; count: number };
   baseUrl: string;
 }
 

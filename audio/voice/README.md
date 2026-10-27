@@ -33,7 +33,7 @@ make voice-test    # pytest with a fake synthesizer (no model download)
 After changing a voiced line's text, a speaker preset or the lexicon, run `make voice-build` and commit
 the changed clips with `manifest.json`. The gate's `voice-tests` stage runs on changes to `audio/voice/`,
 `dialogue.json` or the clips; it includes the committed-clip check, so a stale or missing clip fails the
-gate with the line id. A full rebuild of the current 34 lines takes about 2 minutes (3 s per line on a
+gate with the line id. A full rebuild of the current 84 lines takes about 5 minutes (3 s per line on a
 loaded host); unchanged lines cost nothing.
 
 ## How it works
@@ -61,7 +61,7 @@ loaded host); unchanged lines cost nothing.
 
 ## Assets in the repo
 
-The clips are committed: 34 lines are about 0.6 MB in total and each file is far below the 512 KiB
+The clips are committed: 84 lines are about 1.3 MB in total and each file is far below the 512 KiB
 per-file budget in `scripts/dev/gate.toml`. `make game-build` (and so the live release) copies
 `game/public/assets/voice/` like the other audio, and nobody needs the model to build the game. If the
 dialogue grows past about 2 MB of clips, move the output to `$TURKU3D_WORK` and add a live-build step.

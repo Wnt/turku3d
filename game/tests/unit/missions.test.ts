@@ -47,7 +47,7 @@ function harness(saved: string | null = null) {
     while (missions.money < money) {
       if (missions.permit === 0) { choose(MARKET.point, 'rent_permit'); leave(MARKET.point); }
       choose(PIZZERIA.point, 'take_order');
-      press(near(missions.currentDelivery.point));
+      press(near(missions.currentStop.point));
     }
   };
   return { missions, states, at, press, wait, choose, leave, option, earn, last: () => states[states.length - 1] };
@@ -236,7 +236,7 @@ describe('mission state machine', () => {
     expect(h.last().message).toBe(lineText(`paid_tip_${expectedTip}`));
     h.wait(far, 15);
     expect(h.missions.phase).toBe('at_pizzeria');
-    expect(h.missions.currentDelivery).toBe(DELIVERIES[1]);
+    expect(h.missions.currentStop.scripted).toBe(DELIVERIES[1]);
     h.press(near(PIZZERIA.point));
     expect(h.missions.shop!.line).toBe(lineText('pizzeria_back'));
   });
@@ -255,7 +255,7 @@ describe('mission state machine', () => {
     h.leave(MARKET.point);
     for (let i = 0; i < PERMIT_DELIVERIES; i++) {
       h.choose(PIZZERIA.point, 'take_order');
-      h.press(near(h.missions.currentDelivery.point));
+      h.press(near(h.missions.currentStop.point));
     }
     h.wait(far, 15);
     expect(h.missions).toMatchObject({ permit: 0, phase: 'permit_needed' });
@@ -295,7 +295,7 @@ describe('mission state machine', () => {
     const lines: string[][] = [];
     for (let i = 0; i < PERMIT_DELIVERIES; i++) {
       h.choose(PIZZERIA.point, 'take_order');
-      h.press(near(h.missions.currentDelivery.point));
+      h.press(near(h.missions.currentStop.point));
       lines.push(h.missions.snapshot().dialogue);
     }
     expect(lines.slice(0, PERMIT_DELIVERIES - PERMIT_WARN_AT - 1).every(l => l.length === 2)).toBe(true);
@@ -312,7 +312,7 @@ describe('mission state machine', () => {
     h.wait(far, 2 * par + 1);
     expect(h.missions.phase === 'failed' || h.missions.phase === 'at_pizzeria').toBe(true);
     expect(h.last().money).toBe(START_MONEY - PERMIT_PRICE);
-    expect(h.missions.currentDelivery).toBe(DELIVERIES[1]);
+    expect(h.missions.currentStop.scripted).toBe(DELIVERIES[1]);
     h.wait(far, 15);
     h.press(near(PIZZERIA.point));
     expect(h.missions.shop!.line).toBe(lineText('pizzeria_after_fail'));
@@ -340,8 +340,8 @@ describe('mission state machine', () => {
     const order: string[] = [];
     for (let i = 0; i < DELIVERIES.length + 2; i++) {
       h.choose(PIZZERIA.point, 'take_order');
-      order.push(h.missions.currentDelivery.id);
-      h.press(near(h.missions.currentDelivery.point));
+      order.push(h.missions.currentStop.id);
+      h.press(near(h.missions.currentStop.point));
     }
     expect(order).toEqual([...DELIVERIES, DELIVERIES[0], DELIVERIES[1]].map(d => d.id));
   });
@@ -412,7 +412,7 @@ describe('mission state machine', () => {
     expect(h.missions.phase).not.toBe('carrying');
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: OWN_VEHICLE_ID });
     expect(h.missions.phase).toBe('carrying');
-    const d = h.missions.currentDelivery;
+    const d = h.missions.currentStop;
     expect(h.missions.snapshot().par).toBeCloseTo(parSeconds(lDistance(PIZZERIA.point, d.point), 'bicycle'));
     expect(h.missions.mayDrive(OWN_VEHICLE_ID)).toBe(true);
     expect(h.missions.mayDrive('parked-1')).toBe(false);
@@ -430,7 +430,7 @@ describe('mission state machine', () => {
     h.leave(MARKET.point);
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: 'parked-1' });
     expect(h.missions.phase).toBe('carrying');
-    const d = h.missions.currentDelivery;
+    const d = h.missions.currentStop;
     expect(h.missions.snapshot().par).toBeCloseTo(parSeconds(lDistance(PIZZERIA.point, d.point), 'car'));
     expect(h.missions.mayDrive('parked-2')).toBe(true);
   });
@@ -444,7 +444,7 @@ describe('mission state machine', () => {
     a.choose(PIZZERIA.point, 'take_order');
     a.wait(far, 10);
     const saved = a.missions.serialize();
-    expect(JSON.parse(saved)).toMatchObject({ version: 2, phase: 'carrying', permit: PERMIT_DELIVERIES - 1, warning: true,
+    expect(JSON.parse(saved)).toMatchObject({ version: 3, phase: 'carrying', permit: PERMIT_DELIVERIES - 1, warning: true,
       money: START_MONEY - PERMIT_PRICE - WARNING_PRICE });
     const b = harness(saved);
     expect(b.missions).toMatchObject({ phase: 'carrying', permit: PERMIT_DELIVERIES - 1 });
@@ -484,8 +484,8 @@ describe('mission state machine', () => {
     record(h.leave(MARKET.point));
     expect(checkpoints).toEqual([null, 'purchase', null, null]);
     h.choose(PIZZERIA.point, 'take_order');
-    const deliveryAddress = h.missions.currentDelivery.address;
-    expect(record(h.press(near(h.missions.currentDelivery.point))).checkpoint).toBe('delivery');
+    const deliveryAddress = h.missions.currentStop.address;
+    expect(record(h.press(near(h.missions.currentStop.point))).checkpoint).toBe('delivery');
     expect(h.missions).toMatchObject({ deliveries: 1, lastAddress: deliveryAddress });
     expect(record(h.at(far, 0.1)).checkpoint).toBeNull();
     h.choose(PIZZERIA.point, 'take_order');
@@ -510,10 +510,10 @@ describe('mission state machine', () => {
     const v1 = (fields: string) => `{"version":1,${fields},"vehicle":"bicycle","delivery":5,"elapsed":12.5,"par":140}`;
     const h = harness(v1('"phase":"carrying","money":57,"licence":true'));
     expect(h.missions).toMatchObject({ phase: 'carrying', money: 57, permit: PERMIT_DELIVERIES, vehicle: 'bicycle',
-      plates: false, kidney: false, currentDelivery: DELIVERIES[1] });
+      plates: false, kidney: false, currentStop: { scripted: DELIVERIES[1] } });
     expect(h.last().timerSeconds).toBe(Math.ceil(2 * 140 - 12.5));
     h.press(near(DELIVERIES[1].point));
-    expect(JSON.parse(h.missions.serialize())).toMatchObject({ version: 2, permit: PERMIT_DELIVERIES, delivery: 6 });
+    expect(JSON.parse(h.missions.serialize())).toMatchObject({ version: 3, permit: PERMIT_DELIVERIES, delivery: 6 });
 
     expect(harness(v1('"phase":"licence_needed","money":120,"licence":false')).missions)
       .toMatchObject({ phase: 'permit_needed', permit: 0, money: 120 });

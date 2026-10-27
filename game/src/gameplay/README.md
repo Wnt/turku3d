@@ -11,17 +11,20 @@ Story, locations, economy and the state machine are specified in
 
 | File | Role |
 |---|---|
-| `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; `serialize()` / `restore(text \| null)` for the save slots (format 2, migrates format 1; `core/save.ts` stores the text) |
+| `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; `serialize()` / `restore(text \| null)` for the save slots (`core/save.ts` stores the text; format in `missions/save.ts`) |
 | `saveGame.ts` | `SaveGameController`: captures the running game into a save slot, places a loaded or new game (missions, clock, own car, player on the ground), autosave triggers, the pause menu's frame handling (`game/src/ui/README.md`, "Main menu, pause menu and save slots") |
 | `economy.ts` | Prices, permit rental, payouts, base pay, tip formula, par time, deadline |
 | `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
 | `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
 | `zones.ts` | `ZoneMarkers`: glowing ring, light wall and floating label at every HUD target, coloured like the minimap (`KIND_COLOURS`) |
-| `content/deliveries.ts` | Delivery missions in play order (repeat after the last) |
+| `content/deliveries.ts` | The scripted opening: four deliveries in play order (they repeat only without an address pool) |
+| `content/addresses.ts` | Loads `manifest.addresses` (the pool published by `pipeline/turku3d/content`), checks its origin is the pizzeria, skips addresses in tiles the manifest lacks |
+| `missions/save.ts` | The mission save text (format 3, opaque to `core/save.ts`) and the migrations of formats 1 and 2 |
+| `missions/orders.ts` | Seeded order draws after the opening: no repeats until the pool is exhausted, distance ladder, short hops, every fifth order a double |
 | `content/dialogue.json` | Every displayed line: intro, hints, prompts, notices, pay lines, character dialogue |
-| `content/dialogue.ts` | Typed lookup by line id (`lineText`, `dialogueLine`) |
+| `content/dialogue.ts` | Typed lookup by line id (`lineText(id, vars?)` fills `{name}` placeholders of unvoiced lines, `dialogueLine`) |
 
-`main.ts` constructs the system with the street router (below), calls
+`main.ts` constructs the system with the street router (below) and the address pool, calls
 `missions.update(dt, { position, interact, input, vehicleId, choose, leave })` every frame (dt 0
 while paused or on the start screen), asks `missions.mayDrive(id)` before entering a vehicle, caps
 the player's car at bicycle speed when the bicycle is owned, scales run and sprint speed by
@@ -43,7 +46,11 @@ loaded or new game is placed.
 `__game.state()` adds `missions` (with `shop`, `permit`, `runFactor`), `zones` and `shopMenu`
 snapshots for tests.
 
-### Adding a delivery
+### Delivery addresses
+
+Orders after the opening come from the published address pool; a new tile build adds its
+addresses without a code change (see `docs/design/story.md`, "Address pool"). To change the
+scripted opening:
 
 1. Pick an address inside the published area and a street-side point in front of it. Check that the
    point is walkable and has no building above it in the published collision tiles.
@@ -58,7 +65,8 @@ snapshots for tests.
    commit the clips in `game/public/assets/voice/` (see `audio/voice/README.md`). The gate fails on a
    voiced line without a current clip. The game plays a clip when the HUD shows its exact text.
 
-A saved game stores only the delivery index, so adding deliveries keeps existing saves valid.
+A saved game stores scripted stops by id (`delivery_<n>`) and pool stops by address slug, so a
+rebuilt pool keeps existing saves valid; an order whose address left the pool is dropped on load.
 
 ### Adding a shop option
 
@@ -73,13 +81,17 @@ previous format.
 
 ```sh
 cd game
-npx vitest run tests/unit/missions.test.ts tests/unit/shops-ui.test.ts tests/unit/input.test.ts
+npx vitest run tests/unit/missions.test.ts tests/unit/orders.test.ts tests/unit/shops-ui.test.ts tests/unit/input.test.ts
 # Chrome checks on the real tiles (build the game first: make game-build)
 python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test -c playwright.tile.config.ts \
-  tests/e2e-tile/missions.spec.ts tests/e2e-tile/shops.spec.ts
+  tests/e2e-tile/missions.spec.ts tests/e2e-tile/shops.spec.ts tests/e2e-tile/deliveries.spec.ts
 ```
 
-`missions.spec.ts` (WebGPU) plays permit, pickup and a timed delivery through the menus and writes
+`deliveries.spec.ts` (WebGPU, skipped without `manifest.addresses`) starts from a save that has
+just finished the scripted four, takes the fifth and sixth orders at the pizzeria, checks both are
+different pool addresses with the tally and the address hint, opens the big map, hands both over and
+reloads with the delivered set intact; screenshots go to
+`$TURKU3D_WORK/reports/gameplay-delivery-pool/`. `missions.spec.ts` (WebGPU) plays permit, pickup and a timed delivery through the menus and writes
 screenshots of each prompt to `$TURKU3D_WORK/reports/gameplay-missions/`. `shops.spec.ts` (both
 backends) looks at the pizzeria zone from the street, walks into the black market zone (zone visible,
 prompt shown), opens the menu with E, checks that holding W leaves the player where it was, rents a
