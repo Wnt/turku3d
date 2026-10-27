@@ -629,10 +629,11 @@ def assemble(
                     if wire_bytes < HEADROOM_BYTES:
                         break
                 batch = max(1, math.ceil(len(ranked) * 0.1))
-                if not halve_densities(plan, ranked, floors, batch) and not halve_densities(
-                    plan, ranked, floors, batch, below_floors=True
-                ):
-                    break
+                if not halve_densities(plan, ranked, floors, batch):
+                    if wire_bytes <= 8_000_000 or not halve_densities(
+                        plan, ranked, floors, batch, below_floors=True
+                    ):
+                        break
             if wire_bytes > 8_000_000:
                 raise ValueError(
                     f"{tile.id}: visual plus ground textures exceeds 8 MB after facade scaling: {wire_bytes}"

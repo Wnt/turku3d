@@ -182,6 +182,15 @@ $PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --asse
 - **Publish** binds under the export lock and skips every wall that has a generated or derived
   map by then; a later generated (rollout) or derived map replaces a fast one.
 
+To promote existing sandbox maps, first finish `make refresh`, then run
+`make tile-build AREA=playable-tiles T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"`. Check each core
+visual entry's `wire_bytes` in `$TURKU3D_WORK/dist/tiles/manifest.json` against 8,000,000.
+Run the `publish` command above for each tile, using the data-root assembly and the unchanged
+inventory used by the plan; publication checks the target's own approval inventory and preserves
+better maps under the export lock. To stream those
+already built tiles to localhost without another build, run
+`python3 scripts/dev/tile_store.py put-tiles --repo "$PWD" --tiles-dir "$TURKU3D_WORK/dist/tiles" --tiles t0_0_0 t0_0_1 t0_1_0 t0_1_1`.
+
 The sidecar has the derived sidecar's fields with `source_mode: fast`, `references: []` and
 `fast_description` (`version`, `code`, `source`, `description`, `layout` as drawn, and for a
 read wall `reference` {source, view_id, crop_sha256} and `call` {model, effort, key, cached};

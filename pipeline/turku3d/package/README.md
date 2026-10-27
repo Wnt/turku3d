@@ -273,3 +273,11 @@ version 2 for the game's WebGPU/WebGL2 node material. One material per layer bat
 walls: `_KIT_LAYOUT` carries module/bay/storey, `_KIT_WALL` and `_KIT_TRIM` carry linear RGB,
 and `_KIT_ORIGIN` carries the UV origin. `TEXCOORD_0` stays in metres. Draft packaging uses
 this same binder; roof bindings remain independent.
+
+Facade atlas extraction uses unique temporary paths per request and atomically renames the
+finished PNG into the content cache. Concurrent walls sharing a source map can therefore
+resize it without deleting another request's temporary files. Verify with
+`make tile-build AREA=playable-tiles T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"`.
+
+The 7.6 MB headroom target stops at authored facade density floors when the tile already
+fits the hard 8 MB wire limit. Density drops below those floors only to meet the hard limit.
