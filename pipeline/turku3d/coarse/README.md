@@ -211,8 +211,10 @@ with seeded Poisson-disc fallback (5 m trunk spacing; 180/ha woodland, 40/ha par
 Buildings, city street polygons, OSM road/path corridors and water exclude new trunks.
 Classes 3–5, when present in the existing ground LAZ, supply canopy positions/heights above
 that same ground grid; ground-only `maanpinta` normally needs the fallback. No extra LAZ is fetched.
-The budget is 192 trees plus 24 low edge-bush instances per 250 m tile, using the shared
+The budget is 768 trees plus 24 low edge-bush instances per 250 m tile, using the shared
 `vegetation.visual.write_instances` LOD contract and prototypes. Collision reuses the existing
 trunk cylinders only; bushes and crowns have none. Manifest `vegetation` records the caps and
 measured/bush counts; `seconds.vegetation_scatter` records added producer time per tile.
+The tree cap was raised after the [Kupittaa render measurements](../../../docs/reports/perf-kupittaa-check.md);
+the bush cap and area densities are unchanged.
 Pure synthetic checks: `bash pipeline/env/run.sh python -m pytest pipeline/tests/test_coarse.py -k forest -q`.

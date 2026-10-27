@@ -448,6 +448,13 @@ def test_forest_rows_canopy_and_bushes():
     assert all(t.trunk_radius == 0 and t.height < 2 for t in bushes)
 
 
+def test_dense_forest_uses_the_raised_budget():
+    from turku3d.coarse.forests import TREE_CAP, scatter
+
+    points = scatter(shapely.box(0, 0, 250, 250), 0.018, shapely.GeometryCollection(), 42)
+    assert 600 < len(points) <= TREE_CAP
+
+
 def test_forest_osm_types_clip_to_tile(tmp_path, monkeypatch):
     import producer_world as world
     from turku3d.coarse.forests import read_areas

@@ -33,14 +33,30 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
 /** Draft look: 55 % saturation with a slight cool cast; drawn just in front of coplanar published terrain. */
 export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer) {
   const cache = new Map<THREE.Material, THREE.Material>();
+  const weights = THREE.ColorManagement.getLuminanceCoefficients(new THREE.Vector3());
   model.traverse(o => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = true; mesh.receiveShadow = true;
+    let vegetation = false;
+    for (let owner: THREE.Object3D | null = mesh; owner; owner = owner.parent) {
+      if (owner.userData.layer === 'vegetation') { vegetation = true; break; }
+    }
     const style = (source: THREE.Material) => {
       if (cache.has(source)) return cache.get(source)!;
-      const node = facadeKitMaterial(source, renderer) ?? ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
-      node.colorNode = saturation(node.colorNode ?? materialColor.rgb, 0.55).mul(vec3(0.94, 0.97, 1.04));
+      const pbr = source as THREE.MeshStandardMaterial;
+      let node: THREE.MeshStandardMaterial | THREE.MeshStandardNodeMaterial;
+      if (vegetation && pbr.type === 'MeshStandardMaterial' && !pbr.vertexColors &&
+          !Object.values(pbr).some(value => value?.isTexture)) {
+        // This tint is constant on untextured tree parts. Keep ordinary PBR
+        // materials so runtime LOD can combine bark/crown with vertex colours.
+        node = pbr.clone();
+        const luma = node.color.r * weights.x + node.color.g * weights.y + node.color.b * weights.z;
+        node.color.lerp(new THREE.Color(luma, luma, luma), 0.45).multiply(new THREE.Color(0.94, 0.97, 1.04));
+      } else {
+        node = facadeKitMaterial(source, renderer) ?? ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
+        node.colorNode = saturation(node.colorNode ?? materialColor.rgb, 0.55).mul(vec3(0.94, 0.97, 1.04));
+      }
       node.polygonOffset = true; node.polygonOffsetFactor = -1; node.polygonOffsetUnits = -2;
       cache.set(source, node);
       return node;

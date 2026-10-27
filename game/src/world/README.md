@@ -99,7 +99,12 @@ npm run build && python3 ../scripts/dev/host_slots.py browser -- node_modules/.b
 
 `vegetationLod.ts` handles both published and draft `EXT_mesh_gpu_instancing` trees
 (including older tiles): 50 m cells cull against the camera frustum and distance,
-then compact visible matrices into at most three draws per tile/prototype/material.
+then compact visible matrices into at most three draws per tile/prototype.
+The draft tint stays in ordinary PBR colours on untextured trees.
+Compatible opaque, untextured bark/crown parts with identical placements share a
+vertex-coloured mesh; differing PBR settings, textures and node materials retain
+separate draws. Clustering preserves the part colours, and far silhouettes retain
+the crown colour. Crowns already cheaper than 32 triangles share their mid/far draw.
 Near trees retain the source mesh and cast shadows; mid trees use vertex-clustered
 prototypes; far foliage uses 32-triangle opaque crossed silhouettes sampled from
 the same prototype. Bark disappears at far distance. No imagery or alpha testing
@@ -111,3 +116,30 @@ through `CoarseHost.styled`. Independent trunk collisions are unchanged. Verify
 with `scripts/dev/gate --fast --base main`; pure geometry/culling tests are in
 `game/tests/unit/vegetation-lod.test.ts`. The producer adds only constant metadata
 per prototype, with no added tile-build stage; build-time overhead was not timed.
+
+### Manual Kupittaa render measurement
+
+The fixed hotspot is engine `(1375,19,625)`, looking at `(1420,18,450)`, 65° FOV,
+medium quality at 2560×1440. Snapshot the nine draft tiles `t0_4_1` through
+`t0_6_3` **and their `shared/` textures** into a sandbox directory. Keep these
+bytes fixed while comparing versions; the report records each GLB hash.
+
+```sh
+source ../sandbox.env
+# Terminal 1: sandbox Vite server
+cd game && npm run dev -- --host 127.0.0.1
+# Terminal 2, from the repository root
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
+  node qa/render/kupittaa.mjs --drafts "$TURKU3D_WORK/reports/kupittaa/drafts" --label kupittaa
+```
+
+The manual probe applies the draft tint and alternates pre-LOD (`382fb21c^^` shadow batching), landed LOD
+(`382fb21c`) and the working tree in one Chrome/Metal process, three repetitions,
+with and without shadows. It uses the shared renderer, sky, post-processing and GPU
+timer, warms 120 frames and measures 240 with unlocked vsync and a final GPU drain.
+It creates temporary probe files and removes them on exit. No browser spec or gate
+budget is added. `--modes fixed` measures a changed density once; `--url`, `--out`
+and `--label` select the sandbox server and report paths. Reports include errors,
+all-pass calls/triangles, CPU/GPU/work percentiles and drained ms/frame. Compare
+work time and drained throughput; a vsync-limited RAF interval conceals headroom.
+See [Kupittaa measurements](../../../docs/reports/perf-kupittaa-check.md).
