@@ -30,5 +30,5 @@ export function lineText(id: string, vars?: LineVars): string {
   if (!vars) return text;
   return text.replace(/\{(\w+)\}/g, (match, name: string) => vars[name] ?? match);
 }
-/** Story intro paragraphs shown on the start screen of a new game. */
+/** Story intro paragraphs shown in the dialog after every New game action. */
 export const INTRO_LINE_IDS = ['intro_1', 'intro_2', 'intro_3'] as const;

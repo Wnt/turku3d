@@ -17,6 +17,7 @@ export class IntroDialog {
     this.element.setAttribute('aria-modal', 'true');
     this.element.setAttribute('aria-labelledby', 'intro-title');
     this.element.hidden = true;
+    this.element.style.setProperty('--intro-art', `url("${import.meta.env.BASE_URL}assets/ui/bg_intro.webp")`);
     this.element.innerHTML = '<div class="intro-panel"><p class="shop-speaker">Narrator</p><h2 id="intro-title">Turku, 2027</h2></div>';
     const panel = this.element.firstElementChild!;
     this.line.className = 'intro-line';
