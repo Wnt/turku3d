@@ -153,6 +153,8 @@ class Builder:
             self.on_missing(missing)
             return {"state": "pending-data", "missing": missing}
         with self.lock:
+            if tile in self.building:  # a worker took it while the inputs were checked
+                return {"state": "building", "since": self.building[tile]}
             self.priority[tile] = distance
             heapq.heappush(self.heap, (distance, tile))
             self.lock.notify()
@@ -165,6 +167,8 @@ class Builder:
             if self.priority.get(tile) != distance:
                 continue
             del self.priority[tile]
+            if tile in self.building:
+                continue
             if time.time() - self.requested.get(tile, 0.0) <= STALE_SECONDS:
                 return tile, distance
             self.requested.pop(tile, None)
