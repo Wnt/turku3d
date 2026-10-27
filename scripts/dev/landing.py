@@ -12,6 +12,7 @@ import subprocess
 import time
 import uuid
 
+import browser_budget
 import coordination as coord
 import landing_class
 import sandbox as s
@@ -253,6 +254,8 @@ def record(name, path, text, before, commit, source, started, gate, landing, bat
             "first_done_time": meta.get("first_finished", meta.get("finished")),
             "done_time": meta.get("finished"),
             "facade_regression_reason": facade_reason(text),
+            # The task's agent Chrome use (browser_budget.py); None for an unbudgeted task.
+            "browser_minutes": (browser_budget.read(name) or {}).get("used_minutes"),
             **landing,
         }
         if batch:

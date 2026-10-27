@@ -13,6 +13,7 @@ import time
 from collections import deque
 from pathlib import Path
 
+import browser_budget
 import coordination as coord
 import external_worker
 import host_slots
@@ -336,10 +337,16 @@ def status(name):
         else meta.get("last_commit", "?")
     )
     idle = coord.idle_minutes(path, meta)
+    account = browser_budget.read(name)
     print(
         f"{name}: {state}, {elapsed:.1f}s, last event={last[-1].get('type') if last else 'none'}, "
         f"commit={commit}, {unread_status(name, state)}"
         + (f", idle {idle} min" if idle is not None else "")
+        + (
+            f", browser {account['used_minutes']:.1f}/{account['budget_minutes']:g} min"
+            if account
+            else ""
+        )
     )
 
 

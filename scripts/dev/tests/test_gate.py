@@ -14,7 +14,16 @@ from unittest.mock import patch
 DEV = Path(__file__).resolve().parents[1]
 REPO = DEV.parents[1]
 sys.path.insert(0, str(DEV))
-from gate_lib import browser, changes, e2e, matches, related, selection  # noqa: E402
+from gate_lib import (  # noqa: E402
+    browser,
+    browser_plan,
+    changes,
+    describe,
+    e2e,
+    matches,
+    related,
+    selection,
+)
 from hooks import snapshot  # noqa: E402
 
 
@@ -43,6 +52,8 @@ class Fixture:
             "resources.py",
             "checks.py",
             "hooks.py",
+            "spec_selection.py",
+            "browser_budget.py",
         ):
             self.write("scripts/dev/" + name, (DEV / name).read_text())
         (self.root / "scripts/dev/gate").chmod(0o755)
@@ -165,30 +176,92 @@ class GateTest(unittest.TestCase):
         self.assertEqual(related(stage, ["pkg/a.py", "pkg/b.py"], "tests"), ["a", "b", "common"])
         self.assertIsNone(related(stage, ["pkg/new.py"], "tests"))
 
-    def test_vehicle_selection_does_not_run_an_empty_pipeline_browser_suite(self):
-        config = tomllib.loads((DEV / "gate.toml").read_text())
-        stage = next(s for s in config["stages"] if s["kind"] == "e2e")
-        env = {"PIPELINE_PY": sys.executable, "TURKU3D_PORT_BASE": "5190"}
-        with patch("gate_lib.run_commands", return_value=(0, "browser suite passed")) as run:
-            code, output = e2e(REPO, stage, ["game/src/vehicle/vehicle.ts"], False, env)
-            self.assertEqual(code, 0)
-            self.assertIn("SKIP pipeline browser suite", output)
-            self.assertEqual(run.call_count, 1)
-            self.assertIn("@drive", run.call_args.args[1][1][-1].split("|"))
-            self.assertIn("@vehicle", run.call_args.args[1][1][-1].split("|"))
-        with patch("gate_lib.run_commands", return_value=(0, "browser suite passed")) as run:
-            code, output = e2e(REPO, stage, ["game/src/render/idPass.ts"], False, env)
-            self.assertEqual(code, 0)
-            self.assertNotIn("SKIP", output)
-            self.assertEqual(run.call_count, 3)
-            fixture_call = run.call_args_list[1]
-            commands, fixture_env = fixture_call.args[1:3]
-            self.assertEqual(
-                commands[0][1:4], [str(REPO / "scripts/dev/host_slots.py"), "build", "--"]
-            )
-            self.assertEqual(commands[0][5], str(REPO / "scripts/dev/gate_fixtures.py"))
-            self.assertEqual(commands[0][6], str(REPO / ".cache/gate-tiles"))
-            self.assertEqual(fixture_env["TURKU3D_DATA"], str(REPO / ".cache/gate-inputs"))
+    def test_browser_pick_defaults_to_the_proposal_and_takes_overrides(self):
+        plan = browser_plan(REPO, ["game/src/vehicle/vehicle.ts"], False)
+        self.assertIn("game/tests/e2e/vehicle.spec.ts", plan["specs"])
+        self.assertEqual(plan["projects"], ["webgpu", "webgl"])
+        self.assertGreater(plan["estimate_minutes"], 0)
+        self.assertIn("browser pick:", describe(plan))
+        chosen = browser_plan(REPO, ["docs/a.md"], False, ["smoke.spec.ts"], ["webgl"])
+        self.assertEqual(
+            (chosen["specs"], chosen["projects"]), (["game/tests/e2e/smoke.spec.ts"], ["webgl"])
+        )
+        narrowed = browser_plan(REPO, ["game/src/vehicle/vehicle.ts"], False, None, ["webgpu"])
+        self.assertEqual((narrowed["specs"], narrowed["projects"]), (plan["specs"], ["webgpu"]))
+        full = browser_plan(REPO, [], True)
+        self.assertEqual((full["specs"], full["projects"]), ("all", ["webgpu", "webgl"]))
+        with self.assertRaisesRegex(ValueError, "matches 0 spec files"):
+            browser_plan(REPO, [], False, ["missing.spec.ts"])
+
+    def e2e_with(self, plan, account=None):
+        stage = next(
+            s
+            for s in tomllib.loads((DEV / "gate.toml").read_text())["stages"]
+            if s["kind"] == "e2e"
+        )
+        env = {
+            "PIPELINE_PY": sys.executable,
+            "TURKU3D_PORT_BASE": "5190",
+            "TURKU3D_SANDBOX": "demo",
+        }
+        stats = {"run": ["x"], "cached": [], "seconds": 1.0}
+        with (
+            patch("gate_lib.run_commands", return_value=(0, "built")) as commands,
+            patch("gate_lib.spec_selection.run", return_value=(0, "passed", stats)) as runs,
+            patch("gate_lib.browser_budget.read", return_value=account),
+        ):
+            code, output = e2e(REPO, stage, [], env, plan)
+        return code, output, commands, runs
+
+    def test_e2e_runs_only_the_suites_its_pick_selects(self):
+        plan = {
+            "specs": ["game/tests/e2e/vehicle.spec.ts"],
+            "projects": ["webgpu"],
+            "reason": "r",
+            "estimate_minutes": 1,
+        }
+        code, output, commands, runs = self.e2e_with(plan)
+        self.assertEqual((code, commands.call_count, runs.call_count), (0, 1, 1))
+        self.assertEqual(runs.call_args.kwargs["config"], "playwright.config.ts")
+        self.assertIn("browser pick: 1 specs on webgpu", output)
+        # Each Playwright run goes through the browser host slot, which debits the budget.
+        command = ["playwright", "test"]
+        runner = runs.call_args.kwargs["runner"]
+        with patch("gate_lib.run_group", return_value="done") as group:
+            runner(command, REPO / "game", {})
+        self.assertEqual(
+            group.call_args.args[0][1:4], [str(REPO / "scripts/dev/host_slots.py"), "browser", "--"]
+        )
+        tile = {**plan, "specs": ["game/tests/e2e-tile/tile.spec.ts"]}
+        code, output, commands, runs = self.e2e_with(tile)
+        # The vite build, then the synthetic tile fixture, then the tile suite.
+        self.assertEqual((code, commands.call_count, runs.call_count), (0, 2, 1))
+        fixture_commands, fixture_env = commands.call_args_list[1].args[1:3]
+        self.assertEqual(fixture_commands[0][5], str(REPO / "scripts/dev/gate_fixtures.py"))
+        self.assertEqual(fixture_env["TURKU3D_DATA"], str(REPO / ".cache/gate-inputs"))
+        self.assertEqual(runs.call_args.kwargs["config"], "playwright.tile.config.ts")
+        nothing = {**plan, "specs": []}
+        code, output, commands, runs = self.e2e_with(nothing)
+        self.assertEqual((code, commands.call_count, runs.call_count), (0, 0, 0))
+        self.assertIn("no spec selected", output)
+
+    def test_e2e_refuses_once_the_budget_is_spent(self):
+        plan = {
+            "specs": ["game/tests/e2e/vehicle.spec.ts"],
+            "projects": ["webgpu"],
+            "reason": "r",
+            "estimate_minutes": 1,
+        }
+        spent = {
+            "task": "demo",
+            "runs": [],
+            "budget_minutes": 20,
+            "used_minutes": 21,
+            "remaining_minutes": -1,
+        }
+        code, output, commands, runs = self.e2e_with(plan, spent)
+        self.assertEqual((code, commands.call_count, runs.call_count), (1, 0, 0))
+        self.assertIn("browser budget spent", output)
 
     def test_production_routing(self):
         config = tomllib.loads((DEV / "gate.toml").read_text())
@@ -279,7 +352,6 @@ class GateTest(unittest.TestCase):
         ]:
             with self.subTest(path=path):
                 self.assertEqual(set(related(stage, [path], "tags")), expected)
-        self.assertIn("@streaming", stage["tile_tags"])
 
     def test_index_snapshot_excludes_unstaged_and_untracked(self):
         f = self.fixture

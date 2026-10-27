@@ -12,6 +12,8 @@ import time
 import tomllib
 from pathlib import Path
 
+import browser_budget
+import spec_selection
 from checks import check_policy
 from env_sync import sync
 from gate_cache import cached_execute, stage_key, versions
@@ -141,86 +143,132 @@ def lint_commands(root, stage, changed, files, full, env):
     return [["shfmt", "-d", "-i", "2", *chosen], ["shellcheck", *chosen]]
 
 
-def e2e(root, stage, changed, full, env):
+def browser_plan(root, changed, full, specs=None, projects=None):
+    """The gate's Chrome pick: --specs/--project, else --all's full suite, else the proposal
+    (spec_selection.select for a code change), with its estimated browser-minutes."""
+    if specs:
+        plan = {
+            "specs": spec_selection.resolve_specs(root, specs),
+            "projects": projects or ["webgpu"],
+            "reason": "chosen with --specs",
+            "full_suite": False,
+        }
+    elif full:
+        plan = spec_selection.full_plan("--all: every spec on both projects")
+    else:
+        plan = spec_selection.select(changed, "code", root=root)
+        if projects:
+            plan = {**plan, "projects": projects, "reason": plan["reason"] + "; --project"}
+    return {**plan, "estimate_minutes": spec_selection.estimate_minutes(plan, root)}
+
+
+def describe(plan):
+    count = "all" if plan["specs"] == "all" else len(plan["specs"])
+    return (
+        f"browser pick: {count} specs on {'+'.join(plan['projects'])}, "
+        f"~{plan['estimate_minutes']:g} browser-min ({plan['reason'] or 'no reason'})"
+    )
+
+
+def e2e(root, stage, changed, env, plan):
+    """Build once, then run the plan's specs of each Playwright config through host slots.
+
+    Each run debits the task's browser budget; a spent budget refuses the stage."""
     base = int(env.get("TURKU3D_PORT_BASE", "5170"))
+    work = Path(env.get("TURKU3D_WORK", root / ".cache/work"))
     env = {
         **env,
         "E2E_PORT": str(base + 1),
         "E2E_TILE_PORT": str(base + 1),
         "TILE_DIST": str(root / ".cache/gate-tiles"),
     }
-    tags = None if full else related(stage, changed, "tags")
-    grep = ["--grep", "|".join(tags)] if tags else []
-    commands = [
-        [
-            "python3",
-            str(root / "scripts/dev/host_slots.py"),
-            "build",
-            "--",
-            str(root / "game/node_modules/.bin/vite"),
-            "build",
-        ],
-        [
-            "python3",
-            str(root / "scripts/dev/host_slots.py"),
-            "browser",
-            "--",
-            str(root / "game/node_modules/.bin/playwright"),
-            "test",
-            *grep,
-        ],
+    account = browser_budget.read(env.get("TURKU3D_SANDBOX", "main"))
+    output = [describe(plan)]
+    if account is not None:
+        output.append(browser_budget.summary(account))
+    refused = browser_budget.refusal(account)
+    if refused:
+        return 1, "\n".join([*output, refused])
+    chosen = spec_selection.spec_files(root) if plan["specs"] == "all" else plan["specs"]
+    suites = [
+        (config, directory)
+        for config, directory in spec_selection.CONFIGS.items()
+        if any(spec.startswith(directory + "/") for spec in chosen)
     ]
-    code, output = run_commands(root, commands, env, "game")
-    if code:
-        return code, output
-    if tags and not set(tags).intersection(stage["tile_tags"]):
-        return 0, output + "\nSKIP pipeline browser suite: no matching subsystem tag\n"
-    code, more = run_commands(
+    if not suites:
+        return 0, "\n".join([*output, "SKIP browser suites: no spec selected"])
+    slots = str(root / "scripts/dev/host_slots.py")
+    code, built = run_commands(
         root,
-        [
-            [
-                "python3",
-                str(root / "scripts/dev/host_slots.py"),
-                "build",
-                "--",
-                env["PIPELINE_PY"],
-                str(root / "scripts/dev/gate_fixtures.py"),
-                env["TILE_DIST"],
-            ]
-        ],
-        {
-            **env,
-            "PYTHONPATH": os.pathsep.join(
-                [env.get("PYTHONPATH", str(root / "pipeline")), str(root / "pipeline/tests")]
-            ),
-            "TURKU3D_DATA": str(root / ".cache/gate-inputs"),
-        },
-    )
-    output += more
-    if code:
-        return code, output
-    code, more = run_commands(
-        root,
-        [
-            [
-                "python3",
-                str(root / "scripts/dev/host_slots.py"),
-                "browser",
-                "--",
-                str(root / "game/node_modules/.bin/playwright"),
-                "test",
-                "-c",
-                "playwright.tile.config.ts",
-                *grep,
-            ]
-        ],
+        [["python3", slots, "build", "--", str(root / "game/node_modules/.bin/vite"), "build"]],
         env,
         "game",
     )
-    return code, output + more
+    output.append(built)
+    if code:
+        return code, "\n".join(output)
+
+    def runner(command, cwd, env):
+        return run_group(["python3", slots, "browser", "--", *command], cwd=cwd, env=env)
+
+    for config, directory in suites:
+        if config == spec_selection.TILE_CONFIG:
+            code, more = run_commands(
+                root,
+                [
+                    [
+                        "python3",
+                        slots,
+                        "build",
+                        "--",
+                        env["PIPELINE_PY"],
+                        str(root / "scripts/dev/gate_fixtures.py"),
+                        env["TILE_DIST"],
+                    ]
+                ],
+                {
+                    **env,
+                    "PYTHONPATH": os.pathsep.join(
+                        [
+                            env.get("PYTHONPATH", str(root / "pipeline")),
+                            str(root / "pipeline/tests"),
+                        ]
+                    ),
+                    "TURKU3D_DATA": str(root / ".cache/gate-inputs"),
+                },
+            )
+            output.append(more)
+            if code:
+                return code, "\n".join(output)
+        code, more, stats = spec_selection.run(
+            plan,
+            root=root,
+            env=env,
+            bundle_dir=work / "build/game",
+            tiles_manifest=Path(
+                env["TILE_DIST"]
+                if config == spec_selection.TILE_CONFIG
+                else root / "game/public/dev-tiles"
+            )
+            / "manifest.json",
+            runner=runner,
+            config=config,
+        )
+        output.extend(
+            [
+                more,
+                f"{directory}: run {len(stats['run'])}, cached {len(stats['cached'])}, "
+                f"{stats['seconds']:.0f} s",
+            ]
+        )
+        if code:
+            break
+    if account is not None:
+        output.append(browser_budget.summary(browser_budget.read(account["task"])))
+    return code, "\n".join(output)
 
 
-def execute(root, stage, changed, files, full, env, config):
+def execute(root, stage, changed, files, full, env, config, plan=None):
     start = time.monotonic()
     if "TURKU3D_CHECK_DEADLINE" in env:
         env = {
@@ -238,7 +286,7 @@ def execute(root, stage, changed, files, full, env, config):
                 "\n".join(errors) or "budgets, binaries and flag registry are current",
             )
         elif kind == "e2e":
-            code, output = e2e(root, stage, changed, full, env)
+            code, output = e2e(root, stage, changed, env, plan)
         else:
             cwd = stage.get("cwd", ".")
             if kind in ("python-lint", "js-lint", "shell"):
@@ -316,18 +364,46 @@ def selection(config, changed, *, full=False, lint_only=False, fast=False):
 
 
 def run_gate(root, config, changed, **options):
-    """Options: full, listing, as_json, lint_only (pre-commit) and fast (no browser stages)."""
+    """Options: full, listing, as_json, lint_only (pre-commit), fast (no browser stages), and
+    specs/projects (the Chrome pick; default the selector's proposal)."""
     # One checkout has one browser port/output tree. Distinct sandboxes still run in parallel.
     with lock(root / ".cache/gate.lock"):
         return _run_gate(root, config, changed, **options)
 
 
 def _run_gate(
-    root, config, changed, *, full=False, listing=False, as_json=False, lint_only=False, fast=False
+    root,
+    config,
+    changed,
+    *,
+    full=False,
+    listing=False,
+    as_json=False,
+    lint_only=False,
+    fast=False,
+    specs=None,
+    projects=None,
 ):
     start = time.monotonic()
     files = inventory(root)
+    # Only an explicit --all runs every browser spec; gate machinery widening does not.
+    plan = None
+    if not (fast or lint_only) and any(stage["kind"] == "e2e" for stage in config["stages"]):
+        plan = browser_plan(root, changed, full, specs, projects)
     full, rows = selection(config, changed, full=full, lint_only=lint_only, fast=fast)
+    if plan and (specs or projects):
+        rows = [
+            (stage, True, "--specs/--project") if stage["kind"] == "e2e" else (stage, *rest)
+            for stage, *rest in rows
+        ]
+    rows = [
+        (
+            stage,
+            selected,
+            describe(plan) if plan and stage["kind"] == "e2e" and selected else reason,
+        )
+        for stage, selected, reason in rows
+    ]
     chosen, results = [], []
     for stage, selected, reason in rows:
         if selected and not listing:
@@ -356,7 +432,7 @@ def _run_gate(
 
         def run_stage(stage):
             def action():
-                return execute(root, stage, changed, files, full, env, config)
+                return execute(root, stage, changed, files, full, env, config, plan)
 
             # Policy depends on current main's merge count and is already inexpensive.
             if lint_only or stage["kind"] == "policy":
@@ -364,12 +440,10 @@ def _run_gate(
             kind = stage["kind"]
             if kind in ("python-lint", "js-lint", "shell"):
                 scope = lint_commands(root, stage, changed, files, full, env)
-            elif kind in ("pytest", "e2e"):
-                scope = (
-                    None
-                    if full
-                    else related(stage, changed, "tests" if kind == "pytest" else "tags")
-                )
+            elif kind == "pytest":
+                scope = None if full else related(stage, changed, "tests")
+            elif kind == "e2e":
+                scope = {"specs": plan["specs"], "projects": plan["projects"]}
             elif kind == "vitest":
                 scope = "full" if full else [p for p in changed if matches(p, stage["triggers"])]
             else:
@@ -397,6 +471,7 @@ def _run_gate(
         "stages": results,
         "seconds": round(time.monotonic() - start, 3),
         "ok": all(r["status"] != "FAIL" for r in results),
+        "browser": plan,
     }
     if as_json:
         print(json.dumps(report, indent=2))
@@ -406,6 +481,8 @@ def _run_gate(
                 print(
                     f"{'cached ' if result.get('cached') else ''}{result['status']:6} {result['name']:24} {result['reason']}"
                 )
+        if plan and (account := browser_budget.read(os.environ.get("TURKU3D_SANDBOX", "main"))):
+            print(browser_budget.summary(account))
         print(f"TOTAL  {'GREEN' if report['ok'] else 'RED'} {report['seconds']:.3f}s")
     return 0 if report["ok"] else 1
 
@@ -422,6 +499,19 @@ def main(argv=None):
     parser.add_argument(
         "--paths", nargs="+", help="profile explicit repo-relative paths instead of Git changes"
     )
+    parser.add_argument(
+        "--specs",
+        nargs="+",
+        metavar="SPEC",
+        help="Chrome specs to run instead of the proposal (paths, file names or 'all')",
+    )
+    parser.add_argument(
+        "--project",
+        action="append",
+        dest="projects",
+        choices=spec_selection.PROJECTS,
+        help="Chrome project(s) to run (repeatable; default: the proposal's)",
+    )
     args = parser.parse_args(argv)
     try:
         root = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
@@ -429,6 +519,11 @@ def main(argv=None):
         changed = args.paths if args.paths is not None else changes(root, args.base)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.error(f"cannot select changes: {exc}")
+    try:
+        if args.specs:
+            spec_selection.resolve_specs(root, args.specs)
+    except ValueError as exc:
+        parser.error(str(exc))
     return run_gate(
         root,
         config,
@@ -437,4 +532,6 @@ def main(argv=None):
         listing=args.listing,
         as_json=args.as_json,
         fast=args.fast,
+        specs=args.specs,
+        projects=args.projects,
     )
