@@ -10,6 +10,8 @@ from pathlib import Path
 DEFAULT_PATH = Path(__file__).with_name("landmarks.toml")
 METHODS = ("lidar-heightfield",)
 WALLS = ("brick", "render")
+BASES = ("ground", "water")
+CLASSES = (1, 6, 12)  # unclassified (boats, cranes), building, overlap
 MAX_VISUAL_TRIANGLES = 60_000
 MAX_COLLISION_TRIANGLES = 2_000  # ARCHITECTURE.md D5: building collision shells
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -24,6 +26,8 @@ KEYS = {
     "collision_triangles",
     "wall",
     "wall_rgb",
+    "classes",
+    "base",
 }
 
 
@@ -37,6 +41,8 @@ class Landmark:
     collision_triangles: int
     wall: str
     wall_rgb: tuple[int, int, int]
+    classes: tuple[int, ...] = (6,)
+    base: str = "ground"
     building: str | None = None
     polygon_en: tuple[tuple[float, float], ...] | None = None
 
@@ -98,6 +104,12 @@ def parse(text: str) -> list[Landmark]:
             or not all(isinstance(c, int) and 0 <= c <= 255 for c in rgb)
         ):
             raise ValueError(f"{where}: wall_rgb must be three integers within 0-255")
+        classes = entry.get("classes", [6])
+        if not isinstance(classes, list) or not classes or any(c not in CLASSES for c in classes):
+            raise ValueError(f"{where}: classes must be a non-empty list from {CLASSES}")
+        base = entry.get("base", "ground")
+        if base not in BASES:
+            raise ValueError(f"{where}: base must be one of {BASES}")
         result.append(
             Landmark(
                 id=ident,
@@ -108,6 +120,8 @@ def parse(text: str) -> list[Landmark]:
                 collision_triangles=collision,
                 wall=wall,
                 wall_rgb=tuple(rgb),
+                classes=tuple(classes),
+                base=base,
                 building=building,
                 polygon_en=polygon,
             )

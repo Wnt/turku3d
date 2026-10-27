@@ -134,7 +134,9 @@ def test_shell_refuses_a_budget_below_the_footprint_box():
 def test_build_landmark_measures_and_splits_surfaces(monkeypatch):
     (church,) = allowlist.parse(ENTRY)
     ground = np.array([[x, 0.2, z] for x in (-2.0, 22.0) for z in (-2.0, 16.0)])
-    monkeypatch.setattr(L, "read_points", lambda paths, polygon: (church_points(), ground))
+    monkeypatch.setattr(
+        L, "read_points", lambda paths, poly, classes, base: (church_points(), ground)
+    )
     image = np.full((40, 80, 3), 120, np.uint8)
     monkeypatch.setattr(textures, "ortho_crop", lambda vrt, b, r: (image, b))
     tile = L.owner(NAVE)
@@ -152,6 +154,33 @@ def test_build_landmark_measures_and_splits_surfaces(monkeypatch):
     assert set(np.unique(collision.material)) == {mat_id("roof"), mat_id("building")}
     js, _ = read_glb(build_glb(built["meshes"]))
     assert {s["wrapS"] for s in js["samplers"]} == {33071, 10497}
+
+
+def test_a_boat_sits_a_draft_below_the_water_around_it(monkeypatch):
+    (boat,) = allowlist.parse(
+        ENTRY.replace(
+            'building = "B1"',
+            "polygon_en = [[23459500, 6704500], [23459510, 6704500], "
+            "[23459510, 6704496], [23459500, 6704496]]",
+        ).replace('wall = "brick"', 'wall = "render"\nclasses = [1]\nbase = "water"')
+    )
+    polygon = L.footprint(boat, None)
+    assert polygon.bounds == pytest.approx((0, 0, 10, 4))
+    deck = np.array([[x, 2.5, z] for x in np.arange(0, 10, 0.2) for z in np.arange(0, 4, 0.2)])
+    water = np.array([[-3.0, 0.2, 2.0], [13.0, 0.1, 2.0], [5.0, 0.15, -3.0]])
+    seen = {}
+
+    def points(paths, poly, classes, base):
+        seen.update(classes=classes, base=base)
+        return deck, water
+
+    monkeypatch.setattr(L, "read_points", points)
+    image = np.full((8, 8, 3), 90, np.uint8)
+    monkeypatch.setattr(textures, "ortho_crop", lambda vrt, b, r: (image, b))
+    record = L.build_landmark(boat, polygon, L.owner(polygon))["record"]
+    assert seen == {"classes": (1,), "base": "water"}
+    assert record["base_m"] == pytest.approx(0.15 - L.HULL_DRAFT_M)
+    assert record["building"] is None
 
 
 def test_wall_image_is_seamless_and_tinted():

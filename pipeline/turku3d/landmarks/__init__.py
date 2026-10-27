@@ -29,7 +29,9 @@ from turku3d.package.manifest import _atomic_write
 LAYER = "landmarks"
 REACH_M = 1.0  # Eaves and gutters overhang the surveyed footprint.
 GROUND_RING_M = 3.0
+WATER_RING_M = 6.0
 BASE_BELOW_GROUND_M = 0.5
+HULL_DRAFT_M = 1.5
 ROOF_MIN_NY = 0.2  # Steeper surfaces take the wall material, flatter ones the ortho.
 ORTHO_RESOLUTION_M = 0.1
 
@@ -97,13 +99,15 @@ def owner(polygon: Polygon) -> C.VisualTile:
     return C.VisualTile.at(point.x, point.y)
 
 
-def read_points(paths: list[Path], polygon: Polygon):
-    """Building returns (x, y, z) near the footprint and ground returns (x, y, z) around it."""
+def read_points(paths: list[Path], polygon: Polygon, classes=(6,), base="ground"):
+    """The object's returns (x, y, z) near the footprint and the base surface's around it:
+    ground (class 2) in a 3 m ring, or water (class 9) in a 6 m ring."""
     import laspy
 
     reach = polygon.buffer(REACH_M)
-    ring = polygon.buffer(GROUND_RING_M).difference(polygon)
-    xmin, zmin, xmax, zmax = polygon.buffer(GROUND_RING_M).bounds
+    width, below = (GROUND_RING_M, 2) if base == "ground" else (WATER_RING_M, 9)
+    ring = polygon.buffer(width).difference(polygon)
+    xmin, zmin, xmax, zmax = polygon.buffer(width).bounds
     building, ground = [], []
     for path in paths:
         if not path.is_file():
@@ -118,16 +122,16 @@ def read_points(paths: list[Path], polygon: Polygon):
                     continue
                 cls = np.asarray(chunk.classification)[near]
                 x, y, z = x[near], y[near], z[near]
-                b = (cls == 6) & shapely.contains_xy(reach, x, z)
+                b = np.isin(cls, classes) & shapely.contains_xy(reach, x, z)
                 building.append(np.column_stack((x[b], y[b], z[b])))
-                g = (cls == 2) & shapely.contains_xy(ring, x, z)
+                g = (cls == below) & shapely.contains_xy(ring, x, z)
                 ground.append(np.column_stack((x[g], y[g], z[g])))
     building = np.concatenate(building) if building else np.empty((0, 3))
     ground = np.concatenate(ground) if ground else np.empty((0, 3))
     if not len(building):
-        raise ValueError("no building returns on the footprint")
+        raise ValueError(f"no class {list(classes)} returns on the footprint")
     if not len(ground):
-        raise ValueError("no ground returns around the footprint")
+        raise ValueError(f"no {base} returns around the footprint")
     return building, ground
 
 
@@ -216,12 +220,17 @@ def build_landmark(landmark: Landmark, polygon: Polygon, tile) -> dict:
     """Visual meshes, collision arrays and measurements of one landmark."""
     timings = {}
     started = time.perf_counter()
-    xmin, zmin, xmax, zmax = polygon.buffer(GROUND_RING_M).bounds
-    building, ground = read_points(laz_paths(C.BBoxLocal(xmin, zmin, xmax, zmax)), polygon)
+    xmin, zmin, xmax, zmax = polygon.buffer(WATER_RING_M).bounds
+    building, ground = read_points(
+        laz_paths(C.BBoxLocal(xmin, zmin, xmax, zmax)), polygon, landmark.classes, landmark.base
+    )
     timings["lidar"] = time.perf_counter() - started
     begin = time.perf_counter()
     field = mesh.heightfield(building, polygon, landmark.cell_m, REACH_M)
-    base = float(ground[:, 1].min()) - BASE_BELOW_GROUND_M
+    if landmark.base == "ground":
+        base = float(ground[:, 1].min()) - BASE_BELOW_GROUND_M
+    else:
+        base = float(np.median(ground[:, 1])) - HULL_DRAFT_M
     visual = mesh.shell(field, polygon, base, landmark.visual_triangles)
     collision = mesh.shell(field, polygon, base, landmark.collision_triangles)
     timings["mesh"] = time.perf_counter() - begin
@@ -241,8 +250,8 @@ def build_landmark(landmark: Landmark, polygon: Polygon, tile) -> dict:
         "building": landmark.building,
         "method": landmark.method,
         "footprint_m2": round(polygon.area, 1),
-        "points_building": int(len(building)),
-        "points_ground": int(len(ground)),
+        "points_object": int(len(building)),
+        f"points_{landmark.base}": int(len(ground)),
         "measured_cells": round(float(field.measured.mean()), 3),
         "base_m": round(base, 3),
         "top_m": round(float(visual.positions[:, 1].max()), 3),
