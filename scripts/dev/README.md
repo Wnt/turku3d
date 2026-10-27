@@ -196,7 +196,7 @@ that link, so static servers on them need no restart (:5171 runs main hot: `tool
 Preparation dereferences sandbox links and rejects any link left inside a release. Publication checks
 all four stable paths after the swap and restores the previous `live` link if a path does not resolve
 to its directory in the prepared release.
-`~/turku3d/logs/live-version.txt` records the published commit. Do not run `deploy-once.sh`
+`~/turku3d/logs/live-version.txt` records the published commit; `$TURKU3D_DATA/tile-quality.json` its tiles. Do not run `deploy-once.sh`
 or `autodeploy.sh` on main; `make refresh` refuses the published data root. Run refresh in a sandbox.
 Do not update main outside the lander while landing. A missing gate fails closed; there is no
 legacy Make fallback.
@@ -204,16 +204,17 @@ legacy Make fallback.
 ### GitHub Pages (`publish-pages`)
 
 https://wnt.github.io/turku-game/ serves the live release. With `$TURKU3D_DATA/publish/pages.json`
-(`{"repo": "Wnt/turku-game", "branch": "gh-pages"}`) the integrator calls `pages.publish` after every
-publication (inert batches only when `docs/published-images.toml` changed): one parentless commit of the
-release's `game/`, `tiles/` and `pages-site/` files is force-pushed (the branch holds one release, about
-150 MB) and Pages is enabled once. The commit message is the release notes: the commits since the previous
-Pages release (`publish/pages-last.json`, else the record's `from`) and the advisory failures the release
-shipped with. The result or `error` goes into the integration row as `pages`; a failure never rolls back the
-local publish. It refuses only a release that binds any facade without `source_mode: generate` and
-`generated_qa`. By hand, any release dir:
-`scripts/dev/codex-task wait-cmd -- scripts/dev/publish-pages [--release DIR]`. The game build uses
-a relative base, so it runs under `/turku-game/` without COOP/COEP.
+(`{"repo": "Wnt/turku-game", "branch": "gh-pages", "region": {...}}`) the integrator calls `pages.publish` after
+every publication (inert batches only when `docs/published-images.toml` changed): one parentless commit of the
+release's `game/`, its `tiles/` filtered to the `region` (`pages_region.py`: listed tiles near the centre that meet
+the quality thresholds of the release's tile ledger, `turku3d.region quality`) and `pages-site/` is force-pushed
+(one release, about 150 MB) and Pages is enabled once. The commit message is the release notes: the commits since
+the previous Pages release (`publish/pages-last.json`, else the record's `from`), the advisory failures the release
+shipped with and the shipped and excluded tiles with the reasons. The result or `error` goes into the integration
+row as `pages`; a failure never rolls back the local publish. It refuses only a release that binds any facade
+without `source_mode: generate` and `generated_qa`. By hand, any release dir: `scripts/dev/codex-task wait-cmd --
+scripts/dev/publish-pages [--release DIR]`; `--plan` prints the selection and publishes nothing. The game build
+uses a relative base, so it runs under `/turku-game/` without COOP/COEP.
 
 ### Long commands (agents)
 

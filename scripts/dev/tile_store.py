@@ -8,6 +8,8 @@ Layout (owned by tool-localhost-hotswap):
     $TURKU3D_DATA/tile-store/<key>/STORE.json  {"key", "commit", "source", "time", "tiles"}
     $TURKU3D_DATA/tile-store/index.jsonl       the same record per entry, in the order entries were added
 
+The newest KEEP entries stay, plus the newest older entry for each listed tile no kept entry carries (prune).
+
 The key of a commit hashes what its tile build reads: the git blob ids of the refresh and tile-build inputs
 (live_cache.INPUTS) at that commit and the data root's parts (landing_class.data_parts: facade approvals, the
 playable tile list, the published layers' JSON manifests). The integrator's tile-build stage puts its output under
@@ -104,15 +106,37 @@ def put(published, tiles, store_key, commit, source, built=None):
     return target
 
 
+def entry_tiles(path):
+    """The L0 tiles an entry's manifest carries (playable and coarse leaves)."""
+    try:
+        visual = json.loads((path / "manifest.json").read_text())["visual"]
+    except (OSError, ValueError, KeyError):
+        return set()
+    return {tid for tid, e in visual.items() if e.get("level") == 0}
+
+
 def prune(published, keep=KEEP):
-    """Remove all but the newest `keep` entries."""
+    """Remove all but the newest `keep` entries; the newest entry carrying a listed tile always stays.
+
+    The guarantee: every tile in playable-tiles.json keeps at least one store entry, even when the
+    newest `keep` builds (a shrunk list, a failed tile) lack it."""
     store = root(published)
     entries = sorted(
         (path for path in store.iterdir() if path.is_dir() and not path.name.startswith(".")),
         key=lambda path: path.stat().st_mtime,
     )
-    for path in entries[:-keep]:
-        shutil.rmtree(path, ignore_errors=True)
+    kept = entries[-keep:]
+    missing = set(landing_class.listed_tiles(published))
+    for path in kept:
+        missing -= entry_tiles(path)
+    for path in reversed(entries[:-keep]):
+        carried = missing & entry_tiles(path)
+        if carried:
+            kept.append(path)
+            missing -= carried
+    for path in entries:
+        if path not in kept:
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def resolve(repo, commit, published):

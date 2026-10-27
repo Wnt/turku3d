@@ -1,12 +1,16 @@
 """Publish a live release to GitHub Pages as one orphan commit.
 
 The deploy repository named in `$TURKU3D_DATA/publish/pages.json`
-(`{"repo": "owner/name", "branch": "gh-pages"}`) only ever holds the latest release:
-`game/` and `tiles/` from the release, the site files in `pages-site/` and `.nojekyll`.
+(`{"repo": "owner/name", "branch": "gh-pages", "region": {...}}`) only ever holds the latest
+release: `game/` from the release, `tiles/` filtered to the configured region (pages_region.py),
+the site files in `pages-site/` and `.nojekyll`.
 Each publish force-pushes a new parentless commit, so the repository never accumulates
 older releases. No source code, pipeline data or street imagery is published: every bound
 facade must be generated-style. The commit message is the release notes: the commits since
-the previous Pages release and the advisory checks the release failed (known-broken).
+the previous Pages release, the advisory checks the release failed (known-broken) and the
+region: the shipped tiles and each excluded tile with the criterion it failed.
+
+    scripts/dev/publish-pages --plan     # print the region selection of the live release; publishes nothing
 """
 
 from __future__ import annotations
@@ -19,6 +23,8 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+
+import pages_region
 
 CONFIG = "publish/pages.json"
 # The last release this data root pushed to Pages; the next notes list commits since it.
@@ -41,7 +47,11 @@ def config(published):
     data = json.loads(path.read_text())
     if not isinstance(data.get("repo"), str) or "/" not in data["repo"]:
         raise ValueError(f"{path}: repo must be 'owner/name'")
-    return {"repo": data["repo"], "branch": data.get("branch", "gh-pages")}
+    return {
+        "repo": data["repo"],
+        "branch": data.get("branch", "gh-pages"),
+        "region": pages_region.region(data),
+    }
 
 
 def generated(meta):
@@ -93,14 +103,14 @@ def site_url(repo):
     return f"https://{owner.lower()}.github.io/{name}/"
 
 
-def assemble(release, target, repo, branch):
-    """Write the deploy tree: release game and tiles plus the static site files."""
+def assemble(release, target, repo, branch, selection):
+    """Write the deploy tree: the release game, its tiles filtered to the selection and the site files."""
     release, target = Path(release), Path(target)
     for name in ("game", "tiles"):
-        source = release / name
-        if not source.is_dir():
+        if not (release / name).is_dir():
             raise ValueError(f"release has no {name}/: {release}")
-        shutil.copytree(source, target / name)
+    shutil.copytree(release / "game", target / "game")
+    pages_region.write_tiles(release / "tiles", target / "tiles", selection)
     values = {"{{url}}": site_url(repo), "{{repo}}": repo, "{{branch}}": branch}
     for path in SITE.iterdir():
         text = path.read_text()
@@ -123,8 +133,8 @@ def commit_lines(since, commit, repo=REPO):
     return lines
 
 
-def notes(record, since, date, repo=REPO):
-    """The gh-pages commit message: release, commit range and advisory failures."""
+def notes(record, since, date, selection, repo=REPO):
+    """The gh-pages commit message: release, commit range, advisory failures and the region."""
     commit = record["commit"]
     lines = [f"Release {commit[:12]} {date}", ""]
     if since and since != commit:
@@ -155,7 +165,7 @@ def notes(record, since, date, repo=REPO):
         lines.append("Chrome: scheduled full suite")
     elif chrome:
         lines.append(f"Chrome: {len(chrome.get('selected', ()))} selected spec runs")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n\n" + pages_region.notes(selection)
 
 
 def remote_url(repo):
@@ -224,6 +234,7 @@ def publish(published, release=None, repo=REPO):
     release = Path(release or (published / "live")).resolve()
     record = json.loads((release / "live-build.json").read_text())
     facades = check_facades(release)
+    selection = pages_region.plan(target, release)
     started = time.monotonic()
     date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
     state_path = published / STATE
@@ -233,10 +244,10 @@ def publish(published, release=None, repo=REPO):
         since = None
     if since in (None, record["commit"]):
         since = record.get("from", since)
-    message = notes(record, since, date, repo)
+    message = notes(record, since, date, selection, repo)
     with tempfile.TemporaryDirectory(prefix="pages-") as temp:
         site = Path(temp) / "site"
-        size = assemble(release, site, target["repo"], target["branch"])
+        size = assemble(release, site, target["repo"], target["branch"], selection)
         commit = push(site, target["repo"], target["branch"], message)
     url = enable_pages(target["repo"], target["branch"])
     pending = state_path.with_suffix(".tmp")
@@ -248,6 +259,8 @@ def publish(published, release=None, repo=REPO):
         "release": record["commit"],
         "commit": commit,
         "facades": facades,
+        "tiles": selection["selected"],
+        "excluded": selection["excluded"],
         "bytes": size,
         "seconds": round(time.monotonic() - started, 3),
         "url": url,
@@ -274,9 +287,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--published", type=Path, default=os.environ.get("TURKU3D_DATA"))
     parser.add_argument("--release", type=Path, help="any release dir (default: <published>/live)")
+    parser.add_argument(
+        "--plan", action="store_true", help="print the region selection; publish nothing"
+    )
     args = parser.parse_args(argv)
     if not args.published:
         parser.error("--published or TURKU3D_DATA is required")
+    if args.plan:
+        release = Path(args.release or (args.published / "live")).resolve()
+        print(pages_region.notes(pages_region.plan(config(args.published) or {}, release)), end="")
+        return 0
     result = publish(args.published, args.release)
     print(json.dumps(result))
     print(result["url"])

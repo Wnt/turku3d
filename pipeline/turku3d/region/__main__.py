@@ -1,4 +1,4 @@
-"""make region AREA=name [STEPS='fetch assemble validate'] [DRY=1]; make tile-add T=t0_i_j."""
+"""make region AREA=name [STEPS='fetch assemble validate'] [DRY=1]; make tile-add T=t0_i_j; quality."""
 
 import argparse
 import fcntl
@@ -20,6 +20,10 @@ def main(argv=None):
         from .tiles import main as tiles
 
         return tiles(argv)
+    if argv[:1] == ["quality"]:
+        from .quality import main as quality
+
+        return quality(argv[1:])
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--area", default="office-block")
     ap.add_argument("--steps", nargs="+", choices=ORDER, default=list(ORDER))

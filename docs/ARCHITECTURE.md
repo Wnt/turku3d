@@ -96,6 +96,15 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   release in place (changed collision tiles replaced in the worker, the visual tileset swapped once the new one has
   settled; `game/src/world/README.md`). The hot hooks exist only
   under `import.meta.hot`; production builds are unchanged. See `tools/dev/localhost/README.md`.
+- **Pages ships a chosen region; nothing good is lost (user decision 2026-10-27).** Every tile build records a
+  per-tile quality ledger (`turku3d.region.quality`: buildings, facade coverage by map source, ground texture
+  kind, trees, parked cars, wire bytes, build time, validator) that travels with the tile tree; live publication
+  merges it into `$TURKU3D_DATA/tile-quality.json`. The playable list only grows, a live build fails rather than
+  ship without a listed tile, and the tile store keeps an entry for every listed tile. The GitHub Pages release
+  ships the listed tiles within a radius of a centre (default 1 km around Läntinen Rantakatu 15) that meet the
+  `region` thresholds of `publish/pages.json` (facade coverage, no draft ground, validator green) and connect to
+  the centre tile; excluded siblings stay visual-only scenery and the release notes name each exclusion's reason
+  (`scripts/dev/pages_region.py`, `publish-pages --plan`).
 
 ### D5. Collision vs visual layer strategy (the core decision)
 The two layers are **separate artifacts** built from the same ground truth. They are never derived from each other at runtime.

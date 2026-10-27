@@ -215,10 +215,13 @@ export class LocalhostGame {
     this.log({ type: 'vite-start', pid: child.pid, port: this.o.port });
   }
 
+  /** Restarts a running dev server. Without one there is nothing to restart: before start() launches the first
+   *  (a worktree behind main on startup) or while a restart waits for the old one to exit; starting another then
+   *  would leave two servers racing for the port. */
   restartVite() {
     const old = this.vite;
+    if (!old) return;
     this.vite = null;
-    if (!old) return this.startVite();
     old.once('exit', () => { if (!this.stopping) this.startVite(); });
     old.kill('SIGTERM');
   }
