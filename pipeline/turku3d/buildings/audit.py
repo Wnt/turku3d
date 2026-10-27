@@ -21,8 +21,8 @@ def audit(layer):
             p, idx, material = tile["positions"], tile["indices"], tile["material"]
             if p.dtype != np.float64 or idx.dtype != np.uint32 or material.dtype != np.uint8:
                 errors.append(f"{path.name}: invalid collision dtypes")
-            for owner in np.unique(tile["building_index"]):
-                triangles[owners[owner]].append(p[idx[tile["building_index"] == owner]])
+            for local, owner in enumerate(tile["building_ids"]):
+                triangles[str(owner)].append(p[idx[tile["building_index"] == local]])
             tid = C.CollisionTile.parse(path.name.removesuffix(".col.npz"))
             borders[(tid.i, tid.j)] = p
     seams = 0

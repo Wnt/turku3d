@@ -86,6 +86,10 @@ source inventory. Each bound facade must still appear in the current `layers/bui
 with matching width and height within 1 cm; unrelated inventory changes do not disable its map.
 Missing or changed facade geometry keeps the library fallback.
 Raw staging is rejected. Unlisted indices are ignored even when matching files exist.
+`facades.py` holds the binding, per-tile facade inputs and density planning. A visual tile's
+cache key covers only the bound IDs and exported files of its own buildings (those its layer
+GLBs carry, plus those whose facades are centred in it), so facade or building changes in
+another tile leave it packed.
 Sidecars must identify the building/index, declare metre UVs, pass `qa.gltf_basisu_valid`,
 and supply all three `files` and matching SHA-256 `hashes`. Changed exported maps fail assembly.
 Facade maps have a package-time texel density cap: 48 pixels per metre for full-height

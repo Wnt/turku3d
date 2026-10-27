@@ -74,6 +74,34 @@ def test_migrate_split_reuses_verified_maps_and_updates_manifest(tmp_path):
     assert not (directory / "0.json").exists()
 
 
+def test_unchanged_wall_keeps_its_approved_uv_exactly(tmp_path):
+    # A slanted wall: reprojecting it onto itself changes the last bits of its UV scale.
+    original = wall("a_0", [0, 0], [7.3, 3.1])
+    uv = {"scale": [1 / original.length, -0.1], "offset": [0, 1]}
+    assert reproject_uv({"uv": uv}, original, original) != uv
+    inventory = tmp_path / "inventory.geojson"
+    save_facades([original], inventory)
+    assembly = tmp_path / "assembly"
+    directory = assembly / "facades/a"
+    directory.mkdir(parents=True)
+    (directory / "0.ktx2").write_bytes(b"approved")
+    (directory / "0.json").write_text(
+        json.dumps(
+            {
+                "uv": uv,
+                "files": {"albedo": "0.ktx2"},
+                "hashes": {"0.ktx2": sha(directory / "0.ktx2")},
+            }
+        )
+    )
+    (assembly / "MANIFEST.json").write_text(
+        json.dumps({"bound": ["a_0"], "inventory_sha256": sha(inventory)})
+    )
+    result = migrate(inventory, inventory, assembly)
+    assert result["kept"] == 1
+    assert json.loads((directory / "0.json").read_text())["uv"] == uv
+
+
 def test_unmatched_approval_is_archived_for_later_review(tmp_path):
     original = wall("a_0", [0, 0], [20, 0])
     replacement = wall("a_7", [0, 3], [20, 3])

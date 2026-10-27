@@ -23,9 +23,10 @@ def test_missing_reconstruction_uses_measured_height():
     assert evidence["height_source"] == "class6_inside_footprint"
     assert not evidence["accuracy_certified"]
     assert shell.hausdorff == 0
-    for tile in collision_tiles([shell], [building.footprint], provenance=True).values():
+    for tile in collision_tiles([shell], [building.footprint], ids=[building.id]).values():
         assert len(tile["building_index"]) == len(tile["indices"])
         assert (tile["building_index"] == 0).all()
+        assert tile["building_ids"].tolist() == ["missing"]
 
 
 def test_measured_gable_is_closed_and_placeholder_is_labelled():

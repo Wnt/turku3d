@@ -182,6 +182,8 @@ def test_roofer_transform_and_parts(tmp_path):
         "transform": {"scale": [0.001] * 3, "translate": [23459500, 6704500, 0]},
     }
     feature = {
+        "type": "CityJSONFeature",
+        "id": "building",
         "vertices": [[0, 0, 1000], [1000, 0, 1000], [1000, -1000, 1000]],
         "CityObjects": {
             "part": {
@@ -198,7 +200,8 @@ def test_roofer_transform_and_parts(tmp_path):
         },
     }
     p.write_text(json.dumps(header) + "\n" + json.dumps(feature) + "\n")
-    s = roofer.read([p])["building"][0]
+    transform, parsed = roofer.features([p])["building"]
+    s = roofer.surfaces(transform, parsed)["building"][0]
     assert s.kind == "RoofSurface"
     np.testing.assert_equal(s.rings[0], [[0, 1, 0], [1, 1, 0], [1, 1, 1]])
 

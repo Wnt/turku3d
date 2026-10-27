@@ -315,7 +315,7 @@ def ground_textures(layers, textures):
 
 
 def facades(layers, textures):
-    from turku3d.package.assemble import facade_bindings
+    from turku3d.package.facades import facade_bindings
 
     export = textures / "assembly"
     manifest = export / "MANIFEST.json"

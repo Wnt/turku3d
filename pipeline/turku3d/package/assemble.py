@@ -17,6 +17,16 @@ from turku3d.col.format import ColTile, Primitive, read_col, write_col
 from turku3d.content.addresses import publish as publish_addresses
 from turku3d.layers import layer_root, read_collision, read_manifest, read_visual
 from turku3d.package import coarse
+from turku3d.package.facades import (
+    facade_bindings,
+    facade_density_floor,
+    facade_inputs,
+    facade_priorities,
+    facade_source_bytes,
+    facade_source_density,
+    glb_buildings,
+    halve_densities,
+)
 from turku3d.package.gltf import GlbMesh, build_glb
 from turku3d.package.manifest import DistTree, _atomic_write, git_sha, verify_tree
 from turku3d.package.seams import edge_equal, verify_tile_seams
@@ -202,46 +212,6 @@ def collision_tile(tile, layers, manifests, available, *, dynamic_traffic=False)
     )
 
 
-def facade_bindings(facades, layers):
-    """Authorize exported maps for facades whose identity and dimensions still match."""
-    manifest = facades.parent / "MANIFEST.json"
-    if not manifest.exists():
-        if facades.exists():
-            raise ValueError(f"{facades}: use the filtered texture assembly export, not staging")
-        return []
-    export = json.loads(manifest.read_text())
-    if not isinstance(export.get("bound"), list) or "inventory_sha256" not in export:
-        raise ValueError(f"{manifest}: not a filtered texture assembly export")
-    inventory = layers / "buildings/facades.geojson"
-    if not inventory.exists():
-        return []
-    features = json.loads(inventory.read_text())["features"]
-    current = {
-        f"{p['building_id']}_{p['facade_index']}": p
-        for feature in features
-        if (p := feature["properties"]).get("building_id") is not None
-        and p.get("facade_index") is not None
-    }
-    bound = []
-    for facade_id in export["bound"]:
-        props = current.get(facade_id)
-        if props is None:
-            continue
-        building_id, index = facade_id.rsplit("_", 1)
-        sidecar = facades / building_id / f"{index}.json"
-        if not sidecar.exists():
-            continue
-        meta = json.loads(sidecar.read_text())
-        if (
-            meta.get("building_id") == props["building_id"]
-            and meta.get("facade_index") == props["facade_index"]
-            and abs(meta["width_m"] - props["width_m"]) <= 0.01
-            and abs(meta["height_m"] - (props["top_height"] - props["base_height"])) <= 0.01
-        ):
-            bound.append(facade_id)
-    return bound
-
-
 def visual_tiles(
     tiles,
     stage,
@@ -289,86 +259,6 @@ def visual_tiles(
     }
 
 
-def facade_priorities(inventory: Path, bindings: list[str], spawn: dict) -> dict[str, list[str]]:
-    """Rank each tile's exported facades from farthest to nearest spawn."""
-    if not inventory.exists() or not spawn:
-        return {}
-    bound = set(bindings)
-    sx, _, sz = spawn["position"]
-    ranked: dict[str, list[tuple[float, str]]] = {}
-    for feature in json.loads(inventory.read_text())["features"]:
-        props = feature["properties"]
-        facade_id = f"{props.get('building_id')}_{props.get('facade_index')}"
-        if facade_id not in bound:
-            continue
-        coords = feature["geometry"]["coordinates"]
-        e = sum(point[0] for point in coords) / len(coords)
-        n = sum(point[1] for point in coords) / len(coords)
-        x, z = e - C.ORIGIN_E, C.ORIGIN_N - n
-        tile_id = C.VisualTile(0, math.floor(x / 250), math.floor(z / 250)).id
-        ranked.setdefault(tile_id, []).append((math.hypot(x - sx, z - sz), facade_id))
-    return {tile: [fid for _, fid in sorted(rows, reverse=True)] for tile, rows in ranked.items()}
-
-
-def facade_source_bytes(facades: Path, facade_id: str) -> int:
-    building_id, index = facade_id.rsplit("_", 1)
-    directory = facades / building_id
-    meta = json.loads((directory / f"{index}.json").read_text())
-    return sum((directory / filename).stat().st_size for filename in meta["files"].values())
-
-
-# Packaged facade densities in pixels per metre, highest first. A planned facade steps down
-# one level at a time.
-DENSITY_LADDER = (16, 8, 4, 2, 1)
-
-
-def halve_densities(
-    plan: dict[str, int],
-    ranked: list[str],
-    floors: dict[str, int],
-    count: int,
-    *,
-    below_floors: bool = False,
-) -> list[tuple[str, int, int]]:
-    """Step `count` facades one ladder level down, always the facade with the highest planned
-    density, the farthest from spawn among equals (ranked is farthest first). Unplanned
-    facades keep their source density, above every ladder level. A facade stops at its
-    declared minimum density unless below_floors. Returns (facade_id, old, new) per step;
-    empty when no facade can step down."""
-    order = {facade_id: index for index, facade_id in enumerate(ranked)}
-
-    def lower(facade_id):
-        current = plan.get(facade_id, 64)
-        level = next((level for level in DENSITY_LADDER if level < current), None)
-        return level if level and (below_floors or level >= floors[facade_id]) else None
-
-    steps = []
-    for _ in range(count):
-        candidates = [fid for fid in ranked if lower(fid)]
-        if not candidates:
-            break
-        facade_id = min(candidates, key=lambda fid: (-plan.get(fid, 64), order[fid]))
-        old, new = plan.get(facade_id, 64), lower(facade_id)
-        plan[facade_id] = new
-        steps.append((facade_id, old, new))
-    return steps
-
-
-def facade_source_density(facades: Path, facade_id: str) -> float:
-    building_id, index = facade_id.rsplit("_", 1)
-    meta = json.loads((facades / building_id / f"{index}.json").read_text())
-    return float(meta["pixels_per_metre"][0])
-
-
-def facade_density_floor(facades: Path, facade_id: str) -> int:
-    building_id, index = facade_id.rsplit("_", 1)
-    meta = json.loads((facades / building_id / f"{index}.json").read_text())
-    floor = meta.get("min_pixels_per_metre", 0)
-    if not isinstance(floor, int) or isinstance(floor, bool) or floor not in (0, *range(4, 73)):
-        raise ValueError(f"{facade_id}: invalid minimum facade density {floor!r}")
-    return floor
-
-
 def assemble(
     tile_ids: list[str],
     *,
@@ -401,7 +291,7 @@ def assemble(
     manifests, collision = load_layers(root)
     if checked:
         require_layers(manifests, tile_ids)
-    visuals = {}
+    visuals, owners = {}, {}
     for name, m in manifests.items():
         if name == "traffic_static":
             continue
@@ -410,7 +300,7 @@ def assemble(
                 tile = C.VisualTile.parse(filename.removesuffix(".vis.glb"))
                 if tile.level == 0:
                     path = root / name / filename
-                    read_visual(path)
+                    owners[path] = glb_buildings(read_visual(path))
                     visuals.setdefault(tile, []).append(path)
     for t in requested:
         if t not in visuals:
@@ -512,10 +402,11 @@ def assemble(
         ]
     )
     code = digest(code_files)
-    # Shared maps only; a tile's own ground maps enter its key through its binding.
+    # Shared maps only. A tile's own ground maps enter its key through its binding, and the
+    # facade maps of its own buildings through facade_inputs.
     textures = [
         p
-        for d in (library, facades, ground.parent / "library")
+        for d in (library, ground.parent / "library")
         if d.exists()
         for p in d.rglob("*")
         if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
@@ -536,6 +427,9 @@ def assemble(
             if any(c.id in v for v in collision.values()):
                 available.add(c.id)
                 published_cells.add(c)
+    # Facade densities are planned per tile from the facades centred in it, which may belong
+    # to a seam neighbour's buildings; their maps enter that tile's key as well.
+    priorities = facade_priorities(root / "buildings/facades.geojson", bindings, tree.spawn)
     changed, pending_inputs, pending_collision, keys = [], {}, {}, {}
     coarse_ids, points_cache = set(), {}
     tree_valid = (out / "manifest.json").exists() and not verify_tree(out)
@@ -554,9 +448,14 @@ def assemble(
             terrain = coarse.discover(tile) if tile.level > 0 or tile in coarse_leaves else None
             if tile in coarse_leaves and not inputs and not terrain:
                 continue  # Nothing to show there: no massing and no terrain coverage.
-            # A tile's key covers its own layer files, never another tile's: adding a tile
-            # leaves its neighbours' packed visuals cached. Collision is keyed per tile below.
-            files = inputs + osm_sources()
+            # A tile's key covers its own layer files and its own buildings' facades, never
+            # another tile's: adding a tile or rebuilding buildings elsewhere leaves its packed
+            # visual cached. Collision is keyed per tile below.
+            ranked = priorities.get(tile.id, []) if tile.level == 0 else []
+            buildings = set().union(*(owners[p] for p in inputs))
+            buildings |= {facade_id.rsplit("_", 1)[0] for facade_id in ranked}
+            bound, facade_files = facade_inputs(facades, bindings, buildings)
+            files = inputs + osm_sources() + facade_files
             if terrain:
                 files += terrain["files"]
             role = (
@@ -567,7 +466,8 @@ def assemble(
                 [
                     code,
                     texture_hash,
-                    bindings,
+                    bound,
+                    ranked,
                     tile.id,
                     role,
                     layer_ids,
@@ -633,7 +533,6 @@ def assemble(
             for tile, (data, stats) in pending_visual.items()
             if data is not None and tile.level == 0
         }
-        priorities = facade_priorities(root / "buildings/facades.geojson", bindings, tree.spawn)
         floors = {
             facade_id: facade_density_floor(facades, facade_id)
             for ranked in priorities.values()

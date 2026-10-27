@@ -12,10 +12,26 @@ bash pipeline/env/run.sh python -m turku3d.buildings.audit
 bash pipeline/env/run.sh python -m turku3d.buildings.coverage
 ```
 
-`buildings-build` runs native roofer with four jobs. By default it reuses a content-keyed
-reconstruction and class-6 point arrays in `$TURKU3D_DATA/cache/buildings`, shared between
-sandboxes. The cache uses locks and publishes point arrays atomically. An explicit
-`--roofer-output` must point to a completed CityJSONSeq directory, not its parent.
+`buildings-build` runs native roofer with four jobs, only for buildings whose inputs changed
+(`reconstruct.py`). Each building has two keys:
+
+- **Reconstruction key**: its ID, its footprint, the LAZ tiles under it (5 m reach; name,
+  size and mtime) and the roofer code and version.
+- **Selection key**: the reconstruction key plus the CityGML model matched to it, its
+  properties (OSM tags, levels, point-only), the present LAZ tiles within the 100 m evidence
+  reach and the selection code (`citygml`, `distance`, `fallback`, `height`, `inputs`,
+  `reconstruct`, `select`, `shells`, the collision format and materials).
+
+The layer keeps both products: `reconstruction.jsonl` holds each building's roofer
+CityJSONFeature with its transform, and `shells.json` with `shells.npz` holds the selected
+shell's triangles, surface kinds and selection record. A rebuild reuses every building whose
+key matches, so a new tile runs roofer and selection for its own buildings only. A changed
+roofer code or version reconstructs the whole list; a changed selection code reselects it from
+the stored reconstructions. Changed buildings run roofer in batches with their neighbours
+within 30 m as context, as in a whole-list run: established kantakartta buildings among
+established buildings only, so GIS gap fillers never move them, and GIS buildings among all.
+The batch runs and the class-6 points (one array per LAZ tile) are cached by content in
+`$TURKU3D_DATA/cache/buildings`, shared between sandboxes, with locks and atomic publication.
 
 Inputs are immutable `raw/wfs/work-3x3/{kanta_Rakennus,GIS_Rakennukset,bldg_Building_LOD2,GIS_Keskilinjat}.parquet`,
 class-6 points in `raw/laz/pistepilvi`, OSM GeoParquet, and `raw/ortho/ortho2022to/work-3x3`.
@@ -102,8 +118,8 @@ placeholder, and red missing.
 All output is under `$TURKU3D_WORK/build/layers/buildings`:
 
 - `c_i_j.col.npz`: float64 world-local positions, uint32 triangle indices, uint8 materials.
-  The optional uint32 `building_index` per triangle indexes
-  `metrics.json.collision_building_ids` for isolated validation. Walls and base use `building`; roofs use `roof`. Each closed shell is stored once in its footprint-centroid collision tile, per
+  `building_ids` lists the tile's own buildings and the uint32 `building_index` per triangle
+  indexes it, for isolated validation; a building added in another tile leaves the bytes alone. Walls and base use `building`; roofs use `roof`. Each closed shell is stored once in its footprint-centroid collision tile, per
   the shared object ownership contract. No grid clipping creates delivery slivers.
 - `t0_i_j.vis.glb`: world-local geometry, metre UVs, one mesh/node per planar surface.
   Whole objects belong to the visual tile containing the footprint representative point.
@@ -111,6 +127,8 @@ All output is under `$TURKU3D_WORK/build/layers/buildings`:
 - `facades.geojson`: [facade schema](../../../docs/specs/facades.md).
 - `footprints.geojson`: every expected footprint in engine x/z, including missing shells.
 - `metrics.json`, `metrics.md`: per-candidate metrics, choice, semantics and acceptance failures.
+- `reconstruction.jsonl`, `shells.json`, `shells.npz`: the per-building products the next
+  build reuses (see above).
 - `MANIFEST.json`: shared `turku3d-layer` v1, published by `turku3d.layers.write_manifest`.
   Inputs map paths to SHA256; tiles map filenames to verified byte counts and hashes.
   Acceptance and revision are in `params`; detailed metrics and facade inventories are sidecars.

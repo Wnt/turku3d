@@ -18,30 +18,17 @@ from shapely.ops import unary_union
 
 from turku3d import config as C
 from turku3d.layers import CollisionLayer, write_manifest, write_visual
-from turku3d.region.cache import atomic_target, cache_lock
 
 from . import citygml, roofer
 from .facades import make_visuals, ortho_roof_key
-from .fallback import extrusion, lidar_extrusion, placeholder_extrusion
-from .height import overlap_points
 from .inputs import (
     attach_osm,
     local_polygon,
     read_footprints,
     read_playable_footprints,
-    read_points,
-    write_roofer_footprints,
 )
-from .select import choose
+from .reconstruct import evidence_lidar, reconstruct, roofer_lidar, sha256
 from .tiles import collision_tiles, ownership_point
-
-
-def sha256(path):
-    h = hashlib.sha256()
-    with Path(path).open("rb") as f:
-        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def write_json(path, value):
@@ -49,10 +36,21 @@ def write_json(path, value):
 
 
 def _publish(
-    buildings, selected, records, output, streets, ortho_paths, inputs, params, visual_tiles=None
+    buildings,
+    selected,
+    records,
+    output,
+    streets,
+    ortho_paths,
+    inputs,
+    params,
+    visual_tiles=None,
+    store=None,
 ):
     """Failed quality remains explicit; products contain only valid closed shells."""
     output.mkdir(parents=True, exist_ok=True)
+    for name, data in (store or {}).items():
+        (output / name).write_bytes(data)
     visuals, features, files = defaultdict(list), [], []
     accepted = []
     for building, record in zip(buildings, records, strict=True):
@@ -78,9 +76,12 @@ def _publish(
         visuals[tile.id].extend(meshes)
         features.extend(facades)
         accepted.append(shell)
-    footprints = [b.footprint for b in buildings if b.id in selected]
+    owners = [b for b in buildings if b.id in selected]
     for tid, arrays in collision_tiles(
-        accepted, footprints, provenance=True, visual_tiles=visual_tiles
+        accepted,
+        [b.footprint for b in owners],
+        ids=[b.id for b in owners],
+        visual_tiles=visual_tiles,
     ).items():
         name = tid + ".col.npz"
         # Keep per-triangle ownership for isolated walker validation.
@@ -188,14 +189,34 @@ def _publish(
 
 
 def publish(
-    buildings, selected, records, output, streets, ortho_paths, inputs, params, visual_tiles=None
+    buildings,
+    selected,
+    records,
+    output,
+    streets,
+    ortho_paths,
+    inputs,
+    params,
+    visual_tiles=None,
+    store=None,
 ):
-    """Prepare the complete layer before replacing any existing artifact."""
+    """Prepare the complete layer before replacing any existing artifact.
+
+    `store` holds the per-building reconstruction files the next build reuses."""
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".buildings-", dir=output.parent) as temporary:
         stage = Path(temporary) / "buildings"
         report = _publish(
-            buildings, selected, records, stage, streets, ortho_paths, inputs, params, visual_tiles
+            buildings,
+            selected,
+            records,
+            stage,
+            streets,
+            ortho_paths,
+            inputs,
+            params,
+            visual_tiles,
+            store,
         )
         output.mkdir(parents=True, exist_ok=True)
         previous = output / "MANIFEST.json"
@@ -219,9 +240,6 @@ def publish(
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--source-area", default="work-3x3")
-    ap.add_argument(
-        "--roofer-output", type=Path, help="Reuse an existing CityJSONSeq reconstruction"
-    )
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument(
         "--tiles",
@@ -259,189 +277,25 @@ def main(argv=None):
     if not osm_paths:
         raise FileNotFoundError("OSM GeoParquet is required")
     attach_osm(buildings, osm_paths[-1])
-    # Include complete buildings crossing the AOI boundary, not only points inside the AOI.
-    # Only the LAZ tiles under some building: an L-shaped tile list's bounding box can reach
-    # lidar tiles nobody fetched because nothing there is built.
-    laz = [
-        C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz")
-        for t in sorted(
-            {
-                t
-                for b in buildings
-                for t in C.laz_tiles_for_bbox(C.BBoxLocal(*b.footprint.bounds).buffered(5))
-            },
-            key=lambda t: t.name,
-        )
-    ]
-
-    def reconstruction_key(source_buildings):
-        return hashlib.sha256(
-            b"".join(b.id.encode() + b.footprint.wkb for b in source_buildings)
-            + Path(roofer.__file__).read_bytes()
-            + json.dumps([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in laz]).encode()
-        ).hexdigest()[:20]
-
-    footprint_key = reconstruction_key(buildings)
-    reconstruction = args.roofer_output or cache / "roofer" / footprint_key
-    if args.roofer_output is None:
-        with cache_lock(cache / "locks" / f"roofer-{footprint_key}"):
-            if not (reconstruction / "execution.json").exists():
-                footprints = cache / "footprints" / f"{footprint_key}.gpkg"
-                if not footprints.exists():
-                    with atomic_target(footprints) as temporary:
-                        write_roofer_footprints(buildings, temporary)
-                roofer.run(laz, footprints, reconstruction, args.jobs)
-    execution = reconstruction / "execution.json"
-    command = json.loads(execution.read_text()).get("command") if execution.exists() else None
-    seq = sorted(reconstruction.glob("*.city.jsonl"))
-    if not seq:
-        raise FileNotFoundError(f"no CityJSONSeq files in {reconstruction}")
-    reconstructed = roofer.read(seq)
-    reconstruction_metadata = roofer.read_metadata(seq)
-    # Roofer's segmentation depends on the entire submitted footprint set.
-    # Keep the established kantakartta geometry stable when GIS fills gaps.
-    established = read_footprints(paths["kanta_Rakennus"], region)
-    established = [b for b in established if any(b.footprint.intersects(r) for r in tile_regions)]
-    established_key = reconstruction_key(established)
-    if established_key != footprint_key:
-        baseline = cache / "roofer" / established_key
-        with cache_lock(cache / "locks" / f"roofer-{established_key}"):
-            if not (baseline / "execution.json").exists():
-                footprint_path = cache / "footprints" / f"{established_key}.gpkg"
-                if not footprint_path.exists():
-                    with atomic_target(footprint_path) as temporary:
-                        write_roofer_footprints(established, temporary)
-                roofer.run(laz, footprint_path, baseline, args.jobs)
-        baseline_seq = sorted(baseline.glob("*.city.jsonl"))
-        previous = roofer.read(baseline_seq)
-        previous_metadata = roofer.read_metadata(baseline_seq)
-        for building in established:
-            if building.id in previous:
-                reconstructed[building.id] = previous[building.id]
-            if building.id in previous_metadata:
-                reconstruction_metadata[building.id] = previous_metadata[building.id]
-        seq.extend(baseline_seq)
+    established = {
+        b.id
+        for b in read_footprints(paths["kanta_Rakennus"], region)
+        if any(b.footprint.intersects(r) for r in tile_regions)
+    }
     city, matches = citygml.read(paths["bldg_Building_LOD2"], buildings)
-    print(f"Candidates: city={len(city)}, roofer={len(reconstructed)}; reading class 6", flush=True)
-    point_key = hashlib.sha256(json.dumps([(str(p), sha256(p)) for p in laz]).encode()).hexdigest()
-    points_path = cache / (point_key + ".class6.npy")
-    # Cache whole LAZ bounds so changes in footprint/AOI cannot truncate reused points.
-    with cache_lock(cache / "locks" / point_key):
-        if points_path.exists():
-            points = np.load(points_path, mmap_mode="r")
-        else:
-            all_bounds = [C.LazTile.parse(p.stem).bbox_en.to_local() for p in laz]
-            bb = C.BBoxLocal(
-                min(b.xmin for b in all_bounds),
-                min(b.zmin for b in all_bounds),
-                max(b.xmax for b in all_bounds),
-                max(b.zmax for b in all_bounds),
-            )
-            points = read_points(laz, bb)
-            with atomic_target(points_path) as temporary:
-                with temporary.open("wb") as stream:
-                    np.save(stream, points)
-    missing = [
-        b for b in buildings if reconstruction_metadata.get(b.id, {}).get("rf_pointcloud_unusable")
-    ]
-    overlap = overlap_points(laz, missing, cache, point_key) if missing else np.empty((0, 3))
-    selected, records = {}, []
-    for i, building in enumerate(buildings):
-        x0, z0, x1, z1 = building.footprint.bounds
-        padding = (
-            100
-            if reconstruction_metadata.get(building.id, {}).get("rf_pointcloud_unusable")
-            else 20
-        )
-        keep = (
-            (points[:, 0] >= x0 - padding)
-            & (points[:, 0] <= x1 + padding)
-            & (points[:, 2] >= z0 - padding)
-            & (points[:, 2] <= z1 + padding)
-        )
-        shell, record = choose(
-            building,
-            {"city": city.get(building.id, []), "roofer": reconstructed.get(building.id, [])},
-            points[keep],
-        )
-        if not record["pass"]:
-            reason = "no_valid_reconstruction" if shell is None else "residual_limits_exceeded"
-            try:
-                surfaces, evidence = lidar_extrusion(
-                    building, points[keep], reconstruction_metadata.get(building.id, {}), overlap
-                )
-                alternatives = {
-                    "city": city.get(building.id, []),
-                    "roofer": reconstructed.get(building.id, []),
-                    "lidar_extrusion": surfaces,
-                }
-                if evidence.get("roof_shape") != "flat":
-                    alternatives["lidar_flat"] = extrusion(
-                        building.footprint, evidence["base_m"], evidence["roof_m"]
-                    )
-                shell, record = choose(building, alternatives, points[keep])
-                record["fallback"] = {
-                    "reason": reason,
-                    "selected": record["choice"] in ("lidar_extrusion", "lidar_flat"),
-                    "height_evidence": evidence,
-                }
-            except ValueError as exc:
-                record["fallback"] = {"reason": reason, "error": str(exc)}
-        if shell is None:
-            ground_points = None
-            if reconstruction_metadata.get(building.id, {}).get("rf_h_ground") is None:
-                from turku3d.lidar import TileStore
-
-                store = TileStore(
-                    source_dir=C.raw_dir("laz") / "pistepilvi",
-                    cache_dir=C.cache_dir("lidar"),
-                )
-                ground_points = store.query(
-                    C.BBoxLocal(x0 - 15, z0 - 15, x1 + 15, z1 + 15), classes=[2]
-                ).points
-            surfaces, evidence = placeholder_extrusion(
-                building, reconstruction_metadata.get(building.id, {}), ground_points
-            )
-            shell, record = choose(building, {"placeholder": surfaces}, points[keep])
-            record["fallback"] = {
-                "reason": "no_usable_model_or_lidar_shell",
-                "selected": shell is not None,
-                "height_evidence": evidence,
-            }
-        if building.properties.get("point_only"):
-            from turku3d.lidar import TileStore
-
-            store = TileStore(
-                source_dir=C.raw_dir("laz") / "pistepilvi", cache_dir=C.cache_dir("lidar")
-            )
-            ground_points = store.query(
-                C.BBoxLocal(x0 - 30, z0 - 30, x1 + 30, z1 + 30), classes=[2]
-            ).points
-            surfaces, evidence = placeholder_extrusion(building, {}, ground_points)
-            shell, record = choose(building, {"placeholder": surfaces}, points[keep])
-            record["fallback"] = {
-                "reason": "source_has_point_only_no_surveyed_outline",
-                "selected": shell is not None,
-                "height_evidence": evidence,
-            }
-        record["shell_valid"] = shell is not None
-        record["city_match"] = matches.get(building.id)
-        record["roofer_metadata"] = reconstruction_metadata.get(building.id)
-        if shell is not None:
-            selected[building.id] = shell
-        records.append(record)
-        print(
-            f"{i + 1}/{len(buildings)} {building.id}: {record['choice']}, pass={record['pass']}",
-            flush=True,
-        )
+    output = C.work_root() / "build/layers/buildings"
+    selected, records, store, counts = reconstruct(
+        buildings, established, city, matches, output, cache, args.jobs
+    )
+    print(f"Reconstruction: {json.dumps(counts)}", flush=True)
     streets = unary_union(
         [local_polygon(p) for p in gpd.read_parquet(paths["GIS_Keskilinjat"]).geometry]
     )
     ortho = sorted((C.raw_dir("ortho") / "ortho2022to" / args.source_area).glob("*.tif"))
-    input_files = [*paths.values(), *laz, osm_paths[-1], *seq, *ortho]
-    if execution.exists():
-        input_files.append(execution)
-    inputs = {str(p): sha256(p) for p in input_files}
+    # Only the LAZ tiles under or near some building: an L-shaped tile list's bounding box can
+    # reach lidar tiles nobody fetched because nothing there is built.
+    laz = sorted({p for b in buildings for p in (*roofer_lidar(b), *evidence_lidar(b))})
+    inputs = {str(p): sha256(p) for p in [*paths.values(), *laz, osm_paths[-1], *ortho]}
     params = {
         "aoi_local": region.as_tuple(),
         "visual_tiles": args.tiles,
@@ -450,12 +304,11 @@ def main(argv=None):
         "residual_metric": "euclidean_point_to_shell",
         "hausdorff_limit_m": 0.3,
         "triangle_limit": 2000,
-        "roofer_command": command,
+        "roofer": {"version": roofer.version(), "flags": roofer.FLAGS},
         "roof_uv_origin_en": [C.ORIGIN_E, C.ORIGIN_N],
     }
-    output = C.work_root() / "build/layers/buildings"
     report = publish(
-        buildings, selected, records, output, streets, ortho, inputs, params, visual_tiles
+        buildings, selected, records, output, streets, ortho, inputs, params, visual_tiles, store
     )
     print(
         json.dumps(

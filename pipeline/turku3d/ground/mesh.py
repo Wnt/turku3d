@@ -86,19 +86,92 @@ def triangulate(vertices, segments):
 
 
 class HeightQuery:
-    """Triangle-aware linear interpolation (never re-Delaunay a constrained mesh)."""
+    """Linear interpolation on the mesh's own triangles (never re-Delaunay a constrained mesh).
+
+    Triangles are bucketed by the grid cells their bounding boxes overlap, so a query tests
+    only the triangles of its own cell. Each triangle interpolates from its vertices in
+    coordinate order, so the same triangle cut from another envelope gives the same bits.
+    Points outside every triangle are NaN."""
+
+    CHUNK = 262_144
 
     def __init__(self, mesh):
-        import matplotlib.tri as tri
-
-        p, f = mesh.positions, mesh.indices
-        # Triangle pc is CCW in x/z before our upward winding reversal.
-        self.triangulation = tri.Triangulation(p[:, 0], p[:, 2], f[:, [0, 2, 1]])
-        self.interpolator = tri.LinearTriInterpolator(self.triangulation, p[:, 1])
+        p = np.asarray(mesh.positions, np.float64)
+        f = np.asarray(mesh.indices, np.int64).reshape(-1, 3)
+        xz = p[:, [0, 2]]
+        # Canonical vertex order per triangle: lexicographic by x, then z.
+        corners = xz[f]
+        order = np.lexsort((corners[:, :, 1], corners[:, :, 0]), axis=-1)
+        f = np.take_along_axis(f, order, axis=1)
+        corners = xz[f]
+        a, e1, e2 = corners[:, 0], corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+        det = e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]
+        # One row per triangle: a, e1, e2, det, then the corner heights.
+        self.rows = np.column_stack((a, e1, e2, det, p[f, 1]))
+        self.key = corners.reshape(-1, 6)
+        if not len(f):
+            self.cells = np.empty(0, np.int64)
+            self.triangles = np.empty(0, np.int64)
+            self.origin, self.size, self.shape = np.zeros(2), 1.0, (0, 0)
+            return
+        lo, hi = corners.min(axis=1), corners.max(axis=1)
+        self.origin = lo.min(axis=0)
+        self.size = max(float(np.median(hi - lo)) / 2, 1e-3)
+        first = np.floor((lo - self.origin) / self.size).astype(np.int64)
+        last = np.floor((hi - self.origin) / self.size).astype(np.int64)
+        self.shape = tuple(int(n) for n in last.max(axis=0) + 1)
+        width = last[:, 0] - first[:, 0] + 1
+        counts = width * (last[:, 1] - first[:, 1] + 1)
+        owner = np.repeat(np.arange(len(f)), counts)
+        local = np.arange(counts.sum()) - np.repeat(np.cumsum(counts) - counts, counts)
+        i = first[owner, 0] + local % width[owner]
+        j = first[owner, 1] + local // width[owner]
+        cells = i * self.shape[1] + j
+        order = np.argsort(cells, kind="stable")
+        self.cells, self.triangles = cells[order], owner[order]
 
     def __call__(self, xz):
-        xz = np.asarray(xz).reshape(-1, 2)
-        return np.asarray(self.interpolator(xz[:, 0], xz[:, 1]).filled(np.nan))
+        xz = np.asarray(xz, np.float64).reshape(-1, 2)
+        out = np.full(len(xz), np.nan)
+        for start in range(0, len(xz), self.CHUNK):
+            out[start : start + self.CHUNK] = self._query(xz[start : start + self.CHUNK])
+        return out
+
+    def _query(self, q):
+        out = np.full(len(q), np.nan)
+        if not len(self.cells):
+            return out
+        c = np.floor((q - self.origin) / self.size).astype(np.int64)
+        valid = (c >= 0).all(axis=1) & (c[:, 0] < self.shape[0]) & (c[:, 1] < self.shape[1])
+        ids = np.where(valid, c[:, 0] * self.shape[1] + c[:, 1], -1)
+        left = np.searchsorted(self.cells, ids, "left")
+        n = np.where(valid, np.searchsorted(self.cells, ids, "right") - left, 0)
+        point = np.repeat(np.arange(len(q)), n)
+        slot = np.repeat(left, n) + np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)
+        tri = self.triangles[slot]
+        r = self.rows[tri]
+        dx, dz = q[point, 0] - r[:, 0], q[point, 1] - r[:, 1]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            u = (dx * r[:, 5] - dz * r[:, 4]) / r[:, 6]
+            v = (r[:, 2] * dz - r[:, 3] * dx) / r[:, 6]
+        eps = 1e-12
+        inside = (r[:, 6] != 0) & (u >= -eps) & (v >= -eps) & (u + v <= 1 + eps)
+        point, tri, u, v = point[inside], tri[inside], u[inside], v[inside]
+        if not len(point):
+            return out
+        # Hits are grouped by point. A point on a shared edge picks the triangle with the
+        # lowest corner coordinates.
+        start = np.r_[True, point[1:] != point[:-1]]
+        run = np.cumsum(start) - 1
+        shared = np.flatnonzero(np.bincount(run)[run] > 1)
+        keep = np.flatnonzero(np.bincount(run)[run] == 1)
+        if len(shared):
+            rank = shared[np.lexsort((*self.key[tri[shared]].T[::-1], point[shared]))]
+            keep = np.r_[keep, rank[np.r_[True, point[rank][1:] != point[rank][:-1]]]]
+        point, tri, u, v = point[keep], tri[keep], u[keep], v[keep]
+        h = self.rows[tri, 7:]
+        out[point] = h[:, 0] + u * (h[:, 1] - h[:, 0]) + v * (h[:, 2] - h[:, 0])
+        return out
 
 
 def build_mesh(

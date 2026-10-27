@@ -20,7 +20,7 @@ from turku3d.layers import (
     write_visual,
 )
 from turku3d.package.assemble import assemble as assemble_office
-from turku3d.package.assemble import facade_priorities
+from turku3d.package.facades import facade_priorities
 from turku3d.package.gltf import GlbMesh, read_glb
 from turku3d.package.manifest import verify_tree
 from turku3d.package.seams import verify_seams
