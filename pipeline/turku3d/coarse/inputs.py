@@ -33,7 +33,9 @@ from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCovera
 
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 CODE = hashlib.sha256(
-    Path(__file__).read_bytes() + Path(__file__).with_name("fences.py").read_bytes()
+    Path(__file__).read_bytes()
+    + Path(__file__).with_name("fences.py").read_bytes()
+    + Path(__file__).with_name("bridges.py").read_bytes()
 ).hexdigest()[:16]
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -246,7 +248,14 @@ def prepare_roads(tile: C.VisualTile, osm: Path) -> dict:
     graph = build_graph(
         osm_ways(osm, tile.bbox), tile.bbox.as_tuple(), f"coarse-{tile.id}", connected=False
     )
-    return {"json": encode(graph), "nodes": len(graph["nodes"]) // 2, "edges": len(graph["edges"])}
+    from .bridges import prepare as prepare_bridges
+
+    return {
+        "json": encode(graph),
+        "nodes": len(graph["nodes"]) // 2,
+        "edges": len(graph["edges"]),
+        "bridge_ways": prepare_bridges(tile, osm),
+    }
 
 
 def prepare_trees(tile: C.VisualTile, osm: Path) -> list:

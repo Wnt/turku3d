@@ -377,3 +377,28 @@ def test_draft_has_osm_trees_with_trunks_and_a_water_surface(tmp_path, inputs, m
     assert "EXT_mesh_gpu_instancing" in js["extensionsRequired"]
     keys = {n.get("extras", {}).get("material_key") for n in js["nodes"]}
     assert "water" in keys
+
+
+@pytest.mark.parametrize(
+    "tags,gap",
+    [({"highway": "residential"}, 4.5), ({"railway": "rail"}, 6.0), ({"highway": "cycleway"}, 2.5)],
+)
+def test_osm_deck_height_clears_lower_way(tags, gap):
+    from turku3d.coarse.bridges import THICKNESS, clearance, deck_profile
+
+    stations = np.array([0.0, 20.0, 40.0])
+    heights = deck_profile(
+        stations, np.array([2.0, 3.0, 4.0]), (2.0, 4.0), [(20.0, 5.0, clearance(tags))]
+    )
+    assert heights[1] - THICKNESS == pytest.approx(5.0 + gap)
+    assert np.diff(heights) == pytest.approx([1.0, 1.0])
+
+
+def test_osm_deck_height_keeps_high_abutments_and_clears_ground():
+    from turku3d.coarse.bridges import deck_profile
+
+    s = np.array([0.0, 10.0, 20.0])
+    assert deck_profile(s, np.array([1, 2, 3]), (12, 14), [(10, 1, 6)]) == pytest.approx(
+        [12, 13, 14]
+    )
+    assert deck_profile(s, np.array([1, 18, 3]), (12, 14)) == pytest.approx([17, 18, 19])

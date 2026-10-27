@@ -52,7 +52,7 @@ export class StreetRouter implements Router {
           const t = len2 > 0 ? Math.min(1, Math.max(0, ((p.x - x0) * dx + (p.z - z0) * dz) / len2)) : 0;
           const x = x0 + t * dx, z = z0 + t * dz, distance = Math.hypot(p.x - x, p.z - z);
           if (distance <= MAX_SNAP_M && (!best || distance < best.distance)) {
-            best = { edge: e, offset: edge.cumulative[s] + t * Math.sqrt(len2), point: { x, z }, distance };
+            best = { edge: e, offset: edge.cumulative[s] + t * Math.sqrt(len2), point: { x, z, ...(edge.heights ? { y: edge.heights[s] + t * (edge.heights[s + 1] - edge.heights[s]) } : {}) }, distance };
           }
         }
       }
@@ -114,7 +114,9 @@ export class StreetRouter implements Router {
     for (let v = T; v !== S; v = prev[v]) {
       const u = prev[v];
       reversed.push(...this.slice(via[v], toOffset[v], fromOffset[v]));
-      reversed.push(u === S ? start.point : { x: nodes[2 * u], z: nodes[2 * u + 1] });
+      const walked = edges[via[v]];
+      const y = walked.heights?.[walked.a === u ? 0 : walked.heights.length - 1];
+      reversed.push(u === S ? start.point : { x: nodes[2 * u], z: nodes[2 * u + 1], ...(y !== undefined ? { y } : {}) });
     }
     return dedupe(reversed.reverse());
   }
@@ -131,9 +133,9 @@ export class StreetRouter implements Router {
     const out: WorldPoint[] = [];
     const c = edge.cumulative;
     if (from <= to) {
-      for (let i = 0; i < c.length; i++) if (c[i] > from && c[i] < to) out.push({ x: edge.points[2 * i], z: edge.points[2 * i + 1] });
+      for (let i = 0; i < c.length; i++) if (c[i] > from && c[i] < to) out.push({ x: edge.points[2 * i], z: edge.points[2 * i + 1], ...(edge.heights ? { y: edge.heights[i] } : {}) });
     } else {
-      for (let i = c.length - 1; i >= 0; i--) if (c[i] < from && c[i] > to) out.push({ x: edge.points[2 * i], z: edge.points[2 * i + 1] });
+      for (let i = c.length - 1; i >= 0; i--) if (c[i] < from && c[i] > to) out.push({ x: edge.points[2 * i], z: edge.points[2 * i + 1], ...(edge.heights ? { y: edge.heights[i] } : {}) });
     }
     return out;
   }

@@ -14,6 +14,8 @@ export interface RoadEdge {
   points: Float64Array;
   /** Cumulative polyline length at each point; the last value is the edge length. */
   cumulative: Float64Array;
+  /** Optional surface Y per vertex, supplied by draft bridge decks. */
+  heights?: Float64Array;
 }
 
 export interface RoadGraph {
@@ -34,6 +36,7 @@ export interface RoadGraphJson {
   bbox: [number, number, number, number];
   nodes: number[];
   edges: number[][];
+  edgeHeights?: (number[] | null)[];
 }
 
 function checkFormat(json: RoadGraphJson) {
@@ -60,7 +63,9 @@ export function parseRoadGraph(json: RoadGraphJson): RoadGraph {
     }
     adjacency[a].push(index);
     if (b !== a) adjacency[b].push(index);
-    return { a, b, flags, points, cumulative };
+    const ys = json.edgeHeights?.[index];
+    if (ys && (ys.length !== cumulative.length || !ys.every(Number.isFinite))) throw new Error(`road graph: bad heights ${index}`);
+    return { a, b, flags, points, cumulative, ...(ys ? { heights: Float64Array.from(ys) } : {}) };
   });
   return { nodes, edges, adjacency, bbox: json.bbox };
 }
@@ -76,6 +81,7 @@ export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
   if (parts.length === 1) return parseRoadGraph(parts[0]);
   const index = new Map<string, number>(), seen = new Set<string>();
   const nodes: number[] = [], edges: number[][] = [];
+  const edgeHeights: (number[] | null)[] = [];
   const bbox: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   const node = (x: number, z: number) => {
     const key = `${Math.round(x * 10)},${Math.round(z * 10)}`;
@@ -86,16 +92,17 @@ export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
   for (const part of parts) {
     checkFormat(part);
     const map = Array.from({ length: part.nodes.length / 2 }, (_, i) => node(part.nodes[2 * i], part.nodes[2 * i + 1]));
-    for (const row of part.edges) {
+    for (const [i, row] of part.edges.entries()) {
       const edge = [map[row[0]], map[row[1]], ...row.slice(2)];
       const key = edge.map(v => Math.round(v * 10)).join(',');
       if (seen.has(key)) continue;
       seen.add(key);
       edges.push(edge);
+      edgeHeights.push(part.edgeHeights?.[i] ?? null);
     }
     for (let k = 0; k < 4; k++) bbox[k] = k < 2 ? Math.min(bbox[k], part.bbox[k]) : Math.max(bbox[k], part.bbox[k]);
   }
-  return parseRoadGraph({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox, nodes, edges });
+  return parseRoadGraph({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox, nodes, edges, edgeHeights });
 }
 
 /** The published graph's JSON, or null when the tile build carries none (synthetic dev tiles). */
