@@ -417,6 +417,11 @@ export class CoarseTiles {
     }
   }
 
+  /** L0 tiles drawn from this module: drafts, and tiles published since the page loaded. */
+  drawn(): string[] {
+    return [...this.entries].filter(([, e]) => e.state === 'draft' || e.state === 'published').map(([id]) => id);
+  }
+
   /** Street graphs of the drafts in the scene, for the map and the router (gameplay/index.ts StreetMap). */
   roadGraphs(): RoadGraphJson[] {
     return [...this.entries.values()].flatMap(e => e.state === 'draft' && e.roads ? [e.roads] : []);

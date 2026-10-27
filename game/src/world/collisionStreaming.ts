@@ -157,6 +157,21 @@ export class CollisionStreamer {
     return this.near(x, z, r).map((t) => t.id).filter((id) => !this.physics.loaded.has(id) && !this.failed.has(id));
   }
 
+  /** The true edges of the loaded collision as [i, j, side] (side: +x, -x, +z, -z): sides of a loaded tile whose
+   *  neighbour has no collision in any source. The worker closes exactly these with edge walls. */
+  trueEdges(): [number, number, number][] {
+    const out: [number, number, number][] = [];
+    for (const id of this.physics.loaded.keys()) {
+      const ij = parseCollisionId(id);
+      if (!ij) continue;
+      SIDES.forEach(([di, dj], side) => {
+        const n = collisionTileId(ij.i + di, ij.j + dj);
+        if (!this.physics.loaded.has(n) && (!this.manifest.collision[n] || this.failed.has(n))) out.push([ij.i, ij.j, side]);
+      });
+    }
+    return out;
+  }
+
   /** The highest speed (m/s) at which a player at (x, z) moving at (vx, vz) still stops before a tile that exists but is
    *  not loaded yet and lies ahead (no edge wall faces it); Infinity when there is none within reach. */
   speedLimit(x: number, z: number, vx: number, vz: number): number {
