@@ -13,6 +13,8 @@
 // A landing restarts the service (tools/dev/localhost/coarse.mjs): a connection error (the dev server's 503) or a 404
 // from a route the running service lacks pauses the drafts with one console line and the badge `drafts: service
 // restarting`; only /coarse/status is probed until the service answers again, so a restart is no console error spam.
+// The /coarse/want answer carries the service's build counter: when it moves, the waiting tiles are polled at once, so a finished
+// draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
 // Never active off localhost (GitHub Pages) or when the service is not running.
 import * as THREE from 'three/webgpu';
 import { materialColor, saturation, vec3 } from 'three/tsl';
@@ -125,7 +127,13 @@ interface CoarseFragment { coarse: true; tile: string; visual: Record<string, Ma
   roads?: { url: string; bytes: number } | null }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'published' | 'failed';
-interface Entry { state: State; model?: THREE.Object3D; collision: string[]; nextPoll: number; error?: string; roads?: RoadGraphJson }
+interface Entry {
+  state: State; model?: THREE.Object3D; collision: string[]; nextPoll: number; error?: string; roads?: RoadGraphJson;
+  /** The service's estimate (clock ms) of when a queued or building tile is built. */
+  readyAt?: number;
+  /** The service's build counter at this entry's last poll. */
+  version?: number;
+}
 
 export interface CoarseHost {
   scene: THREE.Scene;
@@ -166,6 +174,8 @@ export class CoarseTiles {
   onMapChange: (() => void) | null = null;
   /** Smoothed ground velocity (m/s) of the player, for the prefetch. */
   velocity = { x: 0, z: 0 };
+  /** The service's build counter (from /coarse/want): when it moves, waiting tiles are polled at once. */
+  private version = -1;
   private page: string;
   /** Set while the service restarts: no tile or prefetch requests, only status probes. */
   outage: Outage | null = null;
@@ -231,7 +241,8 @@ export class CoarseTiles {
     void this.want(x, z);
     const wanted = wantedTiles(x, z, this.published, this.leaves);
     const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id));
-    const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built') && now >= e.nextPoll;
+    const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
+      && (now >= e.nextPoll || (e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {
       const e = this.entry(id);
       if (due(e)) void this.poll(id, e, distToL0(id, x, z), true);
@@ -251,11 +262,16 @@ export class CoarseTiles {
     const building = states.filter(e => e.state === 'pending' || e.state === 'loading').length;
     const loaded = [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort();
     const at = this.entries.get(here);
-    const waiting = at?.state === 'pending' && at.error ? ` ${at.error}` : ' building...';
+    const inSeconds = (e?: Entry) => e?.readyAt === undefined ? null : Math.max(0, Math.ceil((e.readyAt - now) / 1000));
+    const ready = inSeconds(at);
+    const waiting = at?.state === 'pending' && at.error ? ` ${at.error}` : ready !== null ? ` ready in ${ready} s` : ' building...';
+    const soonest = wanted.map(id => this.entries.get(id)).filter(e => e?.state === 'pending' && !e.error)
+      .map(inSeconds).filter((v): v is number => v !== null).sort((a, b) => a - b)[0];
     const head = at?.state === 'draft' ? `draft tile ${here}`
       : at?.state === 'published' ? `published tile ${here} streamed in place of its draft (reload for LOD)`
         : at ? `draft tile ${here}${at.state === 'failed' ? ` unavailable: ${at.error}` : waiting}` : '';
-    this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '']
+    const next = soonest !== undefined && at?.state === 'draft' ? `next tile in ${soonest} s` : '';
+    this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '', next]
       .filter(Boolean).join(' · '));
   }
 
@@ -324,16 +340,25 @@ export class CoarseTiles {
     const q = [x, z, this.velocity.x, this.velocity.z].map(v => v.toFixed(1));
     try {
       const res = await this.request(`${COARSE_ROOT}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`);
-      if (res.status === 404) this.down('outdated');
+      if (res.status === 404) { this.down('outdated'); return; }
+      const { version } = await res.json().catch(() => ({})) as { version?: number };
+      if (typeof version !== 'number' || version === this.version) return;
+      // A build finished: the next frame polls every tile last polled before it (see `due`). The first answer only
+      // sets the baseline.
+      if (this.version < 0) for (const e of this.entries.values()) e.version = version;
+      else this.nextCheck = 0;
+      this.version = version;
     } catch { this.down('offline'); }
   }
 
   private async poll(id: string, e: Entry, d: number, load: boolean) {
     e.state = 'loading';
+    e.version = this.version;
     try {
       const res = await this.request(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`);
       if (res.status === 202) {
-        const body = await res.json().catch(() => ({})) as { state?: string; missing?: string[] };
+        const body = await res.json().catch(() => ({})) as { state?: string; missing?: string[]; eta?: number };
+        e.readyAt = typeof body.eta === 'number' ? this.clock + 1000 * body.eta : undefined;
         e.error = body.state === 'pending-data' ? `waiting for ${[...new Set(body.missing?.map(u => u.split('/')[0]))].join(', ')} data`
           : undefined;
         e.state = 'pending'; e.nextPoll = this.clock + 2000; return;

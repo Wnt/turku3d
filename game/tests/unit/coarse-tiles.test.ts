@@ -277,3 +277,29 @@ test('a restarting service pauses the drafts: one console line, only status prob
     json: async () => new URL(url).pathname === '/__localhost/status' ? { service: true, coarse: { commit: null, state: 'off' } } : { state: 'offline' } })) as unknown as typeof globalThis.fetch;
   expect(await CoarseTiles.start({ ...host, fetch: unsupervised })).toBeNull();
 });
+
+test('a finished build reaches the game at the next check, and the badge shows when the next tile is ready', async () => {
+  const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])), collision: {} } as unknown as Manifest;
+  let version = 4, polls = 0;
+  const fetch = (async (url: string) => {
+    const u = new URL(url);
+    const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
+    if (u.pathname === '/coarse/want') return json(200, { queued: 0, fetching: [], version });
+    if (u.pathname === '/coarse/status') return json(200, { state: 'idle' });
+    if (u.pathname === '/coarse/t0_2_0/manifest.json') { polls++; return json(202, { state: 'queued', position: 0, eta: 6.2 }); }
+    return json(404, { error: 'not here' });
+  }) as typeof globalThis.fetch;
+  const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
+    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {},
+    checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() }))!;
+  const settle = async () => { for (let k = 0; k < 4; k++) await new Promise(r => setTimeout(r, 0)); };
+  coarse.update(600, 100, 0); await settle();
+  expect(polls).toBe(1);
+  coarse.update(600, 100, 1000); await settle();
+  expect(coarse.status).toMatch(/^draft tile t0_2_0 ready in 6 s/);
+  expect(polls).toBe(1); // its own schedule: every 2 s
+  version = 5; // a build finished; the next check's /coarse/want reports it
+  coarse.update(600, 100, 2000); await settle();
+  coarse.update(600, 100, 2050); await settle();
+  expect(polls).toBe(3); // the 2 s poll, then at once on the new version instead of at 4000
+});

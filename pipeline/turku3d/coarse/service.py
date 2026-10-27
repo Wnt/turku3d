@@ -1,16 +1,19 @@
 """Localhost companion service: builds coarse tiles on first request and serves them afterwards.
 
-    GET /coarse/status                      queue, current build, built tiles and their timings,
-                                            tiles waiting for data, the prefetcher's state; the
-                                            service's start time and the repository files it loaded
+    GET /coarse/status                      queue in build order with each tile's ETA (s), builds
+                                            running, built tiles and their timings, tiles waiting for
+                                            data, the build counter `version`, the prefetcher's state;
+                                            the service's start time and the repository files it loaded
                                             (`started`, `modules`: the localhost game restarts it when
                                             one of them lands, tools/dev/localhost/coarse.mjs)
     POST /coarse/drain                      start no further builds (running ones finish); the
                                             supervisor restarts the service once `building` is empty
     GET /coarse/want?x=&z=&vx=&vz=          the player's engine position and velocity (m, m/s), once
-                                            a second: drives the raw-data prefetcher (prefetch.py)
-    GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 and the tile is queued,
-                                            nearest first by the player distance d (latest wins), or
+                                            a second: orders the queue, drives the raw-data prefetcher
+                                            (prefetch.py), answers {queued, fetching, version}
+    GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 {"state": "queued",
+                                            "position", "eta"} (the path ahead first, then by the
+                                            player distance d, latest wins) or "building" with "eta", or
                                             202 {"state": "pending-data", "missing": [units]} while
                                             its inputs are being fetched
     GET /coarse/<tile>/vis.glb | roads.json | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
@@ -54,6 +57,9 @@ SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
 PENDING_EXIT = 3  # python -m turku3d.coarse build: inputs missing, {"pending": [units]} on stdout
 RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried after this
+MIN_SPEED = 1.0  # m/s: slower than this the heading is noise and the queue is nearest first
+AFTER_PATH = 100_000.0  # score offset of tiles off the path ahead
+ETA_BUILDS = 8  # recent builds averaged for the queue's time estimates
 WORKERS = 4  # parallel builds: a cold tile spends minutes downloading, warm ones take 5-10 s
 MIME = {
     ".json": "application/json",
@@ -63,8 +69,28 @@ MIME = {
 }
 
 
+def score(tile: str, distance: float, motion) -> float:
+    """Build order: with a moving player, tiles on the path ahead first (by distance along the
+    heading, then off it), everything else (the ring, behind) after them by distance. Otherwise
+    nearest first by the distance the game reported."""
+    if motion is None:
+        return distance
+    x, z, vx, vz = motion
+    speed = math.hypot(vx, vz)
+    if speed < MIN_SPEED:
+        return distance
+    t = C.VisualTile.parse(tile)
+    size = t.size
+    dx, dz = t.origin[0] + size / 2 - x, t.origin[2] + size / 2 - z
+    along = (dx * vx + dz * vz) / speed
+    lateral = abs(dx * vz - dz * vx) / speed
+    if along >= -size / 2 and lateral <= 1.5 * size:
+        return max(along, 0.0) + lateral
+    return AFTER_PATH + distance
+
+
 class Builder:
-    """Priority queue of tile ids (lowest distance first) drained by `workers` threads."""
+    """Queue of tile ids drained by `workers` threads, in ``score`` order (the path ahead first)."""
 
     def __init__(
         self,
@@ -98,15 +124,18 @@ class Builder:
             ]
         )
         self.lock = threading.Condition()
-        self.priority: dict[str, float] = {}
+        self.priority: dict[str, float] = {}  # queued tile -> distance the game reported
         self.requested: dict[str, float] = {}
-        self.heap: list[tuple[float, str]] = []
+        self.motion: tuple[float, float, float, float] | None = None  # player x, z, vx, vz
+        self.version = 0  # counts finished builds; the game re-polls its tiles when it changes
+        self.recent: list[float] = []  # service seconds of the latest builds
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}
         self.stopped = False
         self.draining = False
+        self.workers = workers
         self.threads = [
             threading.Thread(target=self._run, name=f"coarse-builder-{k}", daemon=True)
             for k in range(workers)
@@ -143,7 +172,7 @@ class Builder:
                 return {"state": "failed", "error": error}
             self.failed.pop(tile, None)
             if tile in self.building:
-                return {"state": "building", "since": self.building[tile]}
+                return self._building(tile)
         try:
             missing = self.inputs(tile)
         except NoCoverage as e:
@@ -161,24 +190,46 @@ class Builder:
             return {"state": "pending-data", "missing": missing}
         with self.lock:
             if tile in self.building:  # a worker took it while the inputs were checked
-                return {"state": "building", "since": self.building[tile]}
+                return self._building(tile)
             self.priority[tile] = distance
-            heapq.heappush(self.heap, (distance, tile))
             self.lock.notify()
-            order = sorted(self.priority.items(), key=lambda kv: kv[1])
-            return {"state": "queued", "position": [t for t, _ in order].index(tile)}
+            order = self.order()
+            return {"state": "queued", "position": order.index(tile), "eta": self.eta()[tile]}
+
+    def steer(self, x: float, z: float, vx: float, vz: float) -> None:
+        """The player's position and velocity (from /coarse/want) order the queue."""
+        with self.lock:
+            self.motion = (x, z, vx, vz)
+
+    def order(self) -> list[str]:
+        """Queued tiles in build order (call with the lock held)."""
+        return sorted(self.priority, key=lambda t: (score(t, self.priority[t], self.motion), t))
+
+    def eta(self) -> dict[str, float]:
+        """Seconds until each queued or building tile is built, from the mean of the recent builds
+        and the free workers (call with the lock held)."""
+        mean = sum(self.recent) / len(self.recent) if self.recent else 8.0
+        now = time.time()
+        out = {t: max(0.5, mean - (now - since)) for t, since in self.building.items()}
+        free = sorted([*out.values(), *[0.0] * max(0, self.workers - len(self.building))])
+        for tile in self.order():
+            start = heapq.heappop(free) if free else 0.0
+            out[tile] = start + mean
+            heapq.heappush(free, out[tile])
+        return {t: round(v, 1) for t, v in out.items()}
+
+    def _building(self, tile: str) -> dict:
+        return {"state": "building", "since": self.building[tile], "eta": self.eta()[tile]}
 
     def _next(self) -> tuple[str, float] | None:
         if self.draining:
             return None
-        while self.heap:
-            distance, tile = heapq.heappop(self.heap)
-            if self.priority.get(tile) != distance:
-                continue
-            del self.priority[tile]
+        now = time.time()
+        for tile in self.order():
+            distance = self.priority.pop(tile)
             if tile in self.building:
                 continue
-            if time.time() - self.requested.get(tile, 0.0) <= STALE_SECONDS:
+            if now - self.requested.get(tile, 0.0) <= STALE_SECONDS:
                 return tile, distance
             self.requested.pop(tile, None)
         return None
@@ -200,12 +251,17 @@ class Builder:
             seconds = time.perf_counter() - started
             with self.lock:
                 del self.building[tile]
+                self.version += 1
+                outcome = "FAILED"
                 if proc.returncode == PENDING_EXIT:
                     units = json.loads(proc.stdout.strip().splitlines()[-1])["pending"]
                     self.pending[tile] = (units, distance)
+                    outcome = "pending"
                 elif proc.returncode == 0 and self.built(tile):
                     m = json.loads(self.manifest(tile).read_text())
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
+                    self.recent = [*self.recent[-(ETA_BUILDS - 1) :], seconds]
+                    outcome = "built"
                 else:
                     tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [
                         "build failed"
@@ -213,13 +269,6 @@ class Builder:
                     self.failed[tile] = (tail[0][:500], time.time())
                 if tile not in self.pending:
                     self.requested.pop(tile, None)
-                outcome = (
-                    "built"
-                    if tile in self.timings
-                    else "pending"
-                    if tile in self.pending
-                    else "FAILED"
-                )
                 print(f"coarse {tile}: {outcome} in {seconds:.1f} s", flush=True)
             if tile in self.pending:
                 self.on_missing(self.pending[tile][0])
@@ -240,7 +289,9 @@ class Builder:
             return {
                 "state": "building" if self.building else "idle",
                 "building": sorted(self.building),
-                "queue": [t for t, _ in sorted(self.priority.items(), key=lambda kv: kv[1])],
+                "queue": self.order(),
+                "eta": self.eta(),
+                "version": self.version,
                 "built": sorted(
                     p.parent.name
                     for p in self.root.glob("t0_*/manifest.json")
@@ -324,7 +375,9 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     return self._json(400, {"error": "x, z, vx, vz are numbers"})
                 if not all(map(math.isfinite, (x, z, vx, vz))):
                     return self._json(400, {"error": "x, z, vx, vz are finite"})
-                return self._json(200, prefetcher.want(x, z, vx, vz) if prefetcher else {})
+                builder.steer(x, z, vx, vz)
+                reply = prefetcher.want(x, z, vx, vz) if prefetcher else {}
+                return self._json(200, {**reply, "version": builder.version})
             if len(parts) == 2 and parts[0] == "shared" and SHARED.match(parts[1]):
                 path = builder.root / "shared" / parts[1]
                 if path.exists():
