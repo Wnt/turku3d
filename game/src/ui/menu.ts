@@ -181,7 +181,8 @@ function slotItem(store: SaveStore, id: SlotId, enabledEmpty: boolean, run: (gam
 
 /** The start-screen and pause-menu pages over a save store. */
 export class SaveMenuFlow {
-  constructor(private readonly host: MenuHost, private readonly store: SaveStore, private readonly game: GameHooks) {}
+  constructor(private readonly host: MenuHost, private readonly store: SaveStore, private readonly game: GameHooks,
+    private readonly multiplayer?: () => void, private readonly scoreboard?: () => void) {}
 
   /** Start screen: Continue (latest save, with its details), New game, Load game. */
   start(): MenuPage {
@@ -193,6 +194,10 @@ export class SaveMenuFlow {
     }
     items.push({ id: 'new', label: 'New game', detail: null, enabled: true,
       run: () => this.store.any ? this.host.show(this.confirmNew(() => this.start())) : this.game.play(null) });
+    if (this.multiplayer) items.push({ id: 'multiplayer', label: 'Multiplayer', detail: 'Join the live city', enabled: true,
+      run: this.multiplayer });
+    if (this.scoreboard) items.push({ id: 'scores', label: 'Scoreboard', detail: 'Current and finished hours', enabled: true,
+      run: this.scoreboard });
     items.push({ id: 'load', label: 'Load game', detail: null, enabled: this.store.any,
       run: () => this.host.show(this.load(() => this.start())) });
     return { id: 'start', title: 'Main menu', text: null, items, back: null };
@@ -203,6 +208,7 @@ export class SaveMenuFlow {
     const root = () => this.pause();
     return { id: 'pause', title: 'Paused', text, back: () => this.game.resume(), items: [
       { id: 'resume', label: 'Resume', detail: null, enabled: true, run: () => this.game.resume() },
+      ...(this.scoreboard ? [{ id: 'scores', label: 'Scoreboard', detail: null, enabled: true, run: this.scoreboard }] : []),
       { id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
       { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) },
       { id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) },

@@ -397,6 +397,10 @@ The [Node 24 multiplayer server](../server/README.md) targets deployment on osga
 forwarder at `wss://turku.lab.madekivi.fi`. It owns presence, session nicknames and
 delivery score validation for one room of up to 32 connections, with archived
 Europe/Helsinki clock-hour leaderboards. It relays client poses at 20 Hz and runs
-no physics; remote rendering and collisions belong to the later game-client task.
+no physics. The game client (`game/src/net/`) owns reconnects and session tokens,
+interpolates remote characters and vehicles, places kinematic Rapier proxies in
+loaded collision tiles, and shows remote positions on the minimap. Local collision
+impulses feed the impact sound and crash flash. Paid mission drop-offs send score
+claims; the live HUD and start/pause menus show the current leaderboard and archived hours.
 The [versioned JSON protocol](../server/PROTOCOL.md) defines local E/N coordinates,
 reconnects, rates and economy bounds. Only completed hours persist across restarts.

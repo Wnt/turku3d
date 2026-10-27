@@ -45,6 +45,9 @@ import type { Environment } from './render/environment';
 import type { PerformanceMonitor } from './render/performance';
 import type { MaterialStyler } from './render/materials';
 import type { parseParams } from './core/params';
+import { MultiplayerClient } from './net/client';
+import { RemotePlayers } from './net/remotes';
+import { Scoreboard } from './net/scoreboard';
 
 type Pose = V3 & { yaw: number };
 
@@ -138,6 +141,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   await Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
     scooter.load(`${import.meta.env.BASE_URL}assets/vehicles/scooter.glb`),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]);
+  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter });
+  const scoreboard = new Scoreboard(document.body);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
   // Draft tiles' streets join the map and the router as the drafts arrive and leave, and with the 60 s manifest poll.
@@ -145,7 +150,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     coarse.onMapChange = () => void streets.update(coarse.roadGraphs());
     if (coarse.roadGraphs().length) coarse.onMapChange();
   }
-  const missions = new MissionSystem({ router, addresses });
+  let multiplayerRunId = crypto.randomUUID();
+  const missions = new MissionSystem({ router, addresses, onPaid: drop => {
+    if (!multiplayerPlaying) return;
+    multiplayer?.sendDelivery({ orderId: `${multiplayerRunId}:order-${drop.orderIndex}:stop-${drop.stopIndex}`,
+      addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters });
+  } });
   // The scooter exists once bought (a loaded game places it in gameplay/saveGame.ts).
   const parkScooter = async (spot: V3 & { yaw: number }) => physics.spawnVehicle(
     { x: spot.x, y: await groundAt(spot.x, spot.z) + 0.55, z: spot.z }, spot.yaw, { id: SCOOTER_ID, kind: 'scooter' });
@@ -162,12 +172,18 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   zones.setSource(missions);
   const shopMenu = new ShopMenu(document.body);
   const pauseMenu = new PauseMenu(document.body, input);
+  const crashFlash = document.createElement('div');
+  crashFlash.id = 'mp-crash-flash';
+  document.body.append(crashFlash);
+  let multiplayer: MultiplayerClient | null = null;
+  let multiplayerPlaying = false;
   const mapDirection = new THREE.Vector3();
 
   let mode: 'foot' | 'car' = 'foot';
   let drivenId: string | null = null;
   let paused = false;
   let lastRumble = 0;
+  let lastCrash = 0;
   let wasGrounded = false;
   const desiredVelocity = new THREE.Vector2();
   const feet = new THREE.Vector3(spawn.x, spawn.y, spawn.z);
@@ -211,12 +227,37 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     spawn, car: world.car,
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
-    setPaused: value => { paused = value; }, fail });
+    setPaused: value => { paused = value; }, fail,
+    onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; remotePlayers.dispose();
+      minimap.setRemotes([]); scoreboard.setClient(null); },
+    scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
+    scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
+    multiplayer: () => {
+      multiplayer?.disconnect();
+      multiplayerRunId = crypto.randomUUID();
+      const client = new MultiplayerClient();
+      multiplayer = client;
+      scoreboard.setClient(client);
+      client.addEventListener('welcome', () => {
+        if (multiplayer !== client || multiplayerPlaying) return;
+        const self = client.state.players.find(p => p.id === client.state.you?.id);
+        const at = self?.pose ?? client.state.you!.spawn;
+        multiplayerPlaying = true;
+        void saveGame.playAt({ x: at.E, y: self?.pose?.H ?? 0, z: -at.N, yaw: at.yaw }).catch(fail);
+      });
+      client.connect();
+    } });
   let owned = missions.vehicle;
   if (hot) {
     const restored = applyHot(hot, { missions, setClock: date => { world.setClock(date); clockControl.set(date); }, camera: orbit });
     if (restored.drivenId) { enterVehicle(restored.drivenId); snapChase = true; }
     owned = missions.vehicle;
+    if (hot.multiplayer) {
+      multiplayerPlaying = true;
+      multiplayer = new MultiplayerClient();
+      scoreboard.setClient(multiplayer);
+      multiplayer.connect();
+    }
   }
   // A landing that cannot swap reloads the page (Vite full reload or a restarted dev server): autosave and resume.
   const autosaveForReload = () => { if (saveGame.autosave.save('reload')) markResume(sessionStore()); };
@@ -237,10 +278,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       recovery: recovery.snapshot(feet),
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected },
       pauseMenu: { open: pauseMenu.open, page: pauseMenu.panel.page?.id ?? null, selected: pauseMenu.panel.selected },
-      startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors };
+      startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors,
+      multiplayer: multiplayer ? { connected: multiplayer.state.connected, nick: multiplayer.state.you?.nick,
+        players: multiplayer.state.players.length, scores: multiplayer.state.scores,
+        remotes: remotePlayers.markers(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.close();
   else if (resume) saveGame.hooks.play(resume);
@@ -343,6 +387,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
       }
     }
+    if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now, feet);
     if (!paused) physics.step(dt, charIn, carIn);
 
     const st = physics.latest;
@@ -363,8 +408,21 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           lastRumble = strike.id;
           if (mode === 'car') void input.rumble(120, strike.rumble, strike.rumble * 0.6);
         }
+        if (multiplayerPlaying && mode === 'car' && activeCar.impact && activeCar.impact.id !== lastCrash) {
+          lastCrash = activeCar.impact.id;
+          crashFlash.style.transition = 'none';
+          crashFlash.style.opacity = String(Math.min(0.5, activeCar.impact.impulse / 12000));
+          requestAnimationFrame(() => { crashFlash.style.transition = 'opacity 450ms ease-out'; crashFlash.style.opacity = '0'; });
+          void input.rumble(150, 0.35, 0.6);
+        }
         if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - 0.6, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
+    }
+    if (multiplayerPlaying && !startScreen.active && !saveGame.loading) {
+      const yaw = mode === 'car' && vs ? yawOf(vs.rot) - Math.PI / 2 : player.root.rotation.y - Math.PI;
+      multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
+        vE: vel.x, vN: -vel.z, vH: vel.y, mode: mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : 'car',
+        carrying: missions.phase === 'carrying' });
     }
     if (!paused && !startScreen.active && !menuOpen) {
       recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y }, resetNow);
@@ -420,6 +478,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const facingDeg = compassDeg(facing.x, facing.z);
     camera.getWorldDirection(mapDirection);
     const nearEdge = recovery.render(feet, input.source === 'touch' ? 'Reset' : input.prompt('respawn'));
+    if (multiplayerPlaying) minimap.setRemotes(remotePlayers.markers());
     minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
     zones.update(dt, camera, { x: feet.x, z: feet.z });
 
@@ -448,8 +507,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   return {
     dispose() {
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId,
-        camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible };
+        camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
+        multiplayer: multiplayerPlaying };
       renderer.setAnimationLoop(null);
+      multiplayer?.disconnect();
+      remotePlayers.dispose();
+      scoreboard.dispose();
       listeners.abort();
       saveGame.dispose();
       input.dispose();
@@ -474,4 +537,3 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     },
   };
 }
-

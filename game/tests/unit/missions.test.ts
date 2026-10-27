@@ -10,7 +10,8 @@ import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SHOPS, ZONE_LABELS, optionDetail, optionLabel, type OptionId } from '../../src/gameplay/content/shops';
 import {
-  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, ownedVehicleId, lineSeconds, missionSummary, type MissionFrame,
+  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, ownedVehicleId, lineSeconds, missionSummary,
+  type MissionFrame, type PaidDropoff,
 } from '../../src/gameplay/missions/missions';
 
 /** Synthetic router: an L-shaped path (x first, then z), so route length differs from the straight line. */
@@ -24,8 +25,8 @@ const near = (p: WorldPoint, dx = 1): WorldPoint => ({ x: p.x + dx, z: p.z });
 const far: WorldPoint = { x: -500, z: -500 };
 
 /** A mission system, continued from a `serialize()` text when `saved` is given. */
-function harness(saved: string | null = null) {
-  const missions = new MissionSystem({ router: lRouter });
+function harness(saved: string | null = null, onPaid?: (drop: PaidDropoff) => void) {
+  const missions = new MissionSystem({ router: lRouter, onPaid });
   if (saved !== null) missions.restore(saved);
   const states: MissionHudState[] = [];
   missions.subscribe(s => states.push(s));
@@ -63,6 +64,20 @@ describe('contract', () => {
 });
 
 describe('economy', () => {
+  it('emits one protocol payout per paid drop-off, excluding permit spending', () => {
+    const paid: PaidDropoff[] = [];
+    const h = harness(null, drop => paid.push(drop));
+    h.missions.begin();
+    h.choose(MARKET.point, 'rent_permit');
+    expect(paid).toEqual([]);
+    h.leave(MARKET.point);
+    h.choose(PIZZERIA.point, 'take_order');
+    h.press(near(h.missions.currentStop.point));
+    expect(paid).toHaveLength(1);
+    expect(paid[0]).toMatchObject({ orderIndex: 0, stopIndex: 0, payout: BASE_PAY, tip: 8 });
+    expect(paid[0].routeMeters).toBeGreaterThan(0);
+    expect(paid[0].addressId).toMatch(/^[A-Za-z0-9_.:-]+$/);
+  });
   it('pays the full tip up to 70 % of par and nothing from 130 %, linearly between', () => {
     expect(tip(0, 100)).toBe(MAX_TIP);
     expect(tip(70, 100)).toBe(MAX_TIP);

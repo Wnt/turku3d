@@ -7,6 +7,19 @@ economy (gameplay-shops-ui, 2026-10-27). All in-game text is English
 single source for the HUD, the start screen and the voice pipeline. This document quotes line ids;
 the JSON holds the exact text.
 
+## Multiplayer
+
+The start menu's Multiplayer entry joins the live Turku room. The server chooses a
+two-letter nickname and street-side spawn; the client snaps feet to local collision.
+Other players appear as characters, cars or scooters with nicknames, remain visible
+on the minimap beyond loaded tiles, and collide in each player's local Rapier world.
+The live HUD lists the top three earners and the player; the start and pause menus
+browse finished hours. The competition follows Europe/Helsinki clock hours, including
+the two distinct autumn `03` hours. Only paid pizza drop-offs count toward the hourly
+score: base pay, tip and the second-stop bonus. Starting money, purchases, vehicle
+sales and the kidney payout do not raise rank. The mission and save flow otherwise
+works as it does in a solo game.
+
 ## Premise
 
 Turku, 2027. The protagonist has just lost a job as a software developer in redundancy
