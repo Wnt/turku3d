@@ -1,8 +1,8 @@
 """Refresh derived products from declared input and code hashes.
 
-Ground, buildings, surrounding massing, roads, props, vegetation and parked cars follow the
-playable tile list (config.playable_tile_ids). Per-tile layers (turku3d.tile_layer: roads,
-props) keep a key per tile and rebuild only stale tiles; the others record the list they were
+Ground, buildings, surrounding massing, roads, props, landmarks, vegetation and parked cars
+follow the playable tile list (config.playable_tile_ids). Per-tile layers (turku3d.tile_layer:
+roads, props, landmarks) keep a key per tile and rebuild only stale tiles; the others record the list they were
 built for and rebuild for another list. Structures and bridges stay on the measured office core."""
 
 import argparse
@@ -379,6 +379,12 @@ def roads(layers):
     return per_tile(layers, PRODUCER, "turku3d.roads")
 
 
+def landmarks(layers):
+    from turku3d.landmarks import PRODUCER
+
+    return per_tile(layers, PRODUCER, "turku3d.landmarks")
+
+
 def vegetation(layers):
     if layer_current(layers / "vegetation/MANIFEST.json", vegetation_code_hash()) and tiles_current(
         layers / "vegetation"
@@ -507,9 +513,11 @@ def refresh(work, target=None):
                 "facades": pool.submit(timed, "facades", facades, layers, textures),
                 "bridges": pool.submit(timed, "bridges", bridges, layers),
                 "roads": pool.submit(timed, "roads", roads, layers),
+                "landmarks": pool.submit(timed, "landmarks", landmarks, layers),
                 "buildings_outer": pool.submit(timed, "buildings_outer", outer_buildings, layers),
             }
-            for name in ("bridges", "buildings_outer"):
+            # Parked cars clear every solid layer, landmarks included.
+            for name in ("bridges", "buildings_outer", "landmarks"):
                 result[name] = futures[name].result()
             # Instance placement reads every solid layer above, and each producer clears
             # the inventories published before it (placement.inputs.PLACEMENT_ORDER).

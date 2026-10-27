@@ -33,6 +33,7 @@ class GlbMesh:
     image: bytes | None = None  # JPEG or PNG bytes (baseColorTexture)
     color: tuple[float, float, float, float] = (0.8, 0.8, 0.8, 1.0)
     roughness: float = 0.95
+    repeat: bool = False  # Texture wraps (REPEAT) instead of clamping to its edge
     extras: dict = field(default_factory=dict)
 
 
@@ -130,11 +131,13 @@ def build_glb(
             gltf.setdefault("images", []).append(
                 {"bufferView": view(m.image, None), "mimeType": _mime(m.image)}
             )
-            gltf.setdefault(
-                "samplers", [{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}]
-            )
+            wrap = 10497 if m.repeat else 33071
+            samplers = gltf.setdefault("samplers", [])
+            sampler = {"magFilter": 9729, "minFilter": 9987, "wrapS": wrap, "wrapT": wrap}
+            if sampler not in samplers:
+                samplers.append(sampler)
             gltf.setdefault("textures", []).append(
-                {"sampler": 0, "source": len(gltf["images"]) - 1}
+                {"sampler": samplers.index(sampler), "source": len(gltf["images"]) - 1}
             )
             pbr["baseColorTexture"] = {"index": len(gltf["textures"]) - 1}
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]

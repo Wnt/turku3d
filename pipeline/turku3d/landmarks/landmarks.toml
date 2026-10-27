@@ -1,0 +1,51 @@
+# Landmarks built from full-density lidar instead of the buildings layer's fitted shell.
+# The orchestrator decides what joins this list; docs/research/landmarks.md has the candidates.
+#
+# id                   stable object id (lowercase, digits, dashes)
+# name                 human-readable name
+# building             buildings-layer id of the footprint this replaces (kantakartta or gis-...)
+#   or polygon_en      [[E, N], ...] in EPSG:3877 for objects without a building footprint
+# method               "lidar-heightfield" (the only method so far)
+# cell_m               heightfield cell size, 0.2-1.0 m
+# visual_triangles     closed visual shell budget (at most 60000)
+# collision_triangles  closed collision shell budget (at most 2000, the building shell limit)
+# wall                 procedural wall material: "brick" or "render"
+# wall_rgb             its base colour, picked by hand (airborne lidar and the ortho do not see walls)
+# classes              lidar classes of the object (default [6], building; boats are class 1)
+# base                 "ground" (0.5 m below the lowest ground return around it, the default)
+#                      or "water" (a hull draft below the median water return around it)
+
+version = 1
+
+[[landmark]]
+id = "tuomiokirkko"
+name = "Turun tuomiokirkko (Turku Cathedral)"
+building = "103371570S"
+method = "lidar-heightfield"
+cell_m = 0.25
+visual_triangles = 40000
+collision_triangles = 2000
+wall = "brick"
+wall_rgb = [146, 82, 62]  # weathered red-brown medieval brick
+
+[[landmark]]
+id = "itainen-rantakatu-11-boat"
+name = "Restaurant boat at Itäinen Rantakatu 11 (Aura east bank)"
+# OSM way 642149874 (building=ship), © OpenStreetMap contributors, ODbL
+polygon_en = [
+  [23459728.40, 6704207.96], [23459729.85, 6704207.31], [23459731.30, 6704206.99],
+  [23459732.35, 6704207.02], [23459733.57, 6704207.34], [23459756.46, 6704221.62],
+  [23459757.60, 6704222.42], [23459758.30, 6704223.11], [23459758.91, 6704223.94],
+  [23459759.25, 6704224.80], [23459759.65, 6704227.34], [23459757.00, 6704227.77],
+  [23459755.84, 6704227.75], [23459754.79, 6704227.39], [23459731.95, 6704214.20],
+  [23459731.08, 6704213.61], [23459730.12, 6704212.83], [23459729.43, 6704211.96],
+  [23459728.78, 6704210.75], [23459728.53, 6704209.61],
+]
+method = "lidar-heightfield"
+cell_m = 0.25
+visual_triangles = 8000
+collision_triangles = 600
+wall = "render"
+wall_rgb = [232, 232, 226]  # white painted hull and superstructure
+classes = [1, 12]  # class 12 (overlap) carries half of the deck returns
+base = "water"

@@ -92,17 +92,23 @@ async function assembleVisual(request) {
   if (request.groundBinding) scene.setExtras({ ground_binding: request.groundBinding });
 
   const bindMaterial = createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextureTransform });
+  // Landmarks ship their own mesh for these footprints; the buildings layer's shell goes.
+  const replaced = new Set(request.replacedBuildings ?? []);
   for (const node of doc.getRoot().listNodes()) {
     const mesh = node.getMesh();
     if (!mesh) continue;
     const e = node.getExtras();
+    if (e.layer === 'buildings' && replaced.has(String(e.building_id))) {
+      node.setMesh(null); continue;
+    }
     if (request.coarseTerrain && e.layer === 'ground' && !e.coarse_dtm) {
       node.setMesh(null); continue;
     }
     // Keep QA's object vocabulary while retaining the producer's stable identity.
     const kind = e.kind ?? ({ buildings:'building', buildings_outer:'building', structures:'prop', props:'prop' }[e.layer] ?? e.layer);
     node.setExtras({ ...e, id: e.object_id, kind, tile: request.tile, material: e.material_key });
-    if (request.level > 0 && ((e.layer !== 'ground' && e.layer !== 'buildings' && e.layer !== 'buildings_outer') || e.surface === 'curb' || e.kind === 'curb')) {
+    // Landmarks stay whole in coarse parents: they are what is seen from afar.
+    if (request.level > 0 && ((e.layer !== 'ground' && e.layer !== 'buildings' && e.layer !== 'buildings_outer' && e.layer !== 'landmarks') || e.surface === 'curb' || e.kind === 'curb')) {
       node.setMesh(null); continue;
     }
     for (const prim of mesh.listPrimitives()) {
