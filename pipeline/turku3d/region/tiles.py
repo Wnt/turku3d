@@ -3,10 +3,11 @@
     python -m turku3d.region add-tile t0_2_0    # build it in this sandbox (make tile-add T=...)
     python -m turku3d.region list-tile t0_2_0   # list it in $TURKU3D_DATA for the integrator
 
-`add-tile` appends the tile to the sandbox's playable-tiles.json, makes sure the inputs exist,
-seeds the sandbox from the published layers, runs `turku3d.refresh` (every tile-following layer
-rebuilds for the new list) and assembles the listed tiles with the `playable-tiles` rules. Stage
-times go to $TURKU3D_WORK/reports/tile-add/<tile>.json.
+`add-tile` appends the tile to the sandbox's playable-tiles.json, makes sure its inputs exist
+(work-3x3 while that holds the tile's input area, else the tile's own `tile-<id>` area, fetched
+read-through into $TURKU3D_DATA/raw), seeds the sandbox from the published layers, runs
+`turku3d.refresh` (only the new tile and what depends on it rebuild) and assembles the listed
+tiles with the `playable-tiles` rules. Stage times go to $TURKU3D_WORK/reports/tile-add/<tile>.json.
 """
 
 from __future__ import annotations
@@ -19,15 +20,8 @@ import sys
 import time
 from pathlib import Path
 
-from shapely.geometry import box
-
 from turku3d import config as C
 
-from .areas import geometry
-
-# Producers read one shared input area (`--source-area work-3x3`); a tile plus its meshing
-# margin must lie inside it until the reservoir grows.
-RESERVOIR = C.WORK_3X3
 REFRESH_LINE = re.compile(r"^([a-z_-]+): (cached|rebuilt|absent|failed) \(([\d.]+)s\)$")
 
 
@@ -46,29 +40,59 @@ def plan(tile_id: str, listed: list[str]) -> list[str]:
         raise ValueError(
             f"{tile_id} does not share an edge with a playable tile; grow tile by tile"
         )
-    needed = box(*tile.bbox.buffered(C.MESH_MARGIN).as_tuple())
-    if not geometry(RESERVOIR).buffer(1e-6).covers(needed):
-        e0, n0, e1, n1 = tile.bbox.buffered(C.MESH_MARGIN).to_en().as_tuple()
+    uncovered = uncovered_lidar(tile)
+    if uncovered:
         raise ValueError(
-            f"{tile_id} plus its {C.MESH_MARGIN:g} m margin (E {e0:.0f}..{e1:.0f}, N {n0:.0f}..{n1:.0f}) "
-            f"is outside the {RESERVOIR.name} input reservoir that every producer reads"
+            f"{tile_id}: its input area needs lidar tiles the city does not publish "
+            f"({', '.join(uncovered)}); data-manifests/laz-tiles.csv lists the coverage"
         )
     return [t.id for t in sorted(current | {tile})]
 
 
-def ensure_inputs() -> list[str]:
-    """Read-through: download only what the reservoir registry lacks (fetch locks shared raw)."""
+def uncovered_lidar(tile) -> list[str]:
+    """LAZ tiles under the tile's input area that are missing from the city's tile list."""
+    from turku3d.fetch.laz import known_tiles
+
+    listed = {name for dataset, name in known_tiles() if dataset == "pistepilvi"}
+    if not listed:
+        return []  # No list to check against; the fetch reports what it cannot download.
+    return [t.name for t in C.tile_input_area(tile).laz_tiles if t.name not in listed]
+
+
+def input_bytes(area) -> int:
+    """Raw bytes registered for an input area: its WFS, ortho and OSM files and its LAZ tiles."""
+    from turku3d.fetch.common import Registry
+
+    total = 0
+    for kind in ("wfs", "ortho", "osm"):
+        root = C.raw_dir(kind)
+        if root.is_dir():
+            records = Registry(root).records()
+            total += sum(r["bytes"] for path, r in records.items() if f"/{area.name}" in f"/{path}")
+    laz = Registry(C.raw_dir("laz")).records() if C.raw_dir("laz").is_dir() else {}
+    names = {f"{ds}/{t.name}.laz" for ds in C.LAZ_DATASETS for t in area.laz_tiles}
+    return total + sum(r["bytes"] for path, r in laz.items() if path in names)
+
+
+def ensure_inputs(tile_id: str) -> dict:
+    """Read-through: download only what the tile's input area lacks (fetch locks shared raw)."""
     from turku3d.fetch.cached import check
 
-    missing = check(RESERVOIR)
+    area = C.area(C.source_area(tile_id))
+    missing = check(area)
+    result = {"area": area.name, "missing": len(missing), "bytes_before": input_bytes(area)}
     if missing:
+        begin = time.monotonic()
         subprocess.run(
-            [sys.executable, "-m", "turku3d.fetch", "all", "--area", RESERVOIR.name], check=True
+            [sys.executable, "-m", "turku3d.fetch", "all", "--area", area.name], check=True
         )
-        missing = check(RESERVOIR)
+        result["fetch_seconds"] = round(time.monotonic() - begin, 3)
+        missing = check(area)
         if missing:
             raise RuntimeError("inputs still missing after fetch: " + ", ".join(missing[:5]))
-    return missing
+    result["bytes"] = input_bytes(area)
+    result["fetched_bytes"] = result["bytes"] - result["bytes_before"]
+    return result
 
 
 def seed(work: Path, data: Path) -> list[str]:
@@ -131,7 +155,7 @@ def add_tile(tile_id: str) -> dict:
         print(f"tile-add {name}: {stages[name]:.1f}s", flush=True)
         return result
 
-    stage("inputs", ensure_inputs)
+    inputs = stage("inputs", ensure_inputs, tile_id)
     seeded = stage("seed", seed, work, data)
     C.write_playable_tiles(work / C.PLAYABLE_TILES_FILE, tiles)
     with (report_dir / f"{tile_id}.log").open("w") as log:
@@ -147,6 +171,7 @@ def add_tile(tile_id: str) -> dict:
         "tile": tile_id,
         "bbox_en": list(C.VisualTile.parse(tile_id).bbox.to_en().as_tuple()),
         "tiles": tiles,
+        "inputs": inputs,
         "seeded": seeded,
         "seconds": {**stages, "total": round(time.monotonic() - started, 3)},
         "layers": layers,

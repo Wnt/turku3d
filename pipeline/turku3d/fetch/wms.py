@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -122,6 +123,39 @@ def native_resolution_cm(rgb, valid, px_m: float) -> float | None:
     return px_m * 100 / max(1e-6, 1 - p)
 
 
+def reuse_chunk(root: Path, reg: Registry, layer: WmsLayer, area_name: str, key: str, bb, dest):
+    """Read-through: the same O-aligned chunk already fetched for another area is cloned
+    (APFS copy-on-write), not downloaded again. Returns its state, or None."""
+    for state_path in sorted((root / layer.slug).glob("*.chunks.json")):
+        other = state_path.name.removesuffix(".chunks.json")
+        if other == area_name:
+            continue
+        entry = json.loads(state_path.read_text()).get(key)
+        if not entry or entry.get("bbox") != list(bb) or entry.get("status") != "ok":
+            continue
+        source = root / layer.slug / other / f"{key}.tif"
+        if not reg.is_complete(source):
+            continue
+        record = reg.get(source)
+        temporary = dest.with_name(dest.name + ".tmp.tif")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if subprocess.call(["cp", "-c", str(source), str(temporary)], stderr=subprocess.DEVNULL):
+            shutil.copyfile(source, temporary)
+        temporary.replace(dest)
+        reg.record(
+            dest,
+            url=record.get("url"),
+            sha256=record["sha256"],
+            layer=layer.name,
+            bbox=list(bb),
+            px_m=layer.px_m,
+            coverage=entry.get("coverage"),
+            reused_from=reg.rel(source),
+        )
+        return entry
+    return None
+
+
 def fetch_layer(
     layer: WmsLayer,
     area: config.Area,
@@ -154,6 +188,9 @@ def fetch_layer(
             return key, st
         if st and st.get("status") == "ok" and reg.is_complete(dest):
             return key, st
+        reused = reuse_chunk(root, reg, layer, area.name, key, bb, dest)
+        if reused:
+            return key, reused
         body, hdr = get(WMS_URL, getmap_params(layer.name, bb, chunk_px, chunk_px), headers=REFERER)
         if "image" not in hdr.get("content-type", ""):
             raise RuntimeError(f"WMS {layer.name} {key}: {hdr.get('content-type')} {body[:300]!r}")

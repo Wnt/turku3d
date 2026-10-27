@@ -370,6 +370,22 @@ def test_wms_fetch_layer_fake(data_root, monkeypatch):
     n = len(calls)
     s2 = wms.fetch_layer(layer, AREA, workers=2, log=lambda *_: None, get=get)
     assert len(calls) == n and s2["chunks_ok"] == 5  # nothing re-requested
+    # Another area sharing O-aligned chunks clones them instead of downloading them again.
+    tile = config.tile_input_area("t0_0_0")
+    state = json.loads((data_root / "raw/ortho/test" / f"{AREA.name}.chunks.json").read_text())
+    shared = {
+        key
+        for key, _ in wms.chunk_grid(tile.with_margin.to_en().as_tuple(), layer.px_m, 64)
+        if state.get(key, {}).get("status") == "ok"
+    }
+    assert shared
+    s3 = wms.fetch_layer(layer, tile, workers=2, log=lambda *_: None, get=get)
+    requested = {tuple(map(float, bbox.split(","))) for bbox in calls[n:]}
+    assert not requested & {tuple(state[key]["bbox"]) for key in shared}
+    reg = common.Registry(data_root / "raw/ortho")
+    for key in shared:
+        assert reg.is_complete(data_root / "raw/ortho/test" / tile.name / f"{key}.tif")
+    assert s3["chunks_ok"] >= len(shared) and not s3["errors"]
 
 
 def test_decode_png_white_as_nodata():

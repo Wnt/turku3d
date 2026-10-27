@@ -53,7 +53,7 @@ def check(area):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--area", choices=C.area_names(), default="work-3x3")
+    ap.add_argument("--area", type=C.area_arg, default="work-3x3")
     a = ap.parse_args()
     bad = check(C.area(a.area))
     if bad:

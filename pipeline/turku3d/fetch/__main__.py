@@ -15,7 +15,7 @@ from .. import config
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.fetch")
     ap.add_argument("step", choices=["laz", "wfs", "wms", "osm", "all", "report", "verify"])
-    ap.add_argument("--area", default="office-block", choices=config.area_names())
+    ap.add_argument("--area", default="office-block", type=config.area_arg)
     ap.add_argument("--layers", nargs="*", help="restrict WFS/WMS layers (names or WMS slugs)")
     ap.add_argument("--workers", type=int, default=4, help="parallel WMS requests")
     ap.add_argument(

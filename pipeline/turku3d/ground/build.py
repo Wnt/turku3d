@@ -148,13 +148,8 @@ def envelope(tile):
     the samples inside it; any envelope that contains a tile with this margin yields the same
     tile. Neighbouring tiles built separately therefore share their seams exactly."""
     cells = C.collision_tiles_for_bbox(tile.bbox.buffered(C.MESH_MARGIN))
-    cell_bounds = C.BBoxLocal(
-        min(c.bbox.xmin for c in cells),
-        min(c.bbox.zmin for c in cells),
-        max(c.bbox.xmax for c in cells),
-        max(c.bbox.zmax for c in cells),
-    )
-    return cells, cell_bounds.buffered(C.MESH_MARGIN)
+    # The tile's input area (config.tile_input_area) is exactly these cells plus the margin.
+    return cells, C.tile_input_area(tile).core
 
 
 def tile_paths(bounds, source_area, breaklines=None):
@@ -413,11 +408,15 @@ def run(args):
     manifest_path = output / "MANIFEST.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     breaklines = getattr(args, "breaklines", None)
-    water = WaterLevel(args.source_area, args.water_level, previous.get("water_level"))
+    # The office core always lies in work-3x3; each tile reads its own input area otherwise.
+    water = WaterLevel(
+        args.source_area or C.WORK_3X3.name, args.water_level, previous.get("water_level")
+    )
     code = code_hash()
     plans = {}
     for tile in visual:
-        paths = tile_paths(envelope(tile)[1], args.source_area, breaklines)
+        source = args.source_area or C.source_area(tile)
+        paths = tile_paths(envelope(tile)[1], source, breaklines)
         inputs = fingerprints(paths)
         key = digest(
             {
@@ -594,7 +593,9 @@ def main(argv=None):
     parser.add_argument(
         "--breaklines", type=Path, help="Measured breakline JSON; matching IDs replace city fits"
     )
-    parser.add_argument("--source-area", default="work-3x3")
+    parser.add_argument(
+        "--source-area", help="input area for every tile (default: config.source_area per tile)"
+    )
     parser.add_argument(
         "--water-level",
         type=float,

@@ -426,6 +426,37 @@ WORK_3X3 = Area(
 )
 AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, WORK_3X3)}
 
+# A tile's ground envelope reaches one ring of collision tiles and the meshing margin past it.
+TILE_INPUT_REACH = COLLISION_TILE_SIZE * math.ceil(MESH_MARGIN / COLLISION_TILE_SIZE) + MESH_MARGIN
+TILE_INPUT_PREFIX = "tile-"
+
+
+def tile_input_area(tile) -> Area:
+    """The inputs one L0 tile's producers read: the tile plus TILE_INPUT_REACH on every side.
+
+    Fetched on demand (`tile-<id>` under raw/) when work-3x3 does not hold it."""
+    tile = VisualTile.parse(tile) if isinstance(tile, str) else tile
+    if tile.level != 0:
+        raise ValueError(f"{tile.id}: input areas are per L0 tile")
+    return Area(
+        TILE_INPUT_PREFIX + tile.id,
+        f"Inputs of L0 tile {tile.id}: the tile and its meshing envelope",
+        tile.bbox.buffered(TILE_INPUT_REACH),
+        margin=0,
+    )
+
+
+def source_area(tile) -> str:
+    """work-3x3 while it holds the tile's input area, else the tile's own input area."""
+    needed, reservoir = tile_input_area(tile).core, WORK_3X3.core
+    inside = (
+        needed.xmin >= reservoir.xmin
+        and needed.zmin >= reservoir.zmin
+        and needed.xmax <= reservoir.xmax
+        and needed.zmax <= reservoir.zmax
+    )
+    return WORK_3X3.name if inside else tile_input_area(tile).name
+
 
 class TileArea(Area):
     """An area made of whole L0 visual tiles; `extra["tiles"]` lists them, `core` is their bbox."""
@@ -528,11 +559,25 @@ def area(name: str) -> Area:
     """A named area; `playable-tiles` follows the playable tile list."""
     if name == "playable-tiles":
         return playable_area()
+    if name.startswith(TILE_INPUT_PREFIX):
+        return tile_input_area(name.removeprefix(TILE_INPUT_PREFIX))
     return AREAS[name]
 
 
 def area_names() -> list[str]:
+    """Fixed area names; `tile-<id>` input areas are accepted by area() as well."""
     return sorted({*AREAS, "playable-tiles"})
+
+
+def area_arg(name: str) -> str:
+    """argparse type for --area: a fixed name or a tile input area."""
+    try:
+        area(name)
+    except (KeyError, ValueError) as error:
+        raise ValueError(
+            f"unknown area {name!r}; use {', '.join(area_names())} or tile-t0_i_j"
+        ) from error
+    return name
 
 
 def area_yaml(area: Area) -> str:
