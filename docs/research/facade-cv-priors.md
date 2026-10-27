@@ -213,7 +213,7 @@ experiment budget, not a promise that 100 labels will meet the target. Reassess 
 another batch. At the existing fast-pass calibration, 100 Astra descriptions cost about
 **0.5 weekly percentage points (roughly 0.25–1.0)**; 200 would be about one point, but the
 curve does not currently justify that larger purchase. No additional Astra calls were made.
-Account-wide quota readings during this task were 48–51%, below the brief's 80% stop line.
+Account-wide quota readings during this task were 48–54%, below the brief's 80% stop line.
 
 ## Downloads and reproduction
 
