@@ -2,10 +2,13 @@
 
 Inputs are the buildings layer (``metrics.json`` semantics: city/OSM address and OSM entrances;
 ``facades.geojson``: street-facing wall baselines; ``footprints.geojson``: every footprint) and the
-road graph layer (``roadgraph.json``). For each building with an address the door is the best OSM
-entrance on a street-facing ground-floor wall, or the middle of its widest street-facing wall. The
-drop-off is the sidewalk spot ``SIDEWALK_M`` in front of the door, outside every footprint and within
-``MAX_STREET_M`` of the walkable street network. Route distances are shortest graph paths from the
+road graph layer (``roadgraph.json``, named streets from its OSM snapshot). For each building with an
+address the door is the best OSM entrance on a street-side ground-floor wall, or the middle of its
+widest street-side wall, preferring walls that face the address's own street. A wall is street-side
+when the walkable network crosses its front strip (a sidewalk traced along the facade counts). The
+drop-off is the sidewalk spot ``SIDEWALK_M`` in front of the door, outside every footprint (a wall
+whose spot is not, such as one shared with a neighbour, gets no door) and within ``MAX_STREET_M`` of
+the walkable street network. Route distances are shortest graph paths from the
 pizzeria on foot and by car (oneways honoured), measured like the game's router: from the point
 where the pizzeria snaps onto the graph to the point where the drop-off does.
 
@@ -17,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import heapq
+import itertools
 import json
 import math
 import re
@@ -42,6 +46,11 @@ MAX_SNAP_M = 80.0
 ENTRANCE_ON_WALL_M = 1.5
 # A wall not flagged street-facing still counts when the walkable network is this close in front of it.
 FRONT_STREET_M = 12.0
+# The network may be drawn this far behind a wall's line and still be in front (OSM sidewalks are
+# traced along the facades).
+ALONG_WALL_M = 2.0
+# A wall carries a street's name when the street's centre line runs this close in front of it.
+NAMED_STREET_M = 25.0
 # An address point picks entrances within this distance and walls within this distance of it.
 HINT_ENTRANCE_M = 10.0
 HINT_WALL_M = 8.0
@@ -101,58 +110,109 @@ def _ground_walls(facades: list[dict]) -> list[dict]:
     return walls
 
 
-def _street_side(wall: dict, roads: Graph) -> float | None:
-    """Distance from the wall's sidewalk spot to the walkable network, or None when the street is not in front.
+def street_key(name: str) -> str:
+    return " ".join(name.casefold().split())
 
-    The layer's `street_facing` flag counts; otherwise the network must be close and ahead of the wall.
+
+def street_of(address: str) -> str:
+    """The street part of an address as a `street_key` ("Läntinen Rantakatu 13a" -> "läntinen rantakatu")."""
+    match = re.match(r"(.+?)\s+\d", address.strip())
+    return street_key(match.group(1) if match else address)
+
+
+def _in_front(wall: dict, lines, far: float) -> float | None:
+    """Distance from the wall to the nearest part of `lines` in front of it, or None when none is.
+
+    A line is in front where it crosses the strip the wall sweeps along its outward normal, at a
+    signed distance from the wall's line between -ALONG_WALL_M (a sidewalk traced along the facade)
+    and `far`.
     """
+    (ax, az), (bx, bz) = wall["a"], wall["b"]
+    nx, nz = wall["normal"]
+    length = math.hypot(bx - ax, bz - az)
+    tx, tz = (bx - ax) / length, (bz - az) / length
+    best = None
+    for pts in lines:
+        for p, q in itertools.pairwise(pts):
+            u0 = (p[0] - ax) * tx + (p[1] - az) * tz
+            u1 = (q[0] - ax) * tx + (q[1] - az) * tz
+            s0 = (p[0] - ax) * nx + (p[1] - az) * nz
+            s1 = (q[0] - ax) * nx + (q[1] - az) * nz
+            lo, hi = 0.0, 1.0
+            if u1 != u0:
+                ta, tb = -u0 / (u1 - u0), (length - u0) / (u1 - u0)
+                lo, hi = max(lo, min(ta, tb)), min(hi, max(ta, tb))
+            elif not 0.0 <= u0 <= length:
+                continue
+            if lo > hi:
+                continue
+            sa, sb = s0 + (s1 - s0) * lo, s0 + (s1 - s0) * hi
+            first, last = max(min(sa, sb), -ALONG_WALL_M), min(max(sa, sb), far)
+            if first <= last and (best is None or max(first, 0.0) < best):
+                best = max(first, 0.0)
+    return best
+
+
+def _street_side(wall: dict, roads: Graph) -> tuple[float, bool] | None:
+    """(distance to the walkable network, whether it is in front of the wall), or None without a street side.
+
+    The street is in front when the network crosses the wall's front strip within FRONT_STREET_M;
+    a wall the layer flags `street_facing` also counts with the network elsewhere, at its distance
+    from the sidewalk spot.
+    """
+    front = _in_front(wall, roads.walkable, FRONT_STREET_M)
+    if front is not None:
+        return front, True
+    if not wall["street"]:
+        return None
     mid = ((wall["a"][0] + wall["b"][0]) / 2, (wall["a"][1] + wall["b"][1]) / 2)
     spot = (mid[0] + wall["normal"][0] * SIDEWALK_M, mid[1] + wall["normal"][1] * SIDEWALK_M)
     snapped = roads.snap(spot, FOOT)
-    if snapped is None:
-        return None
-    _, _, q, d = snapped
-    if wall["street"]:
-        return d
-    ahead = ((q[0] - mid[0]) * wall["normal"][0] + (q[1] - mid[1]) * wall["normal"][1]) / max(
-        1e-6, math.hypot(q[0] - mid[0], q[1] - mid[1])
-    )
-    return d if d <= FRONT_STREET_M and ahead > 0.3 else None
+    return None if snapped is None else (snapped[3], False)
 
 
-def door(semantics: dict, walls: list[dict], roads: Graph, hint=None):
-    """(door point, outward normal, source) for one address of a building, or None without a street side.
+def doors(semantics: dict, walls: list[dict], roads: Graph, hint=None, named=()):
+    """Door candidates (point on a wall, outward normal, source) for one address, best first.
 
-    `hint` is the city register's address point: with several addresses on one building (a corner
-    block) the door is on the wall nearest to it.
+    Only street-side walls carry doors. `named` are the centre lines of the address's street: the
+    walls with the walkable network and one of those lines in front of them come first. Within each
+    group the OSM entrances come first, then the walls: the one nearest to `hint`, the city
+    register's address point (with several addresses on one building, a corner block, the door is
+    on the wall nearest to it), else the widest.
     """
-    street = [(w, d) for w in walls if (d := _street_side(w, roads)) is not None]
-    if not street:
-        return None
+    on_street, others = [], []
+    for wall in walls:
+        side = _street_side(wall, roads)
+        if side is None:
+            continue
+        distance, ahead = side
+        faces_name = ahead and named and _in_front(wall, named, NAMED_STREET_M) is not None
+        (on_street if faces_name else others).append((wall, distance))
     near = (lambda w: _project(hint, w["a"], w["b"])[1]) if hint else (lambda w: 0.0)
-    best = None
-    for entrance in semantics.get("entrances", []):
-        kind = entrance.get("tags", {}).get("entrance")
-        if kind not in ENTRANCE_RANK or entrance["geometry"]["type"] != "Point":
-            continue
-        p = _local(*entrance["geometry"]["coordinates"][:2])
-        if hint and math.dist(p, hint) > HINT_ENTRANCE_M:
-            continue
-        for wall, _ in street:
-            q, d = _project(p, wall["a"], wall["b"])
-            if d <= ENTRANCE_ON_WALL_M:
-                key = (near(wall) > HINT_WALL_M, ENTRANCE_RANK[kind], d)
-                if best is None or key < best[0]:
-                    best = (key, q, wall["normal"], "entrance")
-    if best:
-        return best[1], best[2], best[3]
-    wall = min(
-        street, key=lambda wd: (round(near(wd[0]), 1), not wd[0]["street"], -wd[0]["width"], wd[1])
-    )[0]
-    mid = ((wall["a"][0] + wall["b"][0]) / 2, (wall["a"][1] + wall["b"][1]) / 2)
-    if hint:
-        mid = _project(hint, wall["a"], wall["b"])[0]
-    return mid, wall["normal"], "wall"
+    for group in (on_street, others):
+        entrances = []
+        for entrance in semantics.get("entrances", []):
+            kind = entrance.get("tags", {}).get("entrance")
+            if kind not in ENTRANCE_RANK or entrance["geometry"]["type"] != "Point":
+                continue
+            p = _local(*entrance["geometry"]["coordinates"][:2])
+            if hint and math.dist(p, hint) > HINT_ENTRANCE_M:
+                continue
+            for wall, _ in group:
+                q, d = _project(p, wall["a"], wall["b"])
+                if d <= ENTRANCE_ON_WALL_M:
+                    entrances.append(((near(wall) > HINT_WALL_M, ENTRANCE_RANK[kind], d), q, wall))
+        for _, q, wall in sorted(entrances, key=lambda c: c[0]):
+            yield q, wall["normal"], "entrance"
+        for wall, _ in sorted(
+            group,
+            key=lambda wd: (round(near(wd[0]), 1), not wd[0]["street"], -wd[0]["width"], wd[1]),
+        ):
+            if hint:
+                point = _project(hint, wall["a"], wall["b"])[0]
+            else:
+                point = ((wall["a"][0] + wall["b"][0]) / 2, (wall["a"][1] + wall["b"][1]) / 2)
+            yield point, wall["normal"], "wall"
 
 
 class Graph:
@@ -173,6 +233,7 @@ class Graph:
                 )
             self.edges.append({"a": a, "b": b, "flags": flags, "points": pts, "cum": cum})
         self.count = len(nodes) // 2
+        self.walkable = [e["points"] for e in self.edges if e["flags"] & FOOT]
 
     def snap(self, p, mode: int):
         """(edge index, offset along the edge, snapped point, distance) on the nearest usable edge."""
@@ -253,17 +314,34 @@ def read_address_points() -> list[tuple[str, tuple[float, float]]]:
     return points
 
 
+def read_streets(osm: Path) -> dict[str, list[list[tuple[float, float]]]]:
+    """Named OSM highway centre lines (engine x/z) by `street_key`, from the road graph's OSM snapshot."""
+    import geopandas as gpd
+
+    frame = gpd.read_parquet(osm, columns=["highway", "tags", "geometry_local"])
+    streets: dict[str, list[list[tuple[float, float]]]] = {}
+    for row in frame[frame["highway"].notna()].itertuples():
+        name = json.loads(row.tags).get("name")
+        if name and row.geometry_local.geom_type == "LineString":
+            streets.setdefault(street_key(name), []).append(
+                [(x, z) for x, z, *_ in row.geometry_local.coords]
+            )
+    return streets
+
+
 def build_pool(
     buildings_dir: Path,
     graph: dict,
     address_points=(),
     origin=PIZZERIA,
     tiles: set[str] | None = None,
+    streets: dict | None = None,
 ) -> dict:
     """Address pool from a buildings layer, a road graph and register address points (engine x/z).
 
     Every address comes from a building's own address or from a register point on or next to a
-    footprint; `tiles` limits the pool to drop-offs in those L0 tiles.
+    footprint; `tiles` limits the pool to drop-offs in those L0 tiles. `streets` (`read_streets`)
+    puts each door on a wall facing the address's own street.
     """
     metrics = json.loads((buildings_dir / "metrics.json").read_text())
     facades: dict[str, list[dict]] = {}
@@ -302,24 +380,27 @@ def build_pool(
         ):
             wanted.append((" ".join(address.split()), footprint_ids[near], p))
 
+    def outside_footprints(spot) -> bool:
+        p = Point(spot)
+        return not any(footprints[i].buffer(0.3).contains(p) for i in blockers.query(p.buffer(0.3)))
+
+    def drop_off(candidates):
+        """(spot, source) of the first door with a sidewalk spot outside every footprint."""
+        for (px, pz), (nx, nz), source in candidates:
+            spots = ((px + nx * offset, pz + nz * offset) for offset in FALLBACK_OFFSETS_M)
+            if spot := next((s for s in spots if outside_footprints(s)), None):
+                return spot, source
+        return None
+
     chosen: dict[str, tuple] = {}
     for address, building, hint in wanted:
         semantics = records[building].get("semantics", {})
-        found = door(semantics, _ground_walls(facades.get(building, [])), roads, hint)
+        walls = _ground_walls(facades.get(building, []))
+        named = (streets or {}).get(street_of(address), ())
+        found = drop_off(doors(semantics, walls, roads, hint, named))
         if not found:
             continue
-        (dx, dz), (nx, nz), source = found
-        spot = None
-        for offset in FALLBACK_OFFSETS_M:
-            candidate = (dx + nx * offset, dz + nz * offset)
-            point = Point(candidate)
-            if not any(
-                footprints[i].buffer(0.3).contains(point) for i in blockers.query(point.buffer(0.3))
-            ):
-                spot = candidate
-                break
-        if spot is None:
-            continue
+        spot, source = found
         tile = C.VisualTile.at(*spot).id
         if tiles is not None and tile not in tiles:
             continue
@@ -379,9 +460,10 @@ def publish(root: Path, tree, tiles: set[str]) -> bool:
     if not (buildings / "metrics.json").is_file() or not graph_manifest.is_file():
         tree.addresses = None
         return previous is not None
-    record = json.loads(graph_manifest.read_text())["params"]["graph"]
-    graph = json.loads((root / "roads" / record["file"]).read_text())
-    pool = build_pool(buildings, graph, read_address_points(), PIZZERIA, tiles)
+    manifest = json.loads(graph_manifest.read_text())
+    graph = json.loads((root / "roads" / manifest["params"]["graph"]["file"]).read_text())
+    streets = read_streets(Path(manifest["inputs"]["osm"]["path"]))
+    pool = build_pool(buildings, graph, read_address_points(), PIZZERIA, tiles, streets)
     data = encode(pool)
     entry = tree._put(f"addresses/{hashlib.sha256(data).hexdigest()[:16]}.json", data)
     entry.update(count=len(pool["addresses"]))

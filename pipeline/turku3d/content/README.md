@@ -19,15 +19,22 @@ Sources, per address:
 1. Every building in `buildings/metrics.json` whose `semantics.address` (city register or OSM) is
    set, and every city register address point (`raw/wfs/*/GIS_Osoitteet.parquet`) on or within
    30 m of a footprint; corner buildings get one entry per street address.
-2. The door: the best OSM entrance (`main`, `shop`, `yes`/`home`, `secondary`, `staircase`; never
-   `garage`, `service` or `exit`) on a street-side ground-floor wall, near the register point when
-   there is one; otherwise the street-side wall nearest to the register point, or the widest
-   street-side wall. A wall is street-side when `facades.geojson` marks it `street_facing`, or when
-   the walkable network is within 12 m in front of it.
-3. The drop-off is 2.5 m in front of the door (4 m or 1.5 m when that spot is inside a footprint),
-   within 40 m of the walkable network, in one of the area's L0 tiles and at least 60 m from the
-   pizzeria by route.
-4. `foot` and `car` are shortest road-graph paths from the pizzeria's snap point to the drop-off's
+2. Street-side walls: a ground-floor wall is street-side when the walkable network crosses the
+   strip it sweeps along its outward normal, from 2 m behind the wall's line (OSM traces sidewalks
+   along the facades) to 12 m in front of it, or when `facades.geojson` marks it `street_facing`.
+3. The door: walls that face the address's own street come first. That street is the address
+   without its house number, matched against the named OSM highway centre lines (`name`) of the
+   road graph's OSM snapshot (`roads/MANIFEST.json` `inputs.osm.path`); a wall faces it when that
+   centre line crosses its front strip within 25 m and the walkable network is in front of it.
+   Within that group, then among the other street-side walls: the best OSM entrance (`main`,
+   `shop`, `yes`/`home`, `secondary`, `staircase`; never `garage`, `service` or `exit`) on the
+   wall, near the register point when there is one; otherwise the wall nearest to the register
+   point, or the widest wall.
+4. The drop-off is 2.5 m in front of the door (4 m or 1.5 m when that spot is inside a footprint).
+   A door with no spot outside every footprint, such as one on a wall shared with a neighbour, is
+   skipped for the next one. The drop-off must lie within 40 m of the walkable network, in one of
+   the area's L0 tiles and at least 60 m from the pizzeria by route.
+5. `foot` and `car` are shortest road-graph paths from the pizzeria's snap point to the drop-off's
    (car oneways honoured; `car` is null when no drivable edge is within 80 m or no path exists).
 
 Several addresses of one building with the same best door share a drop-off point. The `id` is the
