@@ -6,14 +6,16 @@ arrives later on a badge. `live` and GitHub Pages stay verified-only; only local
 ```bash
 tools/dev/localhost-game                 # main: http://127.0.0.1:5171/?tiles=/tiles/tileset.json
 tools/dev/localhost-game --port 5211 --worktree "$TURKU3D_WORK/lh/repo" --no-build   # a sandbox instance
-curl -s localhost:5171/__localhost/status          # {service, commit, verification, tiles}
-tail -f "$TURKU3D_WORK/localhost-game/events.jsonl" # checkouts, verdicts, tile releases, page loads, hot swaps
-node --test tools/dev/localhost/localhost.test.mjs  # verdicts, routes, the follow loop (synthetic git repo)
+curl -s localhost:5171/__localhost/status          # {service, commit, verification, tiles, coarse}
+tail -f "$TURKU3D_WORK/localhost-game/events.jsonl" # checkouts, verdicts, tile releases, coarse states, page loads, hot swaps
+tail -f "$TURKU3D_WORK/localhost-game/coarse.log"   # the coarse tile service's output
+node --test tools/dev/localhost/localhost.test.mjs  # verdicts, routes, the follow loop (synthetic git repo), the coarse supervisor (fake service)
 cd game && ../scripts/dev/host_slots.py browser -- node_modules/.bin/playwright test -c playwright.hotswap.config.ts
 ```
 
 It replaces the `serve-dist.mjs` invocation on port 5171 and keeps its routes (`POST /telemetry` into
-`$TURKU3D_WORK/telemetry`, `/coarse/*` to the coarse tile service on port base + 5).
+`$TURKU3D_WORK/telemetry`, `/coarse/*` to the coarse tile service on port base + 5). It also runs that coarse tile
+service itself (below), so do not start `tools/dev/coarse-tiles` beside it; `--no-coarse` leaves it out.
 
 ## How a landing reaches the tab
 
@@ -38,6 +40,31 @@ It replaces the `serve-dist.mjs` invocation on port 5171 and keeps its routes (`
    load (`game/src/world/README.md`): changed collision tiles are replaced in the worker, the visual tileset is
    swapped once the new one has settled, the player and the session stay. Measured on a one-tile landing: 193 s from
    the landing to the swapped tileset, of which 191 s is the quick `make tile-build` and 1.4 s the swap itself.
+
+## The coarse tile service follows main too (`coarse.mjs`)
+
+The draft tile service (`tools/dev/coarse-tiles`, `pipeline/turku3d/coarse/service.py`) runs as a second child from
+the same worktree, on port base + 5 (main: 5175), output in `coarse.log` in the state directory. Its builds are child
+processes in its process group, so stopping it stops them.
+
+- **Restart on landing.** A checkout that changes a file the running service loaded restarts it: the repository
+  files of its imported modules (`/coarse/status` `modules`, re-read at every checkout; before the first answer,
+  anything under `pipeline/turku3d/`), its launcher `tools/dev/coarse-tiles` and the pipeline environment
+  `pipeline/env/`. The follow loop does not wait for it.
+- **Drain.** Before the restart the service gets `POST /coarse/drain` (it starts no further builds) and the running
+  builds may finish: the supervisor polls `/coarse/status` until `building` is empty, at most 60 s, then stops the
+  process group (SIGTERM, SIGKILL after 5 s) and starts the service from the worktree's newest checkout.
+- **Crash and port.** An unexpected exit restarts it after 2 s, doubling up to 60 s while it keeps failing. When
+  another process holds the port (a hand-started `coarse-tiles`), the state is `port in use` and the start is retried
+  every 10 s, so stopping that process hands the port over.
+- **Status.** `state.json` and `/__localhost/status` carry `coarse: {commit, state}`: the commit the worktree was at
+  when the process started and `starting`, `running`, `draining`, `restarting`, `exited`, `port in use` or `off`
+  (`--no-coarse`). Every change is an events row `{"type": "coarse", commit, state}`.
+- **The game during a restart** (`game/src/world/coarseTiles.ts`): a connection error (the dev server's 503) or a 404
+  on a route the old process lacks pauses the drafts with one console line; the draft badge says `drafts: service
+  restarting` and only `/coarse/status` is probed, every 2 s, until the service answers (after a 404: a process with
+  another `started` time). A page loaded while the service is down starts paused when `/__localhost/status` shows
+  it supervised.
 
 ## Tile releases (`scripts/dev/tile_store.py`)
 
@@ -71,11 +98,12 @@ infrastructure failure (`status.mjs`). A quick tile build adds `building tiles <
 | File | Role |
 | --- | --- |
 | `service.mjs` | follow loop, worktree, Vite child, `state.json`, `events.jsonl` |
+| `coarse.mjs` | the coarse tile service child: restart on landing after a drain, crash backoff, port check |
 | `status.mjs` | integration verdict for a commit; ledger helpers |
 | `tiles.mjs` | which tile release `/tiles` serves; quick builds |
 | `vitePlugin.mjs` | dev-server routes: `/tiles`, `/tile-store`, `/telemetry`, `/__localhost/{status,event}`, `/facades/candidates/`; `/telemetry` on `vite preview` too |
 | `../facadeCandidates.mjs` | the facade candidate viewer (`../README.md`), shared with `serve-dist.mjs` |
 | `../http.mjs` | static file, telemetry and coarse proxy handlers shared with `serve-dist.mjs` |
 
-State lives in `--state-dir` (default `$TURKU3D_WORK/localhost-game`): `state.json`, `events.jsonl`, `vite.log`,
+State lives in `--state-dir` (default `$TURKU3D_WORK/localhost-game`): `state.json`, `events.jsonl`, `vite.log`, `coarse.log`,
 `service.pid` (a second instance on the same state directory refuses to start).

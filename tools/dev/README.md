@@ -44,6 +44,10 @@ reviewer's reasons, the retry feedback, the prompt summary and an "open in game"
 published tileset lacks (`pipeline/turku3d/coarse`). `serve-dist.mjs` and the Vite dev server proxy
 `/coarse/*` to it, so the game stays same-origin; with the service down `/coarse/status` answers
 200 `{"state":"offline"}` (other paths 503) and the game shows no drafts. `make game-dev` and `make game-preview` start it beside the server.
+The localhost game service (`tools/dev/localhost-game`) runs it as a supervised child from main's worktree and
+restarts it when a landing changes a file it loaded ([localhost/README.md](localhost/README.md)); run
+`tools/dev/coarse-tiles` by hand only in a sandbox without that service, or with `localhost-game --no-coarse`.
+`POST /coarse/drain` makes the service start no further builds (running ones finish), before a restart.
 
 ```bash
 tools/dev/coarse-tiles                          # --port, --root (default $TURKU3D_WORK/coarse)

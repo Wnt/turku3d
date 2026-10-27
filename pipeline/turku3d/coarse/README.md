@@ -44,6 +44,9 @@ No curbs, stairs, structures, props, vegetation, facade maps or LOD parents.
 servers). Up to four builds run at once (`WORKERS`), nearest to the player first; the game requests the cells
 ahead of a moving player as well as the 3x3 window. Routes and queueing: `tools/dev/README.md`. Built tiles are
 reused until the producer code changes, so a producer fix rebuilds each draft the next time the game asks for it.
+On main the localhost game service runs it and restarts it when a landing changes a file it loaded
+(`tools/dev/localhost/README.md`): `/coarse/status` reports `started` and `modules` (the repository files the process
+imported), and `POST /coarse/drain` stops new builds so the running ones finish first.
 
 ## Inputs (`sources.py`, `inputs.py`)
 

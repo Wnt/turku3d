@@ -10,6 +10,9 @@
 // Every 60 s the published manifest is re-read; a tile that has been published there replaces its draft.
 // Once a second the player's position and velocity go to /coarse/want, so the service prefetches the raw data ahead
 // of the player; a tile whose data is still downloading answers 202 pending-data and is polled like a queued one.
+// A landing restarts the service (tools/dev/localhost/coarse.mjs): a connection error (the dev server's 503) or a 404
+// from a route the running service lacks pauses the drafts with one console line and the badge `drafts: service
+// restarting`; only /coarse/status is probed until the service answers again, so a restart is no console error spam.
 // Never active off localhost (GitHub Pages) or when the service is not running.
 import * as THREE from 'three/webgpu';
 import { materialColor, saturation, vec3 } from 'three/tsl';
@@ -30,6 +33,9 @@ const RETRY_MS = 120_000;
 const PREFETCH_SECONDS = 30, MAX_SPEED = 100;
 /** Drafts farther than this (m, to the tile footprint) are unloaded. */
 const KEEP_M = 2 * VISUAL_L0;
+/** While the service restarts, /coarse/status is probed this often (ms). */
+const PROBE_MS = 2000;
+export const RESTARTING = 'drafts: service restarting';
 
 const l0 = (i: number, j: number) => `t0_${i}_${j}`;
 /** Distance (m) from (x,z) to the footprint of L0 tile `id`. */
@@ -83,6 +89,14 @@ export function cellsOf(id: string): string[] {
 
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
 class DraftRejected extends Error {}
+/** The service did not answer (connection error, or the dev server's 502-504 for it): it is restarting. */
+class ServiceDown extends Error {}
+const gatewayDown = (status: number) => status === 502 || status === 503 || status === 504;
+
+/** `offline`: the service did not answer; back once /coarse/status does. `outdated`: it answered 404 on a route the
+ *  game uses (a landing added it and the old process still runs); back once /coarse/status names another `started`
+ *  than the first probe saw, or after RETRY_MS. */
+interface Outage { reason: 'offline' | 'outdated'; started?: number | null; nextProbe: number; until: number; probing: boolean }
 
 /** Unpublished L0 ids to build ahead of a player moving at (vx, vz) m/s: every cell within the next
  *  PREFETCH_SECONDS of travel along the heading plus a one-tile ring, nearest first. Empty below walking speed. */
@@ -153,17 +167,25 @@ export class CoarseTiles {
   /** Smoothed ground velocity (m/s) of the player, for the prefetch. */
   velocity = { x: 0, z: 0 };
   private page: string;
+  /** Set while the service restarts: no tile or prefetch requests, only status probes. */
+  outage: Outage | null = null;
 
-  /** The service answers /coarse/status only on a local dev server with the companion running. */
+  /** The service answers /coarse/status only on a local dev server with the companion running, or when the
+   *  localhost game service supervises it and it is restarting right now. */
   static async start(host: CoarseHost): Promise<CoarseTiles | null> {
     const page = new URL(host.pageUrl ?? location.href);
     if (!isLocalHost(page.hostname)) return null;
-    try {
-      const res = await (host.fetch ?? fetch)(new URL(`${COARSE_ROOT}status`, page).href, { signal: AbortSignal.timeout(2000) });
-      // A static host without the service answers with HTML or {"state":"offline"}.
-      if (!res.ok || (await res.json() as { state?: string }).state === 'offline') return null;
-    } catch { return null; }
-    return new CoarseTiles(host);
+    const get = (url: string) => (host.fetch ?? fetch)(new URL(url, page).href, { signal: AbortSignal.timeout(2000) })
+      .then(r => r.ok ? r.json() as Promise<Record<string, unknown>> : null).catch(() => null);
+    // A static host without the service answers with HTML or {"state":"offline"}.
+    const status = await get(`${COARSE_ROOT}status`);
+    if (!status) return null;
+    if (status.state !== 'offline') return new CoarseTiles(host);
+    const local = await get('/__localhost/status') as { coarse?: { state?: string } } | null;
+    if (!local?.coarse?.state || local.coarse.state === 'off') return null;
+    const coarse = new CoarseTiles(host);
+    coarse.down('offline');
+    return coarse;
   }
 
   constructor(private host: CoarseHost) {
@@ -201,6 +223,11 @@ export class CoarseTiles {
     if (now < this.nextCheck) return;
     this.nextCheck = now + POLL_MS;
     this.track(x, z, now);
+    if (this.outage) {
+      if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
+      this.show(RESTARTING);
+      return;
+    }
     void this.want(x, z);
     const wanted = wantedTiles(x, z, this.published, this.leaves);
     const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id));
@@ -228,9 +255,52 @@ export class CoarseTiles {
     const head = at?.state === 'draft' ? `draft tile ${here}`
       : at?.state === 'published' ? `published tile ${here} streamed in place of its draft (reload for LOD)`
         : at ? `draft tile ${here}${at.state === 'failed' ? ` unavailable: ${at.error}` : waiting}` : '';
-    this.status = [head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '']
-      .filter(Boolean).join(' · ');
-    if (this.badge) { this.badge.textContent = this.status; this.badge.style.display = this.status ? '' : 'none'; }
+    this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '']
+      .filter(Boolean).join(' · '));
+  }
+
+  private show(status: string) {
+    this.status = status;
+    if (this.badge) { this.badge.textContent = status; this.badge.style.display = status ? '' : 'none'; }
+  }
+
+  /** The service is restarting: one console line, then only status probes until it answers (`probe`). */
+  down(reason: Outage['reason']) {
+    if (this.outage) return;
+    // An outdated service is probed at once, so the probe sees the old process's start time.
+    this.outage = { reason, nextProbe: reason === 'outdated' ? 0 : this.clock + PROBE_MS, until: this.clock + RETRY_MS, probing: false };
+    console.warn(`[coarse] ${RESTARTING}: drafts paused until it answers again`);
+    this.show(RESTARTING);
+    if (reason === 'outdated') void this.probe();
+  }
+
+  private async probe() {
+    const outage = this.outage;
+    if (!outage) return;
+    outage.probing = true;
+    const status = await this.fetch(new URL(`${COARSE_ROOT}status`, this.page).href, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() as Promise<{ state?: string; started?: number }> : null).catch(() => null);
+    outage.probing = false;
+    outage.nextProbe = this.clock + PROBE_MS;
+    if (this.outage !== outage || !status || status.state === 'offline') return;
+    if (outage.reason === 'outdated' && this.clock < outage.until) {
+      const started = status.started ?? null;
+      if (outage.started === undefined) { outage.started = started; return; }
+      if (started === outage.started) return;
+    }
+    this.outage = null;
+    this.nextCheck = 0;
+    for (const e of this.entries.values()) if (e.state === 'loading') { e.state = 'pending'; e.nextPoll = 0; }
+    console.info('[coarse] service back: drafts resume');
+  }
+
+  /** A /coarse/* request; ServiceDown when the service did not answer. */
+  private async request(url: string): Promise<Response> {
+    let res: Response;
+    try { res = await this.fetch(new URL(url, this.page).href, { cache: 'no-store' }); }
+    catch { throw new ServiceDown(); }
+    if (gatewayDown(res.status)) throw new ServiceDown();
+    return res;
   }
 
   private entry(id: string): Entry {
@@ -252,14 +322,16 @@ export class CoarseTiles {
   /** Position and velocity for the service's raw-data prefetch (pipeline/turku3d/coarse/prefetch.py). */
   private async want(x: number, z: number) {
     const q = [x, z, this.velocity.x, this.velocity.z].map(v => v.toFixed(1));
-    const url = new URL(`${COARSE_ROOT}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`, this.page).href;
-    try { await this.fetch(url, { cache: 'no-store' }); } catch { /* the next second retries */ }
+    try {
+      const res = await this.request(`${COARSE_ROOT}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`);
+      if (res.status === 404) this.down('outdated');
+    } catch { this.down('offline'); }
   }
 
   private async poll(id: string, e: Entry, d: number, load: boolean) {
     e.state = 'loading';
     try {
-      const res = await this.fetch(new URL(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`, this.page).href, { cache: 'no-store' });
+      const res = await this.request(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`);
       if (res.status === 202) {
         const body = await res.json().catch(() => ({})) as { state?: string; missing?: string[] };
         e.error = body.state === 'pending-data' ? `waiting for ${[...new Set(body.missing?.map(u => u.split('/')[0]))].join(', ')} data`
@@ -282,7 +354,7 @@ export class CoarseTiles {
       const uncovered = cellsOf(id).filter(cid => !fragment.collision[cid] && !this.host.manifest.collision[cid]);
       if (uncovered.length) throw new DraftRejected(`no collision for ${uncovered.length} of 16 cells (${uncovered[0]})`);
       await Promise.all(own.map(async ([cid, entry]) => {
-        const col = await this.fetch(new URL(entry.url, base).href, { cache: 'no-store' });
+        const col = await this.request(new URL(entry.url, base).href);
         if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
         const buf = await col.arrayBuffer();
         if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: ${buf.byteLength} bytes, manifest ${entry.bytes}`);
@@ -305,6 +377,7 @@ export class CoarseTiles {
       this.updateParents();
       if (roads) { e.roads = roads; this.onMapChange?.(); }
     } catch (err) {
+      if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down('offline'); return; }
       const rejected = err instanceof DraftRejected;
       // A rejected draft is retried like a failed build: the service may rebuild it with a fixed producer.
       e.state = rejected ? 'failed' : 'pending'; e.nextPoll = this.clock + (rejected ? RETRY_MS : 5000);

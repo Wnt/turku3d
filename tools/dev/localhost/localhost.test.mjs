@@ -1,15 +1,18 @@
-// node --test tools/dev/localhost/localhost.test.mjs: verdicts, affected tiles, the dev-server routes and the
-// service following a branch in a throwaway git repository (no Vite, no real data).
+// node --test tools/dev/localhost/localhost.test.mjs: verdicts, affected tiles, the dev-server routes, the
+// service following a branch in a throwaway git repository and supervising a fake coarse service (no Vite, no real
+// data, no real coarse service).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { verdict } from './status.mjs';
 import { affectedTiles } from './tiles.mjs';
 import { localhostGame, publicStatus } from './vitePlugin.mjs';
+import { CoarseService } from './coarse.mjs';
 import { LocalhostGame } from './service.mjs';
 
 // a <- b <- c <- d (linear history)
@@ -71,7 +74,7 @@ test('dev-server routes: status, tiles from the selected release, events, teleme
   assert.equal((await request(serve(null), '/src/main.ts')).status, 418); // Vite's own routes pass through
   assert.match((await request(serve(null), '/facades/candidates/')).body, /No candidates kept yet/);
   const state = { commit: 'c'.repeat(40), verification: { state: 'failed', stage: 'chrome' }, events, store: dir,
-    tiles: { dir: release, key: 'k1', source: 'integrator', building: null } };
+    tiles: { dir: release, key: 'k1', source: 'integrator', building: null }, coarse: { commit: 'c'.repeat(40), state: 'running' } };
   const tiles = await request(serve(state), '/tiles/collision/c_0_0.col');
   assert.equal(tiles.body, 'R');
   assert.equal(tiles.cache, 'no-cache');
@@ -132,4 +135,135 @@ test('the service follows the branch: checkout, ledger time, verdict in state.js
   const checkout = fs.readFileSync(service.events, 'utf8').split('\n').filter(Boolean).map(JSON.parse).find(r => r.type === 'checkout');
   assert.deepEqual([checkout.commit, checkout.landed, checkout.task], [second, 123, 'b']);
   service.stop();
+});
+
+/** A free localhost TCP port. */
+const freePort = () => new Promise((resolve) => {
+  const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
+});
+const until = async (predicate, ms = 10_000) => {
+  const end = Date.now() + ms;
+  while (!(await predicate())) {
+    if (Date.now() > end) throw new Error('timed out');
+    await new Promise(r => setTimeout(r, 25));
+  }
+};
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+/** A CoarseService running the fake service (fixtures/fakeCoarse.mjs) in `dir`. */
+async function fakeCoarse(dir, extra = {}) {
+  const rows = [];
+  const service = new CoarseService({ command: () => ({ cmd: process.execPath,
+    args: [path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures/fakeCoarse.mjs'), dir, '--port', String(service.port)],
+    cwd: dir, env: process.env }), head: () => 'c'.repeat(40), host: '127.0.0.1', port: await freePort(),
+  logFile: path.join(dir, 'coarse.log'), log: (row) => rows.push(row), pollMs: 25, backoffMs: 100, ...extra });
+  const starts = () => fs.readFileSync(path.join(dir, 'starts.jsonl'), 'utf8').split('\n').filter(Boolean).map(JSON.parse);
+  const set = (name, value) => fs.writeFileSync(path.join(dir, name), JSON.stringify(value));
+  return { service, rows, starts, set };
+}
+
+test('coarse supervisor: a restart drains running builds first, stops the build processes, restarts after a crash', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'localhost-coarse-'));
+  const { service, rows, starts, set } = await fakeCoarse(dir, { drainMs: 5000 });
+  t.after(() => { service.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
+  await service.start();
+  assert.deepEqual(service.status, { commit: 'c'.repeat(40), state: 'running' });
+  const [first] = starts();
+
+  // A build runs: the restart waits for it (the service starts no new ones after /coarse/drain).
+  set('building.json', ['t0_1_0']);
+  const restarted = service.restart();
+  await until(() => fs.existsSync(path.join(dir, 'drained')));
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(service.status.state, 'draining');
+  assert.ok(alive(first.pid));
+  set('building.json', []);
+  await restarted;
+  assert.equal(service.status.state, 'running');
+  const second = starts()[1];
+  assert.notEqual(second.pid, first.pid);
+  assert.ok(!alive(first.pid) && !alive(first.build)); // its process group went with it
+  assert.deepEqual(rows.map(r => r.state), ['starting', 'running', 'draining', 'restarting', 'starting', 'running']);
+
+  // A crash is restarted after the backoff.
+  process.kill(second.pid, 'SIGKILL');
+  await until(() => starts().length === 3 && service.status.state === 'running');
+  assert.equal(rows.find(r => r.state === 'exited').signal, 'SIGKILL');
+  process.kill(second.build, 'SIGTERM');
+});
+
+test('coarse supervisor: the drain waits at most drainMs; a held port is retried, not fought over', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'localhost-coarse-'));
+  const { service, starts, set } = await fakeCoarse(dir, { drainMs: 400 });
+  t.after(() => { service.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
+  await service.start();
+  set('building.json', ['t0_1_0']); // a build that never ends
+  const began = Date.now();
+  await service.restart();
+  const waited = Date.now() - began;
+  assert.ok(waited >= 400 && waited < 4000, `restart took ${waited} ms`);
+  assert.equal(starts().length, 2);
+  service.stop();
+  await until(() => starts().every(({ pid, build }) => !alive(pid) && !alive(build)));
+
+  // Another process (a hand-started coarse-tiles) holds the port: the supervisor waits for it instead of crashing.
+  const held = net.createServer().listen(service.port, '127.0.0.1');
+  await new Promise(r => held.once('listening', r));
+  const other = (await fakeCoarse(dir, { port: service.port })).service;
+  await other.start();
+  assert.equal(other.status.state, 'port in use');
+  assert.equal(other.child, null);
+  other.stop();
+  held.close();
+});
+
+test('the service restarts the coarse service when a landing changes a file it loaded, not otherwise', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'localhost-follow-coarse-'));
+  const origin = path.join(dir, 'origin'), registry = path.join(dir, 'registry'), published = path.join(dir, 'data');
+  const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  for (const d of [origin, registry, published, path.join(dir, 'fake')]) fs.mkdirSync(d);
+  git(origin, 'init', '-q', '-b', 'main');
+  const commit = (file, text) => {
+    fs.mkdirSync(path.dirname(path.join(origin, file)), { recursive: true });
+    fs.writeFileSync(path.join(origin, file), text);
+    git(origin, 'add', '-A'); git(origin, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', file);
+    return git(origin, 'rev-parse', 'HEAD');
+  };
+  const first = commit('pipeline/turku3d/coarse/service.py', 'one');
+  const worktree = path.join(dir, 'worktree');
+  git(origin, 'worktree', 'add', '-q', '--detach', worktree, 'main');
+  const service = new LocalhostGame({ repo: origin, branch: 'main', worktree, registry, published, store: path.join(published, 'tile-store'),
+    stateDir: path.join(dir, 'state'), telemetryDir: path.join(dir, 'telemetry'), host: '127.0.0.1', port: 0, pollMs: 1000, build: false,
+    coarse: false });
+  service.tiles = { selection: null, select: async () => null, stop() {} };
+  fs.mkdirSync(service.o.stateDir, { recursive: true });
+  service.current = first;
+  const fake = await fakeCoarse(path.join(dir, 'fake'), { head: () => service.current, onState: () => { void service.write(); },
+    log: (row) => service.log(row) });
+  service.coarse = fake.service;
+  t.after(() => { service.stop(); for (const { build } of fake.starts()) if (alive(build)) process.kill(build, 'SIGTERM');
+    fs.rmSync(dir, { recursive: true, force: true }); });
+  fake.set('modules.json', ['pipeline/turku3d/coarse/service.py', 'pipeline/turku3d/config.py']);
+  await service.coarse.start();
+
+  const docs = commit('docs/notes.md', 'unrelated');
+  await service.tick();
+  assert.equal(git(worktree, 'rev-parse', 'HEAD'), docs);
+  assert.equal(service.coarse.restarting, null);
+  const module = commit('pipeline/turku3d/config.py', 'loaded by the service');
+  await service.tick();
+  await service.coarse.restarting;
+  assert.equal(fake.starts().length, 2);
+  await service.writing;
+  const state = JSON.parse(fs.readFileSync(path.join(service.o.stateDir, 'state.json'), 'utf8'));
+  assert.deepEqual(state.coarse, { commit: module, state: 'running' });
+  assert.deepEqual(publicStatus(state).coarse, state.coarse);
+  const events = fs.readFileSync(service.events, 'utf8').split('\n').filter(Boolean).map(JSON.parse).filter(r => r.type === 'coarse');
+  assert.deepEqual(events.slice(-2).map(r => [r.commit, r.state]), [[module, 'starting'], [module, 'running']]);
+  // The launcher restarts it whatever the service reports loading.
+  commit('tools/dev/coarse-tiles', '#!/bin/sh');
+  await service.tick();
+  await service.coarse.restarting;
+  assert.equal(fake.starts().length, 3);
+  await service.writing;
 });

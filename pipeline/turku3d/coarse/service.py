@@ -1,7 +1,12 @@
 """Localhost companion service: builds coarse tiles on first request and serves them afterwards.
 
     GET /coarse/status                      queue, current build, built tiles and their timings,
-                                            tiles waiting for data, the prefetcher's state
+                                            tiles waiting for data, the prefetcher's state; the
+                                            service's start time and the repository files it loaded
+                                            (`started`, `modules`: the localhost game restarts it when
+                                            one of them lands, tools/dev/localhost/coarse.mjs)
+    POST /coarse/drain                      start no further builds (running ones finish); the
+                                            supervisor restarts the service once `building` is empty
     GET /coarse/want?x=&z=&vx=&vz=          the player's engine position and velocity (m, m/s), once
                                             a second: drives the raw-data prefetcher (prefetch.py)
     GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 and the tile is queued,
@@ -42,6 +47,7 @@ from .build import code_hash
 from .prefetch import Prefetcher
 from .sources import NoCoverage, Sources, Unit
 
+REPO = Path(__file__).resolve().parents[3]
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
 FILE = re.compile(r"^(vis\.glb|manifest\.json|roads\.json|col/c_-?\d+_-?\d+\.col)$")
 SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
@@ -100,6 +106,7 @@ class Builder:
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}
         self.stopped = False
+        self.draining = False
         self.threads = [
             threading.Thread(target=self._run, name=f"coarse-builder-{k}", daemon=True)
             for k in range(workers)
@@ -162,6 +169,8 @@ class Builder:
             return {"state": "queued", "position": [t for t, _ in order].index(tile)}
 
     def _next(self) -> tuple[str, float] | None:
+        if self.draining:
+            return None
         while self.heap:
             distance, tile = heapq.heappop(self.heap)
             if self.priority.get(tile) != distance:
@@ -241,7 +250,13 @@ class Builder:
                 "pending": {tile: units for tile, (units, _) in self.pending.items()},
                 "timings": dict(self.timings),
                 "code": self.code(),
+                "draining": self.draining,
             }
+
+    def drain(self) -> None:
+        """No further builds start; the running ones finish (the service is about to restart)."""
+        with self.lock:
+            self.draining = True
 
     def stop(self):
         with self.lock:
@@ -249,7 +264,22 @@ class Builder:
             self.lock.notify_all()
 
 
+def loaded_files() -> list[str]:
+    """Repository files of the modules this process has imported (repo-relative, sorted)."""
+    files = set()
+    for module in list(sys.modules.values()):
+        path = getattr(module, "__file__", None)
+        if not path:
+            continue
+        resolved = Path(path).resolve()
+        if resolved.is_relative_to(REPO):
+            files.add(resolved.relative_to(REPO).as_posix())
+    return sorted(files)
+
+
 def handler(builder: Builder, prefetcher: Prefetcher | None = None):
+    started = time.time()
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -272,11 +302,17 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
         def do_HEAD(self):
             self.do_GET()
 
+        def do_POST(self):
+            if urlparse(self.path).path != "/coarse/drain":
+                return self._json(404, {"error": "not found"})
+            builder.drain()
+            return self._json(200, {"draining": True, "building": builder.status()["building"]})
+
         def do_GET(self):
             url = urlparse(self.path)
             parts = url.path.removeprefix("/coarse/").split("/", 1)
             if url.path == "/coarse/status":
-                status = builder.status()
+                status = builder.status() | {"started": started, "modules": loaded_files()}
                 if prefetcher:
                     status["prefetch"] = prefetcher.status()
                 return self._json(200, status)
