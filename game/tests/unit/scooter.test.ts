@@ -69,8 +69,8 @@ test('scooter physics: 45 km/h top speed, moped acceleration and braking, uprigh
   expect(Math.abs(top.forwardSpeed - SCOOTER_TARGET_SPEED) / SCOOTER_TARGET_SPEED).toBeLessThan(0.05);
   expect(t30).toBeGreaterThan(2);
   expect(t30).toBeLessThan(6);
-  let stopX = NaN, stopTime = 0;
-  run(6, input({ brake: 1 }), s => { stopTime += 1 / 60; if (Number.isNaN(stopX) && s.forwardSpeed < 0.3) stopX = s.pos.x; });
+  let stopX = NaN;
+  run(6, input({ brake: 1 }), s => { if (Number.isNaN(stopX) && s.forwardSpeed < 0.3) stopX = s.pos.x; });
   // 12.5 m/s to rest at 4-7 m/s^2: 11-20 m.
   expect(stopX - top.pos.x).toBeGreaterThan(9);
   expect(stopX - top.pos.x).toBeLessThan(22);

@@ -26,7 +26,7 @@ Rebuild (run in `game/`; the source file is not kept in the repository):
 ```bash
 mkdir -p "$TURKU3D_WORK/cache/scooter" && curl -sSLo "$TURKU3D_WORK/cache/scooter/source.glb" \
   https://static.poly.pizza/afe6bead-8f20-4702-b27b-6814e17f9b6d.glb
-node scripts/prepare-scooter.mjs "$TURKU3D_WORK/cache/scooter/source.glb" public/assets/vehicles/scooter.glb
+npm run prepare-scooter -- "$TURKU3D_WORK/cache/scooter/source.glb" public/assets/vehicles/scooter.glb
 ```
 
 ## Selection (2026-10-27)
