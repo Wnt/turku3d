@@ -42,7 +42,7 @@ test('affected tiles: the union of the landings\' tiles, or every listed tile wh
   assert.deepEqual(affectedTiles([null], listed), listed);
 });
 
-test('dev-server routes: status, tiles from the selected release, events, telemetry', async (t) => {
+test('dev-server routes: status, tiles from the selected release, events, telemetry; preview: telemetry', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'localhost-plugin-'));
   const release = path.join(dir, 'release'), fallback = path.join(dir, 'fallback');
   for (const [root, body] of [[release, 'R'], [fallback, 'F']]) {
@@ -85,6 +85,14 @@ test('dev-server routes: status, tiles from the selected release, events, teleme
   assert.equal(JSON.parse(fs.readFileSync(events, 'utf8')).type, 'hot-swap');
   assert.equal((await request(serve(state), '/telemetry', { method: 'POST', body: '{"t":1}\n' })).status, 204);
   assert.equal(fs.readdirSync(path.join(dir, 'telemetry')).length, 1);
+
+  // vite preview (the browser checks' server): POST /telemetry into the same directory, everything else passes.
+  handlers.length = 0;
+  localhostGame({ tiles: fallback, telemetryDir: path.join(dir, 'preview-telemetry') }).configurePreviewServer(server);
+  const preview = () => http.createServer((req, res) => handlers[0](req, res, () => { res.writeHead(418); res.end(); }));
+  assert.equal((await request(preview(), '/telemetry', { method: 'POST', body: '{"t":2}\n' })).status, 204);
+  assert.equal(fs.readdirSync(path.join(dir, 'preview-telemetry')).length, 1);
+  assert.equal((await request(preview(), '/tiles/collision/c_0_0.col')).status, 418);
 });
 
 test('the service follows the branch: checkout, ledger time, verdict in state.json', async (t) => {
