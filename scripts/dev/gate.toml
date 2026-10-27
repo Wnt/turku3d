@@ -287,7 +287,7 @@ paths = ["game/src/world/*", "game/src/core/origin.ts"]
 tags = ["@streaming", "@aoi"]
 
 [[stages.related]]
-paths = ["game/src/main.ts", "game/src/play.ts", "game/src/core/params.ts", "game/src/core/flags.ts"]
+paths = ["game/src/main.ts", "game/src/play.ts", "game/src/core/params.ts", "game/src/core/flags.ts", "game/src/core/localOnly.ts"]
 tags = ["@launch", "@walk", "@drive", "@qa"]
 
 [[stages.related]]
