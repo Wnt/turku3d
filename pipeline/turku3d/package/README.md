@@ -27,6 +27,8 @@ acceptance. Ground splats, the filtered facade export, bridges, roads and surrou
 building massing follow in parallel. The instance producers then run in placement
 order (props, vegetation, traffic_static) against all of those colliders; each one
 clears only the inventories published before it, so one pass converges.
+The tile build also publishes the delivery address pool beside the road graph
+(`manifest.addresses`, [`turku3d.content`](../content/README.md)).
 Ground splats reuse
 the fused orthos when the ground layer changes. A second run with unchanged inputs
 prints `cached` for every present product. It reads shared raw inputs and writes

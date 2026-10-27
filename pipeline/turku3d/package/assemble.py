@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from turku3d import config as C
+from turku3d.content.addresses import publish as publish_addresses
 from turku3d.col.format import ColTile, Primitive, read_col, write_col
 from turku3d.layers import layer_root, read_collision, read_manifest, read_visual
 from turku3d.package import coarse
@@ -433,6 +434,9 @@ def assemble(
     tree = DistTree(out, areas=[area])
     tree.spawn = derive_spawn(root, collision)
     roads_changed = publish_roads(root / "roads", tree)
+    # Delivery addresses: every addressed building with a street-side door in the area's L0 tiles.
+    area_l0 = {t.id for t in C.area(area).visual_tiles if t.level == 0} | {t.id for t in requested}
+    roads_changed = publish_addresses(root, tree, area_l0) or roads_changed
     parked_path = root / "traffic_static/placements.json"
     tree.vehicles = [
         car for car in tree.vehicles if C.VisualTile.at(car["x"], car["z"]) not in requested
@@ -533,7 +537,7 @@ def assemble(
             terrain = coarse.discover(tile) if tile.level > 0 or tile in coarse_leaves else None
             if tile in coarse_leaves and not inputs and not terrain:
                 continue  # Nothing to show there: no massing and no terrain coverage.
-            # The road graph is published beside the tiles and does not change their content.
+            # The road graph and the address pool are published beside the tiles and do not change their content.
             files = inputs + [
                 root / name / "MANIFEST.json" for name in manifests if name != "roads"
             ]
