@@ -4,9 +4,12 @@
 //  - brotli (precompressed <file>.br if present, else on-the-fly brotli with an in-memory cache) and gzip fallback
 //  - HTTP range requests (206) on uncompressed responses, ETag / If-None-Match, correct MIME for .wasm/.glb/.ktx2/.col
 //  - optional --mount /tiles=<dir> to serve a tile dist next to the game build
+//  - POST /telemetry: play telemetry JSON lines (game/src/telemetry/README.md) appended to
+//    <telemetry dir>/session-<YYYYMMDD>.jsonl (local date), default $TURKU3D_WORK/telemetry; 1 MB per request, 204
 // No dependencies (Node >= 20).
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
+//          [--telemetry-dir <dir>]
 import http from 'node:http';
 import { workRoot, port } from './environment.mjs';
 import fs from 'node:fs';
@@ -22,6 +25,8 @@ const ROOT = expand(opt('--root', args.find((a, i) => !a.startsWith('--') && (i 
 const PORT = Number(opt('--port', port(1)));
 const HOST = opt('--host', '127.0.0.1');
 const COMPRESS = !args.includes('--no-compress');
+const TELEMETRY_DIR = expand(opt('--telemetry-dir', path.join(workRoot, 'telemetry')));
+const TELEMETRY_MAX_BYTES = 1024 * 1024;
 const MOUNTS = []; // [prefix, dir]
 args.forEach((a, i) => { if (a === '--mount') { const [pre, dir] = args[i + 1].split('='); MOUNTS.push([pre.replace(/\/$/, ''), expand(dir)]); } });
 MOUNTS.sort((a, b) => b[0].length - a[0].length);
@@ -74,11 +79,45 @@ async function brotli(file, stat) {
   return out;
 }
 
+const pad = (n) => String(n).padStart(2, '0');
+let telemetryWrites = Promise.resolve();
+
+/** Appends the request's JSON lines to today's session file; every non-empty line must be a JSON object. */
+async function telemetry(req, res) {
+  const cors = { 'Access-Control-Allow-Origin': '*', 'Cross-Origin-Resource-Policy': 'cross-origin' };
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of req) { // drained to the end, so the 413 reaches the client
+    bytes += chunk.length;
+    if (bytes <= TELEMETRY_MAX_BYTES) chunks.push(chunk);
+  }
+  if (bytes > TELEMETRY_MAX_BYTES) { res.writeHead(413, cors); return res.end('telemetry batch over 1 MB'); }
+  const lines = Buffer.concat(chunks).toString('utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    let value;
+    try { value = JSON.parse(line); } catch { value = null; }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) { res.writeHead(400, cors); return res.end('each line must be a JSON object'); }
+  }
+  if (lines.length) {
+    const d = new Date();
+    const file = path.join(TELEMETRY_DIR, `session-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.jsonl`);
+    const write = telemetryWrites.then(async () => {
+      await fsp.mkdir(TELEMETRY_DIR, { recursive: true });
+      await fsp.appendFile(file, lines.join('\n') + '\n');
+    });
+    telemetryWrites = write.catch(() => {});
+    await write;
+  }
+  res.writeHead(204, cors);
+  res.end();
+}
+
 async function handler(req, res) {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range, If-None-Match', 'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS' });
+    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range, If-None-Match, Content-Type', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS' });
     return res.end();
   }
+  if (req.method === 'POST' && req.url.split('?')[0] === '/telemetry') return telemetry(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   let file = resolvePath(req.url);
   if (!file) { res.writeHead(403); return res.end('forbidden'); }
@@ -123,6 +162,6 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
   const server = http.createServer((req, res) => handler(req, res).catch((e) => { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }));
   server.listen(PORT, HOST, () => {
     console.log(`serve-dist: http://${HOST}:${server.address().port}/ -> ${ROOT}${MOUNTS.map(([p, d]) => `\n  ${p}/ -> ${d}`).join('')}`);
-    console.log(`  COOP/COEP on, brotli ${COMPRESS ? 'on' : 'off'}, ranges on`);
+    console.log(`  COOP/COEP on, brotli ${COMPRESS ? 'on' : 'off'}, ranges on, POST /telemetry -> ${TELEMETRY_DIR}`);
   });
 }

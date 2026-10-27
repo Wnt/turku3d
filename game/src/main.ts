@@ -35,6 +35,7 @@ import { BICYCLE_TOP_SPEED } from './gameplay/economy';
 import { createGameplay, compassDeg } from './gameplay';
 import { ZoneMarkers } from './gameplay/zones';
 import { IdPass } from './render/idPass';
+import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
 import { MATERIALS } from './shared/col/materials';
 import type { VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
@@ -213,6 +214,16 @@ async function runQa() {
 
 // ------------------------------------------------------------------------------------------- play mode
 async function runPlay() {
+  // Play telemetry (telemetry/README.md): local origins only, never on the published Pages site.
+  const telemetry = telemetryEnabled(location, navigator.webdriver)
+    ? new Telemetry(httpTransport(`${location.origin}/telemetry`)) : null;
+  if (telemetry) {
+    tiles.tiles.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) =>
+      telemetry.addModel(model, tile?.extras?.id));
+    tiles.tiles.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => telemetry.removeModel(model));
+    addEventListener('pagehide', () => telemetry.flush(true));
+    addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
+  }
   const audio = new GameAudio();
   const audioGameplay = new GameplayAudio(event => audio.emit(event));
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
@@ -234,6 +245,7 @@ async function runPlay() {
   physics.onError = (e) => fail(`physics: ${e}`);
   const [rapier, manifest] = await Promise.all([physics.ready, loadManifest(params.manifest) as Promise<Manifest>]);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
+  telemetry?.setBuiltTiles(Object.keys(manifest.visual));
   const player = new PlayerVisual(scene, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(scene);
   const parkedVisuals = new ParkedCarVisuals(scene);
@@ -318,7 +330,7 @@ async function runPlay() {
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, errors };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones,
-    shopMenu, orbit, ready: true });
+    shopMenu, orbit, telemetry, ready: true });
 
   startScreen.ready();
   renderer.setAnimationLoop(() => {
@@ -470,6 +482,8 @@ async function runPlay() {
     tiles.update(camera);
     renderFrame();
     window.__render?.afterFrame?.();
+    telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
+      vehicle: mode === 'car' ? drivenId ?? 'player' : null }));
 
     router.mode = mode;
     const facing = mode === 'car' && vs ? mapDirection.set(1, 0, 0).applyQuaternion(carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w))
