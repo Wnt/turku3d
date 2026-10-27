@@ -154,11 +154,10 @@ bash pipeline/env/run.sh python -m turku3d.coarse build t0_4_0 --out /tmp/t
 tools/dev/coarse-tiles                                                  # localhost service, port base + 5
 ```
 
-Inputs come from an already prepared area (`work-3x3`) without network access; elsewhere the
-existing fetchers download only what the tile needs into `$TURKU3D_DATA/raw` under the area name
-`coarse-<tile>`: the `maanpinta` ground key-point LAZ (about 0.5 MB per 500 m), CityGML LOD2,
-`GIS:Katualueet` and `kanta:Vesikohde` via WFS, and one 1024 px (24 cm/px) 2022 true-ortho WMS
-request. Ground is a 250/128 m (~2 m) grid TIN interpolated from the key points and textured
+Inputs come from the shared raw cache only; a build never downloads (`turku3d/coarse/README.md`):
+the `maanpinta` ground key-point LAZ, CityGML LOD2, `GIS:Katualueet` and `kanta:Vesikohde` via
+WFS, and a 512 px (49 cm/px) 2022 true-ortho chunk per tile. The service's prefetcher fetches them
+ahead of the player in 500 m blocks. Ground is a 250/128 m (~2 m) grid TIN interpolated from the key points and textured
 with the ortho; buildings are LOD2 footprints extruded to their area-weighted mean roof height
 (library render walls, ortho roofs); street polygons set collision materials (road, sidewalk,
 cobblestone...), green ortho pixels grass, water polygons the water sensor over a synthetic bed.
@@ -166,7 +165,8 @@ The coarse tier has no curbs, stairs, retaining walls, bridges, props, trees, pa
 facade maps, roof shapes or LOD parents. Outside the city lidar index (`laz-tiles.csv`) the
 build fails with a reason: the MML 2 m DEM needs an API key, which this project does not use.
 Coarse tiles are never written to `$TURKU3D_DATA/live` or any published layer. Tests:
-`pipeline/tests/test_coarse.py` (synthetic inputs, service queue and routes).
+`pipeline/tests/test_coarse.py` (synthetic inputs, service queue and routes) and
+`pipeline/tests/test_coarse_prefetch.py` (prefetch area, unit order, LRU prune, pending-data).
 
 ## Selective quality checks
 

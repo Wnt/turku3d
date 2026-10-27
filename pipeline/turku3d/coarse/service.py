@@ -1,13 +1,20 @@
 """Localhost companion service: builds coarse tiles on first request and serves them afterwards.
 
-    GET /coarse/status                      queue, current build, built tiles and their timings
+    GET /coarse/status                      queue, current build, built tiles and their timings,
+                                            tiles waiting for data, the prefetcher's state
+    GET /coarse/want?x=&z=&vx=&vz=          the player's engine position and velocity (m, m/s), once
+                                            a second: drives the raw-data prefetcher (prefetch.py)
     GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 and the tile is queued,
-                                            nearest first by the player distance d (latest wins)
+                                            nearest first by the player distance d (latest wins), or
+                                            202 {"state": "pending-data", "missing": [units]} while
+                                            its inputs are being fetched
     GET /coarse/<tile>/vis.glb | roads.json | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
 
 Tiles not re-requested for STALE_SECONDS leave the queue (the player moved on). The game asks for
 the cells ahead of a moving player as well (prefetch), so up to WORKERS builds run at once, each in
 a child process, so a slow or failing build never blocks requests or the other builds.
+A build never downloads: a tile whose inputs are not on disk waits as pending-data, its units jump
+the raw-data prefetch queue, and it is queued again as soon as they land.
 A failed tile (outside every keyless source, or a network error) answers 404 with the reason and is
 retried after RETRY_SECONDS.
 Built tiles live under $TURKU3D_WORK/coarse/<tile>/ and are rebuilt when the producer code changes.
@@ -18,6 +25,7 @@ from __future__ import annotations
 import argparse
 import heapq
 import json
+import math
 import os
 import re
 import subprocess
@@ -31,11 +39,14 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 
 from .build import code_hash
+from .prefetch import Prefetcher
+from .sources import NoCoverage, Sources, Unit
 
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
 FILE = re.compile(r"^(vis\.glb|manifest\.json|roads\.json|col/c_-?\d+_-?\d+\.col)$")
 SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
+PENDING_EXIT = 3  # python -m turku3d.coarse build: inputs missing, {"pending": [units]} on stdout
 RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried after this
 WORKERS = 4  # parallel builds: a cold tile spends minutes downloading, warm ones take 5-10 s
 MIME = {
@@ -49,8 +60,21 @@ MIME = {
 class Builder:
     """Priority queue of tile ids (lowest distance first) drained by `workers` threads."""
 
-    def __init__(self, root: Path, command=None, code: str | None = None, workers: int = WORKERS):
+    def __init__(
+        self,
+        root: Path,
+        command=None,
+        code: str | None = None,
+        workers: int = WORKERS,
+        inputs=None,
+        on_missing=None,
+    ):
+        """``inputs(tile)`` lists the unit keys a tile still needs (raises NoCoverage outside the
+        sources); ``on_missing(units)`` hands them to the prefetcher. Without ``inputs`` every
+        tile is assumed to have its data."""
         self.root = root
+        self.inputs = inputs or (lambda tile: [])
+        self.on_missing = on_missing or (lambda units: None)
         # Re-hashed per check, so a code edit while the service runs rebuilds each tile once.
         self.code = (lambda: code) if code else code_hash
         self.command = command or (
@@ -70,6 +94,7 @@ class Builder:
         self.heap: list[tuple[float, str]] = []
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
+        self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}
         self.stopped = False
         self.threads = [
@@ -102,32 +127,49 @@ class Builder:
             self.failed.pop(tile, None)
             if tile in self.building:
                 return {"state": "building", "since": self.building[tile]}
-            self.priority[tile] = distance
+        try:
+            missing = self.inputs(tile)
+        except NoCoverage as e:
+            with self.lock:
+                self.failed[tile] = (str(e), time.time())
+            return {"state": "failed", "error": str(e)}
+        with self.lock:
             self.requested[tile] = time.time()
+            if missing:
+                self.pending[tile] = (missing, distance)
+            else:
+                self.pending.pop(tile, None)
+        if missing:
+            self.on_missing(missing)
+            return {"state": "pending-data", "missing": missing}
+        with self.lock:
+            self.priority[tile] = distance
             heapq.heappush(self.heap, (distance, tile))
             self.lock.notify()
             order = sorted(self.priority.items(), key=lambda kv: kv[1])
             return {"state": "queued", "position": [t for t, _ in order].index(tile)}
 
-    def _next(self) -> str | None:
+    def _next(self) -> tuple[str, float] | None:
         while self.heap:
             distance, tile = heapq.heappop(self.heap)
             if self.priority.get(tile) != distance:
                 continue
             del self.priority[tile]
-            if time.time() - self.requested.pop(tile, 0.0) <= STALE_SECONDS:
-                return tile
+            if time.time() - self.requested.get(tile, 0.0) <= STALE_SECONDS:
+                return tile, distance
+            self.requested.pop(tile, None)
         return None
 
     def _run(self):
         while True:
             with self.lock:
-                tile = self._next()
-                while tile is None and not self.stopped:
+                job = self._next()
+                while job is None and not self.stopped:
                     self.lock.wait()
-                    tile = self._next()
+                    job = self._next()
                 if self.stopped:
                     return
+                tile, distance = job
                 self.building[tile] = time.time()
             started = time.perf_counter()
             out = self.root / tile
@@ -135,7 +177,10 @@ class Builder:
             seconds = time.perf_counter() - started
             with self.lock:
                 del self.building[tile]
-                if proc.returncode == 0 and self.built(tile):
+                if proc.returncode == PENDING_EXIT:
+                    units = json.loads(proc.stdout.strip().splitlines()[-1])["pending"]
+                    self.pending[tile] = (units, distance)
+                elif proc.returncode == 0 and self.built(tile):
                     m = json.loads(self.manifest(tile).read_text())
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
                 else:
@@ -143,10 +188,29 @@ class Builder:
                         "build failed"
                     ]
                     self.failed[tile] = (tail[0][:500], time.time())
-                print(
-                    f"coarse {tile}: {'built' if tile in self.timings else 'FAILED'} in {seconds:.1f} s",
-                    flush=True,
+                if tile not in self.pending:
+                    self.requested.pop(tile, None)
+                outcome = (
+                    "built"
+                    if tile in self.timings
+                    else "pending"
+                    if tile in self.pending
+                    else "FAILED"
                 )
+                print(f"coarse {tile}: {outcome} in {seconds:.1f} s", flush=True)
+            if tile in self.pending:
+                self.on_missing(self.pending[tile][0])
+
+    def landed(self) -> None:
+        """Data landed: re-request the waiting tiles the game still asks for."""
+        with self.lock:
+            waiting = [
+                (tile, distance)
+                for tile, (_, distance) in self.pending.items()
+                if time.time() - self.requested.get(tile, 0.0) <= STALE_SECONDS
+            ]
+        for tile, distance in waiting:
+            self.request(tile, distance)
 
     def status(self) -> dict:
         with self.lock:
@@ -160,6 +224,7 @@ class Builder:
                     if self.built(p.parent.name)
                 ),
                 "failed": {tile: error for tile, (error, _) in self.failed.items()},
+                "pending": {tile: units for tile, (units, _) in self.pending.items()},
                 "timings": dict(self.timings),
                 "code": self.code(),
             }
@@ -170,7 +235,7 @@ class Builder:
             self.lock.notify_all()
 
 
-def handler(builder: Builder):
+def handler(builder: Builder, prefetcher: Prefetcher | None = None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -197,7 +262,19 @@ def handler(builder: Builder):
             url = urlparse(self.path)
             parts = url.path.removeprefix("/coarse/").split("/", 1)
             if url.path == "/coarse/status":
-                return self._json(200, builder.status())
+                status = builder.status()
+                if prefetcher:
+                    status["prefetch"] = prefetcher.status()
+                return self._json(200, status)
+            if url.path == "/coarse/want":
+                q = parse_qs(url.query)
+                try:
+                    x, z, vx, vz = (float(q.get(k, ["0"])[0]) for k in ("x", "z", "vx", "vz"))
+                except ValueError:
+                    return self._json(400, {"error": "x, z, vx, vz are numbers"})
+                if not all(map(math.isfinite, (x, z, vx, vz))):
+                    return self._json(400, {"error": "x, z, vx, vz are finite"})
+                return self._json(200, prefetcher.want(x, z, vx, vz) if prefetcher else {})
             if len(parts) == 2 and parts[0] == "shared" and SHARED.match(parts[1]):
                 path = builder.root / "shared" / parts[1]
                 if path.exists():
@@ -232,10 +309,29 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def serve(port: int, root: Path, host: str = "127.0.0.1", builder: Builder | None = None):
-    builder = builder or Builder(root)
-    server = Server((host, port), handler(builder))
-    return server, builder
+def serve(
+    port: int,
+    root: Path,
+    host: str = "127.0.0.1",
+    builder: Builder | None = None,
+    prefetcher: Prefetcher | None = None,
+):
+    """Without an explicit builder: the real producer, gated on its inputs, with a prefetcher."""
+    if builder is None:
+        sources = Sources()
+        prefetcher = Prefetcher(sources)
+
+        def inputs(tile: str) -> list[str]:
+            return [u.key for u in sources.missing(C.VisualTile.parse(tile))]
+
+        builder = Builder(
+            root,
+            inputs=inputs,
+            on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
+        )
+        prefetcher.on_landed = lambda unit: builder.landed()
+    server = Server((host, port), handler(builder, prefetcher))
+    return server, builder, prefetcher
 
 
 def default_port() -> int:
@@ -255,7 +351,7 @@ def main(argv=None) -> int:
     if a.host not in ("127.0.0.1", "localhost", "::1"):
         ap.error("the coarse tile service is localhost only")
     a.root.mkdir(parents=True, exist_ok=True)
-    server, builder = serve(a.port, a.root, a.host)
+    server, builder, prefetcher = serve(a.port, a.root, a.host)
     print(f"coarse-tiles: http://{a.host}:{a.port}/coarse/status -> {a.root}", flush=True)
     try:
         server.serve_forever()
@@ -263,5 +359,6 @@ def main(argv=None) -> int:
         pass
     finally:
         builder.stop()
+        prefetcher.stop()
         server.server_close()
     return 0

@@ -48,6 +48,16 @@ Up to four builds run at once, each in a child process: the game also asks for t
 download overlap with the warm builds. `/coarse/status` lists the tiles `building`. Built tiles are reused
 until the producer code changes.
 A failed tile answers 404 with the reason and is retried after two minutes.
+A build never
+downloads: while a tile's raw inputs are missing it answers 202 `{"state": "pending-data",
+"missing": [units]}` and the game shows "waiting for ... data". `GET /coarse/want?x=&z=&vx=&vz=`
+(sent by the game once a second) steers the raw-data prefetcher; `/coarse/status` reports it under
+`prefetch` (`pipeline/turku3d/coarse/README.md`).
+
+```bash
+curl -s "localhost:$((TURKU3D_PORT_BASE+5))/coarse/want?x=600&z=100&vx=27&vz=0"   # {"queued": n, "fetching": [...]}
+curl -s localhost:$((TURKU3D_PORT_BASE+5))/coarse/status | python3 -m json.tool | grep -A30 '"prefetch"'
+```
 Playwright and QA profiles use `TURKU3D_BROWSER_DIR/tmp`. See [agent tooling](../../scripts/dev/README.md).
 
 Build outputs are local; no sync step is needed. `make tile-show` serves the locally built tiles.

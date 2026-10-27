@@ -71,6 +71,10 @@ def atomic_write_text(path: Path, text: str) -> None:
 # --------------------------------------------------------------------------------------
 
 
+def _remote(url: str | None) -> bool:
+    return bool(url) and url.startswith(("https://", "http://"))
+
+
 class Registry:
     """Checksum registry for one raw kind directory. Safe for concurrent processes (flock)."""
 
@@ -124,12 +128,21 @@ class Registry:
         return True
 
     def record(self, path: Path, url: str | None = None, sha256: str | None = None, **meta) -> dict:
+        """Register a written file. A file downloaded from a remote source is only ever replaced
+        by different content from a remote source: anything else is refused."""
         path = Path(path)
+        sha256 = sha256 or sha256_file(path)
+        prev = self.get(path)
+        if prev and _remote(prev.get("url")) and prev["sha256"] != sha256 and not _remote(url):
+            raise PermissionError(
+                f"{self.rel(path)}: refusing to replace a file downloaded from {prev['url']} "
+                f"with content from {url!r}"
+            )
         rec = {
             "path": self.rel(path),
             "url": url,
             "bytes": path.stat().st_size,
-            "sha256": sha256 or sha256_file(path),
+            "sha256": sha256,
             "fetched_at": now_iso(),
             **meta,
         }
@@ -138,6 +151,23 @@ class Registry:
                 f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
             self._rewrite_sums()
         return rec
+
+    def forget(self, paths) -> None:
+        """Drop the records of deleted files and of everything under deleted directories."""
+        rels = [self.rel(p) for p in paths]
+        with self._locked():
+            if not self.manifest.exists():
+                return
+            lines = [
+                line
+                for line in self.manifest.read_text().splitlines()
+                if line.strip()
+                and not any(
+                    (p := json.loads(line)["path"]) == r or p.startswith(r + "/") for r in rels
+                )
+            ]
+            atomic_write_text(self.manifest, "".join(line + "\n" for line in lines))
+            self._rewrite_sums()
 
     def _rewrite_sums(self) -> None:
         recs = self.records()
