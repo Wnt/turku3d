@@ -476,11 +476,20 @@ def build(
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
     bridges.visual(osm_decks, tile, stage, layer_files)
-    trees = draft_trees(tile, grid_pos, inputs.trees, water, shells)
-    if trees:
+    from .forests import BUSH_CAP, TREE_CAP, produce
+
+    vegetation_start = time.perf_counter()
+    trees, bushes = produce(
+        tile,
+        inputs,
+        lambda x, z: grid_height(tile, grid_pos, x, z),
+        draft_trees(tile, grid_pos, inputs.trees, water, shells),
+    )
+    seconds["vegetation_scatter"] = time.perf_counter() - vegetation_start
+    if trees or bushes:
         from turku3d.vegetation.visual import write_instances
 
-        write_instances(stage / "vegetation.vis.glb", tile, trees)
+        write_instances(stage / "vegetation.vis.glb", tile, trees + bushes)
         layer_files.append(stage / "vegetation.vis.glb")
     if shells:
         roof_pos, roof_idx = [], []
@@ -607,6 +616,12 @@ def build(
         facade_params=facade_params,
         trees=len(trees),
         barriers=barrier_stats,
+        vegetation=dict(
+            tree_cap=TREE_CAP,
+            bush_cap=BUSH_CAP,
+            bushes=len(bushes),
+            measured=sum(t.measured for t in trees),
+        ),
         bridges=decks + len(osm_decks),
         water_level=level,
         sources=inputs.sources,

@@ -20,7 +20,7 @@ import hashlib
 import os
 import pickle
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +36,7 @@ CODE = hashlib.sha256(
     Path(__file__).read_bytes()
     + Path(__file__).with_name("fences.py").read_bytes()
     + Path(__file__).with_name("bridges.py").read_bytes()
+    + Path(__file__).with_name("forests.py").read_bytes()
 ).hexdigest()[:16]
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -65,6 +66,8 @@ class Inputs:
     key: str = ""
     trees: list = ()  # prepare_trees: (id, x, z, height, conifer) in the tile; () before OSM lands  # Sources.input_key: the raw files' identities, recorded in the manifest
     barriers: list = ()  # OSM barrier geometries, tags and deliberate road membership
+    forests: list = ()
+    canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -93,7 +96,7 @@ def grid_heights(points: np.ndarray, xs: np.ndarray, zs: np.ndarray) -> np.ndarr
     return h.reshape(gz.shape)
 
 
-def ground_points(tile: C.VisualTile, paths: list[Path]) -> np.ndarray:
+def ground_points(tile: C.VisualTile, paths: list[Path], canopy=None) -> np.ndarray:
     import laspy
 
     e0, n0, e1, n1 = tile.bbox.buffered(POINT_MARGIN).to_en().as_tuple()
@@ -103,7 +106,14 @@ def ground_points(tile: C.VisualTile, paths: list[Path]) -> np.ndarray:
         e, n, h = np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)
         keep = (e >= e0) & (e <= e1) & (n >= n0) & (n <= n1)
         x, y, z = C.en_to_local(e[keep], n[keep], h[keep])
-        chunks.append(np.column_stack([x, y, z]))
+        xyz = np.column_stack([x, y, z])
+        classes = np.asarray(las.classification)[keep]
+        vegetation = np.isin(classes, [3, 4, 5])
+        chunks.append(xyz[~vegetation])
+        if canopy is not None:
+            from turku3d.vegetation.trees import highest_per_cell
+
+            canopy.append(highest_per_cell(xyz[vegetation]))
     points = np.concatenate(chunks) if chunks else np.empty((0, 3))
     if len(points) < 16:
         raise NoCoverage(f"{tile.id}: only {len(points)} ground key points")
@@ -336,12 +346,16 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "roads": [osm] if osm else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
+        "forests": [osm] if osm else None,
     }
 
 
 def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
     if dataset == "ground":
-        return prepare_ground(tile, ground_points(tile, paths))
+        canopy = []
+        ground = prepare_ground(tile, ground_points(tile, paths, canopy))
+        ground["canopy"] = np.concatenate(canopy) if canopy else np.empty((0, 3))
+        return ground
     if dataset == "ortho":
         return read_ortho(paths[0], tile)
     if dataset == "roads":
@@ -350,6 +364,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .fences import prepare as prepare_barriers
 
         return prepare_barriers(tile, paths[0])
+    if dataset == "forests":
+        from .forests import read_areas
+
+        return read_areas(tile, paths[0])
     if dataset == "trees":
         return prepare_trees(tile, paths[0])
     bldg, streets, water = paths
@@ -424,5 +442,7 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         seconds,
         sources.input_key(tile) or "",
         barriers=values["barriers"] or (),
+        forests=values["forests"] or (),
+        canopy=ground.get("canopy", np.empty((0, 3))),
         trees=values["trees"] or (),
     )
