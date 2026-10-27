@@ -1,24 +1,28 @@
 """Localhost companion service: builds coarse tiles on first request and serves them afterwards.
 
-    GET /coarse/status                      queue in build order with each tile's ETA (s), builds
-                                            running, built tiles and their timings, tiles waiting for
-                                            data, the build counter `version`, the prefetcher's state;
+    GET /coarse/status                      from memory, in milliseconds: the builds running, the
+                                            queue length and its first STATUS_ITEMS tiles with their
+                                            ETA (s), how many tiles this process built and the timings
+                                            of the latest, recent failures and tiles waiting for data,
+                                            the build counter `version`, the prefetcher's state;
                                             the service's start time and the repository files it loaded
                                             (`started`, `modules`: the localhost game restarts it when
                                             one of them lands, tools/dev/localhost/coarse.mjs)
     POST /coarse/drain                      start no further builds (running ones finish); the
                                             supervisor restarts the service once `building` is empty
     GET /coarse/want?x=&z=&vx=&vz=          the player's engine position and velocity (m, m/s), once
-                                            a second: orders the queue, drives the raw-data prefetcher
+                                            a second: re-ranks the queue (``rank``), drops the tiles
+                                            the player no longer needs, drives the raw-data prefetcher
                                             (prefetch.py), answers {queued, fetching, version}
     GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 {"state": "queued",
-                                            "position", "eta"} (the path ahead first, then by the
-                                            player distance d, latest wins) or "building" with "eta", or
-                                            202 {"state": "pending-data", "missing": [units]} while
-                                            its inputs are being fetched
+                                            "position", "eta"} or "building" with "eta", or 202
+                                            {"state": "deferred"} while the tile is outside the ring
+                                            and the cone (``rank``), or 202 {"state": "pending-data",
+                                            "missing": [units]} while its inputs are being fetched
     GET /coarse/<tile>/vis.glb | roads.json | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
 
-Tiles not re-requested for STALE_SECONDS leave the queue (the player moved on). The game asks for
+Tiles not re-requested for STALE_SECONDS leave the queue, and so do the tiles ``rank`` drops at each
+position report (the player turned or moved on); a running build always finishes. The game asks for
 the cells ahead of a moving player as well (prefetch), so up to WORKERS builds run at once, each on
 its own persistent worker process (``Workers``: the interpreter, imports and the node packager are
 started once, not per tile), so a slow or failing build never blocks requests or the other builds.
@@ -58,8 +62,10 @@ SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
 PENDING_EXIT = 3  # python -m turku3d.coarse build: inputs missing, {"pending": [units]} on stdout
 RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried after this
-MIN_SPEED = 1.0  # m/s: slower than this the heading is noise and the queue is nearest first
-AFTER_PATH = 100_000.0  # score offset of tiles off the path ahead
+MIN_SPEED = 1.0  # m/s: slower than this the heading is noise and there is no cone
+CONE_SECONDS = 30.0  # cone depth in seconds of travel (the game's PREFETCH_SECONDS), plus a tile
+QUEUE_MAX = 12  # queued tiles at most with a known player position; the ring always stays
+STATUS_ITEMS = 12  # queue entries, failures, waiting tiles and timings /coarse/status lists
 ETA_BUILDS = 8  # recent builds averaged for the queue's time estimates
 STALE_REBUILDS = 3  # a build stale on arrival is redone at most this often in a row
 WORKERS = 4  # parallel builds: a cold tile spends minutes downloading, warm ones take 5-10 s
@@ -71,24 +77,37 @@ MIME = {
 }
 
 
-def score(tile: str, distance: float, motion) -> float:
-    """Build order: with a moving player, tiles on the path ahead first (by distance along the
-    heading, then off it), everything else (the ring, behind) after them by distance. Otherwise
-    nearest first by the distance the game reported."""
+def rank(tile: str, distance: float, motion) -> tuple[int, float] | None:
+    """Build priority of a queued tile for the player's latest position and velocity (``motion``,
+    engine x, z, vx, vz): (class, metric), lower first, or None when the player no longer needs it.
+
+    0: the 3x3 ring around the player's tile, nearest footprint first;
+    1: the cone along the heading of a moving player: tile centres ahead, at most 1.5 tiles beside
+       the path and CONE_SECONDS of travel plus one tile along it, by distance along plus beside;
+    2: the other quadrants of the ring's 500 m parents (the game asks for them to swap a published
+       leaf parent whole), nearest first;
+    None: everything else (behind, sideways, far ahead).
+    Without a position report yet every tile ranks by the distance the game reported."""
     if motion is None:
-        return distance
+        return 0, distance
     x, z, vx, vz = motion
-    speed = math.hypot(vx, vz)
-    if speed < MIN_SPEED:
-        return distance
     t = C.VisualTile.parse(tile)
     size = t.size
-    dx, dz = t.origin[0] + size / 2 - x, t.origin[2] + size / 2 - z
-    along = (dx * vx + dz * vz) / speed
-    lateral = abs(dx * vz - dz * vx) / speed
-    if along >= -size / 2 and lateral <= 1.5 * size:
-        return max(along, 0.0) + lateral
-    return AFTER_PATH + distance
+    x0, _, z0 = t.origin
+    near = math.hypot(max(x0 - x, 0.0, x - x0 - size), max(z0 - z, 0.0, z - z0 - size))
+    ci, cj = math.floor(x / size), math.floor(z / size)
+    if abs(t.i - ci) <= 1 and abs(t.j - cj) <= 1:
+        return 0, near
+    speed = math.hypot(vx, vz)
+    if speed >= MIN_SPEED:
+        dx, dz = x0 + size / 2 - x, z0 + size / 2 - z
+        along = (dx * vx + dz * vz) / speed
+        lateral = abs(dx * vz - dz * vx) / speed
+        if -size / 2 <= along <= speed * CONE_SECONDS + size and lateral <= 1.5 * size:
+            return 1, max(along, 0.0) + lateral
+    if (ci - 1) // 2 <= t.i // 2 <= (ci + 1) // 2 and (cj - 1) // 2 <= t.j // 2 <= (cj + 1) // 2:
+        return 2, near
+    return None
 
 
 class Workers:
@@ -165,7 +184,7 @@ class Workers:
 
 
 class Builder:
-    """Queue of tile ids drained by `workers` threads, in ``score`` order (the path ahead first)."""
+    """Queue of tile ids drained by `workers` threads, in ``rank`` order (the ring first)."""
 
     def __init__(
         self,
@@ -195,12 +214,14 @@ class Builder:
         self.requested: dict[str, float] = {}
         self.motion: tuple[float, float, float, float] | None = None  # player x, z, vx, vz
         self.version = 0  # counts finished builds; the game re-polls its tiles when it changes
+        self.built_count = 0  # tiles this process built
         self.recent: list[float] = []  # service seconds of the latest builds
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
-        self.timings: dict[str, dict] = {}
+        self.timings: dict[str, dict] = {}  # the latest STATUS_ITEMS builds, oldest first
+        self.code_seen = self.code()  # producer hash of the latest check, for /coarse/status
         self.stopped = False
         self.draining = False
         self.workers = workers
@@ -223,7 +244,8 @@ class Builder:
             m = json.loads(path.read_text())
         except (OSError, ValueError):
             return False
-        if m.get("code") != (code or self.code()):
+        self.code_seen = code = code or self.code()
+        if m.get("code") != code:
             return False
         try:
             now = self.input_key(tile)
@@ -261,18 +283,38 @@ class Builder:
             if tile in self.building:  # a worker took it while the inputs were checked
                 return self._building(tile)
             self.priority[tile] = distance
+            order = self._prune()
+            if tile not in self.priority:
+                return {"state": "deferred"}
             self.lock.notify()
-            order = self.order()
             return {"state": "queued", "position": order.index(tile), "eta": self.eta()[tile]}
 
     def steer(self, x: float, z: float, vx: float, vz: float) -> None:
-        """The player's position and velocity (from /coarse/want) order the queue."""
+        """The player's position and velocity (from /coarse/want, once a second) re-rank the queue
+        and drop the tiles the player no longer needs; running builds are not interrupted."""
         with self.lock:
             self.motion = (x, z, vx, vz)
+            self._prune()
+
+    def _prune(self) -> list[str]:
+        """Drops the queued tiles ``rank`` rejects and, with a known player position, those beyond
+        QUEUE_MAX in build order (the ring always stays); returns the build order (lock held)."""
+        ranked = sorted(
+            (r, t) for t, d in self.priority.items() if (r := rank(t, d, self.motion)) is not None
+        )
+        keep = [
+            t
+            for k, ((cls, _), t) in enumerate(ranked)
+            if cls == 0 or self.motion is None or k < QUEUE_MAX
+        ]
+        for tile in set(self.priority) - set(keep):
+            del self.priority[tile]
+        return keep
 
     def order(self) -> list[str]:
         """Queued tiles in build order (call with the lock held)."""
-        return sorted(self.priority, key=lambda t: (score(t, self.priority[t], self.motion), t))
+        ranked = ((rank(t, d, self.motion), t) for t, d in self.priority.items())
+        return [t for r, t in sorted((r, t) for r, t in ranked if r is not None)]
 
     def eta(self) -> dict[str, float]:
         """Seconds until each queued or building tile is built, from the mean of the recent builds
@@ -328,14 +370,19 @@ class Builder:
                     outcome = "pending"
                 elif proc.returncode == 0 and self.built(tile):
                     m = json.loads(self.manifest(tile).read_text())
+                    self.timings.pop(tile, None)
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
+                    for old in list(self.timings)[:-STATUS_ITEMS]:
+                        del self.timings[old]
                     self.recent = [*self.recent[-(ETA_BUILDS - 1) :], seconds]
                     self.stale.pop(tile, None)
+                    self.built_count += 1
                     outcome = "built"
                 elif proc.returncode == 0 and self.stale.get(tile, 0) < STALE_REBUILDS:
                     # Raw data landed during the build, so the draft is stale already: again.
                     self.stale[tile] = self.stale.get(tile, 0) + 1
                     self.priority[tile] = distance
+                    self._prune()
                     self.lock.notify()
                     outcome = "stale"
                 else:
@@ -361,26 +408,28 @@ class Builder:
             self.request(tile, distance)
 
     def status(self) -> dict:
-        code = self.code()
-        # Reading every draft's manifest and input files takes seconds on a loaded host: not under
-        # the lock, so tile requests are not held up behind a status call.
-        built = sorted(
-            p.parent.name
-            for p in self.root.glob("t0_*/manifest.json")
-            if self.built(p.parent.name, code)
-        )
+        """The builders' in-memory state, small: no manifest, input or source file is read, so it
+        answers in milliseconds however loaded the host and however many drafts are on disk."""
         with self.lock:
+            order = self.order()
+            eta = self.eta()
+            shown = [*sorted(self.building), *order[:STATUS_ITEMS]]
             return {
                 "state": "building" if self.building else "idle",
                 "building": sorted(self.building),
-                "queue": self.order(),
-                "eta": self.eta(),
+                "queued": len(order),
+                "queue": order[:STATUS_ITEMS],
+                "eta": {tile: eta[tile] for tile in shown},
                 "version": self.version,
-                "built": built,
-                "failed": {tile: error for tile, (error, _) in self.failed.items()},
-                "pending": {tile: units for tile, (units, _) in self.pending.items()},
+                "built": self.built_count,
+                "failed": {
+                    tile: error for tile, (error, _) in list(self.failed.items())[-STATUS_ITEMS:]
+                },
+                "pending": {
+                    tile: units for tile, (units, _) in list(self.pending.items())[-STATUS_ITEMS:]
+                },
                 "timings": dict(self.timings),
-                "code": code,
+                "code": self.code_seen,
                 "draining": self.draining,
             }
 
@@ -397,8 +446,15 @@ class Builder:
             self.run.close()
 
 
+_LOADED: tuple[int, list[str]] = (-1, [])
+
+
 def loaded_files() -> list[str]:
-    """Repository files of the modules this process has imported (repo-relative, sorted)."""
+    """Repository files of the modules this process has imported (repo-relative, sorted); resolved
+    again only when the process imported another module."""
+    global _LOADED
+    if _LOADED[0] == len(sys.modules):
+        return _LOADED[1]
     files = set()
     for module in list(sys.modules.values()):
         path = getattr(module, "__file__", None)
@@ -407,7 +463,8 @@ def loaded_files() -> list[str]:
         resolved = Path(path).resolve()
         if resolved.is_relative_to(REPO):
             files.add(resolved.relative_to(REPO).as_posix())
-    return sorted(files)
+    _LOADED = (len(sys.modules), sorted(files))
+    return _LOADED[1]
 
 
 def handler(builder: Builder, prefetcher: Prefetcher | None = None):

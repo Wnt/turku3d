@@ -147,6 +147,7 @@ class Ledger:
         self.path, self.cap, self.protected = Path(path), cap, protected
         self.raw = self.path.parent.parent
         self.touched: dict[str, float] = {}
+        self.bytes: int | None = None  # total at this process's latest write (``total``)
         self.flushed = time.time()
         self.lock = threading.Lock()
 
@@ -172,6 +173,7 @@ class Ledger:
                 entries[key]["used"] = max(entries[key]["used"], at)
         self.touched.clear()
         self.flushed = time.time()
+        self.bytes = sum(e["bytes"] for e in entries.values())
         tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(entries, indent=0, sort_keys=True))
         tmp.replace(self.path)
@@ -202,7 +204,10 @@ class Ledger:
                 self._write(entries)
 
     def total(self) -> int:
-        return sum(e["bytes"] for e in self._read().values())
+        """Bytes in the ledger as of this process's latest write (read once before the first)."""
+        if self.bytes is None:
+            self.bytes = sum(e["bytes"] for e in self._read().values())
+        return self.bytes
 
     def prune(self, keep=()) -> list[str]:
         """Delete least-recently-used prefetched units until the ledger fits ``cap``.
@@ -216,6 +221,7 @@ class Ledger:
                 if key in entries:
                     entries[key]["used"] = max(entries[key]["used"], at)
             total = sum(e["bytes"] for e in entries.values())
+            self.bytes = total
             if total <= self.cap:
                 return []
             protected = self.protected()
