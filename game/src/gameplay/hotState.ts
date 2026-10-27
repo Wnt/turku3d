@@ -5,11 +5,14 @@
 // or physics modules, the save format) reloads the page instead: the autosave slot is written first and the resume
 // marker makes the next load continue from it without the start menu.
 import type { KeyValueStore, SaveGame } from '../core/save';
+import type { GameAudio } from '../audio';
 
 /** sessionStorage key: the next page load continues from the autosave slot. */
 export const RESUME_KEY = 'turku3d.resume';
 
 export interface HotPlay {
+  /** Live audio graph and music clock survive a play-session module swap. */
+  audio?: GameAudio;
   /** The running game as a save slot (`SaveGameController.capture()`): missions, money, permit, pose, own vehicle,
    *  clock. Null while the start menu was open: the new session shows the menu again. */
   save: SaveGame | null;

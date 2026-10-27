@@ -273,3 +273,11 @@ so the voice player can match the clip. Rules: `~/turku3d/briefs/dialogue-contra
 - A HUD permit counter outside the menus (the bought-back warning is the in-world reminder).
 - Police, wanted level, theft consequences, or penalties for driving others' cars outside deliveries.
 - More pizzerias, random orders, order choice, multiple concurrent orders or a day/night schedule.
+# Dynamic music
+
+Five procedural tracks share the game audio context. The start and pause menus are silent; free play
+uses the explore arrangement. Accepting an order changes to the mission arrangement, with its hurry
+curve rising once per second from elapsed delivery time divided by par time. Hand-over plays a resolved
+cadence and returns to explore. Intro and shop conversations muffle the music completely; a vehicle
+applies a lighter muffle while its engine remains audible. Voice lines duck the music. Players can change
+or mute music volume in Pause → Audio and advance tracks with N.

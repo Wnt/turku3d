@@ -21,6 +21,7 @@ export interface DevHooks {
   /** Asks for the "E,N[,heading]" text (window.prompt); null when cancelled. */
   ask(question: string): string | null;
   setTime(phase: DayPhase): void;
+  nextTrack(): void;
 }
 
 const euros = (n: number) => `${n.toLocaleString('en-US').replace(/,/g, ' ')} €`;
@@ -42,6 +43,8 @@ export class DevMenuFlow {
         run: () => { this.dev.setFlying(!flying); this.host.show(this.root(`Fly mode ${flying ? 'off' : 'on'}.`)); } },
       { id: 'teleport', label: 'Teleport to...', detail: null, enabled: true, run: () => this.host.show(this.teleport()) },
       { id: 'time', label: 'Time of day', detail: null, enabled: true, run: () => this.host.show(this.time()) },
+      { id: 'music-next', label: 'Next music track', detail: null, enabled: true,
+        run: () => { this.dev.nextTrack(); this.host.show(this.root('Next track selected.')); } },
       { id: 'back', label: 'Back', detail: null, enabled: true, run: back },
     ] };
   }

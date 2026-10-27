@@ -21,7 +21,8 @@ release envelope; the engine needs no audio assets or runtime network calls.
 | Ring Road | 120 | E minor | motorik rock |
 | Harbour Glass | 84 | G major | minimal piano ambient |
 
-`DEFAULT_PARAMETERS` contains volume 0.42, crossfadeBars 2, muffleCutoff 850 Hz,
+`params.json` is the `DEFAULT_PARAMETERS` source and accepts the lab's Copy as JSON output.
+It contains volume 0.42, crossfadeBars 2, muffleCutoff 850 Hz,
 muffleAmount 0.7, muffleMs 300, hurryStart 0.65, tempoLift 0.18,
 stingerLeadBars 2, and layerGains pad 0.6, bass 0.62, drums 0.5, lead 0.52,
 percussion 0.4, panic 0.55. `setParameters` accepts a partial copy. Each track may

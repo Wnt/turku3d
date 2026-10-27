@@ -7,9 +7,12 @@ import { MAT } from '../../src/shared/col/materials';
 class Param {
   value = 0;
   setTargetAtTime(value: number) { this.value = value; }
+  setValueAtTime(value: number) { this.value = value; }
+  linearRampToValueAtTime(value: number) { this.value = value; }
 }
 class Node {
-  gain = new Param(); playbackRate = new Param(); threshold = new Param(); ratio = new Param();
+  gain = new Param(); playbackRate = new Param(); threshold = new Param(); ratio = new Param(); frequency = new Param();
+  type = 'sine'; fftSize = 0;
   positionX = new Param(); positionY = new Param(); positionZ = new Param();
   buffer: unknown; loop = false; started = false; disconnected = false;
   onended?: () => void;
@@ -27,6 +30,9 @@ class FakeContext {
   createDynamicsCompressor() { return this.node(); }
   createBufferSource() { return this.node(); }
   createPanner() { return this.node(); }
+  createBiquadFilter() { return this.node(); }
+  createAnalyser() { return this.node(); }
+  createOscillator() { return this.node(); }
   node() { const node = new Node(); this.nodes.push(node); return node; }
   async resume() { this.state = 'running'; }
   async close() { this.state = 'closed'; }

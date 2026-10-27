@@ -4,7 +4,7 @@ export type Binding =
   | { kind: 'button'; index: number }
   | { kind: 'key'; code: string; scale?: number };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
-  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'vehicleReset', 'respawn', 'hud', 'map',
+  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'map',
   'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown'] as const;
 export type Action = typeof ACTIONS[number];
 export type Actions = Record<Action, number>;
@@ -23,7 +23,8 @@ export const DEFAULT_BINDINGS: Bindings = {
   throttle: [button(7), key('KeyW'), key('ArrowUp')], brake: [button(6), key('KeyS'), key('ArrowDown')],
   steer: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
-  pause: [button(9), key('Escape')], mute: [button(13), key('KeyN')], vehicleReset: [key('KeyR')], hud: [key('KeyH')],
+  pause: [button(9), key('Escape')], mute: [button(13), key('KeyK')], nextTrack: [key('KeyN')],
+  vehicleReset: [key('KeyR')], hud: [key('KeyH')],
   // Safe reset (gameplay/recovery.ts): read only while the player is lost, when Y does not enter or exit a car.
   respawn: [button(3), key('KeyR')],
   map: [button(8), key('KeyM')],
