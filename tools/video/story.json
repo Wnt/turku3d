@@ -1,0 +1,236 @@
+[
+  {
+    "id": "hook",
+    "title": "A CITY, BUILT FROM DATA",
+    "label": "TURKU / FINLAND",
+    "kind": "game",
+    "shot": "aerial",
+    "text": "This street began as laser returns, map features, and building records. Now it is a world you can explore in a browser. Here is how Turku becomes Turku three D.",
+    "sources": [
+      "docs/ARCHITECTURE.md"
+    ]
+  },
+  {
+    "id": "goal",
+    "title": "One city. Two pipelines.",
+    "label": "THE IDEA",
+    "kind": "stack",
+    "text": "The goal is a Grand Theft Auto style city, starting around Läntinen Rantakatu fifteen. Three dot J S draws the world through Web G P U. Rapier handles physics in a worker.",
+    "sources": [
+      "docs/ARCHITECTURE.md",
+      "game/package.json"
+    ]
+  },
+  {
+    "id": "lidar",
+    "title": "Start with the laser returns",
+    "label": "01 / SOURCE DATA",
+    "kind": "source",
+    "asset": "lidar",
+    "text": "First, the city's lidar. Each point records a measured position. Buildings, trees, and the street emerge from the cloud. Classification separates the ground from the objects standing above it.",
+    "sources": [
+      "pipeline/turku3d/lidar/README.md"
+    ]
+  },
+  {
+    "id": "relief",
+    "title": "Height becomes something you feel",
+    "label": "LIDAR / RELIEF",
+    "kind": "source",
+    "asset": "relief",
+    "text": "Ground samples become a continuous surface. Cross sections help locate height changes beside mapped street edges. Curbs need that extra evidence: a painted line alone cannot tell the physics engine where a step belongs.",
+    "sources": [
+      "pipeline/turku3d/lidar/README.md",
+      "pipeline/turku3d/ground/README.md"
+    ]
+  },
+  {
+    "id": "ortho",
+    "title": "The same block, from above",
+    "label": "TRUE ORTHOPHOTO → GAME",
+    "kind": "compare",
+    "asset": "ortho",
+    "shot": "overhead",
+    "text": "The twenty twenty two true orthophoto supplies ground colour. Here is the office block in the source image, beside the same place in the game. The image anchors the terrain to the real city.",
+    "sources": [
+      "docs/ARCHITECTURE.md",
+      "game/src/render/ground/README.md"
+    ]
+  },
+  {
+    "id": "lod2",
+    "title": "Roofs already have a shape",
+    "label": "CITY LOD2 / BUILDING GEOMETRY",
+    "kind": "source",
+    "asset": "lod2",
+    "text": "City building models add roof geometry. The detailed pipeline compares city shells and reconstructed roofs against lidar. Where the evidence is insufficient, an explicit footprint extrusion supplies a simpler fallback.",
+    "sources": [
+      "pipeline/turku3d/buildings/README.md",
+      "docs/reports/buildings.md"
+    ]
+  },
+  {
+    "id": "register",
+    "title": "Geometry gets an identity",
+    "label": "BUILDING REGISTER / REAL RECORD",
+    "kind": "source",
+    "asset": "register",
+    "text": "The building register connects shapes to persistent identifiers and attributes. Those identities matter later: a facade belongs to a particular wall, and an approved texture must still match that wall's dimensions.",
+    "sources": [
+      "pipeline/turku3d/buildings/README.md",
+      "pipeline/turku3d/package/README.md"
+    ]
+  },
+  {
+    "id": "osm",
+    "title": "A map becomes a connected world",
+    "label": "OPENSTREETMAP / LOCAL EXTRACT",
+    "kind": "source",
+    "asset": "osm",
+    "text": "OpenStreetMap contributes the street graph, tree points, barriers, and bridge tags. These are instructions for geometry and placement. A road connects to its neighbours; a fence follows terrain; a bridge needs clearance beneath it.",
+    "sources": [
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "ground",
+    "title": "Build the detailed core",
+    "label": "02 / HIGH QUALITY BLOCKS",
+    "kind": "game",
+    "shot": "aerial",
+    "text": "The detailed blocks combine separate ground, structure, and building layers. Visual meshes describe what you see. Collision meshes describe what stops you. Lidar supports both, but curb and building accuracy still require validation.",
+    "sources": [
+      "docs/briefs/COMMON.md",
+      "docs/STATUS.md"
+    ]
+  },
+  {
+    "id": "facades",
+    "title": "Generate. Review. Retry.",
+    "label": "FACADE PIPELINE",
+    "kind": "facade_loop",
+    "text": "Facades add recognisable character. An image model generates a wall map, a separate reviewer checks it, and failed candidates can be retried. Building styles guide related walls, while derived maps extend a consistent treatment.",
+    "sources": [
+      "textures/README.md"
+    ]
+  },
+  {
+    "id": "parameters",
+    "title": "Reference → description → facade",
+    "label": "FAST PARAMETRIC PASS",
+    "kind": "source",
+    "asset": "parameters",
+    "text": "Street panoramas are used only as local reference. None appear in this video. The faster pass reads a wall into structured parameters, then renders its colour, storeys, and window rhythm procedurally. No photograph pixels enter that map.",
+    "sources": [
+      "docs/reports/textures-fast-facade-pass.md"
+    ]
+  },
+  {
+    "id": "detail",
+    "title": "The space between the buildings",
+    "label": "PROPS / TREES / PARKED CARS",
+    "kind": "placement",
+    "text": "Props, trees, and parked cars complete the street. Placement checks the surrounding geometry. Instancing reuses meshes efficiently, and vegetation changes its level of detail with distance to keep the scene manageable.",
+    "sources": [
+      "pipeline/turku3d/placement/README.md",
+      "game/src/world/vegetationLod.ts"
+    ]
+  },
+  {
+    "id": "package",
+    "title": "A city delivered in pieces",
+    "label": "LAYER ASSEMBLY / STREAMING",
+    "kind": "package",
+    "text": "The assembler packages these layers into visual and collision tiles. The finest visual tiles span two hundred and fifty metres, with an eight megabyte wire budget. Compressed geometry and textures help the browser stream a neighbourhood instead of the entire city.",
+    "sources": [
+      "pipeline/turku3d/package/README.md",
+      "docs/specs/tiles.md"
+    ]
+  },
+  {
+    "id": "draft",
+    "title": "What happens beyond the core?",
+    "label": "03 / ON-THE-FLY GENERATION",
+    "kind": "game",
+    "shot": "draft",
+    "text": "Outside the published blocks, the local draft service builds simpler tiles from cached source data. A coarse ground grid, orthophoto colour, extruded buildings, and a shared facade kit make the next area usable quickly.",
+    "sources": [
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "prefetch",
+    "title": "Build around you. Look ahead.",
+    "label": "RING + VELOCITY CONE / SCHEMATIC",
+    "kind": "prefetch",
+    "text": "Requests follow the player. A five hundred metre ring covers the surroundings, and a forward cone grows with speed. At the car's top speed, that cone reaches one and a half kilometres ahead, fetching missing inputs first.",
+    "sources": [
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "timings",
+    "title": "Seconds—with an important limit",
+    "label": "RECORDED DRIVE BENCHMARK / 27 OCT 2026",
+    "kind": "timings",
+    "text": "In a headless westbound service benchmark, mean tile build time was three point four seconds. Dense southeast travel exposed the limit: downloads fell behind. Fast geometry does not make missing source data arrive instantly.",
+    "sources": [
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "draft_detail",
+    "title": "Drafts still have structure",
+    "label": "BRIDGES / BARRIERS / VEGETATION",
+    "kind": "features",
+    "text": "Draft producers also interpret bridges, fences, and wooded areas. Bridge decks use abutment heights and clearance rules. Forest placement excludes roads, water, and buildings. These are procedural approximations, not a surveyed replica of every object.",
+    "sources": [
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "swap",
+    "title": "Keep the world visible",
+    "label": "RESIDENT → REPLACEMENT / SCHEMATIC",
+    "kind": "swap",
+    "text": "When a replacement is ready, the running game can swap it in while keeping the current world visible during loading. Published detailed tiles replace drafts. The local development service also applies tile releases without restarting the session.",
+    "sources": [
+      "game/src/world/coarseTiles.ts",
+      "game/src/world/releaseSwap.ts",
+      "tools/dev/localhost/README.md"
+    ]
+  },
+  {
+    "id": "tools",
+    "title": "Small changes. Fast feedback.",
+    "label": "04 / THE DEVELOPMENT LOOP",
+    "kind": "tools",
+    "text": "Behind the scenes, Codex tasks work in isolated sandboxes. Small commits pass the fast gate and land on main. The integrator builds and publishes to Pages; deeper browser and visual checks then report advisory failures.",
+    "sources": [
+      "scripts/dev/README.md"
+    ]
+  },
+  {
+    "id": "outro",
+    "title": "From measured city to playable world",
+    "label": "TURKU3D / WORK IN PROGRESS",
+    "kind": "game",
+    "shot": "aerial",
+    "text": "That is the loop: measure the city, build its structure, add character, then stream and refine it. A detailed core and a faster outer world, meeting in one browser. Turku three D is still taking shape.",
+    "sources": [
+      "docs/ARCHITECTURE.md",
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "credits",
+    "title": "Built from open city data",
+    "label": "SOURCES & CREDITS",
+    "kind": "credits",
+    "text": "City data, copyright City of Turku, Creative Commons Attribution four point zero. Map data, copyright OpenStreetMap contributors, under the Open Database License. Narration generated locally with Kokoro.",
+    "sources": [
+      "docs/research/turku-data.md",
+      "audio/voice/README.md"
+    ]
+  }
+]
