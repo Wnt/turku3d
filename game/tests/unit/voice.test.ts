@@ -166,6 +166,12 @@ test('dialog callback follows the natural clip end and manual advance cancels it
   ctx.sources[1].end();
   expect(ended).toEqual(['second']);
   expect(player.snapshot().playing).toBeNull();
+  player.playDialogLine(OFFER, () => ended.push('interrupted'));
+  await settle();
+  player.show(SOLD);
+  await settle();
+  ctx.sources.at(-1)!.end();
+  expect(ended).toEqual(['second']);
 });
 
 test('attach replaces the subscription; missing manifest is contained', async () => {

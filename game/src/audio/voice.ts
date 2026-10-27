@@ -66,7 +66,7 @@ export class VoicePlayer {
     this.shown = message;
     this.pending = null; // a line waiting for unlock only plays while it is still the shown message
     const clip = message === null ? undefined : this.clips.get(message);
-    if (clip) { this.queue = []; void this.start(clip); }
+    if (clip) { this.queue = []; this.lineEnded = null; void this.start(clip); }
   }
 
   /** Speaks texts one after another (the start screen's story intro). A newly shown voiced HUD message
@@ -80,8 +80,8 @@ export class VoicePlayer {
   /** Plays one dialog line and reports its natural end; advancing manually cancels the callback. */
   playDialogLine(text: string, ended: () => void) {
     this.stopDialogLine();
-    this.lineEnded = ended;
     this.show(text, true);
+    this.lineEnded = ended;
   }
 
   stopDialogLine() {
