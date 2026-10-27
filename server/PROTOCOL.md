@@ -118,9 +118,12 @@ self pose when present, otherwise spawn.
 
 - Maximum 32 simultaneous WebSockets, including connections awaiting hello and
   closing sockets; additional upgrades receive HTTP 503.
-- At most 20 accepted messages in a sliding 1000 ms window per connection, counting
-  hello, malformed messages and deliveries too. Messages 21–25 are dropped and
-  counted; message 26 closes with 1008 (`rate`). Budget normal traffic at ≤20 total/s.
+- Acceptance uses a token bucket replenished at 20 messages/second, capacity 20,
+  counting hello, malformed messages and deliveries too. Messages arriving with
+  no token are dropped and counted. Independently, the 26th arrival in a sliding
+  1000 ms window closes with 1008 (`rate`), including rejected arrivals. This allows
+  small timing jitter and bursts of at most 20 while limiting sustained acceptance
+  to 20/s. Budget normal traffic at ≤20 total/s.
 - Maximum message size 65536 bytes, including fragmented messages. Oversize closes
   with 1009. Compression is disabled.
 - Uninitialized connections close after 5 seconds (1008). Server ping every 30 s;
