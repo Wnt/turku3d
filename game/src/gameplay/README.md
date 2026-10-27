@@ -88,13 +88,13 @@ To run them on the published tiles without building tiles, add `TILE_DIST=$TURKU
 `main.ts` (play mode) creates both pieces after the manifest and assets load:
 
 ```ts
-const { router, minimap } = await createGameplay(manifest, document.body);
+const { router, minimap, area } = await createGameplay(manifest, document.body);
 const missions = new MissionSystem({ router, storage });
 minimap.setSource(missions);   // any MissionHudSource; emptyHudSource shows no targets
 ```
 
 Every frame it sets `router.mode` to the player's mode (`foot` | `car`) and calls
-`minimap.update({ position, headingDeg, facingDeg, mode })`: the camera's compass heading turns
+`minimap.update({ position, headingDeg, facingDeg, mode, nearEdge })`: the camera's compass heading turns
 the map, the player's or car's heading turns the centre arrow. The map action (M / Xbox View)
 toggles the large north-up view; the debug HUD (H) is independent. `window.__game.router` and
 `window.__game.minimap` expose both for tests (`minimap.snapshot()`).
@@ -126,8 +126,50 @@ the rim when off the map, the active one ringed) and the player arrow. It redraw
 view, the HUD state or the size changed. `RouteTracker` re-plans when the active target or travel
 mode changes or the player is more than 5 m (`REROUTE_M`) from the last route start. Above the
 canvas: the `message` line, the `timerSeconds` countdown (m:ss, red at 10 s) and `money` as €.
-The view spans 200 m on foot, 320 m in a car and 650 m in the large map. A redraw measured
+The view spans 200 m on foot, 320 m in a car and 650 m in the large map. Everything outside the
+playable area (`setArea`, below) is darkened and its edge outlined, red within 20 m of it. A redraw measured
 0.1–0.6 ms in Chrome on both backends, well inside the 60 fps budget.
+
+## Safe reset (`recovery.ts`)
+
+The playable area is `PlayableArea`: the union of the manifest's collision tiles (a tile list, holes
+included), with its bounding box. `RecoveryMonitor` gets a `Probe` from `main.ts` every unpaused
+frame (the feet on foot, the body of the driven car in a car) and applies one rule set to both
+(constants in `RECOVERY`):
+
+- **Safe sample**: grounded (a car: three wheels down and upright), on a loaded collision tile
+  inside the area, not under the river surface and at most 2 m/s vertical speed. One sample per
+  second `{ time, x, y, z, heading, inVehicle }` goes into a 10 s ring buffer.
+- **Lost**: below the lowest ground of the loaded tiles (manifest `h[0]`) minus 5 m, more than 5 m
+  outside the area's bounding box, more than 2 s with the feet or car body over 0.3 m under the
+  river surface (no swimming), or more than 3 s without ground contact. Landing safely again
+  cancels it.
+- **Reset**: the newest sample at least 3 s older than the last safe frame (before the slide
+  towards the edge began; the oldest sample or the spawn otherwise), moved 2 m inside the edge
+  (a car 4.3 m), snapped to the ground by a downward ray after its collision tile is resident. The
+  car comes back upright with zero velocity and the player stays in it; the camera snaps behind.
+  Samples newer than the target are dropped and the rules pause for 0.5 s. Missions, money and
+  the delivery timer are not touched: a fall is not a failed delivery.
+
+The river surface comes from a physics ray with the `water` filter (`physics/world.ts`), which hits
+only the water sensor; every other query and the character pass through it. `main.ts` samples it
+at 4 Hz. `ui/recovery.ts` (`RecoveryHud`, `#recovery`) shows "You left the map. Press R to return
+to solid ground" (or "You fell into the river", with Ⓨ on a gamepad and Reset on touch) and a 5 s
+countdown that resets automatically; `respawn` (Y, R, touch Reset) or `vehicleReset` (R) resets at
+once. While lost, Y does not enter or leave a car. After the reset "Back on solid ground" fades over
+3 s. Within 20 m of the area's edge the HUD shows "Edge of the built area" and the minimap's edge
+line turns red; there are no invisible walls. `__game.recovery` and `__game.state().recovery`
+(`lost`, `countdown`, `samples`, `resets`, `waterDepth`, `edgeDistance`, `hud`) expose it for tests.
+
+```sh
+cd game && npx vitest run tests/unit/recovery.test.ts tests/unit/physics.test.ts
+# Chrome, synthetic dev tiles (east edge x 250, river pond in c_1_2), both backends, after a game build:
+cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test safe-reset.spec.ts
+```
+
+The Chrome check drives the car off the east edge (automatic reset, then R at once), walks into the
+river (Y at once, then the countdown), checks the mission state is unchanged and the edge notice,
+and writes screenshots to `$TURKU3D_WORK/reports/gameplay-safe-reset/`.
 
 ### Verification
 

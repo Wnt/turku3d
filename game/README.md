@@ -90,6 +90,7 @@ Chrome on macOS exposes Xbox Elite Series 2 as **Xbox Wireless Controller**, sta
 | Pause / resume | Menu | Menu | Escape |
 | Mute / unmute | D-pad down | D-pad down | N |
 | Reset car upright | — | — | R |
+| Return to solid ground (only when off the map or in the river; also automatic after 5 s) | Y | Y | R (touch: Reset) |
 | Toggle debug HUD | — | — | H |
 
 Full stick = 3.6 m/s jog; sprint = 6 m/s; keyboard slow walk = 1.5 m/s. Input magnitude is preserved after a radial dead zone (left 0.16, right 0.12) and power response curves (1.35 / 1.6). Acceleration and deceleration are smoothed. Jump is a press edge, retained across worker latency and frames without a physics tick. Holding jump does not auto-jump on landing. Blur clears held input. Dual-rumble is feature-detected and used on landing and curb strikes; unsupported actuators fail silently. Trigger rumble is not required.

@@ -11,7 +11,8 @@ export interface CharacterInput {
 }
 export interface VehicleInput { throttle: number; steer: number; brake: number; handbrake: boolean }
 
-export type RayFilter = 'solid' | 'query' | 'all' | 'foot';
+/** `water`: only the water sensor surfaces (the river), which every other filter passes through. */
+export type RayFilter = 'solid' | 'query' | 'all' | 'foot' | 'water';
 export interface RayHit { toi: number; point: V3; normal: V3; material: number; tile: string | null }
 
 export interface CharacterState { pos: V3; vel: V3; grounded: boolean; enabled: boolean; groundMaterial: number }

@@ -4,8 +4,9 @@
 //   visual/0/t0_0_0.glb glTF 2.0 + EXT_meshopt_compression + KHR_texture_basisu (ETC1S ground texture)
 //   collision/t0_0_0/c_{i}_{j}.col   16 collision tiles, RAW encoding (.col v1.0)
 // The scene is procedural: a flat ground at H = 2.0 m, a 12 cm curb/sidewalk north of the office spawn,
-// a 6-step stair, a building box, a pole primitive, and two asymmetric markers (NE red, SW blue) that the
-// e2e test uses to check the 3D Tiles Z-up <-> engine Y-up handling.
+// a 6-step stair, a building box, a pole primitive, two asymmetric markers (NE red, SW blue) that the
+// e2e test uses to check the 3D Tiles Z-up <-> engine Y-up handling, and a river pond (a 2 m deep bed under a
+// water sensor surface, docs/specs/col-format.md) that the safe-reset e2e test walks into.
 // Usage: node scripts/make-dev-tiles.mjs [outDir]   (default public/dev-tiles)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,8 +19,8 @@ import { encodeToKTX2 } from 'ktx2-encoder';
 
 const OUT = path.resolve(process.argv[2] ?? 'public/dev-tiles');
 const L0 = 250, COL = 62.5, G = 2.0; // tile sizes (m), ground height N2000 (m)
-const MAT = { road: 1, sidewalk: 2, curb: 3, paving_slab: 8, grass: 10, stair_slope: 16, stair_tread_helper: 17, wall: 19, building: 22, roof: 23, pole: 25 };
-const COLOR = { 1: [0.32, 0.32, 0.34], 2: [0.62, 0.6, 0.57], 3: [0.72, 0.72, 0.7], 8: [0.6, 0.55, 0.5], 10: [0.3, 0.5, 0.25], 16: [0.65, 0.62, 0.6], 19: [0.6, 0.58, 0.55], 22: [0.78, 0.7, 0.58], 23: [0.45, 0.25, 0.2], 25: [0.2, 0.2, 0.22] };
+const MAT = { road: 1, sidewalk: 2, curb: 3, paving_slab: 8, grass: 10, water: 14, stair_slope: 16, stair_tread_helper: 17, wall: 19, building: 22, roof: 23, pole: 25 };
+const COLOR = { 1: [0.32, 0.32, 0.34], 2: [0.62, 0.6, 0.57], 3: [0.72, 0.72, 0.7], 8: [0.6, 0.55, 0.5], 10: [0.3, 0.5, 0.25], 14: [0.08, 0.22, 0.28], 16: [0.65, 0.62, 0.6], 19: [0.6, 0.58, 0.55], 22: [0.78, 0.7, 0.58], 23: [0.45, 0.25, 0.2], 25: [0.2, 0.2, 0.22] };
 
 // ---------------------------------------------------------------- geometry (engine coords, world-local)
 /** parts: { mat, pos: number[], idx: number[], visualOnly?: bool, name? } */
@@ -74,10 +75,14 @@ const POLE = { x: 162, z: 242, r: 0.08, h: 4 };
 }
 // ground: one grid per collision tile so seams share bitwise-identical vertices
 const N = 8; // quads per collision tile edge (7.8125 m, exact in float32)
+// River pond inside c_1_2: grid vertices a, b in [2, 6] form a flat bed 2 m down with one-cell banks; the water
+// sensor covers cells [1, 7] at 0.4 m below the ground, so its rim stays hidden under the banks.
+const POND = { i: 1, j: 2, lo: 2, hi: 6, bed: G - 2, level: G - 0.4 };
+const inPond = (ci, cj, a, b) => ci === POND.i && cj === POND.j && a >= POND.lo && a <= POND.hi && b >= POND.lo && b <= POND.hi;
 function groundPart(ci, cj) {
   const p = { mat: MAT.road, pos: [], idx: [], name: 'ground', tile: [ci, cj], triMats: [] };
   const x0 = ci * COL, z0 = cj * COL, s = COL / N;
-  for (let b = 0; b <= N; b++) for (let a = 0; a <= N; a++) p.pos.push(x0 + a * s, G, z0 + b * s);
+  for (let b = 0; b <= N; b++) for (let a = 0; a <= N; a++) p.pos.push(x0 + a * s, inPond(ci, cj, a, b) ? POND.bed : G, z0 + b * s);
   for (let b = 0; b < N; b++) for (let a = 0; a < N; a++) {
     const v = b * (N + 1) + a;
     p.idx.push(v, v + N + 1, v + 1, v + 1, v + N + 1, v + N + 2); // CCW seen from +y (normal up)
@@ -88,6 +93,13 @@ function groundPart(ci, cj) {
   return p;
 }
 const grounds = [];
+{
+  const s = COL / N, x0 = POND.i * COL + (POND.lo - 1) * s, x1 = POND.i * COL + (POND.hi + 1) * s;
+  const z0 = POND.j * COL + (POND.lo - 1) * s, z1 = POND.j * COL + (POND.hi + 1) * s;
+  const water = { mat: MAT.water, pos: [], idx: [], name: 'river' };
+  quad(water, [x0, POND.level, z1], [x1, POND.level, z1], [x1, POND.level, z0], [x0, POND.level, z0]);
+  parts.push(water);
+}
 for (let cj = 0; cj < L0 / COL; cj++) for (let ci = 0; ci < L0 / COL; ci++) grounds.push(groundPart(ci, cj));
 
 function triMaterials(p) {

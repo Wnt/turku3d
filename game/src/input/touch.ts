@@ -9,7 +9,8 @@ export const STICK_RADIUS = 64;
 const PINCH_ZOOM = 10;
 
 /** Which buttons the overlay shows. `hidden`: start screen, fullscreen overlay or a non-touch player. */
-export type TouchContext = 'hidden' | 'foot' | 'car' | 'menu' | 'paused';
+/** `lost`: off the built area or in the river, where only Reset, Map and Pause show (gameplay/recovery.ts). */
+export type TouchContext = 'hidden' | 'foot' | 'car' | 'menu' | 'paused' | 'lost';
 
 interface Region { kind: 'stick' | 'look'; x: number; y: number; ox: number; oy: number }
 interface TouchFrame { actions: Actions; taps: ReadonlySet<Action>; lookX: number; lookY: number; zoom: number }
@@ -95,8 +96,9 @@ export const TOUCH_BUTTONS: readonly ButtonSpec[] = [
   { action: 'interact', label: 'Exit car', contexts: ['car'] },
   { action: 'handbrake', label: 'Handbrake', contexts: ['car'] },
   { action: 'menuBack', label: 'Back', contexts: ['menu'] },
-  { action: 'map', label: 'Map', contexts: ['foot', 'car'], corner: true },
-  { action: 'pause', label: 'Pause', contexts: ['foot', 'car'], corner: true },
+  { action: 'respawn', label: 'Reset', contexts: ['lost'] },
+  { action: 'map', label: 'Map', contexts: ['foot', 'car', 'lost'], corner: true },
+  { action: 'pause', label: 'Pause', contexts: ['foot', 'car', 'lost'], corner: true },
   { action: 'pause', label: 'Resume', contexts: ['paused'], corner: true },
 ];
 

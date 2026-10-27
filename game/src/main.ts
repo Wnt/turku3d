@@ -28,11 +28,13 @@ import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
 import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
 import { ShopMenu } from './ui/shopMenu';
+import { RecoveryHud } from './ui/recovery';
 import { MissionSystem, OWN_VEHICLE_ID, hasSavedGame } from './gameplay/missions/missions';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { BICYCLE_TOP_SPEED } from './gameplay/economy';
 import { createGameplay, compassDeg } from './gameplay';
+import { RECOVERY, RecoveryMonitor, lowestGround, type Probe } from './gameplay/recovery';
 import { ZoneMarkers } from './gameplay/zones';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
@@ -290,7 +292,11 @@ async function runPlay() {
   }
   await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
-  const { router, minimap } = await createGameplay(manifest, document.body);
+  const { router, minimap, area } = await createGameplay(manifest, document.body);
+  // Safe reset (gameplay/recovery.ts): the spawn is the fallback before the first safe sample.
+  const recovery = new RecoveryMonitor(area, { time: 0, x: spawn.x, y: spawn.y, z: spawn.z, heading: yaw0 + Math.PI, inVehicle: false });
+  const recoveryHud = new RecoveryHud(document.body);
+  const lowestManifestGround = lowestGround(Object.keys(manifest.collision), manifest.collision);
   const missions = new MissionSystem({ router, storage });
   minimap.setSource(missions);
   voice.attach(missions);
@@ -317,6 +323,54 @@ async function runPlay() {
   const tmp = new THREE.Vector3();
   const carQuat = new THREE.Quaternion();
   const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
+  // Safe reset state: game-clock seconds (unpaused frames), the latest river probe and a reset in progress.
+  let recoveryTime = 0, waterDepth: number | null = null, waterBusy = false, lastWaterProbe = -Infinity;
+  let recovering = false, snapChase = false;
+  const tileId = (x: number, z: number) => { const t = collisionTileAt(x, z); return `c_${t.i}_${t.j}`; };
+  const probeQuat = new THREE.Quaternion(), probeAxis = new THREE.Vector3();
+  /** The lost rules see the feet on foot and the car body in a car. */
+  const recoveryProbe = (): Probe | null => {
+    const base = { time: recoveryTime, inVehicle: mode === 'car', waterDepth };
+    if (mode === 'foot') {
+      return { ...base, x: feet.x, y: feet.y, z: feet.z, heading: player.root.rotation.y, grounded, steady: true, vy: vel.y,
+        loaded: physics.loaded.has(tileId(feet.x, feet.z)) };
+    }
+    const v = physics.latest?.vehicles.find(c => c.id === drivenId);
+    if (!v) return null;
+    probeQuat.set(v.rot.x, v.rot.y, v.rot.z, v.rot.w);
+    const forward = probeAxis.set(1, 0, 0).applyQuaternion(probeQuat);
+    const heading = Math.atan2(forward.x, forward.z);
+    const upright = probeAxis.set(0, 1, 0).applyQuaternion(probeQuat).y > 0.7;
+    const contacts = v.wheels.filter(w => w.contact).length;
+    return { ...base, x: v.pos.x, y: v.pos.y, z: v.pos.z, heading, grounded: contacts > 0, steady: contacts >= 3 && upright,
+      vy: v.linvel.y, loaded: physics.loaded.has(tileId(v.pos.x, v.pos.z)) };
+  };
+  /** Puts the player (or the driven car, upright and still) back at the chosen safe sample. */
+  const recover = async () => {
+    if (recovering) return;
+    recovering = true;
+    const target = recovery.target();
+    const id = tileId(target.x, target.z);
+    streamer.update(target.x, target.z, true);
+    for (let i = 0; i < 600 && manifest.collision[id] && !physics.loaded.has(id); i++) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      streamer.update(target.x, target.z, true);
+    }
+    const hit = await physics.raycast({ x: target.x, y: target.y + 2, z: target.z }, { x: 0, y: -1, z: 0 }, 60);
+    const y = hit?.point.y ?? target.y;
+    if (mode === 'car' && drivenId) {
+      // heading is the forward direction atan2(x, z); resetVehicle's yaw turns the chassis +X axis.
+      physics.resetVehicle({ x: target.x, y: y + 0.75, z: target.z }, Math.atan2(-Math.cos(target.heading), Math.sin(target.heading)), drivenId);
+      snapChase = true;
+    } else {
+      physics.setCharacterEnabled(true, { x: target.x, y: y + 0.05, z: target.z });
+      orbit.yaw = target.heading - Math.PI; orbit.pitch = -0.12;
+    }
+    waterDepth = null;
+    recovery.recovered(target, recoveryTime);
+    recoveryHud.recovered();
+    recovering = false;
+  };
 
   const state = () => {
     const en = engineToEN(feet.x, feet.y, feet.z);
@@ -327,9 +381,11 @@ async function runPlay() {
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
       frameMs: frameEma, missions: missions.snapshot(), zones: zones.snapshot(),
+      recovery: { lost: recovery.lost, countdown: recovery.countdown(recoveryTime), samples: recovery.samples.length,
+        resets: recovery.resets, waterDepth, edgeDistance: area.edgeDistance(feet.x, feet.z), hud: recoveryHud.snapshot() },
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones,
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
     shopMenu, orbit, telemetry, ready: true });
 
   startScreen.ready();
@@ -371,6 +427,11 @@ async function runPlay() {
     const { moveY: fwd, moveX: side } = menuOpen ? { moveY: 0, moveX: 0 } : input.actions;
 
     const vs = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
+    // Lost (gameplay/recovery.ts): Y, R or touch Reset returns to solid ground instead of entering or leaving a car.
+    const lost = recovery.lost !== null;
+    const respawn = input.consume('respawn');
+    const resetNow = lost && !paused && (input.consume('vehicleReset') || respawn);
+    if (lost) input.consume('interact');
     if (!paused && input.consume('interact')) {
       const nearest = mode === 'foot' ? physics.latest?.vehicles
         .map(v => ({ vehicle: v, distance: Math.hypot(v.pos.x - feet.x, v.pos.z - feet.z) }))
@@ -396,7 +457,7 @@ async function runPlay() {
         orbit.distance = 4.5;
       }
     }
-    if (mode === 'car' && !paused && input.consume('vehicleReset') && vs) {
+    if (mode === 'car' && !paused && !lost && input.consume('vehicleReset') && vs) {
       const fwdV = tmp.set(1, 0, 0).applyQuaternion(carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w));
       physics.resetVehicle({ x: vs.pos.x, y: vs.pos.y + 1.5, z: vs.pos.z }, Math.atan2(-fwdV.z, fwdV.x), drivenId ?? 'player');
     }
@@ -452,6 +513,22 @@ async function runPlay() {
         if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - 0.6, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
     }
+    if (!paused && !startScreen.active && !menuOpen && !recovering) {
+      recoveryTime += dt;
+      const probe = recoveryProbe();
+      if (probe) {
+        if (!waterBusy && recoveryTime - lastWaterProbe >= 0.25) {
+          waterBusy = true; lastWaterProbe = recoveryTime;
+          const probeY = probe.y;
+          void physics.raycast({ x: probe.x, y: probeY + 50, z: probe.z }, { x: 0, y: -1, z: 0 }, 100, 'water').then(hit => {
+            if (!recovering) waterDepth = hit ? hit.point.y - probeY : null;
+          }).finally(() => { waterBusy = false; });
+        }
+        const loaded = physics.loaded.keys();
+        const ground = lowestGround(loaded, manifest.collision);
+        if (recovery.update(probe, Number.isFinite(ground) ? ground : lowestManifestGround) || resetNow) void recover();
+      }
+    }
     if (renderVehicle && (drivenId === null || drivenId === 'player')) car.update(renderVehicle);
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
@@ -463,7 +540,10 @@ async function runPlay() {
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
     const chaseVehicle = drivenId && drivenId !== 'player'
       ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
-    if (mode === 'car' && chaseVehicle && !paused) chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera);
+    if (mode === 'car' && chaseVehicle && !paused) {
+      chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
+      snapChase = false;
+    }
     else if (mode === 'foot') orbit.update(dt, focus);
     // camera collision: async ray from the focus towards the camera (result applies next frame)
     if (mode === 'foot' && !camRayBusy) {
@@ -492,7 +572,13 @@ async function runPlay() {
       : mapDirection.set(Math.sin(player.root.rotation.y), 0, Math.cos(player.root.rotation.y));
     const facingDeg = compassDeg(facing.x, facing.z);
     camera.getWorldDirection(mapDirection);
-    minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode });
+    const nearEdge = !recovery.lost && area.edgeDistance(feet.x, feet.z) <= RECOVERY.edgeWarning;
+    minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
+    recoveryHud.setEdge(nearEdge);
+    if (recovery.lost) {
+      recoveryHud.lost(recovery.lost.reason, recovery.countdown(recoveryTime) ?? 0,
+        input.source === 'touch' ? 'Reset' : input.prompt('respawn'));
+    }
     zones.update(dt, camera, { x: feet.x, z: feet.z });
 
     const en = engineToEN(feet.x, feet.y, feet.z);
@@ -506,9 +592,12 @@ async function runPlay() {
       ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`,
       perf,
     });
-    input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden' : menuOpen || missions.shop ? 'menu' : paused ? 'paused' : mode);
+    input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden' : menuOpen || missions.shop ? 'menu' : paused ? 'paused'
+      : recovery.lost ? 'lost' : mode);
     const help = document.getElementById('help')!;
-    help.textContent = paused ? `${input.prompt('pause')} Resume` : mode === 'foot'
+    help.textContent = paused ? `${input.prompt('pause')} Resume`
+      : recovery.lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
+      : mode === 'foot'
       ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter car · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`;
     perf.end();
@@ -516,7 +605,7 @@ async function runPlay() {
 }
 
 /** Actions ignored while a shop menu is open (Escape and D-pad down are also pause and mute). */
-const LOCKED_IN_MENU = ['pause', 'mute', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset'] as const;
+const LOCKED_IN_MENU = ['pause', 'mute', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
 /** localStorage, or null where the browser blocks it (the mission system then runs without persistence). */
 function browserStorage(): Storage | null {

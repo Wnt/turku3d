@@ -90,10 +90,11 @@ describe('touch pad', () => {
   });
 
   test('every context but hidden has a pause or back button', () => {
-    for (const context of ['foot', 'car', 'menu', 'paused'] as const) {
+    for (const context of ['foot', 'car', 'menu', 'paused', 'lost'] as const) {
       expect(TOUCH_BUTTONS.some(b => b.contexts.includes(context) && (b.action === 'pause' || b.action === 'menuBack'))).toBe(true);
     }
     expect(TOUCH_BUTTONS.filter(b => b.contexts.includes('car')).map(b => b.action)).toContain('handbrake');
+    expect(TOUCH_BUTTONS.filter(b => b.contexts.includes('lost')).map(b => b.action)).toEqual(['respawn', 'map', 'pause']);
   });
 });
 
