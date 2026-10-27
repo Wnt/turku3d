@@ -13,7 +13,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VISUAL_L0 } from '../core/origin';
 import type { Manifest, ManifestEntry } from './manifest';
 
-export const COARSE_ROOT = '/coarse/';
+const COARSE_ROOT = '/coarse/';
 const POLL_MS = 1000;
 const MANIFEST_POLL_MS = 60_000;
 /** Drafts farther than this (m, to the tile footprint) are unloaded. */
@@ -25,7 +25,7 @@ export function isLocalHost(hostname: string): boolean {
 
 const l0 = (i: number, j: number) => `t0_${i}_${j}`;
 /** Distance (m) from (x,z) to the footprint of L0 tile `id`. */
-export function distToL0(id: string, x: number, z: number): number {
+function distToL0(id: string, x: number, z: number): number {
   const t = parse(id);
   if (!t) return Infinity;
   const x0 = t.i * VISUAL_L0, z0 = t.j * VISUAL_L0;
