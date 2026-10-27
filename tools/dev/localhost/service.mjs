@@ -104,10 +104,12 @@ export class LocalhostGame {
     await this.selecting;
     this.startVite();
     void this.coarse?.start();
-    // A landing moves refs/heads/<branch> (a lock file renamed into place) and appends to the ledger: react at once;
-    // the poll covers packed refs and anything a watch misses.
+    // A landing moves refs/heads/<branch> (a lock file renamed into place) and appends to the ledger, a builder's
+    // put-tile appends to the per-tile index: react at once; the poll covers packed refs and anything a watch misses.
     const refs = path.join(await this.git(this.o.repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'), 'refs/heads');
-    for (const dir of [refs, this.o.registry]) if (fs.existsSync(dir)) fs.watch(dir, { persistent: false }, () => { void this.tick(); });
+    const entries = path.join(this.o.store, 'tiles');
+    await fsp.mkdir(entries, { recursive: true });
+    for (const dir of [refs, this.o.registry, entries]) if (fs.existsSync(dir)) fs.watch(dir, { persistent: false }, () => { void this.tick(); });
     this.timer = setInterval(() => { void this.tick(); }, this.o.pollMs);
   }
 

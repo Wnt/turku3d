@@ -64,8 +64,8 @@ to it: a gentle hold, not a wall.
 ## Tile releases swapped in place (`releaseSwap.ts`)
 
 On the localhost game (`tools/dev/localhost/README.md`) the dev server's `/tiles` moves to a new tile release when a
-landing changes tiles (the integrator's unverified tile build, or the service's quick build). The service pushes the
-release key in the `turku3d:status` event; `main.ts` then calls `swapRelease`:
+landing or a builder changes tiles (the integrator's unverified tile build, or per-tile entries from `make tile-add`
+and the service's quick builds composed over it). The service pushes the release key in the `turku3d:status` event; `main.ts` then calls `swapRelease`:
 
 1. The new `manifest.json` is fetched (`cache: no-store`) and compared with the loaded one by `sha256`
    (`releaseDelta`): visual tiles added or changed, collision tiles added, changed and removed, and the tileset.

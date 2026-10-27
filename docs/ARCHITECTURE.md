@@ -92,8 +92,10 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   carrying missions, money, permit, clock and the driven vehicle; changes outside the session autosave and reload
   into the autosave. `/tiles` there serves a content-addressed tile release (`$TURKU3D_DATA/tile-store/<key>`, key =
   tile-build inputs of the commit + the data root's parts) that the integrator's data lane fills right after its
-  tile-build stage and the service fills by a quick `make tile-build` of the affected tiles, and live and Pages ship
-  the same set (`scripts/dev/served.py`); the open tab swaps a new
+  tile-build stage, with per-tile entries (`tile-store/tiles/<tile>/<key>`) that builders put when they finish a tile
+  (`make tile-add`, `make tile-build PUT=1`, the service's quick builds after a code or facade change) composed over
+  it (`tile_store.served`), so a built tile reaches the tab in seconds; live and Pages ship the served store entry or
+  the live tiles (`scripts/dev/served.py`); the open tab swaps a new
   release in place (changed collision tiles replaced in the worker, the visual tileset swapped once the new one has
   settled; `game/src/world/README.md`). The hot hooks exist only
   under `import.meta.hot`; production builds are unchanged. See `tools/dev/localhost/README.md`.

@@ -8,9 +8,12 @@
 read-through into $TURKU3D_DATA/raw), seeds the sandbox from the published layers, runs
 `turku3d.refresh` (only the new tile and what depends on it rebuild), gives the tile's street
 walls without a map rough fast-pass maps (`turkutex.facade_fast`, in the sandbox's facade
-assembly) and assembles the listed tiles with the `playable-tiles` rules. Stage times go to
-$TURKU3D_WORK/reports/tile-add/<tile>.json. `list-tile` also publishes those fast maps into the
-data root's facade approvals, where the integrator's data lane picks them up.
+assembly) and assembles the listed tiles with the `playable-tiles` rules. It ends by putting the
+new tile and its listed edge neighbours, where their bytes differ from the live release, into the
+tile store as per-tile entries (scripts/dev/tile_store.py put-tiles), so the localhost game streams
+the tile as soon as it is listed. Stage times go to $TURKU3D_WORK/reports/tile-add/<tile>.json.
+`list-tile` also publishes those fast maps into the data root's facade approvals, where the
+integrator's data lane picks them up.
 """
 
 from __future__ import annotations
@@ -126,6 +129,16 @@ def stream(command: list[str], log) -> list[str]:
     return lines
 
 
+def edge_neighbours(tile_id: str, listed: list[str]) -> list[str]:
+    """Listed tiles sharing an edge with tile_id: their seam rows and border collision tiles change with it."""
+    tile = C.VisualTile.parse(tile_id)
+    near = {
+        C.VisualTile(0, tile.i + di, tile.j + dj).id
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1))
+    }
+    return sorted(t for t in listed if t in near)
+
+
 def tile_summary(tile_id: str, work: Path) -> dict:
     layers = work / "build/layers"
     present = sorted(
@@ -171,6 +184,10 @@ def add_tile(tile_id: str) -> dict:
         fast = stage("facades-fast", fast_facades, tile_id, work, log)
         command = [sys.executable, "-m", "turku3d.package.assemble", "--area", "playable-tiles"]
         out = stage("assemble", stream, [*command, "--tile", *tiles], log)
+        offered = [tile_id, *edge_neighbours(tile_id, tiles)]
+        store = [sys.executable, str(C.REPO_ROOT / "scripts/dev/tile_store.py"), "put-tiles"]
+        store += ["--repo", str(C.REPO_ROOT), "--tiles-dir", str(work / "dist/tiles")]
+        stage("put-tile", stream, [*store, "--published", str(data), "--tiles", *offered], log)
     report = {
         "tile": tile_id,
         "bbox_en": list(C.VisualTile.parse(tile_id).bbox.to_en().as_tuple()),

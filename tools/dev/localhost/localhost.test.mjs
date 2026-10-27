@@ -10,7 +10,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { verdict } from './status.mjs';
-import { affectedTiles } from './tiles.mjs';
+import { affectedTiles, needsQuickBuild } from './tiles.mjs';
 import { localhostGame, publicStatus } from './vitePlugin.mjs';
 import { CoarseService } from './coarse.mjs';
 import { LocalhostGame } from './service.mjs';
@@ -49,6 +49,15 @@ test('affected tiles: the union of the landings\' tiles, or every listed tile wh
   assert.deepEqual(affectedTiles([{ tiles: [] }, { name: 'old row' }], listed), listed);
   assert.deepEqual(affectedTiles([], listed), listed);
   assert.deepEqual(affectedTiles([null], listed), listed);
+});
+
+test('a quick build runs for new tile code or published facades and layers, not for a list change alone', () => {
+  const base = { commit: 'c' };
+  assert.equal(needsQuickBuild(base, 'd', []), true);
+  assert.equal(needsQuickBuild(base, 'c', ['facade-approvals']), true);
+  assert.equal(needsQuickBuild(base, 'c', ['layers', 'playable-tiles']), true);
+  assert.equal(needsQuickBuild(base, 'c', ['playable-tiles']), false);
+  assert.equal(needsQuickBuild(base, 'c', []), false);
 });
 
 test('dev-server routes: status, tiles from the selected release, events, telemetry; preview: telemetry', async (t) => {
