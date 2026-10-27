@@ -128,7 +128,7 @@ tests = ["tests/test_refresh.py", "tests/test_ground_textures.py", "tests/test_a
 name = "package-js-tests"
 kind = "command"
 triggers = ["pipeline/turku3d/package/*"]
-commands = [["node", "--test", "pipeline/turku3d/package/prop_atlas.test.mjs"]]
+commands = [["node", "--test", "pipeline/turku3d/package/prop_atlas.test.mjs", "pipeline/turku3d/package/facade_kit.test.mjs"]]
 
 [[stages]]
 name = "structures-physics"
