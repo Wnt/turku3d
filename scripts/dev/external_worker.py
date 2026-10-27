@@ -60,10 +60,12 @@ def finish(name, result_path):
         meta.pop("returned_reason", None)
         meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         s.write_json(path / "meta.json", meta)
-    # A new finish answers the lander's own "returned" request; other open requests still hold.
+    # A new finish answers the "returned" request of the lander or the merge queue; other open
+    # requests still hold.
     import coordination as coord
 
+    answered = {f"lander returned {name}", f"merge queue returned {name}"}
     for row in coord.inbox(name, unread=True):
-        if row["kind"] == "request" and row["subject"] == f"lander returned {name}":
+        if row["kind"] == "request" and row["subject"] in answered:
             coord.acknowledge(row["id"], "answered by a new finish")
     print(f"{name}: DONE result recorded; the lander lands it after its fast gate")

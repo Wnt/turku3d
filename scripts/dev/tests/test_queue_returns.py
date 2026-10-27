@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import coordination  # noqa: E402
+import external_worker  # noqa: E402
 import merge_queue  # noqa: E402
 import sandbox  # noqa: E402
 import task_runner  # noqa: E402
@@ -42,6 +44,25 @@ class QueueReturnTests(unittest.TestCase):
         meta = {"state": "done", "exit_code": 0, "finished": finished, "created": 0}
         meta["repo"] = str(self.root / name / "repo")
         meta["worker"] = "external"
+        Path(meta["repo"]).mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", meta["repo"]], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                meta["repo"],
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            check=True,
+        )
         (path / "meta.json").write_text(json.dumps(meta))
         (path / "last.md").write_text("## Result: DONE\n")
         (self.root / name).mkdir(exist_ok=True)
@@ -98,6 +119,36 @@ class QueueReturnTests(unittest.TestCase):
         merge_queue.discover(self.record)
         self.assertIsNone(merge_queue.returned("ext", self.record))
         self.assertEqual(merge_queue.ready(self.record), ["ext"])
+
+    def test_done_task_without_a_sandbox_is_not_enqueued(self):
+        self.task("kept")
+        merge_queue.discover(self.record)
+        self.assertEqual(merge_queue.ready(self.record), ["kept"])
+        self.task("removed")
+        shutil.rmtree(self.root / "removed" / "repo")
+        merge_queue.discover(self.record)
+        self.assertEqual(merge_queue.ready(self.record), ["kept"])
+
+    def test_new_finish_answers_the_queue_request(self):
+        self.task("ext")
+        with (
+            self.child(lambda name: (1, "codex-task: fast gate failed: FAIL unit.test_x\n")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            merge_queue.process(self.record)
+        coordination.send("ext", "request", "please keep this", "an unrelated open request")
+        self.assertEqual(len(coordination.inbox("ext", unread=True)), 2)
+        result = self.root / "result.md"
+        result.write_text("## Result: DONE\n")
+        with (
+            patch.dict(os.environ, {"TURKU3D_SANDBOX": "ext"}),
+            patch.object(external_worker.s, "git", return_value="abc123 fixed"),
+            patch.object(task_runner, "running", return_value=False),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            external_worker.finish("ext", result)
+        [open_request] = coordination.inbox("ext", unread=True)
+        self.assertEqual(open_request["subject"], "please keep this")
 
     def test_lander_return_is_recorded_without_a_second_request(self):
         path = self.task("conflict")

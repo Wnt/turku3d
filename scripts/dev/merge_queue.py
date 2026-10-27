@@ -59,6 +59,9 @@ def discover(record):
         meta = s.read_json(path)
         if meta.get("landed") or meta.get("state") != "done" or meta.get("exit_code") != 0:
             continue
+        if not Path(meta.get("repo", "")).is_dir():
+            # Nothing left to land: the sandbox was removed (landed before the lander, or by hand).
+            continue
         result = path.parent / "last.md"
         if not result.exists() or re.findall(r"^## Result: (.+)$", result.read_text(), re.M) != [
             "DONE"
