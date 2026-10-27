@@ -13,8 +13,8 @@ from pathlib import Path
 import numpy as np
 
 from turku3d import config as C
-from turku3d.content.addresses import publish as publish_addresses
 from turku3d.col.format import ColTile, Primitive, read_col, write_col
+from turku3d.content.addresses import publish as publish_addresses
 from turku3d.layers import layer_root, read_collision, read_manifest, read_visual
 from turku3d.package import coarse
 from turku3d.package.gltf import GlbMesh, build_glb
