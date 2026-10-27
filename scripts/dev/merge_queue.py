@@ -157,12 +157,12 @@ _child = None
 
 
 def integrate(record, published):
-    """Start one integration child when main moved past the last integration."""
+    """Start one integration child when main or the data root moved past the last run."""
     global _child
     if (_child and _child.poll() is None) or integrator.running():
         return False
     main = s.git("rev-parse", "main")
-    if main in (integrator.live_commit(published), integrator.last(published).get("to")):
+    if integrator.settled(published, main):
         return False
     _child = integrator.start(published)
     record["integration_started"] = {"time": time.time(), "to": main, "pid": _child.pid}
@@ -214,10 +214,18 @@ def status():
                 "red_awaiting_fix": [
                     {
                         key: row.get(key)
-                        for key in ("culprit", "culprit_task", "failure", "revert", "to")
+                        for key in (
+                            "id",
+                            "result",
+                            "culprit",
+                            "culprit_task",
+                            "failure",
+                            "revert",
+                            "to",
+                        )
                     }
                     for row in rows[green + 1 :]
-                    if row["result"] == "red"
+                    if row["result"] in ("red", "data-red")
                 ],
             },
             indent=2,

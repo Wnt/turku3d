@@ -1,6 +1,7 @@
 """Build, check and publish the real office distribution for the integrator."""
 
 import filecmp
+import hashlib
 import json
 import os
 import shutil
@@ -21,6 +22,34 @@ class StageFailed(ValueError):
     def __init__(self, stage, message):
         super().__init__(message)
         self.stage = stage
+
+
+class FacadeRegression(StageFailed):
+    """The assembler bound fewer facades than the published release, with no reported reason."""
+
+    def __init__(self, bound, baseline):
+        super().__init__(
+            "facade-baseline",
+            f"facades_bound regressed: {bound} < {baseline}; no reported reason",
+        )
+        self.bound = bound
+        self.baseline = baseline
+
+
+def approval_manifests(published):
+    """SHA-256 of the approval root's MANIFEST.json and of the published release's copy.
+
+    seed() replaces the release assembly with the approvals, so the two differ exactly
+    when the approvals changed on disk after the published release was built.
+    """
+
+    def sha(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+    return {
+        "published": sha(published / "live/textures/assembly/MANIFEST.json"),
+        "current": sha(published / "facade-approvals/assembly/MANIFEST.json"),
+    }
 
 
 def affected_tiles(previous, work):
@@ -161,7 +190,7 @@ def inspect(manifest_path, facade_count, minimum, reason=None):
         if entry.get("wire_bytes", 8_000_001) >= 8_000_000:
             raise ValueError(f"{tile}: L0 wire size exceeds 8 MB")
     if facade_count < minimum and not reason:
-        raise ValueError(f"facades_bound regressed: {facade_count} < {minimum}; no reported reason")
+        raise FacadeRegression(facade_count, minimum)
     if not manifest.get("spawn"):
         raise ValueError("live build has no spawn")
     return {

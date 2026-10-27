@@ -171,9 +171,16 @@ and requires fewer than 500 draws at every street pose and the bridge gameplay p
 The facade audit reports all approved facades, including buried bases on slopes, and
 blocks floating or missing walls and incorrect photo UVs. The manifest check requires ground textures on all four L0
 tiles and each tile below 8 MB on the wire. The assembler's `facades_bound` count must meet the current
-published release's count. A task may report an intentional reduction with `Facade regression reason:
-<specific reason>` in its result; the lander copies it into the ledger row. Stage times and output
-are in `live-build.log`.
+published release's count; a drop fails as stage `facade-baseline` with both counts. A task may report
+an intentional reduction with `Facade regression reason: <specific reason>` in its result; the lander
+copies it into the ledger row. Stage times and output are in `live-build.log`.
+
+A deliberate data-level drop (facade maps retired from `$TURKU3D_DATA/facade-approvals/assembly`)
+turns every batch `data-red` until it is accepted. To accept it, land any commit (a one-line note
+is enough) whose result carries the reason line, for example
+`Facade regression reason: photo-derived maps retired by user decision 2026-10-27`. The lander
+copies it into that landing's `landed.jsonl` row, the next integration finds it in its batch and
+publishes the lower count, which becomes the new baseline.
 Each gate and live-build command runs in its own process group, which is terminated on exit.
 Failures name the failing stage or test and include the host load and log path. For a Playwright
 suite the detail is the first failing test and its first error, so a test timeout reads as
@@ -638,9 +645,13 @@ integrator (asynchronous, one run at a time, integration host reservation):
         docs/tooling only → record skipped, publish nothing
         → live_build.build(M) in the `integration` sandbox (cached stages reused)
         green: live_build.prepare + publish(M); G := M
-        red:   rerun a red Chrome stage once (flake guard) → bisect G..M over landed heads
-               → git revert culprit through land.lock + gate --fast → request to its author
-               → live stays at G; the next run integrates the rest plus the revert
+        red:   rerun a red Chrome stage once (flake guard)
+               → base check: live_build.build(G) against the current data root
+               G red:   data-red, revert nothing, warning to all, live stays at G;
+                        no retry until main moves or the data key changes
+               G green: bisect G..M over landed heads → revert the culprit landing as one
+                        commit through land.lock + gate --fast → request to its author
+                        → live stays at G; the next run integrates the rest plus the revert
 ```
 
 ```sh
@@ -654,7 +665,8 @@ python3 scripts/dev/integrator.py run --published /path/to/data-copy --main-repo
 `queue run` (`merge_queue.run`) polls every 5 s. Each round it (a) discovers DONE results
 (exact `## Result: DONE`, a new `meta.finished`) and lands them in `first_finished` order by
 calling the lander, `landing.land(name)`; and (b) when no integration is running and main has
-moved past both the live commit and the last integration's `to`, it starts
+moved past both the live commit and the last integration's `to` (or the data key changed since
+that integration), it starts
 `integrator.py run` as a detached child (log `wt/.registry/integration.log`). The queue never
 resumes a worker. A failed landing records event `returned` with the reason in
 `merge-queue.json` and posts a `request` to the task inbox (a rebase conflict is returned by the
@@ -663,7 +675,7 @@ again, which re-enqueues it. An unacknowledged request/warning records `held` an
 60 s; a held task lock records `busy` and retries next round. `codex-task ls`/`status`, the
 board's idle list and the sentinel show `returned: <reason>`. `queue status` shows the tasks
 waiting to land, the last landing, the integration in progress (from → to, stage, elapsed),
-the live and main commits, how far live is behind, and red culprits awaiting a fix.
+the live and main commits, how far live is behind, and red or data-red runs awaiting a fix.
 
 `integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json` and M
 from main. The diff G..M is classified by the live stage inputs (`live_cache.INPUTS`): when no
@@ -676,14 +688,36 @@ tiles. A batch facade count below the published baseline is red unless a `landed
 the batch carries `facade_regression_reason` (the lander copies it from the result's
 `Facade regression reason:` line). Green runs `prepare` and `publish` (main is already at M, so
 only the `live` link moves; `publish` restores the previous link if any stable path fails to
-resolve into the new release). Red bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further
-builds), reverts `parent..culprit` on current main under `wt/.registry/land.lock` after
-`gate --fast` in the integration sandbox, appends a `revert-<sha8>` row to `landed.jsonl`, and
-posts a `request` with the failing stage and log to the culprit's task (from `landed.jsonl`).
-A revert conflict or red revert gate is reported in the same request and leaves main alone.
-Each run appends one row to `wt/.registry/integrations.jsonl`: `published`, `from`, `to`,
-`result` (`green`, `skipped`, `red`, `failed`), `seconds` per stage, `cache_hits`,
-`facades_bound`, `builds`, `wall_seconds`, `culprit`, `culprit_task`, `failure`, `revert`.
+resolve into the new release).
+
+A red head is never blamed on a commit before the base check: the integrator builds G itself
+against the current data root (its stages are mostly cache hits). G was green when it was
+published, so a red G means the data root changed under it. The run is then `data-red`: it
+records G's failing stage (`failure`, with `facades_bound`/`facades_baseline` for a facade drop),
+the head's failure (`head_failure`), `data_cause` (`approval-root-changed` when the SHA-256 of
+`facade-approvals/assembly/MANIFEST.json` differs from the published release's
+`textures/assembly/MANIFEST.json`, else `data-root`) and both hashes (`approval_manifest`). It
+reverts nothing, posts a `warning` to the board (`codex-task board`) and keeps live at G. Each row
+carries `data_key`, a hash of the approval MANIFEST and the published layers (paths, sizes,
+mtimes); the queue starts a new run for the same main head only when that key changes
+(`integrator.settled`).
+
+Only a green G bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further builds) and reverts the
+culprit landing `parent..culprit` on current main as one commit under `wt/.registry/land.lock`
+after `gate --fast` in the integration sandbox. A run makes at most one revert; a second culprit
+is only blamed by a later run, which first builds the reverted main and checks the base again.
+The revert message names the integration row id and the failing stage and lists every reverted
+commit (`Integration: <id>`, `Failing stage: <stage>`, `Reverted commits:`). The integrator
+appends a `revert-<sha8>` row to `landed.jsonl` (`integration`, `reverts`, `reverted`) and posts a
+`request` with the row id, the failing stage and log to the culprit's task (from `landed.jsonl`).
+A revert conflict, an empty revert or a red revert gate is reported in the same request and
+leaves main alone.
+
+Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`, n counting
+runs for that head), `published`, `from`, `to`, `data_key`, `result` (`green`, `skipped`, `red`,
+`data-red`, `failed`), `seconds` per stage, `cache_hits`, `facades_bound`, `builds`,
+`wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`,
+`approval_manifest`, `revert` (`commit`, `reverted`, `fast_gate_seconds`, or `error`).
 `wt/.registry/integration.json` names the running integration and its stage log.
 
 Deleted with this design (merge latency study, §2–§5): precheck receipts and the queue's

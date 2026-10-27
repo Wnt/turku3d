@@ -1,4 +1,4 @@
-"""Synthetic integration batches: publish, skip, bisect and revert, flake guard, facades."""
+"""Synthetic integration batches: publish, skip, base check, bisect and revert, facades."""
 
 import json
 import os
@@ -64,10 +64,20 @@ class IntegratorTests(unittest.TestCase):
             ["git", *args], cwd=cwd or self.main, check=True, text=True, capture_output=True
         ).stdout.strip()
 
+    def approvals(self):
+        return self.published / "facade-approvals/assembly/MANIFEST.json"
+
+    def approve(self, walls):
+        self.approvals().parent.mkdir(parents=True, exist_ok=True)
+        self.approvals().write_text(json.dumps({"bound": [f"wall-{n}" for n in range(walls)]}))
+
     def outputs(self, work, facades):
         for name in ("build/game", "dist/tiles", "build/layers", "textures"):
             (work / name).mkdir(parents=True, exist_ok=True)
             (work / name / "asset.bin").write_text(str(facades))
+        # live_build.seed replaces the release assembly with the approval root.
+        (work / "textures/assembly").mkdir(exist_ok=True)
+        (work / "textures/assembly/MANIFEST.json").write_bytes(self.approvals().read_bytes())
         visual = {
             tile: {"tris": 1000, "ground_texture_bytes": 1, "wire_bytes": 1}
             for tile in live_build.TILES
@@ -77,6 +87,7 @@ class IntegratorTests(unittest.TestCase):
         return manifest
 
     def release(self, commit):
+        self.approve(2)
         work = self.root / "seed"
         self.outputs(work, 2)
         report = {"facades_bound": 2, "seconds": {}, "cache_hits": []}
@@ -92,10 +103,14 @@ class IntegratorTests(unittest.TestCase):
         log.write_text("== tile-build: make tile-build ==\n")
         if (repo / "game/bad.ts").exists():
             raise live_build.StageFailed("tile-build", f"tile-build failed (2); {log}")
+        if (published / "raw-broken").exists():
+            raise live_build.StageFailed("refresh", f"refresh failed (1); {log}")
         if self.chrome_flakes:
             self.chrome_flakes -= 1
             raise live_build.StageFailed("chrome", f"chrome failed (1); {log}")
-        facades = int((repo / "game/facades.txt").read_text())
+        # The assembler binds the walls the code places that the approval root still holds.
+        approved = len(json.loads(self.approvals().read_text())["bound"])
+        facades = min(int((repo / "game/facades.txt").read_text()), approved)
         manifest = self.outputs(work, facades)
         report = live_build.inspect(manifest, facades, live_build.baseline(published), reason)
         return {**report, "seconds": {"tile-build": 0.01}, "cache_hits": ["refresh"]}
@@ -148,7 +163,9 @@ class IntegratorTests(unittest.TestCase):
         row = self.integrate()
         self.assertEqual(row["result"], "red")
         self.assertEqual((row["culprit"], row["culprit_task"]), (commits[2], "task-3"))
-        self.assertLessEqual(row["builds"], 3)
+        # Head, then the base check on G, then ceil(log2 5) - 1 bisection builds.
+        self.assertEqual(self.builds[:2], [commits[-1], self.base])
+        self.assertEqual(row["builds"], 4)
         self.assertEqual(row["failure"]["stage"], "tile-build")
         self.assertEqual(integrator.live_commit(self.published), self.base)
         # The revert landed on main through the fast gate and removed only the culprit.
@@ -157,8 +174,11 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "main~1"), commits[-1])
         self.assertFalse((self.main / "game/bad.ts").exists())
         self.assertTrue((self.main / "game/f5.ts").exists())
-        landed = (self.wt / ".registry/landed.jsonl").read_text().splitlines()
-        self.assertEqual(json.loads(landed[-1])["reverts"], f"{commits[1]}..{commits[2]}")
+        landed = json.loads((self.wt / ".registry/landed.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(landed["reverts"], f"{commits[1]}..{commits[2]}")
+        self.assertEqual((landed["reverted"], landed["integration"]), ([commits[2]], row["id"]))
+        self.assertEqual(row["revert"]["reverted"], [commits[2]])
+        self.assertEqual(row["id"], f"{commits[-1][:12]}.1")
         [request] = coordination.inbox("task-3", unread=True)
         self.assertEqual(request["kind"], "request")
         self.assertIn("tile-build failed", request["body"])
@@ -181,12 +201,88 @@ class IntegratorTests(unittest.TestCase):
         row = self.integrate()
         self.assertEqual((row["result"], row["failure"]["stage"]), ("red", "chrome"))
 
+    def test_revert_message_names_integration_stage_and_commits(self):
+        self.land("good", "game/a.ts", "a")
+        # One landing of two commits: only its head has a landed.jsonl row.
+        (self.main / "game/bad.ts").write_text("bad")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "Add the broken module")
+        first = self.git("rev-parse", "HEAD")
+        culprit = self.land("pair", "game/c.ts", "c")
+        before = self.git("rev-parse", "main")
+        row = self.integrate()
+        self.assertEqual((row["result"], row["culprit"]), ("red", culprit))
+        # The whole landing is reverted as one commit, the only revert of the run.
+        self.assertEqual(self.git("rev-parse", "main~1"), before)
+        self.assertEqual(row["revert"]["reverted"], [first, culprit])
+        message = self.git("log", "-1", "--format=%B", "main")
+        self.assertIn(f"integration {row['id']} red at tile-build", message.splitlines()[0])
+        self.assertIn(f"Integration: {row['id']}", message)
+        self.assertIn("Failing stage: tile-build", message)
+        self.assertIn(f"  {first} Add the broken module", message)
+        self.assertIn(f"  {culprit} pair", message)
+        self.assertFalse((self.main / "game/bad.ts").exists())
+        self.assertFalse((self.main / "game/c.ts").exists())
+
+    def test_red_base_is_data_red_and_reverts_nothing(self):
+        self.land("game", "game/a.ts", "a")
+        head = self.land("more", "game/b.ts", "b")
+        (self.published / "raw-broken").write_text("")
+        row = self.integrate()
+        self.assertEqual((row["result"], row["culprit"], row["revert"]), ("data-red", None, None))
+        self.assertEqual((row["failure"]["stage"], row["data_cause"]), ("refresh", "data-root"))
+        self.assertEqual(row["head_failure"]["stage"], "refresh")
+        # Head, then the base check; no bisection, no revert, live stays at G.
+        self.assertEqual(self.builds, [head, self.base])
+        self.assertEqual(self.git("rev-parse", "main"), head)
+        self.assertEqual(integrator.live_commit(self.published), self.base)
+        [warning] = [m for m in coordination.board() if m["kind"] == "warning"]
+        self.assertIn(f"integration {row['id']} data-red at refresh", warning["subject"])
+        self.assertIn("No commit was reverted", warning["body"])
+        self.assertEqual([coordination.inbox(n, unread=True) for n in ("game", "more")], [[], []])
+        # No retry until main moves or the data root changes.
+        self.assertTrue(integrator.settled(self.published, head))
+        self.approve(3)
+        self.assertFalse(integrator.settled(self.published, head))
+        self.approve(2)
+        self.assertTrue(integrator.settled(self.published, head))
+        self.assertFalse(integrator.settled(self.published, self.land("next", "game/c.ts", "c")))
+
     def test_facade_drop_without_reason_is_red(self):
         culprit = self.land("drop", "game/facades.txt", "1\n")
         row = self.integrate()
         self.assertEqual((row["result"], row["culprit"]), ("red", culprit))
+        self.assertEqual(row["failure"]["stage"], "facade-baseline")
         self.assertIn("facades_bound regressed", row["failure"]["detail"])
         self.assertEqual(integrator.live_commit(self.published), self.base)
+
+    def test_facade_drop_from_changed_approvals_is_data_red(self):
+        head = self.land("docs-and-prompts", "game/a.ts", "a")
+        published = live_build.approval_manifests(self.published)["published"]
+        self.approve(1)
+        row = self.integrate()
+        self.assertEqual((row["result"], row["culprit"]), ("data-red", None))
+        self.assertEqual(row["data_cause"], "approval-root-changed")
+        self.assertEqual(
+            (row["failure"]["stage"], row["failure"]["facades_bound"]), ("facade-baseline", 1)
+        )
+        self.assertEqual(row["failure"]["facades_baseline"], 2)
+        self.assertEqual(row["approval_manifest"]["published"], published)
+        self.assertNotEqual(row["approval_manifest"]["current"], published)
+        self.assertEqual(self.git("rev-parse", "main"), head)
+        self.assertEqual(integrator.live_commit(self.published), self.base)
+        [warning] = [m for m in coordination.board() if m["kind"] == "warning"]
+        self.assertIn("1 facades bound, published baseline 2", warning["body"])
+        self.assertIn("MANIFEST.json differs", warning["body"])
+
+    def test_approval_drop_with_ledger_reason_is_green(self):
+        self.approve(1)
+        self.land("accept", "docs/a.ts", "a", reason="photo facades retired by decision")
+        self.land("game", "game/a.ts", "a")
+        row = self.integrate()
+        self.assertEqual((row["result"], row["facades_bound"]), ("green", 1))
+        self.assertEqual(integrator.live_commit(self.published), self.git("rev-parse", "main"))
+        self.assertEqual(self.builds, [self.git("rev-parse", "main")])
 
     def test_facade_drop_with_ledger_reason_is_green(self):
         self.land("drop", "game/facades.txt", "1\n", reason="old facade map was wrong")

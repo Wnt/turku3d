@@ -2,14 +2,17 @@
 
 The lander fast-forwards main after the fast gate. This integrator then builds the batch
 G..M (G = commit of the published live release, M = main head) once in its own sandbox.
-Green publishes M. Red bisects the batch's landings, reverts the culprit on main through
-the land lock and the fast gate, tells its author and leaves live at G.
+Green publishes M. Red builds G against the current data root first: a red G is `data-red`
+(the data root changed, no commit is blamed or reverted). Only a green G bisects the batch's
+landings and reverts the one culprit landing on main through the land lock and the fast
+gate, tells its author and leaves live at G.
 """
 
 from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import subprocess
@@ -63,6 +66,35 @@ def last(published):
     """The latest integration row for this published root, or {}."""
     rows = [row for row in read_rows(ledger_path()) if row.get("published") == str(published)]
     return rows[-1] if rows else {}
+
+
+def data_key(published):
+    """Identity of the data root a run builds against: approval MANIFEST and published layers.
+
+    The queue retries a run for the same main head only when this key changes.
+    """
+    h = hashlib.sha256()
+    manifest = published / "facade-approvals/assembly/MANIFEST.json"
+    h.update(manifest.read_bytes() if manifest.is_file() else b"missing:approvals")
+    layers = published / "build/layers"
+    if not layers.is_dir():
+        h.update(b"missing:layers")
+    for file in sorted(layers.rglob("*")) if layers.is_dir() else ():
+        if file.is_file():
+            stat = file.stat()
+            h.update(f"{file.relative_to(layers)}\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode())
+    return h.hexdigest()
+
+
+def settled(published, main):
+    """True when main needs no new integration: it is live, or its last run saw this data."""
+    if main == live_commit(published):
+        return True
+    row = last(published)
+    if row.get("to") != main:
+        return False
+    # Rows written before the data key existed keep the old main-only rule.
+    return row.get("data_key") in (None, data_key(published))
 
 
 def live_commit(published):
@@ -160,10 +192,13 @@ def status(**fields):
 class Run:
     """One integration of G..M; `build` counts builds and keeps every stage log."""
 
-    def __init__(self, published, main_repo, name):
+    def __init__(self, published, main_repo, name, end):
         self.published = published
         self.main_repo = main_repo
         self.name = name
+        runs = sum(row.get("to") == end for row in read_rows(ledger_path()))
+        # The row id names the integration in revert commits and messages.
+        self.id = f"{end[:12]}.{runs + 1}"
         self.builds = []
         self.started = time.monotonic()
         self.previous = (published / "live").resolve()
@@ -193,7 +228,11 @@ class Run:
                 # One rerun guards against a flaky Chrome stage; cached stages are free.
                 if exc.stage.startswith("chrome") and attempt == 1:
                     continue
-                return None, {"stage": exc.stage, "detail": str(exc)[-1000:], "log": str(log)}
+                failure = {"stage": exc.stage, "detail": str(exc)[-1000:], "log": str(log)}
+                if isinstance(exc, live_build.FacadeRegression):
+                    failure["facades_bound"] = exc.bound
+                    failure["facades_baseline"] = exc.baseline
+                return None, failure
             except (ValueError, OSError, subprocess.CalledProcessError) as exc:
                 self.builds.append(
                     {"commit": commit, "seconds": round(time.monotonic() - started, 3)}
@@ -220,18 +259,44 @@ def bisect(run, start, end, failure):
     return (points[high - 1] if high else start), points[high], failures[high]
 
 
-def revert(run, parent, culprit):
-    """Revert parent..culprit on current main through the land lock and the fast gate."""
+def revert_message(run, task, failure, commits):
+    """Commit message of an integrator revert: integration row id, stage and exact commits."""
+    lines = [
+        f"Revert landing {task or 'unknown'} ({commits[-1][:12]}): integration {run.id} "
+        f"red at {failure['stage']}",
+        "",
+        f"Integration: {run.id}",
+        f"Failing stage: {failure['stage']}",
+        f"Log: {failure['log']}",
+        "Reverted commits:",
+    ]
+    for commit in commits:
+        subject = s.git("log", "-1", "--format=%s", commit, cwd=run.main_repo)
+        lines.append(f"  {commit} {subject}")
+    return "\n".join([*lines, "", f"Detail: {failure['detail'][-300:]}"]) + "\n"
+
+
+def revert(run, parent, culprit, task, failure):
+    """Revert the culprit landing parent..culprit as one commit on current main.
+
+    One revert per run: a further culprit is only blamed by a later run, after this
+    reverted main has been built (head first, then the base check).
+    """
+    commits = s.git("rev-list", "--reverse", f"{parent}..{culprit}", cwd=run.main_repo).splitlines()
     with s.lock(registry() / "land.lock"):
         before = s.git("rev-parse", "main", cwd=run.main_repo)
         if s.git("status", "--porcelain", "--untracked-files=no", cwd=run.main_repo):
-            return {"error": "main worktree is dirty"}
+            return {"error": "main worktree is dirty", "reverted": []}
         repo = checkout(before, run.name, run.published)
         try:
-            s.git("revert", "--no-edit", f"{parent}..{culprit}", cwd=repo)
+            s.git("revert", "--no-commit", f"{parent}..{culprit}", cwd=repo)
         except subprocess.CalledProcessError as exc:
             s.git("revert", "--abort", cwd=repo, check=False)
-            return {"error": f"revert conflict: {exc.stderr.strip()[-300:]}"}
+            return {"error": f"revert conflict: {exc.stderr.strip()[-300:]}", "reverted": []}
+        if not s.git("diff", "--cached", "--name-only", cwd=repo):
+            s.git("revert", "--abort", cwd=repo, check=False)
+            return {"error": "revert is empty; the landing is already reverted", "reverted": []}
+        s.git("commit", "-q", "-m", revert_message(run, task, failure, commits), cwd=repo)
         started = time.monotonic()
         gate = s.run_group(
             [str(repo / "scripts/dev/gate"), "--fast", "--base", before],
@@ -240,7 +305,10 @@ def revert(run, parent, culprit):
         )
         seconds = round(time.monotonic() - started, 3)
         if gate.returncode:
-            return {"error": f"fast gate red on revert: {s.failure_detail(gate.stdout)}"}
+            return {
+                "error": f"fast gate red on revert: {s.failure_detail(gate.stdout)}",
+                "reverted": [],
+            }
         head = s.git("rev-parse", "HEAD", cwd=repo)
         s.git("merge", "--ff-only", head, cwd=run.main_repo)
         row = {
@@ -248,23 +316,25 @@ def revert(run, parent, culprit):
             "before": before,
             "commit": head,
             "source": "integrator",
+            "integration": run.id,
             "reverts": f"{parent}..{culprit}",
+            "reverted": commits,
             "time": time.time(),
             "fast_gate_seconds": seconds,
         }
         with (registry() / "landed.jsonl").open("a") as ledger:
             ledger.write(json.dumps(row) + "\n")
-        return {"commit": head, "fast_gate_seconds": seconds}
+        return {"commit": head, "reverted": commits, "fast_gate_seconds": seconds}
 
 
-def notify(task, culprit, failure, reverted):
+def notify(run, task, culprit, failure, reverted):
     detail = (
         f"reverted on main as {reverted['commit'][:12]}"
         if "commit" in reverted
         else f"NOT reverted ({reverted['error']})"
     )
     body = (
-        f"The live integration is red at your landing {culprit[:12]}: {failure['stage']} "
+        f"Integration {run.id} is red at your landing {culprit[:12]}: {failure['stage']} "
         f"failed. Log: {failure['log']}. Detail: {failure['detail'][-400:]}\n"
         f"The change is {detail}; live stays on the last verified release. Rebase onto "
         "main, fix it, and run codex-task finish again."
@@ -277,8 +347,39 @@ def notify(task, culprit, failure, reverted):
     return recipient
 
 
+def warn_data_red(run, row):
+    """Tell everyone the data root, not a commit, turned the batch red; returns the message id."""
+    failure = row["failure"]
+    counts = (
+        f" ({failure['facades_bound']} facades bound, published baseline "
+        f"{failure['facades_baseline']})"
+        if "facades_bound" in failure
+        else ""
+    )
+    cause = (
+        "The facade approval root's MANIFEST.json differs from the published release's."
+        if row["data_cause"] == "approval-root-changed"
+        else "The batch base itself is red against the current data root."
+    )
+    body = (
+        f"Integration {run.id} ({row['from'][:12]}..{row['to'][:12]}) is data-red: the base "
+        f"{row['from'][:12]} builds red at {failure['stage']}{counts}. {cause} No commit "
+        f"was reverted; live stays on {row['from'][:12]}. The run is retried when main moves "
+        "or the data root changes. Accept a deliberate facade drop by landing a commit whose "
+        "result carries `Facade regression reason: ...`. "
+        f"Log: {failure['log']}. Detail: {failure['detail'][-400:]}"
+    )
+    subject = f"integration {run.id} data-red at {failure['stage']}"
+    try:
+        coord.send("all", "warning", subject, body)
+    except (ValueError, OSError):
+        coord.send("orchestrator", "warning", subject, body)
+    return subject
+
+
 def record(run, row):
     row = {
+        "id": run.id,
         "time": time.time(),
         "published": str(run.published),
         "builds": len(run.builds),
@@ -292,16 +393,44 @@ def record(run, row):
     return row
 
 
+def data_red(run, base, head_failure, base_failure):
+    """The batch base G is red against the current data root: blame and revert nothing."""
+    import live_build
+
+    manifests = live_build.approval_manifests(run.published)
+    row = {
+        **base,
+        "result": "data-red",
+        "culprit": None,
+        "failure": base_failure,
+        "head_failure": head_failure,
+        "data_cause": (
+            "approval-root-changed"
+            if manifests["published"] != manifests["current"]
+            else "data-root"
+        ),
+        "approval_manifest": manifests,
+        "revert": None,
+    }
+    row["notified"] = warn_data_red(run, row)
+    return record(run, row)
+
+
 def integrate(run, base, start, end):
-    """Build M; publish when green, otherwise bisect, revert and notify."""
+    """Build M; publish when green. Red: build G; red G is data-red, green G bisects."""
     import live_build
 
     published = run.published
     report, failure = run.build(start, end)
     if report is None:
+        # Base check before blame: G was green when published, so a red G means the data
+        # root changed under it, and no commit in the batch caused the failure.
+        _, base_failure = run.build(start, start)
+        if base_failure:
+            return data_red(run, base, failure, base_failure)
         parent, culprit, failure = bisect(run, start, end, failure)
         task = author(culprit)
-        reverted = revert(run, parent, culprit)
+        reverted = revert(run, parent, culprit, task, failure)
         return record(
             run,
             {
@@ -311,7 +440,7 @@ def integrate(run, base, start, end):
                 "culprit_task": task,
                 "failure": failure,
                 "revert": reverted,
-                "notified": notify(task, culprit, failure, reverted),
+                "notified": notify(run, task, culprit, failure, reverted),
             },
         )
     row = {
@@ -342,12 +471,12 @@ def run_once(published, main_repo=s.REPO, name=NAME):
         raise ValueError(f"no published live release in {published}")
     if start == end:
         return None
-    run = Run(published, main_repo, name)
+    run = Run(published, main_repo, name, end)
     status_path().parent.mkdir(parents=True, exist_ok=True)
     s.write_json(
         status_path(), {"pid": os.getpid(), "started": time.time(), "from": start, "to": end}
     )
-    base = {"from": start, "to": end}
+    base = {"from": start, "to": end, "data_key": data_key(published)}
     changed = s.git("diff", "--name-only", start, end, cwd=main_repo).splitlines()
     affected = domains(changed)
     if not affected:

@@ -77,14 +77,16 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(merge_queue.ready(record), [])
         self.assertEqual(record["tasks"]["manual"]["landed"], "abc123")
 
-    def test_integration_starts_only_when_main_moved_past_last_integration(self):
+    def test_integration_starts_only_when_main_or_data_moved_past_last_integration(self):
         record = {"tasks": {}, "events": []}
         published = self.root / "data"
         child = type("Child", (), {"pid": 7, "poll": lambda self: None})()
         cases = (
             ("live", {}, False),  # live already names main
-            ("other", {"to": "main-head"}, False),  # the last integration covered main
-            ("other", {"to": "older"}, True),
+            ("other", {"to": "main-head"}, False),  # a row without a data key covered main
+            ("other", {"to": "main-head", "data_key": "data"}, False),  # same data root
+            ("other", {"to": "main-head", "data_key": "old-data"}, True),  # data changed
+            ("other", {"to": "older", "data_key": "data"}, True),
         )
         for live, last, started in cases:
             with self.subTest(live=live, last=last):
@@ -98,6 +100,7 @@ class QueueTests(unittest.TestCase):
                         return_value="main-head" if live == "live" else "older",
                     ),
                     patch.object(merge_queue.integrator, "last", return_value=last),
+                    patch.object(merge_queue.integrator, "data_key", return_value="data"),
                     patch.object(merge_queue.integrator, "start", return_value=child) as start,
                 ):
                     self.assertEqual(merge_queue.integrate(record, published), started)
