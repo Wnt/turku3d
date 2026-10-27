@@ -1,0 +1,154 @@
+# Turku3D multiplayer protocol v1
+
+Public endpoint: `wss://turku.lab.madekivi.fi/`. One room, JSON text WebSocket
+messages. Every message in both directions has `"v":1` and a `"type"` string.
+Unknown extra object fields are ignored. Binary messages and malformed/unknown
+messages are dropped and increment `/healthz`'s `stats.rejected` counter.
+No physics, collision resolution, order issuance or rendering runs on this server.
+
+## Coordinates, time and money
+
+`E` and `N` are **local east and north metres**, relative to EPSG:3877 origin
+`(23459500, 6704500)`. Convert engine position with `E=x`, `N=-z`, `H=y`;
+convert absolute map coordinates by subtracting that origin. Do not send the
+absolute EPSG numbers. `H` is N2000 elevation in metres. `vE`, `vN`, `vH` are
+metres/second on those same axes. `yaw` is radians about engine +Y, forward -Z
+at zero: `yaw=-headingDegrees*pi/180`. Send yaw normalized to `[-2π,2π]`, using
+the actor's facing direction (the client must account for its model's forward axis).
+
+`t` is the client's monotonic timestamp in milliseconds (e.g. `performance.now()`),
+not trusted server time. It is echoed for interpolation, never used for payouts or
+hour assignment. The client must handle a new timestamp epoch after rejoin.
+
+Money values are integer euros earned from deliveries in this hour, excluding
+starting money, spending, vehicle sales and the kidney payout. Ranking uses money
+descending; ties have competition ranks (`1,1,3`) and sort alphabetically by nick.
+
+`Hour` is `{id,start,end,tz}`. `start`/`end` are UTC ISO 8601 strings, start inclusive
+and end exclusive; `tz` is always `"Europe/Helsinki"`. `id` is the local hour with
+its offset, e.g. `2026-10-25T03+03` then `2026-10-25T03+02`. The spring transition
+skips `03`. Each interval lasts 3600 elapsed seconds, even on the 23/25-hour days.
+
+`Player` is `{id,nick,spawn,pose}`: UUID `id`, two-uppercase-letter `nick`,
+`spawn:{E,N,yaw}`, and latest pose without `id`, or `null` before any pose.
+`Score` is `{nick,money,deliveries,rank,online}`; `deliveries` counts paid drop-offs.
+The live roster includes self; match self by `you.id`. It contains no session tokens.
+
+## Client → server
+
+### hello
+
+```json
+{"v":1,"type":"hello","session":"optional 64-character lowercase hex token"}
+```
+
+Send once within 5 seconds of connecting; omit `session` on first join. A current
+hour token rejoins the same ID, nickname, spawn, score and paid-order set. It
+replaces any earlier socket using that token (old socket closes with code 4001).
+An unknown but well-formed token starts a new player; malformed tokens are rejected.
+The token is a bearer credential; retain it privately, never put it in a URL.
+
+### pose
+
+```json
+{"v":1,"type":"pose","t":12345,"E":173,"N":-252,"H":3.7,"yaw":0,"vE":1,"vN":0,"vH":0,"mode":"foot","carrying":false}
+```
+
+All fields required. Numbers must be finite: `0≤t≤Number.MAX_SAFE_INTEGER`,
+`|E|,|N|≤100000`, `|H|≤10000`, `|yaw|≤2π`, each velocity component ≤200 in absolute
+value. `mode` is `"foot"`, `"car"` or `"scooter"`; `carrying` is boolean. These are
+sanity bounds, not server physics or movement verification. Send at up to 20 Hz,
+including stationary poses while actively playing. Sixty seconds without an
+accepted pose removes the player from the live roster and sets `online:false`;
+the score remains. A new valid pose restores presence. A join starts the idle timer.
+
+### delivery
+
+```json
+{"v":1,"type":"delivery","orderId":"run-uuid:order-12:stop-0","addressId":"address-slug","payout":6,"tip":8,"routeMeters":120}
+```
+
+One message per **paid drop-off**. Use a unique ID per stop (double orders have two
+IDs). `orderId` and `addressId` are 1–128 characters from `[A-Za-z0-9_.:-]`.
+Generate an order/run UUID so page reloads do not reuse IDs. `payout` is base pay
+plus any double bonus, **excluding** `tip`. `routeMeters` is finite and in
+`[0,100000]`; the 100 km ceiling is a protocol sanity limit, not a game formula.
+
+The game's formula is `6 + tip + bonus`: integer tip 0–8; bonus 4 only on a second
+drop-off with tip >0. Thus `payout` must be 6, or 10 with tip >0; total maximum 18.
+Distance determines par time (`distance / speed + 20`, speeds foot=1.4,
+scooter=7, car=9 m/s). Tip rounds a clamped linear fall from 8 at 0.7×par to 0 at
+1.3×par; failure is at 2×par. Distance does not increase base pay. The server checks
+the possible euro envelope; this message cannot prove timing, ownership, route,
+address existence, second-stop status, or that a delivery actually happened.
+
+Duplicate order IDs are rejected per player/session, including reconnects and
+connected hour resets. There is a 10000-ID cap per continuing session; further
+claims are rejected. At most 20 total messages/second means delivery messages
+must replace a pose transmission in a full-rate stream. Accepted delivery emits
+`scores`; rejected delivery emits nothing and increments `stats.rejected`.
+An order crossing the hour boundary counts in the hour when the server receives
+its delivery, regardless of `t` or when the client started the order.
+
+## Server → client
+
+| Type | Fields in addition to `v,type` | When / behavior |
+|---|---|---|
+| `welcome` | `session`, `you:{id,nick,spawn}`, `hour:Hour`, `players:Player[]`, `scores:Score[]` | After hello; also after each hour reset to communicate the new nickname. |
+| `players` | `players:Player[]` | Full replacement roster after join, leave, idle/resume or reset. Remove absent remote bodies. |
+| `poses` | `poses:[{id,t,E,N,H,yaw,vE,vN,vH,mode,carrying}]` | Every 50 ms when changes exist: latest accepted pose per changed player, excluding recipient. Omitted players have no new pose; omission does not remove them. |
+| `scores` | `scores:Score[]` | Full replacement scoreboard after every accepted delivery and presence change/join/reset. Includes idle/disconnected participants from this hour. |
+| `hour_end_in` | `seconds` | Once in the last 10 seconds (normally 10; lower if the event loop was delayed). |
+| `hour_reset` | `hour:Hour` | Old hour archived; switch the UI to the new hour, clearing previous scores. Followed by welcome and roster/scores. |
+| `error` | `code:"protocol",reload:true` | Missing/unsupported `v` in a JSON object; close 1002 follows. Reload a matching client. |
+| `error` | `code:"nicknames",reload:false` | All available nicknames used in this hour; close 1013 follows. Retry next hour. |
+
+Nicknames are randomly chosen from A–Z pairs except `SS,SA,HH,KK,FU`. Names stay
+reserved throughout an hour, including disconnected participants (671 possible).
+At rollover, only connected sessions continue, with money/deliveries zeroed and a
+different random nickname per player. Their ID/token/spawn/pose and paid-order IDs
+stay intact; idle connections stay idle. Disconnected sessions expire at rollover.
+Spawns rotate through twelve fixed street-side positions in join order, repeating
+after twelve new players; reconnect preserves the assigned point. The client snaps
+the feet to ground and handles temporary occupation by other players. A reset's
+welcome is an identity update, not a request to teleport; on rejoin use the retained
+self pose when present, otherwise spawn.
+
+## Transport limits
+
+- Maximum 32 simultaneous WebSockets, including connections awaiting hello and
+  closing sockets; additional upgrades receive HTTP 503.
+- At most 20 accepted messages in a sliding 1000 ms window per connection, counting
+  hello, malformed messages and deliveries too. Messages 21–25 are dropped and
+  counted; message 26 closes with 1008 (`rate`). Budget normal traffic at ≤20 total/s.
+- Maximum message size 65536 bytes, including fragmented messages. Oversize closes
+  with 1009. Compression is disabled.
+- Uninitialized connections close after 5 seconds (1008). Server ping every 30 s;
+  a missing pong at the next ping terminates the connection. Browser WebSocket
+  implementations answer pings automatically.
+- Slow readers with more than 256 KiB queued output are disconnected.
+- Upgrades require path `/` and an exact Origin of `https://wnt.github.io` or
+  `http://localhost` with an optional valid nonzero port. Missing Origin, `null`,
+  `127.0.0.1`, other hosts, schemes, paths and subdomains receive HTTP 403.
+  Non-browser clients such as the probe must set Origin explicitly.
+
+## HTTP and retention
+
+Same public host over HTTPS; local bind `127.0.0.1:7700`. GET requests without Origin
+work for curl. Browser requests use the same Origin allowlist (403 otherwise);
+allowed origins receive `Access-Control-Allow-Origin` and `Vary: Origin`. OPTIONS
+returns 204; unsupported methods 405. JSON responses use `Cache-Control: no-store`.
+
+| Path | JSON response |
+|---|---|
+| `/healthz` | `{ok:true,v:1,hour,connections,online,stats:{rejected,deliveries,poses,bytesIn,bytesOut}}` |
+| `/live.json` | `{hour:Hour,players:Player[],scores:Score[]}` |
+| `/scores/index.json` | `Hour[]`, finished hours newest first by UTC start (including both autumn hours) |
+| `/scores/<id>.json` | `{hour:Hour,players:[{nick,money,deliveries,rank}]}`; missing/invalid ID 404 |
+
+Byte counters measure application JSON payload, excluding WebSocket/TCP/TLS framing.
+Counters are process totals. Finished hours are written atomically to
+`server/data/scores/`, without IDs/tokens/poses. Files whose end is at least seven
+days old are pruned on startup/first tick and each new Finnish calendar day.
+A process restart preserves finished files but loses the unfinished in-memory hour,
+sessions and deduplication. No empty hours are backfilled for server downtime.
