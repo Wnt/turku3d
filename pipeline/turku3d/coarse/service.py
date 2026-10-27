@@ -214,7 +214,8 @@ class Builder:
     def manifest(self, tile: str) -> Path:
         return self.root / tile / "manifest.json"
 
-    def built(self, tile: str) -> bool:
+    def built(self, tile: str, code: str | None = None) -> bool:
+        """``code``: the producer hash when the caller checks many tiles (hashed once, not per tile)."""
         path = self.manifest(tile)
         if not path.exists():
             return False
@@ -222,7 +223,7 @@ class Builder:
             m = json.loads(path.read_text())
         except (OSError, ValueError):
             return False
-        if m.get("code") != self.code():
+        if m.get("code") != (code or self.code()):
             return False
         try:
             now = self.input_key(tile)
@@ -360,6 +361,14 @@ class Builder:
             self.request(tile, distance)
 
     def status(self) -> dict:
+        code = self.code()
+        # Reading every draft's manifest and input files takes seconds on a loaded host: not under
+        # the lock, so tile requests are not held up behind a status call.
+        built = sorted(
+            p.parent.name
+            for p in self.root.glob("t0_*/manifest.json")
+            if self.built(p.parent.name, code)
+        )
         with self.lock:
             return {
                 "state": "building" if self.building else "idle",
@@ -367,15 +376,11 @@ class Builder:
                 "queue": self.order(),
                 "eta": self.eta(),
                 "version": self.version,
-                "built": sorted(
-                    p.parent.name
-                    for p in self.root.glob("t0_*/manifest.json")
-                    if self.built(p.parent.name)
-                ),
+                "built": built,
                 "failed": {tile: error for tile, (error, _) in self.failed.items()},
                 "pending": {tile: units for tile, (units, _) in self.pending.items()},
                 "timings": dict(self.timings),
-                "code": self.code(),
+                "code": code,
                 "draining": self.draining,
             }
 

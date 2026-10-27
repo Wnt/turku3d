@@ -208,16 +208,18 @@ test('reports the player motion once a second and names the data a waiting tile 
 
 test('a restarting service pauses the drafts: one console line, only status probes, then they resume', async () => {
   const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])), collision: {} } as unknown as Manifest;
-  // 'up': a running service started at `started`; 'down': the dev server's answers for a stopped one (status 200
-  // offline, everything else 503); 'old': a running service without /coarse/want (404).
-  let mode: 'up' | 'down' | 'old' = 'up', started = 1;
+  // 'up': a running service; 'down': the dev server's answers for a stopped one (status 200 offline, everything else
+  // 503); 'old': a running service without /coarse/want (404). `busy` /coarse/status requests outlast their timeout.
+  let mode: 'up' | 'down' | 'old' = 'up', code = 'a', busy = 0;
   const requests: string[] = [];
   const fetch = (async (url: string) => {
     const u = new URL(url);
     requests.push(u.pathname);
     const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
     if (u.pathname === '/__localhost/status') return json(200, { service: true, coarse: { commit: 'c', state: 'restarting' } });
-    if (u.pathname === '/coarse/status') return json(200, mode === 'down' ? { state: 'offline' } : { state: 'idle', started });
+    if (u.pathname === '/coarse/status' && busy > 0) { busy--; throw new DOMException('The operation timed out.', 'TimeoutError'); }
+    // A restarted service with a new producer: nothing built yet, no queue.
+    if (u.pathname === '/coarse/status') return json(200, mode === 'down' ? { state: 'offline' } : { state: 'idle', code, built: [], queue: [] });
     if (mode === 'down') return json(503, { state: 'offline' });
     if (u.pathname === '/coarse/want') return mode === 'old' ? json(404, { error: 'not found' }) : json(200, {});
     return json(202, { state: 'queued' });
@@ -237,7 +239,7 @@ test('a restarting service pauses the drafts: one console line, only status prob
     // A landing restarts the service: the dev server answers 503 for it.
     mode = 'down';
     coarse.update(600, 100, 2000); await settle();
-    expect(coarse.outage?.reason).toBe('offline');
+    expect(coarse.outage).not.toBeNull();
     expect(coarse.status).toBe(RESTARTING);
     requests.length = 0;
     for (let t = 3000; t <= 12_000; t += 1000) { coarse.update(600, 100, t); await settle(); }
@@ -246,36 +248,51 @@ test('a restarting service pauses the drafts: one console line, only status prob
     expect(warn).toHaveBeenCalledTimes(1);
     expect(coarse.status).toBe(RESTARTING);
 
-    mode = 'up'; started = 2;
+    // The supervisor started a process with new producer code: any answer resumes, and the ring is asked for at once.
+    mode = 'up'; code = 'b';
+    requests.length = 0;
     coarse.update(600, 100, 14_000); await settle();
     expect(coarse.outage).toBeNull();
     expect(info).toHaveBeenCalledTimes(1);
-    requests.length = 0;
-    coarse.update(600, 100, 15_000); await settle();
+    coarse.update(600, 100, 14_100); await settle(); // the next frame, not the next 1 s check
     expect(requests).toContain('/coarse/want');
     expect(requests).toContain('/coarse/t0_2_0/manifest.json');
     expect(coarse.status).not.toBe(RESTARTING);
 
-    // The game landed a route the still-running old process lacks: paused until another process answers.
+    // A still-running older process without /coarse/want: only the prefetch is skipped, drafts keep being asked for.
     mode = 'old';
-    coarse.update(600, 100, 16_000); await settle();
-    expect(coarse.outage?.reason).toBe('outdated');
-    for (let t = 17_000; t <= 24_000; t += 1000) { coarse.update(600, 100, t); await settle(); }
-    expect(coarse.outage).not.toBeNull(); // the same process (started 2) still answers
-    expect(requests.filter(p => p === '/coarse/want').length).toBe(2); // the 404 and the one before it
-    mode = 'up'; started = 3;
-    coarse.update(600, 100, 26_000); await settle();
+    requests.length = 0;
+    for (let t = 16_000; t <= 20_000; t += 1000) { coarse.update(600, 100, t); await settle(); }
     expect(coarse.outage).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(2);
+    expect(requests.filter(p => p === '/coarse/t0_2_0/manifest.json').length).toBeGreaterThan(1);
+    expect(warn).toHaveBeenCalledTimes(1);
   } finally { warn.mockRestore(); info.mockRestore(); }
 
   // A page loaded while the supervised service restarts starts paused; without a supervising service, no drafts.
   mode = 'down';
   const paused = (await CoarseTiles.start(host))!;
-  expect(paused.outage?.reason).toBe('offline');
+  expect(paused.outage).not.toBeNull();
   const unsupervised = (async (url: string) => ({ ok: true, status: 200,
     json: async () => new URL(url).pathname === '/__localhost/status' ? { service: true, coarse: { commit: null, state: 'off' } } : { state: 'offline' } })) as unknown as typeof globalThis.fetch;
   expect(await CoarseTiles.start({ ...host, fetch: unsupervised })).toBeNull();
+
+  // A page loaded while the service is too busy to answer /coarse/status in 2 s starts paused, not without drafts,
+  // and resumes as soon as a probe gets through.
+  mode = 'up'; busy = 2;
+  const warn2 = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const info2 = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const settle = async () => { for (let k = 0; k < 4; k++) await new Promise(r => setTimeout(r, 0)); };
+    const slow = (await CoarseTiles.start(host))!;
+    expect(slow.outage).not.toBeNull();
+    slow.update(600, 100, 2000); await settle(); // the first probe is slow as well
+    expect(slow.outage).not.toBeNull();
+    requests.length = 0;
+    slow.update(600, 100, 4000); await settle();
+    expect(slow.outage).toBeNull();
+    slow.update(600, 100, 4100); await settle();
+    expect(requests).toContain('/coarse/t0_2_0/manifest.json');
+  } finally { warn2.mockRestore(); info2.mockRestore(); }
 });
 
 test('a finished build reaches the game at the next check, and the badge shows when the next tile is ready', async () => {

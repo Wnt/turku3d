@@ -13,9 +13,11 @@
 // Every 60 s the published manifest is re-read; a tile that has been published there replaces its draft.
 // Once a second the player's position and velocity go to /coarse/want, so the service prefetches the raw data ahead
 // of the player; a tile whose data is still downloading answers 202 pending-data and is polled like a queued one.
-// A landing restarts the service (tools/dev/localhost/coarse.mjs): a connection error (the dev server's 503) or a 404
-// from a route the running service lacks pauses the drafts with one console line and the badge `drafts: service
-// restarting`; only /coarse/status is probed until the service answers again, so a restart is no console error spam.
+// A landing restarts the service (tools/dev/localhost/coarse.mjs): a connection error (the dev server's 503) pauses the
+// drafts with one console line and the badge `drafts: service restarting`; only /coarse/status is probed until any
+// process answers it, so a restart is no console error spam. Then the ring and the path ahead are asked for at once (a
+// new producer rebuilds them on request). A page whose first /coarse/status outlasts its 2 s budget (a busy service)
+// starts paused the same way. A 404 from /coarse/want (an older service without the route) only skips the prefetch.
 // The /coarse/want answer carries the service's build counter: when it moves, the waiting tiles are polled at once, so a finished
 // draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
 // Never active off localhost (GitHub Pages) or when the service is not running.
@@ -40,6 +42,8 @@ const PREFETCH_SECONDS = 30, MAX_SPEED = 100;
 const KEEP_M = 2 * VISUAL_L0;
 /** While the service restarts, /coarse/status is probed this often (ms). */
 const PROBE_MS = 2000;
+/** A probe the busy service has not answered within this (ms) counts as no answer. */
+const PROBE_TIMEOUT_MS = 10_000;
 export const RESTARTING = 'drafts: service restarting';
 
 const l0 = (i: number, j: number) => `t0_${i}_${j}`;
@@ -98,10 +102,8 @@ class DraftRejected extends Error {}
 class ServiceDown extends Error {}
 const gatewayDown = (status: number) => status === 502 || status === 503 || status === 504;
 
-/** `offline`: the service did not answer; back once /coarse/status does. `outdated`: it answered 404 on a route the
- *  game uses (a landing added it and the old process still runs); back once /coarse/status names another `started`
- *  than the first probe saw, or after RETRY_MS. */
-interface Outage { reason: 'offline' | 'outdated'; started?: number | null; nextProbe: number; until: number; probing: boolean }
+/** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
+interface Outage { nextProbe: number; probing: boolean }
 
 /** Unpublished L0 ids to build ahead of a player moving at (vx, vz) m/s: every cell within the next
  *  PREFETCH_SECONDS of travel along the heading plus a one-tile ring, nearest first. Empty below walking speed. */
@@ -194,16 +196,24 @@ export class CoarseTiles {
   static async start(host: CoarseHost): Promise<CoarseTiles | null> {
     const page = new URL(host.pageUrl ?? location.href);
     if (!isLocalHost(page.hostname)) return null;
+    const slow = Symbol('slow');
     const get = (url: string) => (host.fetch ?? fetch)(new URL(url, page).href, { signal: AbortSignal.timeout(2000) })
-      .then(r => r.ok ? r.json() as Promise<Record<string, unknown>> : null).catch(() => null);
-    // A static host without the service answers with HTML or {"state":"offline"}.
+      .then(r => r.ok ? r.json() as Promise<Record<string, unknown>> : null)
+      .catch((err: Error) => err?.name === 'TimeoutError' ? slow : null);
+    // A static host without the service answers with HTML or {"state":"offline"}; only a service keeps it waiting.
     const status = await get(`${COARSE_ROOT}status`);
+    if (status === slow) {
+      const coarse = new CoarseTiles(host);
+      coarse.down();
+      return coarse;
+    }
     if (!status) return null;
     if (status.state !== 'offline') return new CoarseTiles(host);
-    const local = await get('/__localhost/status') as { coarse?: { state?: string } } | null;
-    if (!local?.coarse?.state || local.coarse.state === 'off') return null;
+    const local = await get('/__localhost/status');
+    const supervised = local && local !== slow ? (local as { coarse?: { state?: string } }).coarse?.state : undefined;
+    if (!supervised || supervised === 'off') return null;
     const coarse = new CoarseTiles(host);
-    coarse.down('offline');
+    coarse.down();
     return coarse;
   }
 
@@ -290,32 +300,31 @@ export class CoarseTiles {
   }
 
   /** The service is restarting: one console line, then only status probes until it answers (`probe`). */
-  down(reason: Outage['reason']) {
+  down() {
     if (this.outage) return;
-    // An outdated service is probed at once, so the probe sees the old process's start time.
-    this.outage = { reason, nextProbe: reason === 'outdated' ? 0 : this.clock + PROBE_MS, until: this.clock + RETRY_MS, probing: false };
+    this.outage = { nextProbe: this.clock + PROBE_MS, probing: false };
     console.warn(`[coarse] ${RESTARTING}: drafts paused until it answers again`);
     this.show(RESTARTING);
-    if (reason === 'outdated') void this.probe();
   }
 
+  /** Any answer from /coarse/status other than the dev server's offline one ends the outage: every tile not drawn is
+   *  asked for again at the next frame (a restarted service has no queue, and a new producer rebuilds on request). */
   private async probe() {
     const outage = this.outage;
     if (!outage) return;
     outage.probing = true;
-    const status = await this.fetch(new URL(`${COARSE_ROOT}status`, this.page).href, { cache: 'no-store' })
-      .then(r => r.ok ? r.json() as Promise<{ state?: string; started?: number }> : null).catch(() => null);
+    const status = await this.fetch(new URL(`${COARSE_ROOT}status`, this.page).href,
+      { cache: 'no-store', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+      .then(r => r.ok ? r.json() as Promise<{ state?: string }> : null).catch(() => null);
     outage.probing = false;
     outage.nextProbe = this.clock + PROBE_MS;
     if (this.outage !== outage || !status || status.state === 'offline') return;
-    if (outage.reason === 'outdated' && this.clock < outage.until) {
-      const started = status.started ?? null;
-      if (outage.started === undefined) { outage.started = started; return; }
-      if (started === outage.started) return;
-    }
     this.outage = null;
     this.nextCheck = 0;
-    for (const e of this.entries.values()) if (e.state === 'loading') { e.state = 'pending'; e.nextPoll = 0; }
+    for (const e of this.entries.values()) {
+      if (e.state === 'draft' || e.state === 'published') continue;
+      e.state = 'pending'; e.nextPoll = 0; e.error = undefined; e.readyAt = undefined;
+    }
     console.info('[coarse] service back: drafts resume');
   }
 
@@ -349,7 +358,7 @@ export class CoarseTiles {
     const q = [x, z, this.velocity.x, this.velocity.z].map(v => v.toFixed(1));
     try {
       const res = await this.request(`${COARSE_ROOT}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`);
-      if (res.status === 404) { this.down('outdated'); return; }
+      if (res.status === 404) return; // an older service without the prefetch route: drafts work without it
       const { version } = await res.json().catch(() => ({})) as { version?: number };
       if (typeof version !== 'number' || version === this.version) return;
       // A build finished: the next frame polls every tile last polled before it (see `due`). The first answer only
@@ -357,7 +366,7 @@ export class CoarseTiles {
       if (this.version < 0) for (const e of this.entries.values()) e.version = version;
       else this.nextCheck = 0;
       this.version = version;
-    } catch { this.down('offline'); }
+    } catch { this.down(); }
   }
 
   private async poll(id: string, e: Entry, d: number, load: boolean) {
@@ -408,7 +417,7 @@ export class CoarseTiles {
       this.updateParents();
       if (roads) { e.roads = roads; this.onMapChange?.(); }
     } catch (err) {
-      if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down('offline'); return; }
+      if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down(); return; }
       const rejected = err instanceof DraftRejected;
       // A rejected draft is retried like a failed build: the service may rebuild it with a fixed producer.
       e.state = rejected ? 'failed' : 'pending'; e.nextPoll = this.clock + (rejected ? RETRY_MS : 5000);
