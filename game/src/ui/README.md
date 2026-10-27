@@ -52,12 +52,17 @@ game runs (never from the start screen).
 
 - **Start screen**: Continue (the most recent slot, with its label, delivery count, money and save
   time), New game (asks first when any save exists), Load game (greyed without saves).
-- **Pause menu** (`pause`: Menu, Escape, touch Pause): Resume, Save game (Slot 1–3; a filled slot asks
+- **Pause menu** (`pause`: Menu, Escape, touch Pause): Resume, Respawn at the start, Save game (Slot 1–3; a filled slot asks
   before it is overwritten, then "Saved to Slot N."), Load game (autosave and slots, empty ones greyed),
   New game (always asks), Quit to start screen. While it is open the world is paused and its input is
   locked like in a shop menu. Menu resumes from any page; Escape and B go back one page (resume on the
   first); the touch context is `menu`, so the touch Back button does the same. The fullscreen overlay
   rule is unchanged: a pause the player chose survives a trip out of fullscreen.
+- **Respawn at the start** (every build, the escape from a stuck spot such as the inside of a building): asks
+  "Respawn? You keep your money and order.", then `SaveGameController.respawn` puts the player at the new-game
+  spawn (Läntinen Rantakatu 15) with the same ground snap and safe-reset restart as a loaded game. Missions, money
+  and a running order (its timer too) are untouched. Vehicles stay where they are, except the driven one: the own
+  car returns to its start parking, any other vehicle to the kerb 5.5 m behind it (`kerbBehind`).
 - **Load / new game** (`gameplay/saveGame.ts` `SaveGameController`): leaves the car, restores the missions (a running order keeps
   its timer), the clock and the time slider, puts the own car at its saved pose when one is owned (else at
   its spawn parking), streams the collision tile under the saved position and snaps the player onto the

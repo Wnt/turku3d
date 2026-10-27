@@ -4,6 +4,7 @@ import {
 } from '../../src/core/save';
 import { SaveMenuFlow, type GameHooks, type MenuPage } from '../../src/ui/menu';
 import { MissionSystem, missionSummary } from '../../src/gameplay/missions/missions';
+import { kerbBehind } from '../../src/gameplay/saveGame';
 import { PERMIT_DELIVERIES } from '../../src/gameplay/economy';
 import type { Router } from '../../src/gameplay/contract';
 
@@ -129,7 +130,7 @@ describe('save menus', () => {
     let captured = 0;
     const hooks: GameHooks = {
       capture: () => game(1000 + ++captured), play: g => { played.push(g); }, resume: () => { calls.push('resume'); },
-      quit: () => { calls.push('quit'); },
+      quit: () => { calls.push('quit'); }, respawn: () => { calls.push('respawn'); },
     };
     const host = { show: (page: MenuPage) => { shown.push(page); } };
     const menus = new SaveMenuFlow(host, store, hooks);
@@ -187,7 +188,7 @@ describe('save menus', () => {
   it('saves into an empty slot at once and asks before overwriting a filled one', () => {
     const f = flow();
     const pause = f.menus.pause();
-    expect(ids(pause)).toEqual(['resume', 'save', 'load-', 'new', 'quit']);
+    expect(ids(pause)).toEqual(['resume', 'respawn', 'save', 'load-', 'new', 'quit']);
     f.pick(pause, 'save');
     expect(ids(f.page())).toEqual(['slot1', 'slot2', 'slot3', 'back']);
     f.pick(f.page(), 'slot2');
@@ -217,6 +218,32 @@ describe('save menus', () => {
     f.pick(pause, 'new');
     f.pick(f.page(), 'yes');
     expect(f.played).toEqual([null]);
+  });
+
+  it('respawn at the start asks first; Cancel and back return to the pause menu, the game is not reloaded', () => {
+    const f = flow();
+    const pause = f.menus.pause();
+    f.pick(pause, 'respawn');
+    expect(f.page()).toMatchObject({ id: 'confirm-respawn', text: 'Respawn? You keep your money and order.' });
+    expect(f.page().items.map(i => i.label)).toEqual(['Respawn', 'Cancel']);
+    f.pick(f.page(), 'no');
+    expect(f.page().id).toBe('pause');
+    f.pick(pause, 'respawn');
+    f.page().back!();
+    expect(f.page().id).toBe('pause');
+    expect(f.calls).toEqual([]);
+    f.pick(pause, 'respawn');
+    f.pick(f.page(), 'yes');
+    expect(f.calls).toEqual(['respawn']);
+    expect(f.played).toEqual([]);
+  });
+
+  it('a driven vehicle other than the own car waits at the kerb 5.5 m behind the start car', () => {
+    const car = { x: 10, y: 2, z: 20, yaw: Math.PI / 2 }; // chassis +X points to -Z (north)
+    const behind = kerbBehind(car);
+    expect(behind.x).toBeCloseTo(10);
+    expect(behind.z).toBeCloseTo(25.5);
+    expect(behind).toMatchObject({ y: 2, yaw: Math.PI / 2 });
   });
 
 });

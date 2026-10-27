@@ -173,6 +173,8 @@ export interface GameHooks {
   resume(): void;
   /** Leaves the running game for the start screen. */
   quit(): void;
+  /** Puts the player back at the start; money, missions and a running order stay. */
+  respawn(): void;
 }
 
 /** A slot row: its name and label, and the details line, or "Empty". */
@@ -213,6 +215,8 @@ export class SaveMenuFlow {
     const root = () => this.pause();
     return { id: 'pause', title: 'Paused', text, back: () => this.game.resume(), items: [
       { id: 'resume', label: 'Resume', detail: null, enabled: true, run: () => this.game.resume() },
+      { id: 'respawn', label: 'Respawn at the start', detail: null, enabled: true,
+        run: () => this.host.show(this.confirmRespawn()) },
       ...(this.scoreboard ? [{ id: 'scores', label: 'Scoreboard', detail: null, enabled: true, run: this.scoreboard }] : []),
       { id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
       { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) },
@@ -245,6 +249,15 @@ export class SaveMenuFlow {
       back: () => this.host.show(this.save()), items: [
         { id: 'yes', label: 'Overwrite', detail: null, enabled: true, run: () => this.saveTo(id) },
         { id: 'no', label: 'Cancel', detail: null, enabled: true, run: () => this.host.show(this.save()) },
+      ] };
+  }
+
+  /** The escape from a stuck spot (inside a building, under the map): asks first. */
+  private confirmRespawn(): MenuPage {
+    return { id: 'confirm-respawn', title: 'Respawn', text: 'Respawn? You keep your money and order.',
+      back: () => this.host.show(this.pause()), items: [
+        { id: 'yes', label: 'Respawn', detail: null, enabled: true, run: () => this.game.respawn() },
+        { id: 'no', label: 'Cancel', detail: null, enabled: true, run: () => this.host.show(this.pause()) },
       ] };
   }
 

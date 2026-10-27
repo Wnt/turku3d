@@ -67,6 +67,7 @@ test('save to slot 2, quit, load slot 2 restores money, permit and position; New
   await expect(page.getByRole('option', { name: 'Continue' })).toHaveCount(0);
   await newGame.click();
   await playing(page);
+  const start = await menuState(page);
 
   await buyAtMarket(page, 'rent_permit');
   expect((await menuState(page)).missions).toMatchObject({ money: START_MONEY - PERMIT_PRICE, permit: PERMIT_DELIVERIES });
@@ -85,6 +86,8 @@ test('save to slot 2, quit, load slot 2 restores money, permit and position; New
   await expect(selected(page)).toHaveText('Quit to start screen'); // W is menu up: it wrapped from Resume
   await shot('01-pause-menu');
   await tap(page, 'ArrowDown');
+  await tap(page, 'ArrowDown');
+  await expect(selected(page)).toHaveText('Respawn at the start');
   await tap(page, 'ArrowDown');
   await expect(selected(page)).toHaveText('Scoreboard');
   await tap(page, 'ArrowDown');
@@ -117,6 +120,16 @@ test('save to slot 2, quit, load slot 2 restores money, permit and position; New
   await walk(page, 4);
   const later = await menuState(page);
   expect(later.missions.money).toBe(START_MONEY - PERMIT_PRICE + KIDNEY_PAYOUT);
+  // Respawn at the start (every build) asks first, then puts the player back at the spawn; money and permit stay.
+  await tap(page, 'Escape');
+  await page.getByRole('option', { name: 'Respawn at the start' }).click();
+  await expect(page.locator('#pause-menu .menu-text')).toHaveText('Respawn? You keep your money and order.');
+  await page.getByRole('option', { name: 'Respawn', exact: true }).click();
+  await playing(page);
+  const respawned = await menuState(page);
+  expect(Math.hypot(respawned.E - start.E, respawned.N - start.N)).toBeLessThan(0.5);
+  expect(respawned.missions).toMatchObject({ money: later.missions.money, permit: PERMIT_DELIVERIES, phase: later.missions.phase });
+  await shot('03b-respawned');
   await tap(page, 'Escape');
   await page.getByRole('option', { name: 'Quit to start screen' }).click();
   await expect(page.locator('#start-screen')).toBeVisible();
