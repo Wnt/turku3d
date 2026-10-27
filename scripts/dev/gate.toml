@@ -314,7 +314,7 @@ tags = ["@character", "@walk"]
 paths = ["game/src/qa/*"]
 tags = ["@qa"]
 
-# Play telemetry is off under webdriver; the .d.mts only declares types.
+# Play telemetry is checked by the localhost-hotswap stage (e2e-hotswap/telemetry.spec.ts); the .d.mts only declares types.
 [[stages.related]]
 paths = ["game/src/telemetry/*", "tools/dev/environment.d.mts"]
 tags = []
@@ -341,13 +341,13 @@ tags = ["@curb", "@ground"]
 paths = ["pipeline/turku3d/package/*", "pipeline/turku3d/layers.py", "pipeline/turku3d/buildings/*", "pipeline/turku3d/roads/*", "pipeline/turku3d/props/*", "pipeline/turku3d/placement/*", "pipeline/turku3d/parked/*", "pipeline/turku3d/structures/*", "pipeline/turku3d/bridges/*", "pipeline/turku3d/coarse/*", "pipeline/turku3d/content/*", "pipeline/turku3d/region/*"]
 tags = ["@pipeline"]
 
-# The localhost game's hot path (tools/dev/localhost): HUD hot swap and worker reload on a dev-server copy.
+# The localhost game's hot path (tools/dev/localhost): HUD hot swap and worker reload on a dev-server copy; play telemetry.
 [[stages]]
 name = "localhost-hotswap-e2e"
 kind = "command"
 browser = true
 cwd = "game"
-triggers = ["tools/dev/localhost/*", "tools/dev/http.mjs", "tools/dev/environment.*", "game/src/main.ts", "game/src/play.ts", "game/src/gameplay/hotState.ts", "game/src/gameplay/saveGame.ts", "game/src/core/save.ts", "game/src/ui/buildBadge.ts", "game/vite.config.ts", "game/playwright.hotswap.config.ts", "game/tests/e2e-hotswap/*", "game/package*.json"]
+triggers = ["tools/dev/localhost/*", "tools/dev/http.mjs", "tools/dev/environment.*", "game/src/main.ts", "game/src/play.ts", "game/src/telemetry/*", "game/src/gameplay/hotState.ts", "game/src/gameplay/saveGame.ts", "game/src/core/save.ts", "game/src/ui/buildBadge.ts", "game/vite.config.ts", "game/playwright.hotswap.config.ts", "game/tests/e2e-hotswap/*", "game/package*.json"]
 commands = [["python3", "../scripts/dev/host_slots.py", "browser", "--", "node_modules/.bin/playwright", "test", "-c", "playwright.hotswap.config.ts"]]
 
 [[stages]]
