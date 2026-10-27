@@ -420,7 +420,16 @@ def assemble(
     parents |= {
         child for parent in list(parents) if parent.level == 2 for child in parent.children()
     }
-    build = requested | parents
+    # The same holds for a 500 m parent only partly covered by playable L0 tiles: its other
+    # quadrants become visual-only coarse L0 leaves (massing and coarse DTM, no collision).
+    area_visuals = set(C.area(area).visual_tiles)
+    coarse_leaves = {
+        sibling
+        for tile in requested
+        for sibling in tile.parent().children()
+        if sibling not in requested and sibling not in area_visuals
+    }
+    build = requested | parents | coarse_leaves
     tree = DistTree(out, areas=[area])
     tree.spawn = derive_spawn(root, collision)
     roads_changed = publish_roads(root / "roads", tree)
@@ -498,7 +507,6 @@ def assemble(
         if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
     ]
     texture_hash = digest(textures)
-    area_visuals = set(C.area(area).visual_tiles)
     available = set(tree.collision)
     for t in requested:
         for c in C.collision_tiles_for_bbox(t.bbox.buffered(C.MESH_MARGIN)):
@@ -522,7 +530,9 @@ def assemble(
                     and child.j // 2**tile.level == tile.j
                 ):
                     inputs.extend(paths)
-            terrain = coarse.discover(tile) if tile.level > 0 else None
+            terrain = coarse.discover(tile) if tile.level > 0 or tile in coarse_leaves else None
+            if tile in coarse_leaves and not inputs and not terrain:
+                continue  # Nothing to show there: no massing and no terrain coverage.
             # The road graph is published beside the tiles and does not change their content.
             files = inputs + [
                 root / name / "MANIFEST.json" for name in manifests if name != "roads"
@@ -545,7 +555,7 @@ def assemble(
                 coarse_ids.add(tile.id)
             pending_inputs[tile] = inputs
             changed.append(tile.id)
-            if tile.level == 0:
+            if tile.level == 0 and tile not in coarse_leaves:
                 for c in tile.collision_tiles():
                     if c.id in available:
                         pending_collision[c] = collision_tile(
@@ -684,7 +694,7 @@ def assemble(
                     for name in stats.get("shared_images", [])
                 ],
             )
-            if tile.level > 0:
+            if tile.level > 0 or tile in coarse_leaves:
                 entry["coarse_dtm"] = tile.id in coarse_ids
         for tile, (data, stats) in pending_collision.items():
             tree.add_collision(tile, data, **stats)

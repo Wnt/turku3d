@@ -5,7 +5,7 @@ Build from the immutable `work-3x3` WFS/OSM snapshot and published ground/struct
 ```sh
 source ../sandbox.env
 bash pipeline/env/run.sh python -m turku3d.props  # office core (development)
-bash pipeline/env/run.sh python -m turku3d.props --area phase1  # final AOI acceptance
+bash pipeline/env/run.sh python -m turku3d.props --area playable-tiles  # final AOI acceptance
 bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_props.py
 bash pipeline/env/run.sh scripts/dev/gate
 # npm ci --prefix game is needed once for the browser preview.
@@ -14,7 +14,7 @@ bash pipeline/env/run.sh python -m turku3d.props.orientation_report
 ```
 
 The default is the office core, 250×250 m (16 collision tiles), without a margin.
-`--area phase1` selects the four Phase 1 L0 tiles plus 50 m, engine x/z −50…550 m.
+`--area playable-tiles` selects the listed playable L0 tiles (`config.playable_tile_ids()`) plus 50 m; for the four core tiles that is engine x/z −50…550 m.
 `--tiles t0_0_0 t0_0_1 --margin 50 --source-area work-3x3` selects another envelope.
 A build replaces the **complete** props manifest, not an incremental subset.
 Only `$TURKU3D_WORK/build/layers/props` is published; the assembler owns shipped files.

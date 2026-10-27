@@ -179,6 +179,33 @@ def test_cdt_seams_water_and_materials(built_mesh, tmp_path):
     assert seam_errors(meshes)
 
 
+def test_cdt_seams_hold_on_a_2x3_grid_with_an_added_column():
+    """A tile added east of a 2x2 block is meshed with it: every shared edge matches bytewise."""
+    x, z = np.meshgrid(np.arange(0, 187.51, 1.0), np.arange(0, 125.01, 1.0))
+    y = 0.02 * x + 0.01 * z + 0.3 * np.sin(x / 9.0) * np.cos(z / 7.0)
+    surface = Surface(np.c_[x.ravel(), y.ravel(), z.ravel()])
+    tiles = [C.CollisionTile(i, j) for j in range(2) for i in range(3)]
+    mesh, _ = build_mesh(
+        surface,
+        C.BBoxLocal(0, 0, 187.5, 125),
+        tiles,
+        [],
+        shapely.Polygon(),
+        0.0,
+        ConstantMaterials(),
+    )
+    meshes = {t: tile_mesh(mesh, t) for t in tiles}
+    assert not seam_errors(meshes)
+    for tile, part in meshes.items():
+        east = C.CollisionTile(tile.i + 1, tile.j)
+        if east in meshes:  # the added column shares real vertices with the block
+            assert np.sum(part.positions[:, 0] == tile.bbox.xmax) >= 2
+    broken = meshes[tiles[2]].positions.copy()
+    broken[broken[:, 0] == 125.0, 1] += 1e-9
+    meshes[tiles[2]] = Mesh(broken, meshes[tiles[2]].indices, meshes[tiles[2]].material)
+    assert ["c_1_0", "c_2_0"] in seam_errors(meshes)
+
+
 def test_unsupported_shore_is_bounded_and_bridge_cuts_land():
     x, z = np.meshgrid(np.arange(0, 6, 0.5), np.arange(0, 6, 0.5))
     surface = Surface(np.c_[x.ravel(), 1 + x.ravel(), z.ravel()])

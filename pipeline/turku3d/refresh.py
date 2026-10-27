@@ -1,4 +1,8 @@
-"""Refresh derived office-block products from declared input and code hashes."""
+"""Refresh derived products from declared input and code hashes.
+
+Ground, buildings, surrounding massing, roads and props follow the playable tile list
+(config.playable_tile_ids); a layer built for another list is stale. Structures, bridges,
+vegetation and parked cars stay on the measured office core."""
 
 import argparse
 import concurrent.futures
@@ -23,6 +27,24 @@ from turku3d.structures.layer import code_hash as structures_code_hash
 from turku3d.vegetation.__main__ import code_hash as vegetation_code_hash
 
 _detach_lock = threading.Lock()
+# Written beside a tile-following layer's MANIFEST.json after it is rebuilt for the list.
+TILE_RECORD = "PLAYABLE_TILES.json"
+
+
+def built_tiles(directory):
+    """The tile list a layer was last built for; layers from before the list cover the core."""
+    path = directory / TILE_RECORD
+    return json.loads(path.read_text())["tiles"] if path.is_file() else list(C.CORE_TILES)
+
+
+def tiles_current(directory):
+    return built_tiles(directory) == C.playable_tile_ids()
+
+
+def record_tiles(directory):
+    pending = directory / (TILE_RECORD + ".tmp")
+    pending.write_text(json.dumps({"tiles": C.playable_tile_ids()}) + "\n")
+    pending.replace(directory / TILE_RECORD)
 
 
 def sha(path):
@@ -157,21 +179,24 @@ def local_directory(path, work):
 
 def ground(layers):
     path = layers / "ground/MANIFEST.json"
-    if manifest_current(path, ground_code_hash()):
+    if manifest_current(path, ground_code_hash()) and tiles_current(path.parent):
         return "cached"
-    args = []
+    args = ["--tiles", *C.playable_tile_ids()]
     if path.exists():
         inputs = json.loads(path.read_text()).get("inputs", {})
         if "breaklines" in inputs:
-            args = ["--breaklines", inputs["breaklines"]["path"]]
+            args += ["--breaklines", inputs["breaklines"]["path"]]
     local_directory(layers / "ground", layers.parents[1])
     run("turku3d.ground.build", *args)
+    record_tiles(path.parent)
     return "rebuilt"
 
 
 def buildings(layers):
     expected = buildings_code_hash()
-    if manifest_current(layers / "buildings/MANIFEST.json", expected):
+    if manifest_current(layers / "buildings/MANIFEST.json", expected) and tiles_current(
+        layers / "buildings"
+    ):
         return "cached"
     local_directory(layers / "buildings", layers.parents[1])
     facade_manifest = layers.parents[1] / "textures/assembly/MANIFEST.json"
@@ -190,7 +215,14 @@ def buildings(layers):
                     shutil.copy2(inventory, snapshot)
                 if sha(snapshot) != old_hash:
                     raise RuntimeError("approved facade source inventory hash mismatch")
-    run("turku3d.buildings", "--jobs", os.environ.get("TURKU3D_JOBS", "3"))
+    run(
+        "turku3d.buildings",
+        "--jobs",
+        os.environ.get("TURKU3D_JOBS", "3"),
+        "--tiles",
+        *C.playable_tile_ids(),
+    )
+    record_tiles(layers / "buildings")
     return "rebuilt"
 
 
@@ -208,10 +240,12 @@ def buildings_code_hash():
 def outer_buildings(layers):
     from turku3d.buildings.outer import code_hash
 
-    if manifest_current(layers / "buildings_outer/MANIFEST.json", code_hash()):
+    directory = layers / "buildings_outer"
+    if manifest_current(directory / "MANIFEST.json", code_hash()) and tiles_current(directory):
         return "cached"
-    local_directory(layers / "buildings_outer", layers.parents[1])
+    local_directory(directory, layers.parents[1])
     run("turku3d.buildings.outer")
+    record_tiles(directory)
     return "rebuilt"
 
 
@@ -327,18 +361,22 @@ def facades(layers, textures):
 
 def props(layers):
     code = code_hash([C.REPO_ROOT / "pipeline/turku3d/props"])
-    if manifest_current(layers / "props/MANIFEST.json", code):
+    if manifest_current(layers / "props/MANIFEST.json", code) and tiles_current(layers / "props"):
         return "cached"
     local_directory(layers / "props", layers.parents[1])
-    run("turku3d.props", "--area", "phase1")
+    run("turku3d.props", "--area", "playable-tiles")
+    record_tiles(layers / "props")
     return "rebuilt"
 
 
 def roads(layers):
-    if layer_current(layers / "roads/MANIFEST.json", roads_code_hash()):
+    if layer_current(layers / "roads/MANIFEST.json", roads_code_hash()) and tiles_current(
+        layers / "roads"
+    ):
         return "cached"
     local_directory(layers / "roads", layers.parents[1])
-    run("turku3d.roads")
+    run("turku3d.roads", "--area", "playable-tiles")
+    record_tiles(layers / "roads")
     return "rebuilt"
 
 
