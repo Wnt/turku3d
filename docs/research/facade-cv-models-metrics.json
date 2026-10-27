@@ -1,0 +1,341 @@
+{
+  "cmp-grid": {
+    "engine": "cmp-grid",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": 3.085,
+    "seconds": 4.057,
+    "seconds_per_wall": 0.203,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 7,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 3,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 19.72,
+    "astra_median_colour_delta": 13.04,
+    "visible": 20
+  },
+  "cmp": {
+    "engine": "cmp",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 4.286,
+    "seconds_per_wall": 0.214,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 3,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 4,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 19.72,
+    "astra_median_colour_delta": 13.04,
+    "visible": 20
+  },
+  "florence": {
+    "engine": "florence",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 13.452,
+    "seconds_per_wall": 0.673,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 7,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 3,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 25.6,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "grounding-dino-800": {
+    "engine": "grounding-dino-openings",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": 4.051,
+    "seconds": 14.773,
+    "seconds_per_wall": 0.739,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 11,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 3,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 21.87,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "grounding-dino-box-grid": {
+    "engine": "grounding-dino-box-grid",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 0.069,
+    "seconds_per_wall": 0.003,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 11,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 1,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 21.87,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "grounding-dino-openings": {
+    "engine": "grounding-dino-openings",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 15.058,
+    "seconds_per_wall": 0.753,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 9,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 4,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 23.87,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "grounding-dino": {
+    "engine": "grounding-dino",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 15.679,
+    "seconds_per_wall": 0.784,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 6,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 2,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 21.82,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "hybrid-reviewed": {
+    "engine": "cv-models",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": 7.281,
+    "seconds": 23.924,
+    "seconds_per_wall": 1.196,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 11,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 4,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 19.72,
+    "astra_median_colour_delta": 13.04,
+    "visible": 20
+  },
+  "qwen-full": {
+    "engine": "qwen",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": 16.277,
+    "seconds": 290.615,
+    "seconds_per_wall": 14.531,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 5,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 1,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 24.42,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "qwen-short": {
+    "engine": "qwen",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 123.906,
+    "seconds_per_wall": 6.195,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 5,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 1,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 23.93,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "smolvlm-short-unconstrained": {
+    "engine": "smolvlm",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 85.605,
+    "seconds_per_wall": 4.28,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 4,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 0,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 26.07,
+    "astra_median_colour_delta": 13.04,
+    "visible": 19
+  },
+  "smolvlm-short": {
+    "engine": "smolvlm",
+    "segmentation": "classic",
+    "walls": 20,
+    "model_load_seconds": null,
+    "seconds": 121.053,
+    "seconds_per_wall": 6.053,
+    "counts": {
+      "storeys": {
+        "n": 14,
+        "cv": 3,
+        "astra": 12
+      },
+      "columns": {
+        "n": 10,
+        "cv": 0,
+        "astra": 8
+      }
+    },
+    "median_colour_delta": 28.7,
+    "astra_median_colour_delta": 13.04,
+    "visible": 20
+  },
+  "cmp-pseudo": {
+    "walls": 425,
+    "measured": 278,
+    "missing_reference": 147,
+    "visible_n": 278,
+    "columns_n": 241,
+    "storeys_exact": 55,
+    "columns_exact": 107,
+    "material_exact": 224,
+    "visibility_exact": 278,
+    "median_colour_delta": 29.239219665527344,
+    "seconds_per_wall": 0.0522557748799889,
+    "model_load_seconds": 5.43
+  },
+  "cmp-grid-pseudo": {
+    "walls": 425,
+    "measured": 278,
+    "missing_reference": 147,
+    "visible_n": 278,
+    "columns_n": 241,
+    "storeys_exact": 76,
+    "columns_exact": 97,
+    "material_exact": 224,
+    "visibility_exact": 278,
+    "median_colour_delta": 29.239219665527344,
+    "seconds_per_wall": 0.04951983362037635,
+    "model_load_seconds": 2.823
+  },
+  "hybrid-pseudo": {
+    "walls": 425,
+    "measured": 278,
+    "matched_input_hashes": 278,
+    "missing_reference": 147,
+    "visible_n": 278,
+    "columns_n": 241,
+    "storeys_exact": 139,
+    "columns_exact": 114,
+    "material_exact": 224,
+    "visibility_exact": 278,
+    "median_colour_delta": 29.239219665527344,
+    "seconds_per_wall": 0.9905868448893265,
+    "model_load_seconds": 10.353
+  },
+  "siglip": {
+    "rows": 278,
+    "visible": 278,
+    "zero_shot_exact": 121,
+    "train": 158,
+    "validation": 37,
+    "test": 40,
+    "alpha": 0.01,
+    "validation_accuracy": 0.8648648648648649,
+    "test_probe_exact": 35,
+    "test_zero_exact": 18,
+    "test_majority": 35,
+    "seconds_per_wall": 0.035331216473266376
+  },
+  "notes": [
+    "20 reviewed walls; exploratory selection. Pseudo denominators278 images/241 eligible upper-column labels from425 descriptions;147 fallbacks unmeasured.",
+    "First unconstrained SmolVLM has20/20 invalid answers; its scored fallback is classic CV, not VLM accuracy.",
+    "Box-grid runtime is cached postprocessing only; add underlying detector time.",
+    "Null load_seconds means a model was preloaded by the old harness; not a zero-cost load."
+  ]
+}
