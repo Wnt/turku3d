@@ -185,6 +185,14 @@ Pipeline principles:
 - Each step is resumable per tile.
 - `make tile T=...` rebuilds one tile end to end.
 
+Landing and integration: a finished branch reaches `main` after the fast gate only; the integrator then verifies
+`main` once per batch and moves `live` (and GitHub Pages) only to a verified release. Each landing and batch has a
+class (`scripts/dev/landing_class.py`, conservative allowlists): `inert` (docs, prose) re-points `live` to the
+new commit with the verified content and builds nothing; `data` (voice clips, the address pool, or a changed data
+root: facade approvals, the playable tile list, layers) runs refresh, tile reassembly and validation, the facade
+ground audit and the game build without Chrome; `code` runs every live stage. Details and ledger fields:
+`scripts/dev/README.md`, "Merge queue".
+
 ---
 
 ## 3. Repo layout

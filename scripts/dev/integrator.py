@@ -1,11 +1,13 @@
 """Build, verify and publish the live release for main once per landed batch.
 
-The lander fast-forwards main after the fast gate. This integrator then builds the batch
-G..M (G = commit of the published live release, M = main head) once in its own sandbox.
-Green publishes M. Red builds G against the current data root first: a red G is `data-red`
-(the data root changed, no commit is blamed or reverted). Only a green G bisects the batch's
-landings and reverts the one culprit landing on main through the land lock and the fast
-gate, tells its author and leaves live at G.
+The lander fast-forwards main after the fast gate. This integrator then classifies the batch
+G..M (G = commit of the published live release, M = main head; landing_class.py): `inert`
+re-points live to M without a build, `data` and `code` build M once in its own sandbox with
+the class's stages (live_build.stages_for). Green publishes M. Red builds G against the
+current data root first: a red G is `data-red` (the data root changed, no commit is blamed
+or reverted). Only a green G bisects the batch's landings and reverts the one culprit
+landing on main through the land lock and the fast gate, tells its author and leaves live
+at G.
 """
 
 from __future__ import annotations
@@ -18,18 +20,16 @@ import os
 import subprocess
 import sys
 import time
-import tomllib
 from pathlib import Path
 
 import coordination as coord
 import host_slots
-import live_cache
+import landing_class
 import sandbox as s
-from gate_lib import matches
 
 NAME = "integration"
-# Tooling and docs reach live only through declared stage inputs (live_cache.INPUTS).
-NON_DOMAIN = ("scripts/dev/*", "docs/*", ".githooks/*")
+# An inert batch republishes Pages only when the image licence list changed.
+PAGES_INPUTS = ("docs/published-images.toml",)
 
 
 def registry():
@@ -69,24 +69,21 @@ def last(published):
 
 
 def data_key(published):
-    """Identity of the data root a run builds against: approval MANIFEST, the playable tile
-    list and published layers.
+    """Identity of the data root a run builds against (landing_class.data_parts).
 
     The queue retries a run for the same main head only when this key changes.
     """
-    h = hashlib.sha256()
-    manifest = published / "facade-approvals/assembly/MANIFEST.json"
-    h.update(manifest.read_bytes() if manifest.is_file() else b"missing:approvals")
-    listed = published / "playable-tiles.json"
-    h.update(listed.read_bytes() if listed.is_file() else b"missing:playable-tiles")
-    layers = published / "build/layers"
-    if not layers.is_dir():
-        h.update(b"missing:layers")
-    for file in sorted(layers.rglob("*")) if layers.is_dir() else ():
-        if file.is_file():
-            stat = file.stat()
-            h.update(f"{file.relative_to(layers)}\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode())
-    return h.hexdigest()
+    parts = landing_class.data_parts(published)
+    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()
+
+
+def batch_class(published, start, end, repo):
+    """The landing class of the batch start..end against the live release and data root."""
+    delta = landing_class.data_delta(
+        landing_class.data_parts(published),
+        landing_class.release_parts((published / "live").resolve()),
+    )
+    return landing_class.classify(repo, start, end, delta, published)
 
 
 def settled(published, main):
@@ -103,25 +100,6 @@ def settled(published, main):
 def live_commit(published):
     record = published / "live/live-build.json"
     return json.loads(record.read_text())["commit"] if record.is_file() else None
-
-
-def domains(changed):
-    """Top-level domains a batch diff can affect in the live build; empty builds nothing.
-
-    A path counts when a live stage declares it as an input (live_cache.INPUTS, the stage
-    cache key), or when it is neither gate prose nor tooling and docs. Unknown paths
-    therefore count, so a new data or game directory is never skipped.
-    """
-    config = tomllib.loads((s.REPO / "scripts/dev/gate.toml").read_text())
-    prose = config["gate"].get("prose", ["*.md"])
-    live = sorted({pattern for patterns in live_cache.INPUTS.values() for pattern in patterns})
-    return sorted(
-        {
-            "/".join(name.split("/")[:2])
-            for name in changed
-            if matches(name, live) or not (matches(name, prose) or matches(name, NON_DOMAIN))
-        }
-    )
 
 
 def landings(start, end, repo):
@@ -195,10 +173,11 @@ def status(**fields):
 class Run:
     """One integration of G..M; `build` counts builds and keeps every stage log."""
 
-    def __init__(self, published, main_repo, name, end):
+    def __init__(self, published, main_repo, name, end, kind="code"):
         self.published = published
         self.main_repo = main_repo
         self.name = name
+        self.landing_class = kind
         runs = sum(row.get("to") == end for row in read_rows(ledger_path()))
         # The row id names the integration in revert commits and messages.
         self.id = f"{end[:12]}.{runs + 1}"
@@ -222,7 +201,7 @@ class Run:
             started = time.monotonic()
             try:
                 report = live_build.build(
-                    repo, work, self.published, env, log, reason, self.previous
+                    repo, work, self.published, env, log, reason, self.previous, self.landing_class
                 )
             except live_build.StageFailed as exc:
                 self.builds.append(
@@ -469,6 +448,24 @@ def integrate(run, base, start, end):
     return record(run, row)
 
 
+def repoint(run, base, start, end):
+    """Inert batch: no build; live moves to end with the content of the verified release."""
+    import live_build
+
+    row = {**base, "skipped": True, "culprit": None}
+    try:
+        live_build.repoint(run.published, start, end)
+    except (ValueError, OSError) as exc:
+        return record(run, {**row, "result": "failed", "failure": {"detail": str(exc)}})
+    row["result"] = "green"
+    changed = landing_class.changed_paths(run.main_repo, start, end)
+    if any(path in PAGES_INPUTS for path in changed):
+        deployed = publish_pages(run.published)
+        if deployed:
+            row["pages"] = deployed
+    return record(run, row)
+
+
 def publish_pages(published):
     """Deploy the new live release to GitHub Pages when publish/pages.json exists.
 
@@ -495,17 +492,22 @@ def run_once(published, main_repo=s.REPO, name=NAME):
         raise ValueError(f"no published live release in {published}")
     if start == end:
         return None
-    run = Run(published, main_repo, name, end)
+    landing = batch_class(published, start, end, main_repo)
+    run = Run(published, main_repo, name, end, landing["class"])
     status_path().parent.mkdir(parents=True, exist_ok=True)
     s.write_json(
-        status_path(), {"pid": os.getpid(), "started": time.time(), "from": start, "to": end}
+        status_path(),
+        {
+            "pid": os.getpid(),
+            "started": time.time(),
+            "from": start,
+            "to": end,
+            "class": landing["class"],
+        },
     )
-    base = {"from": start, "to": end, "data_key": data_key(published)}
-    changed = s.git("diff", "--name-only", start, end, cwd=main_repo).splitlines()
-    affected = domains(changed)
-    if not affected:
-        return record(run, {**base, "result": "skipped", "changed_paths": len(changed)})
-    base["domains"] = affected
+    base = {"from": start, "to": end, "data_key": data_key(published), **landing}
+    if landing["class"] == "inert":
+        return repoint(run, base, start, end)
     with host_slots.slot("integration") as inherited:
         if not inherited:
             os.environ["TURKU3D_INTEGRATION_OWNER"] = (
@@ -586,7 +588,7 @@ def main():
         finally:
             status_path().unlink(missing_ok=True)
         print(json.dumps(row))
-        return 0 if row is None or row["result"] in ("green", "skipped") else 1
+        return 0 if row is None or row["result"] == "green" else 1
 
 
 if __name__ == "__main__":

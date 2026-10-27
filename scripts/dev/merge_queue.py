@@ -22,6 +22,7 @@ from pathlib import Path
 import coordination as coord
 import integrator
 import sandbox as s
+from landing_class import published_root
 
 # Rows in these states wait for a new DONE (a new meta.finished) before the queue acts again.
 TERMINAL = ("landed", "returned")
@@ -155,6 +156,7 @@ def land(name, record):
             commit=row["commit"],
             merge_wall_seconds=row.get("merge_wall_seconds"),
             fast_gate_seconds=row.get("fast_gate_seconds"),
+            **{key: row.get(key) for key in ("class", "tiles", "data_delta")},
         )
         return
     reason = failure(result.stdout)
@@ -166,10 +168,6 @@ def land(name, record):
     # A rebase conflict or a returned batch member is returned by the lander itself,
     # inbox request included.
     give_back(name, reason, record, notify=meta.get("state") != "returned")
-
-
-def published_root():
-    return Path(os.environ.get("TURKU3D_DATA", Path.home() / "turku3d/data")).resolve()
 
 
 _child = None

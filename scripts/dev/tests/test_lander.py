@@ -44,6 +44,8 @@ class LanderTests(Fixture):
         self.assertLess(row["merge_wall_seconds"], 5, row)
         self.assertFalse(row["merge_slow"])
         self.assertNotIn("live_build", row)
+        self.assertEqual((row["class"], row["paths"], row["tiles"]), ("inert", ["change.md"], []))
+        self.assertEqual((row["changed_paths"], row["data_delta"]), (1, []))
         self.assertIsNone(row["facade_regression_reason"])
         self.assertEqual(row["first_done_time"], self.meta("demo")["first_finished"])
         self.assertIn("SKIP   game-e2e", (self.base / "tasks/demo/gate.log").read_text())
@@ -299,6 +301,10 @@ class LanderTests(Fixture):
             (repo / filename).write_text(filename)
             self.git("add", ".", cwd=repo)
             self.git("commit", "-qm", filename, cwd=repo)
+        # Approvals changed in the data root since the last ledger row (here: no live release).
+        approvals = self.base / "data/facade-approvals/assembly/MANIFEST.json"
+        approvals.parent.mkdir(parents=True)
+        approvals.write_text('{"bound": []}')
         self.cli("codex-task", "land", "--batch", "batch-a", "batch-b")
         self.assertTrue((self.repo / "a.md").exists())
         self.assertTrue((self.repo / "b.md").exists())
@@ -307,6 +313,13 @@ class LanderTests(Fixture):
             for line in (self.base / "wt/.registry/landed.jsonl").read_text().splitlines()
         ]
         self.assertEqual([row["name"] for row in records], ["batch-a", "batch-b"])
+        # The data delta is attributed to the first member; each member has its own paths.
+        self.assertEqual(
+            [(row["class"], row["paths"], row["data_delta"]) for row in records],
+            [("data", ["a.md"], ["facade-approvals"]), ("inert", ["b.md"], [])],
+        )
+        self.assertEqual(records[0]["tiles"], list(landing.landing_class.C.CORE_TILES))
+        self.assertEqual(records[0]["data_parts"], records[1]["data_parts"])
         self.assertFalse((self.base / "wt/batch-a").exists())
         self.assertFalse((self.base / "wt/batch-b").exists())
 

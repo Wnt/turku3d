@@ -267,12 +267,22 @@ class Following(Fixture):
         append(path / "events.jsonl", message("hello"))
         (path / "gate.log").write_text("TOTAL GREEN 0.1s\n")
         (path / "runner.log").write_text("runner started\n")
-        append(self.landings, {"name": "alpha", "commit": "0123456789abcdef", "gate_seconds": 0.1})
+        append(
+            self.landings,
+            {
+                "name": "alpha",
+                "commit": "0123456789abcdef",
+                "fast_gate_seconds": 0.1,
+                "class": "data",
+            },
+        )
         mon = self.monitor()
         lines = mon.poll()
         self.assertEqual(len(lines), len(mon.channels[0].lines))
         self.assertEqual(len(lines), sum(len(c.lines) for c in mon.channels[1:]))
-        self.assertTrue(any("landed 0123456789ab" in line.text for line in lines))
+        self.assertTrue(
+            any("landed 0123456789ab as data (gate 0.1s)" in line.text for line in lines)
+        )
         self.assertTrue(any("TOTAL GREEN" in line.text for line in lines))
         self.assertIn("inbox:orchestrator", mon.by_name)
         filtered = self.monitor(tasks=["alpha"])

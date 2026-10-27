@@ -132,7 +132,8 @@ main unchanged. Each landing appends one row per task to `wt/.registry/landed.js
 new main head), `source`, `time`, `merge_wall_seconds`, `merge_slow`, `fast_gate_seconds`, `fast_gate_stages`,
 `first_done_time` (the first `finish`, kept in `meta.first_finished` and never overwritten), `done_time` and
 `facade_regression_reason` (from the result's `Facade regression reason:` line; the integrator reads it from here),
-plus `batch` for batch members. `land --batch a b c` cherry-picks the members in order into a temporary integration
+the landing class fields (`class`, `paths` capped at 40, `changed_paths`, `data_delta`, `tiles`, `data_parts`; see
+"Landing classes" below), plus `batch` for batch members. `land --batch a b c` cherry-picks the members in order into a temporary integration
 sandbox and runs one fast gate over the batch. A red batch is bisected by prefix; the green prefix lands, the first
 red member is returned with a request, and members after it stay DONE for the next landing. A batch gets 180 s per
 member. After a fast-forward, `land` and each landed batch member remove clean, stopped sandboxes and report the bytes
@@ -141,16 +142,6 @@ prune-landed`. Then `push_public` publishes to `origin` (github.com/Wnt/turku3d)
 becomes one commit on `refs/public/main`, which began as a squashed import (`docs/HISTORY.md`), and that line is
 pushed to origin's `main`. Local `main` is never pushed. The row records `push` (`commit`, `seconds`) or `push:
 {error}`.
-
-Deleted on 2026-10-27, because a finished branch waited a median of 80 minutes (worst 147) for main
-although the merge takes a second (`~/turku3d/logs/merge-latency-study/report.md`): the precheck
-receipt as a landing prerequisite (`codex-task precheck`, `task_runner.precheck`, `verification.py`
-with its main-equality check, `landing.fast`, `land --prechecked`/`--dry-run`), the `--all` gate
-escalation while the post-merge sweep was red, the live build inside `land` and `land --batch`, and
-`facade_reason` read from `last.md` at landing. Each precheck ran 15–47 minutes of gate e2e and live
-build on a whole-host slot, and every landing invalidated every other waiting receipt. Main now only
-requires the fast gate; the integrator builds, Chrome-verifies and publishes the live release once
-per batch after the merge, so main may be red for one integration cycle while live never is.
 
 ### Live build (`live_build.build`, run by the integrator)
 
@@ -660,8 +651,8 @@ lander (serial, seconds, no host slot): validate → rebase (conflict → inbox)
         → git merge --ff-only → landed.jsonl row
 integrator (asynchronous, one run at a time, integration host reservation):
         batch = landings from the published commit G up to main M
-        docs/tooling only → record skipped, publish nothing
-        → live_build.build(M) in the `integration` sandbox (cached stages reused)
+        class (landing_class.classify): inert → live_build.repoint(M), no build, no slot
+        data/code → live_build.build(M, stages_for(class)) in the `integration` sandbox
         green: live_build.prepare + publish(M); G := M
         red:   rerun a red Chrome stage once (flake guard)
                → base check: live_build.build(G) against the current data root
@@ -696,11 +687,23 @@ differs from the one it started with, it finishes the round, waits for its integ
 (`from`, `to`) to `merge-queue.json`, prints `merge queue: reloaded <old> -> <new>` and re-executes itself
 (`os.execv`, same argv).
 
-`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json` and M from main. The diff
-G..M is classified by the live stage inputs (`live_cache.INPUTS`): when no path is a declared input and every path is
-gate prose or under `scripts/dev/`, `docs/` or `.githooks/`, the batch is `skipped`. Unknown paths count as affected.
-Otherwise it takes the `integration` host slot, resets the reused `integration` sandbox to M and runs
-`live_build.build` with the published release as the previous release: refresh and tile-build hit the shared cache for
+**Landing classes** (`landing_class.py`). `classify(repo, base, head, data_delta)` sorts `git diff --name-only`
+and the data-root delta; any path outside both allowlists makes it `code`. `inert`: `docs/*`, `*.md`, `LICENSE`.
+`data`: `game/public/assets/{voice,content}/*` or a changed data-root part (`data_parts`: JSON of
+`facade-approvals/assembly` and `build/layers`, the playable tile list). `code`: everything else. `tiles`: none
+(inert), every listed tile (code, approvals or layers changed), else the tiles listed since the live release.
+The lander compares `data_parts` with the last ledger row's (else the live release's), so a data-root change counts
+for the first landing after it. `queue status`, `watch` (`landed <sha> as <class>`) and `here` show the class.
+
+`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json` and M from main and
+classifies G..M against the live release's parts (`batch_class`). `inert` takes no slot: `live_build.repoint` APFS-
+clones the live release to `live-releases/<M>` (record `commit` M, `verified_commit`, `repointed_from`) and
+swaps the link; Pages re-publishes only when `docs/published-images.toml` changed. Row: `result: green`,
+`skipped: true`. `data` and `code` take the `integration` slot, reset the reused `integration` sandbox to M and run
+`live_build.build` with `live_build.stages_for(class)` (the one seam for stage selection): `code` runs all nine
+stages; `data` runs refresh, tile-build, tile-validate, car-report (only when `layers/traffic_static` changed;
+otherwise the previous car result is carried forward with `carried_from`), facade-ground-audit and game-build,
+and no Chrome or collision sweep. The previous release is the published one: refresh and tile-build hit the shared cache for
 game-only batches, and changed layer meshes select only the affected tiles. A batch facade count below the published
 baseline is red unless a `landed.jsonl` row in the batch carries `facade_regression_reason` (the lander copies it from
 the result's `Facade regression reason:` line). Green runs `prepare` and `publish` (main is already at M, so only the
@@ -714,8 +717,7 @@ the head's failure (`head_failure`), `data_cause` (`approval-root-changed` when 
 `facade-approvals/assembly/MANIFEST.json` differs from the published release's
 `textures/assembly/MANIFEST.json`, else `data-root`) and both hashes (`approval_manifest`). It
 reverts nothing, posts a `warning` to the board (`codex-task board`) and keeps live at G. Each row
-carries `data_key`, a hash of the approval MANIFEST and the published layers (paths, sizes,
-mtimes); the queue starts a new run for the same main head only when that key changes
+carries `data_key`, a hash of `landing_class.data_parts`; the queue starts a new run for the same main head only when that key changes
 (`integrator.settled`).
 
 Only a green G bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further builds) and reverts the
@@ -730,20 +732,18 @@ A revert conflict, an empty revert or a red revert gate is reported in the same 
 leaves main alone.
 
 Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`, n counting
-runs for that head), `published`, `from`, `to`, `data_key`, `result` (`green`, `skipped`, `red`,
-`data-red`, `failed`), `seconds` per stage, `cache_hits`, `facades_bound`, `builds`,
+runs for that head), `published`, `from`, `to`, `data_key`, the class fields (`class`, `paths`,
+`changed_paths`, `data_delta`, `tiles`), `skipped` (inert), `result` (`green`, `red`, `data-red`, `failed`), `seconds` per stage, `cache_hits`, `facades_bound`, `builds`,
 `wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`,
 `approval_manifest`, `revert` (`commit`, `reverted`, `fast_gate_seconds`, or `error`).
 `wt/.registry/integration.json` names the running integration and its stage log.
 
-Deleted with this design (merge latency study, §2–§5): precheck receipts and the queue's
-`reverify`/`run_precheck` recheck under a 210 s deadline, `speculative` prefixes and the live
-`QUEUE_STAGE_BUDGETS` (they did not fit measured stage times and produced the SLOW loop);
-Codex resume from the queue (adopted workers have no session); `queue_sweep.py` with its held and
-blocked domains and fix tasks (the integrator's bisect and revert replace them, and it built
-the same tree a second time); `warm_queue.py`, `warm_browser.mjs` and `affected_browser.py`
-(the warm Chrome service only served queue rechecks; the integrator runs the real-tile suite once
-per batch).
+Deleted on 2026-10-27 (`~/turku3d/logs/merge-latency-study/report.md`: a finished branch waited a median
+of 80 min for main): precheck receipts (`codex-task precheck`, `verification.py`, `land --prechecked`/`--dry-run`),
+the live build inside `land`, the queue's `reverify` recheck, `speculative` prefixes, `QUEUE_STAGE_BUDGETS`, Codex
+resume from the queue, `queue_sweep.py`, `warm_queue.py`, `warm_browser.mjs` and `affected_browser.py`. Main only
+requires the fast gate; the integrator verifies once per batch after the merge, so main may be red for one
+integration cycle while live never is.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA
