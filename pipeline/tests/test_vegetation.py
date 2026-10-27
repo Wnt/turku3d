@@ -80,3 +80,17 @@ def test_layer_instancing_collision_and_packaged_world_bounds(tmp_path, monkeypa
     packed, _ = read_glb((out / entry["url"]).read_bytes())
     assert "EXT_mesh_gpu_instancing" in packed["extensionsRequired"]
     assert sum("EXT_mesh_gpu_instancing" in n.get("extensions", {}) for n in packed["nodes"]) == 2
+
+
+def test_playable_scope_follows_the_tile_list(tmp_path, monkeypatch):
+    import shapely
+    from turku3d.vegetation.__main__ import scope
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
+    C.write_playable_tiles(tmp_path / C.PLAYABLE_TILES_FILE, [*C.CORE_TILES, "t0_2_0"])
+    bounds, region = scope("playable-tiles")
+    assert bounds.as_tuple() == (-50.0, -50.0, 800.0, 550.0)
+    assert region.covers(shapely.Point(700, 100))  # inside t0_2_0
+    assert region.covers(shapely.Point(790, 280))  # t0_2_0's east margin
+    assert not region.covers(shapely.Point(700, 400))  # unlisted t0_2_1
+    assert scope("office-block")[1] is None

@@ -9,6 +9,7 @@ import numpy as np
 import pyarrow.parquet as pq
 from shapely import from_wkb
 from shapely.geometry import box, mapping
+from shapely.ops import unary_union
 
 from turku3d import config as C
 from turku3d.layers import (
@@ -130,15 +131,18 @@ def main():
     args = ap.parse_args()
     osm = args.osm or sorted((C.raw_dir("osm") / "work-3x3").glob("*.parquet"))[-1]
     city_path = C.raw_dir("wfs") / "work-3x3/GIS_Katualueet.parquet"
-    bounds = box(*C.OFFICE_BLOCK.core.as_tuple())
+    playable = C.playable_area()
+    # Cars park inside the listed tiles; each candidate's draw is keyed by its bay, so a new
+    # tile adds cars without moving those already placed elsewhere.
+    bounds = unary_union([box(*t.bbox.as_tuple()) for t in playable.visual_tiles])
     features = read_features(osm, bounds.buffer(30))
     city = read_features(city_path, bounds.buffer(30), False)
     spawn_x, _, spawn_z = C.en_to_local(C.OFFICE_E, C.OFFICE_N)
     cars, excluded, roads, rejected = place(features, city, bounds, (spawn_x, spawn_z), args.seed)
     inputs = {str(p): sha(p) for p in [osm, city_path, *sorted(ASSETS.iterdir())] if p.is_file()}
     before = len(cars)
-    validator = context(C.OFFICE_BLOCK.core, inputs, layer="traffic_static")
-    cars = place_objects(cars, "traffic_static", C.OFFICE_BLOCK.core, inputs, validator=validator)
+    validator = context(playable.core, inputs, layer="traffic_static")
+    cars = place_objects(cars, "traffic_static", playable.core, inputs, validator=validator)
     if not cars:
         raise ValueError("No safe parking placements found")
     measure_clearance(cars, validator.obstacles)
