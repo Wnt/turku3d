@@ -12,6 +12,7 @@ from pathlib import Path
 
 import live_cache
 import sandbox as s
+import spec_selection
 from host_slots import integration_jobs, phase
 from landing_class import C, released_tiles
 
@@ -34,8 +35,8 @@ STAGES = {
         "collision-audit",
         "chrome",
     ),
-    # No Chrome: spec selection for data landings belongs to tool-chrome-selection. The
-    # game bundle is rebuilt (seconds): a release ships one and voice clips are part of it.
+    # The game bundle is rebuilt (seconds): a release ships one and voice clips are part of
+    # it. Chrome runs what spec_selection picks: nothing unless the playable tile list changed.
     "data": (
         "refresh",
         "tile-build",
@@ -43,6 +44,7 @@ STAGES = {
         "car-report",
         "facade-ground-audit",
         "game-build",
+        "chrome",
     ),
     "inert": (),
 }
@@ -343,6 +345,7 @@ def build(
     landing_class="code",
     join=None,
     joined=(),
+    chrome=None,
 ):
     """Run the class's live stages on repo; the caller holds the integration host reservation.
 
@@ -354,9 +357,14 @@ def build(
     join is called before the first expensive stage (the first stage after refresh that is
     not a cache hit). When it moved repo to a newer main it returns {"commit",
     "landing_class", "reason"}; the build then starts over on that commit (cached stages
-    are free), appends to the same log and may join again; the caller bounds the joins.
+    are free), appends to the same log and may join again; the caller bounds the joins. The
+    update's "chrome" replaces the Chrome plan.
+
+    chrome is the spec_selection plan for the Chrome stage (None runs the full suite);
+    passing specs are cached per spec and project, and report["chrome"] records what ran.
     """
     stages = stages_for(landing_class)
+    chrome = chrome or spec_selection.full_plan("no selection given")
     seed(work, published)
     minimum = baseline(published)
     listed = tiles(published)
@@ -364,6 +372,7 @@ def build(
     cache_hits = []
     input_hashes = {}
     browser_loads = {}
+    chrome_stats = None
     report = None
     previous = ""
     cache_enabled = (repo / ".git").exists()
@@ -399,16 +408,8 @@ def build(
         ("game-build", ["make", "game-build"], repo),
         ("collision-sweep", ["make", "collision-sweep"], repo),
         ("collision-audit", ["make", "collision-audit"], repo),
-        (
-            "chrome",
-            [
-                str(repo / "game/node_modules/.bin/playwright"),
-                "test",
-                "-c",
-                "playwright.tile.config.ts",
-            ],
-            repo / "game",
-        ),
+        # The command line is logged by spec_selection.run once the selection is known.
+        ("chrome", ["playwright", "test", "-c", spec_selection.TILE_CONFIG], repo / "game"),
     ]
     scopes = {}
     with log_path.open("a" if joined else "w") as log:
@@ -449,9 +450,10 @@ def build(
             start = time.monotonic()
             log.write(f"\n== {stage}: {' '.join(command)} ==\n")
             log.flush()
+            # Chrome results are cached per spec by spec_selection, not per stage.
             key = (
                 live_cache.digest(repo, work, published, stage, previous, scopes.get(stage))
-                if cache_enabled
+                if cache_enabled and stage != "chrome"
                 else None
             )
             if key:
@@ -495,6 +497,7 @@ def build(
                         update["landing_class"],
                         callback,
                         (*joined, update["commit"]),
+                        update.get("chrome", chrome),
                     )
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
@@ -506,14 +509,31 @@ def build(
                 run_env["TURKU3D_BROWSER_LOAD_LOG"] = str(load_rows)
             # Agents' Chrome suites queue while this phase is marked (host_slots.admissible).
             with phase(stage) if stage.startswith("chrome") else contextlib.nullcontext():
-                proc = s.run_group(command, cwd=cwd, env=run_env)
+                if stage == "chrome":
+                    code, output, chrome_stats = spec_selection.run(
+                        chrome,
+                        root=repo,
+                        env=run_env,
+                        bundle_dir=work / "build/game",
+                        tiles_manifest=work / "dist/tiles/manifest.json",
+                        runner=lambda command, cwd, env: s.run_group(command, cwd=cwd, env=env),
+                        log=log,
+                    )
+                    proc = subprocess.CompletedProcess(command, code, output)
+                else:
+                    proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             durations[stage] = round(time.monotonic() - start, 3)
             load = None
             if stage.startswith("chrome"):
                 load = browser_load(load_rows, load_before)
                 browser_loads[stage] = load
+                chrome_stats["host_load"] = {
+                    "start": load["host_load_start"],
+                    "end": load["host_load_end"],
+                }
                 log.write(f"{stage} load: {json.dumps(load)}\n")
+                log.write(f"{stage} selection: {json.dumps(chrome_stats)}\n")
             log.flush()
             if stage == "car-report":
                 car_report = inspect_car_report(
@@ -562,6 +582,7 @@ def build(
     report["cache_hits"] = cache_hits
     report["input_hashes"] = input_hashes
     report["browser_load"] = browser_loads
+    report["chrome"] = chrome_stats
     return report
 
 

@@ -270,7 +270,7 @@ class GateTest(unittest.TestCase):
         for path, expected in [
             ("game/src/ui/startScreen.ts", {"@launch"}),
             ("game/src/input/index.ts", {"@input", "@launch"}),
-            ("game/src/world/tiles.ts", {"@streaming"}),
+            ("game/src/world/tiles.ts", {"@streaming", "@aoi"}),
             (
                 "game/src/actors/player.ts",
                 {"@walk", "@drive", "@character", "@ground", "@structures", "@buildings"},

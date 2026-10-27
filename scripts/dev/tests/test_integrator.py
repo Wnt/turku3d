@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,11 @@ import live_build  # noqa: E402
 import pages  # noqa: E402
 
 GATE = "#!/bin/sh\necho PASS fast-gate 0.01s\n"
+REPO = Path(__file__).resolve().parents[3]
+SPECS = {
+    "game/tests/e2e-tile/tile.spec.ts": "test('walks', { tag: ['@walk', '@streaming'] }, f);\n",
+    "game/tests/e2e-tile/integration.spec.ts": "test('office', { tag: ['@render'] }, f);\n",
+}
 
 
 class IntegratorTests(unittest.TestCase):
@@ -48,6 +54,11 @@ class IntegratorTests(unittest.TestCase):
         (self.main / "scripts/dev/wt").chmod(0o755)
         (self.main / "game").mkdir()
         (self.main / "game/facades.txt").write_text("2\n")
+        # The real selection map over two synthetic tile specs.
+        shutil.copy(REPO / "scripts/dev/gate.toml", self.main / "scripts/dev/gate.toml")
+        for name, text in SPECS.items():
+            (self.main / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.main / name).write_text(text)
         self.git("add", ".")
         self.git("commit", "-q", "-m", "base")
         self.base = self.git("rev-parse", "HEAD")
@@ -59,6 +70,7 @@ class IntegratorTests(unittest.TestCase):
         self.release(self.base)
         self.builds = []
         self.classes = []
+        self.plans = []
         # Hooks run inside the next build: `preparing` before its join point (seed,
         # refresh), `during` after it (the first expensive stage has started).
         self.preparing = []
@@ -96,7 +108,8 @@ class IntegratorTests(unittest.TestCase):
         self.approve(2)
         work = self.root / "seed"
         self.outputs(work, 2)
-        report = {"facades_bound": 2, "seconds": {}, "cache_hits": []}
+        # The seed release counts as verified by a full Chrome suite.
+        report = {"facades_bound": 2, "seconds": {}, "cache_hits": [], "full_suite": True}
         for parent in ("build", "dist"):
             (self.published / parent).mkdir(parents=True, exist_ok=True)
         live_build.prepare(work, self.published, commit, report)
@@ -113,16 +126,23 @@ class IntegratorTests(unittest.TestCase):
         previous=None,
         landing_class="code",
         join=None,
+        chrome=None,
     ):
         """Stands in for the real stages: red on game/bad.ts, real facade inspection.
 
         Before its first expensive stage it calls join, like live_build.build, and then
         rebuilds the joined head; `self.during` runs as that stage starts.
+        game/full-red.ts fails only the full Chrome suite.
         """
         if self.preparing:
             self.preparing.pop(0)()
         if join and (update := join()):
             landing_class = update["landing_class"]
+            chrome = update.get("chrome", chrome)
+        self.plans.append(chrome)
+        if (repo / "game/full-red.ts").exists() and chrome["full_suite"]:
+            self.builds.append(self.git("rev-parse", "HEAD", cwd=repo))
+            raise live_build.StageFailed("chrome", f"chrome failed (1); {log}")
         self.assertEqual(previous, (published / "live").resolve())
         self.builds.append(self.git("rev-parse", "HEAD", cwd=repo))
         self.classes.append(landing_class)
@@ -143,9 +163,15 @@ class IntegratorTests(unittest.TestCase):
         report = live_build.inspect(
             manifest, facades, live_build.baseline(published), live_build.tiles(published), reason
         )
-        return {**report, "seconds": {"tile-build": 0.01}, "cache_hits": ["refresh"]}
+        chrome_stats = {"full_suite": chrome["full_suite"], "selected": chrome["specs"]}
+        return {
+            **report,
+            "seconds": {"tile-build": 0.01},
+            "cache_hits": ["refresh"],
+            "chrome": chrome_stats,
+        }
 
-    def land(self, name, path, text, reason=None):
+    def land(self, name, path, text, reason=None, when=None):
         (self.main / path).parent.mkdir(parents=True, exist_ok=True)
         (self.main / path).write_text(text)
         self.git("add", ".")
@@ -154,15 +180,20 @@ class IntegratorTests(unittest.TestCase):
         (self.tasks / name).mkdir(parents=True, exist_ok=True)
         (self.tasks / name / "meta.json").write_text(json.dumps({"state": "done"}))
         row = {"name": name, "commit": commit, "facade_regression_reason": reason}
+        if when is not None:
+            row["time"] = when
         ledger = self.wt / ".registry/landed.jsonl"
         ledger.parent.mkdir(parents=True, exist_ok=True)
         with ledger.open("a") as file:
             file.write(json.dumps(row) + "\n")
         return commit
 
-    def integrate(self):
+    def integrate(self, full=False):
         with patch.object(live_build, "build", side_effect=self.fake_build):
-            return integrator.run_once(self.published, self.main)
+            return integrator.run_once(self.published, self.main, full=full)
+
+    def live_record(self):
+        return json.loads((self.published / "live/live-build.json").read_text())
 
     def test_green_batch_publishes_main_head(self):
         self.land("one", "game/a.ts", "a")
@@ -471,15 +502,92 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual((row["result"], row["facades_bound"]), ("green", 1))
         self.assertEqual(integrator.live_commit(self.published), head)
 
-    def test_green_publish_deploys_pages_when_configured(self):
+    def test_green_full_run_deploys_pages_when_configured(self):
         head = self.land("game", "game/a.ts", "a")
         (self.published / "publish").mkdir()
         (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
         deployed = {"url": "https://o.github.io/site/", "release": head}
         with patch.object(pages, "publish", return_value=deployed) as publish:
-            row = self.integrate()
+            row = self.integrate(full=True)
         publish.assert_called_once_with(self.published)
         self.assertEqual((row["result"], row["pages"]), ("green", deployed))
+        self.assertTrue(row["full_suite"])
+        self.assertTrue(self.live_record()["full_suite"])
+
+    def test_selected_green_run_publishes_live_but_not_pages(self):
+        head = self.land("game", "game/src/render/a.ts", "a")
+        (self.published / "publish").mkdir()
+        (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
+        with patch.object(pages, "publish") as publish:
+            row = self.integrate()
+        publish.assert_not_called()
+        self.assertEqual((row["result"], row["full_suite"]), ("green", False))
+        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertFalse(self.live_record()["full_suite"])
+
+    def test_code_batch_runs_the_specs_its_paths_select(self):
+        self.land("render", "game/src/render/a.ts", "a")
+        row = self.integrate()
+        [plan] = self.plans
+        self.assertEqual(plan["specs"], ["game/tests/e2e-tile/integration.spec.ts"])
+        self.assertEqual(plan["projects"], ["webgpu", "webgl"])
+        self.assertEqual(row["chrome_plan"], plan)
+        self.assertEqual(row["chrome"]["selected"], plan["specs"])
+
+    def test_data_batch_runs_streaming_specs_only_when_the_tile_list_changed(self):
+        self.land("voice", "game/public/assets/voice/fi/a.ogg", "a")
+        self.assertEqual(self.integrate()["chrome_plan"]["specs"], [])
+        self.land("more", "game/public/assets/voice/fi/b.ogg", "b")
+        tiles = [*live_build.C.CORE_TILES, "t0_1_-1"]
+        live_build.C.write_playable_tiles(self.published / "playable-tiles.json", tiles)
+        row = self.integrate()
+        self.assertEqual(row["class"], "data")
+        self.assertEqual(row["chrome_plan"]["specs"], ["game/tests/e2e-tile/tile.spec.ts"])
+        self.assertEqual(row["chrome_plan"]["projects"], ["webgpu"])
+
+    def test_full_suite_is_due_two_hours_after_the_last_with_a_landing_since(self):
+        now = 1_000_000.0
+        self.assertFalse(integrator.full_due(self.published, now))
+        self.land("game", "game/a.ts", "a", when=now - 10)
+        self.assertTrue(integrator.full_due(self.published, now))
+        self.integrate(full=True)
+        last = json.loads(integrator.ledger_path().read_text().splitlines()[-1])["time"]
+        # Two hours later a full run is due only once something landed after the last one.
+        self.assertFalse(integrator.full_due(self.published, last + 7201))
+        self.land("more", "game/b.ts", "b", when=last + 60)
+        self.assertFalse(integrator.full_due(self.published, last + 7199))
+        self.assertTrue(integrator.full_due(self.published, last + 7201))
+
+    def test_due_full_run_of_live_main_verifies_the_release_in_place(self):
+        head = self.land("game", "game/a.ts", "a")
+        self.assertEqual(self.integrate()["result"], "green")
+        self.assertFalse(self.live_record()["full_suite"])
+        self.assertTrue(integrator.settled(self.published, head))
+        with patch.object(integrator, "full_due", return_value=True):
+            self.assertFalse(integrator.settled(self.published, head))
+            row = self.integrate()
+        self.assertEqual((row["result"], row["full_suite"], row["class"]), ("green", True, "code"))
+        # With no earlier green full run, G is the live commit.
+        self.assertEqual((row["from"], row["to"]), (head, head))
+        self.assertEqual(self.plans[-1]["specs"], "all")
+        self.assertEqual(self.plans[-1]["projects"], ["webgpu", "webgl"])
+        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertTrue(self.live_record()["full_suite"])
+
+    def test_red_full_run_bisects_landings_since_the_last_green_full_run(self):
+        first = self.land("first", "game/a.ts", "a")
+        self.assertEqual(self.integrate(full=True)["result"], "green")
+        culprit = self.land("culprit", "game/full-red.ts", "x")
+        self.assertEqual(self.integrate()["result"], "green")
+        head = self.land("later", "game/c.ts", "c")
+        self.assertEqual(self.integrate()["result"], "green")
+        self.builds.clear()
+        row = self.integrate(full=True)
+        self.assertEqual((row["result"], row["from"], row["culprit"]), ("red", first, culprit))
+        # Head (and its one Chrome rerun), then the base check on the last green full run.
+        self.assertEqual(self.builds[:3], [head, head, first])
+        self.assertFalse((self.main / "game/full-red.ts").exists())
+        self.assertTrue((self.main / "game/c.ts").exists())
 
     def test_pages_failure_is_recorded_and_keeps_the_local_release(self):
         head = self.land("game", "game/a.ts", "a")
@@ -487,7 +595,7 @@ class IntegratorTests(unittest.TestCase):
         (self.published / pages.CONFIG).write_text(json.dumps({"repo": "o/site"}))
         failure = pages.PhotoFacades("2 bound facades are not generated-style")
         with patch.object(pages, "publish", side_effect=failure):
-            row = self.integrate()
+            row = self.integrate(full=True)
         self.assertEqual(row["result"], "green")
         self.assertIn("not generated-style", row["pages"]["error"])
         self.assertEqual(integrator.live_commit(self.published), head)

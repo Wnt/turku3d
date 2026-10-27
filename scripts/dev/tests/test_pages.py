@@ -57,7 +57,7 @@ class PagesTests(unittest.TestCase):
         self.calls.append((repo, branch))
         return pages.site_url(repo)
 
-    def release(self, commit, facades):
+    def release(self, commit, facades, full_suite=True):
         release = self.published / "live-releases" / commit
         (release / "game").mkdir(parents=True)
         (release / "game/index.html").write_text(commit)
@@ -70,7 +70,9 @@ class PagesTests(unittest.TestCase):
         bound = [f"b_{index}" for index in range(len(facades))]
         (assembly / "MANIFEST.json").write_text(json.dumps({"bound": bound}))
         (release / "live-build.json").write_text(
-            json.dumps({"commit": commit * 4, "facades_bound": len(bound)})
+            json.dumps(
+                {"commit": commit * 4, "facades_bound": len(bound), "full_suite": full_suite}
+            )
         )
         live = self.published / "live"
         live.unlink(missing_ok=True)
@@ -128,6 +130,12 @@ class PagesTests(unittest.TestCase):
         with self.assertRaisesRegex(pages.PhotoFacades, "1 bound facades.*b_1"):
             pages.publish(self.published)
         self.assertEqual(git("branch", "--list", cwd=self.remote), "")
+        self.assertEqual(self.calls, [])
+
+    def test_release_without_a_green_full_suite_is_refused(self):
+        self.release("ffffffffffff", [GENERATED], full_suite=False)
+        with self.assertRaisesRegex(ValueError, "no green full Chrome suite"):
+            pages.publish(self.published)
         self.assertEqual(self.calls, [])
 
     def test_bound_count_beyond_the_manifest_is_refused(self):

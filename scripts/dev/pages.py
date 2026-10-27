@@ -160,13 +160,19 @@ def enable_pages(repo, branch):
 
 
 def publish(published, release=None):
-    """Publish release (default: the live release) to the configured Pages repository."""
+    """Publish release (default: the live release) to the configured Pages repository.
+
+    Only a release that a green full Chrome suite verified (`full_suite` in its record)."""
     published = Path(published)
     target = config(published)
     if target is None:
         raise ValueError(f"{published / CONFIG} does not exist")
     release = Path(release or (published / "live")).resolve()
     record = json.loads((release / "live-build.json").read_text())
+    if not record.get("full_suite"):
+        raise ValueError(
+            f"{release} has no green full Chrome suite; run `scripts/dev/integrator.py run --full`"
+        )
     facades = check_facades(release)
     started = time.monotonic()
     date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")

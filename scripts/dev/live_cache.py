@@ -37,6 +37,8 @@ INPUTS = {
     "game-build": ("game/*", "Makefile", "scripts/dev/live*"),
     "collision-sweep": ("pipeline/*", "game/*", "Makefile", "scripts/dev/live*"),
     "collision-audit": ("pipeline/*", "game/*", "Makefile", "scripts/dev/live*"),
+    # Not a cache key: spec_selection caches Chrome results per spec. integrator.domains
+    # still reads these as the stage's inputs.
     "chrome": ("game/*", "qa/*", "Makefile", "scripts/dev/live*"),
 }
 
