@@ -233,7 +233,7 @@ def measure(
         needs_review=any(v < 0.65 for v in confidence.values()),
         occlusion_share=round(occluded, 4),
         screen=screen,
-        rectification="refs wall-plane homography",
+        rectification="direct panorama-to-wall-plane sampling",
         width_m=width_m,
         height_m=height_m,
     )
