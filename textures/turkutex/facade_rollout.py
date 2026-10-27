@@ -37,6 +37,8 @@ def generated_ids(assembly: Path) -> set[str]:
     """Walls whose published map is a generated, audited image."""
     found = set()
     for path in (assembly / "facades").glob("*/*.json"):
+        if path.name == "style.json":
+            continue
         meta = json.loads(path.read_text())
         if meta.get("source_mode") == "generate" or "generated_qa" in meta:
             found.add(f"{meta['building_id']}_{meta['facade_index']}")

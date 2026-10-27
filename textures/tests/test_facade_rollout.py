@@ -181,6 +181,9 @@ def test_queue_ranks_core_walls_then_rings_and_excludes_generated_maps(tmp_path)
     (assembly / "facades/near/0.json").write_text(
         json.dumps({"building_id": "near", "facade_index": 0})  # photo-derived map
     )
+    (assembly / "facades/near/style.json").write_text(
+        json.dumps({"building_id": "near", "source_mode": "generate", "source": "near_2"})
+    )
     queue = rollout.build_queue(inventory, assembly, (e, n))
     walls = queue["walls"]
     assert [w["facade_id"] for w in walls] == ["near_0", "near_1", "far_1", "far_2", "far_0"]
