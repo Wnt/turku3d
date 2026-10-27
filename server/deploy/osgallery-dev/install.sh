@@ -39,7 +39,7 @@ echo "Forwarder agent downloaded from successful CI run $run_id."
 # SSH passes its command through a remote shell; quote the configurable path there too.
 quoted_source_file="$(python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$token_source_file")"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -- "$token_source_host" \
-  "grep '^FORWARDER_AGENT_TOKEN=' -- $quoted_source_file" > "$token_file"; then
+  "grep '^FORWARDER_AGENT_TOKEN=' -- $quoted_source_file" >"$token_file"; then
   printf 'BLOCKED: ssh %s could not read FORWARDER_AGENT_TOKEN from %s. No units were changed.\n' \
     "$token_source_host" "$token_source_file" >&2
   exit 1
