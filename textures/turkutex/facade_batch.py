@@ -22,6 +22,7 @@ from pathlib import Path
 from PIL import Image
 
 from . import building_jobs as jobs
+from . import facade_candidates
 from .codex.runner import Runner, load_jobs
 from .codex.usage import snapshot
 from .jobs import _views, _write
@@ -519,6 +520,12 @@ def main(argv=None) -> int:
         type=Path,
         help="generate: JSON {facade_id: rejection reason}; regenerate only those walls once",
     )
+    ap.add_argument(
+        "--task",
+        default=facade_candidates.default_task(),
+        help="visualqa: keep every reviewed wall under facade-approvals/candidates/<task>/ "
+        "(default $TURKU3D_SANDBOX)",
+    )
     a = ap.parse_args(argv)
     if a.feedback and a.stage != "generate":
         ap.error("--feedback applies only to the generate stage")
@@ -594,6 +601,12 @@ def main(argv=None) -> int:
             )
             code = runner.run(load_jobs(job_path))
             log_usage(a.run, stage + "_after")
+            if stage == "visualqa":
+                # The next retry overwrites generated/<id>.png and landing removes the run.
+                kept = facade_candidates.keep(a.run, a.facades, a.task, facade_candidates.root())
+                print(
+                    f"kept {len(kept)} reviewed candidates under {facade_candidates.root() / a.task}"
+                )
             if code:
                 report(a.facades, a.refs, a.run, a.output)
                 return code

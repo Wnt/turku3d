@@ -95,6 +95,11 @@ def test_generate_feedback_regenerates_only_rejected_walls_with_reason(tmp_path)
     assert [job["id"] for job in retry] == ["wall_b.generate"]
     assert "Three storeys instead of two." in retry[0]["vars"]["retry_instruction"]
     assert first[1]["vars"]["retry_instruction"] == ""
+    # Kept with every candidate (facade_candidates); meta is outside the cache key.
+    assert retry[0]["meta"]["feedback"] == "Three storeys instead of two."
+    assert "Three storeys instead of two." in retry[0]["meta"]["prompt_summary"]
+    assert first[1]["meta"]["feedback"] is None
+    assert first[1]["meta"]["prompt_summary"].startswith("10.00 x 5.00 m, 2.0000:1.")
 
 
 def test_visual_qa_reviews_exact_generated_bytes_against_used_references(tmp_path):

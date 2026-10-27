@@ -14,7 +14,7 @@ make game-preview       # build then serve game + tile mount
 make game-serve-dist    # serve just the sandbox tile dist
 # Explicit paths, same default port:
 node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build/game" --mount "/tiles=$TURKU3D_WORK/dist/tiles"
-# Optional --port, --host, --no-compress
+# Optional --port, --host, --no-compress, --candidates <dir>
 make game-dev-tools-test
 ```
 
@@ -26,6 +26,17 @@ Tests use sandbox ports +3, +6, +7, +8 and +9, including simultaneous servers wi
 reload for the rest, tile releases from `$TURKU3D_DATA/tile-store` and a verification badge. The Vite dev server
 (`make game-dev`) serves the same `/tiles`, `POST /telemetry` and status routes through `localhost/vitePlugin.mjs`.
 See [localhost/README.md](localhost/README.md). The hot-path browser check runs its own dev server on port base + 4.
+
+## Facade candidate viewer
+
+`GET /facades/candidates/` on the localhost game (http://localhost:5171/facades/candidates/) and on
+`serve-dist.mjs` shows every generated facade wall the reviewer saw, accepted or rejected, per content task:
+`/facades/candidates/<task>/` lists the walls (rejected first) with their candidates side by side, the
+reviewer's reasons, the retry feedback, the prompt summary and an "open in game" link (`?spawn=E,N,heading`,
+8 m in front of the wall). `facadeCandidates.mjs` renders it from the JSON that
+`textures/turkutex/facade_candidates.py` keeps under `$TURKU3D_DATA/facade-approvals/candidates/`
+(`serve-dist.mjs --candidates <dir>` overrides it). `facadeCandidates.test.mjs` checks it on a synthetic task;
+`make game-dev-tools-test` runs it with the serve-dist tests.
 
 ## Coarse tile service
 

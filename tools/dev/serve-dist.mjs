@@ -4,15 +4,18 @@
 //  - optional --mount /tiles=<dir> to serve a tile dist next to the game build
 //  - POST /telemetry appended to <telemetry dir>/session-<YYYYMMDD>.jsonl, default $TURKU3D_WORK/telemetry
 //  - /coarse/* proxied to the localhost coarse tile service (tools/dev/coarse-tiles, port base + 5)
+//  - GET /facades/candidates/: every reviewed generated facade candidate (facadeCandidates.mjs), from --candidates
+//    (default $TURKU3D_DATA/facade-approvals/candidates)
 // No dependencies (Node >= 20).
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
-//          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT]
+//          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT] [--candidates <dir>]
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { workRoot, port } from './environment.mjs';
+import { candidatesRoot, facadeCandidates, isFacadeCandidates } from './facadeCandidates.mjs';
 import { coarseProxy, resolveUnder, serveFile, telemetryHandler } from './http.mjs';
 
 const args = process.argv.slice(2);
@@ -28,6 +31,7 @@ args.forEach((a, i) => { if (a === '--mount') { const [pre, dir] = args[i + 1].s
 MOUNTS.sort((a, b) => b[0].length - a[0].length);
 const telemetry = telemetryHandler(TELEMETRY_DIR);
 const coarse = coarseProxy(new URL(opt('--coarse', `http://127.0.0.1:${port(5)}`)));
+const candidates = facadeCandidates({ root: expand(opt('--candidates', candidatesRoot)) });
 
 function resolvePath(urlPath) {
   let p = urlPath.split('?')[0];
@@ -44,6 +48,7 @@ async function handler(req, res) {
   if (req.method === 'POST' && req.url.split('?')[0] === '/telemetry') return telemetry(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   if (req.url === '/coarse' || req.url.startsWith('/coarse/')) return coarse(req, res);
+  if (isFacadeCandidates(req.url)) return candidates(req, res);
   const file = resolvePath(req.url);
   if (!file) { res.writeHead(403); return res.end('forbidden'); }
   return serveFile(req, res, file, { compress: COMPRESS });

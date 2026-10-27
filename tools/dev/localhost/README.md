@@ -73,7 +73,8 @@ infrastructure failure (`status.mjs`). A quick tile build adds `building tiles <
 | `service.mjs` | follow loop, worktree, Vite child, `state.json`, `events.jsonl` |
 | `status.mjs` | integration verdict for a commit; ledger helpers |
 | `tiles.mjs` | which tile release `/tiles` serves; quick builds |
-| `vitePlugin.mjs` | dev-server routes: `/tiles`, `/tile-store`, `/telemetry`, `/__localhost/{status,event}`; `/telemetry` on `vite preview` too |
+| `vitePlugin.mjs` | dev-server routes: `/tiles`, `/tile-store`, `/telemetry`, `/__localhost/{status,event}`, `/facades/candidates/`; `/telemetry` on `vite preview` too |
+| `../facadeCandidates.mjs` | the facade candidate viewer (`../README.md`), shared with `serve-dist.mjs` |
 | `../http.mjs` | static file, telemetry and coarse proxy handlers shared with `serve-dist.mjs` |
 
 State lives in `--state-dir` (default `$TURKU3D_WORK/localhost-game`): `state.json`, `events.jsonl`, `vite.log`,

@@ -19,7 +19,8 @@ const expand = (p) => path.resolve(p.replace(/^~(?=$|\/)/, os.homedir()));
 /** The game's npm manifests (a change reinstalls and restarts the dev server); files the dev server itself loads.
  *  Tile builds use the shared pipeline environment (pipeline/env/run.sh), so the worktree needs only game/'s. */
 const DEPENDENCIES = ['game/package.json', 'game/package-lock.json'];
-const SERVER = ['game/vite.config.ts', 'tools/dev/environment.mjs', 'tools/dev/http.mjs', 'tools/dev/localhost/vitePlugin.mjs'];
+const SERVER = ['game/vite.config.ts', 'tools/dev/environment.mjs', 'tools/dev/http.mjs', 'tools/dev/facadeCandidates.mjs',
+  'tools/dev/localhost/vitePlugin.mjs'];
 
 export function options(argv, env = process.env) {
   const opt = (name, def) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : def; };

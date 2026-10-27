@@ -55,7 +55,8 @@ test('dev-server routes: status, tiles from the selected release, events, teleme
   const serve = (state) => {
     if (state) fs.writeFileSync(statePath, JSON.stringify(state));
     handlers.length = 0;
-    localhostGame({ statePath: state ? statePath : undefined, tiles: fallback, telemetryDir: path.join(dir, 'telemetry') }).configureServer(server);
+    localhostGame({ statePath: state ? statePath : undefined, tiles: fallback, telemetryDir: path.join(dir, 'telemetry'),
+      candidates: path.join(dir, 'candidates') }).configureServer(server);
     return http.createServer((req, res) => handlers[0](req, res, () => { res.writeHead(418); res.end(); }));
   };
   const request = (srv, p, init) => new Promise((resolve) => srv.listen(0, '127.0.0.1', async () => {
@@ -68,6 +69,7 @@ test('dev-server routes: status, tiles from the selected release, events, teleme
   assert.deepEqual(JSON.parse((await request(serve(null), '/__localhost/status')).body), { service: false });
   assert.equal((await request(serve(null), '/tiles/collision/c_0_0.col')).body, 'F');
   assert.equal((await request(serve(null), '/src/main.ts')).status, 418); // Vite's own routes pass through
+  assert.match((await request(serve(null), '/facades/candidates/')).body, /No candidates kept yet/);
   const state = { commit: 'c'.repeat(40), verification: { state: 'failed', stage: 'chrome' }, events, store: dir,
     tiles: { dir: release, key: 'k1', source: 'integrator', building: null } };
   const tiles = await request(serve(state), '/tiles/collision/c_0_0.col');

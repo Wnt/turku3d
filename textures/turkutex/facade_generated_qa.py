@@ -10,6 +10,7 @@ from PIL import Image
 
 from .building_jobs import latest, reference_matches
 from .facade_batch import asset_path, write_json
+from .facade_candidates import default_task, record_audit, review_problems, root
 from .post.frame import facade_content_box
 from .post.pipeline import sha
 from .streetview.facades import load_facades
@@ -60,16 +61,7 @@ def audit(
             inputs = {i["name"]: i["sha256"] for i in record.get("inputs", [])}
             if inputs.get(source.name) != sha(source):
                 problems.append("visual QA did not inspect this generated image")
-            if answer.get("facade_id") != fid or not answer.get("grid_matches"):
-                problems.append("window or ground-opening grid mismatch")
-            if answer.get("upper_openings") != answer.get("expected_upper_openings"):
-                problems.append("upper opening count mismatch")
-            if answer.get("storeys") != answer.get("expected_storeys"):
-                problems.append("storey count mismatch")
-            if not answer.get("orthographic"):
-                problems.append("generated image is not an orthographic elevation")
-            if not answer.get("clean") or answer.get("foreign_objects"):
-                problems.append("large foreground or foreign object detected")
+            problems += review_problems(answer, fid)
             if not problems:
                 meta["source_mode"] = "generate"
                 if min_ppm:
@@ -81,7 +73,14 @@ def audit(
                     "visual_qa_answer": answer,
                 }
                 write_json(sidecar, meta)
-        rows.append({"facade_id": fid, "accepted": not problems, "problems": problems})
+        rows.append(
+            {
+                "facade_id": fid,
+                "accepted": not problems,
+                "problems": problems,
+                "sha256": sha(source) if source.is_file() else None,
+            }
+        )
     return rows
 
 
@@ -90,10 +89,12 @@ def main(argv=None) -> int:
     for name in ("facades", "refs", "generated", "staging", "visual-qa", "output"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--min-ppm", type=int, default=0)
+    parser.add_argument("--task", default=default_task(), help="kept candidates to annotate")
     args = parser.parse_args(argv)
     rows = audit(
         args.facades, args.refs, args.generated, args.staging, args.visual_qa, args.min_ppm
     )
+    record_audit(root() / args.task, rows)
     write_json(args.output, {"rows": rows, "accepted": sum(r["accepted"] for r in rows)})
     print(json.dumps(rows))
     return 0 if all(r["accepted"] for r in rows) else 1
