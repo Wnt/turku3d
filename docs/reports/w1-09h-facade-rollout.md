@@ -44,6 +44,9 @@ Raw accounting per batch: `~/turku3d/logs/facade-rollout/batch-NN.json`, running
 | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |
 | 1 (core ≥ 4 m, `-j 8`) | 25 | 23 | 10 | 36 | 35 | 27 → 28 | 0.10 | 47.8 | 12.6 min |
 | 2 (rest of core, `-j 32`, aborted) | 23 | 13 | 0 | 13 (+20 failed with 429) | 13 | 28 → 28 | – | 26.1 | 12.1 min |
+| 3 (core, reference grid, `-j 8`→`2`) | 33 | 12 | 5 | 20 (+17 failed with 429) | 19 + 33 grid | 28 → 30 | 0.40 | 25.5¹ | 16.9 min |
+
+¹ The mean includes the 429 failures, which return within 2–10 s; successful image calls took 40–66 s.
 
 ### Batch 1
 
@@ -91,3 +94,28 @@ columns, ground-floor openings, plinth, cornice and cladding. `generate` skips w
 references do not show them. For the others it passes the measured grid and the exact aspect to
 the image model as hard constraints, also in `--feedback` retries. This is the orchestrator's
 grid-in-prompt request, plus a gate.
+
+### Batch 3 (reference grid)
+
+- Walls: the 20 walls hit by 429 in batch 2 plus the 13 walls rejected there. For those 13 this was
+  their one retry, now with the reference-grid prompt. This completes the office core.
+- `refgrid` (33 astra/low calls, 73 s at `-j 8`) found the wall in **12 of 33** walls. The 21 it
+  rejected show pavement, terraces and boats, construction fences and site equipment, foliage, or are
+  too dark. That matches my look at the batch-2 images: it removed every wrong-content reference
+  without paying for an image. Its `problem` and `cladding` strings came back in Finnish, the
+  account's default language. The prompt now asks for English; the counts were unaffected.
+- 429 limits persisted after the 33-call reference burst: 5 of 12 first-pass calls failed at `-j 8`,
+  3 of 7 retries at `-j 4`, and 1 of 3 at `-j 2`, which then succeeded on the runner's own retry.
+  Halving and continuing worked, as instructed.
+- Accepted (5): `103304668M_16` (blank brick), `gis-103295891H_4`, `103304670P_39` (second image,
+  the gable now in continuous brickwork), `gis-103277347A_57` and `103295889E_22` (both after a
+  retry). Published; bound 341 → 344, because three of them were unbound before.
+- The audit passed `103304670P_37` after its retry; I rejected it because its spire stands against
+  white canvas that would be textured onto the rectangular wall. That is the same failure as
+  `103304670P_39` in batch 2. Pavement or sky strips, grouped windows drawn as even ones and a
+  moved door rejected the rest.
+- [Contact sheet](w1-09h-facade-rollout/contact-batch-03.jpg).
+- Stop rules: quota 30 % < 52 %. Over the last two batches, 2 points for 5 accepted walls is
+  **0.40 points per accepted wall > 0.3**: stop. Acceptance was 5 of 12 readable walls (42 %),
+  below the orchestrator's 45 % bar for continuing. The rule cannot separate the reference-grid
+  calls from the image calls: 33 astra calls ran before any image in this batch.
