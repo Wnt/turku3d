@@ -61,11 +61,13 @@ processes in its process group, so stopping it stops them.
 - **Status.** `state.json` and `/__localhost/status` carry `coarse: {commit, state}`: the commit the worktree was at
   when the process started and `starting`, `running`, `draining`, `restarting`, `exited`, `port in use` or `off`
   (`--no-coarse`). Every change is an events row `{"type": "coarse", commit, state}`.
-- **The game during a restart** (`game/src/world/coarseTiles.ts`): a connection error (the dev server's 503) or a 404
-  on a route the old process lacks pauses the drafts with one console line; the draft badge says `drafts: service
-  restarting` and only `/coarse/status` is probed, every 2 s, until the service answers (after a 404: a process with
-  another `started` time). A page loaded while the service is down starts paused when `/__localhost/status` shows
-  it supervised.
+- **The game during a restart** (`game/src/world/coarseTiles.ts`): a connection error (the dev server's 503) pauses
+  the drafts with one console line; the draft badge says `drafts: service restarting` and only `/coarse/status` is
+  probed, every 2 s, until any process answers it (whatever its producer code). Then the 3x3 window and the path
+  ahead are asked for at once; a new producer rebuilds them on request. A 404 from `/coarse/want` (an older process
+  without the route) only skips the prefetch. A page loaded while the service is down starts paused when
+  `/__localhost/status` shows it supervised, and so does a page whose first `/coarse/status` takes over 2 s (a busy
+  service).
 
 ## Tile releases (`scripts/dev/tile_store.py`)
 
