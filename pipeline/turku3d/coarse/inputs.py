@@ -51,7 +51,9 @@ class Inputs:
     buildings: list[Building]  # LOD2 shells whose footprint centroid lies in the tile
     streets: list  # (polygon, collision material id) of street areas over the tile
     water: list  # water polygons over the tile
-    roads: dict  # prepare_roads: roads.json bytes of the tile's OSM street graph and its counts
+    roads: (
+        dict | None
+    )  # prepare_roads: roads.json of the tile's street graph; None before OSM lands
     sources: dict  # provenance: prepared dataset -> raw paths
     seconds: dict
     key: str = ""  # Sources.input_key: the raw files' identities, recorded in the manifest
@@ -320,6 +322,9 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance = {}, {}, {}
     for dataset, paths in _sources(tile, sources).items():
+        if paths is None:  # only the optional roads: no OSM clip yet
+            values[dataset] = None
+            continue
         t = time.perf_counter()
         path, key = _entry(root, tile, dataset, paths)
         value = _load(path, key)

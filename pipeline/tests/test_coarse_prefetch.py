@@ -20,6 +20,7 @@ from turku3d.coarse.sources import (
     Unit,
     block_of,
     block_tiles,
+    osm_area,
     tile_blocks,
     unit_paths,
 )
@@ -72,7 +73,12 @@ def put_ortho(block: C.LazTile, status="ok"):
         if status == "ok":
             (root / name / f"{t.i}_{t.j}.tif").write_bytes(b"tif" * 50)
     (root / f"{name}.chunks.json").write_text(json.dumps(state))
-    (root / f"{name}.vrt").write_text("<VRTDataset/>")
+    if status == "ok":
+        b = block.bbox_en
+        (root / f"{name}.vrt").write_text(
+            '<VRTDataset rasterXSize="1024" rasterYSize="1024"><GeoTransform>'
+            f"{b.emin}, 0.48828125, 0, {b.nmax}, 0, -0.48828125</GeoTransform></VRTDataset>"
+        )
 
 
 def put_wfs(block: C.LazTile):
@@ -86,9 +92,10 @@ def put_wfs(block: C.LazTile):
 
 
 def put_osm(block: C.LazTile):
-    adir = C.raw_dir("osm") / f"coarse-{block.name}"
+    name = osm_area(block).name
+    adir = C.raw_dir("osm") / name
     adir.mkdir(parents=True, exist_ok=True)
-    (adir / f"coarse-{block.name}-261027.parquet").write_bytes(b"pq" * 40)
+    (adir / f"{name}-261027.parquet").write_bytes(b"pq" * 40)
 
 
 # -- geometry -------------------------------------------------------------------------------------
@@ -110,9 +117,22 @@ def test_plan_selects_blocks_under_the_area_in_fetch_order():
     still = P.plan(250, 250, 0, 0)
     blocks = {u.block for u in still}
     assert len(blocks) == 9  # a 500 m ring from a block centre touches its eight neighbours
-    assert [u.dataset for u in still] == ["lidar"] * 9 + ["ortho"] * 9 + ["wfs"] * 9 + ["osm"] * 9
-    assert still[0].block == still[9].block == still[27].block == BLOCK  # nearest first in each
+    # One band (all within 500 m): every dataset in turn, nearest block first; one OSM clip per 2 km.
+    assert [u.dataset for u in still] == ["lidar"] * 9 + ["ortho"] * 9 + ["wfs"] * 9 + ["osm"] * 4
+    assert still[0].block == still[9].block == still[27].block == BLOCK
+    assert len({osm_area(u.block).name for u in still if u.dataset == "osm"}) == 4
     east = P.plan(250, 250, P.CAR_SPEED, 0)
+    bands = [
+        int(
+            P.shapely.box(*P.block_bbox(u.block).as_tuple()).distance(P.shapely.Point(250, 250))
+            // P.BAND
+        )
+        for u in east
+    ]
+    assert (
+        bands == sorted(bands) and bands[-1] == 2
+    )  # the near blocks' every dataset before far lidar
+    assert east.index(Unit("wfs", BLOCK)) < min(i for i, b in enumerate(bands) if b == 1)
     reach = max(u.block.xmin for u in east) - BLOCK.xmin
     assert reach == 1500  # 1.5 km ahead: blocks starting 500, 1000 and 1500 m east of this one
     assert min(u.block.xmin for u in east) - BLOCK.xmin == -500  # the ring behind
@@ -132,8 +152,7 @@ def test_sources_list_missing_units_and_see_them_land(raw):
         f"lidar/{BLOCK.name}",
         f"ortho/{BLOCK.name}",
         f"wfs/{BLOCK.name}",
-        f"osm/{BLOCK.name}",
-    ]
+    ]  # OSM is optional: the draft is rebuilt with streets once it lands
     put_lidar(BLOCK)
     put_ortho(BLOCK)
     put_wfs(BLOCK)
@@ -141,7 +160,7 @@ def test_sources_list_missing_units_and_see_them_land(raw):
     sources.invalidate()
     assert sources.missing(tile) == []
     assert all(sources.unit_present(Unit(d, BLOCK)) for d in ("lidar", "ortho", "wfs", "osm"))
-    assert sources.osm_source(tile).name == f"coarse-{BLOCK.name}-261027.parquet"
+    assert sources.osm_source(tile).parent.name == osm_area(BLOCK).name
     assert sources.ortho_source(tile).name == f"coarse-{BLOCK.name}.vrt"
     assert sources.wfs_source("bldg:Building_LOD2", tile)[1].name == "bldg_Building_LOD2.parquet"
     with pytest.raises(NoCoverage):
@@ -211,14 +230,14 @@ def test_prefetcher_fetches_lidar_first_two_at_a_time_and_never_twice(raw):
         _wait(lambda: p.status()["queued"] == 0 and not p.status()["fetching"])
         started = fake.started
         assert f"wfs/{BLOCK.name}" not in started
-        assert len(started) == len(set(started)) == 9 + 9 + 8 + 9
+        assert len(started) == len(set(started)) == 9 + 9 + 8 + 4
         datasets = [k.split("/")[0] for k in started]
         assert datasets == sorted(datasets, key=("lidar", "ortho", "wfs", "osm").index)
         assert f"lidar/{BLOCK.name}" in started[: P.DOWNLOADS]  # nearest first
         assert fake.peak == P.DOWNLOADS
         s = p.status()
         assert s["datasets"]["lidar"]["units"] == 9 and s["datasets"]["lidar"]["bytes"] == 9000
-        assert s["cache"]["bytes"] == 35 * 1000
+        assert s["cache"]["bytes"] == 30 * 1000
         fake.started.clear()
         p.planned_at = None
         p.want(250, 250, 0, 0)  # everything is on disk now
@@ -332,7 +351,7 @@ def test_service_builds_ready_tiles_while_another_tiles_data_downloads(raw, tmp_
         status, body = get("t0_0_0/manifest.json?d=0")  # answered while its download hangs
         assert status == 202 and body["state"] == "pending-data"
         lidar = [f"lidar/{b.name}" for b in C.laz_tiles_for_bbox(C.BBoxLocal(-20, -20, 270, 270))]
-        rest = [f"{d}/{BLOCK.name}" for d in ("ortho", "wfs", "osm")]
+        rest = [f"{d}/{BLOCK.name}" for d in ("ortho", "wfs")]
         assert body["missing"] == [*lidar, *rest]
         assert get(f"{ready.id}/manifest.json?d=300")[0] == 202
         _wait(lambda: get(f"{ready.id}/manifest.json?d=300")[0] == 200)
@@ -377,8 +396,12 @@ def test_a_draft_built_from_other_raw_files_is_stale(raw, tmp_path):
     sources._listed = {b.name for b in tile_blocks(C.VisualTile(0, 1, 1))}
     for block in tile_blocks(C.VisualTile(0, 1, 1)):
         put_lidar(block)
-    put_ortho(BLOCK), put_wfs(BLOCK), put_osm(BLOCK)
+    put_ortho(BLOCK), put_wfs(BLOCK)
+    without_osm = sources.input_key(C.VisualTile(0, 1, 1))
+    assert without_osm and sources.missing(C.VisualTile(0, 1, 1)) == []  # buildable, no streets
+    put_osm(BLOCK)
     first = sources.input_key(C.VisualTile(0, 1, 1))
+    assert first != without_osm  # the street-less draft is rebuilt once OSM lands
     assert first and first == sources.input_key(C.VisualTile(0, 1, 1))
     lidar = C.raw_dir("laz") / "maanpinta" / f"{BLOCK.name}.laz"
     lidar.write_bytes(b"LASF" * 200)
@@ -446,7 +469,7 @@ def _real_raw(tile: C.VisualTile):
         (adir / f"{name}.summary.json").write_text(
             json.dumps({"status": "ok", "bbox_en": list(block.bbox_en.as_tuple())})
         )
-    odir = C.raw_dir("osm") / f"coarse-{block.name}"
+    odir = C.raw_dir("osm") / osm_area(block).name
     odir.mkdir(parents=True)
     gpd.GeoDataFrame(
         {
@@ -457,7 +480,7 @@ def _real_raw(tile: C.VisualTile):
             ),
         },
         geometry="geometry_local",
-    ).to_parquet(odir / f"coarse-{block.name}-261027.parquet")
+    ).to_parquet(odir / f"{odir.name}-261027.parquet")
 
 
 def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_path):
