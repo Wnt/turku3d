@@ -64,7 +64,8 @@ standing, nearest first by the reported distance `d`. The ETA is the mean of the
 over the free workers. `/coarse/want` answers the build counter `version`; when it moves the game
 polls its waiting tiles at once, so a finished draft arrives within a frame of the next check
 instead of on the tile's own 2 s poll. The badge shows "ready in N s" and "next tile in N s".
-Up to four builds run at once, each in a child process: the game also asks for the cells within the next
+Up to four builds run at once, each on its own persistent worker process (`python -m turku3d.coarse worker`,
+restarted when a pipeline source changes, after 50 tiles, or when it dies): the game also asks for the cells within the next
 30 s of travel along the player's heading (`world/coarseTiles.ts`), so a cold tile's minutes of raw-data
 download overlap with the warm builds. `/coarse/status` lists the tiles `building`. Built tiles are reused
 until the producer code changes.

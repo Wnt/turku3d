@@ -2,12 +2,14 @@
 python -m turku3d.coarse fetch lidar/23460000_6704500         (one prefetch unit into the raw cache)
 python -m turku3d.coarse prepare t0_2_0 [--root DIR]           (prepare a tile's inputs on disk)
 python -m turku3d.coarse serve [--port P]                      (tools/dev/coarse-tiles; port base + 5)
+python -m turku3d.coarse worker                                (the service's persistent build worker)
 
 A build reads the raw cache only and exits with PENDING (3) and {"pending": [units]} when inputs
 are missing; --fetch fetches them first (hand-run builds)."""
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -38,6 +40,31 @@ def fetch_unit(key: str) -> dict:
     }
 
 
+def worker() -> int:
+    """Persistent build worker: one {"tile", "out"} JSON line in, one result line out:
+    {"code": 0 | PENDING | 1, "stdout": ..., "stderr": ...}, like a one-shot build's exit code and
+    output. The producer, the raw-data listings and the node packager stay loaded between tiles."""
+    # Results get their own copy of fd 1; fd 1 itself (C libraries, child processes) and
+    # sys.stdout go to the log, so nothing else can interleave with a result line.
+    results = os.fdopen(os.dup(1), "w")
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
+    sources = Sources()
+    for line in sys.stdin:
+        job = json.loads(line)
+        sources.invalidate()
+        try:
+            m = build(job["tile"], Path(job["out"]), sources=sources)
+            result = {"code": 0, "stdout": json.dumps({k: m[k] for k in ("tile", "buildings")})}
+        except MissingInputs as missing:
+            result = {"code": PENDING, "stdout": json.dumps({"pending": missing.units})}
+        except Exception as e:  # reported like a failed one-shot build's last stderr line
+            result = {"code": 1, "stderr": f"{type(e).__module__}.{type(e).__name__}: {e}"}
+        results.write(json.dumps(result) + "\n")
+        results.flush()
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m turku3d.coarse",
@@ -55,6 +82,7 @@ def main(argv=None) -> int:
     p.add_argument("tile")
     p.add_argument("--root", type=Path, help="coarse root (default $TURKU3D_WORK/coarse)")
     sub.add_parser("serve", help="run the localhost companion service", add_help=False)
+    sub.add_parser("worker", help="build tiles named on stdin, one JSON line each (the service's)")
     if argv is None:
         argv = sys.argv[1:]
     if argv[:1] == ["serve"]:
@@ -65,6 +93,8 @@ def main(argv=None) -> int:
     if a.cmd == "fetch":
         print(json.dumps(fetch_unit(a.unit)))
         return 0
+    if a.cmd == "worker":
+        return worker()
     if a.cmd == "prepare":
         from .inputs import prepare
 

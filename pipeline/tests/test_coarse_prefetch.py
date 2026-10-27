@@ -3,6 +3,7 @@ the LRU prune, and a service whose builds never wait for a download (fake fetche
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -27,6 +28,11 @@ from turku3d.coarse.sources import (
 from turku3d.fetch.common import Registry
 
 BLOCK = C.LazTile(int(C.ORIGIN_E), int(C.ORIGIN_N))  # engine x 0..500, z 0..500
+
+
+def one_shot(command):
+    """A Builder runner that starts command(tile, out) once per tile."""
+    return lambda tile, out: subprocess.run(command(tile, out), capture_output=True, text=True)
 
 
 @pytest.fixture
@@ -353,7 +359,7 @@ def test_service_builds_ready_tiles_while_another_tiles_data_downloads(raw, tmp_
     order = []
     builder = Builder(
         tmp_path / "coarse",
-        command=_fake_build(order),
+        run=one_shot(_fake_build(order)),
         code="test",
         inputs=lambda tile: [u.key for u in p.sources.missing(C.VisualTile.parse(tile))],
         on_missing=lambda units: p.need([Unit.parse(u) for u in units]),
@@ -400,7 +406,7 @@ def test_a_draft_built_from_other_raw_files_is_stale(raw, tmp_path):
     key = ["a"]
     builder = Builder(
         tmp_path / "coarse",
-        command=_fake_build([]),
+        run=one_shot(_fake_build([])),
         code="test",
         workers=0,
         input_key=lambda tile: key[0],
@@ -567,7 +573,7 @@ def test_prefetcher_prepares_complete_tiles_near_the_player(raw, tmp_path):
 def test_queue_builds_the_path_ahead_first_and_estimates_when_tiles_are_ready(tmp_path):
     from turku3d.coarse.service import score
 
-    builder = Builder(tmp_path / "coarse", command=_fake_build([]), code="test", workers=0)
+    builder = Builder(tmp_path / "coarse", run=one_shot(_fake_build([])), code="test", workers=0)
     for tile, d in (
         ("t0_1_0", 0),
         ("t0_0_1", 0),
@@ -606,7 +612,11 @@ def test_a_build_that_is_stale_on_arrival_is_built_again(tmp_path):
         return [sys.executable, "-c", script, tile, str(out), used]
 
     builder = Builder(
-        tmp_path / "coarse", command=command, code="test", workers=1, input_key=lambda tile: key[0]
+        tmp_path / "coarse",
+        run=one_shot(command),
+        code="test",
+        workers=1,
+        input_key=lambda tile: key[0],
     )
     try:
         builder.request("t0_0_0", 0)
@@ -625,3 +635,23 @@ def test_a_tile_without_buildings_is_prepared_with_none(tmp_path):
     empty = tmp_path / "bldg.parquet"  # what the WFS cache writes for pages without features
     gpd.GeoDataFrame({"gml_id": []}, geometry=[]).to_parquet(empty)
     assert prepare_wfs(tile, empty, None, None)["buildings"] == []
+
+
+def test_persistent_workers_build_tiles_and_report_pending_ones(raw, tmp_path):
+    from turku3d.coarse.service import Workers
+
+    _real_raw(C.VisualTile(0, 1, 1))  # block (0, 0): tiles t0_0_0..t0_1_1, lidar of its neighbours
+    sources = Sources()
+    workers = Workers()
+    try:
+        first = workers("t0_1_1", tmp_path / "coarse" / "t0_1_1")
+        assert first.returncode == 0, first.stderr
+        assert json.loads((tmp_path / "coarse/t0_1_1/manifest.json").read_text())["buildings"] == 1
+        (proc,) = workers.procs
+        far = workers("t0_9_9", tmp_path / "coarse" / "t0_9_9")  # no raw data there
+        assert far.returncode == 3 and json.loads(far.stdout)["pending"]
+        assert workers.procs == [proc] and proc.poll() is None  # the same process, still running
+        assert sources.input_key(C.VisualTile(0, 1, 1)) is not None
+    finally:
+        workers.close()
+    assert proc.poll() is not None

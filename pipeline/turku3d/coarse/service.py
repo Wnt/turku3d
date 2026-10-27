@@ -19,8 +19,9 @@
     GET /coarse/<tile>/vis.glb | roads.json | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
 
 Tiles not re-requested for STALE_SECONDS leave the queue (the player moved on). The game asks for
-the cells ahead of a moving player as well (prefetch), so up to WORKERS builds run at once, each in
-a child process, so a slow or failing build never blocks requests or the other builds.
+the cells ahead of a moving player as well (prefetch), so up to WORKERS builds run at once, each on
+its own persistent worker process (``Workers``: the interpreter, imports and the node packager are
+started once, not per tile), so a slow or failing build never blocks requests or the other builds.
 A build never downloads: a tile whose inputs are not on disk waits as pending-data, its units jump
 the raw-data prefetch queue, and it is queued again as soon as they land.
 A failed tile (outside every keyless source, or a network error) answers 404 with the reason and is
@@ -90,13 +91,86 @@ def score(tile: str, distance: float, motion) -> float:
     return AFTER_PATH + distance
 
 
+class Workers:
+    """One persistent ``python -m turku3d.coarse worker`` per builder thread: the interpreter, the
+    producer's imports and the node packager are paid once, not per tile (seconds of wall time each
+    on a loaded host). A worker is started again when it died, after MAX_BUILDS tiles (bounded
+    memory), and when a pipeline source file changed since it started, so code edits take effect."""
+
+    MAX_BUILDS = 50
+    SOURCES = ("pipeline/turku3d/**/*.py", "pipeline/turku3d/package/*.mjs")
+
+    def __init__(self):
+        self.local = threading.local()
+        self.procs: list[subprocess.Popen] = []
+        self.lock = threading.Lock()
+
+    def _changed_since(self, started: float) -> bool:
+        return any(
+            p.stat().st_mtime > started
+            for pattern in self.SOURCES
+            for p in C.REPO_ROOT.glob(pattern)
+        )
+
+    def _worker(self) -> subprocess.Popen:
+        w = getattr(self.local, "worker", None)
+        if w and w["proc"].poll() is None and w["builds"] < self.MAX_BUILDS:
+            if not self._changed_since(w["started"]):
+                return w["proc"]
+        if w:
+            self._end(w["proc"])
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "turku3d.coarse", "worker"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.local.worker = {"proc": proc, "builds": 0, "started": time.time()}
+        with self.lock:
+            self.procs.append(proc)
+        return proc
+
+    def __call__(self, tile: str, out: Path) -> subprocess.CompletedProcess:
+        proc = self._worker()
+        self.local.worker["builds"] += 1
+        try:
+            proc.stdin.write(json.dumps({"tile": tile, "out": str(out)}) + "\n")
+            proc.stdin.flush()
+            line = proc.stdout.readline()
+        except OSError:
+            line = ""
+        if not line:
+            self._end(proc)
+            self.local.worker = None
+            return subprocess.CompletedProcess([], 1, "", "the build worker exited")
+        r = json.loads(line)
+        return subprocess.CompletedProcess([], r["code"], r.get("stdout", ""), r.get("stderr", ""))
+
+    def _end(self, proc: subprocess.Popen) -> None:
+        if proc.poll() is None:
+            proc.stdin.close()
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        with self.lock:
+            if proc in self.procs:
+                self.procs.remove(proc)
+
+    def close(self) -> None:
+        with self.lock:
+            procs = list(self.procs)
+        for proc in procs:
+            self._end(proc)
+
+
 class Builder:
     """Queue of tile ids drained by `workers` threads, in ``score`` order (the path ahead first)."""
 
     def __init__(
         self,
         root: Path,
-        command=None,
+        run=None,
         code: str | None = None,
         workers: int = WORKERS,
         inputs=None,
@@ -106,24 +180,16 @@ class Builder:
         """``inputs(tile)`` lists the unit keys a tile still needs (raises NoCoverage outside the
         sources); ``on_missing(units)`` hands them to the prefetcher. Without ``inputs`` every
         tile is assumed to have its data. ``input_key(tile)`` identifies the raw files a build
-        would read now (None: unknown); a draft built from other files is stale and rebuilt."""
+        would read now (None: unknown); a draft built from other files is stale and rebuilt.
+        ``run(tile, out)`` builds one tile and returns a CompletedProcess-like result (exit code 0,
+        PENDING_EXIT or another failure, stdout, stderr); default: persistent ``Workers``."""
         self.input_key = input_key or (lambda tile: None)
         self.root = root
         self.inputs = inputs or (lambda tile: [])
         self.on_missing = on_missing or (lambda units: None)
         # Re-hashed per check, so a code edit while the service runs rebuilds each tile once.
         self.code = (lambda: code) if code else code_hash
-        self.command = command or (
-            lambda tile, out: [
-                sys.executable,
-                "-m",
-                "turku3d.coarse",
-                "build",
-                tile,
-                "--out",
-                str(out),
-            ]
-        )
+        self.run = run or Workers()
         self.lock = threading.Condition()
         self.priority: dict[str, float] = {}  # queued tile -> distance the game reported
         self.requested: dict[str, float] = {}
@@ -249,7 +315,7 @@ class Builder:
                 self.building[tile] = time.time()
             started = time.perf_counter()
             out = self.root / tile
-            proc = subprocess.run(self.command(tile, out), capture_output=True, text=True)
+            proc = self.run(tile, out)
             seconds = time.perf_counter() - started
             with self.lock:
                 del self.building[tile]
@@ -322,6 +388,8 @@ class Builder:
         with self.lock:
             self.stopped = True
             self.lock.notify_all()
+        if isinstance(self.run, Workers):
+            self.run.close()
 
 
 def loaded_files() -> list[str]:
