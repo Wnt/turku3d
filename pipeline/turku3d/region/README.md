@@ -110,7 +110,8 @@ python -m turku3d.region quality --release "$TURKU3D_DATA/live"   # measure a re
 Every tile build (`python -m turku3d.package.assemble`, so `make tile-build`, `make tile-add`, the integrator and
 the localhost quick build) writes `<dist>/tiles/quality.json`; `make tile-validate` adds each tile's validator
 verdict. Per playable tile: build time and assembly seconds, wire bytes, buildings, facade walls by map source
-(generate / derived / derived-neighbour / other / none), street-facing wall area covered by generated-style maps,
+(generate / derived / derived-neighbour / fast / other / none), street-facing wall area covered by generated-style
+maps (`facade_coverage`; rough procedural `fast` maps only in `rough_coverage`),
 ground texture kind (ortho-splats / untextured / draft), trees, parked cars and the validator verdict. The ledger
 travels with the tile tree into the stage cache, the tile store and the release; live publication merges it into
 `$TURKU3D_DATA/tile-quality.json` with the release's tiles validator-green, keeps `full_quality_since` (textured

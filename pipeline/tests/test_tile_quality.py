@@ -106,6 +106,7 @@ def test_measure_counts_buildings_facade_sources_ground_trees_and_cars(root):
         "generate": 1,
         "derived": 1,
         "derived-neighbour": 0,
+        "fast": 0,
         "other": 0,
         "none": 2,
     }
@@ -125,6 +126,19 @@ def test_measure_counts_buildings_facade_sources_ground_trees_and_cars(root):
         1,
     )
     assert a["collision_sha256"] != c["collision_sha256"]
+
+
+def test_fast_maps_cover_roughly_but_not_as_generated_style(root):
+    tiles, layers, assembly = root
+    sidecar = assembly / "facades/a/0.json"
+    fast = {"source_mode": "fast", "fast_description": {"version": 1}, "references": []}
+    meta = {k: v for k, v in json.loads(sidecar.read_text()).items() if k != "generated_qa"}
+    sidecar.write_text(json.dumps({**meta, **fast}))
+    record = Q.measure(*root)["t0_0_0"]
+    assert (record["facades"]["fast"], record["facades"]["generate"]) == (1, 0)
+    assert (record["facade_coverage"], record["rough_coverage"]) == (0.25, 0.5)
+    sidecar.write_text(json.dumps({**meta, **fast, "references": ["photo.jpg"]}))
+    assert Q.measure(*root)["t0_0_0"]["facades"]["other"] == 1
 
 
 def test_photo_maps_count_as_other_and_unbound_dimensions_as_none(root):
