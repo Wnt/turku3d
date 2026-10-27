@@ -74,6 +74,22 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual((work / "textures/assembly/MANIFEST.json").read_text(), "approved")
             self.assertEqual((shared / "assembly/MANIFEST.json").read_text(), "shared")
 
+    def test_seed_drops_facades_retired_from_the_approvals(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            published = root / "data"
+            approvals = published / "facade-approvals/assembly"
+            (approvals / "facades/b").mkdir(parents=True)
+            (approvals / "facades/b/1.json").write_text("generated")
+            (approvals / "MANIFEST.json").write_text("approved")
+            stale = root / "work/textures/assembly/facades/b"
+            stale.mkdir(parents=True)
+            (stale / "0.json").write_text("retired photo")
+            (stale / "1.json").write_text("old")
+            live_build.seed(root / "work", published)
+            self.assertEqual(sorted(p.name for p in stale.iterdir()), ["1.json"])
+            self.assertEqual((stale / "1.json").read_text(), "generated")
+
     def test_layer_delta_maps_collision_and_visual_to_only_affected_tiles(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

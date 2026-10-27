@@ -154,7 +154,9 @@ per batch after the merge, so main may be red for one integration cycle while li
 
 ### Live build (`live_build.build`, run by the integrator)
 
-The live build seeds private APFS copies of the published layers, textures and tile dist. It runs `make refresh`, `make tile-build
+The live build seeds private APFS copies of the published layers, textures and tile dist, and
+replaces the texture assembly with `$TURKU3D_DATA/facade-approvals/assembly`, so retired facades
+leave the release. It runs `make refresh`, `make tile-build
 T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'`, a bounded `make tile-validate` on changed collision tiles
 (all selected tiles when only validator code changed), followed by a separate
 known-red car report over the same collision tiles. The release gate requires

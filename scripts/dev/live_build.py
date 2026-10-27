@@ -102,10 +102,14 @@ def seed(work, published):
         _clone(published / relative, work / relative)
     approvals = published / "facade-approvals/assembly"
     if approvals.is_dir():
+        # The approvals are authoritative: a retired facade must leave the release too,
+        # so the assembly is replaced rather than merged over the published copy.
         target = work / "textures/assembly"
         _detach(target, work)
+        if target.exists():
+            shutil.rmtree(target)
         with s.lock(approvals / ".export.lock"):
-            shutil.copytree(approvals, target, dirs_exist_ok=True)
+            shutil.copytree(approvals, target)
 
 
 def _detach(path, work):
