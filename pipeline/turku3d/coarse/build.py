@@ -138,10 +138,15 @@ def water_level(points: np.ndarray, water) -> float:
     return float(max(-1.0, np.percentile(points[near, 1], 2))) if near.any() else 0.0
 
 
-ABUTMENT_M = (5.0, 25.0)  # dry ground this far beyond a deck end (m, along the deck) sets that end's height
+ABUTMENT_M = (
+    5.0,
+    25.0,
+)  # dry ground this far beyond a deck end (m, along the deck) sets that end's height
 
 
-def bridge_decks(grid_pos: np.ndarray, grid_idx: np.ndarray, materials: np.ndarray, wet: np.ndarray) -> int:
+def bridge_decks(
+    grid_pos: np.ndarray, grid_idx: np.ndarray, materials: np.ndarray, wet: np.ndarray
+) -> int:
     """Lift each connected bridge-deck patch that borders water to the line between its abutments; returns the count.
 
     ``maanpinta`` has no points on a deck: under it the key points are the river surface and the sloping banks, so
@@ -188,7 +193,11 @@ def bridge_decks(grid_pos: np.ndarray, grid_idx: np.ndarray, materials: np.ndarr
         if not ends:
             continue
         (ta, ha), (tb, hb) = (ends[0], ends[-1]) if len(ends) == 2 else (ends[0], ends[0])
-        span = corridor & (t >= min(ta, tb)) & (t <= max(ta, tb)) if len(ends) == 2 else np.isin(np.arange(n), verts)
+        span = (
+            corridor & (t >= min(ta, tb)) & (t <= max(ta, tb))
+            if len(ends) == 2
+            else np.isin(np.arange(n), verts)
+        )
         line = ha + (hb - ha) * (t[span] - ta) / (tb - ta) if tb != ta else np.full(span.sum(), ha)
         grid_pos[span, 1] = np.maximum(grid_pos[span, 1], line)
         lifted += 1

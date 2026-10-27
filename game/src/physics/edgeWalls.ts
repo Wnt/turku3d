@@ -9,7 +9,7 @@ import { GROUP } from '../shared/col/materials';
 
 type R = typeof RAPIER_NS;
 
-export const EDGE_WALL = {
+const EDGE_WALL = {
   /** Half thickness (m); the wall lies wholly outside the loaded tile. A car at 40 m/s moves 0.67 m per 60 Hz step. */
   half: 1,
   /** Reach below the tile's lowest and above its highest collision vertex (m). */

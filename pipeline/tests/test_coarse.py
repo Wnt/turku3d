@@ -143,7 +143,9 @@ def test_bridge_deck_over_water_is_lifted_to_its_abutments():
     tile = C.VisualTile(0, 0, 0)
     step = tile.size / CELLS
     xs = np.arange(CELLS + 1) * step
-    heights = np.where((xs[None, :] > 100) & (xs[None, :] < 150), 0.0, 6.0) * np.ones((CELLS + 1, 1))
+    heights = np.where((xs[None, :] > 100) & (xs[None, :] < 150), 0.0, 6.0) * np.ones(
+        (CELLS + 1, 1)
+    )
     pos, idx = grid_mesh(tile, heights)
     centroid = pos[idx].mean(axis=1)
     river = (centroid[:, 0] > 100) & (centroid[:, 0] < 150)
