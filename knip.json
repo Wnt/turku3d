@@ -65,6 +65,17 @@
       "project": [
         "**/*.mjs"
       ]
+    },
+    "tools/music-lab": {
+      "entry": [
+        "tests/**/*.ts"
+      ],
+      "project": [
+        "tests/**/*.ts"
+      ],
+      "playwright": {
+        "config": []
+      }
     }
   }
 }
