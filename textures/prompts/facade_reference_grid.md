@@ -4,4 +4,4 @@ wall_visible is true only if the rectified photos actually show the outlined bui
 
 Count on the wall: storeys including the ground floor; window_columns, the number of window openings in a full upper row (the most common count; 0 for a single-storey wall); ground_openings, the doors, shop windows and gates in the ground storey (for a single-storey wall, all its openings); plinth, whether a distinct base band is visible; cornice, whether a distinct top cornice or eaves band is visible; cladding, the wall material and colour in a few words (for example "pale yellow rendered plaster"). When the wall is not visible, give zeros and false where unknown.
 
-Respond ONLY with the strict schema JSON, with problem and cladding in English. facade_id must be exactly $facade_id.
+Respond ONLY with the strict schema JSON. facade_id must be exactly $facade_id.
