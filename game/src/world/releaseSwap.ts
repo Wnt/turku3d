@@ -3,7 +3,7 @@
 // entry changed are fetched again and replace their colliders in the worker; the visual tileset is swapped as a
 // whole once the new one has settled (VisualTiles.reload); tiles the new release adds simply become loadable, and
 // drafts of tiles it publishes leave once its tileset renders them (CoarseTiles.release). Draft collision entries
-// (absolute /coarse/ URLs) are never removed here.
+// (absolute /coarse/ URLs) are never removed or replaced here: the drafts hand their cells to the release as they leave.
 import { loadManifest, type Manifest, type ManifestEntry } from './manifest';
 import type { CollisionStreamer } from './collisionStreaming';
 
@@ -39,8 +39,8 @@ interface ReleaseHost {
   tiles: { reload(url: string): Promise<void> };
   streamer: Pick<CollisionStreamer, 'refresh'>;
   unloadCollision: (id: string) => void;
-  /** Draft tiles: those the new tileset renders leave. */
-  coarse?: { release(published: Iterable<string>): void } | null;
+  /** Draft tiles: those the new tileset renders leave; the cells drafts hold stay theirs until then. */
+  coarse?: { release(published: Iterable<string>, collision: Record<string, ManifestEntry>): void; held(): Set<string> } | null;
   load?: (url: string) => Promise<Manifest>;
 }
 
@@ -49,12 +49,15 @@ export async function swapRelease(host: ReleaseHost): Promise<ReleaseDelta> {
   const fresh = await (host.load ?? (url => loadManifest(url, { cache: 'no-store' })))(host.manifestUrl);
   const { manifest } = host;
   const delta = releaseDelta(manifest, fresh);
+  // A cell a drawn draft holds keeps the draft's collision; the draft returns it to this release when it leaves.
+  const held = host.coarse?.held() ?? new Set<string>();
   for (const id of delta.removed) { delete manifest.collision[id]; host.unloadCollision(id); }
-  for (const id of delta.collision) manifest.collision[id] = fresh.collision[id];
+  const update = delta.collision.filter(id => !held.has(id));
+  for (const id of update) manifest.collision[id] = fresh.collision[id];
   // Everything else follows the new release; the collision record (shared) and the base URL stay.
   Object.assign(manifest, { ...fresh, collision: manifest.collision, baseUrl: manifest.baseUrl });
-  host.streamer.refresh(delta.collision);
+  host.streamer.refresh(update);
   if (delta.visual.length || delta.tileset) await host.tiles.reload(host.tilesetUrl);
-  host.coarse?.release(Object.keys(fresh.visual));
+  host.coarse?.release(Object.keys(fresh.visual), fresh.collision);
   return delta;
 }

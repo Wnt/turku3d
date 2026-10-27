@@ -216,7 +216,8 @@ async function runPlay() {
   telemetry?.setBuiltTiles(Object.keys(manifest.visual));
   // Localhost only: draft tiles from tools/dev/coarse-tiles beyond the published tileset (null elsewhere).
   const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
-    unloadCollision: id => physics.unloadTile(id), checkCollision: buffer => physics.checkTile(buffer), style: m => materials?.apply(m), unstyle: m => materials?.release(m) });
+    unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids), checkCollision: buffer => physics.checkTile(buffer),
+    style: m => materials?.apply(m), unstyle: m => materials?.release(m) });
 
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const selected = params.spawnGiven ? undefined : manifest.spawn;

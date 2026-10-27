@@ -21,6 +21,12 @@ the player from falling through visible ground:
    collision cells has an entry (published entries win) and the worker has decoded each draft `.col`
    (`PhysicsClient.checkTile`, no colliders are built). A draft that fails either check is never drawn; the HUD names
    the reason (`draft tile t0_i_j unavailable: ...`) and it is asked for again after 120 s.
+3. **Collision follows what is drawn**: a drawn draft's `.col` files serve all 16 of its cells, also the published
+   margin cells there (the ring of collision the release ships around the playable tiles: ground, and in releases
+   built before the per-tile props producer, props whose visuals sit in an unpublished tile). The replaced entries
+   come back when the draft leaves (`drop`), and loaded colliders are swapped in place both ways
+   (`CollisionStreamer.refresh`). A release swap leaves cells a draft holds to the draft (`CoarseTiles.held`) and
+   hands it the release's entries to return (`CoarseTiles.release`).
 
 **Prefetch**: besides the 3x3 window it loads, `CoarseTiles` asks the service to build every cell within the next 30 s
 of travel along the player's heading plus a one-tile ring (`aheadTiles`; speed from the positions of its 1 s checks,

@@ -70,7 +70,7 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
   const host: CoarseHost = {
     scene, tiles, manifest, manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/',
     renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
-    unloadCollision: id => unloaded.push(id), fetch: service.fetch,
+    unloadCollision: id => unloaded.push(id), refreshCollision: () => {}, fetch: service.fetch,
     // The physics worker accepts a buffer unless it starts with 0xff.
     checkCollision: async (buffer) => {
       if (new Uint8Array(buffer)[0] === 0xff) throw new Error('CRC mismatch');
@@ -165,7 +165,7 @@ test('a moving player gets builds ahead requested without loading them; they loa
   const loaded: string[] = [];
   const coarse = new CoarseTiles({
     scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest, manifestUrl: 'tiles/manifest.json',
-    pageUrl: 'http://127.0.0.1:5171/', fetch: service.fetch, unloadCollision: () => {}, checkCollision: async () => 2,
+    pageUrl: 'http://127.0.0.1:5171/', fetch: service.fetch, unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2,
     renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
     loadModel: async (url) => { loaded.push(/(t0_[^/]+)\/vis/.exec(url)![1]); return new THREE.Group(); },
   });
@@ -194,7 +194,7 @@ test('reports the player motion once a second and names the data a waiting tile 
     return json(202, { state: 'pending-data', missing: ['lidar/23460000_6704500', 'lidar/23460500_6704500', 'wfs/23460000_6704500'] });
   }) as typeof globalThis.fetch;
   const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
-    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {},
+    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() }))!;
   const settle = () => new Promise(r => setTimeout(r, 0));
   coarse.update(600, 100, 0); await settle(); await settle();
@@ -223,7 +223,7 @@ test('a restarting service pauses the drafts: one console line, only status prob
     return json(202, { state: 'queued' });
   }) as typeof globalThis.fetch;
   const host: CoarseHost = { scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
-    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {},
+    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() };
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const info = vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -290,7 +290,7 @@ test('a finished build reaches the game at the next check, and the badge shows w
     return json(404, { error: 'not here' });
   }) as typeof globalThis.fetch;
   const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
-    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {},
+    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() }))!;
   const settle = async () => { for (let k = 0; k < 4; k++) await new Promise(r => setTimeout(r, 0)); };
   coarse.update(600, 100, 0); await settle();
@@ -302,4 +302,41 @@ test('a finished build reaches the game at the next check, and the badge shows w
   coarse.update(600, 100, 2000); await settle();
   coarse.update(600, 100, 2050); await settle();
   expect(polls).toBe(3); // the 2 s poll, then at once on the new version instead of at 4000
+});
+
+test('a drawn draft owns the collision of all its cells, also a published margin cell, and returns it when it leaves', async () => {
+  // The release publishes c_8_0 (t0_2_0's corner) as a margin cell: ground and props whose visuals no tile draws.
+  const margin = { url: 'collision/t0_2_0/c_8_0.col', sha256: 'm', bytes: 4, tris: 1, h: [0, 1] };
+  const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])),
+    collision: { c_8_0: margin } } as unknown as Manifest;
+  const service = fakeService(manifest);
+  const refreshed: string[] = [], unloaded: string[] = [];
+  const coarse = new CoarseTiles({
+    scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest, manifestUrl: 'tiles/manifest.json',
+    pageUrl: 'http://127.0.0.1:5171/', fetch: service.fetch, unloadCollision: id => unloaded.push(id),
+    refreshCollision: ids => refreshed.push(...ids), checkCollision: async () => 2,
+    renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
+    loadModel: async () => new THREE.Group(),
+  });
+  const settle = async () => { for (let k = 0; k < 6; k++) await new Promise(r => setTimeout(r, 0)); };
+  coarse.update(600, 100, 0); await settle();
+  coarse.update(600, 100, 3000); await settle();
+  expect(coarse.entries.get('t0_2_0')?.state).toBe('draft');
+  // The draft's own .col replaces the margin cell, and a loaded margin collider is swapped for it.
+  expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_8_0.col');
+  expect(manifest.collision.c_9_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_9_0.col');
+  expect(refreshed).toEqual(['c_8_0']);
+  expect(coarse.held()).toContain('c_8_0');
+
+  // A new release keeps the drafted cell the draft's; the draft returns the release's entry when it leaves.
+  const next = { ...margin, url: 'collision/t0_2_0/c_8_0.col', sha256: 'm2' };
+  coarse.release(published, { c_8_0: next } as unknown as Manifest['collision']);
+  expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_8_0.col');
+  coarse.update(5000, 5000, 10_000); await settle();
+  expect(coarse.entries.has('t0_2_0')).toBe(false);
+  expect(manifest.collision.c_8_0).toBe(next);
+  expect(refreshed).toEqual(['c_8_0', 'c_8_0']);
+  expect(unloaded).not.toContain('c_8_0');
+  expect(unloaded).toContain('c_9_0');
+  expect(manifest.collision.c_9_0).toBeUndefined();
 });

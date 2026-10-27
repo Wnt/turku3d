@@ -33,7 +33,7 @@ test('a swap updates the shared manifest in place, reloads collision and the til
     tiles: { reload: vi.fn(async (url: string) => { order.push(`reload ${url}`); }) },
     streamer: { refresh: vi.fn((ids: Iterable<string>) => { order.push(`refresh ${[...ids]}`); }) },
     unloadCollision: vi.fn((id: string) => { order.push(`unload ${id}`); }),
-    coarse: { release: vi.fn((ids: Iterable<string>) => { order.push(`release ${[...ids]}`); }) },
+    coarse: { release: vi.fn((ids: Iterable<string>) => { order.push(`release ${[...ids]}`); }), held: () => new Set<string>() },
   };
   const delta = await swapRelease(host);
   expect(delta.visual).toEqual(['t0_0_0', 't0_1_0']);
@@ -44,6 +44,19 @@ test('a swap updates the shared manifest in place, reloads collision and the til
   expect(live.tileset?.sha256).toBe('ts2');
   expect(live.baseUrl).toBe('http://x/tiles/');
   expect(order).toEqual(['unload c_0_1', 'refresh c_0_0,c_1_0', 'reload /tiles/tileset.json', 'release t0_0_0,t0_1_0']);
+});
+
+test('a cell a drawn draft holds keeps the draft collision; the draft gets the release entry to return later', async () => {
+  const live = manifest({ t0_0_0: 'a' }, { c_0_0: 'x' });
+  const draft = entry('draft', 'http://localhost:5171/coarse/t0_2_2/col/c_8_8.col');
+  live.collision.c_8_8 = draft;
+  const fresh = manifest({ t0_0_0: 'a' }, { c_0_0: 'x', c_8_8: 'margin' });
+  const refresh = vi.fn(), release = vi.fn();
+  await swapRelease({ manifest: live, manifestUrl: 'm', tilesetUrl: 't', tiles: { reload: async () => {} }, streamer: { refresh },
+    unloadCollision: () => {}, load: async () => fresh, coarse: { release, held: () => new Set(['c_8_8']) } });
+  expect(live.collision.c_8_8).toBe(draft);
+  expect(refresh).toHaveBeenCalledWith([]);
+  expect(release.mock.calls[0][1].c_8_8.sha256).toBe('margin');
 });
 
 test('a collision-only release does not reload the visual tileset', async () => {

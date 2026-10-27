@@ -3,7 +3,10 @@
 // in like a published tile: the GLB goes into the scene, its .col entries into the manifest so CollisionStreamer
 // loads them with the normal residency rules. Collision comes first: a draft is drawn only when all 16 of its cells
 // have collision and the physics worker has decoded each of its .col files; one that fails is never drawn (the
-// physics edge walls keep the player out of cells without loaded collision). Draft tiles get a desaturated tint and a HUD line. Published 500 m
+// physics edge walls keep the player out of cells without loaded collision). A drawn draft's collision is used for
+// all 16 of its cells, also where the release publishes a margin cell there (the ring of ground and old margin props
+// around the playable tiles): collision follows what is drawn, and the published entry returns when the draft leaves.
+// Draft tiles get a desaturated tint and a HUD line. Published 500 m
 // leaf tiles are hidden once all four of their quadrants are drafted (the same REPLACE rule as the tileset).
 // Ahead of a moving player the cells within the next 30 s of travel (plus a one-tile ring) are only asked to be built,
 // so at full speed the service (four builds at once) has them ready before they enter the 3x3 window and load.
@@ -128,7 +131,11 @@ interface CoarseFragment { coarse: true; tile: string; visual: Record<string, Ma
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'published' | 'failed';
 interface Entry {
-  state: State; model?: THREE.Object3D; collision: string[]; nextPoll: number; error?: string; roads?: RoadGraphJson;
+  state: State; model?: THREE.Object3D; nextPoll: number; error?: string; roads?: RoadGraphJson;
+  /** The collision entries this tile put into the manifest (dropped only while they are still there). */
+  collision: Map<string, ManifestEntry>;
+  /** Published (margin) entries of its cells that its collision replaced, restored when it leaves. */
+  replaced: Map<string, ManifestEntry>;
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
@@ -145,6 +152,8 @@ export interface CoarseHost {
   tiles: THREE.EventDispatcher<{ 'load-model': { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } };
     'dispose-model': { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } } }>;
   unloadCollision: (id: string) => void;
+  /** Loaded collision tiles whose manifest entry changed are fetched again and swapped (CollisionStreamer.refresh). */
+  refreshCollision: (ids: string[]) => void;
   /** Decodes a draft .col in the physics worker (PhysicsClient.checkTile); rejects when the worker cannot use it. */
   checkCollision: (buffer: ArrayBuffer) => Promise<unknown>;
   style?: (model: THREE.Object3D) => void;
@@ -321,7 +330,7 @@ export class CoarseTiles {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) this.entries.set(id, e = { state: 'pending', collision: [], nextPoll: 0 });
+    if (!e) this.entries.set(id, e = { state: 'pending', collision: new Map(), replaced: new Map(), nextPoll: 0 });
     return e;
   }
 
@@ -372,10 +381,10 @@ export class CoarseTiles {
       const fragment = await res.json() as CoarseFragment;
       if (!fragment.coarse || fragment.tile !== id) throw new Error(`${id}: not a coarse tile fragment`);
       const base = new URL(`${COARSE_ROOT}${id}/`, this.page);
-      // Collision before visibility: every cell of the tile needs a collision entry (a published one wins), and every
-      // draft entry must decode in the physics worker. A draft that fails is never drawn; the edge walls
-      // (physics/edgeWalls.ts) keep the player out of it and the HUD names the reason.
-      const own = Object.entries(fragment.collision).filter(([cid]) => !this.host.manifest.collision[cid]);
+      // Collision before visibility: every cell of the tile needs a collision entry (a published margin cell may stand
+      // in for a cell the draft lacks), and every draft entry must decode in the physics worker. A draft that fails is
+      // never drawn; the edge walls (physics/edgeWalls.ts) keep the player out of it and the HUD names the reason.
+      const own = Object.entries(fragment.collision);
       const uncovered = cellsOf(id).filter(cid => !fragment.collision[cid] && !this.host.manifest.collision[cid]);
       if (uncovered.length) throw new DraftRejected(`no collision for ${uncovered.length} of 16 cells (${uncovered[0]})`);
       await Promise.all(own.map(async ([cid, entry]) => {
@@ -394,10 +403,7 @@ export class CoarseTiles {
       tint(model, this.host.renderer);
       this.host.scene.add(model);
       e.model = model;
-      for (const [cid, entry] of own) {
-        this.host.manifest.collision[cid] = { ...entry, url: new URL(entry.url, base).href };
-        e.collision.push(cid);
-      }
+      this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       e.state = 'draft';
       this.updateParents();
       if (roads) { e.roads = roads; this.onMapChange?.(); }
@@ -417,11 +423,16 @@ export class CoarseTiles {
   }
 
   /** A new release's tileset now renders `published` (world/releaseSwap.ts): drafts and streamed copies of those
-   *  tiles leave, and the draft window and leaf parents follow the new list. */
-  release(published: Iterable<string>) {
+   *  tiles leave, giving their cells to the release's `collision` entries, and the draft window and leaf parents
+   *  follow the new list. Drafts that stay keep their cells and return them to the new release when they leave. */
+  release(published: Iterable<string>, collision: Record<string, ManifestEntry>) {
     this.published = new Set(published);
     this.leaves = leafParents(this.published);
     for (const [id, e] of this.entries) {
+      for (const cid of e.collision.keys()) {
+        if (collision[cid]) e.replaced.set(cid, collision[cid]);
+        else e.replaced.delete(cid);
+      }
       if (!this.published.has(id)) continue;
       this.drop(e);
       this.entries.delete(id);
@@ -445,12 +456,8 @@ export class CoarseTiles {
         this.host.style?.(model);
         this.host.scene.add(model);
         e.model = model;
-        for (const [cid, entry] of Object.entries(fresh.collision)) {
-          const p = /^c_(-?\d+)_(-?\d+)$/.exec(cid);
-          if (!p || l0(Math.floor(+p[1] / 4), Math.floor(+p[2] / 4)) !== id) continue;
-          this.host.manifest.collision[cid] = { ...entry, url: new URL(entry.url, base).href };
-          e.collision.push(cid);
-        }
+        this.take(e, cellsOf(id).filter(cid => fresh.collision[cid])
+          .map(cid => [cid, { ...fresh.collision[cid], url: new URL(fresh.collision[cid].url, base).href }]));
         e.state = 'published';
         this.published.add(id);
       }
@@ -461,10 +468,40 @@ export class CoarseTiles {
     }
   }
 
+  /** Puts `entries` into the manifest as this tile's collision; a published entry they replace is kept for `drop`,
+   *  and loaded colliders of those cells are swapped for the new ones. */
+  private take(e: Entry, entries: [string, ManifestEntry][]) {
+    const swapped: string[] = [];
+    for (const [cid, entry] of entries) {
+      const current = this.host.manifest.collision[cid];
+      if (current && current !== e.collision.get(cid)) { e.replaced.set(cid, current); swapped.push(cid); }
+      else if (current) swapped.push(cid);
+      this.host.manifest.collision[cid] = entry;
+      e.collision.set(cid, entry);
+    }
+    if (swapped.length) this.host.refreshCollision(swapped);
+  }
+
+  /** Collision ids drafts hold in the manifest: a release swap leaves them to `release`. */
+  held(): Set<string> {
+    const out = new Set<string>();
+    for (const e of this.entries.values()) for (const [cid, entry] of e.collision) if (this.host.manifest.collision[cid] === entry) out.add(cid);
+    return out;
+  }
+
   private drop(e: Entry) {
     if (e.model) { this.host.unstyle?.(e.model); e.model.removeFromParent(); this.dispose(e.model); e.model = undefined; }
-    for (const cid of e.collision) { delete this.host.manifest.collision[cid]; this.host.unloadCollision(cid); }
-    e.collision = [];
+    const restored: string[] = [];
+    for (const [cid, entry] of e.collision) {
+      // A release swap may have replaced the entry since (world/releaseSwap.ts): then it is no longer this tile's.
+      if (this.host.manifest.collision[cid] !== entry) continue;
+      const published = e.replaced.get(cid);
+      if (published) { this.host.manifest.collision[cid] = published; restored.push(cid); }
+      else { delete this.host.manifest.collision[cid]; this.host.unloadCollision(cid); }
+    }
+    e.collision.clear();
+    e.replaced.clear();
+    if (restored.length) this.host.refreshCollision(restored);
     if (e.roads) { e.roads = undefined; this.onMapChange?.(); }
     if (e.state === 'draft' || e.state === 'published') e.state = 'pending';
     this.updateParents();
