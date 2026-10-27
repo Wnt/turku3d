@@ -1,8 +1,9 @@
+import type { VehicleKind } from '../physics/constants';
 import { multiplayerUrl, scoresUrl } from './config';
 
 export interface NetPose {
   t: number; E: number; N: number; H: number; yaw: number;
-  vE: number; vN: number; vH: number; mode: 'foot' | 'car' | 'scooter'; vehicle: string | null; carrying: boolean;
+  vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }
 export interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
 export interface Score { nick: string; money: number; deliveries: number; rank: number; online: boolean }

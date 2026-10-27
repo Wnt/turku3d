@@ -12,7 +12,7 @@ No physics, collision resolution, order issuance or rendering runs on this serve
 `(23459500, 6704500)`. Convert engine position with `E=x`, `N=-z`, `H=y`;
 convert absolute map coordinates by subtracting that origin. Do not send the
 absolute EPSG numbers. `H` is N2000 elevation in metres at the character's feet
-in `foot` mode. In `car` and `scooter` modes it is the chassis centre minus 0.6 m;
+in `foot` mode. In `car`, `scooter` and `truck` modes it is the chassis centre minus 0.6 m;
 the receiver adds 0.6 m for the visual root and kinematic chassis collider. This
 keeps the network pose near ground level while preserving the local vehicle's
 chassis origin. `vE`, `vN`, `vH` are
@@ -60,8 +60,8 @@ The token is a bearer credential; retain it privately, never put it in a URL.
 
 All fields required. Numbers must be finite: `0≤t≤Number.MAX_SAFE_INTEGER`,
 `|E|,|N|≤100000`, `|H|≤10000`, `|yaw|≤2π`, each velocity component ≤200 in absolute
-value. `mode` is `"foot"`, `"car"` or `"scooter"`; `carrying` is boolean.
-`vehicle` is null on foot, `"scooter"` on a scooter, `"player"` in the starter car,
+value. `mode` is `"foot"`, `"car"`, `"scooter"` or `"truck"`; `carrying` is boolean.
+`vehicle` is null on foot, `"scooter"` on a scooter, `"truck"` in the trophy truck, `"player"` in the starter car,
 or `<model>/<colour>` in a driven parked car (the key in `manifest.vehicle_models`).
 It changes with the driven vehicle and lets receivers use its exact mesh and paint. These are
 sanity bounds, not server physics or movement verification. Send at up to 20 Hz,
@@ -84,7 +84,7 @@ plus any double bonus, **excluding** `tip`. `routeMeters` is finite and in
 The game's formula is `6 + tip + bonus`: integer tip 0–8; bonus 4 only on a second
 drop-off with tip >0. Thus `payout` must be 6, or 10 with tip >0; total maximum 18.
 Distance determines par time (`distance / speed + 20`, speeds foot=1.4,
-scooter=7, car=9 m/s). Tip rounds a clamped linear fall from 8 at 0.7×par to 0 at
+scooter=7, car=9, truck=10.5 m/s). Tip rounds a clamped linear fall from 8 at 0.7×par to 0 at
 1.3×par; failure is at 2×par. Distance does not increase base pay. The server checks
 the possible euro envelope; this message cannot prove timing, ownership, route,
 address existence, second-stop status, or that a delivery actually happened.

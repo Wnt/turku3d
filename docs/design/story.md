@@ -11,7 +11,7 @@ the JSON holds the exact text.
 
 The start menu's Multiplayer entry joins the live Turku room. The server chooses a
 two-letter nickname and street-side spawn; the client snaps feet to local collision.
-Other players appear as characters, cars or scooters with nicknames, remain visible
+Other players appear as characters, cars, scooters or trophy trucks with nicknames, remain visible
 on the minimap beyond loaded tiles, and collide in each player's local Rapier world.
 The live HUD lists the top three earners and the player; the start and pause menus
 browse finished hours. The competition follows Europe/Helsinki clock hours, including
@@ -31,7 +31,7 @@ The player starts with a little money. A traditional pizzeria on Linnankatu need
 platform requires a courier permit first. The only permits left are rented out, ten deliveries at a
 time, on the black market by people who joined the platform economy at the right time. Renewing the
 permit is where the money goes. Fast deliveries earn tips. The same market buys organs and sells
-forged plates. A scooter or a car can be bought from a dealer at the river end of Kristiinankatu,
+forged plates. A scooter, a car or a trophy truck can be bought from a dealer at the river end of Kristiinankatu,
 where it meets Läntinen Rantakatu.
 
 Every New game shows the intro dialog (lines `intro_1`, `intro_2`, `intro_3`) after the
@@ -79,10 +79,11 @@ euros. A unit test checks that dialogue lines quoting a price or pay match these
 | Slice for yourself | 4 €: full run speed for 120 s (game time) after the kidney sale; no effect otherwise |
 | Scooter | 60 € |
 | Car | 350 € |
-| Vehicle sold back | half the price, rounded down: 30 € / 175 € |
+| Trophy truck | 1000 € |
+| Vehicle sold back | half the price, rounded down: 30 € / 175 € / 500 € |
 | Base pay per delivery | 6 € |
 | Tip | 0–8 €: 8 € up to 70 % of the par time, falling linearly to 0 € at 130 %, rounded to whole euros |
-| Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 7 m/s scooter, 9 m/s car |
+| Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 7 m/s scooter, 9 m/s car, 10.5 m/s trophy truck |
 | Delivery deadline | 2 × par time; after that the customer cancels (no pay) |
 
 The route distance is the `Router` path length from the pizzeria to the drop-off. If the router has
@@ -102,7 +103,8 @@ another needs the current one sold back first.
 Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so on foot
 the permit eats most of the margin and a scooter takes some twenty deliveries. The kidney (+400 €) is
 the shortcut to a car, and the 15 % run penalty is what it costs for the rest of the game; the slice
-is a cheap way to hide that for two minutes.
+is a cheap way to hide that for two minutes. The trophy truck is the long-term goal: some hundred
+deliveries, or the kidney and a good run.
 
 **Scooter.** The 60 € vehicle is a 50 cc scooter with a red pizza case on the rack (physics vehicle
 `scooter`, tuning `SCOOTER` in `game/src/physics/constants.ts`): 45 km/h top speed, about 2.8 s to
@@ -112,6 +114,16 @@ purchase parks it at the dealer's kerb (`DEALER_VEHICLE_SPOT`). A save slot stor
 (`player`) to the same kerb instead. Owning the scooter makes it, not the start car, the player's own
 vehicle for deliveries. Saves that owned the former bicycle (the speed-capped car) load as owning
 the scooter.
+
+**Trophy truck.** The 1000 € vehicle is a prerunner (physics vehicle `truck`, tuning `TRUCK`; model built
+from Kenney's CC0 Car Kit pickup with an orange body, open cab, bed cage, light bar and big tyres): 4WD,
+long-travel suspension, 0–100 km/h in about 6 s, 120 km/h top speed, and it takes kerbs at speed with
+barely a jolt (12 cm at 40 km/h costs 2.6 % against the car's 17 %) and lands jumps on its wheels. Like
+the scooter it exists once bought, appears at the dealer's kerb (`DEALER_VEHICLE_SPOT`), is placed
+from the save slot (ownership value `truck`) and becomes the player's own vehicle for deliveries; the
+driver stays visible in the open cab, and the chase camera sits higher and farther back. Its par
+speed (10.5 m/s) is above the car's because it does not slow for kerbs and tops out higher; like
+every vehicle it uses the published driving distance.
 
 ## Deliveries
 

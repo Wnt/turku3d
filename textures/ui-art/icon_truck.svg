@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#1b2133"/>
+  <ellipse cx="128" cy="210" rx="108" ry="9" fill="#141a2e"/>
+  <!-- dust kicked up behind -->
+  <ellipse cx="34" cy="186" rx="22" ry="12" fill="#2c3550"/>
+  <ellipse cx="18" cy="170" rx="14" ry="9" fill="#2c3550" opacity="0.7"/>
+  <!-- roll cage over the bed -->
+  <path d="M120 96 L52 132" stroke="#2c3550" stroke-width="7" stroke-linecap="round"/>
+  <path d="M86 114 L86 134" stroke="#2c3550" stroke-width="7" stroke-linecap="round"/>
+  <!-- spare tyre in the bed -->
+  <rect x="62" y="122" width="40" height="14" rx="5" fill="#141a2e"/>
+  <!-- body: bed, cab, long hood -->
+  <path d="M30 136 L118 136 L124 98 Q126 90 134 90 L168 90 Q176 90 182 100 L196 124 L234 128 Q242 130 242 140 L242 160 L30 160 Z" fill="#f2a541"/>
+  <path d="M134 98 L166 98 Q172 98 176 106 L186 124 L130 124 Z" fill="#141a2e"/>
+  <rect x="30" y="152" width="212" height="12" rx="3" fill="#2c3550"/>
+  <rect x="140" y="126" width="16" height="4" rx="2" fill="#2c3550"/>
+  <!-- light bar on the roof -->
+  <rect x="128" y="80" width="46" height="9" rx="3" fill="#2c3550"/>
+  <rect x="134" y="82" width="8" height="5" rx="1" fill="#efe6d8"/>
+  <rect x="147" y="82" width="8" height="5" rx="1" fill="#efe6d8"/>
+  <rect x="160" y="82" width="8" height="5" rx="1" fill="#efe6d8"/>
+  <!-- front bar and lamp -->
+  <path d="M240 144 L250 150 L250 166" stroke="#2c3550" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <circle cx="236" cy="138" r="5" fill="#efe6d8"/>
+  <!-- long-travel coilovers -->
+  <path d="M74 150 L70 182" stroke="#c8553d" stroke-width="7" stroke-linecap="round"/>
+  <path d="M200 148 L196 182" stroke="#c8553d" stroke-width="7" stroke-linecap="round"/>
+  <!-- big tyres -->
+  <circle cx="66" cy="182" r="30" fill="#141a2e"/>
+  <circle cx="66" cy="182" r="12" fill="#efe6d8"/>
+  <circle cx="202" cy="182" r="30" fill="#141a2e"/>
+  <circle cx="202" cy="182" r="12" fill="#efe6d8"/>
+</svg>

@@ -7,13 +7,14 @@ import type { PhysicsClient } from '../physics/client';
 import type { PlayerVisual } from '../actors/player';
 import type { CarVisual, ParkedCarVisuals } from '../actors/car';
 import type { ScooterVisual } from '../actors/scooter';
+import type { TruckVisual } from '../actors/truck';
 import type { MultiplayerClient, NetPlayer, NetPose } from './client';
 import { PoseBuffer } from './interpolation';
 import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
 
 interface Remote {
   player: NetPlayer; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
-  car: THREE.Object3D; scooter: THREE.Object3D; vehicleKey: string;
+  car: THREE.Object3D; scooter: THREE.Object3D; truck: THREE.Object3D; vehicleKey: string;
   label: THREE.Sprite; lastT: number;
 }
 
@@ -64,7 +65,8 @@ export class RemotePlayers {
   private readonly distantSource = distantCharacter();
   frameMs = 0;
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
-    private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; parked: ParkedCarVisuals }) {}
+    private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
+      parked: ParkedCarVisuals }) {}
 
   update(client: MultiplayerClient, now: number, local: V3) {
     const t0 = performance.now();
@@ -73,7 +75,7 @@ export class RemotePlayers {
     const present = new Set(players.map(p => p.id));
     for (const [id, remote] of this.remotes) if (!present.has(id)) {
       remote.foot?.removeFromParent(); remote.distant.removeFromParent(); remote.car.removeFromParent(); remote.scooter.removeFromParent();
-      remote.label.removeFromParent();
+      remote.truck.removeFromParent(); remote.label.removeFromParent();
       (remote.label.material as THREE.SpriteMaterial).map?.dispose(); remote.label.material.dispose();
       this.remotes.delete(id);
     }
@@ -85,9 +87,11 @@ export class RemotePlayers {
         const car = this.sources.car.root.clone(true);
         const scooter = this.sources.scooter.root.clone(true);
         scooter.getObjectByName('scooter-lean')!.position.y = -VEHICLE_POSE_HEIGHT;
+        // The truck model is built around its chassis centre with its wheels at rest (actors/truck.ts).
+        const truck = this.sources.truck.root.clone(true);
         const label = nickname(p.nick);
-        this.root.add(distant, car, scooter, label);
-        remote = { player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, label, lastT: -1, vehicleKey: 'player' };
+        this.root.add(distant, car, scooter, truck, label);
+        remote = { player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: 'player' };
         this.remotes.set(p.id, remote);
       }
       remote.player = p;
@@ -114,15 +118,17 @@ export class RemotePlayers {
       remote.distant.visible = visible && pose?.mode === 'foot' && !near;
       remote.car.visible = visible && pose?.mode === 'car';
       remote.scooter.visible = visible && pose?.mode === 'scooter';
+      remote.truck.visible = visible && pose?.mode === 'truck';
       remote.label.visible = visible;
       if (!pose || !visible) continue;
       const pos = { x: pose.E, y: pose.H + remoteRootHeight(pose.mode), z: -pose.N };
-      for (const model of [remote.distant, remote.car, remote.scooter]) model.position.set(pos.x, pos.y, pos.z);
+      for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model.position.set(pos.x, pos.y, pos.z);
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
       remote.car.rotation.y = pose.yaw + Math.PI / 2;
       if (remote.vehicleKey !== 'player') remote.car.position.y -= 0.75;
       remote.scooter.rotation.y = pose.yaw + Math.PI / 2;
+      remote.truck.rotation.y = pose.yaw + Math.PI / 2;
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       bodies.push({ id: p.id, pos, yaw: pose.yaw, mode: pose.mode });
     }
@@ -142,15 +148,15 @@ export class RemotePlayers {
     const bounds = new THREE.Box3();
     return [...this.remotes.entries()].flatMap(([id, remote]) => {
       const model = remote.foot?.visible ? remote.foot : remote.distant.visible ? remote.distant
-        : remote.car.visible ? remote.car : remote.scooter.visible ? remote.scooter : null;
+        : remote.car.visible ? remote.car : remote.scooter.visible ? remote.scooter : remote.truck.visible ? remote.truck : null;
       if (!model) return [];
       model.updateWorldMatrix(true, true);
       bounds.setFromObject(model);
-      const mode = remote.car.visible ? 'car' : remote.scooter.visible ? 'scooter' : 'foot';
+      const mode = remote.car.visible ? 'car' : remote.scooter.visible ? 'scooter' : remote.truck.visible ? 'truck' : 'foot';
       const material = (model as THREE.Mesh).material;
       const paint = !Array.isArray(material) && (material as THREE.MeshStandardMaterial | undefined)?.color
         ? (material as THREE.MeshStandardMaterial).color.getHexString() : null;
-      return [{ id, mode, vehicle: mode === 'car' ? remote.vehicleKey : mode === 'scooter' ? 'scooter' : null, paint,
+      return [{ id, mode, vehicle: mode === 'car' ? remote.vehicleKey : mode === 'foot' ? null : mode, paint,
         x: model.position.x, z: model.position.z, bottom: bounds.min.y, rootY: model.position.y }];
     });
   }
@@ -158,7 +164,8 @@ export class RemotePlayers {
   dispose() {
     this.physics.setRemotes([]);
     for (const r of this.remotes.values()) {
-      r.foot?.removeFromParent(); r.distant.removeFromParent(); r.car.removeFromParent(); r.scooter.removeFromParent(); r.label.removeFromParent();
+      r.foot?.removeFromParent(); r.distant.removeFromParent(); r.car.removeFromParent(); r.scooter.removeFromParent();
+      r.truck.removeFromParent(); r.label.removeFromParent();
       (r.label.material as THREE.SpriteMaterial).map?.dispose(); r.label.material.dispose();
     }
     this.remotes.clear();

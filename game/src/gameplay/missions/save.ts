@@ -70,7 +70,7 @@ interface MissionSaveV1 {
 }
 
 const VALID_PHASES: readonly Phase[] = ['idle', 'permit_needed', 'at_pizzeria', 'carrying', 'delivered', 'failed'];
-const VALID_VEHICLES: readonly VehicleOwnership[] = ['none', 'scooter', 'car'];
+const VALID_VEHICLES: readonly VehicleOwnership[] = ['none', 'scooter', 'car', 'truck'];
 
 export const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 

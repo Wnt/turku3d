@@ -263,6 +263,12 @@ licence = "Project-owned (MIT repository)"
 reason = "Shop menu icon"
 
 [[images]]
+path = "game/public/assets/ui/icon_truck.webp"
+source = "Hand-drawn SVG textures/ui-art/icon_truck.svg (interim until the ui_art Codex job runs), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
 path = "game/public/assets/ui/icon_car.webp"
 source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
 licence = "Project-owned (MIT repository)"

@@ -6,7 +6,7 @@ import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
-import { CAR, CHARACTER, DT, SCOOTER } from './constants';
+import { CHARACTER, DT, VEHICLES } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { remoteColliderHeight } from '../net/height';
@@ -297,8 +297,9 @@ export class PhysicsWorld {
         const height = remoteColliderHeight(p.mode);
         const body = this.world.createRigidBody(this.R.RigidBodyDesc.kinematicPositionBased()
           .setTranslation(p.pos.x, p.pos.y + height, p.pos.z));
-        const desc = p.mode === 'foot' ? this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius)
-          : this.R.ColliderDesc.cuboid(...Object.values(p.mode === 'car' ? CAR.halfExt : SCOOTER.halfExt) as [number, number, number]);
+        const half = p.mode === 'foot' ? null : VEHICLES[p.mode].halfExt;
+        const desc = half ? this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
+          : this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius);
         desc.setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.CHARACTER | GROUP.VEHICLE));
         this.world.createCollider(desc, body);
         remote = { body, mode: p.mode };
