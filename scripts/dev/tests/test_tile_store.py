@@ -123,6 +123,34 @@ class TileStoreTests(unittest.TestCase):
         kept = sorted(p.name for p in (self.data / "tile-store").iterdir() if p.is_dir())
         self.assertEqual(kept, ["k1", "k333", "k4444"])
 
+    def test_a_release_key_follows_the_data_it_was_built_from(self):
+        commit = self.commit("pipeline/a.py", "a = 1\n")
+        release = self.data / "live-releases/r"
+        for root in (self.data / "facade-approvals/assembly", release / "textures/assembly"):
+            root.mkdir(parents=True)
+            (root / "MANIFEST.json").write_text('{"bound": []}')
+        (release / "layers").mkdir()
+        (release / "tiles").mkdir()
+        (self.data / "build").mkdir()
+        (self.data / "build/layers").symlink_to(release / "layers")
+        (release / "live-build.json").write_text(json.dumps({"commit": commit, "tiles": CORE}))
+        self.assertEqual(
+            tile_store.key(self.repo, commit, self.data, release),
+            tile_store.key(self.repo, commit, self.data),
+        )
+        (self.data / "live").symlink_to(release)
+        before = tile_store.base_release(self.repo, commit, self.data, tile_store._data(self.data))
+        self.assertEqual(before["key"], tile_store.key(self.repo, commit, self.data))
+        # New facade approvals in the data root: the release no longer matches the commit's key.
+        (self.data / "facade-approvals/assembly/MANIFEST.json").write_text('{"bound": ["b_0"]}')
+        self.assertNotEqual(
+            tile_store.key(self.repo, commit, self.data, release),
+            tile_store.key(self.repo, commit, self.data),
+        )
+
+        after = tile_store.base_release(self.repo, commit, self.data, tile_store._data(self.data))
+        self.assertNotEqual(after["key"], tile_store.key(self.repo, commit, self.data))
+
     def test_put_without_a_manifest_stores_nothing(self):
         commit = self.commit("pipeline/a.py", "a = 1\n")
         empty = Path(self.temp.name) / "empty"

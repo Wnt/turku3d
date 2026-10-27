@@ -99,11 +99,12 @@ plus `TILE.json` (the manifest fragment and provenance: `task`, `commit`, `mainl
 make tile-add T=t0_2_0                       # ends with put-tiles of the new tile and its changed edge neighbours
 make tile-build T='t0_0_0 t0_1_0' PUT=1      # puts the tiles whose own bytes differ from live
 python3 scripts/dev/tile_store.py put-tiles --tiles-dir "$TURKU3D_WORK/dist/tiles" --tiles t0_2_0
+python3 scripts/dev/tile_store.py key --release "$TURKU3D_DATA/live" # key of the release's own inputs
 python3 scripts/dev/tile_store.py served     # what the service streams for HEAD: {key, delta, base, served}
 ```
 
 - **What `/tiles` serves** (`tile_store.served`, called once per pass by `tiles.mjs`): the base release is the
-  integrator's entry for main's key; the live release when the live commit has that key (a code-only landing); else
+  integrator's entry for main's key; the live release when its commit and its own recorded data have that key (a code-only landing); else
   the newest (by `data_time`) of the live release and the integrator's entries of main's ancestors. Over it,
   `compose` lays the newest eligible per-tile entry of every tile listed in `playable-tiles.json` and puts the result
   as a complete entry (source `composed`, `STORE.json` `base` and `entries`); a newer entry wins where two share a
