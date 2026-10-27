@@ -46,15 +46,18 @@ def main():
         "facade_segments": facade_segments,
         "building_ids": report["collision_building_ids"],
     }
+    # Tiles index their own buildings; the validator indexes building_ids.
+    index = {bid: i for i, bid in enumerate(report["collision_building_ids"])}
     for name in sorted(manifest["tiles"]):
         if not name.endswith(".col.npz"):
             continue
         with np.load(layer / name) as tile:
+            owners = np.array([index[str(bid)] for bid in tile["building_ids"]], np.uint32)
             data["tiles"].append(
                 {
                     "positions": tile["positions"].ravel().tolist(),
                     "indices": tile["indices"].ravel().tolist(),
-                    "building_index": tile["building_index"].tolist(),
+                    "building_index": owners[tile["building_index"]].tolist(),
                 }
             )
     cache = C.work_root() / "cache/buildings"
