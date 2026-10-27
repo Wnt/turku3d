@@ -10,6 +10,7 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { batchTileShadows } from './shadowBatch';
 import { refinableParents } from './residency';
+import { TileReuse } from './tileReuse';
 
 interface ViewErrorTarget { error: number }
 type ViewError = (tile: Tile, target: ViewErrorTarget) => void;
@@ -23,6 +24,7 @@ interface Tileset {
   l0Parents: Map<string, string[]>;
   refinable: Set<string>;
   loaded: number;
+  reuse?: TileReuse;
 }
 
 export class VisualTiles {
@@ -51,9 +53,13 @@ export class VisualTiles {
   /** The current tileset renderer. */
   get tiles(): TilesRenderer { return this.current.renderer; }
 
-  private create(url: string): Tileset {
+  private create(url: string, unchanged?: ReadonlySet<string>): Tileset {
     const renderer = new TilesRenderer(url);
     const set: Tileset = { renderer, l0Parents: new Map(), refinable: new Set(), loaded: 0 };
+    if (unchanged) {
+      set.reuse = new TileReuse(this.current.renderer, renderer, unchanged);
+      renderer.registerPlugin(set.reuse);
+    }
     // The KTX2 loader (its transcoder workers) is shared by a swapped-in release: disposing the old tileset keeps it.
     renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false }));
     renderer.errorTarget = 8;
@@ -78,6 +84,7 @@ export class VisualTiles {
     renderer.setResolution(this.camera, this.resolution.x, this.resolution.y);
     renderer.addEventListener('load-model', (event: ModelEvent) => {
       const model = event.scene;
+      if (model.userData.releasePlaceholder) return;
       let tris = 0;
       model.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -96,6 +103,7 @@ export class VisualTiles {
     });
     renderer.addEventListener('dispose-model', (event: ModelEvent) => {
       const model = event.scene;
+      if (model.userData.releasePlaceholder) return;
       const shadow = this.shadowBatches.get(model);
       if (shadow) {
         shadow.removeFromParent(); shadow.geometry.dispose();
@@ -114,9 +122,9 @@ export class VisualTiles {
   }
 
   /** Loads the release at `url` hidden beside the current tileset; resolves once it replaced it. */
-  reload(url: string): Promise<void> {
+  reload(url: string, unchanged?: ReadonlySet<string>): Promise<void> {
     if (this.next) this.drop(this.next);
-    this.next = this.create(url);
+    this.next = this.create(url, unchanged);
     this.next.renderer.group.visible = false;
     return new Promise(resolve => { this.swapped = resolve; });
   }
@@ -127,7 +135,7 @@ export class VisualTiles {
   }
 
   private ready(set: Tileset) {
-    return set.renderer.root !== null && set.loaded > 0 && set.renderer.loadProgress >= 1;
+    return set.renderer.root !== null && (set.loaded + (set.reuse?.loaded ?? 0)) > 0 && set.renderer.loadProgress >= 1;
   }
 
   update(camera: THREE.PerspectiveCamera) {
@@ -143,6 +151,7 @@ export class VisualTiles {
       const old = this.current;
       this.current = this.next;
       this.next = null;
+      this.current.reuse?.transfer();
       this.current.renderer.group.visible = true;
       this.drop(old);
       this.swaps++;

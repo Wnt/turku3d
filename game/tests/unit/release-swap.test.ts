@@ -1,5 +1,6 @@
 // A new tile release applied in place (world/releaseSwap.ts) and the collision reload it drives.
 import { test, expect, vi } from 'vitest';
+import { unchangedVisualTiles } from '../../src/world/tileReuse';
 import { releaseDelta, swapRelease } from '../../src/world/releaseSwap';
 import { CollisionStreamer } from '../../src/world/collisionStreaming';
 import type { Manifest } from '../../src/world/manifest';
@@ -79,4 +80,35 @@ test('refresh reloads only loaded tiles, in place, and clears failures', async (
   expect(physics.loadTile.mock.calls[0][0]).toBe('c_0_0');
   expect(physics.unloadTile).not.toHaveBeenCalled(); // the worker replaces the colliders in the same message
   vi.unstubAllGlobals();
+});
+
+test('visual reuse keeps equal hashes across URL changes, excluding changed, removed and new tiles', () => {
+  const old = { same: entry('a', 'old.glb'), changed: entry('b'), removed: entry('c') };
+  const fresh = { same: entry('a', 'new.glb'), changed: entry('B'), added: entry('d') };
+  expect([...unchangedVisualTiles(old, fresh)]).toEqual(['same']);
+});
+
+test('retained models stay with the live renderer until transfer, then keep their resources', async () => {
+  const { Group } = await import('three');
+  const { TileReuse } = await import('../../src/world/tileReuse');
+  const model = new Group(), oldGroup = new Group(), nextGroup = new Group();
+  oldGroup.add(model);
+  const resources = { scene: model, geometry: [{}], materials: [{}], textures: [{}], metadata: {} };
+  const donor = { extras: { id: 'same' }, engineData: { ...resources } };
+  const tile = { extras: { id: 'same' }, engineData: {} as Record<string, unknown> };
+  const cache = { autoMarkUnused: true, markUsed: vi.fn(), getMemoryUsage: () => 42, setMemoryUsage: vi.fn() };
+  const source = { forEachLoadedModel: (visit: (scene: unknown, tile: unknown) => void) => visit(model, donor), lruCache: cache };
+  const target = { group: nextGroup, visibleTiles: new Set([tile]), activeTiles: new Set([tile]), lruCache: cache };
+  const reuse = new TileReuse(source as never, target as never, new Set(['same']));
+  reuse.preprocessURL('http://x/same.glb', tile as never);
+  expect(await reuse.fetchData('http://x/same.glb')).toBeInstanceOf(ArrayBuffer);
+  expect(reuse.fetchData('http://x/changed.glb')).toBeNull();
+  await reuse.parseTile(new ArrayBuffer(0), tile as never);
+  expect(model.parent).toBe(oldGroup);
+  expect(tile.engineData.scene).not.toBe(model);
+  reuse.transfer();
+  expect(model.parent).toBe(nextGroup);
+  expect(tile.engineData).toEqual(resources);
+  expect(donor.engineData.scene).toBeNull();
+  expect(cache.setMemoryUsage).toHaveBeenCalledWith(tile, 42);
 });
