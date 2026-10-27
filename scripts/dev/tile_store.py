@@ -5,7 +5,7 @@ Layout (owned by tool-localhost-hotswap):
     $TURKU3D_DATA/tile-store/<key>/            one complete tile dist tree (tileset.json, manifest.json, visual/,
                                                collision/, ground/, roads/, vehicles/, addresses/) and STORE.json;
                                                immutable once renamed into place, APFS clones of the build output
-    $TURKU3D_DATA/tile-store/<key>/STORE.json  {"key", "commit", "source", "time", "tiles"}
+    $TURKU3D_DATA/tile-store/<key>/STORE.json  {"key", "commit", "source", "time", "tiles", "facades_bound"?}
     $TURKU3D_DATA/tile-store/index.jsonl       the same record per entry, in the order entries were added
 
 The newest KEEP entries stay, plus the newest older entry for each listed tile no kept entry carries (prune).
@@ -74,8 +74,10 @@ def entry(published, store_key):
         return None
 
 
-def put(published, tiles, store_key, commit, source, built=None):
-    """Clone the tile dist `tiles` into the store under store_key; an existing entry is kept."""
+def put(published, tiles, store_key, commit, source, built=None, extra=None):
+    """Clone the tile dist `tiles` into the store under store_key; an existing entry is kept.
+
+    extra: further STORE.json fields (the integrator records `facades_bound`, which served.py ships)."""
     store = root(published)
     target = store / store_key
     if target.exists() or not (Path(tiles) / "manifest.json").is_file():
@@ -93,6 +95,7 @@ def put(published, tiles, store_key, commit, source, built=None):
         "source": source,
         "time": time.time(),
         "tiles": list(built) if built else None,
+        **(extra or {}),
     }
     (temp / "STORE.json").write_text(json.dumps(record) + "\n")
     try:

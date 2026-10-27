@@ -359,6 +359,17 @@ class LiveBuildTests(unittest.TestCase):
 
         return run
 
+    def shipped(self, source="live"):
+        """A served tile set (served.tiles) for code builds on the stage fixture."""
+        return {
+            "dir": "unused",
+            "source": source,
+            "release": "g" * 40,
+            "commit": "g" * 40,
+            "tile_commits": {tile: "g" * 40 for tile in CORE},
+            "facades_bound": 2,
+        }
+
     def test_build_runs_real_stages_in_order_and_records_time(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -371,7 +382,12 @@ class LiveBuildTests(unittest.TestCase):
                 patch("os.getloadavg", return_value=(12.0, 11.0, 10.0)),
             ):
                 report = live_build.build(
-                    repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log"
+                    repo,
+                    work,
+                    published,
+                    {"TURKU3D_WORK": str(work)},
+                    root / "build.log",
+                    kind="data",
                 )
             self.assertEqual(
                 [stage for stage in report["seconds"]],
@@ -381,13 +397,11 @@ class LiveBuildTests(unittest.TestCase):
                     "tile-validate",
                     "car-report",
                     "facade-ground-audit",
-                    "game-build",
-                    "collision-sweep",
-                    "collision-audit",
                     "chrome",
                 ],
             )
-            self.assertEqual(len(calls), 9)
+            self.assertEqual(len(calls), 6)
+            self.assertEqual(report["tiles_built"], list(CORE))
             self.assertEqual(
                 calls[2][0][:3], ["make", "tile-validate", "T=" + " ".join(live_build.C.CORE_TILES)]
             )
@@ -426,8 +440,10 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(report["advisory"], [])
 
     def failing_build(self, root, failing=(), statuses=None, **kwargs):
-        """A code build whose `failing` stages exit 1; returns (report, stage commands)."""
+        """A build (data unless kind is given) whose `failing` stages exit 1; returns (report,
+        stage commands)."""
         repo, work, published = self.stage_fixture(root)
+        kwargs.setdefault("kind", "data")
         calls = []
         with (
             RUN_GROUP,
@@ -436,6 +452,7 @@ class LiveBuildTests(unittest.TestCase):
                 "run_group",
                 side_effect=self.stage_runner(work, calls, failing, statuses),
             ),
+            patch.object(live_build.served, "ship", return_value=self.shipped()),
         ):
             report = live_build.build(
                 repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log", **kwargs
@@ -443,23 +460,14 @@ class LiveBuildTests(unittest.TestCase):
         return report, calls
 
     def test_failing_audits_chrome_and_walk_checks_are_advisory(self):
-        failing = ("facade_ground_audit", "collision-sweep", "collision-audit", "chrome")
+        failing = ("facade_ground_audit", "chrome")
         statuses = {"format": "pass", "seams": "pass", "buildings": "pass", "curbs": "fail"}
         with tempfile.TemporaryDirectory() as temp:
             report, calls = self.failing_build(Path(temp), failing, statuses)
-        # Every stage still ran; the game bundle and tiles are there to publish.
-        self.assertEqual(len(calls), 9)
+        # Every stage still ran; the tiles are there to publish.
+        self.assertEqual(len(calls), 6)
         stages = [entry["stage"] for entry in report["advisory"]]
-        self.assertEqual(
-            stages,
-            [
-                "tile-validate",
-                "facade-ground-audit",
-                "collision-sweep",
-                "collision-audit",
-                "chrome",
-            ],
-        )
+        self.assertEqual(stages, ["tile-validate", "facade-ground-audit", "chrome"])
         self.assertEqual(report["advisory"][0]["checks"], ["curbs"])
         self.assertEqual(
             report["advisory"][-1]["specs"],
@@ -469,14 +477,14 @@ class LiveBuildTests(unittest.TestCase):
         self.assertNotIn("facade_ground_audit", report)
 
     def test_build_stage_or_blocking_tile_check_failure_is_red(self):
-        for failing, statuses, stage in (
-            (("game-build",), None, "game-build"),
-            (("refresh",), None, "refresh"),
-            ((), {"format": "pass", "seams": "fail", "buildings": "fail"}, "tile-validate"),
+        for failing, statuses, kind, stage in (
+            (("game-build",), None, "code", "game-build"),
+            (("refresh",), None, "data", "refresh"),
+            ((), {"format": "pass", "seams": "fail", "buildings": "fail"}, "data", "tile-validate"),
         ):
             with tempfile.TemporaryDirectory() as temp:
                 with self.assertRaises(live_build.StageFailed) as caught:
-                    self.failing_build(Path(temp), failing, statuses)
+                    self.failing_build(Path(temp), failing, statuses, kind=kind)
             self.assertEqual(caught.exception.stage, stage)
         self.assertIn("seams", str(caught.exception))
         with tempfile.TemporaryDirectory() as temp:
@@ -490,17 +498,49 @@ class LiveBuildTests(unittest.TestCase):
 
     def test_build_stages_only_skip_every_advisory_stage(self):
         self.assertEqual(
-            live_build.stages_for("code", checks=False),
-            ("refresh", "tile-build", "tile-validate", "game-build"),
+            live_build.stages_for("data", checks=False), ("refresh", "tile-build", "tile-validate")
         )
+        self.assertEqual(live_build.stages_for("full", checks=False), ("game-build",))
         with tempfile.TemporaryDirectory() as temp:
             report, calls = self.failing_build(Path(temp), ("chrome",), checks=False)
-        self.assertEqual(
-            list(report["seconds"]), ["refresh", "tile-build", "tile-validate", "game-build"]
-        )
-        self.assertEqual((len(calls), report["advisory"]), (4, []))
+        self.assertEqual(list(report["seconds"]), ["refresh", "tile-build", "tile-validate"])
+        self.assertEqual((len(calls), report["advisory"]), (3, []))
 
-    def join_build(self, root, updates, cached=()):
+    def test_served_tiles_replace_what_a_reused_sandbox_built_before(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            published, work = root / "data", root / "work"
+            live = published / "live-releases/g"
+            for name in ("layers", "textures", "game", "tiles"):
+                (live / name).mkdir(parents=True)
+                (live / name / "asset.bin").write_text("live")
+                (work / name).mkdir(parents=True)
+            (published / "live").symlink_to(live)
+            for relative in ("build/layers", "textures", "build/game", "dist/tiles"):
+                (work / relative).mkdir(parents=True, exist_ok=True)
+                (work / relative / "asset.bin").write_text("an older build")
+            shipped = {"source": "live", "dir": str(live / "tiles")}
+            with (
+                patch.object(live_build.s, "git", return_value="h" * 40),
+                patch.object(live_build.served, "tiles", return_value=shipped),
+            ):
+                self.assertIs(live_build.served.ship(root, work, published), shipped)
+            for relative in ("build/layers", "textures", "build/game", "dist/tiles"):
+                self.assertEqual((work / relative / "asset.bin").read_text(), "live", relative)
+
+    def test_code_build_runs_only_the_game_bundle_on_the_served_tiles(self):
+        # A code batch never rebuilds tiles: one stage, the served set checked and reported.
+        self.assertEqual(live_build.stages_for("code"), ("game-build",))
+        with tempfile.TemporaryDirectory() as temp:
+            report, calls = self.failing_build(Path(temp), kind="code")
+        self.assertEqual([call[0] for call in calls], [["make", "game-build"]])
+        self.assertEqual(list(report["seconds"]), ["game-build"])
+        self.assertEqual((report["tiles"], report["facades_bound"]), (list(CORE), 2))
+        self.assertEqual(report["shipped"]["source"], "live")
+        self.assertNotIn("dir", report["shipped"])
+        self.assertNotIn("tiles_built", report)
+
+    def join_build(self, root, updates, cached=(), kind="code"):
         """Build with a join callback that returns `updates` in turn; stages in `cached` are
         cache hits. Returns (stage commands run, the stages each join call saw, log, report)."""
         repo, work, published = self.stage_fixture(root)
@@ -517,6 +557,7 @@ class LiveBuildTests(unittest.TestCase):
             patch.object(live_build.s, "run_group", side_effect=self.stage_runner(work, calls)),
             patch.object(live_build, "phase", return_value=contextlib.nullcontext()),
             patch.object(live_build, "store_tiles"),
+            patch.object(live_build.served, "ship", return_value=self.shipped()),
             patch.object(live_build.live_cache, "digest", side_effect=lambda *a: f"key-{a[3]}"),
             patch.object(
                 live_build.live_cache,
@@ -532,55 +573,52 @@ class LiveBuildTests(unittest.TestCase):
                 published,
                 {"TURKU3D_WORK": str(work)},
                 root / "build.log",
-                landing_class="data",
+                kind=kind,
                 join=join,
                 timings=timings,
             )
         stages = [call[0][1] for call in calls if call[0][0] == "make"]
         return stages, joins, (root / "build.log").read_text(), report, timings
 
-    def test_landing_during_a_real_refresh_never_restarts_it(self):
+    def test_landing_during_a_real_game_build_never_restarts_it(self):
         with tempfile.TemporaryDirectory() as temp:
-            # Main had not moved when refresh started; a head landing while it runs is not
-            # offered again: the build is frozen once refresh runs for real.
+            # Main had not moved when game-build started; a head landing while it runs is not
+            # offered again: the build is frozen once a stage runs for real.
             stages, joins, log, report, _ = self.join_build(Path(temp), [None])
             self.assertEqual(joins, [()])
-            self.assertEqual(stages[:2], ["refresh", "tile-build"])
-            self.assertEqual(stages.count("refresh"), 1)
+            self.assertEqual(stages, ["game-build"])
             self.assertNotIn("== join", log)
-            self.assertEqual(list(report["seconds"])[-1], "chrome")
 
-    def test_landing_before_refresh_joins_and_refresh_runs_once(self):
-        update = {"commit": "m2", "landing_class": "code", "reason": "joined reason"}
+    def test_landing_before_game_build_joins_and_it_runs_once(self):
+        update = {"commit": "m2", "kind": "code", "reason": "joined reason"}
         with tempfile.TemporaryDirectory() as temp:
             stages, joins, log, report, timings = self.join_build(Path(temp), [update])
-            # The join is taken before refresh starts: nothing ran yet, so nothing is lost;
+            # The join is taken before game-build starts: nothing ran yet, so nothing is lost;
             # the rebuild offers once more (main has not moved again) and then runs.
             self.assertEqual(joins, [(), ()])
-            self.assertEqual(stages.count("refresh"), 1)
-            self.assertIn("collision-sweep", stages)
+            self.assertEqual(stages, ["game-build"])
             self.assertLess(
-                log.index("== join: rebuilding m2 as code =="), log.rindex("== refresh")
+                log.index("== join: rebuilding m2 as code =="), log.rindex("== game-build")
             )
             self.assertEqual(set(timings), set(report["seconds"]))
 
-    def test_cached_refresh_allows_a_join_at_the_first_real_stage(self):
-        update = {"commit": "m2", "landing_class": "data", "reason": None}
+    def test_cached_game_build_allows_a_join_at_the_first_real_stage(self):
+        update = {"commit": "m2", "kind": "full", "reason": None}
         with tempfile.TemporaryDirectory() as temp:
             stages, joins, log, report, timings = self.join_build(
-                Path(temp), [update], cached=("refresh",)
+                Path(temp), [update], cached=("game-build",), kind="full"
             )
-            # The cached refresh is all a restart repeats; tile-build then runs for real once.
-            self.assertEqual(joins, [("refresh",), ("refresh",)])
-            self.assertNotIn("refresh", stages)
-            self.assertEqual(stages.count("tile-build"), 1)
-            self.assertEqual(log.count("cache hit key-refresh"), 2)
-            self.assertEqual((report["cache_hits"], timings["refresh"]), (["refresh"], 0.0))
+            # The cached bundle is all a restart repeats; Chrome then runs for real once.
+            self.assertEqual(joins, [("game-build",), ("game-build",)])
+            self.assertEqual(stages, [])
+            self.assertEqual(log.count("cache hit key-game-build"), 2)
+            self.assertEqual(log.count("== chrome"), 2)
+            self.assertEqual((report["cache_hits"], timings["game-build"]), (["game-build"], 0.0))
 
     def test_data_build_runs_no_unselected_chrome_and_carries_unchanged_car_result(self):
         self.assertEqual(live_build.stages_for("inert"), ())
         self.assertEqual(live_build.stages_for("data")[-1], "chrome")
-        self.assertEqual(live_build.stages_for("code")[-1], "chrome")
+        self.assertEqual(live_build.stages_for("full")[-1], "chrome")
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo, work, published = self.stage_fixture(root)
@@ -610,7 +648,7 @@ class LiveBuildTests(unittest.TestCase):
                         {"TURKU3D_WORK": str(work)},
                         root / "build.log",
                         previous_release=previous,
-                        landing_class="data",
+                        kind="data",
                         chrome=spec_selection.select([], "data", root=repo, config=GATE),
                     )
                 return report, calls
@@ -618,17 +656,10 @@ class LiveBuildTests(unittest.TestCase):
             report, calls = build()
             self.assertEqual(
                 list(report["seconds"]),
-                [
-                    "refresh",
-                    "tile-build",
-                    "tile-validate",
-                    "facade-ground-audit",
-                    "game-build",
-                    "chrome",
-                ],
+                ["refresh", "tile-build", "tile-validate", "facade-ground-audit", "chrome"],
             )
             # The unchanged tile list selects no spec, so Chrome never starts.
-            self.assertEqual(len(calls), 5)
+            self.assertEqual(len(calls), 4)
             self.assertEqual((report["chrome"]["selected"], report["chrome"]["run"]), ([], []))
             self.assertEqual(report["car_validation"], {**car, "carried_from": "g" * 40})
             self.assertEqual(
@@ -640,7 +671,7 @@ class LiveBuildTests(unittest.TestCase):
             report, calls = build()
             self.assertIn("car-report", report["seconds"])
             self.assertNotIn("carried_from", report["car_validation"])
-            self.assertEqual(len(calls), 6)
+            self.assertEqual(len(calls), 5)
 
     def test_car_report_rejects_missing_or_inconsistent_result(self):
         with tempfile.TemporaryDirectory() as temp:

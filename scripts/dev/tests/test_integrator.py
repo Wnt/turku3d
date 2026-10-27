@@ -1,8 +1,6 @@
 """Synthetic integration batches: classes, publish, re-point, base check, bisect, facades,
-advisory checks, and which lanes a landing or a finished run starts."""
+data lane, recomposition and advisory checks (lanes started: test_integration_ensure.py)."""
 
-import contextlib
-import io
 import json
 import os
 import shutil
@@ -17,14 +15,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import advisory  # noqa: E402
 import coordination  # noqa: E402
 import integrator  # noqa: E402
-import landing  # noqa: E402
 import live_build  # noqa: E402
 import pages  # noqa: E402
+import served  # noqa: E402
 
 # The cases patch os.environ: tests/run.py runs them one by one in a process of their own.
 SERIAL = True
 GATE = "#!/bin/sh\necho PASS fast-gate 0.01s\n"
 REPO = Path(__file__).resolve().parents[3]
+CORE = list(live_build.C.CORE_TILES)
 SPECS = {
     "game/tests/e2e-tile/tile.spec.ts": "test('walks', { tag: ['@walk', '@streaming'] }, f);\n",
     "game/tests/e2e-tile/integration.spec.ts": "test('office', { tag: ['@render'] }, f);\n",
@@ -147,58 +146,89 @@ class IntegratorFixture(unittest.TestCase):
         log,
         reason=None,
         previous=None,
-        landing_class="code",
+        kind="code",
         join=None,
         chrome=None,
         timings=None,
         checks=True,
     ):
-        """Stands in for the real stages: red on game/bad.ts, real facade inspection.
+        """Stands in for the real stages of live_build.build.
 
-        Before its first real stage it calls join with no restored stages, like
-        live_build.build before a refresh that is not a cache hit, and then rebuilds the
-        joined head; `self.during` runs as that stage starts.
+        A code or full build ships the live release's tiles and facade assembly with a new
+        game bundle (red on game/bad.ts or a data root marked game-broken); a data build
+        rebuilds the tiles from the approval root with the checkout's tile code (red on a
+        data root marked raw-broken, or marked needs-new-code without pipeline/new.py) and
+        carries the live game. Before its first real stage it calls join with no restored
+        stages and then rebuilds the joined head; `self.during` runs as that stage starts.
         Advisory failures: game/full-red.ts fails the full Chrome suite, `chrome_red` the
         next builds' Chrome stage, and a facade drop without reason the facade baseline.
         """
         if self.preparing:
             self.preparing.pop(0)()
         if join and (update := join(())):
-            landing_class = update["landing_class"]
+            kind = update["kind"]
             chrome = update.get("chrome", chrome)
         self.plans.append(chrome)
         self.checks.append(checks)
         self.assertEqual(previous, (published / "live").resolve())
         self.builds.append(self.git("rev-parse", "HEAD", cwd=repo))
-        self.classes.append(landing_class)
+        self.classes.append(kind)
         if self.during:
             self.during.pop(0)()
-        log.write_text("== tile-build: make tile-build ==\n")
-        timings["tile-build"] = timings.get("tile-build", 0.0) + 0.01
-        if (repo / "game/bad.ts").exists():
-            raise live_build.StageFailed("tile-build", f"tile-build failed (2); {log}")
-        if (published / "raw-broken").exists():
-            raise live_build.StageFailed("refresh", f"refresh failed (1); {log}")
-        # The assembler binds the walls the code places that the approval root still holds.
-        approved = len(json.loads(self.approvals().read_text())["bound"])
-        facades = min(int((repo / "game/facades.txt").read_text()), approved)
-        manifest = self.outputs(work, facades)
+        stage = "tile-build" if kind == "data" else "game-build"
+        log.write_text(f"== {stage}: make {stage} ==\n")
+        timings[stage] = timings.get(stage, 0.0) + 0.01
+        record = json.loads((previous / "live-build.json").read_text())
+        if kind == "data":
+            if (published / "raw-broken").exists() or (
+                (published / "needs-new-code").exists() and not (repo / "pipeline/new.py").exists()
+            ):
+                raise live_build.StageFailed("refresh", f"refresh failed (1); {log}")
+            # The assembler binds the walls the code places that the approval root still holds.
+            approved = len(json.loads(self.approvals().read_text())["bound"])
+            facades = min(int((repo / "game/facades.txt").read_text()), approved)
+            manifest = self.outputs(work, facades)
+            shutil.rmtree(work / "build/game")
+            shutil.copytree(previous / "game", work / "build/game")
+            listed = live_build.tiles(published)
+        else:
+            if (repo / "game/bad.ts").exists() or (published / "game-broken").exists():
+                raise live_build.StageFailed("game-build", f"game-build failed (2); {log}")
+            for name, source in (("dist/tiles", "tiles"), ("build/layers", "layers")):
+                shutil.rmtree(work / name, ignore_errors=True)
+                shutil.copytree(previous / source, work / name)
+            shutil.rmtree(work / "textures", ignore_errors=True)
+            shutil.copytree(previous / "textures", work / "textures")
+            (work / "build/game").mkdir(parents=True, exist_ok=True)
+            (work / "build/game/asset.bin").write_text(self.git("rev-parse", "HEAD", cwd=repo))
+            manifest = work / "dist/tiles/manifest.json"
+            facades = record["facades_bound"]
+            listed = live_build.released_tiles(previous)
         report = live_build.inspect(
-            manifest, facades, live_build.baseline(published), live_build.tiles(published), reason
+            manifest, facades, live_build.baseline(published), listed, reason
         )
         failures = [drop] if (drop := advisory.facade_drop(report)) else []
-        chrome_stats = {"full_suite": chrome["full_suite"], "selected": chrome["specs"]}
-        full_red = (repo / "game/full-red.ts").exists() and chrome["full_suite"]
+        chrome_stats = chrome and {"full_suite": chrome["full_suite"], "selected": chrome["specs"]}
+        full_red = (repo / "game/full-red.ts").exists() and chrome and chrome["full_suite"]
         if checks and (self.chrome_red or full_red):
             self.chrome_red = max(0, self.chrome_red - 1)
             spec = "webgpu:game/tests/e2e-tile/tile.spec.ts"
             failures.append(
                 {"stage": "chrome", "detail": f"chrome failed (1); {log}", "specs": [spec]}
             )
+        if kind == "data":
+            report["tiles_built"] = list(listed)
+        else:
+            report["shipped"] = {
+                "source": "live",
+                "release": previous.name,
+                "commit": served.builder(record),
+                "tile_commits": served.release_tiles(previous),
+            }
         return {
             **report,
-            "seconds": {"tile-build": 0.01},
-            "cache_hits": ["refresh"],
+            "seconds": {stage: 0.01},
+            "cache_hits": ["refresh"] if kind == "data" else [],
             "chrome": chrome_stats,
             "advisory": failures,
         }
@@ -224,6 +254,10 @@ class IntegratorFixture(unittest.TestCase):
         with patch.object(live_build, "build", side_effect=self.fake_build):
             return integrator.run_once(self.published, self.main, full=full)
 
+    def data(self, refresh_stale=False):
+        with patch.object(live_build, "build", side_effect=self.fake_build):
+            return integrator.run_data(self.published, self.main, refresh_stale=refresh_stale)
+
     def live_record(self):
         return json.loads((self.published / "live/live-build.json").read_text())
 
@@ -240,9 +274,20 @@ class IntegratorTests(IntegratorFixture):
         row = self.integrate()
         self.assertEqual((row["result"], row["from"], row["to"]), ("green", self.base, head))
         self.assertEqual(integrator.live_commit(self.published), head)
+        # Only the game bundle was built; the release ships the live tiles and names them.
+        self.assertEqual((row["builds"], self.classes, row["facades_bound"]), (1, ["code"], 2))
+        self.assertEqual((row["stage_seconds"], row["tiles_from"]), ({"game-build": 0.01}, "live"))
+        record = self.live_record()
         self.assertEqual(
-            (row["builds"], row["cache_hits"], row["facades_bound"]), (1, ["refresh"], 2)
+            record["tiles_from"],
+            {"source": "live", "release": self.base, "commit": self.base},
         )
+        self.assertEqual(record["tile_commits"], {tile: self.base for tile in CORE})
+        # A game-only batch leaves the tile code alone: nothing is stale.
+        self.assertEqual(record["stale_by_code"], [])
+        verified = self.published / "live-releases" / self.base
+        self.assertTrue(live_build.same_tree(verified / "tiles", self.published / "live/tiles"))
+        self.assertEqual((self.published / "live/game/asset.bin").read_text(), head)
         self.assertEqual(integrator.last(self.published), row)
         self.assertIsNone(self.integrate())
 
@@ -278,24 +323,35 @@ class IntegratorTests(IntegratorFixture):
         record = json.loads((self.published / "live/live-build.json").read_text())
         self.assertEqual((record["commit"], record["verified_commit"]), (later, self.base))
 
-    def test_inert_paths_with_changed_approvals_are_a_data_batch(self):
-        self.land("note", "docs/reports/facades.md", "report")
+    def test_changed_approvals_are_the_data_lanes_and_inert_paths_repoint(self):
+        head = self.land("note", "docs/reports/facades.md", "report")
         self.approve(3)
+        # The code lane classifies by paths only: prose re-points live, no build.
         row = self.integrate()
+        self.assertEqual((row["class"], row["data_delta"], self.classes), ("inert", [], []))
+        self.assertTrue(integrator.data_due(self.published))
+        row = self.data()
         self.assertEqual((row["class"], row["data_delta"]), ("data", ["facade-approvals"]))
-        self.assertEqual(row["tiles"], list(live_build.C.CORE_TILES))
+        self.assertEqual(row["tiles"], list(CORE))
         self.assertEqual((row["result"], self.classes), ("green", ["data"]))
+        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertEqual(self.live_record()["tile_commits"], {tile: self.base for tile in CORE})
 
-    def test_newly_listed_tile_is_a_data_batch_for_that_tile(self):
+    def test_newly_listed_tile_is_built_by_the_data_lane_only(self):
         head = self.land("voice", "game/public/assets/voice/fi/a.ogg", "clip")
-        tiles = [*live_build.C.CORE_TILES, "t0_1_-1"]
+        tiles = [*CORE, "t0_1_-1"]
         live_build.C.write_playable_tiles(self.published / "playable-tiles.json", tiles)
         row = self.integrate()
-        self.assertEqual((row["class"], row["data_delta"]), ("data", ["playable-tiles"]))
-        self.assertEqual(
-            (row["tiles"], row["paths"]), (["t0_1_-1"], ["game/public/assets/voice/fi/a.ogg"])
-        )
-        self.assertEqual((row["result"], self.classes), ("green", ["data"]))
+        # Voice clips are game content: the code lane ships them with the live tiles.
+        self.assertEqual((row["class"], row["data_delta"]), ("data", []))
+        self.assertEqual((row["result"], self.classes), ("green", ["code"]))
+        self.assertEqual(self.live_record()["tiles"], list(CORE))
+        self.assertEqual(integrator.live_commit(self.published), head)
+        row = self.data()
+        self.assertEqual((row["data_delta"], row["tiles"]), (["playable-tiles"], ["t0_1_-1"]))
+        self.assertEqual((row["result"], self.classes), ("green", ["code", "data"]))
+        self.assertEqual(sorted(self.live_record()["tiles"]), sorted(tiles))
+        self.assertEqual(self.live_record()["tile_commits"]["t0_1_-1"], self.base)
         self.assertEqual(integrator.live_commit(self.published), head)
 
     def test_tooling_batch_is_code(self):
@@ -306,7 +362,7 @@ class IntegratorTests(IntegratorFixture):
 
     def test_landing_during_preparation_joins_the_batch(self):
         self.land("one", "docs/one.md", "prose")
-        self.approve(3)
+        self.land("tooling", "scripts/dev/watch.py", "print()")
         later = []
         self.preparing.append(lambda: later.append(self.land("two", "game/b.ts", "b")))
         row = self.integrate()
@@ -359,21 +415,20 @@ class IntegratorTests(IntegratorFixture):
         self.preparing.append(lambda: later.append(self.land("two", "game/b.ts", "b")))
         row = self.integrate()
         self.assertEqual((row["result"], row["joins"], row["restarts"]), ("green", 1, {}))
-        self.assertEqual(row["stage_seconds"], {"tile-build": 0.01})
+        self.assertEqual(row["stage_seconds"], {"game-build": 0.01})
 
     def test_data_lane_publishes_live_commit_with_new_data(self):
-        self.assertFalse(integrator.data_due(self.published, self.main))
+        self.assertFalse(integrator.data_due(self.published))
         self.approve(3)
-        self.assertTrue(integrator.data_due(self.published, self.main))
-        with patch.object(live_build, "build", side_effect=self.fake_build):
-            row = integrator.run_data(self.published, self.main)
+        self.assertTrue(integrator.data_due(self.published))
+        row = self.data()
         key = row["data_key"]
         self.assertEqual((row["lane"], row["result"], row["class"]), ("data", "green", "data"))
         self.assertEqual(
             (row["from"], row["to"], row["data_delta"]),
             (self.base, self.base, ["facade-approvals"]),
         )
-        self.assertEqual(self.classes, ["data"])
+        self.assertEqual((self.classes, row["tiles_commit"]), (["data"], self.base))
         # Same commit, new data: a release of its own next to the code release.
         self.assertEqual(integrator.live_commit(self.published), self.base)
         live = (self.published / "live").resolve()
@@ -381,31 +436,66 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(
             json.loads((live / "textures/assembly/MANIFEST.json").read_text())["bound"][2], "wall-2"
         )
-        self.assertFalse(integrator.data_due(self.published, self.main))
+        self.assertEqual(self.live_record()["tiles_from"], {"source": "build", "commit": self.base})
+        self.assertFalse(integrator.data_due(self.published))
         # Data-lane rows never settle or unsettle the code lane.
         self.assertNotEqual(integrator.last(self.published).get("lane"), "data")
 
-    def test_data_lane_waits_while_main_or_the_code_lane_covers_the_data(self):
+    def test_data_lane_runs_beside_the_code_lane_once_per_live_commit_and_data_key(self):
         self.approve(3)
         head = self.land("game", "game/a.ts", "a")
-        # Main moved: the code lane's next run covers the new data.
-        self.assertFalse(integrator.data_due(self.published, self.main))
-        key = integrator.data_key(self.published)
-        lanes = {integrator.DATA_NAME: None}
+        # The code lane does not cover data: the data lane is due while main moved.
+        self.assertTrue(integrator.data_due(self.published))
+        lanes = {integrator.NAME: {"to": head}, integrator.DATA_NAME: None}
         with patch.object(
             integrator, "running", side_effect=lambda lane=integrator.NAME: lanes[lane]
         ):
-            for code_key, due in ((key, False), ("older", True)):
-                lanes[integrator.NAME] = {"to": head, "data_key": code_key}
-                self.assertEqual(integrator.data_due(self.published, self.main), due, code_key)
+            self.assertTrue(integrator.data_due(self.published))
+            lanes[integrator.DATA_NAME] = {"to": self.base}
+            self.assertFalse(integrator.data_due(self.published))
+        self.assertEqual(self.data()["result"], "green")
+        self.assertFalse(integrator.data_due(self.published))
 
-    def test_code_lane_rebuilds_on_top_of_a_data_release_published_meanwhile(self):
+    def test_pipeline_change_never_rebuilds_tiles_and_marks_them_stale(self):
+        head = self.land("pipeline", "pipeline/ground.py", "texture_key = 2\n")
+        row = self.integrate()
+        self.assertEqual((row["result"], self.classes), ("green", ["code"]))
+        record = self.live_record()
+        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertEqual(record["stale_by_code"], list(CORE))
+        # New data is still built with the tile code that built the live tiles.
+        self.approve(3)
+        row = self.data()
+        self.assertEqual(
+            (row["result"], row["tiles_commit"], self.builds[-1]), ("green", self.base, self.base)
+        )
+        self.assertEqual(self.live_record()["stale_by_code"], list(CORE))
+        self.assertEqual(integrator.live_commit(self.published), head)
+        # The idle-host refresh rebuilds the stale tiles with main's tile code.
+        row = self.data(refresh_stale=True)
+        self.assertEqual((row["result"], row["refresh_stale"]), ("green", list(CORE)))
+        self.assertEqual((row["tiles_commit"], self.builds[-1]), (head, head))
+        record = self.live_record()
+        self.assertEqual((record["stale_by_code"], record["tile_commits"]["t0_0_0"]), ([], head))
+        self.assertIsNone(self.data(refresh_stale=True))
+
+    def test_data_lane_falls_back_to_mains_tile_code_when_the_live_code_cannot_build(self):
+        head = self.land("pipeline", "pipeline/new.py", "fetch = 'per tile'\n")
+        self.integrate()
+        (self.published / "needs-new-code").write_text("")
+        self.approve(3)
+        row = self.data()
+        self.assertEqual((row["result"], row["tiles_commit"]), ("green", head))
+        self.assertEqual(self.builds[-2:], [self.base, head])
+        self.assertEqual(self.live_record()["stale_by_code"], [])
+
+    def test_code_lane_recomposes_on_a_data_release_published_meanwhile(self):
         head = self.land("game", "game/a.ts", "a")
         data = []
 
         def data_lane():
             self.approve(3)
-            data.append(integrator.run_data(self.published, self.main))
+            data.append(self.data())
 
         self.during.append(data_lane)
         row = self.integrate()
@@ -413,8 +503,8 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(
             (row["result"], row["rebuilt_on"]), ("green", f"{self.base}-{data[0]['data_key'][:12]}")
         )
-        # Code build, the data lane's build of G, then the data rebuild of M on top.
-        self.assertEqual(self.classes, ["code", "data", "data"])
+        # Game build, the data lane's tile build of G, then M's game recomposed on its tiles.
+        self.assertEqual(self.classes, ["code", "data", "code"])
         self.assertEqual(self.builds, [head, self.base, head])
         live = self.published / "live"
         self.assertEqual(integrator.live_commit(self.published), head)
@@ -422,27 +512,26 @@ class IntegratorTests(IntegratorFixture):
             len(json.loads((live / "textures/assembly/MANIFEST.json").read_text())["bound"]), 3
         )
 
-    def test_code_lane_rebuilds_on_top_of_a_newer_data_release_at_most_once(self):
+    def test_code_lane_recomposes_on_a_newer_data_release_at_most_once(self):
         head = self.land("game", "game/a.ts", "a")
         data = []
 
         def data_lane(walls):
             self.approve(walls)
-            data.append(integrator.run_data(self.published, self.main))
+            data.append(self.data())
 
-        # The data lane publishes during the code build and again during its rebuild; each
-        # data-lane build pops a hook of its own.
+        # The data lane publishes during the code build and again during its recomposition;
+        # each data-lane build pops a hook of its own.
         self.during.extend((lambda: data_lane(3), lambda: None, lambda: data_lane(4)))
         row = self.integrate()
         self.assertEqual([lane["result"] for lane in data], ["green", "green"])
         self.assertEqual(row["result"], "failed")
         self.assertIn("again during the rebuild", row["failure"]["detail"])
-        # Code build, data lane, one data rebuild of M, data lane; no second rebuild.
-        self.assertEqual(self.classes, ["code", "data", "data", "data"])
+        self.assertEqual(self.classes, ["code", "data", "code", "data"])
         self.assertEqual(self.builds, [head, self.base, head, self.base])
         self.assertEqual(integrator.live_commit(self.published), self.base)
 
-    def test_data_lane_never_publishes_over_a_newer_code_release(self):
+    def test_data_lane_ships_a_newer_code_release_game_on_the_same_tiles(self):
         self.approve(3)
         code = []
 
@@ -451,12 +540,40 @@ class IntegratorTests(IntegratorFixture):
             code.append(integrator.run_once(self.published, self.main))
 
         self.during.append(code_lane)
-        with patch.object(live_build, "build", side_effect=self.fake_build):
-            row = integrator.run_data(self.published, self.main)
-        self.assertEqual((code[0]["result"], row["result"]), ("green", "superseded"))
-        self.assertEqual(integrator.live_commit(self.published), code[0]["to"])
-        # The code release already carries the new data; nothing is left for the data lane.
-        self.assertFalse(integrator.data_due(self.published, self.main))
+        row = self.data()
+        head = code[0]["to"]
+        self.assertEqual((code[0]["result"], row["result"], row["to"]), ("green", "green", head))
+        # The data release carries the code release's game, and the new data.
+        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertEqual((self.published / "live/game/asset.bin").read_text(), head)
+        self.assertEqual(
+            len(
+                json.loads((self.published / "live/textures/assembly/MANIFEST.json").read_text())[
+                    "bound"
+                ]
+            ),
+            3,
+        )
+        self.assertFalse(integrator.data_due(self.published))
+
+    def test_data_lane_is_superseded_by_new_tiles_published_meanwhile(self):
+        self.approve(3)
+        inner = []
+
+        def other_data_release():
+            # Another data release lands first (simulated as a direct publication).
+            self.approve(4)
+            work = self.root / "other"
+            self.outputs(work, 4)
+            record = {"facades_bound": 4, "seconds": {}, "cache_hits": [], "advisory": []}
+            live_build.prepare(work, self.published, self.base, record, "other")
+            live_build.publish(self.published, self.base, "other")
+            inner.append(True)
+
+        self.during.append(other_data_release)
+        row = self.data()
+        self.assertEqual((row["result"], inner), ("superseded", [True]))
+        self.assertEqual((self.published / "live").resolve().name, "other")
 
     def test_bad_commit_in_batch_of_five_is_bisected_and_reverted(self):
         commits = [
@@ -471,7 +588,7 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(self.builds[:2], [commits[-1], self.base])
         self.assertEqual(row["builds"], 4)
         self.assertEqual(self.checks, [True, False, False, False])
-        self.assertEqual(row["failure"]["stage"], "tile-build")
+        self.assertEqual(row["failure"]["stage"], "game-build")
         self.assertEqual(integrator.live_commit(self.published), self.base)
         # The revert landed on main through the fast gate and removed only the culprit.
         main = self.git("rev-parse", "main")
@@ -486,7 +603,7 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(row["id"], f"{commits[-1][:12]}.1")
         [request] = coordination.inbox("task-3", unread=True)
         self.assertEqual(request["kind"], "request")
-        self.assertIn("tile-build failed", request["body"])
+        self.assertIn("game-build failed", request["body"])
         self.assertIn(commits[2][:12], request["subject"])
         # The next run integrates the rest of the batch plus the revert and goes green.
         self.builds.clear()
@@ -508,9 +625,9 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(self.git("rev-parse", "main~1"), before)
         self.assertEqual(row["revert"]["reverted"], [first, culprit])
         message = self.git("log", "-1", "--format=%B", "main")
-        self.assertIn(f"integration {row['id']} red at tile-build", message.splitlines()[0])
+        self.assertIn(f"integration {row['id']} red at game-build", message.splitlines()[0])
         self.assertIn(f"Integration: {row['id']}", message)
-        self.assertIn("Failing stage: tile-build", message)
+        self.assertIn("Failing stage: game-build", message)
         self.assertIn(f"  {first} Add the broken module", message)
         self.assertIn(f"  {culprit} pair", message)
         self.assertFalse((self.main / "game/bad.ts").exists())
@@ -519,62 +636,51 @@ class IntegratorTests(IntegratorFixture):
     def test_red_base_is_data_red_and_reverts_nothing(self):
         self.land("game", "game/a.ts", "a")
         head = self.land("more", "game/b.ts", "b")
-        (self.published / "raw-broken").write_text("")
+        (self.published / "game-broken").write_text("")
         row = self.integrate()
         self.assertEqual((row["result"], row["culprit"], row["revert"]), ("data-red", None, None))
-        self.assertEqual((row["failure"]["stage"], row["data_cause"]), ("refresh", "data-root"))
-        self.assertEqual(row["head_failure"]["stage"], "refresh")
+        self.assertEqual((row["failure"]["stage"], row["data_cause"]), ("game-build", "data-root"))
+        self.assertEqual(row["head_failure"]["stage"], "game-build")
         # Head, then the base check; no bisection, no revert, live stays at G.
         self.assertEqual(self.builds, [head, self.base])
         self.assertEqual(self.git("rev-parse", "main"), head)
         self.assertEqual(integrator.live_commit(self.published), self.base)
         [warning] = [m for m in coordination.board() if m["kind"] == "warning"]
-        self.assertIn(f"integration {row['id']} data-red at refresh", warning["subject"])
+        self.assertIn(f"integration {row['id']} data-red at game-build", warning["subject"])
         self.assertIn("No commit was reverted", warning["body"])
         self.assertEqual([coordination.inbox(n, unread=True) for n in ("game", "more")], [[], []])
-        # No retry until main moves or the data root changes.
+        # No code-lane retry until main moves; data root changes are the data lane's.
         self.assertTrue(integrator.settled(self.published, head))
         self.approve(3)
-        self.assertFalse(integrator.settled(self.published, head))
-        self.approve(2)
         self.assertTrue(integrator.settled(self.published, head))
         self.assertFalse(integrator.settled(self.published, self.land("next", "game/c.ts", "c")))
 
-    def test_approval_drop_with_ledger_reason_is_green(self):
+    def test_approval_drop_is_green_and_reported_against_the_baseline(self):
         self.approve(1)
-        self.land("accept", "docs/a.ts", "a", reason="photo facades retired by decision")
-        self.land("game", "game/a.ts", "a")
-        row = self.integrate()
+        row = self.data()
         self.assertEqual((row["result"], row["facades_bound"]), ("green", 1))
-        self.assertEqual(integrator.live_commit(self.published), self.git("rev-parse", "main"))
-        self.assertEqual(self.builds, [self.git("rev-parse", "main")])
+        self.assertEqual([entry["stage"] for entry in row["advisory"]], ["facade-baseline"])
+        self.assertEqual(self.builds, [self.base])
 
-    def test_facade_drop_with_ledger_reason_is_green(self):
-        self.land("drop", "game/facades.txt", "1\n", reason="old facade map was wrong")
-        head = self.land("later", "game/a.ts", "a")
+    def test_code_batch_never_changes_the_facade_count(self):
+        self.land("drop", "game/facades.txt", "1\n")
         row = self.integrate()
-        self.assertEqual((row["result"], row["facades_bound"]), ("green", 1))
-        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertEqual((row["result"], row["facades_bound"], row["advisory"]), ("green", 2, []))
 
-    def test_code_batch_runs_the_specs_its_paths_select(self):
+    def test_code_batch_runs_no_chrome(self):
         self.land("render", "game/src/render/a.ts", "a")
         row = self.integrate()
-        [plan] = self.plans
-        self.assertEqual(plan["specs"], ["game/tests/e2e-tile/integration.spec.ts"])
-        self.assertEqual(plan["projects"], ["webgpu", "webgl"])
-        self.assertEqual(row["chrome_plan"], plan)
-        self.assertEqual(row["chrome"]["selected"], plan["specs"])
+        self.assertEqual((self.plans, row["chrome_plan"], row["chrome"]), ([None], None, None))
 
-    def test_data_batch_runs_streaming_specs_only_when_the_tile_list_changed(self):
-        self.land("voice", "game/public/assets/voice/fi/a.ogg", "a")
-        self.assertEqual(self.integrate()["chrome_plan"]["specs"], [])
-        self.land("more", "game/public/assets/voice/fi/b.ogg", "b")
-        tiles = [*live_build.C.CORE_TILES, "t0_1_-1"]
+    def test_data_build_runs_streaming_specs_only_when_the_tile_list_changed(self):
+        self.approve(3)
+        self.data()
+        self.assertEqual(self.plans[-1]["specs"], [])
+        tiles = [*CORE, "t0_1_-1"]
         live_build.C.write_playable_tiles(self.published / "playable-tiles.json", tiles)
-        row = self.integrate()
-        self.assertEqual(row["class"], "data")
-        self.assertEqual(row["chrome_plan"]["specs"], ["game/tests/e2e-tile/tile.spec.ts"])
-        self.assertEqual(row["chrome_plan"]["projects"], ["webgpu"])
+        self.data()
+        self.assertEqual(self.plans[-1]["specs"], ["game/tests/e2e-tile/tile.spec.ts"])
+        self.assertEqual(self.plans[-1]["projects"], ["webgpu"])
 
     def test_full_suite_is_due_two_hours_after_the_last_with_a_landing_since(self):
         now = 1_000_000.0
@@ -654,83 +760,6 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(
             (current["from"], current["to"], current["stage"]), ("a", "b", "tile-build")
         )
-
-
-class EnsureTests(unittest.TestCase):
-    """integrator.ensure: what a landing or a finished run starts; nothing polls."""
-
-    published = Path("/published")
-
-    def ensure(self, *, live="older", last=None, lanes=None, data_due=False, full_due=False):
-        lanes = lanes or {}
-        with (
-            patch.object(integrator.s, "git", return_value="main-head"),
-            patch.object(integrator, "live_commit", return_value=live),
-            patch.object(integrator, "last", return_value=last or {}),
-            patch.object(integrator, "data_key", return_value="data"),
-            patch.object(integrator, "full_due", return_value=full_due),
-            patch.object(
-                integrator, "running", side_effect=lambda lane=integrator.NAME: lanes.get(lane)
-            ),
-            patch.object(integrator, "data_due", return_value=data_due),
-            patch.object(integrator, "start") as start,
-        ):
-            started = integrator.ensure(self.published)
-        self.assertEqual([call.args[1] for call in start.call_args_list], started)
-        return started
-
-    def test_code_lane_starts_only_when_main_or_data_moved_past_the_last_run(self):
-        cases = (
-            ("main-head", {}, []),  # live already names main
-            ("older", {"to": "main-head"}, []),  # a row without a data key covered main
-            ("older", {"to": "main-head", "data_key": "data"}, []),  # same data root
-            ("older", {"to": "main-head", "data_key": "old-data"}, ["code"]),  # data changed
-            ("older", {"to": "older", "data_key": "data"}, ["code"]),  # main moved
-        )
-        for live, last, started in cases:
-            with self.subTest(live=live, last=last):
-                self.assertEqual(self.ensure(live=live, last=last), started)
-
-    def test_due_full_suite_starts_the_code_lane_for_live_main(self):
-        self.assertEqual(self.ensure(live="main-head", full_due=True), ["code"])
-
-    def test_running_code_lane_is_not_doubled_and_data_lane_starts_beside_it(self):
-        running = {integrator.NAME: {"to": "x", "data_key": "old"}}
-        self.assertEqual(self.ensure(lanes=running), [])
-        self.assertEqual(self.ensure(lanes=running, data_due=True), ["data"])
-
-    def test_nothing_starts_without_a_live_release(self):
-        self.assertEqual(self.ensure(live=None, data_due=True), [])
-
-    def test_landing_starts_the_integrator_after_its_broadcast(self):
-        output = io.StringIO()
-        with (
-            patch.object(landing.coord, "open_requests", return_value=[]),
-            patch.object(landing.coord, "broadcast_landed", return_value=["peer"]) as broadcast,
-            patch.object(integrator, "ensure", return_value=["code"]) as ensure,
-            contextlib.redirect_stdout(output),
-        ):
-            landing.report("demo", {"commit": "c0ffee"}, "Subject", 5.0, "a note")
-        broadcast.assert_called_once_with("demo", {"commit": "c0ffee"}, "Subject", 5.0, "a note")
-        ensure.assert_called_once_with(landing.landing_class.published_root())
-        self.assertIn("landed message sent to peer", output.getvalue())
-        self.assertIn("integrator started (code)", output.getvalue())
-
-    def test_finished_run_starts_the_next_and_an_idle_run_does_not(self):
-        for row, chained in (({"result": "red"}, 1), (None, 0)):
-            with (
-                self.subTest(row=row),
-                tempfile.TemporaryDirectory() as temp,
-                patch.dict(os.environ, {"TURKU3D_WT_ROOT": temp}),
-                patch.object(integrator, "run_once", return_value=row),
-                patch.object(integrator, "ensure", return_value=[]) as ensure,
-                patch.object(sys, "argv", ["integrator.py", "run", "--published", temp]),
-                contextlib.redirect_stdout(io.StringIO()),
-            ):
-                integrator.main()
-                self.assertEqual(ensure.call_count, chained)
-                # The lane lock is free again when the next run starts.
-                self.assertIsNone(integrator.running())
 
 
 if __name__ == "__main__":

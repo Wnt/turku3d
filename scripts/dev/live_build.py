@@ -1,10 +1,13 @@
 """Build, check and publish the real office distribution for the integrator.
 
-Only the build stages decide whether a release is published: a batch whose layers, tiles,
-tile format and seams or game bundle cannot be built is red. Every other stage (car report,
-facade ground audit, collision sweep and audit, the buildings and curbs checks of
-tile-validate, the facade baseline and Chrome) is advisory: its failure is recorded in
-report["advisory"] and the release is published anyway.
+The code lane builds main's game bundle and ships the tile set the localhost game serves
+(served.py): no refresh, tile-build or validators. The data lane rebuilds the tiles a changed
+data root affects with the tile code that built the live tiles and carries the live game
+bundle. Only the build stages decide whether a release is published: a batch whose layers,
+tiles, tile format and seams or game bundle cannot be built is red. Every other stage (car
+report, facade ground audit, the buildings and curbs checks of tile-validate, the facade
+baseline and Chrome) is advisory: its failure is recorded in report["advisory"] and the
+release is published anyway.
 """
 
 import contextlib
@@ -20,8 +23,10 @@ from pathlib import Path
 import advisory as advisory_check
 import live_cache
 import sandbox as s
+import served
 import spec_selection
 from host_slots import integration_jobs, phase
+from integration_chrome import browser_load, load_summary
 from landing_class import C, released_tiles
 from turku3d.region import quality
 
@@ -31,42 +36,34 @@ def tiles(published):
     return tuple(C.playable_tile_ids(published))
 
 
-# Stages per landing class (landing_class.py); `inert` builds nothing and re-points live.
+# Stages per build kind (integrator.py); `inert` builds nothing and re-points live.
 STAGES = {
-    "code": (
-        "refresh",
-        "tile-build",
-        "tile-validate",
-        "car-report",
-        "facade-ground-audit",
-        "game-build",
-        "collision-sweep",
-        "collision-audit",
-        "chrome",
-    ),
-    # The game bundle is rebuilt (seconds): a release ships one and voice clips are part of
-    # it. Chrome runs what spec_selection picks: nothing unless the playable tile list changed.
+    # The code lane, for every batch that is not inert: main's game bundle (voice clips and the
+    # address pool are part of it) with the served tile set.
+    "code": ("game-build",),
+    # The scheduled full Chrome suite (advisory) on the same release.
+    "full": ("game-build", "chrome"),
+    # The data lane: the tiles a changed data root affects, with the live tiles' tile code; the
+    # live game bundle is carried. Chrome runs what spec_selection picks: nothing unless the
+    # playable tile list changed.
     "data": (
         "refresh",
         "tile-build",
         "tile-validate",
         "car-report",
         "facade-ground-audit",
-        "game-build",
         "chrome",
     ),
     "inert": (),
 }
 
 
-def stages_for(landing_class, checks=True):
-    """The live stages a batch of this class runs: the one seam for stage selection.
+def stages_for(kind, checks=True):
+    """The live stages a build of this kind runs: the one seam for stage selection.
 
     checks=False keeps only the build stages (the base check and bisection builds, which only
     ask whether a commit builds)."""
-    return tuple(
-        stage for stage in STAGES[landing_class] if checks or stage in advisory_check.BUILD_STAGES
-    )
+    return tuple(stage for stage in STAGES[kind] if checks or stage in advisory_check.BUILD_STAGES)
 
 
 def parked_changed(previous, work):
@@ -196,11 +193,33 @@ def _clone(source, target):
         shutil.copytree(source, target)
 
 
+def _replace(source, target):
+    """Make target a private clone of source (kept as it is when source is missing)."""
+    if not source.exists():
+        return
+    if target.is_symlink():
+        target.unlink()
+    elif target.exists():
+        shutil.rmtree(target)
+    _clone(source, target)
+
+
 def seed(work, published):
-    for relative in ("build/layers", "textures", "dist/tiles"):
+    """Seed a reused build sandbox from the live release: layers and textures only when
+    missing (refresh updates them in place), the tiles and the game bundle every time (a
+    build starts from the live tiles and ships the live game unless it builds its own), and
+    the facade approvals."""
+    for relative in ("build/layers", "textures"):
         _clone(published / relative, work / relative)
+    for relative in ("dist/tiles", "build/game"):
+        _replace(published / relative, work / relative)
     # The data root's tile list is authoritative; a sandbox list would shadow it.
     (work / C.PLAYABLE_TILES_FILE).unlink(missing_ok=True)
+    approve(work, published)
+
+
+def approve(work, published):
+    """Replace the work's facade assembly with the approval root's."""
     approvals = published / "facade-approvals/assembly"
     if approvals.is_dir():
         # The approvals are authoritative: a retired facade must leave the release too,
@@ -274,48 +293,7 @@ def inspect(manifest_path, facade_count, minimum, listed, reason=None):
     }
 
 
-def browser_load(rows_path, load_before):
-    """Summarize host load and per-test frame p95 (tests/e2e/fixtures.ts rows) for one Chrome stage."""
-    rows = []
-    if rows_path.is_file():
-        for line in rows_path.read_text().splitlines():
-            try:
-                rows.append(json.loads(line))
-            except ValueError:
-                continue
-    paces = sorted(row["pace"]["p95FrameMs"] for row in rows if row.get("pace"))
-    return {
-        "host_load_start": [round(value, 2) for value in load_before],
-        "host_load_end": [round(value, 2) for value in os.getloadavg()],
-        "frame_p95_ms": (
-            {"median": round(paces[len(paces) // 2], 1), "max": round(paces[-1], 1)}
-            if paces
-            else None
-        ),
-        "attempts": len(rows),
-        "retried": [
-            {
-                "test": f"[{row['project']}] {row['file']} {row['title']}",
-                "status": row["status"],
-                "host_load": round(row["hostLoad"], 2),
-            }
-            for row in rows
-            if row.get("retry")
-        ],
-    }
-
-
-def load_summary(load):
-    frame = load["frame_p95_ms"]
-    return (
-        f"host load {', '.join(f'{value:.2f}' for value in load['host_load_end'])}"
-        f" (start {load['host_load_start'][0]:.2f}); frame p95 "
-        + (f"median {frame['median']} ms, max {frame['max']} ms" if frame else "unmeasured")
-        + f"; {len(load['retried'])} load retries"
-    )
-
-
-def store_tiles(repo, work, published, built):
+def store_tiles(repo, work, published, built, facades_bound):
     """Offer the unverified tile build to the localhost game (tile_store.py) before the checks run."""
     import tile_store
 
@@ -327,6 +305,7 @@ def store_tiles(repo, work, published, built):
         commit,
         "integrator",
         built,
+        {"facades_bound": facades_bound},
     )
 
 
@@ -338,29 +317,33 @@ def build(
     log_path,
     reason=None,
     previous_release=None,
-    landing_class="code",
+    kind="code",
     join=None,
     joined=(),
     chrome=None,
     timings=None,
     checks=True,
 ):
-    """Run the class's live stages on repo; the caller holds the integration host reservation.
+    """Run the kind's live stages on repo; the caller holds the integration host reservation.
 
     A build stage that fails raises StageFailed; an advisory stage that fails is appended to
     report["advisory"] ({"stage", "detail", "log"}, plus "specs" for Chrome and "checks" for
     tile-validate) and the build goes on. checks=False runs the build stages only.
 
-    previous_release is the published release directory the batch starts from; tile-build
-    and collision checks then only rebuild what the layer delta affects. A data build runs
-    the car report only when the parked-car layer changed, else it carries the previous
-    release's result forward.
+    A code or full build ships the served tile set (served.ship) and checks the tiles it
+    carries; a data build seeds the live release and rebuilds tiles. previous_release is the
+    published release directory the batch starts from; tile-build and collision checks then
+    only rebuild what the layer delta affects. A data build runs the car report only when the
+    parked-car layer changed, else it carries the previous release's result forward.
+    A code build reports the tile set it ships in report["shipped"] (served.tiles), a data
+    build the tiles it rebuilt in report["tiles_built"] (served.built); the integrator turns
+    either into the release record's provenance (served.provenance).
 
     join is offered only while the build is free to restart: once, before the first stage
     that is not a cache hit (refresh included), so a stage that runs for real is never
     discarded and the build is frozen from then on. It is called with the stages this build
     restored from the cache (what a restart repeats). When it moved repo to a newer main it
-    returns {"commit", "landing_class", "reason"}; the build then starts over on that commit,
+    returns {"commit", "kind", "reason"}; the build then starts over on that commit,
     appends to the same log and may join again; the caller bounds joins and restarts. The
     update's "chrome" replaces the Chrome plan.
 
@@ -370,19 +353,32 @@ def build(
     chrome is the spec_selection plan for the Chrome stage (None runs the full suite);
     passing specs are cached per spec and project, and report["chrome"] records what ran.
     """
-    stages = stages_for(landing_class, checks)
+    stages = stages_for(kind, checks)
     chrome = chrome or spec_selection.full_plan("no selection given")
-    seed(work, published)
     minimum = baseline(published)
-    listed = tiles(published)
+    advisory = []
+    report = None
+    if "tile-build" in stages:
+        seed(work, published)
+        listed = tiles(published)
+    else:
+        shipped = served.ship(repo, work, published)
+        # The release carries the served tiles; tiles listed since are the data lane's.
+        listed = tuple(shipped["tile_commits"])
+        report = inspect(
+            work / "dist/tiles/manifest.json", shipped["facades_bound"], minimum, listed, reason
+        )
+        if drop := advisory_check.facade_drop(report):
+            advisory.append(drop)
+        report["shipped"] = {
+            name: value for name, value in shipped.items() if name not in ("dir", "facades_bound")
+        }
     durations = {}
     timings = {} if timings is None else timings
     cache_hits = []
     input_hashes = {}
     browser_loads = {}
-    advisory = []
     chrome_stats = None
-    report = None
     previous = ""
     cache_enabled = (repo / ".git").exists()
     commands = [
@@ -415,8 +411,6 @@ def build(
             repo,
         ),
         ("game-build", ["make", "game-build"], repo),
-        ("collision-sweep", ["make", "collision-sweep"], repo),
-        ("collision-audit", ["make", "collision-audit"], repo),
         # The command line is logged by spec_selection.run once the selection is known.
         ("chrome", ["playwright", "test", "-c", spec_selection.TILE_CONFIG], repo / "game"),
     ]
@@ -427,7 +421,7 @@ def build(
                 continue
             if (
                 stage == "car-report"
-                and landing_class == "data"
+                and kind == "data"
                 and not parked_changed(previous_release, work)
             ):
                 if carried := carry_car_report(previous_release, work):
@@ -487,7 +481,9 @@ def build(
                     )
                     if drop := advisory_check.facade_drop(report):
                         advisory.append(drop)
-                    store_tiles(repo, work, published, scopes.get(stage) or listed)
+                    store_tiles(
+                        repo, work, published, scopes.get(stage) or listed, cached["facades_bound"]
+                    )
                 if stage == "facade-ground-audit":
                     report["facade_ground_audit"] = cached["facade_ground_audit"]
                 previous = key
@@ -495,9 +491,7 @@ def build(
             if join:
                 callback, join = join, None
                 if update := callback(tuple(cache_hits)):
-                    log.write(
-                        f"\n== join: rebuilding {update['commit']} as {update['landing_class']} ==\n"
-                    )
+                    log.write(f"\n== join: rebuilding {update['commit']} as {update['kind']} ==\n")
                     log.flush()
                     return build(
                         repo,
@@ -507,7 +501,7 @@ def build(
                         log_path,
                         update["reason"],
                         previous_release,
-                        update["landing_class"],
+                        update["kind"],
                         callback,
                         (*joined, update["commit"]),
                         update.get("chrome", chrome),
@@ -601,7 +595,7 @@ def build(
                 if drop := advisory_check.facade_drop(report):
                     advisory.append(drop)
                 if cache_enabled:
-                    store_tiles(repo, work, published, scopes.get(stage) or listed)
+                    store_tiles(repo, work, published, scopes.get(stage) or listed, facade_count)
             if stage == "facade-ground-audit" and not failure:
                 report["facade_ground_audit"] = json.loads(proc.stdout.splitlines()[-1])
             # A failed advisory stage is not cached: the next build with its inputs reruns it.
@@ -620,6 +614,8 @@ def build(
                 previous = key
             elif key:
                 previous = key
+    if "tile-build" in stages:
+        report["tiles_built"] = list(scopes.get("tile-build") or listed)
     report["seconds"] = durations
     report["cache_hits"] = cache_hits
     report["input_hashes"] = input_hashes

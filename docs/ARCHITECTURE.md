@@ -91,8 +91,9 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   world (renderer, tiles, physics worker with the character and vehicles) and hot-swaps `play.ts`, the play session,
   carrying missions, money, permit, clock and the driven vehicle; changes outside the session autosave and reload
   into the autosave. `/tiles` there serves a content-addressed tile release (`$TURKU3D_DATA/tile-store/<key>`, key =
-  tile-build inputs of the commit + the data root's parts) that the integrator fills right after its
-  tile-build stage and the service fills by a quick `make tile-build` of the affected tiles; the open tab swaps a new
+  tile-build inputs of the commit + the data root's parts) that the integrator's data lane fills right after its
+  tile-build stage and the service fills by a quick `make tile-build` of the affected tiles, and live and Pages ship
+  the same set (`scripts/dev/served.py`); the open tab swaps a new
   release in place (changed collision tiles replaced in the worker, the visual tileset swapped once the new one has
   settled; `game/src/world/README.md`). The hot hooks exist only
   under `import.meta.hot`; production builds are unchanged. See `tools/dev/localhost/README.md`.
@@ -218,19 +219,25 @@ functions; browser specs only when a brief asks for them; time budgets only in b
 Landing and integration: each agent lands its own green slice with `codex-task finish` (rebase, fast gate,
 fast-forward; conflicts are the agent's to resolve) and every landing sends a `landed` message to the other
 running agents, who rebase at their next natural point; unlanded branches are never shared, so an interface
-change lands first as its own compatible slice. The landing starts the integrator (nothing polls), which builds
-`main` once per batch and moves `live` and GitHub Pages to every batch whose build stages succeed (refresh,
-tile-build, tile-validate's format and seams, game-build; the fast gate already enforced policy on landing). The
-other stages (car report, facade ground audit, collision sweep and audit, tile-validate's walk checks, the facade
-baseline, Chrome, the deep gate tier) are advisory: recorded in the ledger row and the release, shown on the localhost badge, listed in
-the Pages release notes and sent to the batch's authors as an inbox warning when new; they never block, bisect or
-revert. Only a build failure bisects (build stages only) and reverts the culprit landing. Each landing and batch has a
-class (`scripts/dev/landing_class.py`, conservative allowlists): `inert` (docs, prose) re-points `live` to the
-new commit with the published content and builds nothing; `data` (voice clips, the address pool, or a changed data
-root: facade approvals, the playable tile list, layers) runs refresh, tile reassembly and validation, the facade
-ground audit and the game build without Chrome; `code` runs every live stage. Landings join a running batch
-only while that is free (before its first stage that is not a cache hit, at most 3 heads); a second (data) lane verifies data-root changes while a code batch runs, and
-publication is serialised so no lane publishes over a release it did not build on. A full Chrome suite runs on live
+change lands first as its own compatible slice. The landing starts the integrator (nothing polls). **Live and
+Pages publish what localhost serves** (user decision 2026-10-27 22:55): a code batch never rebuilds tiles. The
+code lane classifies a batch by its paths (`scripts/dev/landing_class.py`): `inert` (docs, prose) re-points `live`
+to the new commit with the published content; any other batch builds only main's game bundle (about 1–2 min) and
+publishes it with the served tile set (the tile store entry for main's tile key, else the live release's tiles;
+`scripts/dev/served.py`) to `live` and GitHub Pages. Only a game-build failure bisects and reverts the culprit
+landing. The data lane owns every change of the data root (facade approvals, the playable tile list, layers): it
+rebuilds the affected tiles with the tile code that built the live tiles, so a pipeline change in main never forces
+a rebuild of tiles whose outputs exist (main's tile code is the fallback when the old code cannot build the new
+data), and runs tile-validate (format and seams block), the car report, the facade ground audit and the @streaming
+specs when the tile list changed; it ships the live game bundle. The release record names each tile's builder
+(`tiles_from`, `tile_commits`) and the tiles built with older tile code than the release commit's (`stale_by_code`);
+`make tiles-refresh-stale` rebuilds those with main's code when the host is idle (the sentinel's heartbeat, load
+< 40). Advisory findings (car report, facade ground audit, tile-validate's walk checks, the facade baseline,
+Chrome, the deep gate tier the code lane runs after publishing) are recorded in the ledger row and the release, shown on the localhost badge, listed in the Pages release
+notes and sent to the batch's authors as an inbox warning when new; they never block, bisect or revert. Landings
+join a running code batch only while that is free (before its first stage that is not a cache hit, at most 3
+heads); publication is serialised: a code release is recomposed on tiles the data lane published meanwhile, and a
+data release ships the newer game of a code release published meanwhile on the same tiles. A full Chrome suite runs on live
 every 2 h with landings, as information. The integrator's Chrome stage
 gets 4 workers below load 60 (else 2), and agents' Chrome suites queue behind it. Details and ledger fields:
 `scripts/dev/README.md`, "Landing", "Landing and integration" and "Host slots".
