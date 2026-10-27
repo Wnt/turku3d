@@ -8,9 +8,7 @@ Layout:
     $TURKU3D_DATA/tile-store/<key>/STORE.json  {"key", "commit", "source", "time", "data_time", "data_parts", "tiles",
                                                "facades_bound"?}
     $TURKU3D_DATA/tile-store/index.jsonl       the same record per entry, in the order entries were added
-    $TURKU3D_DATA/tile-store/tiles/<tile>/<key>/   one finished L0 tile from its builder (put_tile): its files at
-                                               their dist paths and TILE.json (fragment and provenance)
-    $TURKU3D_DATA/tile-store/tiles/index.jsonl the TILE.json records without fragments, in the order they were put
+    $TURKU3D_DATA/tile-store/tiles/            per-tile entries (tile_compose.py)
 
 The newest KEEP entries stay, plus the newest older entry for each listed tile no kept entry carries (prune).
 
@@ -20,15 +18,7 @@ playable tile list, the published layers' JSON manifests). The integrator's tile
 the key (source "integrator"). Once the integrator publishes a commit's refresh output, the data root's layers change
 with it and the commit's key moves to the live release's, which the service then serves directly.
 
-A per-tile entry is what one builder (`make tile-add`, `make tile-build PUT=1`, the service's quick build) finished
-for one L0 tile: its visual tile, its 500 m and 1 km parents and the coarse leaves beside it, its 16 collision tiles
-and the ring of collision tiles around them, its ground textures, the parked cars on it, and the road graph and
-address pool of the build. Its key hashes the assembler's input keys of those tiles (.assemble-cache.json).
-`compose` lays the newest eligible entry of every listed tile over a release (newest entry wins where two share a
-parent or a ring cell) and puts the result as a complete entry (source "composed"), so the service serves it like
-any release. An entry is left out when the release already has its bytes (absorbed), when the release was seeded
-from the data root after the entry was put and carries the tile (superseded), when its tile is not listed in the data
-root or its builder's list is not, or when it was built with tile code that never was main's (eligible()).
+Per-tile entries (tile-store/tiles/, tile_compose.py) are laid over the release served() picks for main's commit.
 """
 
 from __future__ import annotations
@@ -46,17 +36,10 @@ from pathlib import Path
 
 import landing_class
 import live_cache
-from landing_class import C
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pipeline"))
-from turku3d.package.manifest import build_tileset  # noqa: E402  (stdlib-only like config)
 
 KEEP = 30
-TILE_KEEP = 3
 TILES = "tiles"
 PATTERNS = tuple(dict.fromkeys(live_cache.INPUTS["refresh"] + live_cache.INPUTS["tile-build"]))
-# Top-level dist directories a per-tile entry carries files in.
-DIST_DIRS = ("visual", "collision", "ground", "roads", "addresses", "vehicles")
 
 
 def root(published):
@@ -128,28 +111,6 @@ def code_key(repo, commit=None):
     for name in sorted(blobs):
         h.update(f"{name}\0{blobs[name]}\n".encode())
     return h.hexdigest()
-
-
-def provenance(repo, published):
-    """{commit, code, mainline} of a builder checkout: mainline is its merge-base with main when the checkout's
-    tile code is exactly that commit's (no unlanded tile code edits), else None."""
-    commit = git(repo, "rev-parse", "HEAD").strip()
-    code = code_key(repo)
-    try:
-        base = git(repo, "merge-base", "HEAD", "main").strip()
-    except subprocess.CalledProcessError:
-        base = None
-    return {
-        "commit": commit,
-        "code": code,
-        "mainline": base if base and code_key(repo, base) == code else None,
-    }
-
-
-def data_key(published):
-    return hashlib.sha256(
-        json.dumps(landing_class.data_parts(published), sort_keys=True).encode()
-    ).hexdigest()
 
 
 def entry(published, store_key):
@@ -231,7 +192,7 @@ def prune(published, keep=KEEP):
 
     The guarantee: every tile in playable-tiles.json keeps at least one store entry, even when the
     newest `keep` builds (a shrunk list, a failed tile) lack it. The per-tile entries under tiles/ are pruned by
-    prune_tiles."""
+    tile_compose.prune_tiles."""
     store = root(published)
     entries = sorted(
         (
@@ -255,219 +216,6 @@ def prune(published, keep=KEEP):
             shutil.rmtree(path, ignore_errors=True)
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Per-tile entries
-# ---------------------------------------------------------------------------------------------------------------
-
-
-def _ring(tile):
-    """The tile's 16 collision tiles and the ring of collision tiles around them."""
-    n = round(C.VISUAL_TILE_SIZE / C.COLLISION_TILE_SIZE)
-    return {
-        f"c_{i}_{j}"
-        for i in range(tile.i * n - 1, tile.i * n + n + 1)
-        for j in range(tile.j * n - 1, tile.j * n + n + 1)
-    }
-
-
-def _in(tile, car):
-    return C.VisualTile.at(car["x"], car["z"]).id == tile.id
-
-
-def fragment(tiles_dir, tile_id):
-    """(fragment, files) of L0 tile tile_id in the dist tiles_dir: the manifest entries the tile owns and the
-    dist-relative files they need."""
-    tiles_dir = Path(tiles_dir)
-    manifest = json.loads((tiles_dir / "manifest.json").read_text())
-    try:
-        cache = json.loads((tiles_dir / ".assemble-cache.json").read_text())
-    except (OSError, ValueError):
-        cache = {}
-    tile = C.VisualTile.parse(tile_id)
-    own = manifest["visual"].get(tile.id)
-    if tile.level != 0 or own is None or "coarse_dtm" in own:
-        raise ValueError(f"{tile_id}: not a playable L0 tile of {tiles_dir}")
-    parents = [tile.parent()]
-    parents.append(parents[0].parent())
-    ids = [tile.id] + [p.id for p in parents if p]
-    # REPLACE refinement drops the whole 500 m parent: its quadrants without a playable tile are coarse leaves.
-    ids += [
-        child.id
-        for child in parents[0].children()
-        if child != tile and "coarse_dtm" in manifest["visual"].get(child.id, {})
-    ]
-    visual = {tid: manifest["visual"][tid] for tid in ids if tid in manifest["visual"]}
-    cells = sorted(_ring(tile) & manifest["collision"].keys())
-    collision = {cid: manifest["collision"][cid] for cid in cells}
-    vehicles = [car for car in manifest.get("vehicles", []) if _in(tile, car)]
-    models = {
-        name: e
-        for name, e in manifest.get("vehicle_models", {}).items()
-        if any(f"{car['model']}/{car['color']}" == name for car in vehicles)
-    }
-    files = {e["url"] for e in [*visual.values(), *collision.values(), *models.values()]}
-    files |= {image["url"] for e in visual.values() for image in e.get("shared_images", [])}
-    for name in ("roads", "addresses"):
-        if manifest.get(name):
-            files.add(manifest[name]["url"])
-    for directory in (tiles_dir / "ground" / tile.id, tiles_dir / "ground/library"):
-        if directory.is_dir():
-            files |= {str(p.relative_to(tiles_dir)) for p in directory.rglob("*") if p.is_file()}
-    keys = {tid: cache.get(tid, e["sha256"]) for tid, e in visual.items()}
-    keys |= {
-        f"collision:{cid}": cache.get(f"collision:{cid}", e["sha256"])
-        for cid, e in collision.items()
-    }
-    return {
-        "tile": tile.id,
-        "visual": visual,
-        "collision": collision,
-        "vehicles": vehicles,
-        "vehicle_models": models,
-        "roads": manifest.get("roads"),
-        "addresses": manifest.get("addresses"),
-        "keys": keys,
-    }, sorted(files)
-
-
-def tile_key(frag):
-    """A per-tile entry's key: the assembler's input keys of everything it carries."""
-    return hashlib.sha256(
-        json.dumps(["turku3d-tile v1", frag["tile"], frag["keys"]], sort_keys=True).encode()
-    ).hexdigest()
-
-
-def _clone_files(source, target, files):
-    """Clone dist-relative files from source to target, one `cp -c` per directory (copy as the fallback)."""
-    groups = {}
-    for name in files:
-        groups.setdefault(str(Path(name).parent), []).append(name)
-    for directory, names in groups.items():
-        (target / directory).mkdir(parents=True, exist_ok=True)
-        sources = [str(source / name) for name in names]
-        if subprocess.call(
-            ["cp", "-c", *sources, str(target / directory) + "/"], stderr=subprocess.DEVNULL
-        ):
-            for name in names:
-                shutil.copyfile(source / name, target / name)
-
-
-def same_bytes(frag, manifest):
-    """True when the release manifest has every visual and collision tile of the fragment with the same bytes."""
-    return all(
-        manifest[kind].get(tid, {}).get("sha256") == e["sha256"]
-        for kind in ("visual", "collision")
-        for tid, e in frag[kind].items()
-    )
-
-
-def put_tile(published, tiles_dir, tile_id, *, source, task, listed, origin):
-    """Put the finished L0 tile tile_id of the dist tiles_dir as a per-tile entry; an existing entry is kept.
-
-    origin is provenance(): the builder's commit, tile code and mainline commit."""
-    tiles_dir = Path(tiles_dir)
-    frag, files = fragment(tiles_dir, tile_id)
-    tile_key_ = tile_key(frag)
-    directory = tiles_root(published) / frag["tile"]
-    target = directory / tile_key_
-    if target.exists():
-        return target
-    directory.mkdir(parents=True, exist_ok=True)
-    temp = directory / f".{tile_key_}.{os.getpid()}.tmp"
-    shutil.rmtree(temp, ignore_errors=True)
-    temp.mkdir()
-    _clone_files(tiles_dir, temp, files)
-    record = {
-        "key": tile_key_,
-        "tile": frag["tile"],
-        "time": time.time(),
-        "source": source,
-        "task": task,
-        **origin,
-        "data_key": data_key(published),
-        "listed": sorted(listed),
-        "files": len(files),
-    }
-    (temp / "TILE.json").write_text(json.dumps({**record, "fragment": frag}) + "\n")
-    try:
-        temp.rename(target)
-    except OSError:
-        shutil.rmtree(temp, ignore_errors=True)
-        return target if target.exists() else None
-    _index(tiles_root(published), record)
-    prune_tiles(published, frag["tile"])
-    return target
-
-
-def own_bytes_differ(frag, manifest):
-    """True when the release manifest lacks the fragment's own visual tile or one of its own 16 collision tiles, or
-    has other bytes for it (parents and ring cells it shares with neighbours do not count)."""
-    tile = C.VisualTile.parse(frag["tile"])
-    own = {c.id for c in tile.collision_tiles()}
-    return manifest["visual"].get(tile.id, {}).get("sha256") != frag["visual"][tile.id][
-        "sha256"
-    ] or any(
-        manifest["collision"].get(cid, {}).get("sha256") != e["sha256"]
-        for cid, e in frag["collision"].items()
-        if cid in own
-    )
-
-
-def put_tiles(published, tiles_dir, tiles, *, source, task, listed, repo, against=None):
-    """put_tile every tile of `tiles` whose own bytes differ from the release `against` (default: live); the
-    entry paths."""
-    against = Path(against) if against else Path(published) / "live/tiles"
-    try:
-        release = json.loads((against / "manifest.json").read_text())
-    except (OSError, ValueError):
-        release = {"visual": {}, "collision": {}}
-    origin = provenance(repo, published)
-    built = json.loads((Path(tiles_dir) / "manifest.json").read_text())["visual"]
-    put = []
-    for tile in tiles:
-        if tile not in built or "coarse_dtm" in built[tile]:
-            continue
-        frag, _ = fragment(tiles_dir, tile)
-        if not own_bytes_differ(frag, release):
-            continue
-        put.append(
-            put_tile(
-                published,
-                tiles_dir,
-                tile,
-                source=source,
-                task=task,
-                listed=listed,
-                origin=origin,
-            )
-        )
-    return put
-
-
-def tile_entries(published, tile):
-    """The TILE.json records of a tile's complete entries, newest first."""
-    directory = tiles_root(published) / tile
-    records = []
-    if directory.is_dir():
-        for path in directory.iterdir():
-            try:
-                record = json.loads((path / "TILE.json").read_text())
-            except (OSError, ValueError):
-                continue
-            records.append({**record, "dir": str(path)})
-    return sorted(records, key=lambda r: r["time"], reverse=True)
-
-
-def prune_tiles(published, tile, keep=TILE_KEEP):
-    for record in tile_entries(published, tile)[keep:]:
-        shutil.rmtree(record["dir"], ignore_errors=True)
-
-
-# ---------------------------------------------------------------------------------------------------------------
-# Composition
-# ---------------------------------------------------------------------------------------------------------------
-
-
 def base_time(base_dir):
     """When the release in base_dir read the data root: STORE.json's or live-build.json's data_time, else None."""
     base_dir = Path(base_dir)
@@ -479,173 +227,6 @@ def base_time(base_dir):
         if value is not None:
             return value
     return None
-
-
-def _playable(manifest, tile):
-    entry = manifest["visual"].get(tile)
-    return entry is not None and "coarse_dtm" not in entry
-
-
-def eligible(record, head_code, is_ancestor):
-    """Built with tile code that is main's: a mainline commit of main's history, or main's current code."""
-    return bool(record.get("mainline") and is_ancestor(record["mainline"])) or (
-        record.get("code") == head_code
-    )
-
-
-def applicable(published, base, base_data_time, head_code, is_ancestor):
-    """(applied, skipped): the newest eligible entry per listed tile that is neither absorbed by the release base
-    (a manifest) nor superseded by it; skipped maps tile -> reason."""
-    listed = set(landing_class.listed_tiles(published))
-    applied, skipped = [], {}
-    root_ = tiles_root(published)
-    for tile in sorted(p.name for p in root_.iterdir() if p.is_dir()) if root_.is_dir() else []:
-        if tile not in listed:
-            skipped[tile] = "not listed"
-            continue
-        records = [r for r in tile_entries(published, tile) if eligible(r, head_code, is_ancestor)]
-        if not records:
-            skipped[tile] = "no entry built with main's tile code"
-            continue
-        record = records[0]
-        if not set(record.get("listed", [])) <= listed:
-            skipped[tile] = "its builder's list is not listed yet"
-            continue
-        frag = json.loads((Path(record["dir"]) / "TILE.json").read_text())["fragment"]
-        if same_bytes(frag, base):
-            skipped[tile] = "absorbed"
-        elif (
-            base_data_time is not None and base_data_time > record["time"] and _playable(base, tile)
-        ):
-            skipped[tile] = "superseded"
-        else:
-            applied.append({**record, "fragment": frag})
-    return sorted(applied, key=lambda r: r["time"]), skipped
-
-
-def compose_manifest(base, applied):
-    """The base manifest with the fragments laid over it, oldest first; plus its tileset (dicts)."""
-    manifest = json.loads(json.dumps(base))
-    for record in applied:
-        frag = record["fragment"]
-        tile = C.VisualTile.parse(frag["tile"])
-        for tid, e in frag["visual"].items():
-            # A coarse leaf never replaces a playable tile another builder finished.
-            if "coarse_dtm" in e and _playable(manifest, tid):
-                continue
-            manifest["visual"][tid] = e
-        manifest["collision"].update(frag["collision"])
-        manifest["vehicles"] = [
-            car for car in manifest.get("vehicles", []) if not _in(tile, car)
-        ] + frag["vehicles"]
-        manifest["vehicle_models"] = {
-            **manifest.get("vehicle_models", {}),
-            **frag["vehicle_models"],
-        }
-        for name in ("roads", "addresses"):
-            if frag.get(name):
-                manifest[name] = frag[name]
-    manifest["visual"] = {k: manifest["visual"][k] for k in sorted(manifest["visual"])}
-    manifest["collision"] = {k: manifest["collision"][k] for k in sorted(manifest["collision"])}
-    # The same tileset the assembler writes for these visual entries (DistTree.commit), so a release that converged
-    # on the same bytes has the same tileset bytes too.
-    tileset = build_tileset(manifest["visual"], f"turku3d {manifest.get('code', 'nogit')}")
-    return manifest, tileset
-
-
-def _dumps(value):
-    return (json.dumps(value, indent=1) + "\n").encode()
-
-
-def compose(repo, head, published, base_dir, base_key):
-    """{dir, key, source, tiles, skipped}: base_dir itself when no per-tile entry applies, else the composed entry."""
-    base_dir = Path(base_dir)
-    base = json.loads((base_dir / "manifest.json").read_text())
-    applied, skipped = applicable(
-        published,
-        base,
-        base_time(base_dir),
-        code_key(repo, head),
-        lambda c: is_ancestor(repo, c, head),
-    )
-    if not applied:
-        return {
-            "dir": str(base_dir),
-            "key": base_key,
-            "source": None,
-            "tiles": [],
-            "skipped": skipped,
-        }
-    composed_key = hashlib.sha256(
-        json.dumps(["turku3d-composed v1", base_key, [r["key"] for r in applied]]).encode()
-    ).hexdigest()
-    result = {
-        "dir": str(root(published) / composed_key),
-        "key": composed_key,
-        "source": "composed",
-        "tiles": [r["tile"] for r in applied],
-        "skipped": skipped,
-    }
-    if entry(published, composed_key):
-        return result
-    manifest, tileset = compose_manifest(base, applied)
-    store = root(published)
-    temp = store / f".{composed_key}.{os.getpid()}.tmp"
-    shutil.rmtree(temp, ignore_errors=True)
-    if subprocess.call(["cp", "-cR", str(base_dir), str(temp)], stderr=subprocess.DEVNULL):
-        shutil.rmtree(temp, ignore_errors=True)
-        shutil.copytree(base_dir, temp, symlinks=False)
-    for record in applied:
-        source = Path(record["dir"])
-        files = [
-            str(p.relative_to(source))
-            for top in DIST_DIRS
-            if (source / top).is_dir()
-            for p in (source / top).rglob("*")
-            if p.is_file()
-        ]
-        _clone_files(source, temp, files)
-    tileset_bytes = _dumps(tileset)
-    manifest["tileset"] = {
-        "url": "tileset.json",
-        "sha256": hashlib.sha256(tileset_bytes).hexdigest(),
-        "bytes": len(tileset_bytes),
-    }
-    try:
-        cache = json.loads((base_dir / ".assemble-cache.json").read_text())
-    except (OSError, ValueError):
-        cache = {}
-    for record in applied:
-        cache.update(record["fragment"]["keys"])
-    files = {
-        "tileset.json": tileset_bytes,
-        "manifest.json": _dumps(manifest),
-        ".assemble-cache.json": (json.dumps(cache, sort_keys=True) + "\n").encode(),
-    }
-    for name, data in files.items():
-        (temp / name).unlink(missing_ok=True)
-        (temp / name).write_bytes(data)
-    record = {
-        "key": composed_key,
-        "commit": head,
-        "source": "composed",
-        "time": time.time(),
-        "data_time": base_time(base_dir),
-        "data_parts": base_parts(base_dir),
-        "tiles": result["tiles"],
-        "base": base_key,
-        "entries": [{"tile": r["tile"], "key": r["key"], "task": r.get("task")} for r in applied],
-    }
-    (temp / "STORE.json").unlink(missing_ok=True)
-    (temp / "STORE.json").write_text(json.dumps(record) + "\n")
-    try:
-        temp.rename(store / composed_key)
-    except OSError:
-        shutil.rmtree(temp, ignore_errors=True)
-        return result
-    _index(store, record)
-    prune(published)
-    return result
 
 
 def base_release(repo, head, published, data):
@@ -701,6 +282,8 @@ def served(repo, head, published):
     """What the localhost game streams for main's commit head (and what live and Pages publish with it):
     {key, delta, base, served}. key is head's tile store key, base the release (base_release), delta the data parts
     that changed since base was built (a quick build can improve on it), served compose()'s result over base."""
+    import tile_compose
+
     parts = landing_class.data_parts(published)
     data = json.dumps(parts, sort_keys=True).encode()
     base = base_release(repo, head, published, data)
@@ -708,7 +291,7 @@ def served(repo, head, published):
         "key": _key(repo, head, data),
         "delta": landing_class.data_delta(parts, base_parts(base["dir"])),
         "base": base,
-        "served": compose(repo, head, published, base["dir"], base["key"]),
+        "served": tile_compose.compose(repo, head, published, base["dir"], base["key"]),
     }
 
 
@@ -716,6 +299,7 @@ def quick_build(repo, commit, published, work, tiles, base):
     """Tile-build `tiles` of the checkout repo on the published layers into work, starting from the release base;
     put every tile whose bytes changed as a per-tile entry (source "localhost"). The entry paths."""
     import live_build
+    import tile_compose
 
     work = Path(work)
     shutil.rmtree(work, ignore_errors=True)
@@ -738,7 +322,7 @@ def quick_build(repo, commit, published, work, tiles, base):
         raise SystemExit(
             f"{' '.join(command)} failed ({result.returncode}): {work / 'tile-build.log'}"
         )
-    return put_tiles(
+    return tile_compose.put_tiles(
         published,
         work / "dist/tiles",
         tiles,
@@ -750,13 +334,9 @@ def quick_build(repo, commit, published, work, tiles, base):
     )
 
 
-def builder_listed(work, published):
-    """The list a builder followed: its sandbox list when it has one, else the data root's."""
-    own = Path(work) / C.PLAYABLE_TILES_FILE
-    return C.read_playable_tiles(own) if own.is_file() else landing_class.listed_tiles(published)
-
-
 def main(argv=None):
+    import tile_compose
+
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -802,9 +382,9 @@ def main(argv=None):
             )
         )
     elif args.command == "put-tiles":
-        listed = builder_listed(args.work, args.published)
+        listed = tile_compose.builder_listed(args.work, args.published)
         started = time.time()
-        entries = put_tiles(
+        entries = tile_compose.put_tiles(
             args.published,
             args.tiles_dir,
             args.tiles or listed,
@@ -820,7 +400,13 @@ def main(argv=None):
         if not entries:
             print("put-tile: every tile already has the live release's bytes")
     elif args.command == "compose":
-        print(json.dumps(compose(args.repo, commit, args.published, args.base_dir, args.base_key)))
+        print(
+            json.dumps(
+                tile_compose.compose(
+                    args.repo, commit, args.published, args.base_dir, args.base_key
+                )
+            )
+        )
     else:
         print(
             json.dumps(

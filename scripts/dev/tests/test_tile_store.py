@@ -1,4 +1,5 @@
-"""Tile store keys and entries (tile_store.py) on a throwaway git repository and data root."""
+"""Tile store keys, release and per-tile entries (tile_store.py, tile_compose.py) on a throwaway git repository
+and data root."""
 
 import hashlib
 import json
@@ -11,6 +12,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import tile_compose  # noqa: E402
 import tile_store  # noqa: E402
 
 CORE = ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"]
@@ -151,7 +153,7 @@ def write_dist(root, visual, collision, code="abc1234", vehicles=()):
         if coarse:
             entries[tid]["coarse_dtm"] = False
     for cid, data in collision.items():
-        tile = tile_store.C.CollisionTile.parse(cid).visual_parent().id
+        tile = tile_compose.C.CollisionTile.parse(cid).visual_parent().id
         url = f"collision/{tile}/{cid}.col"
         (root / url).parent.mkdir(parents=True, exist_ok=True)
         (root / url).write_bytes(data)
@@ -164,7 +166,7 @@ def write_dist(root, visual, collision, code="abc1234", vehicles=()):
             "h": [0, 1],
             "flags": 0,
         }
-    tileset = tile_store._dumps(tile_store.build_tileset(entries, f"turku3d {code}"))
+    tileset = tile_compose._dumps(tile_compose.build_tileset(entries, f"turku3d {code}"))
     (root / "tileset.json").write_bytes(tileset)
     manifest = {
         "format": "turku3d-manifest",
@@ -176,7 +178,7 @@ def write_dist(root, visual, collision, code="abc1234", vehicles=()):
         "visual": dict(sorted(entries.items())),
         "collision": dict(sorted(cells.items())),
     }
-    (root / "manifest.json").write_bytes(tile_store._dumps(manifest))
+    (root / "manifest.json").write_bytes(tile_compose._dumps(manifest))
     keys = {tid: "k" + e["sha256"] for tid, e in entries.items()}
     keys |= {f"collision:{cid}": "k" + e["sha256"] for cid, e in cells.items()}
     (root / ".assemble-cache.json").write_text(json.dumps(keys))
@@ -234,8 +236,8 @@ class PerTileTests(unittest.TestCase):
         self.temp.cleanup()
 
     def put(self, tile="t0_0_0", **kw):
-        origin = kw.pop("origin", None) or tile_store.provenance(self.repo, self.data)
-        return tile_store.put_tile(
+        origin = kw.pop("origin", None) or tile_compose.provenance(self.repo, self.data)
+        return tile_compose.put_tile(
             self.data,
             self.built,
             tile,
@@ -248,7 +250,7 @@ class PerTileTests(unittest.TestCase):
 
     def compose(self, base=None):
         base = base or self.base
-        return tile_store.compose(self.repo, self.head, self.data, base, base.name)
+        return tile_compose.compose(self.repo, self.head, self.data, base, base.name)
 
     def test_put_tile_carries_the_tile_parents_coarse_leaves_ring_and_provenance(self):
         entry = self.put()
@@ -272,7 +274,7 @@ class PerTileTests(unittest.TestCase):
             self.put("t0_1_1")  # a coarse leaf is not a finished tile
 
     def test_put_tiles_offers_only_tiles_whose_bytes_differ_from_the_release(self):
-        put = tile_store.put_tiles(
+        put = tile_compose.put_tiles(
             self.data,
             self.built,
             ["t0_0_0", "t0_0_1", "t0_1_1"],
