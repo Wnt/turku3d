@@ -1,6 +1,7 @@
 """Small offline geometry fixtures; no city tiles or network in the gate."""
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -331,6 +332,17 @@ def test_roofer_stages_one_read_only_source(tmp_path, monkeypatch):
     assert all((output / "pointclouds" / p.name).is_symlink() for p in sources)
     assert all(p.read_bytes() == b"fixture" for p in sources)
     assert json.loads((output / "execution.json").read_text())["version"] == "roofer 1.0.0"
+
+
+def test_roofer_version_leaves_the_working_directory_clean(tmp_path, monkeypatch):
+    def check_output(command, **kwargs):
+        (Path(kwargs["cwd"]) / "roofer.log.json").write_text("")
+        return "roofer 1.0.0\n"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(roofer.subprocess, "check_output", check_output)
+    assert roofer.version() == "roofer 1.0.0"
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_publish_layer_contract_and_remove_only_stale_owned_files(two_buildings, tmp_path):
