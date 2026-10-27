@@ -1,10 +1,23 @@
 import type { V3 } from '../core/origin';
 import type { CharacterState, VehicleInput, VehicleState } from '../physics/protocol';
-import { VEHICLES } from '../physics/constants';
+import { VEHICLES, type VehicleKind } from '../physics/constants';
 import { rotate } from '../vehicle/math';
 import { clamp, type AudioEvent } from './mix';
 
 /** Converts game snapshots into audio events once per physics tick, independent of render FPS. */
+/** Vehicle v1 has no drivetrain RPM. A three-gear approximation provides the car's audible rev range; the
+ *  scooter's continuously variable transmission holds high revs that climb with speed; the truck's V6 idles low
+ *  and pulls four long gears up to 120 km/h. */
+export function engineRpm(kind: VehicleKind, speed: number, throttle: number) {
+  if (kind === 'scooter') return 1800 + throttle * 4200 + speed * 160;
+  if (kind === 'truck') {
+    const gear = speed < 9 ? 1 : speed < 17 ? 2 : speed < 25 ? 3 : 4;
+    return 800 + speed / gear * 280 + throttle * 900;
+  }
+  const gear = speed < 8 ? 1 : speed < 17 ? 2 : 3;
+  return 850 + speed / gear * 300 + throttle * 700;
+}
+
 export class GameplayAudio {
   private tick = -1;
   private distance = 0;
@@ -40,10 +53,7 @@ export class GameplayAudio {
       const sideSpeed = Math.abs(v.linvel.x * lateral.x + v.linvel.z * lateral.z);
       const contact = v.wheels.some(w => w.contact);
       const throttle = clamp(Math.abs(input?.throttle ?? 0) + (v.forwardSpeed < 0 ? input?.brake ?? 0 : 0));
-      // Vehicle v1 has no drivetrain RPM. A three-gear approximation provides an audible rev range;
-      // the scooter's continuously variable transmission holds high revs that climb with speed.
-      const kind = v.kind ?? 'car', speed = Math.abs(v.forwardSpeed), gear = speed < 8 ? 1 : speed < 17 ? 2 : 3;
-      const rpm = kind === 'scooter' ? 1800 + throttle * 4200 + speed * 160 : 850 + speed / gear * 300 + throttle * 700;
+      const kind = v.kind ?? 'car', rpm = engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
       this.emit({ type: 'car', kind, position: v.pos, rpm,
         throttle, speed: contact ? v.speed : 0, slip: contact ? Math.max(sideSpeed / 5, input?.handbrake ? 0.9 : 0) : 0,
         running: mode === 'car' });

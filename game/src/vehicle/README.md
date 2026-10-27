@@ -82,6 +82,32 @@ Run `npx vitest run tests/unit/scooter.test.ts` (parameters, lean, top speed/acc
 radius against the car, kerb and step) and `(cd game && npx playwright test tests/e2e/scooter.spec.ts --workers=2)`
 for the purchase, kerb, 45 km/h, lean and dismount route on WebGPU and WebGL2.
 
+## Trophy truck (prerunner)
+
+`{ kind: 'truck' }` uses the `TRUCK` tuning. The suspension parameters that used to be fixed for every class
+(compression and relaxation damping, travel) are `VehicleTuning` fields now, beside `frontTorque` (engine share on the
+driven steered wheels; the rest on the driven rear wheels) and `curbFeel` (scale of the curb strike's speed loss and
+lift impulse). Car and scooter keep their former values (4.8 / 5.5 damping, 0.22 m travel, rear drive, feel 1).
+The handbrake acts on the driven rear wheels only.
+
+| | Truck | Car |
+|---|---|---|
+| Mass | 2400 kg, centre of mass 0.35 m below the chassis box centre | 1200 kg |
+| Chassis box | 4.7 × 0.8 × 2.0 m; centre 0.95 m above the ground at rest (car 0.72 m) | 4.2 × 0.6 × 1.8 m |
+| Wheels | four, r 0.46 m, wheelbase 2.9 m, track 1.9 m; 4WD, 40 % of the engine force on the front axle | four, r 0.33 m, rear drive |
+| Suspension | rest 0.45 m, ±0.25 m travel, stiffness 20 (sag 12 cm, 1.4 Hz), damping 4.2 / 5.6 (ratio 0.94 / 1.25), max 48 kN per wheel | rest 0.3 m, ±0.22 m, stiffness 38 (sag 6 cm, 2 Hz), damping ratio 0.78 / 0.89 |
+| Top speed | 120 km/h (engine limit 37.5 m/s against drag; measured 120.4 km/h) | about 88 km/h measured |
+| Acceleration | 4 × 3700 N: 0–100 km/h in 6.0 s, 120 km/h after about 10 s | 2 × 3200 N |
+| Braking | 120 km/h to rest in 33 m | 88 km/h in 19 m |
+| Steering | 0.5 rad lock, half at 12 m/s, 2.2 rad/s rate | 0.55 rad, half at 10 m/s, 2.5 rad/s |
+| Kerb (12 cm at 40 km/h, cruising throttle) | `curbFeel` 0.2: 2.6 % slower than the same run on the flat, 1.9° pitch, speed held | 16.9 %, 9.5° |
+| Kicker (1 m high, 4 m long, 12 m/s) | 0.9 s airborne, lands on its wheels with the chassis 0.38 m clear, no chassis impact | |
+
+The chase camera frames the truck from 1.5 m farther back and looks at a point 1.5 m above the chassis centre
+(car and scooter 0.9 m); field of view and its speed widening are the same (`chaseSettings(speed, kind)`).
+Run `npx vitest run tests/unit/truck.test.ts` (tuning, torque split and handbrake, ride height, acceleration, top speed,
+braking, full-lock roll, kerb against car, kicker jump, camera framing).
+
 ## Verification
 
 From the repo root:

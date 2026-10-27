@@ -3,7 +3,7 @@ import type { VehicleKind } from '../physics/constants';
 import { MATERIALS } from '../shared/col/materials';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
-  'engine', 'scooter', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
+  'engine', 'scooter', 'truck', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
   'city', 'river', 'gulls', 'traffic', 'wind', 'connect'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
@@ -36,15 +36,24 @@ export function ambience(position: V3) {
     city: 0.16 - near * 0.07, traffic: 0.12 - near * 0.04, wind: 0.06 + near * 0.04 };
 }
 
-/** Engine loop per vehicle class: the car's low four-stroke rumble or the scooter's buzzing single cylinder. */
-export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter' } as const satisfies Record<VehicleKind, Sound>;
+/** Engine loop per vehicle class: the car's low four-stroke rumble, the scooter's buzzing single cylinder or the
+ *  trophy truck's V6 with its open exhaust. */
+export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter', truck: 'truck' } as const satisfies Record<VehicleKind, Sound>;
+
+/** Per class: playback rate at 0 rpm and its rise up to `rpmTop`, engine gain at idle and its rise with throttle,
+ *  and the tyre roll gain. The scooter's small engine idles and revs higher with quieter tyres; the truck's V6 is
+ *  the loudest layer and its big off-road tyres roar. */
+const ENGINE_MIX = {
+  car: { rate: 0.65, rise: 2, rpmTop: 6000, idle: 0.12, throttle: 0.23, roll: 0.22 },
+  scooter: { rate: 0.8, rise: 1.6, rpmTop: 9000, idle: 0.1, throttle: 0.2, roll: 0.12 },
+  truck: { rate: 0.6, rise: 1.7, rpmTop: 6000, idle: 0.2, throttle: 0.35, roll: 0.3 },
+} as const satisfies Record<VehicleKind, object>;
 
 export function carMix(rpm: number, throttle: number, speed: number, slip: number, running: boolean, kind: VehicleKind = 'car') {
-  // The scooter's small engine idles and revs higher; its tyres are quieter.
-  const scooter = kind === 'scooter';
-  return { rate: scooter ? 0.8 + clamp(rpm / 9000) * 1.6 : 0.65 + clamp(rpm / 6000) * 2,
-    engine: running ? (scooter ? 0.1 + clamp(throttle) * 0.2 : 0.12 + clamp(throttle) * 0.23) : 0,
-    roll: clamp(Math.abs(speed) / 24) * (scooter ? 0.12 : 0.22),
+  const m = ENGINE_MIX[kind];
+  return { rate: m.rate + clamp(rpm / m.rpmTop) * m.rise,
+    engine: running ? m.idle + clamp(throttle) * m.throttle : 0,
+    roll: clamp(Math.abs(speed) / 24) * m.roll,
     screech: clamp((Math.abs(slip) - 0.15) / 0.65) * clamp(Math.abs(speed) / 5) * 0.3 };
 }
 

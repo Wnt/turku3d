@@ -2,7 +2,7 @@
 
 `GameAudio` owns the Web Audio graph: buffer source → per-voice gain → optional HRTF panner →
 channel gain → master gain → compressor → output. The renderer backend has no audio dependency.
-The 19 original CC0 mono Opus effects total 218,083 bytes; sources and licences are in
+The 20 original CC0 mono Opus effects total 232,444 bytes; sources and licences are in
 [`public/assets/audio/LICENSES.md`](../../public/assets/audio/LICENSES.md).
 
 Gameplay emits typed `AudioEvent` objects from `mix.ts`. `GameplayAudio.update` adapts the existing
@@ -13,9 +13,10 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
   material table's `audio` key. Asphalt, stone/granite, grass, gravel and wood have separate samples.
   Soil uses grass; sand uses gravel; concrete/metal use stone; water/none are silent.
 - The positional engine follows throttle and estimated RPM. Vehicle v1 has no simulated drivetrain:
-  a three-gear speed approximation supplies the car's RPM; the scooter holds high CVT revs that climb with
-  speed. `ENGINE_SOUND` picks the loop per vehicle class (`engine` for the car, the buzzing two-stroke
-  `scooter` for the scooter, at a higher playback rate); the other engine loop stays silent. Rolling follows speed with wheel contact;
+  `engineRpm` gives the car a three-gear speed approximation, the scooter high CVT revs that climb with
+  speed, and the trophy truck four long gears from an 800 rpm idle. `ENGINE_SOUND` picks the loop per vehicle class
+  (`engine` for the car, the buzzing two-stroke `scooter` for the scooter at a higher playback rate, the V6 `truck`
+  for the trophy truck, the loudest layer); the other engine loops stay silent. Rolling follows speed with wheel contact;
   screech follows lateral velocity/handbrake slip with wheel contact.
 - Curb events consume W1-07 `curbStrike.id` once. Collision events use optional
   `VehicleState.impact = {id, impulse}` (N·s), measured by summing Rapier contact manifold impulses

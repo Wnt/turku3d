@@ -39,7 +39,16 @@ export interface VehicleTuning {
   /** Steering rate limit (rad/s). */
   steerRate: number;
   suspensionStiffness: number;
+  /** Damping coefficients (per unit chassis mass) while the spring compresses and while it extends. */
+  suspensionCompression: number;
+  suspensionRelaxation: number;
+  /** Suspension travel either side of the rest length (m). */
+  suspensionTravel: number;
   maxSuspensionForce: number;
+  /** Share of the engine force on driven steered (front) wheels; the rest goes to the driven rear wheels. */
+  frontTorque: number;
+  /** Scale of the curb strike's speed loss and lift impulse: long-travel suspension soaks a kerb up. */
+  curbFeel: number;
 }
 
 export const CAR = {
@@ -62,7 +71,12 @@ export const CAR = {
   steerHalfSpeed: 10,
   steerRate: 2.5,
   suspensionStiffness: 38,
+  suspensionCompression: 4.8,
+  suspensionRelaxation: 5.5,
+  suspensionTravel: 0.22,
   maxSuspensionForce: 18000,
+  frontTorque: 0,
+  curbFeel: 1,
 } as const satisfies VehicleTuning;
 
 /** Moped/scooter: a front and a rear wheel on the centre line plus two invisible outrigger wheels near the rear
@@ -87,10 +101,48 @@ export const SCOOTER = {
   steerHalfSpeed: 6,
   steerRate: 3.2,
   suspensionStiffness: 45,
+  suspensionCompression: 4.8,
+  suspensionRelaxation: 5.5,
+  suspensionTravel: 0.22,
   maxSuspensionForce: 6000,
+  frontTorque: 0,
+  curbFeel: 1,
 } as const satisfies VehicleTuning;
 
-export type VehicleKind = 'car' | 'scooter';
-export const VEHICLES: Record<VehicleKind, VehicleTuning> = { car: CAR, scooter: SCOOTER };
+/** Trophy truck / prerunner: a heavy 4WD with big tyres on long-travel suspension (soft springs, strong damping,
+ *  25 cm either way), high ride height and a 120 km/h top speed. The centre of mass sits low in the frame (engine,
+ *  fuel cell and spare tyre) so the 1.9 m track does not roll over in a hard turn. */
+export const TRUCK = {
+  halfExt: { x: 2.35, y: 0.4, z: 1.0 },
+  mass: 2400,
+  comDrop: 0.35,
+  wheelRadius: 0.46,
+  rest: 0.45,
+  wheels: [
+    { x: 1.45, y: -0.15, z: -0.95 }, { x: 1.45, y: -0.15, z: 0.95 },
+    { x: -1.45, y: -0.15, z: -0.95 }, { x: -1.45, y: -0.15, z: 0.95 },
+  ],
+  steered: [0, 1],
+  driven: [0, 1, 2, 3],
+  topSpeed: 37.5,
+  reverseSpeed: 9,
+  engineForce: 3700,
+  brakeForce: 150,
+  maxSteer: 0.5,
+  steerHalfSpeed: 12,
+  steerRate: 2.2,
+  suspensionStiffness: 20,
+  suspensionCompression: 4.2,
+  suspensionRelaxation: 5.6,
+  suspensionTravel: 0.25,
+  maxSuspensionForce: 48000,
+  frontTorque: 0.4,
+  curbFeel: 0.2,
+} as const satisfies VehicleTuning;
+
+export type VehicleKind = 'car' | 'scooter' | 'truck';
+export const VEHICLES: Record<VehicleKind, VehicleTuning> = { car: CAR, scooter: SCOOTER, truck: TRUCK };
 /** Target top speed of the scooter (45 km/h); the engine limit sits above it because drag balances the taper. */
 export const SCOOTER_TARGET_SPEED = 12.5;
+/** Target top speed of the trophy truck (120 km/h). */
+export const TRUCK_TARGET_SPEED = 120 / 3.6;
