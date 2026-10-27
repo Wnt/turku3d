@@ -134,10 +134,11 @@ class FinishTests(Fixture):
         meta = self.meta("turn")
         self.assertEqual(meta["landed"]["commit"], self.git("rev-parse", "main"))
         self.assertEqual(meta["state"], "done")
+        # Landed metadata is published only after the success line has been flushed.
+        self.assertIn("turn: landed", (self.base / "tasks/turn/land.log").read_text())
         while (self.base / "wt/turn").exists() and time.monotonic() < deadline:
             time.sleep(0.1)
         self.assertFalse((self.base / "wt/turn").exists())
-        self.assertIn("turn: landed", (self.base / "tasks/turn/land.log").read_text())
 
     def test_concurrent_finishes_serialise_on_the_land_lock(self):
         for name in ("left", "right"):

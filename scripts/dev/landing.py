@@ -275,7 +275,7 @@ def push_public(repo):
     return {"error": error, "seconds": round(time.monotonic() - started, 3)}
 
 
-def record(name, path, text, before, commit, started, gate, landing, push, lock_wait):
+def record(name, path, text, before, commit, started, gate, landing, push, lock_wait, subject):
     """Append the ledger row and store it in meta; `first_finished` is never overwritten.
 
     `landing` holds the class fields (classes()). The best-effort push to origin is
@@ -306,6 +306,12 @@ def record(name, path, text, before, commit, started, gate, landing, push, lock_
         }
         if push is not None:
             row["push"] = push
+        # Readers observing landed metadata must already be able to read the success line.
+        print(
+            f"{name}: landed {commit[:12]} as {row['class']} in {elapsed}s "
+            f"(fast gate {seconds}s, waited {lock_wait}s for land.lock): {subject}",
+            flush=True,
+        )
         meta["landed"] = row
         s.write_json(path / "meta.json", meta)
     with ledger_path().open("a") as ledger:
@@ -356,19 +362,25 @@ def land(name, keep_sandbox=False, note=None):
         advance(repo, main, before, head)
         pushed = push_public(repo)
         lock_wait = round(started - waited, 3)
+        subject = s.git("log", "-1", "--format=%s", head, cwd=repo)
         row = record(
-            name, path, text, before, head, started, (seconds, stages), landing, pushed, lock_wait
+            name,
+            path,
+            text,
+            before,
+            head,
+            started,
+            (seconds, stages),
+            landing,
+            pushed,
+            lock_wait,
+            subject,
         )
         if keep_sandbox and meta.get("worker") == "external":
             with s.lock(path / "lock"):
                 current = s.read_json(path / "meta.json")
                 current["state"] = "external"
                 s.write_json(path / "meta.json", current)
-        subject = s.git("log", "-1", "--format=%s", head, cwd=repo)
-    print(
-        f"{name}: landed {head[:12]} as {row['class']} in {row['merge_wall_seconds']}s "
-        f"(fast gate {seconds}s, waited {lock_wait}s for land.lock): {subject}"
-    )
     report(name, row, subject, (landed or {}).get("time", 0), note)
     if keep_sandbox:
         print(f"{name}: sandbox kept for the next slice")
