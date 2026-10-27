@@ -8,6 +8,8 @@ import type { Antialiasing } from '../render/post';
 interface QaCam { E: number; N: number; H: number; yawDeg: number; pitchDeg: number; fovDeg: number; rollDeg: number }
 interface Params {
   backend: 'webgpu' | 'webgl';
+  /** ?backend= or ?webgl was in the URL (the touch-device default does not override it). */
+  backendGiven: boolean;
   tileset: string;
   manifest: string;
   qa: QaCam | null;
@@ -63,6 +65,7 @@ export function parseParams(search: string): Params {
   if (aa !== 'off' && aa !== 'taa' && aa !== 'fxaa') throw new Error(`bad ?aa= (off|taa|fxaa): ${aa}`);
   return {
     backend,
+    backendGiven: p.has('backend') || p.has('webgl'),
     tileset,
     manifest: p.get('manifest') ?? defaultManifest(tileset),
     qa,

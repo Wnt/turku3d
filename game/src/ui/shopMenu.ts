@@ -1,7 +1,8 @@
 // Full-screen shop menu over the world: the shop's illustration, the shopkeeper's latest line and the options with
 // prices. Greyed options show why they are not available. It renders a MissionSystem ShopView and turns the menu
-// actions (D-pad / left stick, A, B; arrows or W/S, Enter or E, Escape) into the mission frame's choose / leave.
-import type { Input } from '../input';
+// actions (D-pad / left stick, A, B; arrows or W/S, Enter or E, Escape; a tap or click on a row and the touch Back
+// button) into the mission frame's choose / leave.
+import type { Input, InputSource } from '../input';
 import type { OptionId } from '../gameplay/content/shops';
 import type { ShopOptionView, ShopView } from '../gameplay/missions/missions';
 import { formatTimer } from '../gameplay/minimap';
@@ -27,7 +28,7 @@ export class ShopMenu {
   readonly element = document.createElement('section');
   selected = 0;
   private view: ShopView | null = null;
-  private source: 'keyboard' | 'gamepad' | null = null;
+  private source: InputSource | null = null;
   private clicked: OptionId | null = null;
   private readonly list = document.createElement('ol');
   private readonly line = document.createElement('p');
@@ -74,7 +75,8 @@ export class ShopMenu {
     this.speaker.textContent = view.speaker;
     this.line.textContent = view.line;
     this.list.replaceChildren(...view.options.map((option, i) => this.row(option, i)));
-    this.hints.textContent = `${input.prompt('menuUp')} ${input.prompt('menuDown')} choose · ${input.prompt('menuSelect')} select · ${input.prompt('menuBack')} leave`;
+    this.hints.textContent = input.source === 'touch' ? `Tap an option to select · ${input.prompt('menuBack')} Back to leave`
+      : `${input.prompt('menuUp')} ${input.prompt('menuDown')} choose · ${input.prompt('menuSelect')} select · ${input.prompt('menuBack')} leave`;
     this.highlight();
   }
 
@@ -120,7 +122,8 @@ export class ShopMenu {
     price.textContent = formatPrice(option.price);
     price.classList.toggle('income', (option.price ?? 0) < 0);
     li.append(icon, text, price);
-    li.addEventListener('click', () => { this.selected = index; this.clicked = option.id; this.highlight(); });
+    // pointerup serves mouse clicks and touch taps alike; a touch that began on a thumb button stays captured there.
+    li.addEventListener('pointerup', () => { this.selected = index; this.clicked = option.id; this.highlight(); });
     return li;
   }
 

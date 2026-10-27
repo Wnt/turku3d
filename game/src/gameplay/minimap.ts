@@ -117,7 +117,8 @@ export class Minimap {
   update(view: MinimapView) {
     const target = this.state.targets.find(t => t.id === this.state.activeTargetId) ?? null;
     if (this.routes.update(view.position, target, view.mode)) this.dirty = true;
-    const size = this.expanded ? Math.round(Math.min(innerWidth, innerHeight) * 0.8) : SIZE;
+    // On a phone in landscape (390 px tall) the corner map shrinks so the HUD above it stays readable.
+    const size = this.expanded ? Math.round(Math.min(innerWidth, innerHeight) * 0.8) : Math.min(SIZE, Math.round(innerHeight * 0.45));
     if (size !== this.cssSize || this.canvas.width !== Math.round(size * devicePixelRatio)) {
       this.cssSize = size;
       this.canvas.style.width = this.canvas.style.height = `${size}px`;

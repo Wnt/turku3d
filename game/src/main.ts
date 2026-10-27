@@ -9,7 +9,7 @@ import { Input } from './input';
 import { GameAudio } from './audio';
 import { GameplayAudio } from './audio/gameplay';
 import { VoicePlayer } from './audio/voice';
-import { createRenderer } from './render/renderer';
+import { createRenderer, defaultBackend } from './render/renderer';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
@@ -26,6 +26,7 @@ import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
+import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
 import { ShopMenu } from './ui/shopMenu';
 import { MissionSystem, OWN_VEHICLE_ID, hasSavedGame } from './gameplay/missions/missions';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
@@ -74,7 +75,8 @@ addEventListener('error', (e) => errors.push(String(e.message)));
 addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
-const { renderer, backend } = await createRenderer(params.backend, document.body, { qa: !!params.qa, idPass: !!idPass });
+const { renderer, backend } = await createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
+  { qa: !!params.qa, idPass: !!idPass });
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
@@ -219,7 +221,10 @@ async function runPlay() {
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true });
   const storage = browserStorage();
   const intro = hasSavedGame(storage) ? [] : INTRO_LINE_IDS.map(lineText);
-  const startScreen = new StartScreen(input, intro);
+  const fullscreen = new FullscreenPolicy();
+  const startScreen = new StartScreen(input, { intro,
+    hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
+    onClose: () => fullscreen.enterScene(input.source === 'touch') });
   voice.narrate(intro);
   const hud = new Hud(hudEl);
   const clockControl = timeControl(params.time, date => window.__render!.setTime(date.toISOString()));
@@ -342,6 +347,8 @@ async function runPlay() {
       input.lookX = input.lookY = input.zoom = 0;
     }
     if (input.consume('pause')) paused = !paused;
+    // Touch play runs only in fullscreen: leaving it pauses behind the overlay until the player taps back in.
+    paused = fullscreen.update(input.source === 'touch' && !startScreen.active, paused);
     if (input.consume('map')) minimap.toggleExpanded();
     if (input.consume('mute')) audio.emit({ type: 'mute' });
     const resetCamera = !paused && input.consume('cameraReset');
@@ -483,6 +490,7 @@ async function runPlay() {
       ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`,
       perf,
     });
+    input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden' : menuOpen || missions.shop ? 'menu' : paused ? 'paused' : mode);
     const help = document.getElementById('help')!;
     help.textContent = paused ? `${input.prompt('pause')} Resume` : mode === 'foot'
       ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter car · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`

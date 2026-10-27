@@ -1,0 +1,14 @@
+{
+  "name": "Turku3D",
+  "short_name": "Turku3D",
+  "description": "Open-world Turku in the browser: walk and drive around Läntinen Rantakatu 15.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#06151c",
+  "theme_color": "#10252d",
+  "icons": [
+    { "src": "assets/ui/icon_pizza_box.webp", "sizes": "256x256", "type": "image/webp", "purpose": "any" }
+  ]
+}

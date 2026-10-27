@@ -167,6 +167,7 @@ export class GameAudio {
 
   mount(parent: HTMLElement) {
     const panel = this.panel = document.createElement('details');
+    panel.id = 'audio-panel';
     panel.style.cssText = 'position:fixed;right:12px;bottom:44px;color:white;background:#18212b;padding:8px;z-index:5;font:12px sans-serif';
     const summary = this.summary = document.createElement('summary');
     summary.textContent = 'Audio · click to enable'; summary.onclick = () => { void this.unlock(); }; panel.append(summary);

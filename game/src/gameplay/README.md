@@ -25,7 +25,7 @@ Story, locations, economy and the state machine are specified in
 while paused or on the start screen), asks `missions.mayDrive(id)` before entering a vehicle, caps
 the player's car at bicycle speed when the bicycle is owned, scales run and sprint speed by
 `missions.runFactor` (the kidney), and moves the player's car to the dealer kerb after a purchase.
-The interaction button is the `mission` input action (Xbox A / keyboard E); targets act within 3 m.
+The interaction button is the `mission` input action (Xbox A / keyboard E / touch Use); targets act within 3 m.
 At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
 and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,
 `main.ts` feeds no movement, camera or vehicle input (the car holds its handbrake) and swallows the

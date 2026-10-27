@@ -255,7 +255,7 @@ paths = ["game/src/actors/*", "game/src/physics/*", "game/src/shared/col/*"]
 tags = ["@walk", "@drive", "@character", "@ground", "@structures", "@buildings"]
 
 [[stages.related]]
-paths = ["game/src/input/*", "game/tests/e2e/gamepad.spec.ts"]
+paths = ["game/src/input/*", "game/tests/e2e/gamepad.spec.ts", "game/tests/e2e/touch.spec.ts"]
 tags = ["@input", "@launch"]
 
 [[stages.related]]
