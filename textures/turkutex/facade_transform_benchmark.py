@@ -24,7 +24,7 @@ from .streetview import camera, rectify
 from .streetview.rectify import rectify_record
 from .streetview.refs import equirect_model, screen_pixels, screen_problem, source_rank
 
-VARIANTS = (*transforms.VARIANTS, "native16", "native32", "native64")
+VARIANTS = (*transforms.VARIANTS, "native16", "native32", "native64", "modelgrid")
 RECTIFIER_CODE = hashlib.sha256(
     Path(rectify.__file__).read_bytes()
     + Path(camera.__file__).read_bytes()
@@ -120,6 +120,8 @@ def predictor(refs, views, variant, segmenter, output, image_measure=None):
             rgb = read_rgb(native[fid], side=None)
         selected = "baseline" if variant.startswith("native") else variant
         if image_measure is None:
+            if selected == "modelgrid":
+                raise ValueError("modelgrid requires --engine cv-models")
             return transforms.measure_variant(
                 rgb, fid, width, height, segmenter, variant=selected, views=others
             )
@@ -127,6 +129,19 @@ def predictor(refs, views, variant, segmenter, output, image_measure=None):
             return transforms.vote_answers(
                 [image_measure(im, fid, width, height) for im in [rgb, *others]]
             )
+        if selected == "modelgrid":
+            answer, sidecar = image_measure(rgb, fid, width, height)
+            model = image_measure.__self__
+            if not hasattr(model, "parser"):
+                raise ValueError("modelgrid requires --engine cv-models")
+            _, openings, excluded = model.parser.cached_masks
+            columns, confidence = transforms.band_columns(
+                openings, excluded, width, answer["storeys"]
+            )
+            answer["window_columns"] = columns
+            sidecar["confidence"]["window_columns"] = round(confidence * 0.5, 3)
+            sidecar.update(transform="modelgrid", needs_review=True)
+            return answer, sidecar
         if selected == "median":
             rgb = transforms.fuse_images([rgb, *others])
         elif selected.startswith("metric"):
@@ -176,15 +191,18 @@ def pseudo_benchmark(labels, refs, output, variants, segmenter, engine, image_me
     for variant in variants:
         target = output / f"pseudo-{engine}-{variant}.json"
         measure = predictor(refs, views, variant, segmenter, output, image_measure)
-        rows = []
+        rows, failures = [], {}
         for fid, entry in original.items():
             wall = geometry[fid]
             start = time.monotonic()
             answer = sidecar = None
             if views[fid]:
                 rgb = read_rgb(crops[fid], side=None)
-                answer, sidecar = measure(rgb, fid, wall["width_m"], wall["height_m"])
-                if validate(answer, fid):
+                try:
+                    answer, sidecar = measure(rgb, fid, wall["width_m"], wall["height_m"])
+                except (RuntimeError, ValueError) as exc:
+                    failures[fid] = f"{type(exc).__name__}: {exc}"
+                if answer is not None and validate(answer, fid):
                     raise ValueError(validate(answer, fid))
             row = dict(
                 facade_id=fid,
@@ -232,12 +250,14 @@ def pseudo_benchmark(labels, refs, output, variants, segmenter, engine, image_me
 
         def score(selected, field):
             measured = [r for r in selected if r[field] is not None]
-            columns = [r for r in measured if r["truth"]["storeys"] > 1]
+            expected_columns = [r for r in selected if r["truth"]["storeys"] > 1]
+            columns = [r for r in expected_columns if r[field] is not None]
             return dict(
                 n=len(selected),
                 measured=len(measured),
                 storeys_exact=sum(r[field]["storeys"] == r["truth"]["storeys"] for r in measured),
-                columns_n=len(columns),
+                columns_n=len(expected_columns),
+                columns_measured=len(columns),
                 columns_exact=sum(
                     r[field]["window_columns"] == r["truth"]["window_columns"] for r in columns
                 ),
@@ -262,6 +282,7 @@ def pseudo_benchmark(labels, refs, output, variants, segmenter, engine, image_me
             variant=variant,
             walls=len(rows),
             original_crop_hashes_matched=matched,
+            failed=failures,
             direct=score(direct, "description"),
             direct_width_at_least_3m=score([r for r in direct if r["width_m"] >= 3], "description"),
             fallback_inclusive=score(rows, "evaluated_description"),
@@ -286,7 +307,7 @@ def main():
         "--assembly", type=Path, default=config.data_root() / "facade-approvals/assembly"
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS))
+    parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS[:-1]))
     parser.add_argument("--segmentation", choices=("classic", "segformer"), default="classic")
     parser.add_argument("--engine", default="cv", help="cv or a landed facade_models.Engine name")
     args = parser.parse_args()

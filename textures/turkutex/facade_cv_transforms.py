@@ -11,7 +11,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
@@ -133,6 +132,19 @@ def vote_answers(results):
     return answer, sidecar
 
 
+def band_columns(openings, excluded, width_m, storeys):
+    """Vote metric column counts across upper storey bands, preserving the detector's rows."""
+    if storeys <= 1:
+        return 0, 0.0
+    bands = np.array_split(np.arange(len(openings)), storeys)[:-1]
+    counts = [metric_peaks(openings[b], ~excluded[b], 0, width_m, 0.7)[0] for b in bands if len(b)]
+    if not counts:
+        return 0, 0.0
+    frequencies = Counter(counts)
+    count = max(frequencies, key=lambda n: (frequencies[n], n))
+    return min(60, count), frequencies[count] / len(counts)
+
+
 def measure_variant(
     rgb, facade_id, width_m, height_m, segmenter=None, *, variant="periodic", views=()
 ):
@@ -180,90 +192,12 @@ def measure_variant(
 
 
 def describe(run: Path, inventory: Path, refs: Path, *, segmentation="classic") -> dict:
-    """Describe screened local views by count vote and colour medoid; never calls a service."""
-    import hashlib
-    import json
-    import time
-
-    from . import facade_fast as fast
-    from .building_jobs import screened_full_views
-    from .facade_fast_render import validate
-
-    _, facades = fast.planned_facades(run, inventory)
+    """Opt-in metric grid reader, using the shared crop, schema and result writer."""
     segmenter = cv.Segmenter() if segmentation == "segformer" else None
-    output = run / "run_describe/out.jsonl"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists() and any(
-        json.loads(line).get("model") != VERSION for line in output.read_text().splitlines()
-    ):
-        raise ValueError("use a separate run directory for the transforms engine")
-    reasons, failures, count = {}, {}, 0
-    start = time.monotonic()
-    with output.open("w") as stream:
-        for facade in facades:
-            try:
-                views, reason = screened_full_views(facade, refs)
-                if not views:
-                    reasons[facade.id] = reason
-                    continue
-                images, references = [], []
-                for view in views:
-                    path = refs / facade.id / view["files"]["rectified"]
-                    with Image.open(path) as image:
-                        image = image.convert("RGB")
-                        image.thumbnail((fast.CROP_SIDE, fast.CROP_SIDE), Image.Resampling.LANCZOS)
-                        images.append(np.asarray(image))
-                    references.append(
-                        dict(
-                            source=view["source"],
-                            view_id=view["view_id"],
-                            crop_sha256=fast.sha(path),
-                        )
-                    )
-                answer, sidecar = measure_variant(
-                    images[0],
-                    facade.id,
-                    facade.length,
-                    facade.height_m,
-                    segmenter,
-                    variant="vote",
-                    views=images[1:],
-                )
-                errors = validate(answer, facade.id)
-                if errors:
-                    raise ValueError(errors)
-                fast.write_json(run / "confidence" / f"{facade.id}.json", sidecar)
-                key = hashlib.sha256(
-                    (VERSION + segmentation + json.dumps(references, sort_keys=True)).encode()
-                ).hexdigest()
-                stream.write(
-                    json.dumps(
-                        dict(
-                            id=f"{facade.id}.fast",
-                            ok=True,
-                            answer=answer,
-                            model=VERSION,
-                            effort="local",
-                            key=key,
-                            cached=False,
-                            meta=dict(reference=references[0], references=references, cv=sidecar),
-                        )
-                    )
-                    + "\n"
-                )
-                count += 1
-            except Exception as exc:  # noqa: BLE001 - keep other walls and report this failure
-                failures[facade.id] = f"{type(exc).__name__}: {exc}"
-    result = dict(
-        engine=VERSION,
-        segmentation=segmentation,
-        walls=len(facades),
-        jobs=count,
-        no_reference=reasons,
-        failed=failures,
-        calls=0,
-        seconds=round(time.monotonic() - start, 3),
-        exit=int(bool(failures)),
+
+    def measure(rgb, fid, width, height):
+        return measure_variant(rgb, fid, width, height, segmenter, variant="periodic")
+
+    return cv.describe(
+        run, inventory, refs, segmentation=segmentation, measure_fn=measure, engine=VERSION
     )
-    fast.write_json(run / "describe.json", result)
-    return result

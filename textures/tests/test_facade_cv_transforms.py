@@ -4,12 +4,24 @@ import numpy as np
 import pytest
 from turkutex.facade_cv import measure
 from turkutex.facade_cv_transforms import (
+    band_columns,
     fuse_images,
     metric_peaks,
     metric_resize,
     normalize_light,
     vote_answers,
 )
+
+
+def test_storey_band_vote_handles_one_occluded_row():
+    openings = np.zeros((160, 200), bool)
+    for y in (20, 60, 100, 140):
+        for x in (20, 60, 100, 140, 180):
+            openings[y - 8 : y + 8, x - 6 : x + 6] = True
+    openings[80:120, 130:] = False
+    count, confidence = band_columns(openings, np.zeros_like(openings), 10, 4)
+    assert count == 5
+    assert confidence == pytest.approx(2 / 3)
 
 
 def test_metric_spacing_and_clipped_edge_opening():
