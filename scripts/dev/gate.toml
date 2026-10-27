@@ -324,6 +324,11 @@ tags = ["@qa"]
 paths = ["game/src/telemetry/*", "tools/dev/environment.d.mts"]
 tags = []
 
+# Multiplayer client (imported by play.ts); its own spec runs a local relay.
+[[stages.related]]
+paths = ["game/src/net/*"]
+specs = ["game/tests/e2e/mp.spec.ts"]
+
 [[stages.related]]
 paths = ["game/public/dev-tiles/*"]
 specs = ["game/tests/e2e/*"]
