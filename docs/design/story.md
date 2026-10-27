@@ -137,7 +137,7 @@ four repeat.
   6 € plus its tip, the first against the first leg's par, the second against the whole par; the
   second also pays the double bonus of 4 € (`paid_double_bonus`) unless it earns no tip. Missing
   the deadline cancels what is left. A double uses one permit delivery.
-- **Par.** The published walking distance on foot, the driving distance with a bicycle or a car
+- **Par.** The published walking distance on foot, the driving distance with a scooter or a car
   (the walking one when no car route exists), at the vehicle's par speed; tip bands as above.
 
 The pizzeria quotes the address (both, joined with `+`, for a double), route metres and par. On
@@ -239,7 +239,7 @@ so the voice player can match the clip. Rules: `~/turku3d/briefs/dialogue-contra
 
 ## Out of scope for this slice
 
-- Save-game UI, NPC characters or models at the locations, a bicycle.
+- NPC characters or models at the locations, a bicycle.
 - A HUD permit counter outside the menus (the bought-back warning is the in-world reminder).
 - Police, wanted level, theft consequences, or penalties for driving others' cars outside deliveries.
 - More pizzerias, random orders, order choice, multiple concurrent orders or a day/night schedule.
