@@ -92,8 +92,8 @@ is a cheap way to hide that for two minutes.
 **Scooter.** The 60 € vehicle is a 50 cc scooter with a red pizza case on the rack (physics vehicle
 `scooter`, tuning `SCOOTER` in `game/src/physics/constants.ts`): 45 km/h top speed, about 2.8 s to
 30 km/h, a tighter turning circle than the car, curbs felt like the car's. It exists once bought: the
-purchase parks it at the dealer's kerb (`DEALER_VEHICLE_SPOT`), and a continued game parks it 5.5 m
-behind the start car. The rider stays visible on it. Buying the car moves the player's start car
+purchase parks it at the dealer's kerb (`DEALER_VEHICLE_SPOT`). A save slot stores where it was left
+(`gameplay/saveGame.ts`); a save from before the scooter parks it 5.5 m behind the start car. The rider stays visible on it. Buying the car moves the player's start car
 (`player`) to the same kerb instead. Owning the scooter makes it, not the start car, the player's own
 vehicle for deliveries. Saves that owned the former bicycle (the speed-capped car) load as owning
 the scooter.
