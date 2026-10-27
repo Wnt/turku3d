@@ -858,6 +858,126 @@
    "textSha256": "40daffc1f8a74d4c324467e40e23adf4383eb0a2ab1204e02ae3691e7c0041b9",
    "key": "ae4dfe79ec7f553d750d8fd5cc0640a69c7e3113c41591eca2575b4d7065021d",
    "fileSha256": "381f5a6977897b93234da99c5017df835fdd8e8712276e21e991733ac4ae2636"
+  },
+  {
+   "id": "pole_fine_01",
+   "speaker": "officer",
+   "file": "pole_fine_01.ogg",
+   "seconds": 3.659,
+   "text": "That sign was municipal property. Fifty euros.",
+   "textSha256": "d8bf92eb77272c49a7bb8be338bc0bd536031157370eedfbfc49690851b7ae13",
+   "key": "1f08d95f5042543e31f99dbad7dbf3aa6a0711cc2667528a7e135b68b7b7f687",
+   "fileSha256": "cff319042a80717f9864e7523ef16f31b66f1ba128ef5027990ec21bcc579854"
+  },
+  {
+   "id": "pole_fine_02",
+   "speaker": "officer",
+   "file": "pole_fine_02.ogg",
+   "seconds": 3.19,
+   "text": "The sign had right of way. Fifty euros.",
+   "textSha256": "3b06346d27d576e011426ab4188df944cce71570bd032cd7183c86fa4b06240b",
+   "key": "a9cf67086903cd16bb53738d568ff78e13c5dd1e4c62af9fc4be9addfe67bc9c",
+   "fileSha256": "3c162457876ab2f9024351f04644cbdec1a5d84cb21289502502ed32786146d2"
+  },
+  {
+   "id": "pole_fine_03",
+   "speaker": "officer",
+   "file": "pole_fine_03.ogg",
+   "seconds": 4.148,
+   "text": "You have reduced traffic safety by one pole. Fifty euros.",
+   "textSha256": "53ccfa22bbbb27e27efc29bf766c50c78208095f7c58777bc9863be59914a9ff",
+   "key": "b15144563f7d578f546589bd7275efc06de000a7186d1d8b2f071e8680876943",
+   "fileSha256": "a6d0025f4e8fbba4b9ec13bfab6fca1ae27c53c8e955c86779628ec0e449387a"
+  },
+  {
+   "id": "pole_fine_04",
+   "speaker": "officer",
+   "file": "pole_fine_04.ogg",
+   "seconds": 4.695,
+   "text": "The city thanks you for testing its replacement budget. Fifty euros.",
+   "textSha256": "90a3b9a287d847997fa62708356d0b3412067360070d366d7368156e76ddc26b",
+   "key": "0bed0a71072aec45354512abd27041e8e477970649ed58ca2328bcc030cc2d1d",
+   "fileSha256": "68b713926443af56ff6bb742cd36c955bf424ccd486f83e808f8797906b3ac41"
+  },
+  {
+   "id": "pole_fine_05",
+   "speaker": "officer",
+   "file": "pole_fine_05.ogg",
+   "seconds": 3.957,
+   "text": "That pole was standing before you arrived. Fifty euros.",
+   "textSha256": "9601028d2c2d4d1a1948c0b8b02f18f23b215d2cfc86ea9a6818656f9ac0a86a",
+   "key": "9e8b69764e3e092c82159e35818a10f895950665aea091f59429d46870e0b4a7",
+   "fileSha256": "a5b8409924c17dd1d7bd0315324da79315ae47d3183fa4af5d484fef6f510e56"
+  },
+  {
+   "id": "pole_fine_06",
+   "speaker": "officer",
+   "file": "pole_fine_06.ogg",
+   "seconds": 4.526,
+   "text": "Your driving has been entered as a demolition permit. Fifty euros.",
+   "textSha256": "7712b07b57d5ff9e453477b9f30a50d20318eb337cde9b0230d738ac9edc74ee",
+   "key": "050df1f5fc750e36a7db08de00fc04d75f3dd51a0084504fc56d05247ba2d0ce",
+   "fileSha256": "0cedb04422337906d56727d7025023738856c523e882c79317cfb10a44786f3f"
+  },
+  {
+   "id": "pole_fine_07",
+   "speaker": "officer",
+   "file": "pole_fine_07.ogg",
+   "seconds": 3.936,
+   "text": "Please leave the remaining signs upright. Fifty euros.",
+   "textSha256": "2c6b928ada77e0b83c2a5e00491fdaa42b2d214ff544593cfd0938d5e83d4583",
+   "key": "7925538eed6d4fe7df843afa01914d0cd5f38c4168775bcd6ae336d6c84a0879",
+   "fileSha256": "69efcf7012179045b441e05a19d53b06213bd955565d7014598387d06150c029"
+  },
+  {
+   "id": "pole_fine_08",
+   "speaker": "officer",
+   "file": "pole_fine_08.ogg",
+   "seconds": 3.739,
+   "text": "The sign is down. Your balance follows. Fifty euros.",
+   "textSha256": "ac395e106561f3769b9a81e607ec3c74dcf84a4327a87cfeae3317052254f2d8",
+   "key": "f35b1c587df800b97bf54e48353c8fbf90bd8daab1324d3be0754432d8076a69",
+   "fileSha256": "9deeeedc42b68941b9e207899f70d6499094a02f682b61ac0dd79d8e36a23991"
+  },
+  {
+   "id": "pole_fine_09",
+   "speaker": "officer",
+   "file": "pole_fine_09.ogg",
+   "seconds": 4.15,
+   "text": "An excellent impact test. The invoice is fifty euros.",
+   "textSha256": "441436e0e54c9fb29da7faaef4fd732618e8f77a13fa4412c6f42bfd1484dc5e",
+   "key": "71e7896586e573ccab612eb36c67781e05c5009c74b1d099a09a24d2e9937d09",
+   "fileSha256": "ec0b22be677caa14433ce69c3a98db30bfd651ed111e0d3656fe4580a78b2f5f"
+  },
+  {
+   "id": "pole_fine_10",
+   "speaker": "officer",
+   "file": "pole_fine_10.ogg",
+   "seconds": 4.722,
+   "text": "The taxpayers bought that pole once. You buy it next. Fifty euros.",
+   "textSha256": "48c4548840006a6178a4dfa29b01e395639efbbf7cc70739330dc1afbad71fd5",
+   "key": "ef49bb1809ca5b84f382bdfe55aa77e17092e850915e26484abb125cfd21f9c6",
+   "fileSha256": "3c5c6aa9efff8589069441a5d0830c7043daa849f691fc6290b23e1ff1d9b1c9"
+  },
+  {
+   "id": "pole_fine_11",
+   "speaker": "officer",
+   "file": "pole_fine_11.ogg",
+   "seconds": 3.76,
+   "text": "We found the sign. It is horizontal. Fifty euros.",
+   "textSha256": "b96a4f11e02bf78d18133af8938e762dbc78b17e494fa4f268112d1fffe2edc2",
+   "key": "415dc43406bf75bdb02272777060e5276509adf496d2ea893ee65453376eade9",
+   "fileSha256": "52d5cda65496a09fe5dd4d3b6fc36b94caa6cf32692a3b8f1911c391670ea67c"
+  },
+  {
+   "id": "pole_fine_12",
+   "speaker": "officer",
+   "file": "pole_fine_12.ogg",
+   "seconds": 3.91,
+   "text": "The road furniture has filed a complaint. Fifty euros.",
+   "textSha256": "6941c6306df680ca5d1ad11b73bef02ee2acd4b704048da14b2c70d7f25ab2e2",
+   "key": "aa3c5a47d2211c9a10e57294263834974ba7fbbd37df6ed472ca7b362325a466",
+   "fileSha256": "872d26e1f4c0f1ee92ea7d5e11e091b2087e72f74f81a7d061ee9e099368aa16"
   }
  ]
 }

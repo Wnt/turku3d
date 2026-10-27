@@ -293,3 +293,7 @@ curve rising once per second from elapsed delivery time divided by par time. Han
 cadence and returns to explore. Intro and shop conversations muffle the music completely; a vehicle
 applies a lighter muffle while its engine remains audible. Voice lines duck the music. Players can change
 or mute music volume in Pause → Audio and advance tracks with N.
+
+## Roadside damage
+
+Traffic-sign and bus-stop poles can snap when struck by a moving vehicle or pushed hard on foot. A broken pole falls with its sign and remains debris for the rest of the session. The player pays a 50 € fine, with the wallet floored at zero. In multiplayer the full negative 50 € counts against the current hourly score, and all players share the broken-pole set until the next hour. A police officer speaks one of twelve dry notices from a small animated portrait in the top right. The game continues while the notice is shown.

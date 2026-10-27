@@ -11,7 +11,7 @@ export interface Hour { id: string; start: string; end: string; tz: string }
 interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number }
 interface MultiplayerState {
   connected: boolean; you: { id: string; nick: string; spawn: NetPlayer['spawn'] } | null;
-  hour: Hour | null; players: NetPlayer[]; scores: Score[]; countdown: number | null; error: string | null;
+  hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
 }
 
 const SESSION_KEY = 'turku3d.mp.session.v1';
@@ -32,7 +32,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
 export class MultiplayerClient extends EventTarget {
   readonly url: string;
   readonly httpUrl: string;
-  readonly state: MultiplayerState = { connected: false, you: null, hour: null, players: [], scores: [], countdown: null, error: null };
+  readonly state: MultiplayerState = { connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
   private ws: WebSocket | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
@@ -100,6 +100,12 @@ export class MultiplayerClient extends EventTarget {
     this.flushDelivery();
   }
 
+  breakPole(poleId: string) {
+    if (!this.state.connected || !this.state.you) return;
+    this.send({ type: 'world', action: 'break', poleId, by: this.state.you.id, t: performance.now() });
+    this.send({ type: 'fine', reason: 'pole', poleId, amount: 50 });
+  }
+
   private flushDelivery() {
     if (!this.state.connected || !this.pendingDeliveries.length || this.deliveryTimer) return;
     const delay = Math.max(0, RATE_MS - (performance.now() - this.lastSent));
@@ -132,6 +138,7 @@ export class MultiplayerClient extends EventTarget {
         this.state.hour = msg.hour as Hour;
         this.state.players = msg.players as NetPlayer[];
         this.state.scores = msg.scores as Score[];
+        this.state.brokenPoles = (msg.brokenPoles as { poleId: string }[] ?? []).map(p => p.poleId);
         this.state.error = null;
         this.attempts = 0;
         this.lastPose = null; // timestamp epoch may have changed after rejoin
@@ -152,8 +159,12 @@ export class MultiplayerClient extends EventTarget {
         break;
       }
       case 'scores': this.state.scores = msg.scores as Score[]; this.changed(); break;
+      case 'world': if (msg.action === 'break' && typeof msg.poleId === 'string') {
+        if (!this.state.brokenPoles.includes(msg.poleId)) this.state.brokenPoles.push(msg.poleId);
+        this.dispatchEvent(new CustomEvent('poleBreak', { detail: msg.poleId }));
+      } break;
       case 'hour_end_in': this.state.countdown = msg.seconds as number; this.changed(); break;
-      case 'hour_reset': this.state.hour = msg.hour as Hour; this.state.scores = []; this.state.countdown = null; this.changed(); break;
+      case 'hour_reset': this.state.hour = msg.hour as Hour; this.state.scores = []; this.state.brokenPoles = []; this.state.countdown = null; this.changed(); break;
       case 'error': this.state.error = String(msg.code); this.changed(); break;
     }
   }

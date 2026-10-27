@@ -48,10 +48,12 @@ async function handle(msg: ToWorker) {
     case 'driveVehicle': pw.driveVehicle(msg.id); break;
     case 'resetVehicle': pw.resetVehicle(msg.pos, msg.yaw, msg.id); break;
     case 'remotes': pw.setRemotes(msg.bodies); break;
+    case 'poles': pw.setPoles(msg.add, msg.remove); break;
+    case 'breakPole': pw.breakPole(msg.id); break;
     case 'step': {
       const t0 = performance.now();
       const substeps = pw.step(msg.dt, msg.character, msg.vehicle);
-      post({ type: 'state', seq: msg.seq, substeps, tick: pw.tick, remainder: pw.remainder, previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(), vehicles: pw.vehicleStates() });
+      post({ type: 'state', seq: msg.seq, substeps, tick: pw.tick, remainder: pw.remainder, previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(), vehicles: pw.vehicleStates(), poles: pw.poleStates() });
       break;
     }
     case 'cameraCast':

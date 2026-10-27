@@ -4,7 +4,8 @@
     "pizzeria": { "name": "Pizzeria owner", "voice": "warm, impatient, older man, slight Turku accent in English" },
     "dealer": { "name": "Vehicle dealer", "voice": "fast-talking young salesman" },
     "market": { "name": "Black market seller", "voice": "quiet, cautious, speaks low" },
-    "customer": { "name": "Customer", "voice": "neutral, varies" }
+    "customer": { "name": "Customer", "voice": "neutral, varies" },
+    "officer": { "name": "Police officer", "voice": "dry, stern, middle-aged officer" }
   },
   "lines": [
     { "id": "intro_1", "speaker": "narrator", "text": "Turku, 2027. Last month you were a software developer. Then came the redundancy talks, and thousands of jobs like yours went to AI." },
@@ -160,6 +161,18 @@
     { "id": "customer_slow_9", "speaker": "customer", "text": "Cold pizza on a cold evening. Very Turku of you." },
     { "id": "customer_slow_10", "speaker": "customer", "text": "I aged a year in that time. My pension didn't." },
     { "id": "customer_slow_11", "speaker": "customer", "text": "You're lucky the robots are on strike today." },
-    { "id": "customer_slow_12", "speaker": "customer", "text": "Ah, the courier. I'd given up on you and on humanity." }
+    { "id": "customer_slow_12", "speaker": "customer", "text": "Ah, the courier. I'd given up on you and on humanity." },
+    {"id": "pole_fine_01", "speaker": "officer", "text": "That sign was municipal property. Fifty euros."},
+    {"id": "pole_fine_02", "speaker": "officer", "text": "The sign had right of way. Fifty euros."},
+    {"id": "pole_fine_03", "speaker": "officer", "text": "You have reduced traffic safety by one pole. Fifty euros."},
+    {"id": "pole_fine_04", "speaker": "officer", "text": "The city thanks you for testing its replacement budget. Fifty euros."},
+    {"id": "pole_fine_05", "speaker": "officer", "text": "That pole was standing before you arrived. Fifty euros."},
+    {"id": "pole_fine_06", "speaker": "officer", "text": "Your driving has been entered as a demolition permit. Fifty euros."},
+    {"id": "pole_fine_07", "speaker": "officer", "text": "Please leave the remaining signs upright. Fifty euros."},
+    {"id": "pole_fine_08", "speaker": "officer", "text": "The sign is down. Your balance follows. Fifty euros."},
+    {"id": "pole_fine_09", "speaker": "officer", "text": "An excellent impact test. The invoice is fifty euros."},
+    {"id": "pole_fine_10", "speaker": "officer", "text": "The taxpayers bought that pole once. You buy it next. Fifty euros."},
+    {"id": "pole_fine_11", "speaker": "officer", "text": "We found the sign. It is horizontal. Fifty euros."},
+    {"id": "pole_fine_12", "speaker": "officer", "text": "The road furniture has filed a complaint. Fifty euros."}
   ]
 }

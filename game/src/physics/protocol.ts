@@ -29,6 +29,8 @@ export interface BumpState { id: number; wheel: number; height: number; jolt: nu
 export interface VehicleState { id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; bump?: BumpState | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
 export interface VehicleSpec { id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean }
 export interface RemoteBody { id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
+export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
+export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
 
 export interface TileStats { curbTris?: number; id: string; tris: number; prims: number; bytes: number; buildMs: number; colliders: number }
 
@@ -47,6 +49,8 @@ export type ToWorker =
   | { type: 'driveVehicle'; id: string | null }
   | { type: 'resetVehicle'; id: string; pos: V3; yaw: number }
   | { type: 'remotes'; bodies: RemoteBody[] }
+  | { type: 'poles'; add: PoleSpec[]; remove: string[] }
+  | { type: 'breakPole'; id: string }
   /** Advance by dt seconds of real time (worker runs fixed 60 Hz substeps, max 5 per message). */
   | { type: 'step'; seq: number; dt: number; character: CharacterInput; vehicle: VehicleInput | null }
   | { type: 'cameraCast'; id: number; origin: V3; dir: V3; distance: number }
@@ -59,7 +63,7 @@ export type FromWorker =
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }
   | { type: 'checkResult'; id: number; tris: number; error: string | null }
-  | { type: 'state'; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[] }
+  | { type: 'state'; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[] }
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hit: RayHit | null }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }

@@ -47,3 +47,8 @@ speed = 1.0
 [lexicon]
 "Kristiinankatu" = "kɹˈistiːnɑŋkˌɑtu"
 "Aurakatu" = "ˈɑuɹɑkˌɑtuː"
+
+# Dry, measured police officer; distinct from the narrator and shop voices.
+[speakers.officer]
+voice = "bm_fable"
+speed = 0.96

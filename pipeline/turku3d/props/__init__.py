@@ -230,6 +230,11 @@ def visual_bytes(props, tile):
                     "object_id": p.object_id,
                     "material_key": f"props_{p.kind}",
                     "prop_type": p.kind,
+                    **(
+                        {"pole_id": f"{tile.id}:{p.object_id}", "pole_height": 2.7}
+                        if p.kind in ("sign", "bus_stop")
+                        else {}
+                    ),
                     "sign_code": p.code,
                     "texture_uv": "normalized",
                 },
@@ -253,7 +258,10 @@ def write_tile(props, directory, tile):
         raise ValueError(f"{tile.id}: props outside the tile")
     collisions = defaultdict(list)
     for p in props:
-        collisions[C.CollisionTile.at(p.x, p.z)].extend(primitives(p))
+        # Sign and stop poles are session-owned Rapier bodies. Baking their primitive
+        # here would leave an invisible, unbreakable collider after they topple.
+        if p.kind not in ("sign", "bus_stop"):
+            collisions[C.CollisionTile.at(p.x, p.z)].extend(primitives(p))
     if not props:
         return {
             "objects": 0,
