@@ -15,8 +15,9 @@ tile: ## Assemble published layers, validate physics and run Chrome e2e locally
 tile-fetch: ## Check cached work-3x3 inputs without network or writes to shared raw
 	$(PIPELINE_RUN) python -m turku3d.fetch.cached --area work-3x3
 
-tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams
+tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams; PUT=1 streams changed tiles to the localhost game
 	python3 $(REPO)/scripts/dev/host_slots.py build -- $(PIPELINE_RUN) python -m turku3d.package.assemble --area $(AREA) --tile $(TILE_IDS)
+	$(if $(filter 1,$(PUT)),python3 $(REPO)/scripts/dev/tile_store.py put-tiles --repo $(REPO) --tiles-dir $(TURKU3D_WORK)/dist/tiles --tiles $(TILE_IDS))
 
 tiles-refresh-stale: ## Start the data lane on the live tiles built with older tile code than main's (sentinel heartbeat, load < 40)
 	python3 $(REPO)/scripts/dev/integrator.py refresh-stale

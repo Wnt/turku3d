@@ -43,10 +43,18 @@ shared input area; a tile beyond it reads its own `tile-<id>` input area.
 
 ```sh
 source ../sandbox.env
-make tile-add T=t0_2_0          # sandbox: list, fetch, seed, refresh, assemble the new tile
+make tile-add T=t0_2_0          # sandbox: list, fetch, seed, refresh, assemble the new tile, put it in the tile store
 cat $TURKU3D_WORK/reports/tile-add/t0_2_0.json   # stage and layer seconds, tile size, layers
-bash pipeline/env/run.sh python -m turku3d.region list-tile t0_2_0   # orchestrator: list it for live
+bash pipeline/env/run.sh python -m turku3d.region list-tile t0_2_0   # list it for live and the localhost game
+make tile-build T='t0_0_0' PUT=1  # any tile build: put the tiles whose bytes differ from live as per-tile entries
 ```
+
+`add-tile` ends with `scripts/dev/tile_store.py put-tiles` (stage `put-tile` in the report): the new tile and its
+listed edge neighbours, where their own bytes differ from the live release, become per-tile entries in
+`$TURKU3D_DATA/tile-store/tiles/` with their provenance (task, commit, tile code, data key). The localhost game streams
+a per-tile entry as soon as its tile is listed in the data root (`list-tile`, before or after the put) and swaps it
+into the open tab in seconds, collision first; the integrator's release of the same inputs later converges on the same
+bytes, so the tab swaps nothing again (`tools/dev/localhost/README.md`, "Tile releases and per-tile entries").
 
 `make tile-add` installs the validator Node dependencies before refresh, since the structures
 producer runs Rapier acceptance while building the layer.

@@ -25,9 +25,10 @@ import live_cache
 import sandbox as s
 import served
 import spec_selection
+import tile_store
 from host_slots import integration_jobs, phase
 from integration_chrome import browser_load, load_summary
-from landing_class import C, released_tiles
+from landing_class import C, data_parts, released_tiles
 from turku3d.region import quality
 
 
@@ -293,10 +294,8 @@ def inspect(manifest_path, facade_count, minimum, listed, reason=None):
     }
 
 
-def store_tiles(repo, work, published, built, facades_bound):
-    """Offer the unverified tile build to the localhost game (tile_store.py) before the checks run."""
-    import tile_store
-
+def store_tiles(repo, work, published, built, facades_bound, seeded):
+    """Offer the unverified tile build (seeded: its seed's {"time", "parts"}) to the localhost game (tile_store)."""
     commit = s.git("rev-parse", "HEAD", cwd=repo)
     tile_store.put(
         published,
@@ -306,6 +305,7 @@ def store_tiles(repo, work, published, built, facades_bound):
         "integrator",
         built,
         {"facades_bound": facades_bound},
+        seeded=seeded,
     )
 
 
@@ -358,11 +358,15 @@ def build(
     minimum = baseline(published)
     advisory = []
     report = None
+    seeded = None
     if "tile-build" in stages:
+        seeded = {"time": time.time(), "parts": data_parts(published)}
         seed(work, published)
         listed = tiles(published)
+        data_time = seeded["time"]
     else:
         shipped = served.ship(repo, work, published)
+        data_time = tile_store.base_time(shipped["dir"])
         # The release carries the served tiles; tiles listed since are the data lane's.
         listed = tuple(shipped["tile_commits"])
         report = inspect(
@@ -482,7 +486,12 @@ def build(
                     if drop := advisory_check.facade_drop(report):
                         advisory.append(drop)
                     store_tiles(
-                        repo, work, published, scopes.get(stage) or listed, cached["facades_bound"]
+                        repo,
+                        work,
+                        published,
+                        scopes.get(stage) or listed,
+                        cached["facades_bound"],
+                        seeded,
                     )
                 if stage == "facade-ground-audit":
                     report["facade_ground_audit"] = cached["facade_ground_audit"]
@@ -595,7 +604,9 @@ def build(
                 if drop := advisory_check.facade_drop(report):
                     advisory.append(drop)
                 if cache_enabled:
-                    store_tiles(repo, work, published, scopes.get(stage) or listed, facade_count)
+                    store_tiles(
+                        repo, work, published, scopes.get(stage) or listed, facade_count, seeded
+                    )
             if stage == "facade-ground-audit" and not failure:
                 report["facade_ground_audit"] = json.loads(proc.stdout.splitlines()[-1])
             # A failed advisory stage is not cached: the next build with its inputs reruns it.
@@ -616,6 +627,7 @@ def build(
                 previous = key
     if "tile-build" in stages:
         report["tiles_built"] = list(scopes.get("tile-build") or listed)
+    report["data_time"] = data_time  # when the shipped tiles' build read the data root
     report["seconds"] = durations
     report["cache_hits"] = cache_hits
     report["input_hashes"] = input_hashes
