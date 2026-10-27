@@ -386,3 +386,14 @@ AOI: one 250 m visual tile centred on the office block at Läntinen Rantakatu 15
 1. Do you want Gaussian splats at all? (No cloud GPU, so training happens on the M1 Max only.)
 2. Time period of the city: "today" (2026 imagery, current vectors) even where the 2021 lidar is outdated?
 3. Is a fixed spawn at the office acceptable for Phase 1, and is a stylised fallback acceptable for buildings whose facades are not yet textured?
+
+## Multiplayer server
+
+The [Node 24 multiplayer server](../server/README.md) targets deployment on osgallery-dev
+(the server-specific exception to the Mac pipeline policy), behind the outbound
+forwarder at `wss://turku.lab.madekivi.fi`. It owns presence, session nicknames and
+delivery score validation for one room of up to 32 connections, with archived
+Europe/Helsinki clock-hour leaderboards. It relays client poses at 20 Hz and runs
+no physics; remote rendering and collisions belong to the later game-client task.
+The [versioned JSON protocol](../server/PROTOCOL.md) defines local E/N coordinates,
+reconnects, rates and economy bounds. Only completed hours persist across restarts.
