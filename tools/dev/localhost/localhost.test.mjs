@@ -274,3 +274,19 @@ test('the service restarts the coarse service when a landing changes a file it l
   assert.equal(fake.starts().length, 3);
   await service.writing;
 });
+
+test('a dev-server change before the first start or during a restart starts exactly one server', () => {
+  const service = Object.create(LocalhostGame.prototype);
+  let started = 0;
+  service.startVite = () => { started += 1; service.vite = { once() {}, kill() {} }; };
+  service.vite = null;
+  service.restartVite(); // follow() on startup, before start() launches the server
+  assert.equal(started, 0);
+  service.startVite();
+  let exit;
+  service.vite = { once: (_, f) => { exit = f; }, kill() {} };
+  service.restartVite();
+  service.restartVite(); // a second change while the old server is still exiting
+  exit();
+  assert.equal(started, 2);
+});
