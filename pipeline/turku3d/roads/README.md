@@ -26,8 +26,9 @@ Ways are clipped to each listed tile. A way crossing a tile edge is clipped at t
 from both sides, so its halves meet in a node there. Nodes are way endpoints, clip points and vertices visited by
 two or more ways or twice by one way. Shared OSM nodes project to identical coordinates, so
 coordinates rounded to 0.1 m identify them; ways that only cross (bridges over streets) stay
-unconnected. Each mode keeps only its largest connected network, so a snap never lands on an
-isolated courtyard path or a car-only fragment behind a pedestrian street.
+unconnected. Each mode keeps its largest connected network in each edge-connected group of
+listed tiles, so a corner-adjacent expansion retains its roads without keeping isolated
+courtyard paths or car-only fragments behind pedestrian streets.
 
 ```json
 {"format": "turku3d-roadgraph", "version": 1, "frame": "engine-xz", "area": "playable-tiles",

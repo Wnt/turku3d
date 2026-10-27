@@ -25,15 +25,14 @@ def roots(tmp_path, monkeypatch):
     return data, work
 
 
-def test_plan_grows_the_area_by_one_adjacent_tile_anywhere_the_lidar_covers(monkeypatch):
+def test_plan_grows_the_area_by_one_touching_tile_anywhere_the_lidar_covers(monkeypatch):
     assert T.plan("t0_2_0", CORE) == [*CORE, "t0_2_0"]
     assert T.plan("t0_-1_1", CORE)[0] == "t0_-1_1"
     with pytest.raises(ValueError, match="already playable"):
         T.plan("t0_1_0", CORE)
-    with pytest.raises(ValueError, match="share an edge"):
+    with pytest.raises(ValueError, match="touch"):
         T.plan("t0_3_0", CORE)
-    with pytest.raises(ValueError, match="share an edge"):
-        T.plan("t0_2_2", CORE)  # diagonal only
+    assert T.plan("t0_2_2", CORE)[-1] == "t0_2_2"  # corner of t0_1_1
     with pytest.raises(ValueError, match="L0"):
         T.plan("t1_1_0", CORE)
     # t0_3_0's input area leaves work-3x3 at x = 1000; it reads its own area instead.

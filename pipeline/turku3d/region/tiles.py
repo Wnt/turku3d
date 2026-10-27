@@ -40,12 +40,13 @@ def plan(tile_id: str, listed: list[str]) -> list[str]:
         raise ValueError(f"{tile_id} is already playable")
     current = {C.VisualTile.parse(t) for t in listed}
     neighbours = {
-        C.VisualTile(0, tile.i + di, tile.j + dj) for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1))
+        C.VisualTile(0, tile.i + di, tile.j + dj)
+        for di in (-1, 0, 1)
+        for dj in (-1, 0, 1)
+        if di or dj
     }
     if not neighbours & current:
-        raise ValueError(
-            f"{tile_id} does not share an edge with a playable tile; grow tile by tile"
-        )
+        raise ValueError(f"{tile_id} does not touch a playable tile; grow tile by tile")
     uncovered = uncovered_lidar(tile)
     if uncovered:
         raise ValueError(
@@ -165,9 +166,9 @@ def add_tile(tile_id: str) -> dict:
     started = time.monotonic()
     stages: dict[str, float] = {}
     listed = C.playable_tile_ids()
-    published = C.playable_tile_ids(data)
-    # A failed run leaves the tile in the sandbox list; rerunning resumes from cached layers.
-    tiles = listed if tile_id in listed and tile_id not in published else plan(tile_id, listed)
+    # A failed run or a later repair leaves the tile in the sandbox list; rerunning
+    # resumes from cached layers even after the data root has listed the tile.
+    tiles = listed if tile_id in listed else plan(tile_id, listed)
     report_dir = work / "reports/tile-add"
     report_dir.mkdir(parents=True, exist_ok=True)
 

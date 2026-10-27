@@ -34,10 +34,42 @@ def build_tile(tile, staging):
     return {"records": ways, "metrics": {"ways": len(ways)}}
 
 
+def touching_groups(tile_ids: list[str]) -> list[set[str]]:
+    """Edge-connected playable regions; a corner does not join their road networks."""
+    remaining = {C.VisualTile.parse(tile_id) for tile_id in tile_ids}
+    groups = []
+    while remaining:
+        start = min(remaining)
+        remaining.remove(start)
+        group = {start}
+        frontier = [start]
+        while frontier:
+            tile = frontier.pop()
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                near = C.VisualTile(0, tile.i + di, tile.j + dj)
+                if near in remaining:
+                    remaining.remove(near)
+                    group.add(near)
+                    frontier.append(near)
+        groups.append({tile.id for tile in group})
+    return groups
+
+
+def graph_ways(graph: dict):
+    nodes = list(zip(graph["nodes"][::2], graph["nodes"][1::2], strict=True))
+    for a, b, flags, _, *interior in graph["edges"]:
+        yield [nodes[a], *zip(interior[::2], interior[1::2], strict=True), nodes[b]], flags
+
+
 def combine(directory: Path, tiles: dict) -> dict:
     area = C.tile_area("playable-tiles", "listed tiles", list(tiles))
-    ways = [(coords, flags) for entry in tiles.values() for coords, flags in entry["records"]]
-    graph = build_graph(ways, area.core.as_tuple(), "playable-tiles")
+    bounds = area.core.as_tuple()
+    groups = touching_groups(list(tiles))
+    selected = []
+    for group in groups:
+        ways = [(coords, flags) for tile in group for coords, flags in tiles[tile]["records"]]
+        selected.extend(graph_ways(build_graph(ways, bounds, "playable-tiles")))
+    graph = build_graph(selected, bounds, "playable-tiles", connected=False)
     data = encode(graph)
     _atomic_write(Path(directory) / GRAPH_FILE, data)
     edges = graph["edges"]

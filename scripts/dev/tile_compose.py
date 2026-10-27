@@ -5,7 +5,7 @@ A per-tile entry, $TURKU3D_DATA/tile-store/tiles/<tile>/<key>/, is what one buil
 1 km parents and the coarse leaves beside it, its 16 collision tiles and the ring of collision tiles around them, its
 ground textures, the parked cars on it, and the road graph and address pool of the build, at their dist paths, with
 TILE.json (the manifest fragment and provenance). Its key hashes the assembler's input keys of those tiles
-(.assemble-cache.json); tiles/index.jsonl lists the records in the order they were put.
+(.assemble-cache.json) and the shared road and address assets; tiles/index.jsonl lists the records in the order they were put.
 
 `compose` lays the newest eligible entry of every listed tile over a release (a newer entry wins where two share a
 parent or a ring cell) and puts the result as a complete release entry (source "composed"), so the localhost game
@@ -132,7 +132,15 @@ def fragment(tiles_dir, tile_id):
 def tile_key(frag):
     """A per-tile entry's key: the assembler's input keys of everything it carries."""
     return hashlib.sha256(
-        json.dumps(["turku3d-tile v1", frag["tile"], frag["keys"]], sort_keys=True).encode()
+        json.dumps(
+            [
+                "turku3d-tile v2",
+                frag["tile"],
+                frag["keys"],
+                {name: (frag.get(name) or {}).get("sha256") for name in ("roads", "addresses")},
+            ],
+            sort_keys=True,
+        ).encode()
     ).hexdigest()
 
 
@@ -152,11 +160,14 @@ def _clone_files(source, target, files):
 
 
 def same_bytes(frag, manifest):
-    """True when the release manifest has every visual and collision tile of the fragment with the same bytes."""
+    """True when the release carries the fragment's tile and shared assets with the same bytes."""
     return all(
         manifest[kind].get(tid, {}).get("sha256") == e["sha256"]
         for kind in ("visual", "collision")
         for tid, e in frag[kind].items()
+    ) and all(
+        not frag.get(name) or (manifest.get(name) or {}).get("sha256") == frag[name]["sha256"]
+        for name in ("roads", "addresses")
     )
 
 
@@ -203,12 +214,17 @@ def own_bytes_differ(frag, manifest):
     has other bytes for it (parents and ring cells it shares with neighbours do not count)."""
     tile = C.VisualTile.parse(frag["tile"])
     own = {c.id for c in tile.collision_tiles()}
-    return manifest["visual"].get(tile.id, {}).get("sha256") != frag["visual"][tile.id][
-        "sha256"
-    ] or any(
-        manifest["collision"].get(cid, {}).get("sha256") != e["sha256"]
-        for cid, e in frag["collision"].items()
-        if cid in own
+    return (
+        any(
+            frag.get(name) and (manifest.get(name) or {}).get("sha256") != frag[name]["sha256"]
+            for name in ("roads", "addresses")
+        )
+        or manifest["visual"].get(tile.id, {}).get("sha256") != frag["visual"][tile.id]["sha256"]
+        or any(
+            manifest["collision"].get(cid, {}).get("sha256") != e["sha256"]
+            for cid, e in frag["collision"].items()
+            if cid in own
+        )
     )
 
 
