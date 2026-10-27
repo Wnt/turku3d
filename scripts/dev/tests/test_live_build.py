@@ -134,8 +134,10 @@ class LiveBuildTests(unittest.TestCase):
             (new / "t0_2_0.vis.glb").write_bytes(b"new")
             (new / "c_12_0.col.npz").write_bytes(b"margin")
             (new / "c_7_7.col.npz").write_bytes(b"seam")
+            (new / "PLAYABLE_TILES.json").write_text(json.dumps({"tiles": list(listed)}))
             selected = live_build.affected_tiles(root / "release", root / "work", listed)
-            self.assertEqual(selected, ("t0_1_1", "t0_2_0"))
+            # The new tile, its west neighbour's seam row, and t0_1_1 for its changed collider.
+            self.assertEqual(selected, ("t0_1_0", "t0_1_1", "t0_2_0"))
             # Recorded in a release that already listed it, an unchanged new tile is not rebuilt.
             (new / "c_7_7.col.npz").unlink()
             (new / "t0_2_0.vis.glb").unlink()
