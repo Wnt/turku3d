@@ -40,7 +40,14 @@ service itself (below), so do not start `tools/dev/coarse-tiles` beside it; `--n
    `Cache-Control: no-cache` (revalidation only). When the release changes, the open tab applies it without a page
    load (`game/src/world/README.md`): changed collision tiles are replaced in the worker, the visual tileset is
    swapped once the new one has settled, the player and the session stay. Measured on a one-tile landing: 193 s from
-   the landing to the swapped tileset, of which 191 s is the quick `make tile-build` and 1.4 s the swap itself.
+   the landing to the swapped tileset, of which 191 s is the quick `make tile-build` and 1.4 s the swap itself. A
+   builder's per-tile entry skips the build: from `put-tiles` of a newly listed tile (t0_1_-1, headless tab on a
+   sandbox service, host load 70-90) to the swapped tileset 2.2-4.8 s (put 0.9-1.1 s, composed and served 0.2-1.0 s
+   later, manifest fetched within 0.1 s, the hidden tileset settled 0.5-2.5 s after the tile's model loaded). The car
+   that drove into the tile's draft, reversed into the core and drove back met collision under it in every frame,
+   never fell and kept its speed (23.7 m/s out, 23.0-23.3 m/s back); the first frame of the swapped tileset still
+   hitches 0.4-0.6 s (its materials' node builds and uploads; a whole-tileset reload repeats them for every visible
+   tile).
 
 ## The coarse tile service follows main too (`coarse.mjs`)
 
