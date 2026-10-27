@@ -9,6 +9,7 @@ import { EdgeWalls } from './edgeWalls';
 import { CAR, CHARACTER, DT, SCOOTER } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
+import { remoteColliderHeight } from '../net/height';
 import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 export { CHARACTER, DT };
 import type { CharacterInput, CharacterState, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
@@ -283,7 +284,7 @@ export class PhysicsWorld {
       let remote = this.remotes.get(p.id);
       if (remote?.mode !== p.mode) {
         if (remote) this.world.removeRigidBody(remote.body);
-        const height = p.mode === 'foot' ? CHARACTER.halfHeight + CHARACTER.radius + CHARACTER.skin : 0.6;
+        const height = remoteColliderHeight(p.mode);
         const body = this.world.createRigidBody(this.R.RigidBodyDesc.kinematicPositionBased()
           .setTranslation(p.pos.x, p.pos.y + height, p.pos.z));
         const desc = p.mode === 'foot' ? this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius)
@@ -293,7 +294,7 @@ export class PhysicsWorld {
         remote = { body, mode: p.mode };
         this.remotes.set(p.id, remote);
       }
-      const y = p.pos.y + (p.mode === 'foot' ? CHARACTER.halfHeight + CHARACTER.radius + CHARACTER.skin : 0.6);
+      const y = p.pos.y + remoteColliderHeight(p.mode);
       remote!.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
       const yaw = p.mode === 'foot' ? p.yaw : p.yaw + Math.PI / 2;
       remote!.body.setNextKinematicRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });

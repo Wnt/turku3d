@@ -3,7 +3,7 @@ import { PoseBuffer } from '../../src/net/interpolation';
 import type { NetPose } from '../../src/net/client';
 
 const pose = (t: number, E: number, yaw = 0): NetPose => ({ t, E, N: 0, H: 3, yaw,
-  vE: 10, vN: 0, vH: 0, mode: 'foot', carrying: false });
+  vE: 10, vN: 0, vH: 0, mode: 'foot', vehicle: null, carrying: false });
 
 test('network interpolation buffers 100 ms and extrapolates at most 200 ms', () => {
   const buffer = new PoseBuffer();

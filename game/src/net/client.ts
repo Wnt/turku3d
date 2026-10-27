@@ -2,7 +2,7 @@ import { multiplayerUrl, scoresUrl } from './config';
 
 export interface NetPose {
   t: number; E: number; N: number; H: number; yaw: number;
-  vE: number; vN: number; vH: number; mode: 'foot' | 'car' | 'scooter'; carrying: boolean;
+  vE: number; vN: number; vH: number; mode: 'foot' | 'car' | 'scooter'; vehicle: string | null; carrying: boolean;
 }
 export interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
 export interface Score { nick: string; money: number; deliveries: number; rank: number; online: boolean }
@@ -23,7 +23,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   if (!previous) return true;
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
-  const changed = moved || turned || pose.mode !== previous.mode || pose.carrying !== previous.carrying
+  const changed = moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;
 }

@@ -151,11 +151,14 @@ export class Room {
     if (!finite(m.t, Number.MAX_SAFE_INTEGER) || m.t < 0 || !finite(m.E, 100_000) || !finite(m.N, 100_000)
       || !finite(m.H, 10_000) || !finite(m.yaw, Math.PI * 2)
       || !['vE', 'vN', 'vH'].every(k => finite(m[k], 200))
-      || !['foot', 'car', 'scooter'].includes(m.mode) || typeof m.carrying !== 'boolean') {
+      || !['foot', 'car', 'scooter'].includes(m.mode) || typeof m.carrying !== 'boolean'
+      || !(m.mode === 'foot' ? m.vehicle === null : m.mode === 'scooter' ? m.vehicle === 'scooter'
+        : m.vehicle === 'player' || (typeof m.vehicle === 'string' && m.vehicle.length <= 64
+          && /^[a-z0-9-]+\/[a-z0-9-]+$/.test(m.vehicle)))) {
       this.reject(); return;
     }
-    const { t, E, N, H, yaw, vE, vN, vH, mode, carrying } = m;
-    p.pose = { t, E, N, H, yaw, vE, vN, vH, mode, carrying };
+    const { t, E, N, H, yaw, vE, vN, vH, mode, vehicle, carrying } = m;
+    p.pose = { t, E, N, H, yaw, vE, vN, vH, mode, vehicle, carrying };
     p.dirty = true;
     p.lastPoseAt = now;
     const wasOnline = p.online;

@@ -11,7 +11,11 @@ No physics, collision resolution, order issuance or rendering runs on this serve
 `E` and `N` are **local east and north metres**, relative to EPSG:3877 origin
 `(23459500, 6704500)`. Convert engine position with `E=x`, `N=-z`, `H=y`;
 convert absolute map coordinates by subtracting that origin. Do not send the
-absolute EPSG numbers. `H` is N2000 elevation in metres. `vE`, `vN`, `vH` are
+absolute EPSG numbers. `H` is N2000 elevation in metres at the character's feet
+in `foot` mode. In `car` and `scooter` modes it is the chassis centre minus 0.6 m;
+the receiver adds 0.6 m for the visual root and kinematic chassis collider. This
+keeps the network pose near ground level while preserving the local vehicle's
+chassis origin. `vE`, `vN`, `vH` are
 metres/second on those same axes. `yaw` is radians about engine +Y, forward -Z
 at zero: `yaw=-headingDegrees*pi/180`. Send yaw normalized to `[-2π,2π]`, using
 the actor's facing direction (the client must account for its model's forward axis).
@@ -51,12 +55,15 @@ The token is a bearer credential; retain it privately, never put it in a URL.
 ### pose
 
 ```json
-{"v":1,"type":"pose","t":12345,"E":173,"N":-252,"H":3.7,"yaw":0,"vE":1,"vN":0,"vH":0,"mode":"foot","carrying":false}
+{"v":1,"type":"pose","t":12345,"E":173,"N":-252,"H":3.7,"yaw":0,"vE":1,"vN":0,"vH":0,"mode":"foot","vehicle":null,"carrying":false}
 ```
 
 All fields required. Numbers must be finite: `0≤t≤Number.MAX_SAFE_INTEGER`,
 `|E|,|N|≤100000`, `|H|≤10000`, `|yaw|≤2π`, each velocity component ≤200 in absolute
-value. `mode` is `"foot"`, `"car"` or `"scooter"`; `carrying` is boolean. These are
+value. `mode` is `"foot"`, `"car"` or `"scooter"`; `carrying` is boolean.
+`vehicle` is null on foot, `"scooter"` on a scooter, `"player"` in the starter car,
+or `<model>/<colour>` in a driven parked car (the key in `manifest.vehicle_models`).
+It changes with the driven vehicle and lets receivers use its exact mesh and paint. These are
 sanity bounds, not server physics or movement verification. Send at up to 20 Hz,
 including stationary poses while actively playing. Sixty seconds without an
 accepted pose removes the player from the live roster and sets `online:false`;
@@ -96,7 +103,7 @@ its delivery, regardless of `t` or when the client started the order.
 |---|---|---|
 | `welcome` | `session`, `you:{id,nick,spawn}`, `hour:Hour`, `players:Player[]`, `scores:Score[]` | After hello; also after each hour reset to communicate the new nickname. |
 | `players` | `players:Player[]` | Full replacement roster after join, leave, idle/resume or reset. Remove absent remote bodies. |
-| `poses` | `poses:[{id,t,E,N,H,yaw,vE,vN,vH,mode,carrying}]` | Every 50 ms when changes exist: latest accepted pose per changed player, excluding recipient. Omitted players have no new pose; omission does not remove them. |
+| `poses` | `poses:[{id,t,E,N,H,yaw,vE,vN,vH,mode,vehicle,carrying}]` | Every 50 ms when changes exist: latest accepted pose per changed player, excluding recipient. Omitted players have no new pose; omission does not remove them. |
 | `scores` | `scores:Score[]` | Full replacement scoreboard after every accepted delivery and presence change/join/reset. Includes idle/disconnected participants from this hour. |
 | `hour_end_in` | `seconds` | Once in the last 10 seconds (normally 10; lower if the event loop was delayed). |
 | `hour_reset` | `hour:Hour` | Old hour archived; switch the UI to the new hour, clearing previous scores. Followed by welcome and roster/scores. |
