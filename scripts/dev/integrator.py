@@ -4,19 +4,19 @@ The lander fast-forwards main after the fast gate. This integrator then classifi
 G..M (G = commit of the published live release, M = main head; landing_class.py): `inert`
 re-points live to M without a build, `data` and `code` build M once in its own sandbox with
 the class's stages (live_build.stages_for). A batch whose build stages succeed is published
-to live and Pages; its advisory checks (Chrome, audits, car report, facade baseline) are
-recorded in the row and the release, and new failures are sent to the batch's authors as an
-inbox warning. They never block, bisect or revert. A build failure builds G against the
-current data root first: a red G is `data-red` (the data root changed, no commit is blamed
-or reverted). Only a green G bisects the batch's landings (build stages only) and reverts the
-one culprit landing on main through the land lock and the fast gate, tells its author and
-leaves live at G.
+to live and Pages; then a code batch runs the deep gate tier (`gate --deep --all`). Advisory
+checks (Chrome, audits, car report, facade baseline, deep gate) are recorded in the row (and
+the release) and new failures go to the batch's authors as an inbox warning; they never
+block, bisect or revert. A build failure builds G against the current data root first: a
+red G is `data-red` (no commit is blamed). Only a green G bisects the batch's landings (build
+stages only) and reverts the one culprit landing through the land lock and the fast gate.
 
-Nothing polls: each landing starts a run when none is going (ensure), and a finished run starts
-the next when main or the data root moved meanwhile. A newer main joins only while that is free
-(before the first stage that is not a cache hit); then the batch is frozen. A second lane (`--lane data`, sandbox `integration-data`) builds the live commit G against a changed
-data root while the code lane is busy; publication is serialised under `publish.lock`, and a
-lane whose live release changed meanwhile rebuilds on top of it instead of publishing over it.
+Nothing polls: each landing starts a run when none is going (ensure), and a finished run
+starts the next when main or the data root moved meanwhile. A newer main joins only while
+that is free (before the first stage that is not a cache hit); then the batch is frozen. A
+second lane (`--lane data`, sandbox `integration-data`) builds G against a changed data root
+while the code lane is busy; publication is serialised under `publish.lock`, and a lane whose
+live release changed meanwhile rebuilds on top of it instead of publishing over it.
 """
 
 from __future__ import annotations
@@ -531,11 +531,16 @@ def integrate(run, base, start, end):
         report, failure = run.build(start, end, kind="data")
         if report is None:
             return data_red(run, base, failure, failure)
+    if deployed := pages.deploy(published):
+        row["pages"] = deployed
+    # The deep gate tier, once the release is out, in the build's checkout of M (advisory);
+    # a deep stage that was already red in the previous batch is not news.
+    repo, log = s.sandbox(run.name) / "repo", registry() / f"integration-{end[:12]}-deep.log"
+    row["deep_gate_seconds"], deep = advisory.deep_gate(repo, environment(repo, published), log)
+    row["advisory"] = [*row["advisory"], *deep]
+    known += [e for e in last(published).get("advisory") or () if e["stage"] == "deep-gate"]
     row["result"] = "green"
     row["warned"] = advisory.warn(run, row, known)
-    deployed = pages.deploy(published)
-    if deployed:
-        row["pages"] = deployed
     return record(run, row)
 
 
@@ -552,8 +557,7 @@ def repoint(run, base, start, end):
     row["result"] = "green"
     changed = landing_class.changed_paths(run.main_repo, start, end)
     if any(path in PAGES_INPUTS for path in changed):
-        deployed = pages.deploy(run.published)
-        if deployed:
+        if deployed := pages.deploy(run.published):
             row["pages"] = deployed
     return record(run, row)
 
@@ -683,8 +687,7 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME):
             )
     row["result"] = "green"
     row["warned"] = advisory.warn(run, row, advisory.release_advisory(live))
-    deployed = pages.deploy(published)
-    if deployed:
+    if deployed := pages.deploy(published):
         row["pages"] = deployed
     return record(run, row)
 

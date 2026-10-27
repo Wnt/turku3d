@@ -1,5 +1,9 @@
 # The only path -> stage routing table. Globs use fnmatch: * includes slashes.
 # A trigger selects a stage; sources bounds the files linted by that stage.
+# Tiers: `gate --fast` (workers, finish, the lander) runs lint, types, policy and the unit-test
+# stages whose full run stays under 20 s, under 30 s in all at host load 100, never a browser.
+# A stage over that budget gets tier = "deep": `gate --deep` / `make gate-deep` by hand, and the
+# integrator runs `gate --deep --all` after publishing each code batch (advisory).
 [gate]
 # Gate machinery changes rerun every stage; the host tools are covered by their own test stages.
 full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py", "scripts/dev/gate_cache.py"]
@@ -18,7 +22,7 @@ binary_allowed = ["game/public/assets/*", "game/public/basis/*"]
 [browser]
 # Per-task Chrome budget in browser-minutes (Playwright wall seconds x workers), debited by
 # `host_slots.py browser`; a brief overrides it with a line `BROWSER_BUDGET_MIN = <minutes>`.
-budget_minutes = 20
+budget_minutes = 5
 
 [flags]
 registry = "docs/flags.toml"
@@ -47,6 +51,7 @@ sources = ["tools/validator/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", 
 
 [[stages]]
 name = "pipeline-tests"
+tier = "deep"
 kind = "pytest"
 triggers = ["pipeline/*.py", "pipeline/turku3d/package/*.mjs", "pipeline/turku3d/placement/manoeuvre.json", "pipeline/pyproject.toml", "docs/specs/*", "game/src/shared/col/*", "tools/validator/src/*"]
 cwd = "pipeline"
@@ -141,6 +146,7 @@ tests = ["tests/test_qa.py::test_build_report", "tests/test_regression.py::test_
 
 [[stages]]
 name = "textures-tests"
+tier = "deep"
 kind = "pytest"
 triggers = ["bench/codex/*.py", "textures/*.py", "textures/node/*", "textures/pyproject.toml", "pipeline/turku3d/config.py"]
 cwd = "textures"
@@ -165,6 +171,7 @@ tests = ["tests"]
 
 [[stages]]
 name = "gate-tests"
+tier = "deep"
 inputs = ["pipeline/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
 triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "docs/flags.toml"]
@@ -172,6 +179,7 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_polic
 
 [[stages]]
 name = "tooling-tests"
+tier = "deep"
 inputs = ["pipeline/turku3d/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
 triggers = ["scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/landing.py", "scripts/dev/integrator.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/advisory.py", "scripts/dev/spec_selection.py", "scripts/dev/browser_budget.py", "scripts/dev/tests/test_browser_budget.py", "scripts/dev/host_slots.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_lander.py", "scripts/dev/tests/test_finish.py", "scripts/dev/tests/test_live_build.py", "scripts/dev/tests/test_host_slots.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
@@ -180,12 +188,14 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_la
 # The integrator tests patch module globals and os.environ, so they run serially in their own process.
 [[stages]]
 name = "integrator-tests"
+tier = "deep"
 kind = "command"
 triggers = ["scripts/dev/integrator.py", "scripts/dev/integration_chrome.py", "scripts/dev/advisory.py", "scripts/dev/tests/test_advisory.py", "scripts/dev/spec_selection.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/gate_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/tests/test_caches.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
 commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_caches.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_advisory.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py"]]
 
 [[stages]]
 name = "watch-tests"
+tier = "deep"
 kind = "command"
 triggers = ["scripts/dev/watch", "scripts/dev/watch_*.py", "scripts/dev/tests/test_watch.py", "scripts/dev/task_runner.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py"]
 commands = [["{python}", "scripts/dev/tests/test_watch.py"]]
@@ -211,6 +221,7 @@ commands = [["tools/validator/node_modules/.bin/tsc", "-b", "tools/validator/tsc
 
 [[stages]]
 name = "knip"
+tier = "deep"
 kind = "command"
 triggers = ["game/*.ts", "game/*.mjs", "tools/validator/*.ts", "qa/render/*.mjs", "textures/node/*.mjs", "tools/dev/*.mjs", "tools/dev/*.mts", "pipeline/*.mjs", "*/package*.json", "package*.json", "knip.json"]
 commands = [["node_modules/.bin/knip", "--no-progress", "--include-entry-exports"]]
@@ -223,6 +234,7 @@ cwd = "game"
 
 [[stages]]
 name = "validator-tests"
+tier = "deep"
 kind = "command"
 env = { FIXTURE_WALKERS = "32" }
 triggers = ["tools/validator/*", "game/src/shared/col/*", "pipeline/turku3d/col/*", "pipeline/turku3d/placement/manoeuvre.json", "game/src/vehicle/*", "game/src/physics/triLocator.ts", "game/src/physics/constants.ts", "game/src/physics/protocol.ts"]
@@ -368,6 +380,7 @@ commands = [["node", "--test", "game/tests/headless/vehicle.test.ts"]]
 
 [[stages]]
 name = "dependency-imports"
+tier = "deep"
 kind = "command"
 triggers = ["*/pyproject.toml", "*requirements*.txt", "scripts/dev/check_imports.py"]
 inputs = ["pipeline/*.py", "textures/*.py"]

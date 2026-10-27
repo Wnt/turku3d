@@ -18,6 +18,7 @@ from gate_lib import (  # noqa: E402
     browser,
     browser_plan,
     changes,
+    deep,
     describe,
     e2e,
     matches,
@@ -294,11 +295,17 @@ class GateTest(unittest.TestCase):
         game = ["game/src/render/idPass.ts"]
         self.assertIn("game-e2e", chosen(game))
         fast = chosen(game, fast=True)
-        self.assertTrue({"game-unit", "game-types", "js-lint"} <= fast, fast)
+        self.assertTrue({"game-types", "js-lint"} <= fast, fast)
         self.assertFalse({"game-e2e", "qa-render-tests"} & fast, fast)
+        # gate.toml widens to every stage, yet --fast keeps out browser and deep stages and
+        # --deep keeps only the deep tier.
+        slow = {s["name"] for s in config["stages"] if browser(s) or deep(s)}
         routing = chosen(["scripts/dev/gate.toml"], fast=True)
-        self.assertIn("gate-tests", routing)
-        self.assertFalse({s["name"] for s in config["stages"] if browser(s)} & routing, routing)
+        self.assertTrue({"policy", "python-lint", "game-types"} <= routing, routing)
+        self.assertFalse(slow & routing, routing)
+        tier = {s["name"] for s in config["stages"] if deep(s)}
+        self.assertEqual(chosen(["scripts/dev/gate.toml"], deep_only=True), tier)
+        self.assertFalse({s["name"] for s in config["stages"] if browser(s)} & tier)
         for tool in ("host_slots.py", "env_sync.py", "resources.py"):
             full, _ = selection(config, ["scripts/dev/" + tool], fast=True)
             self.assertFalse(full, tool)

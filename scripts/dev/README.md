@@ -414,19 +414,23 @@ scripts/dev/gate                         # merge-base(main, HEAD) + index + work
 scripts/dev/gate --base HEAD             # only local changes
 scripts/dev/gate --base main --list      # selection, reasons, browser pick and its cost, no run
 scripts/dev/gate --all                   # every stage, every spec on both browser backends
-scripts/dev/gate --fast --base main      # the lander's pre-merge gate: selective, no browser stages
+scripts/dev/gate --fast --base main      # the lander's pre-merge gate: selective, no browser or deep stages
 scripts/dev/gate --fast --base main --list   # what the lander would run, and why each stage is skipped
+scripts/dev/gate --deep --base main      # the deep tier for your changes (= make gate-deep; ALL=1 for --all)
 scripts/dev/gate --json                  # JSON report, including command output and durations
 ```
 
-`--fast` is the selective gate without browser stages: `kind = "e2e"` (`game-e2e`) and any stage
-marked `browser = true` (`qa-render-tests`, which launches Chrome) are skipped with the reason
-`--fast: browser stages run in the integrator`. Everything else stays selective, including the
-full-trigger widening; a gate test fails if a stage that starts Playwright or Chrome is not marked.
-Workers run it before `finish`, and the lander runs it again after rebasing. Target: at most 60 s on
-a typical change and about 2 s when every stage is cached. `full_triggers` are only the gate's own
-`gate.toml`, `gate_lib.py`, `gate_fixtures.py` and `gate_cache.py`; `host_slots.py`, `env_sync.py`
-and `resources.py` select `gate-tests`, `tooling-tests` and `python-lint` like other tooling.
+`--fast` (workers before `finish`, the lander after rebasing) runs lint and format, type checks, policy
+and the unit-test stages whose full run stays under 20 s; target under 30 s at host load 100, about
+2 s when cached. It skips browser stages (`kind = "e2e"`, `browser = true`; a gate test fails if a
+stage that starts Playwright or Chrome is not marked) and the deep tier: stages with `tier = "deep"`
+(`pipeline-tests`, `textures-tests`, `gate-tests`, `tooling-tests`, `integrator-tests`,
+`watch-tests`, `knip`, `validator-tests`, `dependency-imports`). `--deep` runs only deep stages;
+the integrator runs `gate --deep --all` (cached per stage input hash) after it publishes a code
+batch; red stages are advisory (`deep-gate` with the failing stage names in the ledger row, warned
+to the batch's authors when new). A stage whose full run exceeds 20 s moves to the deep tier.
+`full_triggers` are only the gate's own `gate.toml`, `gate_lib.py`, `gate_fixtures.py` and
+`gate_cache.py`; they widen the selection to every stage of the chosen tier.
 
 Exit codes: **0 green, 1 red, 2 usage/invalid base**. Deleted paths still select their owning
 stages. Ignored untracked files do not count. JSON goes to stdout with no progress chatter;
@@ -442,7 +446,7 @@ Validator Node tests remain Node tests, preserving their cross-language round-tr
 
 `game-e2e` runs a browser pick, by default the selector's proposal (`spec_selection.select`: related rows
 and spec `@tags`) with its estimated browser-minutes; `--specs smoke.spec.ts --project webgl` picks yourself.
-Each task's budget (`[browser] budget_minutes` = 20, or a brief line `BROWSER_BUDGET_MIN = N`) is debited
+Each task's budget (`[browser] budget_minutes` = 5, or a brief line `BROWSER_BUDGET_MIN = N`) is debited
 by every `host_slots.py browser` run (wall s x workers) in `~/turku3d/tasks/<task>/browser-budget.json`
 (`codex-task status`; ledger `browser_minutes`); a spent budget refuses further runs. The pipeline browser fixture publishes four synthetic ground layers with a deterministic RGB texture,
 then runs the production assembler into `.cache/gate-tiles`. Its separate empty input root prevents
@@ -622,7 +626,6 @@ scripts/dev/gate --paths game/src/core/origin.ts --json
 python3 scripts/dev/integrator.py status
 # Explicit budgets, on an unloaded machine:
 TURKU3D_JOBS=1 make streaming-perf
-TURKU3D_JOBS=1 make tooling-perf
 TURKU3D_JOBS=1 make render-perf
 ```
 
@@ -656,7 +659,7 @@ integrator code lane (asynchronous, one run at a time, `integration` host reserv
         class (landing_class.classify): inert → live_build.repoint(M), no build, no slot
         data/code → live_build.build(M, stages_for(class)); landings join only while free (batch_joined)
         builds: publish(M) under publish.lock, on top of a data-lane release published meanwhile
-               → Pages → advisory failures new since G's release: warning to the batch's authors
+               → Pages → gate --deep --all → new advisory failures: warning to the batch's authors
         build red: base check: live_build.build(G, build stages) against the current data root
                G red:   data-red, revert nothing, warning to all, live stays at G;
                         no retry until main moves or the data key changes

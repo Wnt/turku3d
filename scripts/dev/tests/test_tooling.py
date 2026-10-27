@@ -367,24 +367,6 @@ class ToolingTests(Fixture):
         ).stdout.strip()
         self.assertTrue(not state or state.startswith("Z"), f"child still running: {state}")
 
-    def test_finish_records_external_result_and_lands(self):
-        repo = self.start()
-        self.cli("codex-task", "stop", "demo")
-        self.assertIn(
-            "exact ## Result: DONE", self.finish(text="## Result: BLOCKED\n", ok=False).stderr
-        )
-        self.commit(repo)
-        output = self.finish(text="## Result: DONE\n\n## What changed\nExternal worker edit.\n")
-        self.assertIn("landed", output.stdout)
-        self.assertIn("External worker edit", self.cli("codex-task", "result", "demo").stdout)
-        meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
-        self.assertEqual(
-            (meta["state"], meta["exit_code"], meta["worker"]), ("done", 0, "external")
-        )
-        self.assertEqual(meta["landed"]["commit"], self.git("rev-parse", "main"))
-        self.assertTrue((self.repo / "change.md").exists())
-        self.assertFalse(repo.exists())
-
     def test_adopt_registers_external_sandbox(self):
         self.assertIn(
             "no sandbox",

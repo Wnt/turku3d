@@ -338,7 +338,13 @@ def browser(stage):
     return stage["kind"] == "e2e" or bool(stage.get("browser"))
 
 
-def selection(config, changed, *, full=False, lint_only=False, fast=False):
+def deep(stage):
+    """`tier = "deep"`: over the fast gate's budget; `gate --deep`, `make gate-deep` and the
+    integrator (advisory, after publishing) run them, `gate --fast` never does."""
+    return stage.get("tier") == "deep"
+
+
+def selection(config, changed, *, full=False, lint_only=False, fast=False, deep_only=False):
     """Return (stage, selected, reason) for every stage; full_triggers widen to all stages."""
     full = full or (
         not lint_only and any(matches(p, config["gate"].get("full_triggers", [])) for p in changed)
@@ -357,6 +363,10 @@ def selection(config, changed, *, full=False, lint_only=False, fast=False):
             selected, reason = False, "pre-commit: lint/format only"
         elif fast and browser(stage):
             selected, reason = False, "--fast: browser stages run in the integrator"
+        elif fast and deep(stage):
+            selected, reason = False, "--fast: deep tier (make gate-deep, integrator)"
+        elif deep_only and not deep(stage):
+            selected, reason = False, "--deep: deep tier only"
         elif not selected:
             reason = "no changed path matches stage triggers"
         rows.append((stage, selected, reason))
@@ -364,8 +374,9 @@ def selection(config, changed, *, full=False, lint_only=False, fast=False):
 
 
 def run_gate(root, config, changed, **options):
-    """Options: full, listing, as_json, lint_only (pre-commit), fast (no browser stages), and
-    specs/projects (the Chrome pick; default the selector's proposal)."""
+    """Options: full, listing, as_json, lint_only (pre-commit), fast (no browser or deep
+    stages), deep_only (the deep tier), and specs/projects (the Chrome pick; default the
+    selector's proposal)."""
     # One checkout has one browser port/output tree. Distinct sandboxes still run in parallel.
     with lock(root / ".cache/gate.lock"):
         return _run_gate(root, config, changed, **options)
@@ -381,6 +392,7 @@ def _run_gate(
     as_json=False,
     lint_only=False,
     fast=False,
+    deep_only=False,
     specs=None,
     projects=None,
 ):
@@ -388,9 +400,11 @@ def _run_gate(
     files = inventory(root)
     # Only an explicit --all runs every browser spec; gate machinery widening does not.
     plan = None
-    if not (fast or lint_only) and any(stage["kind"] == "e2e" for stage in config["stages"]):
+    if not (fast or lint_only or deep_only) and any(s["kind"] == "e2e" for s in config["stages"]):
         plan = browser_plan(root, changed, full, specs, projects)
-    full, rows = selection(config, changed, full=full, lint_only=lint_only, fast=fast)
+    full, rows = selection(
+        config, changed, full=full, lint_only=lint_only, fast=fast, deep_only=deep_only
+    )
     if plan and (specs or projects):
         rows = [
             (stage, True, "--specs/--project") if stage["kind"] == "e2e" else (stage, *rest)
@@ -493,8 +507,14 @@ def main(argv=None):
     parser.add_argument("--all", action="store_true", dest="full")
     parser.add_argument("--list", action="store_true", dest="listing")
     parser.add_argument("--json", action="store_true", dest="as_json")
-    parser.add_argument(
-        "--fast", action="store_true", help="skip browser stages; the lander's pre-merge gate"
+    tier = parser.add_mutually_exclusive_group()
+    tier.add_argument(
+        "--fast",
+        action="store_true",
+        help="skip browser and deep-tier stages; the lander's pre-merge gate",
+    )
+    tier.add_argument(
+        "--deep", action="store_true", dest="deep_only", help="only the deep-tier stages"
     )
     parser.add_argument(
         "--paths", nargs="+", help="profile explicit repo-relative paths instead of Git changes"
@@ -532,6 +552,7 @@ def main(argv=None):
         listing=args.listing,
         as_json=args.as_json,
         fast=args.fast,
+        deep_only=args.deep_only,
         specs=args.specs,
         projects=args.projects,
     )

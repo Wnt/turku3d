@@ -51,6 +51,18 @@ class AdvisoryTests(test_integrator.IntegratorFixture):
         row = self.integrate()
         self.assertEqual((row["advisory"], self.live_record()["advisory"]), ([], []))
 
+    def test_red_deep_gate_after_publication_is_advisory_and_warned_once(self):
+        red = '#!/bin/sh\ncase "$*" in *--deep*) echo "FAIL   tooling-tests 9.0s"; exit 1;; esac\n'
+        head = self.land("one", "scripts/dev/gate", red)
+        row = self.integrate()
+        self.assertEqual((row["result"], integrator.live_commit(self.published)), ("green", head))
+        [deep] = row["advisory"]
+        self.assertEqual((deep["stage"], deep["checks"]), ("deep-gate", ["tooling-tests"]))
+        self.assertIn("FAIL   tooling-tests", Path(deep["log"]).read_text())
+        self.assertEqual(row["warned"], ["one"])
+        self.land("two", "game/b.ts", "b")
+        self.assertEqual(self.integrate()["warned"], [])
+
     def test_facade_drop_without_reason_is_published_with_a_warning(self):
         head = self.land("drop", "game/facades.txt", "1\n")
         row = self.integrate()
