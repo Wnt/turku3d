@@ -333,7 +333,7 @@ def land_at_turn_end(name, path):
     result = s.run_group(
         [sys.executable, str(s.REPO / "scripts/dev/codex-task"), "land", name],
         cwd=path,
-        env=dict(os.environ),
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
         log=path / "land.log",
         timeout=LAND_TIMEOUT_SECONDS,
     )
