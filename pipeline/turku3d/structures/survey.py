@@ -84,7 +84,9 @@ def group_flights(lines, *, gap=1.1, angle_deg=12):
         left = max((p @ u).min() for _, p, _, _ in items)
         right = min((p @ u).max() for _, p, _, _ in items)
         if right - left <= 0.3 or np.ptp(across) < 0.1:
-            rejected.append({"object_id": ids[0], "reason": "inconsistent flight widths"})
+            # Name a 66626 nosing: only those can be rebuilt as surveyed single steps.
+            nosing = next(item[0] for item in items if item[3] == "66626")
+            rejected.append({"object_id": nosing, "reason": "inconsistent flight widths"})
             continue
         centre = (left + right) / 2
         key = hashlib.sha256("\n".join(sorted(ids)).encode()).hexdigest()[:16]

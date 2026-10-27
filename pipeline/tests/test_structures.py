@@ -271,6 +271,16 @@ def test_missing_lidar_uses_surveyed_stair_with_ground_contact(tmp_path):
     assert not metrics["issues"]
 
 
+def test_an_inconsistent_flight_is_rejected_by_its_nosing_not_a_supporting_edge():
+    lines = [
+        ("a-edge", LineString([(1.75, 0.5), (2.06, 0.5)]), "66618"),
+        ("b-nosing", LineString([(0, 0), (2, 0)]), "66626"),
+    ]
+    flights, rejected = group_flights(lines)
+    assert flights == []
+    assert rejected == [{"object_id": "b-nosing", "reason": "inconsistent flight widths"}]
+
+
 def test_inconclusive_osm_wall_top_uses_reported_survey_only_height(tmp_path):
     from turku3d.structures.build import build
 
