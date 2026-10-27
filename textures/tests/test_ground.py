@@ -246,6 +246,8 @@ def test_ground_raster_cache_and_unchanged_tile_skip(tmp_path, monkeypatch):
         "tile_key": "tile-a",
         "ortho_key": "ortho-a",
     }
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out/.build-key.json").write_text('"a key from before the split"\n')
     first = build.build_tile(*args, **extra)
     assert len(reads) == 2 and len(encodes) == 5
     assert build.build_tile(*args, **extra) == first

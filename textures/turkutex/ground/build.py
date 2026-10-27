@@ -160,6 +160,8 @@ def build_tile(
     out.mkdir(parents=True, exist_ok=True)
     key_file = out / ".build-key.json"
     previous_key = json.loads(key_file.read_text()) if key_file.exists() else {}
+    if not isinstance(previous_key, dict):
+        previous_key = {}  # A single key from before the ortho/tile split matches neither.
     previous = (
         json.loads((out / "material.json").read_text())
         if (out / "material.json").exists()
