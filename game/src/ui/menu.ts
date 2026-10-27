@@ -226,7 +226,7 @@ export class SaveMenuFlow {
       { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) },
       ...(this.audio ? [{ id: 'audio', label: 'Audio', detail: 'Music volume and mute', enabled: true, run: this.audio }] : []),
       { id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) },
-      ...(this.developer ? [{ id: 'dev', label: 'Developer', detail: 'Money, fly mode, teleport, time', enabled: true,
+      ...(this.developer ? [{ id: 'dev', label: 'Developer', detail: 'Money, fly mode, truck, teleport, time', enabled: true,
         run: this.developer }] : []),
       { id: 'quit', label: 'Quit to start screen', detail: null, enabled: true, run: () => this.game.quit() },
     ] };

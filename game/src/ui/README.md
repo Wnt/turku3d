@@ -10,7 +10,7 @@ DOM overlays drawn over the WebGPU/WebGL canvas. Styles live in `game/index.html
 | `menu.ts` | `MenuList` (the row list every menu uses), `MenuPanel` (a titled menu page), `PauseMenu`, and `SaveMenuFlow` (start, pause, save, load and confirm pages over `core/save.ts`) |
 | `shopMenu.ts` | `ShopMenu`: the full-screen shop menu that renders a `ShopView` from the mission system |
 | `fullscreen.ts` | `FullscreenPolicy`: touch play runs the scene in fullscreen; the "Tap to continue in fullscreen" overlay |
-| `devMenu.ts` | `DevMenuFlow`: the pause menu's Developer pages (localhost only): money, fly mode, teleport, time of day |
+| `devMenu.ts` | `DevMenuFlow`: the pause menu's Developer pages (localhost only): money, fly mode, truck spawn, teleport, time of day |
 
 ## Touch play and fullscreen
 
@@ -101,6 +101,9 @@ pause menu lists **Developer** (before Quit), whose pages (`devMenu.ts`, wired i
   keeps the character's collisions (`CharacterInput.fly`), so walls and roofs stop it; the camera is the on-foot
   orbit camera. Safe reset holds while flying and re-arms at the first grounded contact after it
   (`RecoveryMonitor.hold`, `gameplay/README.md`). Entering a vehicle ends the flight.
+- **Spawn trophy truck here**: puts the trophy truck (physics id `truck`, `actors/seatedVehicles.ts` `parkAhead`)
+  on the ground 7 m ahead along the camera's view, facing that way, without buying it: free roam drives it like any
+  vehicle; deliveries still need it bought at the dealer. A bought truck is moved there instead.
 - **Teleport to...**: the named places of `gameplay/content/places.ts` (Office, Pizzeria, Tuomiokirkko, Turun
   linna, Kauppatori, Aurakatu 6a) and **Enter E,N** (a browser prompt for `E,N[,heading]`, EPSG:3877, like
   `?spawn=`). `SaveGameController.teleport` places the player like a loaded game: it streams the collision tile,

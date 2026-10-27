@@ -35,6 +35,12 @@ export class SeatedVehicles {
     this.physics.spawnVehicle({ x: spot.x, y, z: spot.z }, spot.yaw, { id: kind === 'truck' ? TRUCK_ID : SCOOTER_ID, kind });
   }
 
+  /** Developer spawn: the bought `kind` on the ground `metres` ahead of `at` along the camera's view, facing that way. */
+  parkAhead(kind: 'scooter' | 'truck', at: V3, camera: THREE.Camera, metres = 7) {
+    const view = camera.getWorldDirection(new THREE.Vector3()).setY(0).normalize();
+    return this.park(kind, { x: at.x + view.x * metres, y: at.y, z: at.z + view.z * metres, yaw: Math.atan2(-view.z, view.x) });
+  }
+
   /** Follows each vehicle's latest state and seats the player on the one being driven. */
   update(dt: number, latestOf: (id: string) => VehicleState | null, drivenId: string | null, player: PlayerVisual) {
     const scooter = latestOf(SCOOTER_ID), truck = latestOf(TRUCK_ID);
