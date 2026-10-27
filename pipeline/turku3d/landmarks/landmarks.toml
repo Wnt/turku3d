@@ -1,0 +1,26 @@
+# Landmarks built from full-density lidar instead of the buildings layer's fitted shell.
+# The orchestrator decides what joins this list; docs/research/landmarks.md has the candidates.
+#
+# id                   stable object id (lowercase, digits, dashes)
+# name                 human-readable name
+# building             buildings-layer id of the footprint this replaces (kantakartta or gis-...)
+#   or polygon_en      [[E, N], ...] in EPSG:3877 for objects without a building footprint
+# method               "lidar-heightfield" (the only method so far)
+# cell_m               heightfield cell size, 0.2-1.0 m
+# visual_triangles     closed visual shell budget (at most 60000)
+# collision_triangles  closed collision shell budget (at most 2000, the building shell limit)
+# wall                 procedural wall material: "brick" or "render"
+# wall_rgb             its base colour, picked by hand (airborne lidar and the ortho do not see walls)
+
+version = 1
+
+[[landmark]]
+id = "tuomiokirkko"
+name = "Turun tuomiokirkko (Turku Cathedral)"
+building = "103371570S"
+method = "lidar-heightfield"
+cell_m = 0.25
+visual_triangles = 40000
+collision_triangles = 2000
+wall = "brick"
+wall_rgb = [146, 82, 62]  # weathered red-brown medieval brick

@@ -79,6 +79,7 @@ def test_parallel_rebuilds_detach_shared_layers_ancestor_once(tmp_path, monkeypa
         "bridge_textures",
         "outer_buildings",
         "roads",
+        "landmarks",
         "vegetation",
         "parked",
     ):
@@ -100,6 +101,7 @@ def test_refresh_rebuilds_exactly_the_assembler_office_layers(tmp_path, monkeypa
         "vegetation": "vegetation",
         "parked": "traffic_static",
         "roads": "roads",
+        "landmarks": "landmarks",
     }
     texture_steps = {"ground_textures", "facades", "bridge_textures"}
     rebuilt = []
@@ -201,13 +203,14 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "bridge_textures", node("bridge-textures"))
     monkeypatch.setattr(refresh, "outer_buildings", node("buildings_outer", ("buildings",)))
     monkeypatch.setattr(refresh, "roads", node("roads"))
+    monkeypatch.setattr(refresh, "landmarks", node("landmarks"))
     solid = (*surfaces, "buildings_outer", "props", "vegetation")
     monkeypatch.setattr(refresh, "parked", node("traffic_static", solid))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
     second = refresh.refresh(tmp_path)
     assert set(second.values()) == {"cached"}
-    assert len(calls) == 12
+    assert len(calls) == 13
 
 
 def test_structures_refresh_requires_passed_real_acceptance(tmp_path, monkeypatch):

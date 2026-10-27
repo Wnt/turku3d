@@ -4,8 +4,10 @@ Production consumes the complete manifests under `$TURKU3D_WORK/build/layers/`.
 Publish layers first with [`turku3d.layers`](../../../docs/specs/layers.md).
 The office build requires every layer `make refresh` rebuilds (`OFFICE_LAYERS` in
 `assemble.py`: ground, buildings, an acceptance-passed structures layer, bridges,
-surrounding building massing, props, vegetation, traffic_static and roads), each with
-the visual/collision tiles it publishes. A missing or empty layer fails the build and
+surrounding building massing, props, vegetation, traffic_static, roads and landmarks),
+each with the visual/collision tiles it publishes. A layer whose manifest lists
+`params.replaces` (landmarks) replaces those buildings-layer footprints: the assembler drops
+their collision triangles (by `building_index`) and visual nodes (by `building_id`). A missing or empty layer fails the build and
 names `make refresh`; `pipeline/tests/test_refresh.py` keeps the two lists equal.
 A requested tile needs at least one visual layer.
 L0 and collision have no stub or raw-data fallback. Coarse parents may read the cached
@@ -23,7 +25,7 @@ make game-test
 `make refresh` locks `$TURKU3D_WORK/.refresh.lock`, checks producer manifest input and
 code hashes, and rebuilds changed ground and buildings in parallel, then structures.
 Structures use the refreshed ground and must pass real-data geometry and Rapier
-acceptance. Ground splats, the filtered facade export, bridges, roads and surrounding
+acceptance. Ground splats, the filtered facade export, bridges, roads, landmarks and surrounding
 building massing follow in parallel. The instance producers then run in placement
 order (props, vegetation, traffic_static) against all of those colliders; each one
 clears only the inventories published before it, so one pass converges.

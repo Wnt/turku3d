@@ -16,7 +16,13 @@ import numpy as np
 from turku3d import config as C
 from turku3d.col.format import ColTile, Primitive, read_col, write_col
 from turku3d.content.addresses import publish as publish_addresses
-from turku3d.layers import layer_root, read_collision, read_manifest, read_visual
+from turku3d.layers import (
+    CollisionLayer,
+    layer_root,
+    read_collision,
+    read_manifest,
+    read_visual,
+)
 from turku3d.package import coarse
 from turku3d.package.facades import (
     facade_bindings,
@@ -90,7 +96,31 @@ def load_layers(root: Path):
                         raise ValueError(
                             f"{name}: seam mismatch {tid}/{other.id} (decoded={decoded})"
                         )
+    drop_replaced(root, manifests, collision)
     return manifests, collision
+
+
+def replaced_buildings(manifests) -> list[str]:
+    """Buildings-layer footprints another layer ships instead (landmarks: `params.replaces`)."""
+    return sorted({b for m in manifests.values() for b in m["params"].get("replaces", [])})
+
+
+def drop_replaced(root: Path, manifests, collision) -> None:
+    """Remove the replaced buildings' collision shells, by the layer's per-triangle owners."""
+    replaced = replaced_buildings(manifests)
+    for tid, layer in collision.get("buildings", {}).items() if replaced else ():
+        with np.load(root / "buildings" / f"{tid}.col.npz", allow_pickle=False) as arrays:
+            ids, owner = arrays["building_ids"], arrays["building_index"]
+        keep = ~np.isin(ids[owner], replaced)
+        if keep.all():
+            continue
+        used, inverse = np.unique(layer.indices[keep], return_inverse=True)
+        collision["buildings"][tid] = CollisionLayer(
+            layer.positions[used],
+            inverse.reshape(-1, 3).astype(np.uint32),
+            layer.material[keep],
+            layer.primitives,
+        )
 
 
 # Every layer make refresh rebuilds, with the tile kinds it must publish. Assembly of a
@@ -105,6 +135,7 @@ OFFICE_LAYERS = {
     "vegetation": (".vis.glb", ".col.npz"),
     "traffic_static": (".vis.glb", ".col.npz"),
     "roads": (),
+    "landmarks": (),  # Allowlisted objects only; most tiles have none.
 }
 # Expansion tiles outside the measured core ship with the layers that exist for them;
 # ground, buildings and roads are the minimum (structures need measured office data).
@@ -223,6 +254,7 @@ def visual_tiles(
     bindings,
     ground_bindings,
     facade_density=None,
+    replaced=(),
 ):
     requests = []
     for tile, inputs in tiles.items():
@@ -242,6 +274,7 @@ def visual_tiles(
                 groundBinding=ground_bindings.get(tile.id),
                 textureCache=str(texture_cache),
                 coarseTerrain=tile.id in coarse_ids,
+                replacedBuildings=list(replaced),
             )
         )
     req = stage / "requests.json"
@@ -413,11 +446,13 @@ def assemble(
         if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
     ]
     texture_hash = digest(textures)
+    replaced = replaced_buildings(manifests)
     layer_ids = {
         name: [m.get("code"), m["params"].get("seams")]
         for name, m in manifests.items()
         if name != "roads"
     }
+    layer_ids["replaced_buildings"] = replaced
     available = set(tree.collision)
     published_cells = set()
     for t in requested:
@@ -524,6 +559,7 @@ def assemble(
                 coarse_ids,
                 bindings,
                 ground_bindings,
+                replaced=replaced,
             )
             if pending_inputs
             else {}
@@ -576,6 +612,7 @@ def assemble(
                         bindings,
                         ground_bindings,
                         facade_density,
+                        replaced=replaced,
                     )[tile]
                     pending_visual[tile] = (data, stats)
                     wire_bytes = stats["brotli_bytes"] + ground_bindings.get(tile.id, {}).get(
