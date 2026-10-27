@@ -516,14 +516,15 @@ def refresh(work, target=None):
                 "landmarks": pool.submit(timed, "landmarks", landmarks, layers),
                 "buildings_outer": pool.submit(timed, "buildings_outer", outer_buildings, layers),
             }
-            for name in ("bridges", "buildings_outer"):
+            # Parked cars clear every solid layer, landmarks included.
+            for name in ("bridges", "buildings_outer", "landmarks"):
                 result[name] = futures[name].result()
             # Instance placement reads every solid layer above, and each producer clears
             # the inventories published before it (placement.inputs.PLACEMENT_ORDER).
             result["props"] = timed("props", props, layers)
             result["vegetation"] = timed("vegetation", vegetation, layers)
             result["traffic_static"] = timed("traffic_static", parked, layers)
-            for name in ("ground-textures", "facades", "roads", "landmarks"):
+            for name in ("ground-textures", "facades", "roads"):
                 result[name] = futures[name].result()
         result["bridge-textures"] = timed("bridge-textures", bridge_textures, textures)
     return result

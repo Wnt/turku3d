@@ -204,7 +204,7 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "outer_buildings", node("buildings_outer", ("buildings",)))
     monkeypatch.setattr(refresh, "roads", node("roads"))
     monkeypatch.setattr(refresh, "landmarks", node("landmarks"))
-    solid = (*surfaces, "buildings_outer", "props", "vegetation")
+    solid = (*surfaces, "buildings_outer", "landmarks", "props", "vegetation")
     monkeypatch.setattr(refresh, "parked", node("traffic_static", solid))
     first = refresh.refresh(tmp_path)
     assert set(calls) == set(first)
