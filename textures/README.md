@@ -142,6 +142,47 @@ $PY -m turkutex.facade_rollout publish $N --queue "$Q" --run "$R" \
 sources) and regenerates `ledger.md`. `publish` binds only walls that passed the audit
 and the manual look, under the export lock, with the inventory hash unchanged.
 
+### Fast facade pass (rough maps from photo-read parameters)
+
+`turkutex.facade_fast` gives every street-facing wall without a generated or derived map a rough
+map within minutes of the geometry. One vision call per wall (`fast_describe` route, gpt-6-astra/low,
+text out) reads the best screened reference crop (scaled to 768 px) into
+`schemas/facade_fast_description.schema.json`: wall visible, material, wall and trim colour,
+storeys, window columns and proportions, ground-floor type, roof line, plinth and features.
+`turkutex.facade_fast_render` then draws the map from those parameters alone: tiled material
+with grit and weathering, the window grid with frames and glass, the ground-floor variant and
+the bands, in milliseconds. No photo pixel reaches the map, so it ships like a derived map.
+
+```sh
+source ../sandbox.env
+A="$TURKU3D_DATA/facade-approvals/assembly"; R="$TURKU3D_WORK/textures/fast/t0_0_0"; PY=textures/.venv/bin/python
+COMMON=(--run "$R" --inventory "$A/APPROVED_INVENTORY.geojson")
+$PY -m turkutex.facade_fast plan "${COMMON[@]}" --assembly "$A" --tiles t0_0_0   # or --walls ID,ID
+$PY -m turkutex.facade_fast refs "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/refs"
+$PY -m turkutex.facade_fast describe "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/refs" -j 8
+$PY -m turkutex.facade_fast render "${COMMON[@]}" --staging "$R/staging" --wfs "$TURKU3D_DATA/raw/wfs/work-3x3"
+$PY -m turkutex.facade_fast contact "${COMMON[@]}" --staging "$R/staging" --assembly "$A" --output SHEET.jpg
+$PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --assembly "$A"
+```
+
+- **Which description.** A wall whose crop shows it uses its own reading (`source: reference`).
+  Otherwise it takes the reading of its building's largest read wall at the same window spacing
+  (`building`), else a description from the building register's facade material, era and storeys
+  (`register`, no call). Implausible counts (storeys outside 2.4–5.5 m, window spacing outside
+  0.9–8 m) are replaced by ones from the wall size.
+- **Calls are cached** in `$TURKU3D_DATA/textures/codex-cache` by prompt and crop hash, so a rerun
+  in any sandbox makes no new call; the runner stops below `--max-pct` (default 90).
+- **Maps** are 16 px/m (the top of the packager's density ladder) with `min_pixels_per_metre` 0,
+  so the packager scales them down before any generated or derived map. Rendering is keyed by
+  the description and code; an unchanged wall is not re-encoded.
+- **Publish** binds under the export lock and skips every wall that has a generated or derived
+  map by then; a later generated (rollout) or derived map replaces a fast one.
+
+The sidecar has the derived sidecar's fields with `source_mode: fast`, `references: []` and
+`fast_description` (`version`, `code`, `source`, `description`, `layout` as drawn, and for a
+read wall `reference` {source, view_id, crop_sha256} and `call` {model, effort, key, cached};
+`adopted_from` or `attributes` for the fallbacks). Measurement: `docs/reports/textures-fast-facade-pass.md`.
+
 ### Lidar point colours on walls (measured, not used)
 
 `turkutex.facade_lidar` measures whether the city lidar's RGB could colour walls that have no

@@ -33,3 +33,6 @@ effort = "low"
 [reference_grid]
 model = "gpt-6-astra"
 effort = "low"
+[fast_describe]
+model = "gpt-6-astra"
+effort = "low"
