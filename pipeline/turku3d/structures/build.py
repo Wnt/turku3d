@@ -12,7 +12,8 @@ from .geometry import profile_wall, quay, stairs
 from .survey import group_flights, sample_line
 
 
-def build(records, lidar, ground):
+def build(records, lidar, ground, region=None):
+    """Structures of the survey records; ground quays only those centred in region (a bbox)."""
     meshes, issues, measurements, survey_only, excluded_sources = [], [], [], [], []
     lines = [
         (r["object_id"], r["geometry"], r["code"])
@@ -270,6 +271,9 @@ def build(records, lidar, ground):
             else:
                 issues.append({"object_id": object_id, "reason": reason})
     for object_id, xz, lower, upper in ground.quays:
+        centre = np.asarray(xz).mean(axis=0)
+        if region is not None and not region.contains(*centre):
+            continue
         try:
             meshes.extend(quay(object_id, xz, lower, upper))
         except ValueError as e:
@@ -299,8 +303,6 @@ def build(records, lidar, ground):
                     "reason": "ramp survey is not covered by measured ground ramp terrain",
                 }
             )
-    if not meshes:
-        issues.append({"object_id": "layer", "reason": "no structures could be reconstructed"})
     metrics = {
         "status": "BLOCKED" if issues else "READY_FOR_VALIDATION",
         "input_counts": dict(Counter(r["code"] for r in records)),

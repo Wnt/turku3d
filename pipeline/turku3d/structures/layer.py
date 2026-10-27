@@ -3,23 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
-from shapely.geometry import MultiPoint
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
-from turku3d.fetch.common import atomic_write_bytes
-from turku3d.layers import (
-    CollisionLayer,
-    read_manifest,
-    write_collision,
-    write_manifest,
-    write_visual,
-)
+from turku3d.layers import CollisionLayer, write_collision, write_visual
 from turku3d.package.gltf import GlbMesh
 
 MATERIAL_KEYS = {
@@ -44,6 +35,7 @@ def code_hash():
     paths = sorted(Path(__file__).parent.glob("*.py"))
     paths += [
         Path(C.__file__),
+        Path(C.__file__).parent / "tile_layer.py",
         Path(C.__file__).parent / "col/materials_v1.json",
         Path(C.__file__).parent / "package/gltf.py",
         Path(C.__file__).parent / "layers.py",
@@ -63,48 +55,22 @@ def code_hash():
     return hashlib.sha256("".join(sha256(p) for p in paths).encode()).hexdigest()
 
 
-def cached_manifest(out, inputs, params):
-    out = Path(out)
-    try:
-        previous = read_manifest(out)
-        expected = {
-            **params,
-            "seams": "objects",
-            "acceptance_passed": json.loads((out / "metrics.json").read_text()).get("status")
-            == "PASS",
-        }
-        stored = dict(previous["params"])
-        metrics_hash = stored.pop("metrics_sha256")
-        if (
-            previous["inputs"] == inputs
-            and previous["code"] == code_hash()
-            and stored == expected
-            and sha256(out / "metrics.json") == metrics_hash
-            and (out / "report.md").is_file()
-        ):
-            return previous
-    except (ValueError, OSError, KeyError):
-        pass
-    return None
+def tile_cells(mesh, tile):
+    """The collision tiles of `tile` that the whole mesh touches (seams: objects)."""
+    xz = mesh.positions[:, [0, 2]]
+    bounds = C.BBoxLocal(*xz.min(axis=0), *xz.max(axis=0)).buffered(1e-6)
+    return [c for c in C.collision_tiles_for_bbox(bounds) if c.visual_parent() == tile]
 
 
-def write_layer(meshes, out, *, inputs, params, metrics):
-    """Publish complete objects in every collision cell they touch."""
-    out = Path(out)
-    previous = cached_manifest(out, inputs, params)
-    if previous is not None:
-        return previous, True
-    collision, visuals = defaultdict(list), defaultdict(list)
+def write_tile(meshes, directory, tile):
+    """One L0 tile's structures: each complete mesh in every collision tile of this tile it
+    touches, and the visual meshes in the tile's GLB. A mesh poking past the tile edge stays
+    whole in this tile's cells, so a neighbour's build never writes it."""
+    directory = Path(directory)
+    collision = defaultdict(list)
     for mesh in meshes:
-        centre = MultiPoint(mesh.positions[:, [0, 2]]).convex_hull.centroid
-        xz = mesh.positions[:, [0, 2]]
-        bounds = C.BBoxLocal(*xz.min(axis=0), *xz.max(axis=0)).buffered(1e-6)
-        for tile in C.collision_tiles_for_bbox(bounds):
-            collision[tile.id].append(mesh)
-        if mesh.visual:
-            visuals[C.VisualTile.at(centre.x, centre.y).id].append(mesh)
-    out.mkdir(parents=True, exist_ok=True)
-    files = []
+        for cell in tile_cells(mesh, tile):
+            collision[cell.id].append(mesh)
     for tid, parts in sorted(collision.items()):
         positions, indices, materials = [], [], []
         count = 0
@@ -120,20 +86,18 @@ def write_layer(meshes, out, *, inputs, params, metrics):
             indices.append(mesh.indices + count)
             materials.append(np.full(len(mesh.indices), mat_id(mesh.material), np.uint8))
             count += len(mesh.positions)
-        filename = f"{tid}.col.npz"
         write_collision(
-            out / filename,
+            directory / f"{tid}.col.npz",
             CollisionLayer(
                 np.concatenate(positions).astype(np.float64),
                 np.concatenate(indices).astype(np.uint32),
                 np.concatenate(materials),
             ),
         )
-        files.append(filename)
-    for tid, parts in sorted(visuals.items()):
-        filename = f"{tid}.vis.glb"
+    visual = [mesh for mesh in meshes if mesh.visual]
+    if visual:
         write_visual(
-            out / filename,
+            directory / f"{tile.id}.vis.glb",
             [
                 GlbMesh(
                     mesh.object_id,
@@ -147,42 +111,20 @@ def write_layer(meshes, out, *, inputs, params, metrics):
                         **mesh.metadata,
                     },
                 )
-                for mesh in parts
+                for mesh in visual
             ],
             root_extras={"layer": "structures"},
         )
-        files.append(filename)
-    metrics = {
-        **metrics,
-        "collision_tiles": len(collision),
-        "visual_tiles": len(visuals),
-        "triangles": sum(len(m.indices) for m in meshes),
-    }
-    atomic_write_bytes(
-        out / "metrics.json", (json.dumps(metrics, indent=2, allow_nan=False) + "\n").encode()
-    )
-    atomic_write_bytes(
-        out / "report.md",
-        (
-            "# Structures layer report\n\n```json\n"
-            + json.dumps(metrics, indent=2, allow_nan=False)
-            + "\n```\n"
-        ).encode(),
-    )
-    manifest = write_manifest(
-        out,
-        inputs=inputs,
-        params={
-            **params,
-            "seams": "objects",
-            "acceptance_passed": metrics.get("status") == "PASS",
-            "metrics_sha256": sha256(out / "metrics.json"),
-        },
-        code=code_hash(),
-        tiles=files,
-    )
-    for pattern in ("*.col.npz", "*.vis.glb"):
-        for path in out.glob(pattern):
-            if path.name not in files:
-                path.unlink()
-    return manifest, False
+    return {"collision_tiles": len(collision), "triangles": sum(len(m.indices) for m in meshes)}
+
+
+def omit_failed(meshes, issues):
+    """Drop the meshes of objects that failed a geometric or physics check."""
+    failed = {issue["object_id"].rsplit(":route:", 1)[0] for issue in issues}
+    failed |= {source for issue in issues for source in issue.get("sources", [])}
+    kept = [
+        m
+        for m in meshes
+        if not any(m.object_id == f or m.object_id.startswith(f + ":") for f in failed)
+    ]
+    return kept, len(meshes) - len(kept)

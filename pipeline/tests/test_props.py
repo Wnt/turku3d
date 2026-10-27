@@ -256,3 +256,78 @@ def test_props_build_per_tile_from_each_tiles_inputs(tmp_path, monkeypatch):
     tile_layer.run(out, PRODUCER, ["t0_0_0", "t0_1_0"])
     world.ground(["t0_0_0", "t0_1_0", "t0_0_1"])
     assert tile_layer.stale(out, PRODUCER, ["t0_0_0", "t0_1_0", "t0_0_1"]) == ["t0_0_1"]
+
+
+def test_osm_signs_move_to_the_roadside_and_defer_to_the_register():
+    import json
+    from collections import Counter
+
+    import pandas as pd
+    from shapely.geometry import Point
+    from turku3d.props import osm_props, sign_codes
+
+    assert sign_codes({"highway": "give_way"}) == ["B5"]
+    assert sign_codes({"highway": "stop", "traffic_sign": "FI:B6;Fi:H20, FI:X99"}) == [
+        "B6",
+        "H20",
+        "X99",
+    ]
+    carriageway = box(0, 40, 200, 47)
+    frame = pd.DataFrame(
+        [
+            {"osm_id": 1, "tags": json.dumps({"highway": "stop"}), "geometry_local": Point(50, 42)},
+            {
+                "osm_id": 2,
+                "tags": json.dumps({"highway": "give_way"}),
+                "geometry_local": Point(150, 46),
+            },
+            {
+                "osm_id": 3,
+                "tags": json.dumps({"traffic_sign": "FI:X99"}),
+                "geometry_local": Point(100, 30),
+            },
+        ]
+    )
+    register = [Prop("city:b5", "sign", 160, 0, 49, code="B5")]
+    skipped = Counter()
+    found = osm_props(frame, C.BBoxLocal(0, 0, 250, 250), register, carriageway, skipped)
+    stop = next(p for p in found if p.object_id == "osm:1:B6")
+    assert (stop.kind, stop.code) == ("sign", "B6")
+    assert stop.x == pytest.approx(50) and stop.z == pytest.approx(40 - 0.7)
+    assert [p.object_id for p in found if p.kind == "post"] == ["osm:3:X99"]
+    assert skipped["osm_sign_in_register"] == 1 and skipped["unsupported_sign:X99"] == 1
+
+
+def test_lit_streets_without_lamps_get_lamps_by_spacing():
+    import json
+    from collections import Counter
+
+    import pandas as pd
+    from shapely.geometry import Point
+    from turku3d.props import LAMP_SPACING, osm_props
+
+    street = LineString([(0, 100), (240, 100)])
+    frame = pd.DataFrame(
+        [
+            {
+                "osm_id": 7,
+                "tags": json.dumps({"highway": "residential", "lit": "yes", "width": "8"}),
+                "geometry_local": street,
+            },
+            {
+                "osm_id": 8,
+                "tags": json.dumps({"highway": "street_lamp"}),
+                "geometry_local": Point(210, 103),
+            },
+            {
+                "osm_id": 9,
+                "tags": json.dumps({"highway": "footway"}),
+                "geometry_local": LineString([(0, 0), (99, 0)]),
+            },
+        ]
+    )
+    found = osm_props(frame, C.BBoxLocal(0, 0, 250, 250), [], box(0, 0, 0, 0), Counter())
+    spaced = sorted((p for p in found if p.source == "osm_lit_street"), key=lambda p: p.x)
+    assert len(spaced) == 6  # 8 stations, two within 20 m of the mapped lamp at x = 210
+    assert all(p.kind == "lamp" and p.z == pytest.approx(105) for p in spaced)
+    assert spaced[1].x - spaced[0].x == pytest.approx(LAMP_SPACING)

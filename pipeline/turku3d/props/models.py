@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from turku3d.package.gltf import GlbMesh
 
-SUPPORTED_SIGNS = {"E1", "E2", "E6", "C37", "C38", "B5", "D3.1", "H20"}
+SUPPORTED_SIGNS = {"E1", "E2", "E6", "C37", "C38", "B5", "B6", "D3.1", "H20"}
 COLORS = ["#454e53", "#a97943", "#d0d6d3", "#f4c72d", "#242b2e", "#f3f1dd"]
 
 
@@ -32,6 +32,16 @@ def atlas(code: str = "") -> bytes:
     elif code == "B5":
         d.polygon([(132, 8), (252, 8), (192, 120)], fill=red)
         d.polygon([(150, 19), (234, 19), (192, 98)], fill=yellow)
+    elif code == "B6":
+        octagon = [
+            (
+                192 + 60 * math.cos(math.tau * (i + 0.5) / 8),
+                64 + 60 * math.sin(math.tau * (i + 0.5) / 8),
+            )
+            for i in range(8)
+        ]
+        d.polygon(octagon, fill=red, outline="white", width=4)
+        d.text((192, 64), "STOP", font=ImageFont.load_default(size=30), anchor="mm", fill="white")
     elif code in ("E1", "E2", "E6", "D3.1", "H20"):
         d.rectangle((131, 3, 252, 124), fill=blue, outline="white", width=4)
         if code == "D3.1":
@@ -158,6 +168,14 @@ def model(kind: str, code: str = "") -> GlbMesh:
             ]
         elif code == "B5":
             outline = [(-0.33, 0.30), (0, -0.33), (0.33, 0.30)]
+        elif code == "B6":
+            outline = [
+                (
+                    0.33 * math.cos(math.tau * (i + 0.5) / 8),
+                    0.33 * math.sin(math.tau * (i + 0.5) / 8),
+                )
+                for i in range(8)
+            ]
         else:
             outline = [(-0.33, -0.33), (0.33, -0.33), (0.33, 0.33), (-0.33, 0.33)]
         front = [(x, 2.4 + y, 0.065) for x, y in outline]

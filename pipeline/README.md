@@ -98,6 +98,7 @@ neighbour's placement context changed.
 |---|---|---|---|
 | ground | LAZ under the envelope, WFS streets/water/buildings, OSM (water bodies, bridges), ortho | `ground/MANIFEST.json` `tile_builds` (+ water body levels) | 82–160 s |
 | roads | OSM ways (`tile_layer.osm`) | OSM clip + code | < 1 s (+8 s reading the work-3x3 clip) |
+| structures | city survey `kanta_Rakenne` (stairs, walls, fences), OSM steps/barriers, LAZ, ground collision | sources + LAZ + ground cells within 5 m | (measured below) |
 | bridges | OSM `bridge=*` ways within 150 m, `GIS_Katualueet` `Silta`, LAZ, ground collision | sources + LAZ + ground cells under its crossings | 1–21 s |
 | props | WFS register points, OSM lamps/bollards, placement context | sources + collision within 20 m + footprints + code | 30–60 s |
 | vegetation | tree register (4 WFS layers), LAZ under tile + 12 m, placement context | sources + LAZ + context + assets | 190–390 s cold (each LAZ reduced once), then the placement |
@@ -107,7 +108,7 @@ neighbour's placement context changed.
 `make tile-add` builds each of these for the new tile; a neighbour rebuilds only when its key
 changes (placement context reaching into the new tile, a water body or bridge it shares).
 Buildings record the list they were built for in `<layer>/PLAYABLE_TILES.json` and keep
-per-building keys. Structures stay on the measured office core.
+per-building keys.
 
 Only the new tile is built. Ground meshes each listed L0 tile in its own envelope: its 16
 collision tiles, one ring of collision tiles and the 50 m margin (`ground.build.envelope`).

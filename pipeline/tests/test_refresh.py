@@ -213,38 +213,6 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
     assert len(calls) == 13
 
 
-def test_structures_refresh_requires_passed_real_acceptance(tmp_path, monkeypatch):
-    from turku3d.layers import write_manifest
-
-    layers = tmp_path / "layers"
-    source = tmp_path / "ground.json"
-    source.write_text("ground-v1")
-    directory = layers / "structures"
-    write_manifest(
-        directory,
-        inputs={str(source): refresh.sha(source)},
-        params={"acceptance_passed": False},
-        code=refresh.structures_code_hash(),
-        tiles=[],
-    )
-    calls = []
-    monkeypatch.setattr(refresh, "run", lambda *args: calls.append(args))
-    assert refresh.structures(layers) == "rebuilt"
-    assert calls == [
-        ("turku3d.structures", "--area", "office-block", "--ground-layer", str(layers / "ground"))
-    ]
-    calls.clear()
-    write_manifest(
-        directory,
-        inputs={str(source): refresh.sha(source)},
-        params={"acceptance_passed": True},
-        code=refresh.structures_code_hash(),
-        tiles=[],
-    )
-    assert refresh.structures(layers) == "cached"
-    assert not calls
-
-
 def test_ground_target_ignores_unrelated_stale_buildings(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(refresh, "ground", lambda layers: calls.append("ground") or "cached")
@@ -302,7 +270,7 @@ def test_per_tile_layers_rebuild_only_when_a_tile_is_stale(tmp_path, monkeypatch
     stale.append("t0_0_0")
     assert refresh.props(layers) == refresh.roads(layers) == "rebuilt"
     assert refresh.bridges(layers) == refresh.vegetation(layers) == refresh.parked(layers)
-    assert refresh.outer_buildings(layers) == "rebuilt"
+    assert refresh.outer_buildings(layers) == refresh.structures(layers) == "rebuilt"
     assert calls == [
         ("turku3d.props",),
         ("turku3d.props",),
@@ -311,4 +279,5 @@ def test_per_tile_layers_rebuild_only_when_a_tile_is_stale(tmp_path, monkeypatch
         ("turku3d.vegetation",),
         ("turku3d.parked",),
         ("turku3d.buildings.outer",),
+        ("turku3d.structures",),
     ]

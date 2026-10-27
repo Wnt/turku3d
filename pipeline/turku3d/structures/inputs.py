@@ -16,10 +16,6 @@ from turku3d.col.materials import mat_id
 from .survey import Lidar
 
 
-def office_bounds(area="office-block"):
-    return C.area(area).core
-
-
 def local_geometry(value):
     if isinstance(value, str):
         return from_wkt(value)
@@ -28,17 +24,21 @@ def local_geometry(value):
     return value
 
 
-def survey_sources():
+def survey_sources(source_area="work-3x3"):
+    """The city survey (kanta_Rakenne) and the OSM clip of an input area."""
+    osm = sorted((C.raw_dir("osm") / source_area).glob("*.parquet"))
     return [
-        C.raw_dir("wfs") / "work-3x3/kanta_Rakenne.parquet",
-        C.raw_dir("osm") / "work-3x3/work-3x3-261024.parquet",
+        C.raw_dir("wfs") / source_area / "kanta_Rakenne.parquet",
+        osm[-1] if osm else C.raw_dir("osm") / source_area / f"{source_area}-261024.parquet",
     ]
 
 
-def read_surveys(bounds):
+def read_surveys(bounds, source_area="work-3x3"):
+    """Survey lines (stairs, walls, fences, ramps) clipped to bounds; OSM steps and barriers
+    only where the city survey does not already cover them."""
     import geopandas as gpd
 
-    city_path, osm_path = survey_sources()
+    city_path, osm_path = survey_sources(source_area)
     city = gpd.read_parquet(city_path)
     region = box(*bounds.to_en().as_tuple())
     city = city[city.geometry.intersects(region)]

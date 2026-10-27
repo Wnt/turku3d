@@ -10,7 +10,7 @@ structures-test-physics: $(VALIDATOR)/node_modules/.package-lock.json ## Generat
 	cd $(VALIDATOR) && STRUCTURES_FIXTURE="$(STRUCTURES_FIXTURE)" node --test test/structures.test.ts
 	cd $(VALIDATOR) && npx tsc -p tsconfig.json
 structures-test: structures-test-py structures-test-physics ## All structures tests (use make -j2)
-structures-build: ## Build structures using raw surveys and the completed ground layer
+structures-build: ## Build structures per listed tile from the city survey, OSM and the ground layer
 	$(PIPELINE_RUN) python -m turku3d.structures $(ARGS)
 
 .PHONY: bridges-build bridges-test bridges-textures

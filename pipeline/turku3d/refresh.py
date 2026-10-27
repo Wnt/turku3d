@@ -2,9 +2,9 @@
 
 Ground, buildings, surrounding massing, roads, props, landmarks, vegetation and parked cars
 follow the playable tile list (config.playable_tile_ids). Per-tile layers (turku3d.tile_layer:
-roads, bridges, props, landmarks, vegetation, parked cars and the massing ring) keep a key per
-tile and rebuild only stale tiles; ground and buildings keep their own per-tile keys.
-Structures stay on the measured office core."""
+roads, structures, bridges, props, landmarks, vegetation, parked cars and the massing ring)
+keep a key per tile and rebuild only stale tiles; ground and buildings keep their own
+per-tile keys and record the list they were built for."""
 
 import argparse
 import concurrent.futures
@@ -22,9 +22,7 @@ from pathlib import Path
 from turku3d import config as C
 from turku3d import tile_layer
 from turku3d.ground.build import code_hash as ground_code_hash
-from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
-from turku3d.structures.layer import code_hash as structures_code_hash
 
 _detach_lock = threading.Lock()
 # Written beside a tile-following layer's MANIFEST.json after it is rebuilt for the list.
@@ -81,16 +79,6 @@ def manifest_current(path, expected_code):
         return False
     manifest = json.loads(path.read_text())
     return manifest.get("code") == expected_code and declared_inputs_current(manifest)
-
-
-def layer_current(path, expected_code):
-    if not manifest_current(path, expected_code):
-        return False
-    try:
-        read_manifest(path.parent)
-    except (OSError, ValueError, KeyError):
-        return False
-    return True
 
 
 def texture_sources_current(manifest_path, cache_path):
@@ -394,14 +382,9 @@ def bridges(layers):
 
 
 def structures(layers):
-    path = layers / "structures/MANIFEST.json"
-    if layer_current(path, structures_code_hash()):
-        manifest = json.loads(path.read_text())
-        if manifest["params"].get("acceptance_passed"):
-            return "cached"
-    local_directory(layers / "structures", layers.parents[1])
-    run("turku3d.structures", "--area", "office-block", "--ground-layer", str(layers / "ground"))
-    return "rebuilt"
+    from turku3d.structures.producer import PRODUCER
+
+    return per_tile(layers, PRODUCER, "turku3d.structures")
 
 
 def bridge_textures(textures):
