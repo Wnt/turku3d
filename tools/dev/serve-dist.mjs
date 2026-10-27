@@ -4,6 +4,8 @@
 //  - optional --mount /tiles=<dir> to serve a tile dist next to the game build
 //  - POST /telemetry appended to <telemetry dir>/session-<YYYYMMDD>.jsonl, default $TURKU3D_WORK/telemetry
 //  - /coarse/* proxied to the localhost coarse tile service (tools/dev/coarse-tiles, port base + 5)
+//  - GET /__localhost/status answers { service: false }: a dist server is never the localhost game service
+//    (tools/dev/localhost/vitePlugin.mjs gives the same answer without its service), so pages never log a 404
 //  - GET /facades/candidates/: every reviewed generated facade candidate (facadeCandidates.mjs), from --candidates
 //    (default $TURKU3D_DATA/facade-approvals/candidates)
 // No dependencies (Node >= 20).
@@ -48,6 +50,10 @@ async function handler(req, res) {
   if (req.method === 'POST' && req.url.split('?')[0] === '/telemetry') return telemetry(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   if (req.url === '/coarse' || req.url.startsWith('/coarse/')) return coarse(req, res);
+  if (req.url.split('?')[0] === '/__localhost/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end('{"service":false}\n');
+  }
   if (isFacadeCandidates(req.url)) return candidates(req, res);
   const file = resolvePath(req.url);
   if (!file) { res.writeHead(403); return res.end('forbidden'); }

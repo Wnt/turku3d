@@ -43,6 +43,11 @@ test('brotli on request', async () => {
   const body = raw.length === big.length ? raw : zlib.brotliDecompressSync(raw);
   assert.ok(body.equals(big));
 });
+test('/__localhost/status: a dist server is never the localhost game service', async () => {
+  const r = await fetch(url('/__localhost/status'));
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { service: false });
+});
 test('range request', async () => {
   const r = await fetch(url('/tiles/collision/c_0_0.col'), { headers: { range: 'bytes=0-3' } });
   assert.equal(r.status, 206);
