@@ -144,6 +144,8 @@ export class RecoveryMonitor {
   private waterSince: number | null = null;
   private airSince: number | null = null;
   private graceUntil = -Infinity;
+  /** The player flew (developer fly mode): the rules wait for the first grounded contact. */
+  private awaitingGround = false;
 
   constructor(private readonly area: PlayableArea) {}
 
@@ -158,6 +160,12 @@ export class RecoveryMonitor {
   /** Call every unpaused frame. `minGround` is the lowest ground of the loaded tiles. True: reset now. */
   update(p: Probe, minGround: number): boolean {
     if (p.time < this.graceUntil) return false;
+    if (this.awaitingGround) {
+      if (!p.grounded) return false;
+      // Landed: the samples from before the flight are the way back, else the first safe frame arms the rules.
+      this.awaitingGround = false;
+      this.armed = this.samples.length > 0;
+    }
     const safe = this.safe(p);
     if (safe) {
       this.armed = true;
@@ -192,9 +200,19 @@ export class RecoveryMonitor {
     this.samples.length = 0;
     this.lost = null;
     this.armed = false;
+    this.awaitingGround = false;
     this.waterSince = this.airSince = null;
     this.lastSafe = this.lastSample = -Infinity;
     this.graceUntil = time + RECOVERY.grace;
+  }
+
+  /** The player flies (developer fly mode, gameplay/flyMode.ts): nothing is sampled and nobody is lost until the
+   *  first grounded contact after the flight. Called every flying frame. */
+  hold() {
+    this.lost = null;
+    this.armed = false;
+    this.awaitingGround = true;
+    this.waterSince = this.airSince = null;
   }
 
   /** The player was put back at `target` at `time`: newer samples led to the fall and are dropped. */

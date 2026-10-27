@@ -182,6 +182,16 @@ export class PhysicsWorld {
     const filter = groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC);
     const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS;
     const p0 = col.translation();
+    if (input.fly) {
+      // Flight: the commanded velocity, collisions kept; leaving it falls from rest.
+      cc.computeColliderMovement(col, { x: input.vx * DT, y: input.fly.vy * DT, z: input.vz * DT }, flags, filter);
+      const m = cc.computedMovement();
+      col.setTranslation({ x: p0.x + m.x, y: p0.y + m.y, z: p0.z + m.z });
+      this.charVy = 0;
+      this.charGrounded = cc.computedGrounded();
+      this.charVel = { x: m.x / DT, y: m.y / DT, z: m.z / DT };
+      return;
+    }
     // Rapier's native autostep depends on horizontal speed. A second, height-limited
     // clearance move below handles slow walks into steps up to 0.35 m.
     if (this.charGrounded && input.jump) this.charVy = CHARACTER.jumpSpeed;

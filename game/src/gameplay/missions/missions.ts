@@ -62,12 +62,12 @@ export interface PaidDropoff {
 type Checkpoint = 'delivery' | 'purchase';
 
 /** What a save slot shows about a mission save without restoring it. */
-interface MissionSummary { deliveries: number; money: number; lastAddress: string | null }
+interface MissionSummary { deliveries: number; money: number; devMoney: number; lastAddress: string | null }
 
 /** Slot details of a `MissionSystem.serialize()` text (an invalid text reads as a new game). */
 export function missionSummary(text: string | null): MissionSummary {
   const s = parseSave(text, 0);
-  return { deliveries: s.delivery, money: s.money, lastAddress: s.lastAddress };
+  return { deliveries: s.delivery, money: s.money, devMoney: s.devMoney, lastAddress: s.lastAddress };
 }
 
 /** What the pizzeria quotes before an order is accepted. */
@@ -183,6 +183,8 @@ export class MissionSystem implements MissionHudSource {
 
   get phase(): Phase { return this.s.phase; }
   get money(): number { return this.s.money; }
+  /** Euros of `money` the developer tools added (never reported to the multiplayer server). */
+  get devMoney(): number { return this.s.devMoney; }
   get permit(): number { return this.s.permit; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
   get plates(): boolean { return this.s.plates; }
@@ -211,6 +213,13 @@ export class MissionSystem implements MissionHudSource {
     this.listeners.add(listener);
     listener(this.hud);
     return () => { this.listeners.delete(listener); };
+  }
+
+  /** Developer tools (localhost only): adds `euros` to the local wallet and to `devMoney`, never a paid drop-off. */
+  grantDevMoney(euros: number) {
+    this.s.money += euros;
+    this.s.devMoney += euros;
+    this.emit();
   }
 
   /** Leaves idle once the player starts playing; a continued game keeps its saved phase. */

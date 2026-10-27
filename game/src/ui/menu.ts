@@ -53,8 +53,11 @@ export class MenuList<Row extends MenuRow = MenuRow> {
 
   private highlight() {
     this.element.querySelectorAll('li').forEach((li, i) => {
-      li.classList.toggle('selected', i === this.selected);
-      li.setAttribute('aria-selected', String(i === this.selected));
+      const selected = i === this.selected;
+      // A newly selected row scrolls into view where the list is taller than the screen (a phone in landscape).
+      if (selected && !li.classList.contains('selected')) li.scrollIntoView?.({ block: 'nearest' });
+      li.classList.toggle('selected', selected);
+      li.setAttribute('aria-selected', String(selected));
     });
   }
 }
@@ -182,7 +185,9 @@ function slotItem(store: SaveStore, id: SlotId, enabledEmpty: boolean, run: (gam
 /** The start-screen and pause-menu pages over a save store. */
 export class SaveMenuFlow {
   constructor(private readonly host: MenuHost, private readonly store: SaveStore, private readonly game: GameHooks,
-    private readonly multiplayer?: () => void, private readonly scoreboard?: () => void) {}
+    private readonly multiplayer?: () => void, private readonly scoreboard?: () => void,
+    /** Opens the Developer page (ui/devMenu.ts); only where the developer tools run. */
+    private readonly developer?: () => void) {}
 
   /** Start screen: Continue (latest save, with its details), New game, Load game. */
   start(): MenuPage {
@@ -212,6 +217,8 @@ export class SaveMenuFlow {
       { id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
       { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) },
       { id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) },
+      ...(this.developer ? [{ id: 'dev', label: 'Developer', detail: 'Money, fly mode, teleport, time', enabled: true,
+        run: this.developer }] : []),
       { id: 'quit', label: 'Quit to start screen', detail: null, enabled: true, run: () => this.game.quit() },
     ] };
   }

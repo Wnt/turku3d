@@ -86,6 +86,8 @@ test('save to slot 2, quit, load slot 2 restores money, permit and position; New
   await shot('01-pause-menu');
   await tap(page, 'ArrowDown');
   await tap(page, 'ArrowDown');
+  await expect(selected(page)).toHaveText('Scoreboard');
+  await tap(page, 'ArrowDown');
   await expect(selected(page)).toHaveText('Save game');
   await tap(page, 'Enter');
   await expect(page.locator('#pause-menu .menu-panel')).toHaveAttribute('data-page', 'save');

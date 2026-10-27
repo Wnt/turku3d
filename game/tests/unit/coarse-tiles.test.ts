@@ -1,7 +1,8 @@
 // Draft (coarse) tiles: which cells are wanted, the published-parent swap rule and the game hook against a fake service.
 import { test, expect } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CoarseTiles, aheadTiles, cellsOf, isLocalHost, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
+import { CoarseTiles, aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
+import { isLocalHost } from '../../src/core/localOnly';
 import type { Manifest } from '../../src/world/manifest';
 
 const published = ['t0_0_0', 't0_1_0', 't0_0_1', 't0_1_1', 't1_0_0', 't1_1_0', 't1_0_-1'];

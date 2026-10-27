@@ -517,12 +517,12 @@ describe('mission state machine', () => {
 
   it('summarises a save text for the slot list', () => {
     const h = harness();
-    expect(missionSummary(h.missions.serialize())).toEqual({ deliveries: 0, money: START_MONEY, lastAddress: null });
+    expect(missionSummary(h.missions.serialize())).toEqual({ deliveries: 0, money: START_MONEY, devMoney: 0, lastAddress: null });
     h.missions.begin();
     h.earn(START_MONEY + 1);
     expect(missionSummary(h.missions.serialize())).toEqual({ deliveries: h.missions.deliveries, money: h.missions.money,
-      lastAddress: h.missions.lastAddress });
-    expect(missionSummary('not json')).toEqual({ deliveries: 0, money: START_MONEY, lastAddress: null });
+      devMoney: 0, lastAddress: h.missions.lastAddress });
+    expect(missionSummary('not json')).toEqual({ deliveries: 0, money: START_MONEY, devMoney: 0, lastAddress: null });
   });
 
   it('migrates an owned bicycle in any save version to the scooter', () => {

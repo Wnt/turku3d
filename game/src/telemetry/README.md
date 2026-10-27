@@ -7,7 +7,8 @@ tiles.
 
 ## When it runs
 
-`telemetryEnabled` (`guard.ts`) is an environment check, not a feature flag:
+`telemetryEnabled` (`guard.ts`, over `core/localOnly.ts` `localFeature`, which the developer tools share) is an
+environment check, not a feature flag:
 
 - on in play mode when the page is served from `localhost`, `127.0.0.1` or `[::1]`, or with `?telemetry=1`;
 - always off on `github.io` (the published Pages build), even with `?telemetry=1`, so that build makes no

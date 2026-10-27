@@ -5,7 +5,7 @@ export type Binding =
   | { kind: 'key'; code: string; scale?: number };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
   'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'vehicleReset', 'respawn', 'hud', 'map',
-  'menuUp', 'menuDown', 'menuSelect', 'menuBack'] as const;
+  'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown'] as const;
 export type Action = typeof ACTIONS[number];
 export type Actions = Record<Action, number>;
 export type Bindings = Record<Action, Binding[]>;
@@ -32,6 +32,9 @@ export const DEFAULT_BINDINGS: Bindings = {
   menuDown: [button(13), axis(1), key('ArrowDown'), key('KeyS')],
   menuSelect: [button(0), key('Enter'), key('NumpadEnter'), key('KeyE')],
   menuBack: [button(1), key('Escape'), key('Backspace')],
+  // Developer fly mode (gameplay/flyMode.ts, localhost only): rise with jump or RT, sink with B, LT or Q.
+  flyUp: [button(2), button(7), key('Space')],
+  flyDown: [button(1), button(6), key('KeyQ')],
 };
 export const emptyActions = (): Actions => Object.fromEntries(ACTIONS.map(a => [a, 0])) as Actions;
 interface Curve { deadZone: number; exponent: number }
