@@ -17,10 +17,12 @@ tiles.
 
 ## What it records
 
-`Telemetry.tick` runs after each rendered frame but samples only once a second; it fits the walls of a tile the first
-time the tile is on screen. A sample over 4 resident tiles (~10 000 walls) costs well under a millisecond once a
-second (`__game.telemetry.stats.lastSampleMs` / `maxSampleMs`), far below the 0.3 ms per frame budget. One JSON
-line per sample:
+`Telemetry.tick` runs after each rendered frame (not on the start screen or while paused). It fits the walls of at
+most one newly visible tile per frame and samples once a second. Measured in the sandbox play session (M1 Max, WebGPU,
+4 resident L0 tiles, 6 384 walls): fitting takes at most 2 ms once per tile, a sample 0.2–0.6 ms once a second (the
+very first sample, before the JIT warms up, took 6 ms), i.e. under 0.01 ms per frame on average.
+`__game.telemetry.stats` reports `lastSampleMs`, `maxSampleMs`, `maxFitMs`, `walls`, `samples`, `sent` and `failed`.
+One JSON line per sample:
 
 ```json
 {"session": "k3j9x0a1", "t": 1793098800.123, "E": 23459668.1, "N": 6704254.2, "H": 2.31, "yaw": 87.5, "pitch": -6.1,

@@ -482,8 +482,10 @@ async function runPlay() {
     tiles.update(camera);
     renderFrame();
     window.__render?.afterFrame?.();
-    telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
-      vehicle: mode === 'car' ? drivenId ?? 'player' : null }));
+    if (!startScreen.active && !paused) {
+      telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
+        vehicle: mode === 'car' ? drivenId ?? 'player' : null }));
+    }
 
     router.mode = mode;
     const facing = mode === 'car' && vs ? mapDirection.set(1, 0, 0).applyQuaternion(carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w))

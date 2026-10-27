@@ -16,6 +16,7 @@ export interface FacadeWall {
 export interface WallView { facade_id: string; screen_fraction: number; distance_m: number; angle_deg: number }
 
 const v = new THREE.Vector3();
+const normalMatrix = new THREE.Matrix3();
 
 /** Walls of every mesh under `model`, from current world matrices (call once the model is attached to the scene). */
 export function extractWalls(model: THREE.Object3D): FacadeWall[] {
@@ -31,48 +32,49 @@ export function extractWalls(model: THREE.Object3D): FacadeWall[] {
     const total = index ? index.count : position.count;
     const ranges = Array.isArray(data.objects) ? data.objects as Record<string, unknown>[]
       : [{ ...data, start: 0, count: total }];
-    const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+    normalMatrix.getNormalMatrix(mesh.matrixWorld);
     for (const r of ranges) {
       if (r.building_id == null || r.facade_index == null) continue;
       const start = Number(r.start), count = Number(r.count);
       if (!(count >= 3) || start < 0 || start + count > total) continue;
-      const wall = fitWall(`${String(r.building_id)}_${String(r.facade_index)}`, mesh, position, index, start, count,
-        Array.isArray(r.normal) ? r.normal as number[] : null, normalMatrix);
+      const wall = fitWall(`${String(r.building_id)}_${String(r.facade_index)}`, mesh.matrixWorld, position, index,
+        start, count, Array.isArray(r.normal) ? r.normal as number[] : null);
       if (wall) walls.push(wall);
     }
   });
   return walls;
 }
 
-function fitWall(id: string, mesh: THREE.Mesh, position: THREE.BufferAttribute, index: THREE.BufferAttribute | null,
-  start: number, count: number, normal: number[] | null, normalMatrix: THREE.Matrix3): FacadeWall | null {
-  const points: number[] = [];
-  for (let k = start; k < start + count; k++) {
-    v.fromBufferAttribute(position, index ? index.getX(k) : k).applyMatrix4(mesh.matrixWorld);
-    points.push(v.x, v.y, v.z);
-  }
+function fitWall(id: string, matrix: THREE.Matrix4, position: THREE.BufferAttribute, index: THREE.BufferAttribute | null,
+  start: number, count: number, normal: number[] | null): FacadeWall | null {
+  const vertex = (k: number) => v.fromBufferAttribute(position, index ? index.getX(k) : k).applyMatrix4(matrix);
   let nx: number, nz: number;
   if (normal) {
     v.set(normal[0], normal[1], normal[2]).applyMatrix3(normalMatrix);
     nx = v.x; nz = v.z;
   } else {
     // First triangle's winding normal.
-    const ax = points[3] - points[0], ay = points[4] - points[1], az = points[5] - points[2];
-    const bx = points[6] - points[0], by = points[7] - points[1], bz = points[8] - points[2];
-    nx = ay * bz - az * by; nz = ax * by - ay * bx;
+    const [ax, ay, az] = vertex(start).toArray();
+    const [bx, by, bz] = vertex(start + 1).toArray();
+    const [cx, cy, cz] = vertex(start + 2).toArray();
+    const ux = bx - ax, uy = by - ay, uz = bz - az, wx = cx - ax, wy = cy - ay, wz = cz - az;
+    nx = uy * wz - uz * wy; nz = ux * wy - uy * wx;
   }
   const len = Math.hypot(nx, nz);
   if (len < 1e-9) return null;
   nx /= len; nz /= len;
   const tx = -nz, tz = nx;
   let u0 = Infinity, u1 = -Infinity, y0 = Infinity, y1 = -Infinity, d = 0;
-  for (let i = 0; i < points.length; i += 3) {
-    const u = points[i] * tx + points[i + 2] * tz;
-    u0 = Math.min(u0, u); u1 = Math.max(u1, u);
-    y0 = Math.min(y0, points[i + 1]); y1 = Math.max(y1, points[i + 1]);
-    d += points[i] * nx + points[i + 2] * nz;
+  for (let k = start; k < start + count; k++) {
+    vertex(k);
+    const u = v.x * tx + v.z * tz;
+    if (u < u0) u0 = u;
+    if (u > u1) u1 = u;
+    if (v.y < y0) y0 = v.y;
+    if (v.y > y1) y1 = v.y;
+    d += v.x * nx + v.z * nz;
   }
-  d /= points.length / 3;
+  d /= count;
   const width = u1 - u0;
   if (!(width > 0.05) || !(y1 - y0 > 0.05)) return null;
   const ox = tx * u0 + nx * d, oz = tz * u0 + nz * d;
@@ -84,17 +86,29 @@ function fitWall(id: string, mesh: THREE.Mesh, position: THREE.BufferAttribute, 
 const poly = new Float64Array(32);
 const next = new Float64Array(32);
 const view = new THREE.Vector3();
+const sphere = new THREE.Sphere();
+const matrix = new THREE.Matrix4();
+
+/** The camera's view frustum, for `measureWall`. */
+export function cameraFrustum(camera: THREE.PerspectiveCamera, out: THREE.Frustum): THREE.Frustum {
+  return out.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
+    camera.coordinateSystem);
+}
 
 /**
  * Screen fraction (0..1 of the viewport, occlusion ignored), distance from the camera to the nearest point of the wall
  * and the angle between the wall normal and the direction from the wall centre to the camera (0 = head-on). Null when the wall faces away,
  * lies beyond `maxDistance` or is off screen.
  */
-export function measureWall(wall: FacadeWall, camera: THREE.PerspectiveCamera, maxDistance: number): WallView | null {
+export function measureWall(wall: FacadeWall, camera: THREE.PerspectiveCamera, frustum: THREE.Frustum,
+  maxDistance: number): WallView | null {
   const cam = camera.position;
   const dx = cam.x - wall.ox, dz = cam.z - wall.oz;
   if (dx * wall.nx + dz * wall.nz <= 0) return null; // behind the wall plane: the building interior side
   if (Math.hypot(cam.x - wall.cx, cam.y - wall.cy, cam.z - wall.cz) - wall.radius > maxDistance) return null;
+  sphere.center.set(wall.cx, wall.cy, wall.cz);
+  sphere.radius = wall.radius;
+  if (!frustum.intersectsSphere(sphere)) return null;
   const u = Math.min(wall.width, Math.max(0, dx * wall.tx + dz * wall.tz));
   const y = Math.min(wall.y1, Math.max(wall.y0, cam.y));
   const px = wall.ox + wall.tx * u, pz = wall.oz + wall.tz * u;

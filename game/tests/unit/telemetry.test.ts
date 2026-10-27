@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { Telemetry, telemetryEnabled, type Sample } from '../../src/telemetry';
-import { extractWalls, measureWall } from '../../src/telemetry/walls';
+import { cameraFrustum, extractWalls, measureWall as measure } from '../../src/telemetry/walls';
 import { tilesAhead, visualTileAt } from '../../src/telemetry/grid';
 
 const loc = (url: string) => { const u = new URL(url); return { hostname: u.hostname, search: u.search }; };
@@ -47,6 +47,9 @@ function tileModel() {
   return model;
 }
 
+const measureAt = (wall: Parameters<typeof measure>[0], camera: THREE.PerspectiveCamera) =>
+  measure(wall, camera, cameraFrustum(camera, new THREE.Frustum()), 150);
+
 function cameraAt(x: number, y: number, z: number, target: THREE.Vector3, fov = 90) {
   const camera = new THREE.PerspectiveCamera(fov, 1, 0.1, 6000);
   camera.position.set(x, y, z);
@@ -64,25 +67,25 @@ test('walls are fitted from their index ranges and measured on screen', () => {
   expect(b.width).toBeCloseTo(10); expect(b.y1).toBeCloseTo(6);
 
   // 90 deg vertical fov at 5 m: the 10 x 10 m wall fills the square viewport exactly.
-  const full = measureWall(a, cameraAt(0, 5, 5, new THREE.Vector3(0, 5, 0)), 150)!;
+  const full = measureAt(a, cameraAt(0, 5, 5, new THREE.Vector3(0, 5, 0)))!;
   expect(full.screen_fraction).toBeCloseTo(1, 4);
   expect(full.distance_m).toBeCloseTo(5); expect(full.angle_deg).toBeCloseTo(0);
   // Half of the viewport when the camera aims at the wall's right edge.
-  const half = measureWall(a, cameraAt(5, 5, 5, new THREE.Vector3(5, 5, 0)), 150)!;
+  const half = measureAt(a, cameraAt(5, 5, 5, new THREE.Vector3(5, 5, 0)))!;
   expect(half.screen_fraction).toBeCloseTo(0.5, 4);
   // From 20 m the wall spans a quarter of the view height and width.
-  expect(measureWall(a, cameraAt(0, 5, 20, new THREE.Vector3(0, 5, 0)), 150)!.screen_fraction).toBeCloseTo(1 / 16, 4);
+  expect(measureAt(a, cameraAt(0, 5, 20, new THREE.Vector3(0, 5, 0)))!.screen_fraction).toBeCloseTo(1 / 16, 4);
   // Oblique view: angle from the normal.
-  expect(measureWall(a, cameraAt(10, 5, 10, new THREE.Vector3(0, 5, 0)), 150)!.angle_deg).toBeCloseTo(45, 0);
+  expect(measureAt(a, cameraAt(10, 5, 10, new THREE.Vector3(0, 5, 0)))!.angle_deg).toBeCloseTo(45, 0);
   // Behind the wall, out of range, behind the camera or crossing the near plane.
-  expect(measureWall(a, cameraAt(0, 5, -5, new THREE.Vector3(0, 5, 0)), 150)).toBeNull();
-  expect(measureWall(a, cameraAt(0, 5, 200, new THREE.Vector3(0, 5, 0)), 150)).toBeNull();
-  expect(measureWall(a, cameraAt(0, 5, 5, new THREE.Vector3(0, 5, 10)), 150)).toBeNull();
-  const straddle = measureWall(a, cameraAt(0, 5, 5, new THREE.Vector3(-5, 5, 0)), 150)!;
+  expect(measureAt(a, cameraAt(0, 5, -5, new THREE.Vector3(0, 5, 0)))).toBeNull();
+  expect(measureAt(a, cameraAt(0, 5, 200, new THREE.Vector3(0, 5, 0)))).toBeNull();
+  expect(measureAt(a, cameraAt(0, 5, 5, new THREE.Vector3(0, 5, 10)))).toBeNull();
+  const straddle = measureAt(a, cameraAt(0, 5, 5, new THREE.Vector3(-5, 5, 0)))!;
   expect(straddle.screen_fraction).toBeGreaterThan(0.1);
   expect(straddle.screen_fraction).toBeLessThan(1);
   // Wall B faces -x.
-  expect(measureWall(b, cameraAt(10, 3, 0, new THREE.Vector3(20, 3, 0)), 150)!.distance_m).toBeCloseTo(10);
+  expect(measureAt(b, cameraAt(10, 3, 0, new THREE.Vector3(20, 3, 0)))!.distance_m).toBeCloseTo(10);
 });
 
 test('samples once a second, batches lines every five seconds and names missing tiles', async () => {

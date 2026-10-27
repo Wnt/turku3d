@@ -1,8 +1,8 @@
 // Play telemetry (README.md): once a second, where the player is and which facade walls are on screen, how large and
 // how close; batched as JSON lines and POSTed every 5 s to /telemetry on the serving origin (tools/dev/serve-dist.mjs).
-import type * as THREE from 'three/webgpu';
+import * as THREE from 'three/webgpu';
 import { engineToEN, yawToHeading } from '../core/origin';
-import { extractWalls, measureWall, type FacadeWall, type WallView } from './walls';
+import { cameraFrustum, extractWalls, measureWall, type FacadeWall, type WallView } from './walls';
 import { tilesAhead, visualTileAt } from './grid';
 
 export { telemetryEnabled } from './guard';
@@ -43,17 +43,18 @@ const round = (x: number, digits: number) => { const k = 10 ** digits; return Ma
 
 export class Telemetry {
   readonly session = Math.random().toString(36).slice(2, 10);
-  readonly stats = { samples: 0, sent: 0, failed: 0, lastSampleMs: 0, maxSampleMs: 0, walls: 0 };
+  readonly stats = { samples: 0, sent: 0, failed: 0, lastSampleMs: 0, maxSampleMs: 0, maxFitMs: 0, walls: 0 };
   private models = new Map<THREE.Object3D, FacadeWall[] | null>();
   private built: Set<string> | null = null;
   private queue: string[] = [];
   private lastSample = -Infinity;
   private lastFlush = 0;
   private direction = { x: 0, y: 0, z: 0 };
+  private frustum = new THREE.Frustum();
 
   constructor(private readonly transport: Transport, private readonly clock: () => number = Date.now) {}
 
-  /** A loaded level-0 visual tile model; its walls are fitted the first time it is attached to the scene. */
+  /** A loaded level-0 visual tile model; its walls are fitted in the first frame it is attached to the scene. */
   addModel(model: THREE.Object3D, tileId: string | null | undefined) {
     if (tileId && tileId.startsWith('t0_')) this.models.set(model, null);
   }
@@ -67,8 +68,17 @@ export class Telemetry {
     this.built = new Set([...ids].filter(id => id.startsWith('t0_')));
   }
 
-  /** Call every frame after rendering; samples once a second and flushes every five. */
+  /** Call every frame after rendering: fits at most one newly visible tile, samples once a second, flushes every 5 s. */
   tick(nowMs: number, camera: THREE.PerspectiveCamera, pose: () => PlayerPose) {
+    for (const [model, walls] of this.models) {
+      if (walls || !model.parent) continue;
+      const t0 = performance.now();
+      const fitted = extractWalls(model);
+      this.models.set(model, fitted);
+      this.stats.walls += fitted.length;
+      this.stats.maxFitMs = Math.max(this.stats.maxFitMs, performance.now() - t0);
+      break;
+    }
     if (nowMs - this.lastSample < SAMPLE_MS) return;
     this.lastSample = nowMs;
     const t0 = performance.now();
@@ -87,12 +97,11 @@ export class Telemetry {
     d.x = -e[8]; d.y = -e[9]; d.z = -e[10];
     const dl = Math.hypot(d.x, d.y, d.z) || 1;
     const views: WallView[] = [];
-    for (const [model, cached] of this.models) {
-      if (!model.parent) continue; // not visible this frame
-      let walls = cached;
-      if (!walls) { walls = extractWalls(model); this.models.set(model, walls); this.stats.walls += walls.length; }
+    const frustum = cameraFrustum(camera, this.frustum);
+    for (const [model, walls] of this.models) {
+      if (!walls || !model.parent) continue; // not fitted yet or not visible this frame
       for (const wall of walls) {
-        const view = measureWall(wall, camera, MAX_DISTANCE_M);
+        const view = measureWall(wall, camera, frustum, MAX_DISTANCE_M);
         if (view && view.screen_fraction > MIN_FRACTION) views.push(view);
       }
     }
