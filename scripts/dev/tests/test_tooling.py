@@ -88,6 +88,9 @@ class Fixture(unittest.TestCase):
             "TURKU3D_COORD_ROOT": str(self.base / "coord"),
             # Launch integration tests use a synthetic filesystem independent of host disk pressure.
             "TURKU3D_TEST_DISK_FREE_BYTES": str(40 * 1024**3),
+            # A DONE Codex turn lands its branch; fake turns report BLOCKED unless a test
+            # exercises that landing (FAKE_RESULT=DONE).
+            "FAKE_RESULT": "BLOCKED",
             "PYTHONPATH": str(self.python_support) + os.pathsep + os.environ.get("PYTHONPATH", ""),
         }
         self.env.pop("TURKUTEX_USAGE_CMD", None)
@@ -156,6 +159,20 @@ class Fixture(unittest.TestCase):
         self.wait_done(name)
         return self.base / "wt" / name / "repo"
 
+    def adopt(self, name="demo"):
+        """An external worker's sandbox, registered with codex-task adopt; its checkout."""
+        self.cli("wt", "new", name)
+        self.cli("codex-task", "adopt", name, "--brief", "brief.md")
+        return self.base / "wt" / name / "repo"
+
+    def finish(self, name="demo", *args, ok=True, text="## Result: DONE\n", env=None):
+        """Record a result file through codex-task finish, which lands the branch."""
+        result = self.base / f"result-{name}.md"
+        result.write_text(text)
+        return self.cli(
+            "codex-task", "finish", name, "--result", str(result), *args, ok=ok, env=env
+        )
+
     def commit(self, repo, name="change.md"):
         (repo / name).write_text("A trivial change.\n")
         self.git("add", name, cwd=repo)
@@ -199,7 +216,7 @@ class ToolingTests(Fixture):
         self.assertIn("scripts/dev/codex-task board", prompt)
         self.assertIn("scripts/dev/codex-task wait-cmd -- <command>", prompt)
         self.assertIn("Tiny fake test brief.", prompt)
-        self.assertIn("## Result: DONE", self.cli("codex-task", "result", "demo").stdout)
+        self.assertIn("## Result: BLOCKED", self.cli("codex-task", "result", "demo").stdout)
         self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
         self.assertRegex(self.cli("codex-task", "ls").stdout, r"demo: done, .*, idle 0 min")
         self.assertIn("demo: done, idle 0 min", self.cli("codex-task", "board").stdout)
@@ -350,42 +367,35 @@ class ToolingTests(Fixture):
         ).stdout.strip()
         self.assertTrue(not state or state.startswith("Z"), f"child still running: {state}")
 
-    def test_finish_records_external_result(self):
+    def test_finish_records_external_result_and_lands(self):
         repo = self.start()
         self.cli("codex-task", "stop", "demo")
-        result = self.base / "result.md"
-        result.write_text("## Result: BLOCKED\n")
         self.assertIn(
-            "exact ## Result: DONE",
-            self.cli("codex-task", "finish", "demo", "--result", str(result), ok=False).stderr,
+            "exact ## Result: DONE", self.finish(text="## Result: BLOCKED\n", ok=False).stderr
         )
-        result.write_text("## Result: DONE\n\n## What changed\nExternal worker edit.\n")
-        self.cli("codex-task", "finish", "demo", "--result", str(result))
+        self.commit(repo)
+        output = self.finish(text="## Result: DONE\n\n## What changed\nExternal worker edit.\n")
+        self.assertIn("landed", output.stdout)
         self.assertIn("External worker edit", self.cli("codex-task", "result", "demo").stdout)
         meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
         self.assertEqual(
             (meta["state"], meta["exit_code"], meta["worker"]), ("done", 0, "external")
         )
-        self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
-        self.assertTrue(repo.is_dir())
+        self.assertEqual(meta["landed"]["commit"], self.git("rev-parse", "main"))
+        self.assertTrue((self.repo / "change.md").exists())
+        self.assertFalse(repo.exists())
 
     def test_adopt_registers_external_sandbox(self):
         self.assertIn(
             "no sandbox",
             self.cli("codex-task", "adopt", "ext", "--brief", "brief.md", ok=False).stderr,
         )
-        self.cli("wt", "new", "ext")
-        self.cli("codex-task", "adopt", "ext", "--brief", "brief.md")
+        self.adopt("ext")
         self.assertIn(
             "task exists",
             self.cli("codex-task", "adopt", "ext", "--brief", "brief.md", ok=False).stderr,
         )
         self.assertIn("external", self.cli("codex-task", "status", "ext").stdout)
-        result = self.base / "result.md"
-        result.write_text("## Result: DONE\n")
-        self.cli("codex-task", "finish", "ext", "--result", str(result))
-        meta = json.loads((self.base / "tasks/ext/meta.json").read_text())
-        self.assertEqual((meta["state"], meta["exit_code"]), ("done", 0))
 
     def test_coordination_exchange_between_two_sandboxes(self):
         for name in ("alpha", "beta"):

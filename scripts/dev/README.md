@@ -78,10 +78,9 @@ scripts/dev/codex-task log stairs 30
 scripts/dev/codex-task result stairs
 scripts/dev/codex-task resume stairs --reason unblock 'Fix the failing seam test and rerun the gate.'
 scripts/dev/codex-task stop stairs
-scripts/dev/codex-task land stairs          # rebase, gate --fast, fast-forward main (<= 180 s)
-scripts/dev/codex-task land --batch a b c  # in order; a red batch lands its green prefix
-scripts/dev/codex-task queue status
-scripts/dev/codex-task queue run          # one daemon, started by the orchestrator
+scripts/dev/codex-task land stairs          # land a recorded DONE result again (same as finish)
+scripts/dev/codex-task adopt ext --brief ~/turku3d/briefs/ext.md   # a non-Codex worker's sandbox
+scripts/dev/codex-task finish ext --result result.md [--keep-sandbox] [--note "..."]   # lands
 ```
 
 Use an actual brief path from `docs/briefs/`. `run` creates the sandbox if absent, exports its environment and
@@ -93,8 +92,8 @@ below 30 GiB free on the sandbox filesystem. Check with
 `scripts/dev/wt du`, then remove safe candidates with `scripts/dev/wt prune-landed`.
 CLI behavior is checked against the installed CLI and [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
-`resume --reason` names why a stopped task continues: `unblock`, `review`, `main-moved` (the merge queue
-uses it), `quota`, `follow-up` (default) or `other`. It appends
+`resume --reason` names why a stopped task continues: `unblock`, `review`, `main-moved` (after
+`landed` messages), `quota`, `follow-up` (default) or `other`. It appends
 `{"type": "task.resumed", "reason", "gap_seconds", "time"}` to `events.jsonl`, where the gap counts from the
 last `turn.completed`; the worker stamps `time` on each `turn.completed` and `turn.failed`, and
 older unstamped logs fall back to the runner exit time. `ls`, `status` and `board` show
@@ -112,32 +111,43 @@ The quota guard reuses `textures/turkutex/codex/usage.py` (`codex app-server` JS
 It refuses when any usage window reaches 100%, or usage is unknown. `run/resume --force` bypasses a known 100%
 reading only. Tests use a fake `codex` on PATH and synthetic repositories; no real calls occur in `tooling-test`.
 
-### Landing (`codex-task land`, `landing.land`)
+### Landing (`codex-task finish`, `codex-task land`, `landing.land`)
 
-Landing is serialized with `wt/.registry/land.lock` and the task lock. It requires a successful completed task
-(`finish` for external workers), an exact `## Result: DONE` line, clean worker and main worktrees and no
-unacknowledged inbox request or warning (`--force` overrides only the messages). The lander rebases the worker branch
-onto main. A conflict aborts the rebase, posts a `request` to the task inbox naming the conflicting files, sets
-`state: returned` and `returned_reason` in `meta.json` (shown by `ls`/`status`) and leaves main unchanged; the worker
-acks it, rebases, and runs `finish` again. It then runs `scripts/dev/gate --fast --base <main>` in the sandbox
-environment (output in `gate.log`) and `git merge --ff-only` in the main checkout (a compare-and-swap `git update-ref`
-when main has no checkout). If main moved during the gate it rebases and gates again, at most three times. A red gate
-leaves main unchanged and names the failing stage, host load and log. There is no host slot, live build or receipt.
-`merge_queue.run` runs the same lander as a child, `codex-task land <task>`, which stores the ledger row in
-`meta.json` as `landed`.
+Workers land their own green slices. `finish <task> --result <file>` (external workers) validates the
+exact `## Result: DONE` line, records the result (`last.md`, `state: done`, `finished`) and lands; a Codex
+runner whose turn ends with a DONE result runs `codex-task land <task>` (main's current lander, log
+`tasks/<task>/land.log`); `land` is the same operation for the orchestrator and is a no-op for a result
+already landed. Landings are serialised with `wt/.registry/land.lock` (a second finish waits seconds; the
+row records `lock_wait_seconds`). The lander needs a clean worker and main worktree on `wt/<task>`, then
+runs `git rebase main` in the sandbox. A conflict aborts the rebase and exits non-zero listing the
+conflicting files; nothing else changes (no inbox message, no state change): the worker rebases,
+resolves, reruns the gate and finishes again. It then runs `scripts/dev/gate --fast --base <main>` in the
+sandbox environment (output in `gate.log`); red exits non-zero naming the failing stage, host load and
+log, main unchanged. Then `git merge --ff-only` in the main checkout (a compare-and-swap `git update-ref`
+when main has no checkout). If main moved during the gate it rebases and gates again, at most three
+times. Open requests and warnings in the task inbox are listed in the output and do not hold the
+landing. After the merge the lander sends a `landed` message (below), starts the integrator when none
+runs (`integrator.ensure`) and removes the sandbox; `--keep-sandbox` keeps it for a task that continues
+in a next slice (an external worker becomes `state: external` again). No host slot, live build or
+receipt.
 
-The whole landing has a hard budget of 180 s (`landing.BUDGET_SECONDS`); the gate's process group is terminated at the
+**Broadcast.** Every landing sends a `landed` inbox message to every other task that is running or an
+active external worker (`state: external`), never to finished ones: commit, task, subject, class,
+changed paths (20 shown), the `interface` messages the task posted on the board since its previous
+landing (ids in `refs` after the commit) and the `--note` line. An integrator revert sends one too.
+`landed` messages need no ack and hold nothing; `inbox --unread` lists one until the task's checkout
+contains its commit, and `status`/`ls` show `behind main by N landings since your last rebase`
+(landed.jsonl rows on main that HEAD lacks).
+
+The whole landing has a hard budget of 180 s (`landing.BUDGET_SECONDS`) from taking `land.lock`; the gate's process group is terminated at the
 deadline. Over budget the landing raises `merge_slow`, records `merge_slow` (seconds, step) in `meta.json`, and leaves
 main unchanged. Each landing appends one row per task to `wt/.registry/landed.jsonl`: `name`, `before`, `commit` (the
 new main head), `source`, `time`, `merge_wall_seconds`, `merge_slow`, `fast_gate_seconds`, `fast_gate_stages`,
 `first_done_time` (the first `finish`, kept in `meta.first_finished` and never overwritten), `done_time` and
 `facade_regression_reason` (from the result's `Facade regression reason:` line; the integrator reads it from here),
-the landing class fields (`class`, `paths` capped at 40, `changed_paths`, `data_delta`, `tiles`, `data_parts`; see
-"Landing classes" below), plus `batch` for batch members. `land --batch a b c` cherry-picks the members in order into a temporary integration
-sandbox and runs one fast gate over the batch. A red batch is bisected by prefix; the green prefix lands, the first
-red member is returned with a request, and members after it stay DONE for the next landing. A batch gets 180 s per
-member. After a fast-forward, `land` and each landed batch member remove clean, stopped sandboxes and report the bytes
-freed. A retained sandbox prints the reason; remove it later with `scripts/dev/wt rm <name>` or `scripts/dev/wt
+`lock_wait_seconds`, `browser_minutes`, the landing class fields (`class`, `paths` capped at 40, `changed_paths`,
+`data_delta`, `tiles`, `data_parts`; see "Landing classes" below). The sandbox removal reports the bytes freed;
+a retained sandbox prints the reason; remove it later with `scripts/dev/wt rm <name>` or `scripts/dev/wt
 prune-landed`. Then `push_public` publishes to `origin` (github.com/Wnt/turku3d) best-effort within 60 s: main's tree
 becomes one commit on `refs/public/main`, which began as a squashed import (`docs/HISTORY.md`), and that line is
 pushed to origin's `main`. Local `main` is never pushed. The row records `push` (`commit`, `seconds`) or `push:
@@ -216,8 +226,7 @@ Run anything that can take longer than 30 s as one blocking call instead of poll
 
 ```bash
 scripts/dev/codex-task wait-cmd -- scripts/dev/gate
-scripts/dev/codex-task wait-cmd --tail 80 -- scripts/dev/codex-task land stairs          # rebase, gate --fast, fast-forward main (<= 180 s)
-scripts/dev/codex-task land --batch a b c  # in order; a red batch lands its green prefix
+scripts/dev/codex-task wait-cmd --tail 80 -- scripts/dev/codex-task finish ext --result result.md
 scripts/dev/codex-task wait-cmd --timeout 1800 -- make tile-build T='t0_0_0'
 scripts/dev/codex-task wait-cmd -- make game-e2e
 ```
@@ -332,12 +341,7 @@ the tasks root also isolates the board. No board records are copied into individ
 `ls` and `status` show inbox unread counts; finished/interrupted tasks with unread messages have
 an `UNACKNOWLEDGED` marker. A `request` or `warning` sent after a task finishes also creates
 "recipient finished; addressed by orchestrator" notices in the orchestrator and sender inboxes.
-`land` refuses unacknowledged direct `request`/`warning` messages received before the task's
-last turn started, both before the gate and under the inbox lock before updating main.
-Later messages are listed in landing output without blocking.
-Board messages and direct `note`/`interface` messages do not block landing. The orchestrator may
-use `scripts/dev/codex-task land <name> --force` to override only this message check; it neither
-acknowledges messages nor bypasses the result, clean-tree or green-gate requirements.
+No message holds a landing: `finish`/`land` list open requests and warnings and the worker decides.
 
 ## Verification
 
@@ -354,14 +358,14 @@ make game-e2e
 `tooling-test` runs up to TURKU3D_JOBS independent synthetic-repository tests at a time and covers concurrent port claims, adoption, shell-safe environment generation, fake run/resume,
 quota refusal/override, process-group stop, removal and orientation from both checkouts.
 `scripts/dev/tests/test_lander.py` (in `tooling-tests`) covers the lander on synthetic repositories:
-a branch lands after main moved in under 5 s without importing the live builder; a rebase conflict
-posts an inbox request, marks the task `returned` and leaves main unchanged; `land --batch` with a
-red member lands the green prefix; the ledger keeps `first_done_time` across a second `finish`;
-DONE/dirty/red-gate/missing-gate refusals, open-message blocking, main moving during the gate and
-the `merge_slow` budget.
+a branch lands after main moved in under 5 s without importing the live builder; slices with
+`--keep-sandbox` keep `first_done_time`; open requests are reported, not held; DONE/dirty/red-gate/
+missing-gate refusals, main moving during the gate, data-delta attribution and the `merge_slow` budget.
+`test_finish.py` covers the conflict stop, the `landed` broadcast as a second task receives it, the
+Codex turn-end landing and two concurrent finishes serialised on `land.lock`.
 Coordination coverage includes two sandbox environments exchanging requests and acknowledgements,
 board announcements, concurrent CLI readers/writers, append-only/idempotent acknowledgements,
-unread counts, landing refusal/override (including arrivals during the gate), and run/resume prompts.
+unread counts and run/resume prompts.
 `game-dev-tools-test` starts two dist servers simultaneously with distinct environment ports and output roots.
 To check complete game stacks, create two worktrees from the tooling commit, source each environment in separate
 shells, and run `make game-e2e` concurrently. Each installs its own npm dependencies on first use.
@@ -532,7 +536,7 @@ The test runner accepts file patterns, for example:
 
 ```sh
 .venv/bin/python scripts/dev/tests/run.py test_tooling.py test_environment.py
-.venv/bin/python -m unittest scripts/dev/tests/test_merge_queue.py
+.venv/bin/python -m unittest scripts/dev/tests/test_integrator.py
 ```
 
 ## Gate speed and reproducible routing probes
@@ -620,7 +624,7 @@ scripts/dev/wt sync-env                 # current checkout
 scripts/dev/wt sync-env example         # named sandbox (or --all)
 scripts/dev/gate --all
 scripts/dev/gate --paths game/src/core/origin.ts --json
-scripts/dev/codex-task queue status
+python3 scripts/dev/integrator.py status
 # Explicit budgets, on an unloaded machine:
 TURKU3D_JOBS=1 make streaming-perf
 TURKU3D_JOBS=1 make tooling-perf
@@ -643,16 +647,16 @@ depends on main's merge count. Live build stages keep APFS-cloned verified artif
 `$TURKU3D_DATA/cache/tool-stages/live`; keys include declared source paths, input manifests
 and the preceding stage key.
 
-### Merge queue
+### Landing and integration
 
 Main only requires the fast gate; the live build and Chrome run once per batch after the merge.
 Main may be red for one integration cycle; live only ever points to a release built and
 verified from exactly the commit it names.
 
 ```
-worker: commit → codex-task finish (no precheck, no polling)
-lander (serial, seconds, no host slot): validate → rebase (conflict → inbox) → gate --fast
-        → git merge --ff-only → landed.jsonl row
+worker: commit → gate --fast → codex-task finish (no precheck, no polling, no daemon)
+lander (in finish, serial under land.lock, seconds, no host slot): validate → rebase (conflict →
+        stop) → gate --fast → git merge --ff-only → landed.jsonl row → `landed` message → ensure
 integrator code lane (asynchronous, one run at a time, `integration` host reservation):
         batch = landings from the published commit G up to main M
         class (landing_class.classify): inert → live_build.repoint(M), no build, no slot
@@ -669,34 +673,26 @@ data lane (`--lane data`): build(G, data stages) on a changed data root → rele
 ```
 
 ```sh
-scripts/dev/codex-task queue run          # one daemon, started by the orchestrator
-scripts/dev/codex-task queue status       # read-only JSON
 python3 scripts/dev/integrator.py status  # running integration and last ledger row
+python3 scripts/dev/integrator.py ensure  # start the lanes that have work (a landing does this)
 # One integration by hand (add --lane data for the data lane), e.g. against a copy of the published root:
 python3 scripts/dev/integrator.py run --published /path/to/data-copy --main-repo /path/to/clone --sandbox integration-measure
 ```
 
-`queue run` (`merge_queue.run`) polls every 5 s. Each round it (a) discovers DONE results (exact `## Result: DONE`, a
-new `meta.finished`) and lands them in `first_finished` order, each through a child `codex-task land <task>` (log
-`tasks/<task>/land.log`, 600 s timeout) that runs main's current lander; and (b) when no code lane runs and main has
-moved past both the live commit and the last integration's `to` (or the data key changed since that integration), it
-starts `integrator.py run` as a detached child (log `wt/.registry/integration.log`), and when `data_due` holds,
-`integrator.py run --lane data` (log `integration-data.log`). The queue never resumes a worker. A failed landing records event `returned` with the reason in `merge-queue.json` and posts a
-`request` to the task inbox (a rebase conflict is returned by the lander, which already posted it); the worker
-rebases, fixes, acks and runs `codex-task finish` again, which re-enqueues it. An unacknowledged request/warning
-records `held` and retries after 60 s. `codex-task ls`/`status`, the board's idle list and the sentinel show
-`returned: <reason>`. `queue status` shows the tasks waiting to land, the last landing, both lanes in progress
-(`integration`, `integration_data`: from → to, class, stage, elapsed), the live and main commits, how far live is behind, and red or data-red runs awaiting a
-fix. The daemon follows main's tooling: when main's `scripts/dev/` tree hash (`git rev-parse main:scripts/dev`)
-differs from the one it started with, it finishes the round, waits for its integration child, appends event `reloaded`
-(`from`, `to`) to `merge-queue.json`, prints `merge queue: reloaded <old> -> <new>` and re-executes itself
-(`os.execv`, same argv).
+Nothing polls. `integrator.ensure` (after each landing, and after each finished run) starts
+`integrator.py run` as a detached child (log `wt/.registry/integration.log`) when no code lane runs and
+main moved past both the live commit and the last integration's `to`, the data key changed since that
+integration, or the full suite is due; and `--lane data` (log `integration-data.log`) when `data_due`
+holds. Nothing starts without a published live release. A run that recorded a row calls `ensure` again
+when it ends, so landings after its join window start the next run at once (a manual run with
+`--sandbox` or another `--main-repo` chains nothing). A data-root change or a due full suite without a
+landing waits for the next landing, finished run or `integrator.py ensure`.
 
 **Landing classes** (`landing_class.py`): `classify(repo, base, head, data_delta)` sorts `git diff --name-only` and
 the data-root delta; a path outside both allowlists makes it `code`. `inert`: `docs/*`, `*.md`, `LICENSE`. `data`:
 `game/public/assets/{voice,content}/*` or a changed `data_parts` part (JSON of `facade-approvals/assembly` and
 `build/layers`, the tile list), compared with the last ledger row's (else the live release's). `tiles`: none (inert),
-all listed (code, approvals or layers), else the newly listed. `queue status`, `watch` and `here` show the class.
+all listed (code, approvals or layers), else the newly listed. `here` shows the class.
 
 `integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json`, M from main, and
 classifies G..M against the live release (`batch_class`). `inert` takes no slot: `live_build.repoint` APFS-clones
@@ -742,7 +738,9 @@ Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>
 
 Deleted on 2026-10-27 (a branch waited a median 80 min; `~/turku3d/logs/merge-latency-study/report.md`):
 precheck receipts, the live build inside `land`, queue rechecks, speculative prefixes, queue budgets, Codex
-resume, the queue sweep and the warm browser service. Main may be red for one integration; live never is.
+resume, the queue sweep and the warm browser service; later that day the polling merge-queue daemon
+(`queue run|status`, `merge-queue.json`, held/returned states, `land --batch`, the landing message
+guard). Main may be red for one integration; live never is.
 
 Functional browser checks wait for movement, input, grounding, camera or physics state;
 button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA

@@ -194,6 +194,24 @@ def publish(published, release=None):
     }
 
 
+def deploy(published):
+    """The integrator's Pages step: publish the live release when publish/pages.json exists
+    and a green full Chrome suite verified it, else None. A failure is returned as
+    {"error"} for the integration row; the local publication stands."""
+    import integration_chrome
+
+    if not integration_chrome.verified(published):
+        return None
+    try:
+        if config(published) is None:
+            return None
+        return publish(published)
+    except subprocess.CalledProcessError as exc:
+        return {"error": f"{' '.join(map(str, exc.cmd[:3]))}: {(exc.stderr or '').strip()[-500:]}"}
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        return {"error": str(exc)[-500:]}
+
+
 def main(argv=None):
     import argparse
 

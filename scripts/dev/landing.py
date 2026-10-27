@@ -1,16 +1,17 @@
-"""The lander: rebase, fast gate and fast-forward merge of finished task branches onto main.
+"""The lander: rebase, fast gate and fast-forward merge of a finished task branch onto main.
 
-No host slot, no live build and no receipt. The integrator (integrator.py) builds and
-verifies the live release asynchronously from the ledger rows written here.
+`codex-task finish` (external workers), the Codex runner at turn end and `codex-task land`
+(the orchestrator) all run land(), serialised with `wt/.registry/land.lock`. After the merge it
+appends the ledger row, publishes the public line, sends a `landed` message to every other
+active task, starts the integrator when none runs and removes the sandbox. No host slot, no
+live build and no receipt: integrator.py builds and verifies the live release asynchronously.
 """
 
 import contextlib
 import json
 import os
-import shutil
 import subprocess
 import time
-import uuid
 
 import browser_budget
 import coordination as coord
@@ -23,8 +24,8 @@ PUBLIC_REF = "refs/public/main"
 PUSH_SECONDS = 60
 
 
-class Returned(ValueError):
-    """The branch went back to its worker with an inbox request; main is unchanged."""
+class Conflict(ValueError):
+    """The rebase onto main conflicts; the rebase is aborted and nothing else changed."""
 
 
 def ledger_path():
@@ -70,20 +71,80 @@ def facade_reason(text):
     )
 
 
-def member(name, force):
-    """Validate a finished task: DONE result, clean expected branch, no open requests."""
-    from task_runner import running, task
+def done(text):
+    """Whether a run result has exactly one `## Result:` line, and it is DONE."""
+    return [line for line in text.splitlines() if line.startswith("## Result:")] == [
+        "## Result: DONE"
+    ]
+
+
+def result_done(path):
+    """Whether the task directory's recorded result (last.md) is DONE."""
+    result = path / "last.md"
+    return result.exists() and done(result.read_text())
+
+
+def ledger_rows():
+    """The landed.jsonl rows (landings and integrator reverts); torn lines are skipped."""
+    rows = []
+    with contextlib.suppress(FileNotFoundError):
+        for line in ledger_path().read_text().splitlines():
+            with contextlib.suppress(ValueError):
+                rows.append(json.loads(line))
+    return rows
+
+
+def behind(name):
+    """Landings on main that the task's checkout has not rebased onto."""
+    missing = coord.not_rebased(name)
+    return sum(row.get("commit") in missing for row in ledger_rows()) if missing else 0
+
+
+def landed_heads(start, end, repo):
+    """Bisection points in start..end: landed heads from the ledger, always ending at end."""
+    commits = s.git(
+        "rev-list", "--reverse", "--first-parent", f"{start}..{end}", cwd=repo
+    ).splitlines()
+    heads = {row.get("commit") for row in ledger_rows()}
+    points = [commit for commit in commits if commit in heads]
+    return points if points[-1:] == [end] else [*points, end]
+
+
+def facade_reason_in(start, end, repo):
+    """The reported facade regression reason of any landing in start..end, or None."""
+    commits = set(s.git("rev-list", f"{start}..{end}", cwd=repo).splitlines())
+    return next(
+        (
+            row["facade_regression_reason"]
+            for row in ledger_rows()
+            if row.get("commit") in commits and row.get("facade_regression_reason")
+        ),
+        None,
+    )
+
+
+def author(commit):
+    """The task whose landing produced commit."""
+    return next(
+        (row.get("name") for row in reversed(ledger_rows()) if row.get("commit") == commit), None
+    )
+
+
+def member(name):
+    """A finished task's (path, meta, result text): DONE result recorded."""
+    from task_runner import task
 
     path = task(name)
     meta = s.read_json(path / "meta.json")
-    if running(meta) or meta.get("state") != "done" or meta.get("exit_code") != 0:
+    if meta.get("state") != "done" or meta.get("exit_code") != 0:
         raise ValueError(f"{name}: task must have completed successfully before landing")
-    with coord.landing_guard(name, force):
-        pass
-    result = path / "last.md"
-    text = result.read_text() if result.exists() else ""
-    if [line for line in text.splitlines() if line.startswith("## Result:")] != ["## Result: DONE"]:
+    if not result_done(path):
         raise ValueError(f"{name}: result must contain an exact ## Result: DONE heading")
+    return path, meta, (path / "last.md").read_text()
+
+
+def checkout(name):
+    """The task's sandbox checkout: on its branch, clean, with a gate."""
     repo = s.sandbox(name) / "repo"
     if s.git("branch", "--show-current", cwd=repo) != f"wt/{name}":
         raise ValueError(f"{name}: sandbox is not on its expected branch")
@@ -92,7 +153,7 @@ def member(name, force):
     if not (repo / "scripts/dev/gate").is_file():
         raise ValueError(f"{name}: missing scripts/dev/gate; main unchanged")
     s.reap_browsers(name)
-    return path, meta, repo, text
+    return repo
 
 
 def main_worktree(repo):
@@ -102,23 +163,6 @@ def main_worktree(repo):
     if main and s.git("status", "--porcelain", cwd=main):
         raise ValueError("main worktree is dirty")
     return main
-
-
-def give_back(name, path, reason, detail):
-    """Return the task to its worker: inbox request, meta `returned`, main untouched."""
-    coord.send(
-        name,
-        "request",
-        f"lander returned {name}",
-        f"The lander cannot land this branch: {reason}\n{detail}\n"
-        "Rebase onto current main, resolve it, commit, run scripts/dev/gate --fast --base main, "
-        "ack this message, then run codex-task finish again.",
-    )
-    with s.lock(path / "lock"):
-        meta = s.read_json(path / "meta.json")
-        meta.update(state="returned", returned_reason=reason, returned_time=time.time())
-        s.write_json(path / "meta.json", meta)
-    return Returned(f"{name}: returned to worker: {reason}; main unchanged")
 
 
 def rebase(repo):
@@ -231,11 +275,12 @@ def push_public(repo):
     return {"error": error, "seconds": round(time.monotonic() - started, 3)}
 
 
-def record(name, path, text, before, commit, source, started, gate, landing, batch=None, push=None):
+def record(name, path, text, before, commit, started, gate, landing, push, lock_wait):
     """Append the ledger row and store it in meta; `first_finished` is never overwritten.
 
     `landing` holds the class fields (classes()). The best-effort push to origin is
-    reported in `push` and excluded from the merge time.
+    reported in `push` and excluded from the merge time, like the wait for land.lock
+    (`lock_wait_seconds`).
     """
     seconds, stages = gate
     elapsed = round(time.monotonic() - started - (push or {}).get("seconds", 0), 3)
@@ -245,10 +290,11 @@ def record(name, path, text, before, commit, source, started, gate, landing, bat
             "name": name,
             "before": before,
             "commit": commit,
-            "source": source,
+            "source": commit,
             "time": time.time(),
             "merge_wall_seconds": elapsed,
             "merge_slow": elapsed > BUDGET_SECONDS,
+            "lock_wait_seconds": lock_wait,
             "fast_gate_seconds": seconds,
             "fast_gate_stages": stages,
             "first_done_time": meta.get("first_finished", meta.get("finished")),
@@ -258,8 +304,6 @@ def record(name, path, text, before, commit, source, started, gate, landing, bat
             "browser_minutes": (browser_budget.read(name) or {}).get("used_minutes"),
             **landing,
         }
-        if batch:
-            row["batch"] = batch
         if push is not None:
             row["push"] = push
         meta["landed"] = row
@@ -269,23 +313,34 @@ def record(name, path, text, before, commit, source, started, gate, landing, bat
     return row
 
 
-def land(name, force=False):
-    """Land one finished task on main in at most BUDGET_SECONDS; return its ledger row."""
+def land(name, keep_sandbox=False, note=None):
+    """Land one finished task on main in at most BUDGET_SECONDS; return its ledger row.
+
+    A rebase conflict or a red fast gate raises with main and the sandbox unchanged; the
+    worker fixes it on its branch and finishes again. Open requests in the task inbox are
+    reported, not held. `keep_sandbox` keeps the sandbox for a task that continues in a next
+    slice (an external worker becomes active again).
+    """
     from task_runner import cleanup_landed, task
 
-    started = time.monotonic()
-    deadline = started + BUDGET_SECONDS
+    waited = time.monotonic()
     with s.lock(s.root() / ".registry/land.lock"), s.lock(task(name) / "lock"):
-        path, _meta, repo, text = member(name, force)
+        started = time.monotonic()
+        deadline = started + BUDGET_SECONDS
+        path, meta, text = member(name)
+        landed = meta.get("landed")
+        if landed and landed.get("done_time") == meta.get("finished"):
+            print(f"{name}: already landed {landed['commit'][:12]}; finish again to land more")
+            return landed
+        repo = checkout(name)
         main = main_worktree(repo)
         for _attempt in range(3):
             before = s.git("rev-parse", "main", cwd=repo)
             if conflicts := rebase(repo):
-                raise give_back(
-                    name,
-                    path,
-                    "rebase conflict with main",
-                    "Conflicting files: " + ", ".join(conflicts),
+                raise Conflict(
+                    f"{name}: rebase onto main conflicts in {', '.join(conflicts)}; main and the "
+                    "sandbox are unchanged. Run git rebase main in the sandbox, resolve, rerun "
+                    "scripts/dev/gate --fast --base main, then finish again."
                 )
             head = s.git("rev-parse", "HEAD", cwd=repo)
             ok, seconds, stages, detail = fast_gate(repo, before, path / "gate.log", deadline)
@@ -297,150 +352,54 @@ def land(name, force=False):
         else:
             raise ValueError("main changed during gate three times; retry landing")
         [landing] = classes(repo, [(before, head)])
-        with coord.landing_guard(name, force):
-            over_budget([path], started, BUDGET_SECONDS, "merge")
-            advance(repo, main, before, head)
+        over_budget([path], started, BUDGET_SECONDS, "merge")
+        advance(repo, main, before, head)
         pushed = push_public(repo)
+        lock_wait = round(started - waited, 3)
         row = record(
-            name, path, text, before, head, head, started, (seconds, stages), landing, push=pushed
+            name, path, text, before, head, started, (seconds, stages), landing, pushed, lock_wait
         )
-        print(
-            f"{name}: landed {head[:12]} as {row['class']} in {row['merge_wall_seconds']}s "
-            f"(fast gate {seconds}s)"
-        )
+        if keep_sandbox and meta.get("worker") == "external":
+            with s.lock(path / "lock"):
+                current = s.read_json(path / "meta.json")
+                current["state"] = "external"
+                s.write_json(path / "meta.json", current)
+        subject = s.git("log", "-1", "--format=%s", head, cwd=repo)
+    print(
+        f"{name}: landed {head[:12]} as {row['class']} in {row['merge_wall_seconds']}s "
+        f"(fast gate {seconds}s, waited {lock_wait}s for land.lock): {subject}"
+    )
+    report(name, row, subject, (landed or {}).get("time", 0), note)
+    if keep_sandbox:
+        print(f"{name}: sandbox kept for the next slice")
+    else:
         cleanup_landed(name)
-        return row
+    return row
 
 
-def batch(names, force=False):
-    """Land several tasks in order; a red fast gate bisects and lands the green prefix.
+def report(name, row, subject, since, note):
+    """After the merge: open requests, the broadcast and the integrator start; best effort."""
+    try:
+        for message in coord.open_requests(name):
+            print(
+                f"{name}: open {message['kind']} {message['id']} from {message['from']}: "
+                f"{message['subject']} (not holding; you decide)"
+            )
+        recipients = coord.broadcast_landed(name, row, subject, since, note)
+        print(f"{name}: landed message sent to {', '.join(recipients) or 'no active task'}")
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(f"{name}: landed, broadcast failed: {error}")
+    try:
+        import integrator
 
-    Each member keeps the three-minute budget, so the batch budget scales with its size.
-    """
-    from task_runner import cleanup_landed, task
-
-    if len(set(names)) != len(names):
-        raise ValueError("batch members must be unique")
-    started = time.monotonic()
-    budget = BUDGET_SECONDS * len(names)
-    deadline = started + budget
-    with s.lock(s.root() / ".registry/land.lock"), contextlib.ExitStack() as locks:
-        members = []
-        for name in names:
-            locks.enter_context(s.lock(task(name) / "lock"))
-            path, _meta, repo, text = member(name, force)
-            members.append((name, path, text, s.git("rev-parse", "HEAD", cwd=repo)))
-        main = main_worktree(repo)
-        before = s.git("rev-parse", "main", cwd=repo)
-        integration = s.new("land-batch-" + uuid.uuid4().hex[:10], before)
-        log_path = s.tasks_root() / ("batch-" + integration.parent.name + ".log")
-        commits = []
-        gates = {}
-
-        def assemble(count):
-            s.git("reset", "--hard", before, cwd=integration)
-            commits.clear()
-            for name, path, _text, head in members[:count]:
-                revisions = s.git(
-                    "rev-list",
-                    "--reverse",
-                    "--cherry-pick",
-                    "--right-only",
-                    "--no-merges",
-                    f"HEAD...{head}",
-                    cwd=integration,
-                ).splitlines()
-                if revisions:
-                    try:
-                        s.git("cherry-pick", *revisions, cwd=integration)
-                    except subprocess.CalledProcessError:
-                        files = s.git(
-                            "diff", "--name-only", "--diff-filter=U", cwd=integration, check=False
-                        )
-                        s.git("cherry-pick", "--abort", cwd=integration, check=False)
-                        raise give_back(
-                            name,
-                            path,
-                            "batch integration conflict",
-                            "Conflicting files: " + ", ".join(files.splitlines()),
-                        ) from None
-                commits.append(s.git("rev-parse", "HEAD", cwd=integration))
-
-        def green(count):
-            assemble(count)
-            ok, seconds, stages, detail = fast_gate(integration, before, log_path, deadline)
-            over_budget([m[1] for m in members], started, budget, f"batch gate of {count}")
-            gates[count] = (seconds, stages, detail)
-            return ok
-
-        try:
-            landed = len(members)
-            if not green(landed):
-                if not green(0):
-                    raise ValueError(f"base gate fails; {gates[0][2]}; main unchanged")
-                low, high = 0, len(members)
-                while high - low > 1:
-                    middle = (low + high) // 2
-                    low, high = (middle, high) if green(middle) else (low, middle)
-                landed = low
-                if landed:
-                    assemble(landed)
-            culprit = None if landed == len(members) else members[landed]
-            rows = []
-            if landed:
-                fields = classes(integration, zip([before, *commits[:-1]], commits, strict=True))
-                with contextlib.ExitStack() as guards:
-                    for name, _path, _text, head in members[:landed]:
-                        guards.enter_context(coord.landing_guard(name, force))
-                        repo = s.sandbox(name) / "repo"
-                        if (
-                            s.git("status", "--porcelain", cwd=repo)
-                            or s.git("rev-parse", "HEAD", cwd=repo) != head
-                        ):
-                            raise ValueError(f"{name}: member changed during gate")
-                    if s.git("rev-parse", "main", cwd=integration) != before:
-                        raise ValueError("main changed during batch gate; retry batch")
-                    advance(integration, main, before, commits[-1])
-                pushed = push_public(integration)
-                gate = gates[landed][:2]
-                for (name, path, text, source), commit, landing in zip(
-                    members[:landed], commits, fields, strict=True
-                ):
-                    rows.append(
-                        record(
-                            name,
-                            path,
-                            text,
-                            before,
-                            commit,
-                            source,
-                            started,
-                            gate,
-                            landing,
-                            names,
-                            pushed,
-                        )
-                    )
-                print(f"batch landed: {', '.join(names[:landed])}; {log_path}")
-                for row in rows:
-                    cleanup_landed(row["name"], row["commit"])
-            if culprit:
-                detail = gates[landed + 1][2]
-                raise give_back(
-                    culprit[0],
-                    culprit[1],
-                    "fast gate red in batch",
-                    f"Bisected failing prefix ends at {culprit[0]}: {detail}. "
-                    f"Landed before it: {', '.join(names[:landed]) or 'none'}; "
-                    f"not attempted after it: {', '.join(names[landed + 1 :]) or 'none'}.",
-                )
-            return rows
-        finally:
-            # This process created the integration checkout; member worktrees are untouched.
-            s.git("worktree", "remove", "--force", str(integration), check=False)
-            s.git("branch", "-D", f"wt/{integration.parent.name}", cwd=s.REPO, check=False)
-            with s.lock(s.root() / ".registry/lock"):
-                records = s.registry()
-                records.pop(integration.parent.name, None)
-                s.save_registry(records)
-            shutil.rmtree(integration.parent, ignore_errors=True)
+        lanes = integrator.ensure(landing_class.published_root())
+        print(
+            f"{name}: integrator "
+            + (
+                f"started ({', '.join(lanes)})"
+                if lanes
+                else "not started (running, settled or no live release)"
+            )
+        )
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(f"{name}: landed, integrator start failed: {error}")

@@ -1,5 +1,8 @@
-"""Synthetic integration batches: classes, publish, re-point, base check, bisect, facades."""
+"""Synthetic integration batches: classes, publish, re-point, base check, bisect, facades,
+and which lanes a landing or a finished run starts."""
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -13,6 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import coordination  # noqa: E402
 import integrator  # noqa: E402
+import landing  # noqa: E402
 import live_build  # noqa: E402
 import pages  # noqa: E402
 
@@ -638,6 +642,83 @@ class IntegratorTests(unittest.TestCase):
         self.assertEqual(
             (current["from"], current["to"], current["stage"]), ("a", "b", "tile-build")
         )
+
+
+class EnsureTests(unittest.TestCase):
+    """integrator.ensure: what a landing or a finished run starts; nothing polls."""
+
+    published = Path("/published")
+
+    def ensure(self, *, live="older", last=None, lanes=None, data_due=False, full_due=False):
+        lanes = lanes or {}
+        with (
+            patch.object(integrator.s, "git", return_value="main-head"),
+            patch.object(integrator, "live_commit", return_value=live),
+            patch.object(integrator, "last", return_value=last or {}),
+            patch.object(integrator, "data_key", return_value="data"),
+            patch.object(integrator, "full_due", return_value=full_due),
+            patch.object(
+                integrator, "running", side_effect=lambda lane=integrator.NAME: lanes.get(lane)
+            ),
+            patch.object(integrator, "data_due", return_value=data_due),
+            patch.object(integrator, "start") as start,
+        ):
+            started = integrator.ensure(self.published)
+        self.assertEqual([call.args[1] for call in start.call_args_list], started)
+        return started
+
+    def test_code_lane_starts_only_when_main_or_data_moved_past_the_last_run(self):
+        cases = (
+            ("main-head", {}, []),  # live already names main
+            ("older", {"to": "main-head"}, []),  # a row without a data key covered main
+            ("older", {"to": "main-head", "data_key": "data"}, []),  # same data root
+            ("older", {"to": "main-head", "data_key": "old-data"}, ["code"]),  # data changed
+            ("older", {"to": "older", "data_key": "data"}, ["code"]),  # main moved
+        )
+        for live, last, started in cases:
+            with self.subTest(live=live, last=last):
+                self.assertEqual(self.ensure(live=live, last=last), started)
+
+    def test_due_full_suite_starts_the_code_lane_for_live_main(self):
+        self.assertEqual(self.ensure(live="main-head", full_due=True), ["code"])
+
+    def test_running_code_lane_is_not_doubled_and_data_lane_starts_beside_it(self):
+        running = {integrator.NAME: {"to": "x", "data_key": "old"}}
+        self.assertEqual(self.ensure(lanes=running), [])
+        self.assertEqual(self.ensure(lanes=running, data_due=True), ["data"])
+
+    def test_nothing_starts_without_a_live_release(self):
+        self.assertEqual(self.ensure(live=None, data_due=True), [])
+
+    def test_landing_starts_the_integrator_after_its_broadcast(self):
+        output = io.StringIO()
+        with (
+            patch.object(landing.coord, "open_requests", return_value=[]),
+            patch.object(landing.coord, "broadcast_landed", return_value=["peer"]) as broadcast,
+            patch.object(integrator, "ensure", return_value=["code"]) as ensure,
+            contextlib.redirect_stdout(output),
+        ):
+            landing.report("demo", {"commit": "c0ffee"}, "Subject", 5.0, "a note")
+        broadcast.assert_called_once_with("demo", {"commit": "c0ffee"}, "Subject", 5.0, "a note")
+        ensure.assert_called_once_with(landing.landing_class.published_root())
+        self.assertIn("landed message sent to peer", output.getvalue())
+        self.assertIn("integrator started (code)", output.getvalue())
+
+    def test_finished_run_starts_the_next_and_an_idle_run_does_not(self):
+        for row, chained in (({"result": "red"}, 1), (None, 0)):
+            with (
+                self.subTest(row=row),
+                tempfile.TemporaryDirectory() as temp,
+                patch.dict(os.environ, {"TURKU3D_WT_ROOT": temp}),
+                patch.object(integrator, "run_once", return_value=row),
+                patch.object(integrator, "ensure", return_value=[]) as ensure,
+                patch.object(sys, "argv", ["integrator.py", "run", "--published", temp]),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                integrator.main()
+                self.assertEqual(ensure.call_count, chained)
+                # The lane lock is free again when the next run starts.
+                self.assertIsNone(integrator.running())
 
 
 if __name__ == "__main__":
