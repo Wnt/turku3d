@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cv = ["transformers==4.57.1", "torch==2.14.1", "scipy>=1.13"]
+cv-research = ["scikit-learn==1.9.1", "safetensors==0.6.2"]
 streetview = ["aiohttp>=3.9", "protobuf>4", "pycryptodome>=3.20", "bd09convertor>=0.0.3", "coordinatesconverter", "pillow-heif>=0.18"]
 post = ["onnxruntime>=1.18", "scipy>=1.13", "imageio>=2.30"]
 
@@ -33,6 +34,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["turkutex*"]
+
+[tool.setuptools.package-data]
+turkutex = ["facade_priors_parameters.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

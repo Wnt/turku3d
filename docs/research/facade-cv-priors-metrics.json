@@ -1,0 +1,1287 @@
+{
+  "inventory": 425,
+  "direct_labels": 278,
+  "eligible_labels": 235,
+  "eligible_buildings": 41,
+  "splits": {
+    "train": {
+      "labels": 175,
+      "buildings": 25
+    },
+    "validation": {
+      "labels": 27,
+      "buildings": 8
+    },
+    "test": {
+      "labels": 33,
+      "buildings": 8
+    }
+  },
+  "scores": {
+    "geometry": {
+      "validation": {
+        "n": 27,
+        "storeys": 9,
+        "columns_n": 19,
+        "columns": 9,
+        "material": 21,
+        "colour_delta": 12.038
+      },
+      "test": {
+        "n": 33,
+        "storeys": 10,
+        "columns_n": 29,
+        "columns": 12,
+        "material": 24,
+        "colour_delta": 13.98
+      }
+    },
+    "register": {
+      "validation": {
+        "n": 27,
+        "storeys": 10,
+        "columns_n": 19,
+        "columns": 9,
+        "material": 18,
+        "colour_delta": 19.873
+      },
+      "test": {
+        "n": 33,
+        "storeys": 14,
+        "columns_n": 29,
+        "columns": 16,
+        "material": 18,
+        "colour_delta": 28.955
+      }
+    },
+    "classic": {
+      "validation": {
+        "n": 27,
+        "storeys": 9,
+        "columns_n": 19,
+        "columns": 3,
+        "material": 21,
+        "colour_delta": 31.883
+      },
+      "test": {
+        "n": 33,
+        "storeys": 4,
+        "columns_n": 29,
+        "columns": 12,
+        "material": 23,
+        "colour_delta": 29.797
+      }
+    },
+    "ridge_priors": {
+      "validation": {
+        "n": 27,
+        "storeys": 7,
+        "columns_n": 19,
+        "columns": 10,
+        "material": 21,
+        "colour_delta": 14.748
+      },
+      "test": {
+        "n": 33,
+        "storeys": 16,
+        "columns_n": 29,
+        "columns": 13,
+        "material": 25,
+        "colour_delta": 17.225
+      }
+    },
+    "ridge_image": {
+      "validation": {
+        "n": 27,
+        "storeys": 2,
+        "columns_n": 19,
+        "columns": 3,
+        "material": 21,
+        "colour_delta": 10.099
+      },
+      "test": {
+        "n": 33,
+        "storeys": 10,
+        "columns_n": 29,
+        "columns": 9,
+        "material": 22,
+        "colour_delta": 9.943
+      }
+    },
+    "ridge_fusion": {
+      "validation": {
+        "n": 27,
+        "storeys": 8,
+        "columns_n": 19,
+        "columns": 11,
+        "material": 21,
+        "colour_delta": 10.006
+      },
+      "test": {
+        "n": 33,
+        "storeys": 17,
+        "columns_n": 29,
+        "columns": 14,
+        "material": 25,
+        "colour_delta": 10.377
+      }
+    },
+    "ridge_dino": {
+      "validation": {
+        "n": 27,
+        "storeys": 8,
+        "columns_n": 19,
+        "columns": 11,
+        "material": 21,
+        "colour_delta": 10.389
+      },
+      "test": {
+        "n": 33,
+        "storeys": 10,
+        "columns_n": 29,
+        "columns": 9,
+        "material": 25,
+        "colour_delta": 15.592
+      }
+    },
+    "ridge_dino_priors": {
+      "validation": {
+        "n": 27,
+        "storeys": 6,
+        "columns_n": 19,
+        "columns": 10,
+        "material": 21,
+        "colour_delta": 9.633
+      },
+      "test": {
+        "n": 33,
+        "storeys": 9,
+        "columns_n": 29,
+        "columns": 13,
+        "material": 26,
+        "colour_delta": 13.961
+      }
+    },
+    "forest_priors": {
+      "validation": {
+        "n": 27,
+        "storeys": 13,
+        "columns_n": 19,
+        "columns": 14,
+        "material": 21,
+        "colour_delta": 15.619
+      },
+      "test": {
+        "n": 33,
+        "storeys": 15,
+        "columns_n": 29,
+        "columns": 15,
+        "material": 24,
+        "colour_delta": 18.271
+      }
+    },
+    "forest_fusion": {
+      "validation": {
+        "n": 27,
+        "storeys": 10,
+        "columns_n": 19,
+        "columns": 9,
+        "material": 21,
+        "colour_delta": 10.484
+      },
+      "test": {
+        "n": 33,
+        "storeys": 14,
+        "columns_n": 29,
+        "columns": 13,
+        "material": 24,
+        "colour_delta": 9.654
+      }
+    },
+    "forest_dino_priors": {
+      "validation": {
+        "n": 27,
+        "storeys": 7,
+        "columns_n": 19,
+        "columns": 12,
+        "material": 21,
+        "colour_delta": 9.172
+      },
+      "test": {
+        "n": 33,
+        "storeys": 13,
+        "columns_n": 29,
+        "columns": 14,
+        "material": 24,
+        "colour_delta": 11.071
+      }
+    },
+    "ridge_lidar_fusion": {
+      "validation": {
+        "n": 27,
+        "storeys": 10,
+        "columns_n": 19,
+        "columns": 10,
+        "material": 21,
+        "colour_delta": 10.049
+      },
+      "test": {
+        "n": 33,
+        "storeys": 17,
+        "columns_n": 29,
+        "columns": 15,
+        "material": 25,
+        "colour_delta": 10.286
+      }
+    },
+    "lidar_density": {
+      "validation": {
+        "n": 27,
+        "storeys": 8,
+        "columns_n": 19,
+        "columns": 7,
+        "material": 18,
+        "colour_delta": 19.873
+      },
+      "test": {
+        "n": 33,
+        "storeys": 6,
+        "columns_n": 29,
+        "columns": 5,
+        "material": 18,
+        "colour_delta": 28.955
+      }
+    },
+    "lidar_depth": {
+      "validation": {
+        "n": 27,
+        "storeys": 0,
+        "columns_n": 19,
+        "columns": 6,
+        "material": 18,
+        "colour_delta": 19.873
+      },
+      "test": {
+        "n": 33,
+        "storeys": 6,
+        "columns_n": 29,
+        "columns": 6,
+        "material": 18,
+        "colour_delta": 28.955
+      }
+    },
+    "fusion": {
+      "validation": {
+        "n": 27,
+        "storeys": 13,
+        "columns_n": 19,
+        "columns": 14,
+        "material": 21,
+        "colour_delta": 10.099
+      },
+      "test": {
+        "n": 33,
+        "storeys": 15,
+        "columns_n": 29,
+        "columns": 15,
+        "material": 24,
+        "colour_delta": 9.943
+      }
+    }
+  },
+  "pseudo_oof": {
+    "ridge_priors": {
+      "n": 278,
+      "storeys": 110,
+      "columns_n": 241,
+      "columns": 102,
+      "material": 223,
+      "colour_delta": 15.123
+    },
+    "ridge_image": {
+      "n": 278,
+      "storeys": 67,
+      "columns_n": 241,
+      "columns": 74,
+      "material": 224,
+      "colour_delta": 8.535
+    },
+    "ridge_fusion": {
+      "n": 278,
+      "storeys": 100,
+      "columns_n": 241,
+      "columns": 89,
+      "material": 222,
+      "colour_delta": 8.736
+    },
+    "ridge_dino": {
+      "n": 278,
+      "storeys": 110,
+      "columns_n": 241,
+      "columns": 62,
+      "material": 230,
+      "colour_delta": 12.512
+    },
+    "ridge_dino_priors": {
+      "n": 278,
+      "storeys": 120,
+      "columns_n": 241,
+      "columns": 78,
+      "material": 229,
+      "colour_delta": 9.69
+    },
+    "forest_priors": {
+      "n": 278,
+      "storeys": 94,
+      "columns_n": 241,
+      "columns": 104,
+      "material": 224,
+      "colour_delta": 16.247
+    },
+    "forest_fusion": {
+      "n": 278,
+      "storeys": 79,
+      "columns_n": 241,
+      "columns": 111,
+      "material": 225,
+      "colour_delta": 9.952
+    },
+    "forest_dino_priors": {
+      "n": 278,
+      "storeys": 55,
+      "columns_n": 241,
+      "columns": 125,
+      "material": 224,
+      "colour_delta": 10.568
+    },
+    "ridge_lidar_fusion": {
+      "n": 278,
+      "storeys": 93,
+      "columns_n": 241,
+      "columns": 96,
+      "material": 223,
+      "colour_delta": 8.718
+    },
+    "geometry": {
+      "n": 278,
+      "storeys": 51,
+      "columns_n": 241,
+      "columns": 94,
+      "material": 224,
+      "colour_delta": 18.371
+    },
+    "register": {
+      "n": 278,
+      "storeys": 125,
+      "columns_n": 241,
+      "columns": 101,
+      "material": 216,
+      "colour_delta": 15.715
+    },
+    "classic": {
+      "n": 278,
+      "storeys": 50,
+      "columns_n": 241,
+      "columns": 86,
+      "material": 224,
+      "colour_delta": 25.026
+    },
+    "lidar_density": {
+      "n": 278,
+      "storeys": 56,
+      "columns_n": 241,
+      "columns": 63,
+      "material": 216,
+      "colour_delta": 15.715
+    },
+    "lidar_depth": {
+      "n": 278,
+      "storeys": 35,
+      "columns_n": 241,
+      "columns": 58,
+      "material": 216,
+      "colour_delta": 15.715
+    }
+  },
+  "pseudo_oof_width_at_least_3m": {
+    "ridge_priors": {
+      "n": 127,
+      "storeys": 53,
+      "columns_n": 106,
+      "columns": 25,
+      "material": 93,
+      "colour_delta": 16.207
+    },
+    "ridge_image": {
+      "n": 127,
+      "storeys": 33,
+      "columns_n": 106,
+      "columns": 32,
+      "material": 94,
+      "colour_delta": 9.581
+    },
+    "ridge_fusion": {
+      "n": 127,
+      "storeys": 44,
+      "columns_n": 106,
+      "columns": 24,
+      "material": 92,
+      "colour_delta": 9.645
+    },
+    "ridge_dino": {
+      "n": 127,
+      "storeys": 57,
+      "columns_n": 106,
+      "columns": 13,
+      "material": 98,
+      "colour_delta": 12.781
+    },
+    "ridge_dino_priors": {
+      "n": 127,
+      "storeys": 57,
+      "columns_n": 106,
+      "columns": 21,
+      "material": 96,
+      "colour_delta": 10.677
+    },
+    "forest_priors": {
+      "n": 127,
+      "storeys": 44,
+      "columns_n": 106,
+      "columns": 29,
+      "material": 92,
+      "colour_delta": 16.481
+    },
+    "forest_fusion": {
+      "n": 127,
+      "storeys": 37,
+      "columns_n": 106,
+      "columns": 22,
+      "material": 92,
+      "colour_delta": 11.277
+    },
+    "forest_dino_priors": {
+      "n": 127,
+      "storeys": 21,
+      "columns_n": 106,
+      "columns": 27,
+      "material": 92,
+      "colour_delta": 11.469
+    },
+    "ridge_lidar_fusion": {
+      "n": 127,
+      "storeys": 38,
+      "columns_n": 106,
+      "columns": 26,
+      "material": 93,
+      "colour_delta": 9.726
+    },
+    "geometry": {
+      "n": 127,
+      "storeys": 16,
+      "columns_n": 106,
+      "columns": 35,
+      "material": 92,
+      "colour_delta": 18.797
+    },
+    "register": {
+      "n": 127,
+      "storeys": 67,
+      "columns_n": 106,
+      "columns": 39,
+      "material": 90,
+      "colour_delta": 15.813
+    },
+    "classic": {
+      "n": 127,
+      "storeys": 25,
+      "columns_n": 106,
+      "columns": 24,
+      "material": 92,
+      "colour_delta": 27.498
+    },
+    "lidar_density": {
+      "n": 127,
+      "storeys": 33,
+      "columns_n": 106,
+      "columns": 16,
+      "material": 90,
+      "colour_delta": 15.813
+    },
+    "lidar_depth": {
+      "n": 127,
+      "storeys": 20,
+      "columns_n": 106,
+      "columns": 12,
+      "material": 90,
+      "colour_delta": 15.813
+    }
+  },
+  "fallback_inclusive_425": {
+    "ridge_priors": {
+      "n": 425,
+      "storeys": 210,
+      "columns_n": 354,
+      "columns": 177,
+      "material": 342,
+      "colour_delta": 14.953
+    },
+    "ridge_image": {
+      "n": 425,
+      "storeys": 167,
+      "columns_n": 354,
+      "columns": 149,
+      "material": 343,
+      "colour_delta": 9.063
+    },
+    "ridge_fusion": {
+      "n": 425,
+      "storeys": 200,
+      "columns_n": 354,
+      "columns": 164,
+      "material": 341,
+      "colour_delta": 9.081
+    },
+    "ridge_dino": {
+      "n": 425,
+      "storeys": 210,
+      "columns_n": 354,
+      "columns": 137,
+      "material": 349,
+      "colour_delta": 12.528
+    },
+    "ridge_dino_priors": {
+      "n": 425,
+      "storeys": 220,
+      "columns_n": 354,
+      "columns": 153,
+      "material": 348,
+      "colour_delta": 10.401
+    },
+    "forest_priors": {
+      "n": 425,
+      "storeys": 194,
+      "columns_n": 354,
+      "columns": 179,
+      "material": 343,
+      "colour_delta": 15.857
+    },
+    "forest_fusion": {
+      "n": 425,
+      "storeys": 179,
+      "columns_n": 354,
+      "columns": 186,
+      "material": 344,
+      "colour_delta": 10.314
+    },
+    "forest_dino_priors": {
+      "n": 425,
+      "storeys": 155,
+      "columns_n": 354,
+      "columns": 200,
+      "material": 343,
+      "colour_delta": 10.922
+    },
+    "ridge_lidar_fusion": {
+      "n": 425,
+      "storeys": 193,
+      "columns_n": 354,
+      "columns": 171,
+      "material": 342,
+      "colour_delta": 9.393
+    },
+    "geometry": {
+      "n": 425,
+      "storeys": 87,
+      "columns_n": 354,
+      "columns": 164,
+      "material": 313,
+      "colour_delta": 16.862
+    },
+    "register": {
+      "n": 425,
+      "storeys": 225,
+      "columns_n": 354,
+      "columns": 176,
+      "material": 335,
+      "colour_delta": 15.249
+    },
+    "classic": {
+      "n": 425,
+      "storeys": 150,
+      "columns_n": 354,
+      "columns": 161,
+      "material": 343,
+      "colour_delta": 18.366
+    },
+    "lidar_density": {
+      "n": 425,
+      "storeys": 86,
+      "columns_n": 354,
+      "columns": 116,
+      "material": 335,
+      "colour_delta": 15.249
+    },
+    "lidar_depth": {
+      "n": 425,
+      "storeys": 44,
+      "columns_n": 354,
+      "columns": 110,
+      "material": 335,
+      "colour_delta": 15.249
+    }
+  },
+  "learning_curve": [
+    {
+      "buildings": 6,
+      "labels": 23,
+      "fraction": 0.25,
+      "ridge_priors": {
+        "n": 33,
+        "storeys": 9,
+        "columns_n": 29,
+        "columns": 12,
+        "material": 24,
+        "colour_delta": 18.517
+      },
+      "ridge_fusion": {
+        "n": 33,
+        "storeys": 8,
+        "columns_n": 29,
+        "columns": 5,
+        "material": 24,
+        "colour_delta": 12.55
+      },
+      "ridge_dino_priors": {
+        "n": 33,
+        "storeys": 13,
+        "columns_n": 29,
+        "columns": 14,
+        "material": 24,
+        "colour_delta": 15.356
+      },
+      "forest_priors": {
+        "n": 33,
+        "storeys": 8,
+        "columns_n": 29,
+        "columns": 15,
+        "material": 24,
+        "colour_delta": 15.775
+      }
+    },
+    {
+      "buildings": 12,
+      "labels": 57,
+      "fraction": 0.5,
+      "ridge_priors": {
+        "n": 33,
+        "storeys": 14,
+        "columns_n": 29,
+        "columns": 4,
+        "material": 24,
+        "colour_delta": 18.762
+      },
+      "ridge_fusion": {
+        "n": 33,
+        "storeys": 13,
+        "columns_n": 29,
+        "columns": 6,
+        "material": 23,
+        "colour_delta": 11.038
+      },
+      "ridge_dino_priors": {
+        "n": 33,
+        "storeys": 16,
+        "columns_n": 29,
+        "columns": 12,
+        "material": 25,
+        "colour_delta": 16.363
+      },
+      "forest_priors": {
+        "n": 33,
+        "storeys": 14,
+        "columns_n": 29,
+        "columns": 13,
+        "material": 24,
+        "colour_delta": 17.469
+      }
+    },
+    {
+      "buildings": 19,
+      "labels": 125,
+      "fraction": 0.75,
+      "ridge_priors": {
+        "n": 33,
+        "storeys": 17,
+        "columns_n": 29,
+        "columns": 11,
+        "material": 25,
+        "colour_delta": 19.064
+      },
+      "ridge_fusion": {
+        "n": 33,
+        "storeys": 17,
+        "columns_n": 29,
+        "columns": 12,
+        "material": 24,
+        "colour_delta": 10.488
+      },
+      "ridge_dino_priors": {
+        "n": 33,
+        "storeys": 14,
+        "columns_n": 29,
+        "columns": 16,
+        "material": 24,
+        "colour_delta": 15.033
+      },
+      "forest_priors": {
+        "n": 33,
+        "storeys": 15,
+        "columns_n": 29,
+        "columns": 14,
+        "material": 24,
+        "colour_delta": 17.175
+      }
+    },
+    {
+      "buildings": 25,
+      "labels": 175,
+      "fraction": 1.0,
+      "ridge_priors": {
+        "n": 33,
+        "storeys": 16,
+        "columns_n": 29,
+        "columns": 13,
+        "material": 25,
+        "colour_delta": 17.225
+      },
+      "ridge_fusion": {
+        "n": 33,
+        "storeys": 17,
+        "columns_n": 29,
+        "columns": 14,
+        "material": 25,
+        "colour_delta": 10.377
+      },
+      "ridge_dino_priors": {
+        "n": 33,
+        "storeys": 9,
+        "columns_n": 29,
+        "columns": 13,
+        "material": 26,
+        "colour_delta": 13.961
+      },
+      "forest_priors": {
+        "n": 33,
+        "storeys": 15,
+        "columns_n": 29,
+        "columns": 15,
+        "material": 24,
+        "colour_delta": 18.271
+      }
+    }
+  ],
+  "fusion": {
+    "storeys": "forest_priors",
+    "window_columns": "forest_priors",
+    "material": "geometry",
+    "wall_colour": "ridge_image"
+  },
+  "calibration": {
+    "storeys": {
+      "probability": 0.45454545454545453,
+      "successes": 15,
+      "n": 33,
+      "event": "exact match",
+      "target": "Astra pseudo-label",
+      "scope": "building-held-out test/calibration fold; global field reliability"
+    },
+    "window_columns": {
+      "probability": 0.5172413793103449,
+      "successes": 15,
+      "n": 29,
+      "event": "exact match",
+      "target": "Astra pseudo-label",
+      "scope": "building-held-out test/calibration fold; global field reliability"
+    },
+    "material": {
+      "probability": 0.7272727272727273,
+      "successes": 24,
+      "n": 33,
+      "event": "exact match",
+      "target": "Astra pseudo-label",
+      "scope": "building-held-out test/calibration fold; global field reliability"
+    },
+    "wall_colour": {
+      "probability": 0.7575757575757576,
+      "successes": 25,
+      "n": 33,
+      "event": "deltaE76 <= 15",
+      "target": "Astra pseudo-label",
+      "scope": "building-held-out test/calibration fold; global field reliability"
+    }
+  },
+  "training_seconds": 12.647,
+  "reviewer_benchmark": {
+    "classic": {
+      "engine": "classic",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.049,
+      "seconds_per_wall": 0.002,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 4,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 0,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 26.07,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "engine": {
+      "engine": "cv-priors",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 1.082,
+      "seconds_per_wall": 0.054,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 6,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 3,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 16.94,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "actual inference, preloaded engine"
+    },
+    "forest_dino_priors": {
+      "engine": "forest_dino_priors",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.058,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 5,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 3,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 17.03,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "forest_fusion": {
+      "engine": "forest_fusion",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.054,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 7,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 1,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 18.01,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "forest_priors": {
+      "engine": "forest_priors",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.054,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 6,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 3,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 27.71,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "fusion": {
+      "engine": "fusion",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.058,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 6,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 3,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 16.94,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "geometry": {
+      "engine": "geometry",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.055,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 2,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 1,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 29.38,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "lidar_density": {
+      "engine": "lidar_density",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.061,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 4,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 3,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 20.9,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 10,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "lidar_depth": {
+      "engine": "lidar_depth",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.06,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 0,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 1,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 20.9,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 10,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "register": {
+      "engine": "register",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.055,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 8,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 3,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 20.9,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 10,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "ridge_dino": {
+      "engine": "ridge_dino",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.054,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 5,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 4,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 16.2,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 8,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "ridge_dino_priors": {
+      "engine": "ridge_dino_priors",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.052,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 5,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 1,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 14.73,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 10,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "ridge_fusion": {
+      "engine": "ridge_fusion",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.043,
+      "seconds_per_wall": 0.002,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 6,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 1,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 17.45,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 10,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "ridge_image": {
+      "engine": "ridge_image",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.071,
+      "seconds_per_wall": 0.004,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 1,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 1,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 16.94,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 7,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "ridge_lidar_fusion": {
+      "engine": "ridge_lidar_fusion",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.1,
+      "seconds_per_wall": 0.005,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 3,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 2,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 17.28,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 10,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    },
+    "ridge_priors": {
+      "engine": "ridge_priors",
+      "segmentation": "classic",
+      "walls": 20,
+      "model_load_seconds": 0.0,
+      "seconds": 0.067,
+      "seconds_per_wall": 0.003,
+      "counts": {
+        "storeys": {
+          "n": 14,
+          "cv": 9,
+          "astra": 12
+        },
+        "columns": {
+          "n": 10,
+          "cv": 2,
+          "astra": 8
+        }
+      },
+      "median_colour_delta": 20.57,
+      "astra_median_colour_delta": 13.04,
+      "visible": 19,
+      "material_astra_agreement": 10,
+      "material_astra_n": 17,
+      "timing_kind": "cached prediction scoring, not inference"
+    }
+  },
+  "lidar": {
+    "walls": 445,
+    "usable": 1,
+    "resolution_m": 0.5,
+    "median_points_per_m2": 3.8058542631964625,
+    "median_coverage": 0.2,
+    "median_supported": 0.08641975308641975
+  },
+  "sources_sha256": {
+    "labels/t0_0_0/descriptions.json": "8785f7a4b19e89842994cb1d3e9abb39e70b8bf392c7b4c6ca4eb157146186c4",
+    "labels/t0_0_0/plan.json": "6bea928a88c4f36dab0d66d6873071ad32f53c17013a525d368ed0ea280f1f81",
+    "labels/t0_0_0/refs.json": "2fc3def5caea293deb19e44a050c145c453c97e43f7ee27eeb3187d34ab5bb8b",
+    "labels/t0_0_0/describe.json": "5f5840bc0cb09652c3f8bd06ec48e025e7be61a95450801edaafee0cceb116e9",
+    "labels/t0_0_1/descriptions.json": "e6728c6a994bd343cb737e07dc0f22b2d8bbb39cbae6af0e53b9785b54fd4dcd",
+    "labels/t0_0_1/plan.json": "d295c76579fcc087abb753e17169544ba10f52419b95cd1d5895e26c5c731c63",
+    "labels/t0_0_1/refs.json": "37755bf2c89e2fca3645d18b6146ca3a7da47d45f3ef3f8c7aa9025f47cb56b2",
+    "labels/t0_0_1/describe.json": "afd3a8a107aee5cdbc2e8708edddde79f8f4bf9d30d7e91efe52abe9c3357a12",
+    "labels/t0_1_0/descriptions.json": "32a9afd64133dfe44ba62050c8b32769f3506041b029c126d32e057335bf3d4c",
+    "labels/t0_1_0/plan.json": "236f2f4a2e2ea09f7ac9885f5fd3ce40d6894de32a0371293f1fb794d9cce766",
+    "labels/t0_1_0/refs.json": "95a57a622510aa0ec7dcba67cae7fc9f57ceff281912d4db4debe5e4445993fc",
+    "labels/t0_1_0/describe.json": "9bc5180b68fe190b271c4b5270b21acc9cd1db31ffb2c44d7230ff27d027b3e7",
+    "labels/t0_1_1/descriptions.json": "5ef1ea37c6619e3fdad2eff1e961cda220a503e7ab6b1de893832f19294ea312",
+    "labels/t0_1_1/plan.json": "bcd61125a1ebb3f43ea2b9ab198edf47eb8f0880fe2ec8c3fba762f6b509d0a7",
+    "labels/t0_1_1/refs.json": "f18a5a87e0e7c59a258556b6931f91596e1224bf37bd793784706a42e35ad70c",
+    "labels/t0_1_1/describe.json": "9935cd3faee032f5a710e578088bc8d2836765e52fd19ef60a7031dc5dba6159"
+  },
+  "download": {
+    "model": "facebook/dinov2-small",
+    "revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+    "files": {
+      "config.json": {
+        "bytes": 547,
+        "sha256": "1809f83e3bdb1609a501a610ad4a742f4fd8ae44d72ca4aa0df52d1f2ac8628d"
+      },
+      "preprocessor_config.json": {
+        "bytes": 436,
+        "sha256": "14e780d86fa1861f8751f868d7f45425b5feb55c38ca26f152ca5097ab30f828"
+      },
+      "model.safetensors": {
+        "bytes": 88249960,
+        "sha256": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1"
+      }
+    }
+  }
+}

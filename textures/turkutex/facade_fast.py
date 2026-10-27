@@ -232,6 +232,10 @@ def describe(
     engine: str = "astra",
     segmentation: str = "classic",
 ) -> dict:
+    if engine == "cv-priors":
+        from .facade_priors import describe as describe_priors
+
+        return describe_priors(run, inventory, refs)
     if engine == "cv":
         from .facade_cv import describe as describe_cv
 
@@ -604,7 +608,7 @@ def main(argv=None) -> int:
         if name == "describe":
             p.add_argument("-j", type=int, default=8)
             p.add_argument("--max-pct", type=float, default=90)
-            p.add_argument("--engine", choices=("astra", "cv"), default="astra")
+            p.add_argument("--engine", choices=("astra", "cv", "cv-priors"), default="astra")
             p.add_argument("--segmentation", choices=("classic", "segformer"), default="classic")
         if name in ("render", "publish", "contact"):
             p.add_argument("--staging", type=Path, required=True)
