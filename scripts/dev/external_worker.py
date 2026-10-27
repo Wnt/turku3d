@@ -60,4 +60,10 @@ def finish(name, result_path):
         meta.pop("returned_reason", None)
         meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         s.write_json(path / "meta.json", meta)
+    # A new finish answers the lander's own "returned" request; other open requests still hold.
+    import coordination as coord
+
+    for row in coord.inbox(name, unread=True):
+        if row["kind"] == "request" and row["subject"] == f"lander returned {name}":
+            coord.acknowledge(row["id"], "answered by a new finish")
     print(f"{name}: DONE result recorded; the lander lands it after its fast gate")

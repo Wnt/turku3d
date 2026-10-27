@@ -106,11 +106,17 @@ class LanderTests(Fixture):
         self.assertEqual(request["kind"], "request")
         self.assertIn("shared.md", request["body"])
         self.assertFalse(self.git("status", "--porcelain", cwd=repo))
-        # The open request blocks a relanding until the worker acks it and finishes again.
+        # A new finish answers the lander's own request, so the relanding is attempted again
+        # (and fails on the unresolved conflict, not on an unacknowledged message).
         result = self.base / "result.md"
         result.write_text("## Result: DONE\n")
         self.cli("codex-task", "finish", "demo", "--result", str(result))
-        self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo", ok=False).stderr)
+        self.assertEqual(
+            json.loads(self.cli("codex-task", "inbox", "demo", "--unread", "--json").stdout), []
+        )
+        relanding = self.cli("codex-task", "land", "demo", ok=False).stderr
+        self.assertNotIn("unacknowledged", relanding)
+        self.assertIn("rebase conflict", relanding)
 
     def test_batch_with_red_member_lands_green_prefix(self):
         repos = {name: self.start(name) for name in ("batch-a", "batch-b", "batch-c")}
