@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-LIMITS = {"build": 3, "browser": 2, "integration": 1, "integration-data": 1}
+LIMITS = {"build": 3, "browser": 1, "integration": 1, "integration-data": 1}
 # The code lane (`integration`, with Chrome) and the data lane (no Chrome) of the integrator.
 # Both are stored as kind `integration` with their `lane`, so tooling that predates the data
 # lane counts it as an integration instead of failing on an unknown kind.

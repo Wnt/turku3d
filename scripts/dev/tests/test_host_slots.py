@@ -91,15 +91,15 @@ class HostSlotsTest(unittest.TestCase):
         self.until(lambda: self.kinds(extra) == [("build", "running")])
 
     def test_dead_owner_reclaimed_and_browser_cap(self):
-        browsers = [self.start("browser") for _ in range(3)]
-        self.until(lambda: len(self.snapshot()) == 3)
-        self.assertEqual(sum(e["state"] == "running" for e in self.snapshot()), 2)
+        # One agent Chrome suite per host at a time.
+        browsers = [self.start("browser") for _ in range(2)]
+        self.until(lambda: len(self.snapshot()) == 2)
+        self.assertEqual(sum(e["state"] == "running" for e in self.snapshot()), 1)
         owner = next(e for e in self.snapshot() if e["state"] == "running")
         child = next(c for c in browsers if c.pid == owner["pid"])
         os.killpg(child.pid, signal.SIGKILL)
         child.wait(timeout=3)
-        self.until(lambda: all(e["state"] == "running" for e in self.snapshot()))
-        self.assertEqual(len(self.snapshot()), 2)
+        self.until(lambda: [e["state"] for e in self.snapshot()] == ["running"])
 
     def test_child_worker_budget(self):
         for kind, expected in (("build", "2"), ("browser", "1")):
