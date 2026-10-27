@@ -196,7 +196,10 @@ Pipeline principles:
 - Each step is resumable per tile.
 - `make tile T=...` rebuilds one tile end to end.
 
-Landing and integration: a finished branch reaches `main` after the fast gate only; the integrator then verifies
+Landing and integration: each agent lands its own green slice with `codex-task finish` (rebase, fast gate,
+fast-forward; conflicts are the agent's to resolve) and every landing sends a `landed` message to the other
+running agents, who rebase at their next natural point; unlanded branches are never shared, so an interface
+change lands first as its own compatible slice. The landing starts the integrator (nothing polls), which verifies
 `main` once per batch and moves `live` (and GitHub Pages) only to a verified release. Each landing and batch has a
 class (`scripts/dev/landing_class.py`, conservative allowlists): `inert` (docs, prose) re-points `live` to the
 new commit with the verified content and builds nothing; `data` (voice clips, the address pool, or a changed data
@@ -205,7 +208,7 @@ ground audit and the game build without Chrome; `code` runs every live stage. La
 batch's first expensive stage join it; a second (data) lane verifies data-root changes while a code batch runs, and
 publication is serialised so no lane publishes over a release it did not build on. The integrator's Chrome stage
 gets 4 workers below load 60 (else 2), and agents' Chrome suites queue behind it. Details and ledger fields:
-`scripts/dev/README.md`, "Merge queue" and "Host slots".
+`scripts/dev/README.md`, "Landing", "Landing and integration" and "Host slots".
 
 ---
 
