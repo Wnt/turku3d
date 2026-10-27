@@ -119,3 +119,127 @@ grid-in-prompt request, plus a gate.
   **0.40 points per accepted wall > 0.3**: stop. Acceptance was 5 of 12 readable walls (42 %),
   below the orchestrator's 45 % bar for continuing. The rule cannot separate the reference-grid
   calls from the image calls: 33 astra calls ran before any image in this batch.
+
+## Outcome (stopped after batch 3)
+
+The stop rule triggered after batch 3, and the orchestrator stopped the rollout. Every one of the
+68 batchable office-core walls has been attempted, but no ring wall has. Quota went 27 → 30 %
+(3 of the 25 approved points).
+
+### Results so far
+
+- **Published:** 15 walls, 18 → 33 generated maps in the approval root.
+- **Core coverage:** 33 of 218 street-facing core walls now have a generated map. That is 33 of
+  the 86 core walls the queue does not defer as extreme aspect. The 132 deferred core walls
+  (beyond 3.5:1) got no image calls.
+- **Contact sheets:** each shows the reference crop next to the generated image with the verdict
+  for every wall, skipped walls included.
+  - [batch 1](w1-09h-facade-rollout/contact-batch-01.jpg)
+  - [batch 2](w1-09h-facade-rollout/contact-batch-02.jpg)
+  - [batch 3](w1-09h-facade-rollout/contact-batch-03.jpg)
+  - A skipped wall with no rendered full or partial view at all (for example `gis-103295885A_30`)
+    has no crop to show.
+
+Final outcome per unique core wall (68; the 13 walls of batch 2 count once, with their batch-3 result):
+
+| Outcome | Walls | Width m, median (range) | Height m, median (range) | Aspect, median (range) | < 4 m wide | `gis-`/`kanta-` IDs |
+| --- | ---: | --- | --- | --- | ---: | ---: |
+| accepted | 15 | 8.2 (1.6–18.9) | 10.9 (3.9–20.6) | 0.64 (0.33–2.81) | 3 | 2 |
+| rejected after image(s) | 20 | 8.1 (3.5–32.5) | 11.1 (6.3–21.5) | 0.65 (0.33–3.17) | 2 | 8 |
+| no usable reference | 33 | 3.0 (1.0–12.9) | 6.3 (3.0–20.4) | 0.47 (0.31–1.85) | 19 | 23 |
+
+Size does not separate accepted from rejected walls. The reference does: walls without a usable
+reference are small, and most of them carry the GIS-derived IDs of riverside kiosks and boats,
+yards and construction sites.
+
+### Prompts per batch
+
+- **Batches 1 and 2** used the same template, `textures/prompts/facade_generate.md` at `0ed329c`.
+  Its target line is `Target wall: $width_m metres wide, $height_m metres high, aspect $aspect.
+  $bay_instruction`, followed by the reference list, the drawing rules, the layout and retry
+  instructions, the albedo rules and the style fragment.
+- **Batch 2 did not use the grid prompt.** It ran the batch-1 prompt at `-j 32`, as the
+  orchestrator asked before the grid request arrived.
+- **Batch 3** used `8e246c1`, which changes two things:
+  - The target line states the aspect as a hard rule: `The finished wall rectangle must have
+    exactly this width:height aspect: $aspect.`
+  - A new `$grid_instruction` line comes from the `refgrid` answer. For `103295889E_22` it reads:
+    `Measured from the references before drawing; these are hard constraints: 1 storeys including
+    the ground floor; no upper window rows; 2 ground-floor openings (doors, shop windows, gates);
+    a distinct plinth band; a distinct cornice or eaves band; cladding: Vaaleankeltainen
+    pystylaudoitus.` The cladding came back in Finnish; the prompt now asks for English.
+  - `--feedback` retries keep both lines and add `A previous image of this wall was rejected in
+    review: <reason> Correct that while following every rule below.`
+- **The model's own image prompt.** Luna rewrites the job prompt into the `image_gen` prompt
+  (recorded in `run_generate/attempts.jsonl`). In batch 3 that rewrite carries the counts through,
+  for example: `one storey total, no upper window row; exactly two ground-floor openings … Target
+  wall rectangle aspect ratio must be exactly 0.6217:1`. Its retry also adds opening positions as
+  percentages of the wall.
+
+### Reference gates and their rejections
+
+- **Pixel screen** (all batches, before any call):
+  - more than 20 % pure black, or
+  - contrast-normalised Laplacian sharpness below 0.065 at 512 px.
+
+  Without a valid full view, refs falls back from Look Around to Google to Mapillary (four views per
+  source). Walls skipped this way:
+  - batch 1: 2 with no full-wall view in any source;
+  - batch 2: 7 with no full-wall view, 1 with only black views, 2 with only blurred views.
+
+  The fallback found a valid view for 2 walls in batch 1 and 4 in batch 3.
+- **Reference grid** (batch 3 only). This is a yes/no judgement by the astra/low reviewer
+  (`wall_visible`), with no numeric threshold. It rejected 21 of 33 walls:
+
+  | Reason (translated) | Walls |
+  | --- | ---: |
+  | pavement, asphalt or paving only | 6 (`gis-1032581214_26`, `_28`, `_31`, `_33`, `gis-103929947X_6`, `_7`) |
+  | terrace, boat or water | 5 (`gis-3aa1c…_18`, `_20`, `_21`, `kanta-84488…_2`, `gis-103577006R_16`) |
+  | construction fence, canopy or site equipment | 5 (`gis-103295886B_1`, `gis-f4a3b…_4`, `1032958849_21`, `_27`, `gis-103929947X_8`) |
+  | foliage | 2 (`103295901U_8`, `103304659B_64`) |
+  | too dark to count openings | 2 (`103304659B_62`, `103295901U_19`) |
+  | fence and vehicle | 1 (`103304668M_25`) |
+
+### Why batch 2 accepted nothing
+
+Batch 2 had no grid in its prompt; the grid arrived in batch 3. My hypothesis is that batch 2
+failed on its references, not its prompt:
+
+- It drew the leftover core walls after the best-referenced ones were taken in batch 1. They are
+  smaller, and many are riverside or construction-site walls whose rectified crops land on
+  pavement, boats, fences or cars (median 3 m wide among the unusable ones).
+- Nine of its 13 images were facades invented from such crops, and the reviewer correctly rejected
+  every one.
+- The 429 failures removed another 20 walls before any image.
+
+Batch 3 supports this hypothesis. Once `refgrid` removed the 21 invisible walls, 5 of 12 were
+accepted: 3 on the first image and 2 after a retry. That is about batch 1's rate (10 of 23), on the
+walls batch 2 had failed on.
+
+### Cost per accepted wall
+
+The stop rule judges quota points per accepted wall over the last two batches: 2 points for
+5 walls. Batch 3 includes 33 reference-grid calls (three images each) that the integer quota
+reading cannot separate from its 20 image calls and 19 reviews. Batch 1 cost under 1 point for
+10 walls with 36 image calls.
+
+### Street view (batch 1, both backends)
+
+The renders use the reference camera of each wall, before (`cc7903a`, photo-derived maps) and
+after (`8e246c1`, with batch 1):
+
+- [WebGPU](w1-09h-facade-rollout/street-batch-01-webgpu.jpg)
+- [WebGL2](w1-09h-facade-rollout/street-batch-01-webgl.jpg)
+
+`103295896N_1` changes from a smeared photo to a crisp pink facade with its niche statue.
+`103295901U_29` becomes a sharp modernist elevation.
+
+In the same view, the neighbouring wall `103295901U_26` keeps its binding but looks blurrier after.
+It shares tile `t0_0_1` with four of the new 32 px/m maps. That is consistent with the packager
+lowering other walls' density to stay under the 8 MB cap. Its photo approval has since been
+retired by `tool-public-release`, so it will fall back to library material.
+
+The batch-3 maps reach the live game with the next integration, so no after-sheet exists yet for
+them; batch 2 published nothing. Integrations `0ed329c` and `8e246c1` were green with facades
+bound 341. The visual GLBs of `t0_0_0` and `t0_0_1` grew from 4.99 to 5.38 MB and from 4.76 to
+4.98 MB.
