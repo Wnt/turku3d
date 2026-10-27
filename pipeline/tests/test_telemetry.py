@@ -39,6 +39,8 @@ def assembly(tmp_path):
         "GEN_2": "derived",
         "NB_4": "derived-neighbour",
         "DER_3": "derived",
+        "FAST_0": "fast",
+        "NB_5": "fast",
     }
     for facade_id, mode in bound.items():
         building, index = facade_id.rsplit("_", 1)
@@ -56,6 +58,7 @@ def test_status_from_the_approval_assembly(assembly):
         "GEN": "generated",
         "NB": "neighbour",
         "DER": "derived-only",
+        "FAST": "fast",
     }
     assert p.building_status(assembly.parent / "missing") == {}
 

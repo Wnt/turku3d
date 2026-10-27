@@ -6,8 +6,11 @@
 `add-tile` appends the tile to the sandbox's playable-tiles.json, makes sure its inputs exist
 (work-3x3 while that holds the tile's input area, else the tile's own `tile-<id>` area, fetched
 read-through into $TURKU3D_DATA/raw), seeds the sandbox from the published layers, runs
-`turku3d.refresh` (only the new tile and what depends on it rebuild) and assembles the listed
-tiles with the `playable-tiles` rules. Stage times go to $TURKU3D_WORK/reports/tile-add/<tile>.json.
+`turku3d.refresh` (only the new tile and what depends on it rebuild), gives the tile's street
+walls without a map rough fast-pass maps (`turkutex.facade_fast`, in the sandbox's facade
+assembly) and assembles the listed tiles with the `playable-tiles` rules. Stage times go to
+$TURKU3D_WORK/reports/tile-add/<tile>.json. `list-tile` also publishes those fast maps into the
+data root's facade approvals, where the integrator's data lane picks them up.
 """
 
 from __future__ import annotations
@@ -165,6 +168,7 @@ def add_tile(tile_id: str) -> dict:
             for m in map(REFRESH_LINE.match, lines)
             if m
         }
+        fast = stage("facades-fast", fast_facades, tile_id, work, log)
         command = [sys.executable, "-m", "turku3d.package.assemble", "--area", "playable-tiles"]
         out = stage("assemble", stream, [*command, "--tile", *tiles], log)
     report = {
@@ -175,6 +179,7 @@ def add_tile(tile_id: str) -> dict:
         "seeded": seeded,
         "seconds": {**stages, "total": round(time.monotonic() - started, 3)},
         "layers": layers,
+        "facades_fast": fast,
         "assemble": json.loads(out[-1]),
         "result": tile_summary(tile_id, work),
     }
@@ -182,9 +187,60 @@ def add_tile(tile_id: str) -> dict:
     return report
 
 
+def fast_run(tile_id: str, work: Path) -> tuple[Path, list[str]]:
+    """The fast pass's run directory for a tile and the arguments every step shares."""
+    run = work / "textures/fast" / tile_id
+    return run, [
+        "--run",
+        str(run),
+        "--inventory",
+        str(work / "build/layers/buildings/facades.geojson"),
+    ]
+
+
+def facade_fast(step: str, args: list[str], log) -> dict:
+    python = C.REPO_ROOT / "textures/.venv/bin/python"
+    return json.loads(stream([str(python), "-m", "turkutex.facade_fast", step, *args], log)[-1])
+
+
+def fast_facades(tile_id: str, work: Path, log) -> dict:
+    """Rough maps for the tile's street walls without a generated or derived map: references,
+    one cached vision call per wall, procedural maps bound in the sandbox's facade assembly."""
+    assembly = work / "textures/assembly"
+    run, common = fast_run(tile_id, work)
+    refs = ["--refs", str(work / "textures/refs")]
+    staging = ["--staging", str(run / "staging")]
+    wfs = C.raw_dir("wfs") / C.source_area(tile_id)
+    result = {
+        "plan": facade_fast("plan", [*common, "--assembly", str(assembly), "--tiles", tile_id], log)
+    }
+    result["refs"] = {
+        k: v for k, v in facade_fast("refs", [*common, *refs], log).items() if k != "errors"
+    }
+    result["describe"] = facade_fast("describe", [*common, *refs], log)
+    result["render"] = facade_fast("render", [*common, *staging, "--wfs", str(wfs)], log)
+    result["publish"] = facade_fast(
+        "publish", [*common, *staging, "--assembly", str(assembly)], log
+    )
+    return result
+
+
 def list_tile(tile_id: str) -> dict:
     path = C.playable_tiles_path(C.data_root())
-    return C.write_playable_tiles(path, plan(tile_id, C.read_playable_tiles(path)))
+    listed = C.write_playable_tiles(path, plan(tile_id, C.read_playable_tiles(path)))
+    run, common = fast_run(tile_id, C.work_root())
+    if (run / "staging/fast.json").exists():
+        approvals = C.data_root() / "facade-approvals/assembly"
+        reports = C.work_root() / "reports/tile-add"
+        reports.mkdir(parents=True, exist_ok=True)
+        with (reports / f"{tile_id}.fast-publish.log").open("w") as log:
+            published = facade_fast(
+                "publish",
+                [*common, "--staging", str(run / "staging"), "--assembly", str(approvals)],
+                log,
+            )
+        print(json.dumps({"facades_fast": published}), file=sys.stderr)
+    return listed
 
 
 def main(argv=None) -> int:

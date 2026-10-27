@@ -9,7 +9,8 @@ second, game/src/telemetry/README.md) and writes ``priority.json`` plus a ``prio
 * Missing tile score: seconds the player stood in a tile outside the built area, plus 0.5 per second it was one of
   the two tiles ahead along the view heading.
 * Building status from the facade approval assembly: ``generated`` (its own generated style), ``derived-only``
-  (derived maps without an own style), ``neighbour`` (only a neighbour's style) or ``unbound`` (no map).
+  (derived maps without an own style), ``neighbour`` (a neighbour's style), ``fast`` (only rough fast-pass maps)
+  or ``unbound`` (no map).
 
     python -m turku3d.telemetry.priority [--sessions DIR] [--out FILE] [--hours N] [--assembly DIR]
 """
@@ -87,8 +88,10 @@ def building_status(assembly: Path) -> dict[str, str]:
             status[building] = "generated"
         elif "derived" in found:
             status[building] = "derived-only"
-        else:
+        elif "derived-neighbour" in found:
             status[building] = "neighbour"
+        else:
+            status[building] = "fast"
     return status
 
 

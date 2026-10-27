@@ -24,13 +24,14 @@ FILE` (default `<sessions>/priority.json`; `priority.md` is written next to it),
 - **Missing tile**: one point per second the player stood in it, 0.5 per second it was one of the two tiles ahead.
 - **Status** from the approval assembly (`MANIFEST.json` `bound`, the per-wall sidecar `source_mode`, and
   `facades/<building>/style.json`): `generated` (own generated style), `derived-only` (derived maps without an own
-  style), `neighbour` (only `derived-neighbour` maps) and `unbound` (no map).
+  style), `neighbour` (`derived-neighbour` maps, perhaps with fast ones), `fast` (only rough `turkutex.facade_fast` maps)
+  and `unbound` (no map).
 
 ## `priority.json`
 
 ```json
 {"generated_at": "2026-10-27T12:00:00+00:00", "sessions": ["session-20261027.jsonl"], "sample_count": 120,
- "buildings": [{"building_id": "103295901U", "score": 12.3, "status": "derived-only|generated|neighbour|unbound",
+ "buildings": [{"building_id": "103295901U", "score": 12.3, "status": "derived-only|generated|neighbour|fast|unbound",
                 "best_wall": "103295901U_23",
                 "walls": [{"facade_id": "103295901U_23", "score": 1.2, "seen_seconds": 40, "mean_distance_m": 22.5,
                            "max_screen_fraction": 0.08}]}],

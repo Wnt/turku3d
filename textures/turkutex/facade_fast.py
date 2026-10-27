@@ -462,11 +462,12 @@ def render_all(
 
 
 def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
-    """Bind the staged fast maps under the export lock. A wall that has a generated or
-    derived map by now is skipped: a fast map never replaces one."""
+    """Bind the staged fast maps under the export lock, against the approval root's own
+    inventory: a staged wall binds only where that inventory has the same wall (same ID and
+    geometry), and never where a generated or derived map is bound by then."""
     from types import SimpleNamespace
 
-    from .export import export_assets, export_lock
+    from .export import export_assets, export_lock, matches
 
     planned_facades(run, inventory)
     staged = [
@@ -474,31 +475,39 @@ def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
         for r in json.loads((staging / "fast.json").read_text())["rows"]
         if r["staged"]
     ]
+    approved = assembly / "APPROVED_INVENTORY.geojson"
     with export_lock(assembly):
+        target = {f.id: f for f in load_facades(approved)}
+        source = {f.id: f for f in load_facades(inventory) if f.id in set(staged)}
+        unmatched = sorted(
+            f for f in staged if f not in target or not matches(source[f], target[f])
+        )
         modes = published_modes(assembly)
         kept = sorted(f for f in staged if modes.get(f) not in (None, "fast"))
-        ids = [f for f in staged if f not in kept]
+        ids = [f for f in staged if f not in kept and f not in unmatched]
         before = json.loads((assembly / "MANIFEST.json").read_text())
-        if not ids:
-            return {"published": 0, "kept_better": kept, "bound_before": len(before["bound"])}
-        subset(inventory, ids, staging / "fast.geojson")
-        rows = [{"facade_id": f, "complete": True, "street_facing": True} for f in ids]
-        write_json(
-            staging / "qa.json", {"inventory_sha256": sha(staging / "fast.geojson"), "rows": rows}
-        )
-        result = export_assets(
-            SimpleNamespace(
-                facades=inventory,
-                source_inventory=staging / "fast.geojson",
-                source=staging,
-                qa=staging / "qa.json",
-                output=assembly,
-                merge=True,
+        result = {"bound": before["bound"]}
+        if ids:
+            subset(inventory, ids, staging / "fast.geojson")
+            rows = [{"facade_id": f, "complete": True, "street_facing": True} for f in ids]
+            write_json(
+                staging / "qa.json",
+                {"inventory_sha256": sha(staging / "fast.geojson"), "rows": rows},
             )
-        )
+            result = export_assets(
+                SimpleNamespace(
+                    facades=approved,
+                    source_inventory=staging / "fast.geojson",
+                    source=staging,
+                    qa=staging / "qa.json",
+                    output=assembly,
+                    merge=True,
+                )
+            )
     return {
         "published": len(ids),
         "kept_better": kept,
+        "not_in_approved_inventory": unmatched,
         "bound_before": len(before["bound"]),
         "bound_after": len(result["bound"]),
     }
