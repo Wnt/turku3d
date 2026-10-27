@@ -339,3 +339,39 @@ path = "docs/reports/content-facades-1027-1402/webgpu-gis-103304662E_16.jpg"
 source = "Turku3D Chrome game render of the office block from a facade street pose"
 licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
 reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1806/103304672S_10-webgl.jpg"
+source = "Turku3D Chrome game render from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1806/103304672S_10-webgpu.jpg"
+source = "Turku3D Chrome game render from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1806/103440113U_142-webgl.jpg"
+source = "Turku3D Chrome game render from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1806/103440113U_142-webgpu.jpg"
+source = "Turku3D Chrome game render from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1806/gis-103277359P_20-webgl.jpg"
+source = "Turku3D Chrome game render from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1806/gis-103277359P_20-webgpu.jpg"
+source = "Turku3D Chrome game render from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"

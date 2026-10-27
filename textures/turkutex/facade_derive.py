@@ -160,8 +160,8 @@ def era(year: int | None) -> str:
     return "1960+"
 
 
-def core_walls(inventory: Path) -> list:
-    """Street-facing walls of the approved inventory whose centre lies in the office core."""
+def core_walls(inventory: Path, building: str | None = None) -> list:
+    """Street-facing office-core walls, or all street-facing walls of one building."""
     from turku3d import config
 
     from .streetview.facades import load_facades
@@ -171,8 +171,11 @@ def core_walls(inventory: Path) -> list:
         f
         for f in load_facades(inventory)
         if f.props.get("street_facing")
-        and core.emin <= f.centre[0] <= core.emax
-        and core.nmin <= f.centre[1] <= core.nmax
+        and (
+            f.props["building_id"] == building
+            if building is not None
+            else core.emin <= f.centre[0] <= core.emax and core.nmin <= f.centre[1] <= core.nmax
+        )
     ]
 
 
@@ -203,16 +206,20 @@ def trial(style: dict, albedo: np.ndarray, walls) -> int:
     return passed
 
 
-def choose_styles(assembly: Path, inventory: Path, wfs: Path, output: Path) -> dict:
+def choose_styles(
+    assembly: Path, inventory: Path, wfs: Path, output: Path, building: str | None = None
+) -> dict:
     """One style record per building with an accepted generated map: the candidate whose
     derivations pass QA on most of the building's other core walls, then the largest."""
-    walls = core_walls(inventory)
+    walls = core_walls(inventory, building)
     generated = generated_sidecars(assembly)
     by_building: dict[str, list] = {}
     for wall in walls:
         by_building.setdefault(wall.props["building_id"], []).append(wall)
     candidates: dict[str, list[dict]] = {}
     for meta in generated.values():
+        if building is not None and meta["building_id"] != building:
+            continue
         candidates.setdefault(meta["building_id"], []).append(meta)
     attributes = building_attributes(wfs, sorted(set(by_building) | set(candidates)))
     index = {}
@@ -263,9 +270,11 @@ def assign_neighbour(building: str, centre, attributes: dict, styled: dict[str, 
     return {"style_building": best, "mismatch": mismatch, "distance_m": round(distance, 1)}
 
 
-def plan_walls(assembly: Path, inventory: Path, styles: Path, output: Path) -> dict:
+def plan_walls(
+    assembly: Path, inventory: Path, styles: Path, output: Path, building: str | None = None
+) -> dict:
     """Status of every street-facing core wall: generate, derived, derived-neighbour."""
-    walls = core_walls(inventory)
+    walls = core_walls(inventory, building)
     generated = generated_sidecars(assembly)
     index = json.loads((styles / "styles.json").read_text())
     attributes = index["attributes"]
@@ -600,14 +609,18 @@ def main(argv=None) -> int:
         p.add_argument("--staging", type=Path, required=True, help="style and derived staging")
         if name == "styles":
             p.add_argument("--wfs", type=Path, required=True, help="raw WFS parquet directory")
+        if name in ("styles", "plan"):
+            p.add_argument(
+                "--building", help="derive one building, including walls outside the office core"
+            )
         if name == "contact":
             p.add_argument("--output", type=Path, required=True)
     a = ap.parse_args(argv)
     plan = a.staging / "plan.json"
     if a.command == "styles":
-        result = choose_styles(a.assembly, a.inventory, a.wfs, a.staging)
+        result = choose_styles(a.assembly, a.inventory, a.wfs, a.staging, a.building)
     elif a.command == "plan":
-        result = plan_walls(a.assembly, a.inventory, a.staging, plan)["counts"]
+        result = plan_walls(a.assembly, a.inventory, a.staging, plan, a.building)["counts"]
     elif a.command == "derive":
         summary = derive_planned(plan, a.assembly, a.inventory, a.staging, a.staging)
         result = {k: summary[k] for k in ("staged", "failed", "plain_columns")}
