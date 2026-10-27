@@ -158,6 +158,8 @@ export interface CoarseHost {
   refreshCollision: (ids: string[]) => void;
   /** Decodes a draft .col in the physics worker (PhysicsClient.checkTile); rejects when the worker cannot use it. */
   checkCollision: (buffer: ArrayBuffer) => Promise<unknown>;
+  /** After material styling and draft tint: register derived runtime geometry here. */
+  styled?: (model: THREE.Object3D) => void;
   style?: (model: THREE.Object3D) => void;
   unstyle?: (model: THREE.Object3D) => void;
   fetch?: typeof fetch;
@@ -392,6 +394,7 @@ export class CoarseTiles {
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e || e.state !== 'draft') { this.dispose(model); return; }
       this.host.style?.(model); tintDraft(model, this.host.renderer);
+      this.host.styled?.(model);
       this.host.scene.add(model);
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
@@ -443,6 +446,7 @@ export class CoarseTiles {
       if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
       this.host.style?.(model);
       tintDraft(model, this.host.renderer);
+      this.host.styled?.(model);
       this.host.scene.add(model);
       e.model = model;
       this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
@@ -501,6 +505,7 @@ export class CoarseTiles {
         const model = await this.load(new URL(visual.url, base).href);
         this.drop(e);
         this.host.style?.(model);
+        this.host.styled?.(model);
         this.host.scene.add(model);
         e.model = model;
         this.take(e, cellsOf(id).filter(cid => fresh.collision[cid])

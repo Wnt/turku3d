@@ -10,6 +10,7 @@ import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { renderPixelRatio } from './render/quality';
+import { VegetationLod } from './world/vegetationLod';
 import { MaterialStyler } from './render/materials';
 import { UnbuiltArea } from './render/unbuilt';
 import { VisualTiles } from './world/tiles';
@@ -79,10 +80,11 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   env.setTime(date);
   if (!idPass) env.updateIBL();
 } };
+const vegetation = idPass ? null : new VegetationLod(params.quality);
 const tiles = new VisualTiles(params.tileset, renderer, camera, scene, !!idPass);
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa, params.tileset);
-tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.apply(model));
-tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.release(model));
+tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => { materials?.apply(model); vegetation?.add(model); });
+tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => { vegetation?.remove(model); materials?.release(model); });
 // Play mode: far LOD outside the playable tiles (published L0 and drawn drafts) is drawn unbuilt grey (render/unbuilt.ts).
 const unbuilt = params.qa || idPass ? null : new UnbuiltArea(renderer);
 let builtTiles: () => Iterable<string> = () => [];
@@ -90,6 +92,7 @@ tiles.events.addEventListener('load-model', ({ scene: model, tile }: { scene: TH
   unbuilt?.apply(model, tile?.extras?.id));
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => unbuilt?.release(model));
 const renderFrame = () => {
+  vegetation?.update(camera);
   if (unbuilt && clock.frames % 15 === 0) unbuilt.setBuilt(builtTiles());
   if (post) post.render(); else renderer.render(scene, camera);
 };
@@ -227,7 +230,8 @@ async function runPlay() {
   // Localhost only: draft tiles from tools/dev/coarse-tiles beyond the published tileset (null elsewhere).
   const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids), checkCollision: buffer => physics.checkTile(buffer),
-    style: m => materials?.apply(m), unstyle: m => materials?.release(m) });
+    style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); materials?.release(m); },
+    styled: m => vegetation?.add(m) });
   builtTiles = () => [...Object.keys(manifest.visual), ...coarse?.drawn() ?? []];
 
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
