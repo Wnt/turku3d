@@ -107,9 +107,16 @@ def build_queue(inventory: Path, assembly: Path, spawn: tuple[float, float]) -> 
     }
 
 
-def take_batch(queue: dict, number: int, size: int) -> list[str]:
-    """The batch's wall IDs: recorded ones, else the next undeferred walls of the queue."""
+def take_batch(queue: dict, number: int, size: int, walls: list[str] | None = None) -> list[str]:
+    """The batch's wall IDs: recorded ones, else the named walls, else the next undeferred walls
+    of the queue."""
     key = f"{number:02d}"
+    if key not in queue["batches"] and walls:
+        known = {w["facade_id"] for w in queue["walls"]} | set(queue["excluded_generated"])
+        unknown = [w for w in walls if w not in known]
+        if unknown:
+            raise ValueError(f"walls are not street-facing walls of the queue: {unknown}")
+        queue["batches"][key] = list(walls)
     if key not in queue["batches"]:
         used = {fid for ids in queue["batches"].values() for fid in ids}
         queue["batches"][key] = [
@@ -436,6 +443,9 @@ def main(argv=None) -> int:
             p.add_argument("--inventory", type=Path, required=True)
             p.add_argument("--refs", type=Path, required=True)
             p.add_argument("--size", type=int, default=25)
+            p.add_argument(
+                "--walls", help="comma-separated facade IDs instead of the next queue walls"
+            )
             p.add_argument("--model", default="gpt-6-luna")
             p.add_argument("--effort", default="low")
         if name == "summary":
@@ -457,7 +467,7 @@ def main(argv=None) -> int:
     if a.command == "batch":
         if sha(a.inventory) != queue["inventory_sha256"]:
             raise SystemExit("inventory changed since the queue was written")
-        ids = take_batch(queue, a.number, a.size)
+        ids = take_batch(queue, a.number, a.size, a.walls.split(",") if a.walls else None)
         write_json(a.queue, queue)
         subset(a.inventory, ids, a.run / "facades.geojson")
         state = a.run / "state.json"

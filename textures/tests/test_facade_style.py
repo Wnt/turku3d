@@ -103,6 +103,14 @@ def test_narrow_wall_is_plain_pier_and_low_wall_is_plain_bands():
     assert out["albedo"][-2].mean() < 130
 
 
+def test_single_storey_style_keeps_its_window_row():
+    albedo = facade(width_m=6.0, height_m=4.0, bays=3, storeys=1)
+    _, out, plan, qa = derive(albedo, 9.5, 4.2)
+    assert qa["pass"], qa
+    assert plan["rows"]["mode"] == "bays"
+    assert len(window_widths(out["albedo"])) in (4, 5)
+
+
 def test_qa_rejects_a_seam_through_a_window():
     albedo = facade()
     style, _, plan, _ = derive(albedo, 8.0, 10.0)
@@ -272,6 +280,7 @@ def test_styles_plan_derive_and_publish_bind_derived_walls(tmp_path):
     derived = json.loads((assembly / "facades/b1/1.json").read_text())
     assert derived["source_mode"] == "derived" and derived["derived_from"] == "b1_0"
     assert derived["references"] == [] and derived["qa"]["derived"]["pass"]
+    assert derived["min_pixels_per_metre"] == fd.DENSITY_FLOOR
     assert derived["size"] == list(metric_size(13.0, height, PPM))
     neighbour = json.loads((assembly / "facades/b2/0.json").read_text())
     assert neighbour["source_mode"] == "derived-neighbour"
@@ -282,6 +291,7 @@ def test_styles_plan_derive_and_publish_bind_derived_walls(tmp_path):
         for name, digest in record["hashes"].items():
             assert sha(assembly / "facades" / folder / name) == digest
     # The source map was not touched and the lock is free again.
-    assert json.loads((building / "0.json").read_text())["source_mode"] == "generate"
+    source = json.loads((building / "0.json").read_text())
+    assert source["source_mode"] == "generate" and source["min_pixels_per_metre"] == 16
     with export_lock(assembly):
         pass

@@ -244,15 +244,15 @@ def choose_styles(assembly: Path, inventory: Path, wfs: Path, output: Path) -> d
 
 
 def assign_neighbour(building: str, centre, attributes: dict, styled: dict[str, dict]) -> dict:
-    """The styled building with the closest storey count, facade material class and era (in
-    that order of weight), then the nearest."""
+    """The styled building with the closest storey count (3 per storey, at most 6), facade
+    material class (2) and era (1), then the nearest."""
     own = attributes[building]
 
     def rank(other):
         theirs = attributes.get(other, {})
         levels = (own.get("levels") or 0, theirs.get("levels") or 0)
         mismatch = (
-            3 * (abs(levels[0] - levels[1]) > 1)
+            3 * min(abs(levels[0] - levels[1]), 2)
             + 2 * (theirs.get("material_class") != own["material_class"])
             + (theirs.get("era") != own["era"])
         )
@@ -320,6 +320,10 @@ def plan_walls(assembly: Path, inventory: Path, styles: Path, output: Path) -> d
 # Derived walls: staging, contact sheet, publication
 # ------------------------------------------------------------------------------------------
 
+# Minimum packaged density (px/m) of every generated and derived office-core map: equal for a
+# building's walls, so the packager scales them together (the style source is not sharper than
+# its derived walls) and 16 px/m keeps 6 cm detail where the 8 MB tile cap allows nothing more.
+DENSITY_FLOOR = 16
 ENCODINGS = {"albedo": ("etc1s", False), "orm": ("etc1s", True), "normal": ("uastc-normal", True)}
 
 
@@ -372,6 +376,7 @@ def derive_wall(facade, style: dict, style_path: Path, maps: dict, output: Path,
             "sha256": sha(style_path),
         },
         "geometry_source": facade.props.get("height_source", "buildings layer"),
+        "min_pixels_per_metre": DENSITY_FLOOR,
         "preview_sha256": sha(post / "albedo.png"),
         "files": files,
         "hashes": {n: sha(target.parent / n) for n in files.values()},
@@ -487,7 +492,7 @@ def contact_sheet(plan_path: Path, assembly: Path, styles: Path, staging: Path, 
         if style_building and style_building != building:
             title += f": neighbour style from {style_building} (derived-neighbour)"
         elif not style_building:
-            title += ": no style"
+            title += ": every core wall has a generated map"
         blocks.append((title, tiles))
     layout, y = [], 0
     for title, tiles in blocks:
@@ -524,14 +529,16 @@ def asset_path_for(root: Path, facade_id: str) -> Path:
 
 
 def publish(plan_path: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
-    """Bind the staged derived walls into the approval root under the export lock, with the
-    style records they name; generated maps are never replaced."""
+    """Bind the staged derived walls into the approval root under the export lock, with every
+    staged style record, and give every generated map the shared DENSITY_FLOOR; generated
+    maps themselves are never replaced."""
     from types import SimpleNamespace
 
     from .export import copy, export_assets, export_lock
     from .facade_rollout import subset
 
-    plan = json.loads(plan_path.read_text())
+    if json.loads(plan_path.read_text())["inventory_sha256"] != sha(inventory):
+        raise ValueError("inventory changed since the plan was written")
     staged = [
         r["facade_id"]
         for r in json.loads((staging / "derived.json").read_text())["rows"]
@@ -545,7 +552,8 @@ def publish(plan_path: Path, staging: Path, inventory: Path, assembly: Path) -> 
     write_json(
         staging / "qa.json", {"inventory_sha256": sha(staging / "derived.geojson"), "rows": rows}
     )
-    styles_used = {r["style_building"] for r in plan["walls"] if r["facade_id"] in set(staged)}
+    # Every building's style record goes next to its source map, used by a derived wall or not.
+    styles_used = {p.parent.name for p in (staging / "facades").glob("*/style.json")}
     with export_lock(assembly):
         before = json.loads((assembly / "MANIFEST.json").read_text())
         result = export_assets(
@@ -558,6 +566,15 @@ def publish(plan_path: Path, staging: Path, inventory: Path, assembly: Path) -> 
                 merge=True,
             )
         )
+        for meta in generated_sidecars(assembly).values():
+            if meta.get("min_pixels_per_metre") != DENSITY_FLOOR:
+                meta["min_pixels_per_metre"] = DENSITY_FLOOR
+                write_json(
+                    asset_path_for(
+                        assembly, f"{meta['building_id']}_{meta['facade_index']}"
+                    ).with_suffix(".json"),
+                    meta,
+                )
         for building in sorted(styles_used):
             copy(
                 staging / "facades" / building / "style.json",

@@ -323,8 +323,8 @@ def compose(axis: Axis, target: float, *, storeys: bool = False) -> dict:
         if total > target * (1 + MAX_STRETCH):
             break
     _, seq, total = best
-    if not seq:
-        # Not even one bay or storey fits: the plain wall between the corner pieces.
+    if not seq and order and total < target / (1 + MAX_STRETCH):
+        # Wider than the corners but not even one bay or storey fits: plain wall between them.
         return plain(axis, target, storeys=storeys)
     if storeys:
         seq = seq[::-1]
@@ -477,7 +477,8 @@ def style_record(albedo: np.ndarray, meta: dict, attributes: dict | None = None)
         "source_size_m": [meta["width_m"], meta["height_m"]],
         "pixels_per_metre": [ppm_x, ppm_y],
         "attributes": attributes or {},
-        "wall": wall_colour(albedo, structure["glass"]),
+        # The upper storeys carry the wall colour; the ground floor is often stone or a shopfront.
+        "wall": wall_colour(albedo[: max(ground_top, 1)], structure["glass"][: max(ground_top, 1)]),
         "bands": {
             "cornice_m": cornice,
             "ground_floor_m": metres(height - ground_top, ppm_y),

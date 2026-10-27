@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from PIL import Image, ImageFilter
 from turkutex import building_jobs as jobs
 from turkutex import facade_rollout as rollout
@@ -189,6 +190,11 @@ def test_queue_ranks_core_walls_then_rings_and_excludes_generated_maps(tmp_path)
     assert rollout.take_batch(queue, 1, 2) == ["near_0", "near_1"]
     assert rollout.take_batch(queue, 2, 2) == ["far_1", "far_0"]  # deferred wall skipped
     assert rollout.take_batch(queue, 1, 5) == ["near_0", "near_1"]  # recorded batches are stable
+    # Named walls (a style source per building) may repeat earlier walls, even deferred ones.
+    assert rollout.take_batch(queue, 3, 25, ["far_2", "near_2"]) == ["far_2", "near_2"]
+    assert rollout.take_batch(queue, 3, 25, ["near_0"]) == ["far_2", "near_2"]
+    with pytest.raises(ValueError, match="not street-facing walls"):
+        rollout.take_batch(queue, 4, 25, ["nowhere_9"])
     rollout.subset(inventory, ["far_1", "near_0"], tmp_path / "batch.geojson")
     batch = json.loads((tmp_path / "batch.geojson").read_text())["features"]
     assert [f["properties"]["building_id"] for f in batch] == ["far", "near"]
