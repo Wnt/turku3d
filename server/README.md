@@ -64,13 +64,28 @@ curl -fsS https://turku.lab.madekivi.fi/healthz
 node server/tools/probe.mjs
 ```
 
+On hosts where the user cannot read the journal, use the existing sudo access:
+
+```sh
+sudo journalctl _SYSTEMD_USER_UNIT=turku-forwarder-agent.service _UID="$(id -u)" -n 50 --no-pager
+```
+
 The idempotent installer downloads the latest successful `Wnt/forwarder` main CI
-artifact into `~/turku3d-mp/bin/`, copies the token directly from `ssh lab` into
+artifact into `~/turku3d-mp/bin/`, reads `FORWARDER_AGENT_TOKEN` from
+`/etc/forwarder-agent/agent.env` via `ssh lab`, and copies only that assignment into
 `~/.config/turku3d/forwarder.env` (0600), installs/enables/restarts both user units,
 and checks public health and hello. It stops if SSH or the token is unavailable;
 it never substitutes credentials or prints the token. The agent reads it via
 `EnvironmentFile` and dials `tunnel.lab.madekivi.fi` with
 `--tunnel turku:http:turku.lab.madekivi.fi:7700`. Only the tunnel is public.
+
+Override the existing token source with `TOKEN_SOURCE_HOST` and `TOKEN_SOURCE_FILE`
+when needed (defaults: `lab` and `/etc/forwarder-agent/agent.env`):
+
+```sh
+TOKEN_SOURCE_HOST=lab TOKEN_SOURCE_FILE=/etc/forwarder-agent/agent.env \
+  server/deploy/osgallery-dev/install.sh
+```
 
 The units run this branch's checkout at `~/turku3d-mp/repo`. Do not switch that
 checkout's branch while serving it. After updating committed code, reinstall or
