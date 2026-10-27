@@ -50,7 +50,7 @@ test('poses coalesce to latest per player and exclude their sender', () => {
   assert.equal(b.messages.length, 1);
 });
 
-test('sliding rate limit accepts 20, drops 21–25 and disconnects at 26', () => {
+test('rate budget accepts 20, drops excess and disconnects above 25 arrivals per second', () => {
   const f = fixture(), a = f.connect();
   f.advance(1000);
   for (let i = 0; i < 25; i++) a.send(pose);
@@ -105,4 +105,14 @@ test('uninitialized connections time out and cannot send poses', () => {
   f.room.receive(c, JSON.stringify({ v: 1, ...pose }));
   assert.equal(f.room.stats.rejected, 1);
   f.advance(5000); assert.equal(closes[0][0], 1008);
+});
+
+test('20 Hz traffic tolerates alternating 49/51 ms packet jitter without rejection', () => {
+  const f = fixture(), a = f.connect(); f.advance(1000);
+  for (let i = 0; i < 200; i++) {
+    a.send(pose); f.advance(i % 2 ? 51 : 49);
+  }
+  assert.equal(f.room.stats.poses, 200);
+  assert.equal(f.room.stats.rejected, 0);
+  assert.equal(a.closes.length, 0);
 });

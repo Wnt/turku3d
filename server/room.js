@@ -28,7 +28,7 @@ export class Room {
 
   connect(send, close) {
     if (this.connections.size >= LIMITS.connections) return null;
-    const c = { send, close, player: null, joinedAt: this.now(), arrivals: [] };
+    const c = { send, close, player: null, joinedAt: this.now(), arrivals: [], tokens: LIMITS.acceptedPerSecond, refilledAt: this.now() };
     this.connections.add(c);
     return c;
   }
@@ -72,7 +72,13 @@ export class Room {
     if (c.arrivals.length > LIMITS.disconnectPerSecond) {
       this.reject(); this.drop(c, 1008, 'rate'); return;
     }
-    if (c.arrivals.length > LIMITS.acceptedPerSecond) { this.reject(); return; }
+    // A replenishing budget tolerates timer/packet jitter at 20 Hz. The separate
+    // arrival window still disconnects floods above 25/s, including rejected data.
+    c.tokens = Math.min(LIMITS.acceptedPerSecond,
+      c.tokens + Math.max(0, now - c.refilledAt) * LIMITS.acceptedPerSecond / 1000);
+    c.refilledAt = now;
+    if (c.tokens < 1) { this.reject(); return; }
+    c.tokens--;
     if (binary || Buffer.byteLength(data) > LIMITS.messageBytes) { this.reject(); return; }
     let m;
     try { m = JSON.parse(data.toString()); } catch { this.reject(); return; }
