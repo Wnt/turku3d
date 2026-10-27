@@ -24,7 +24,7 @@ Sources, per address:
    along the facades) to 12 m in front of it, or when `facades.geojson` marks it `street_facing`.
 3. The door: walls that face the address's own street come first. That street is the address
    without its house number, matched against the named OSM highway centre lines (`name`) of the
-   road graph's OSM snapshot (`roads/MANIFEST.json` `inputs.osm.path`); a wall faces it when that
+   OSM clips for the listed tiles (selected by `turku3d.tile_layer.osm`); a wall faces it when that
    centre line crosses its front strip within 25 m and the walkable network is in front of it.
    Within that group, then among the other street-side walls: the best OSM entrance (`main`,
    `shop`, `yes`/`home`, `secondary`, `staircase`; never `garage`, `service` or `exit`) on the
