@@ -131,5 +131,12 @@
     "seconds": 3.9,
     "sha256": "78b4d80f58749839355d54643c72659ab284d03bf8d7c6dc2c1a9e26c0cf4aea",
     "license": "CC0-1.0"
+  },
+  "truck.ogg": {
+    "bytes": 14361,
+    "channels": 1,
+    "seconds": 3.9,
+    "sha256": "b66e3391022c43d0975044ce3dc8e38c6e48b2b081bef38ac210bb2ac7da0746",
+    "license": "CC0-1.0"
   }
 }

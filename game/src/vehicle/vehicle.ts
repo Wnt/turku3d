@@ -25,6 +25,7 @@ export class Vehicle {
   private impactId = 0;
   private impact: VehicleState['impact'] = null;
   private impactCooldown = 0;
+  private readonly drive: number[];
 
   private R: RapierApi;
   private world: Rapier.World;
@@ -55,12 +56,16 @@ export class Vehicle {
     for (const w of t.wheels) v.addWheel(w, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, t.rest, t.wheelRadius);
     for (let i = 0; i < t.wheels.length; i++) {
       v.setWheelSuspensionStiffness(i, t.suspensionStiffness);
-      v.setWheelSuspensionCompression(i, 4.8);
-      v.setWheelSuspensionRelaxation(i, 5.5);
-      v.setWheelMaxSuspensionTravel(i, 0.22);
+      v.setWheelSuspensionCompression(i, t.suspensionCompression);
+      v.setWheelSuspensionRelaxation(i, t.suspensionRelaxation);
+      v.setWheelMaxSuspensionTravel(i, t.suspensionTravel);
       v.setWheelMaxSuspensionForce(i, t.maxSuspensionForce);
       v.setWheelSideFrictionStiffness(i, 1.1);
     }
+    // Engine force per driven wheel: the front share on the driven steered wheels, the rest on the driven rear ones.
+    const front = t.driven.filter(i => t.steered.includes(i)).length, rear = t.driven.length - front;
+    this.drive = t.wheels.map((_, i) => !t.driven.includes(i) ? 0
+      : t.steered.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
     if (spec.parked) this.body.sleep();
   }
 
@@ -82,8 +87,9 @@ export class Vehicle {
     for (let i = 0; i < t.wheels.length; i++) {
       const steered = t.steered.includes(i), driven = t.driven.includes(i);
       v.setWheelSteering(i, steered ? this.steering : 0);
-      v.setWheelEngineForce(i, driven ? h.engine : 0);
-      v.setWheelBrake(i, h.brake + (driven && h.handbrake ? t.brakeForce : 0));
+      v.setWheelEngineForce(i, h.engine * this.drive[i]);
+      // The handbrake locks the driven rear wheels only.
+      v.setWheelBrake(i, h.brake + (driven && !steered && h.handbrake ? t.brakeForce : 0));
       v.setWheelFrictionSlip(i, steered ? h.frontGrip : h.rearGrip);
     }
     v.updateVehicle(dt, this.R.QueryFilterFlags.EXCLUDE_SENSORS, group);
@@ -119,7 +125,7 @@ export class Vehicle {
       if (!ground) continue;
       const height = ground.timeOfImpact - 0.5;
       if (height < 0.03 || hit.normal.y > 0.85) continue;
-      const response = curbResponse(speed, height, b.mass());
+      const response = curbResponse(speed, height, b.mass(), t.curbFeel);
       const key = `${i}:${hit.handle}`;
       if (response.blocked) {
         // A persistent wheel barrier. Re-evaluated after engine forces each tick, even at rest.

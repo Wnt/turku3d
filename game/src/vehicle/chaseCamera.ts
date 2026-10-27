@@ -1,11 +1,20 @@
 import * as THREE from 'three/webgpu';
+import type { VehicleKind } from '../physics/constants.ts';
 import type { VehicleState } from '../physics/protocol.ts';
 import type { PhysicsClient } from '../physics/client.ts';
 import { rotate } from './math.ts';
 
-function chaseSettings(speed: number) {
+/** Base camera distance (m) and look-at height above the chassis centre (m) per class: the tall trophy truck is
+ *  framed from higher up and farther back. */
+const CHASE = {
+  car: { distance: 6.5, height: 0.9 },
+  scooter: { distance: 6.5, height: 0.9 },
+  truck: { distance: 8, height: 1.5 },
+} as const satisfies Record<VehicleKind, { distance: number; height: number }>;
+
+export function chaseSettings(speed: number, kind: VehicleKind = 'car') {
   const s = Math.min(30, Math.max(0, speed));
-  return { distance: 6.5 + s * 0.12, fov: 60 + s * 0.45 };
+  return { distance: CHASE[kind].distance + s * 0.12, height: CHASE[kind].height, fov: 60 + s * 0.45 };
 }
 
 /** Right-stick orbit, delayed recentering and a sphere sweep protecting the camera near plane. */
@@ -36,10 +45,10 @@ export class ChaseCamera {
       this.yaw += delta * (1 - Math.exp(-dt * 2.5));
       this.pitch += (-0.2 - this.pitch) * (1 - Math.exp(-dt));
     }
-    const { distance, fov } = chaseSettings(state.speed);
+    const { distance, height, fov } = chaseSettings(state.speed, state.kind);
     this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 3));
     this.camera.updateProjectionMatrix();
-    const target = new THREE.Vector3(state.pos.x, state.pos.y + 0.9, state.pos.z);
+    const target = new THREE.Vector3(state.pos.x, state.pos.y + height, state.pos.z);
     const cp = Math.cos(this.pitch);
     const direction = new THREE.Vector3(Math.sin(this.yaw) * cp, -Math.sin(this.pitch), Math.cos(this.yaw) * cp);
     // Pose and target belong to the same render frame. A worker reply only changes the

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { GameAudio } from '../../src/audio';
-import { GameplayAudio } from '../../src/audio/gameplay';
+import { GameplayAudio, engineRpm } from '../../src/audio/gameplay';
 import { ENGINE_SOUND, ambience, carMix, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
 import { MAT } from '../../src/shared/col/materials';
 
@@ -64,7 +64,22 @@ test('river fades with distance, engine follows RPM/throttle, rolling and slip a
   const scooter = carMix(3000, 0.5, 10, 0, true, 'scooter'), car = carMix(3000, 0.5, 10, 0, true, 'car');
   expect(scooter.rate).toBeGreaterThan(carMix(1500, 0.5, 10, 0, true, 'car').rate);
   expect(scooter.roll).toBeLessThan(car.roll);
-  expect(ENGINE_SOUND).toEqual({ car: 'engine', scooter: 'scooter' });
+  expect(ENGINE_SOUND).toEqual({ car: 'engine', scooter: 'scooter', truck: 'truck' });
+  // The truck's V6 is the loudest engine layer and pitches lower than the car at the same rpm; its tyres roar.
+  const truck = carMix(3000, 0.5, 10, 0, true, 'truck');
+  expect(truck.engine).toBeGreaterThan(car.engine);
+  expect(carMix(800, 0, 0, 0, true, 'truck').engine).toBeGreaterThan(carMix(800, 0, 0, 0, true, 'car').engine);
+  expect(truck.rate).toBeLessThan(car.rate);
+  expect(truck.roll).toBeGreaterThan(car.roll);
+});
+
+test('engine rpm: the truck idles low and pulls four gears to 120 km/h within the car rev range', () => {
+  expect(engineRpm('truck', 0, 0)).toBeLessThan(engineRpm('car', 0, 0));
+  const revs = Array.from({ length: 34 }, (_, v) => engineRpm('truck', v, 1));
+  expect(Math.max(...revs)).toBeLessThan(6000);
+  // Upshifts drop the revs at 9, 17 and 25 m/s.
+  for (const shift of [9, 17, 25]) expect(revs[shift]).toBeLessThan(revs[shift - 1]);
+  expect(engineRpm('scooter', 5, 0.5)).toBeGreaterThan(engineRpm('car', 5, 0.5));
 });
 
 test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded voices and teardown', async () => {
@@ -77,8 +92,8 @@ test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded v
   expect(audio.snapshot().loops).toBe(5); expect(audio.snapshot().played.connect).toBe(1);
   expect(ctx.nodes[0].connections[0].connections).toContain(ctx.destination);
   audio.emit({ type: 'car', kind: 'car', position, rpm: 3000, throttle: 1, speed: 12, slip: 0.7, running: true });
-  // Both engine loops exist; only the driven class's one is audible.
-  expect(audio.snapshot().loops).toBe(9);
+  // Every class's engine loop exists (car, scooter, truck) beside roll and screech; only the driven class's one is audible.
+  expect(audio.snapshot().loops).toBe(10);
   audio.emit({ ...listener, position: { x: 1, y: 2, z: 3 } });
   expect(ctx.listener.positionX.value).toBe(1); expect(ctx.listener.forwardZ.value).toBe(-1);
   audio.emit({ type: 'volume', channel: 'master', value: 0.4 });
