@@ -6,10 +6,12 @@
 //  - optional --mount /tiles=<dir> to serve a tile dist next to the game build
 //  - POST /telemetry: play telemetry JSON lines (game/src/telemetry/README.md) appended to
 //    <telemetry dir>/session-<YYYYMMDD>.jsonl (local date), default $TURKU3D_WORK/telemetry; 1 MB per request, 204
+//  - /coarse/* proxied to the localhost coarse tile service (tools/dev/coarse-tiles, port base + 5); when it is not running
+//    /coarse/status answers 200 {"state":"offline"} and other paths 503
 // No dependencies (Node >= 20).
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
-//          [--telemetry-dir <dir>]
+//          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT]
 import http from 'node:http';
 import { workRoot, port } from './environment.mjs';
 import fs from 'node:fs';
@@ -27,6 +29,7 @@ const HOST = opt('--host', '127.0.0.1');
 const COMPRESS = !args.includes('--no-compress');
 const TELEMETRY_DIR = expand(opt('--telemetry-dir', path.join(workRoot, 'telemetry')));
 const TELEMETRY_MAX_BYTES = 1024 * 1024;
+const COARSE = new URL(opt('--coarse', `http://127.0.0.1:${port(5)}`));
 const MOUNTS = []; // [prefix, dir]
 args.forEach((a, i) => { if (a === '--mount') { const [pre, dir] = args[i + 1].split('='); MOUNTS.push([pre.replace(/\/$/, ''), expand(dir)]); } });
 MOUNTS.sort((a, b) => b[0].length - a[0].length);
@@ -112,6 +115,22 @@ async function telemetry(req, res) {
   res.end();
 }
 
+// Same-origin access to the coarse tile service.
+function proxyCoarse(req, res) {
+  const isolation = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cross-Origin-Resource-Policy': 'cross-origin' };
+  const upstream = http.request({ host: COARSE.hostname, port: COARSE.port, path: req.url, method: req.method, headers: { accept: req.headers.accept ?? '*/*' } }, (up) => {
+    res.writeHead(up.statusCode ?? 502, { ...up.headers, ...isolation });
+    up.pipe(res);
+  });
+  upstream.on('error', () => {
+    if (res.headersSent) return res.destroy();
+    // The game probes /coarse/status on every local page load: an offline service is an answer, not an error.
+    res.writeHead(req.url.split('?')[0] === '/coarse/status' ? 200 : 503, { 'Content-Type': 'application/json', ...isolation });
+    res.end('{"state":"offline"}\n');
+  });
+  upstream.end();
+}
+
 async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range, If-None-Match, Content-Type', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS' });
@@ -119,6 +138,7 @@ async function handler(req, res) {
   }
   if (req.method === 'POST' && req.url.split('?')[0] === '/telemetry') return telemetry(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
+  if (req.url === '/coarse' || req.url.startsWith('/coarse/')) return proxyCoarse(req, res);
   let file = resolvePath(req.url);
   if (!file) { res.writeHead(403); return res.end('forbidden'); }
   let stat;

@@ -1,0 +1,481 @@
+"""Coarse 250 m tile in the published tile format, built in seconds from the fast sources.
+
+Ground is a regular TIN with 250/128 m (~2 m) spacing interpolated from the city's ``maanpinta``
+ground key points and textured with one true-ortho image. Buildings are CityGML LOD2 footprints
+extruded to their mean roof height, walls with the library render material and roofs with the
+same ortho. Street-area polygons only set collision material classes; water polygons become the
+water sensor over a synthetic bed. The tile has no curbs, stairs, structures, props, vegetation,
+facade maps or LOD parents: the full pipeline replaces it when the tile is published.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import shutil
+import subprocess
+import time
+from pathlib import Path
+
+import mapbox_earcut
+import numpy as np
+import shapely
+from PIL import Image
+
+from turku3d import config as C
+from turku3d.col.format import ColTile, write_col
+from turku3d.col.materials import mat_id
+from turku3d.ground.materials import surface_material
+from turku3d.ground.mesh import Mesh
+from turku3d.ground.water import add_river_bed
+from turku3d.layers import write_visual
+from turku3d.package.gltf import GlbMesh
+
+from .inputs import Inputs, gather
+
+FORMAT = "turku3d-coarse-tile"
+VERSION = 1
+CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
+BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
+WIRE_CAP = 8_000_000
+
+
+def code_hash() -> str:
+    """Producer identity: the coarse sources plus the shared visual packager they call."""
+    h = hashlib.sha256()
+    for p in sorted([*Path(__file__).parent.glob("*.py"), BRIDGE]):
+        h.update(p.name.encode())
+        h.update(p.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def grid_heights(points: np.ndarray, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
+    """Linear interpolation over the key-point TIN; nearest key point outside its hull."""
+    from scipy.interpolate import LinearNDInterpolator
+    from scipy.spatial import cKDTree
+
+    gx, gz = np.meshgrid(xs, zs)
+    query = np.column_stack([gx.ravel(), gz.ravel()])
+    h = LinearNDInterpolator(points[:, [0, 2]], points[:, 1])(query)
+    missing = ~np.isfinite(h)
+    if missing.any():
+        _, nearest = cKDTree(points[:, [0, 2]]).query(query[missing])
+        h[missing] = points[nearest, 1]
+    return h.reshape(gz.shape)
+
+
+def grid_mesh(tile: C.VisualTile, heights: np.ndarray):
+    n = CELLS + 1
+    step = tile.size / CELLS
+    x0, _, z0 = tile.origin
+    gx, gz = np.meshgrid(x0 + np.arange(n) * step, z0 + np.arange(n) * step)
+    positions = np.column_stack([gx.ravel(), heights.ravel(), gz.ravel()])
+    r, c = np.meshgrid(np.arange(CELLS), np.arange(CELLS), indexing="ij")
+    v00 = (r * n + c).ravel()
+    v01, v10 = v00 + 1, v00 + n
+    v11 = v10 + 1
+    # Two up-facing triangles per cell; triangle 2k and 2k+1 belong to cell k (row-major).
+    indices = np.stack([np.c_[v00, v10, v01], np.c_[v01, v10, v11]], axis=1).reshape(-1, 3)
+    return positions, indices.astype(np.uint32)
+
+
+def _frame(path: Path | None, bbox: C.BBoxLocal, kinds=("Polygon", "MultiPolygon")):
+    if path is None:
+        return []
+    import geopandas as gpd
+
+    frame = gpd.read_parquet(path)
+    frame = frame[frame.geom_type.isin(kinds)]
+    window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
+    local = frame.geometry_local.apply(lambda g: shapely.force_2d(g))
+    keep = local.intersects(window)
+    return list(zip(local[keep], frame[keep].itertuples(), strict=True))
+
+
+def ground_materials(
+    centroids: np.ndarray, rgb: np.ndarray, tile: C.VisualTile, streets
+) -> np.ndarray:
+    """Street-area polygons win; otherwise green ortho pixels are grass, the rest paving."""
+    out = np.full(len(centroids), mat_id("paving_slab"), np.uint8)
+    px = rgb.shape[0]
+    col = np.clip(((centroids[:, 0] - tile.origin[0]) / tile.size * px).astype(int), 0, px - 1)
+    row = np.clip(((centroids[:, 2] - tile.origin[2]) / tile.size * px).astype(int), 0, px - 1)
+    r, g, b = (rgb[row, col, k].astype(float) for k in range(3))
+    out[(g > 1.08 * r) & (g > 1.08 * b) & (g > 25)] = mat_id("grass")
+    if streets:
+        geoms = [shapely.make_valid(g) for g, _ in streets]
+        ids = np.array(
+            [mat_id(surface_material(row.Katuosalaji, row.Pintamateriaali)) for _, row in streets],
+            np.uint8,
+        )
+        qi, pi = shapely.STRtree(geoms).query(
+            shapely.points(centroids[:, [0, 2]]), predicate="within"
+        )
+        out[qi] = ids[pi]
+    return out
+
+
+def water_mask(centroids: np.ndarray, water) -> np.ndarray:
+    wet = np.zeros(len(centroids), bool)
+    if water:
+        geoms = [shapely.make_valid(g) for g, _ in water]
+        qi, _ = shapely.STRtree(geoms).query(
+            shapely.points(centroids[:, [0, 2]]), predicate="within"
+        )
+        wet[qi] = True
+    return wet
+
+
+def water_level(points: np.ndarray, water) -> float:
+    """Low shoreline key points approximate the surface; no class-9 lidar in maanpinta."""
+    if not water:
+        return 0.0
+    shore = shapely.union_all([shapely.make_valid(g) for g, _ in water]).buffer(10.0)
+    near = shapely.contains_xy(shore, points[:, 0], points[:, 2])
+    return float(max(-1.0, np.percentile(points[near, 1], 2))) if near.any() else 0.0
+
+
+class Building:
+    def __init__(self, key, footprint, base, top, material_key):
+        self.key, self.footprint, self.base, self.top = key, footprint, base, top
+        self.material_key = material_key
+
+
+def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
+    """LOD2 footprints whose centroid lies in this tile, flat roof at the mean roof height."""
+    import geopandas as gpd
+
+    frame = gpd.read_parquet(path)
+    frame = frame[frame.geom_type == "Polygon"]
+    frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
+    bbox = tile.bbox.buffered(100.0)
+    window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
+    local = frame.geometry_local.apply(shapely.force_2d)
+    frame, local = frame[local.intersects(window)], local[local.intersects(window)]
+    out = []
+    for key, group in frame.groupby("feature_key", sort=True):
+        ground = group.surface_type == "GroundSurface"
+        footprint = shapely.make_valid(shapely.union_all(local[group.index[ground]].values))
+        polys = [g for g in getattr(footprint, "geoms", [footprint]) if g.geom_type == "Polygon"]
+        if not polys:
+            continue
+        footprint = max(polys, key=lambda p: p.area)
+        if footprint.area < 4.0:
+            continue
+        c = footprint.centroid
+        if not tile.bbox.contains(c.x, c.y):
+            continue
+        heights = np.concatenate(
+            [np.asarray(g.exterior.coords)[:, 2] for g in group.geometry[ground]]
+        )
+        base = float(heights.min())
+        roofs = group[~ground]
+        if len(roofs):
+            areas = roofs.geometry.area.to_numpy()
+            means = np.array([np.asarray(g.exterior.coords)[:, 2].mean() for g in roofs.geometry])
+            top = float((means * areas).sum() / max(areas.sum(), 1e-9))
+        else:
+            top = base + float(group.measuredHeight.astype(float).iloc[0])
+        if not np.isfinite(top) or top < base + 2.0:
+            top = base + 3.0
+        out.append(
+            Building(
+                key, shapely.geometry.polygon.orient(footprint, 1.0), base, top, "facade_plaster"
+            )
+        )
+    return out
+
+
+def extrude(b: Building):
+    """Closed shell: walls (with metre UVs), roof and floor. Returns parts in world-local metres."""
+    rings = [np.asarray(r.coords)[:-1, :2] for r in [b.footprint.exterior, *b.footprint.interiors]]
+    flat = np.concatenate(rings)
+    ends = np.cumsum([len(r) for r in rings]).astype(np.uint32)
+    tri = mapbox_earcut.triangulate_float64(flat, ends).reshape(-1, 3).astype(np.uint32)
+    roof = np.column_stack([flat[:, 0], np.full(len(flat), b.top), flat[:, 1]])
+    a, bb, cc = roof[tri[:, 0]], roof[tri[:, 1]], roof[tri[:, 2]]
+    up = np.cross(bb - a, cc - a)[:, 1] > 0
+    roof_idx = np.where(up[:, None], tri, tri[:, [0, 2, 1]])
+    floor = roof.copy()
+    floor[:, 1] = b.base
+    wall_pos, wall_uv, wall_idx = [], [], []
+    for ring in rings:
+        nxt = np.roll(ring, -1, axis=0)
+        for p, q in zip(ring, nxt, strict=True):
+            length = float(np.hypot(*(q - p)))
+            if length < 1e-6:
+                continue
+            k = len(wall_pos) * 4
+            wall_pos.append(
+                [
+                    [p[0], b.base, p[1]],
+                    [q[0], b.base, q[1]],
+                    [q[0], b.top, q[1]],
+                    [p[0], b.top, p[1]],
+                ]
+            )
+            wall_uv.append([[0, b.base], [length, b.base], [length, b.top], [0, b.top]])
+            # The footprint is oriented counter-clockwise in (x, z), so these face outwards.
+            wall_idx += [[k, k + 3, k + 2], [k, k + 2, k + 1]]
+    wall_pos = np.asarray(wall_pos, float).reshape(-1, 3)
+    wall_uv = np.asarray(wall_uv, float).reshape(-1, 2)
+    wall_idx = np.asarray(wall_idx, np.uint32).reshape(-1, 3)
+    return roof, roof_idx, floor, roof_idx[:, [0, 2, 1]], wall_pos, wall_uv, wall_idx
+
+
+def jpeg(rgb: np.ndarray) -> bytes:
+    out = io.BytesIO()
+    Image.fromarray(rgb).save(out, format="JPEG", quality=88)
+    return out.getvalue()
+
+
+def ortho_uv(tile: C.VisualTile, positions: np.ndarray) -> np.ndarray:
+    return np.column_stack(
+        [
+            (positions[:, 0] - tile.origin[0]) / tile.size,
+            (positions[:, 2] - tile.origin[2]) / tile.size,
+        ]
+    )
+
+
+def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells):
+    """Split the ground grid along the 62.5 m grid; each building goes to its centroid's tile."""
+    per = CELLS // C.COLLISION_PER_VISUAL
+    out = {}
+    for ct in tile.collision_tiles():
+        ci, cj = ct.i - tile.i * C.COLLISION_PER_VISUAL, ct.j - tile.j * C.COLLISION_PER_VISUAL
+        rows = np.arange(cj * per, (cj + 1) * per)
+        cols = np.arange(ci * per, (ci + 1) * per)
+        cells = (rows[:, None] * CELLS + cols[None, :]).ravel()
+        tris = np.stack([2 * cells, 2 * cells + 1], axis=1).ravel()
+        mesh = Mesh(grid_pos, grid_idx[tris], materials[tris]).compact()
+        mesh = add_river_bed(mesh, level)
+        positions, indices, material = [mesh.positions], [mesh.indices], [mesh.material]
+        count = len(mesh.positions)
+        for b, (roof, roof_idx, floor, floor_idx, walls, _, wall_idx) in shells:
+            c = b.footprint.centroid
+            if C.CollisionTile.at(c.x, c.y) != ct:
+                continue
+            for pos, idx, mid in (
+                (roof, roof_idx, mat_id("roof")),
+                (floor, floor_idx, mat_id("building")),
+                (walls, wall_idx, mat_id("building")),
+            ):
+                positions.append(pos)
+                indices.append(idx + count)
+                material.append(np.full(len(idx), mid, np.uint8))
+                count += len(pos)
+        out[ct] = (np.concatenate(positions), np.concatenate(indices), np.concatenate(material))
+    return out
+
+
+def default_library() -> Path:
+    """The sandbox's assembled material library, else the published one."""
+    library = C.work_root() / "textures/assembly/library"
+    return library if library.exists() else C.data_root() / "live/textures/assembly/library"
+
+
+def package_visual(
+    tile: C.VisualTile, layer_files: list[Path], stage: Path, work: Path, library: Path
+) -> tuple[bytes, dict]:
+    request = dict(
+        tile=tile.id,
+        level=0,
+        inputs=[str(p) for p in layer_files],
+        output=str(stage / "out" / "tile.glb"),
+        stats=str(stage / "out" / "stats.json"),
+        library=str(library),
+        facades=str(stage / "no-facades"),
+        facadeBindings=[],
+        facadeDensity={},
+        groundBinding=None,
+        textureCache=str(work / ".texture-cache"),
+        coarseTerrain=False,
+    )
+    (stage / "out").mkdir(parents=True, exist_ok=True)
+    req = stage / "requests.json"
+    req.write_text(json.dumps([request]))
+    proc = subprocess.run(["node", str(BRIDGE), str(req)], capture_output=True, text=True)
+    if proc.returncode:
+        raise RuntimeError(f"visual packaging failed\n{proc.stdout}\n{proc.stderr}")
+    stats = json.loads((stage / "out" / "stats.json").read_text())
+    shared = stage / "shared"
+    if shared.exists():
+        (work / "shared").mkdir(parents=True, exist_ok=True)
+        for asset in shared.iterdir():
+            dest = work / "shared" / asset.name
+            if not dest.exists():
+                shutil.copyfile(asset, dest)
+    return (stage / "out" / "tile.glb").read_bytes(), stats
+
+
+def _entry(url: str, data: bytes, **extra) -> dict:
+    return dict(url=url, sha256=hashlib.sha256(data).hexdigest(), bytes=len(data), **extra)
+
+
+def _write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
+def build(
+    tile_id: str, out: Path, *, inputs: Inputs | None = None, library: Path | None = None, log=print
+) -> dict:
+    """Write ``out/{manifest.json, vis.glb, col/c_i_j.col}``; shared library KTX2 go to out/../shared."""
+    tile = C.VisualTile.parse(tile_id)
+    if tile.level != 0:
+        raise ValueError("coarse tiles are L0 (250 m) tiles")
+    started = time.perf_counter()
+    inputs = inputs or gather(tile, log)
+    seconds = dict(inputs.seconds)
+
+    t = time.perf_counter()
+    step = tile.size / CELLS
+    xs = tile.origin[0] + np.arange(CELLS + 1) * step
+    zs = tile.origin[2] + np.arange(CELLS + 1) * step
+    heights = grid_heights(inputs.points, xs, zs)
+    grid_pos, grid_idx = grid_mesh(tile, heights)
+    centroids = grid_pos[grid_idx].mean(axis=1)
+    bbox = tile.bbox
+    streets = _frame(inputs.streets, bbox)
+    water = _frame(inputs.water, bbox)
+    materials = ground_materials(centroids, inputs.ortho, tile, streets)
+    wet = water_mask(centroids, water)
+    level = water_level(inputs.points, water)
+    if wet.any():
+        materials[wet] = mat_id("water")
+        wet_vertices = np.unique(grid_idx[wet])
+        dry_vertices = np.unique(grid_idx[~wet])
+        inner = np.setdiff1d(wet_vertices, dry_vertices)
+        grid_pos[inner, 1] = np.minimum(grid_pos[inner, 1], level)
+    seconds["ground"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    blds = buildings(inputs.buildings, tile)
+    shells = [(b, extrude(b)) for b in blds]
+    seconds["buildings"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    image = jpeg(inputs.ortho)
+    origin = np.asarray(tile.origin)
+    stage = out / ".stage"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True)
+    ground_mesh = GlbMesh(
+        f"ground_{tile.id}",
+        grid_pos - origin,
+        grid_idx,
+        uvs=ortho_uv(tile, grid_pos),
+        image=image,
+        extras=dict(
+            layer="ground",
+            object_id=f"ground_{tile.id}",
+            material_key="ortho",
+            texture_uv="normalized",
+        ),
+    )
+    write_visual(stage / "ground.vis.glb", [ground_mesh], root_translation=tile.origin)
+    layer_files = [stage / "ground.vis.glb"]
+    if shells:
+        roof_pos, roof_idx, wall_pos, wall_uv, wall_idx = [], [], [], [], []
+        rc = wc = 0
+        for _, (roof, ridx, _, _, walls, wuv, widx) in shells:
+            roof_pos.append(roof)
+            roof_idx.append(ridx + rc)
+            rc += len(roof)
+            wall_pos.append(walls)
+            wall_uv.append(wuv)
+            wall_idx.append(widx + wc)
+            wc += len(walls)
+        roof_pos = np.concatenate(roof_pos)
+        meshes = [
+            GlbMesh(
+                f"roofs_{tile.id}",
+                roof_pos - origin,
+                np.concatenate(roof_idx),
+                uvs=ortho_uv(tile, roof_pos),
+                image=image,
+                extras=dict(
+                    layer="buildings",
+                    object_id=f"roofs_{tile.id}",
+                    material_key="roof_ortho",
+                    surface="roof",
+                    texture_uv="normalized",
+                ),
+            ),
+            GlbMesh(
+                f"walls_{tile.id}",
+                np.concatenate(wall_pos) - origin,
+                np.concatenate(wall_idx),
+                uvs=np.concatenate(wall_uv),
+                color=(0.78, 0.75, 0.70, 1.0),
+                extras=dict(
+                    layer="buildings", object_id=f"walls_{tile.id}", material_key="facade_plaster"
+                ),
+            ),
+        ]
+        write_visual(stage / "buildings.vis.glb", meshes, root_translation=tile.origin)
+        layer_files.append(stage / "buildings.vis.glb")
+    vis, stats = package_visual(tile, layer_files, stage, out.parent, library or default_library())
+    seconds["visual"] = time.perf_counter() - t
+    if stats["brotli_bytes"] > WIRE_CAP:
+        raise ValueError(
+            f"{tile.id}: coarse visual exceeds 8 MB on the wire: {stats['brotli_bytes']}"
+        )
+
+    t = time.perf_counter()
+    collision = {}
+    cols = {}
+    for ct, (pos, idx, mat) in collision_tiles(
+        tile, grid_pos, grid_idx, materials, level, shells
+    ).items():
+        col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, aoi_border=False)
+        data = write_col(col, encoding="meshopt", optimize=False)
+        lo, hi = pos[:, 1].min(), pos[:, 1].max()
+        cols[ct.id] = data
+        collision[ct.id] = _entry(
+            f"col/{ct.id}.col",
+            data,
+            tris=len(idx),
+            prims=0,
+            h=[float(lo), float(hi)],
+            flags=col.computed_flags(),
+        )
+    seconds["collision"] = time.perf_counter() - t
+
+    _write(out / "vis.glb", vis)
+    for cid, data in cols.items():
+        _write(out / "col" / f"{cid}.col", data)
+    seconds["total"] = time.perf_counter() - started
+    manifest = dict(
+        format=FORMAT,
+        version=VERSION,
+        coarse=True,
+        tile=tile.id,
+        code=code_hash(),
+        built=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        origin_en=list(C.ORIGIN),
+        grid=dict(visual_l0=C.VISUAL_TILE_SIZE, collision=C.COLLISION_TILE_SIZE, cells=CELLS),
+        visual={
+            tile.id: _entry(
+                "vis.glb",
+                vis,
+                level=0,
+                tris=stats["tris"],
+                h=stats["h"],
+                brotli_bytes=stats["brotli_bytes"],
+                coarse=True,
+            )
+        },
+        collision=collision,
+        buildings=len(blds),
+        water_level=level,
+        sources=inputs.sources,
+        seconds={k: round(v, 3) for k, v in seconds.items()},
+    )
+    _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
+    shutil.rmtree(stage, ignore_errors=True)
+    return manifest

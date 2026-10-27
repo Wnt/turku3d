@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Localhost coarse tile service (pipeline/turku3d/coarse/service.py). Source the sandbox.env first.
+# Usage: tools/dev/coarse-tiles [--port PORT] [--root DIR]
+set -euo pipefail
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
+exec bash "$REPO/pipeline/env/run.sh" python -m turku3d.coarse serve "$@"

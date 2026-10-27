@@ -14,8 +14,11 @@ game-install: $(GAME_DIR)/node_modules/.package-lock.json ## npm install for gam
 game-dev-tiles: game-install ## Regenerate the dummy tileset game/public/dev-tiles (GLB + .col + manifest)
 	$(GAME_NPM) run dev-tiles
 
-game-dev: game-install ## Vite dev server http://localhost:$(TURKU3D_PORT_BASE) (COOP/COEP); ?backend=webgl for WebGL2
-	$(GAME_NPM) run dev
+# Both local servers start the coarse tile service beside them (port base + 5) and stop it on exit.
+COARSE_SERVICE = $(REPO)/tools/dev/coarse-tiles & coarse=$$!; trap 'kill $$coarse' EXIT INT TERM;
+
+game-dev: game-install ## Vite dev server http://localhost:$(TURKU3D_PORT_BASE) (COOP/COEP) + coarse tile service; ?backend=webgl for WebGL2
+	$(COARSE_SERVICE) $(GAME_NPM) run dev
 
 game-build: game-install ## Typecheck + production build into $(GAME_DIST)
 	cd $(GAME_DIR) && python3 $(REPO)/scripts/dev/host_slots.py build -- npm run build
@@ -29,8 +32,8 @@ game-e2e: game-install ## Build + Playwright smoke test in Chrome (WebGPU and We
 
 game-test-all: game-test game-e2e game-dev-tools-test ## All game + tools/dev tests
 
-game-preview: game-build ## Serve $(GAME_DIST) with tools/dev/serve-dist.mjs on the sandbox dist port (+ /tiles -> $(DIST_MIRROR)/tiles)
-	node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIST) --port $(DIST_PORT) --mount /tiles=$(DIST_MIRROR)/tiles
+game-preview: game-build ## Serve $(GAME_DIST) with tools/dev/serve-dist.mjs on the sandbox dist port (+ /tiles -> $(DIST_MIRROR)/tiles, /coarse -> coarse tile service)
+	$(COARSE_SERVICE) node $(REPO)/tools/dev/serve-dist.mjs --root $(GAME_DIST) --port $(DIST_PORT) --mount /tiles=$(DIST_MIRROR)/tiles
 
 game-serve-dist: ## Serve the local tile dist ($(DIST_MIRROR)) on the sandbox dist port
 	node $(REPO)/tools/dev/serve-dist.mjs --root $(DIST_MIRROR) --port $(DIST_PORT)

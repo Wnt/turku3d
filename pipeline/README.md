@@ -88,6 +88,32 @@ curbs, structures and building shells belong to the Wave 1 layers. It caches one
 area heightfield keyed by source file identities and interpolation code. Independent L0 builds
 slice that same grid, avoiding repeated LAZ decompression/TIN construction and seam steps.
 
+## Coarse tiles (localhost draft tier)
+
+`turku3d.coarse` builds one 250 m L0 tile in seconds in the published tile format (`vis.glb`
+with meshopt + KTX2, sixteen `.col` files, a manifest fragment with `"coarse": true`), so the
+game streams it unchanged while the full pipeline has not built that tile yet:
+
+```sh
+bash pipeline/env/run.sh python -m turku3d.coarse build t0_2_0          # -> $TURKU3D_WORK/coarse/t0_2_0/
+bash pipeline/env/run.sh python -m turku3d.coarse build t0_4_0 --out /tmp/t
+tools/dev/coarse-tiles                                                  # localhost service, port base + 5
+```
+
+Inputs come from an already prepared area (`work-3x3`) without network access; elsewhere the
+existing fetchers download only what the tile needs into `$TURKU3D_DATA/raw` under the area name
+`coarse-<tile>`: the `maanpinta` ground key-point LAZ (about 0.5 MB per 500 m), CityGML LOD2,
+`GIS:Katualueet` and `kanta:Vesikohde` via WFS, and one 1024 px (24 cm/px) 2022 true-ortho WMS
+request. Ground is a 250/128 m (~2 m) grid TIN interpolated from the key points and textured
+with the ortho; buildings are LOD2 footprints extruded to their area-weighted mean roof height
+(library render walls, ortho roofs); street polygons set collision materials (road, sidewalk,
+cobblestone...), green ortho pixels grass, water polygons the water sensor over a synthetic bed.
+The coarse tier has no curbs, stairs, retaining walls, bridges, props, trees, parked cars,
+facade maps, roof shapes or LOD parents. Outside the city lidar index (`laz-tiles.csv`) the
+build fails with a reason: the MML 2 m DEM needs an API key, which this project does not use.
+Coarse tiles are never written to `$TURKU3D_DATA/live` or any published layer. Tests:
+`pipeline/tests/test_coarse.py` (synthetic inputs, service queue and routes).
+
 ## Selective quality checks
 
 From the repository root, run `scripts/dev/gate --base HEAD` for local changes or
