@@ -21,6 +21,7 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
   await page.goto(`/?backend=${info.project.name}&aa=taa&hud=0`);
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await axis(0, 1);
   await page.waitForFunction(() => { const s = (window as any).__game.state();
     return Math.hypot(s.vehicle.pos[0] - s.feet[0], s.vehicle.pos[2] - s.feet[2]) < 3; });

@@ -69,6 +69,7 @@ const placed = (page: Page) => untilSim(page, () => {
 async function play(page: Page) {
   await open(page, '/');
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await placed(page);
   await page.evaluate(point => {
     const missions = window.__game!.missions as { update(dt: number, frame: object): unknown };
@@ -125,6 +126,7 @@ test('a new tile release behind /tiles swaps in place: tileset, changed collisio
   page.on('load', () => { loads++; });
   await open(page, '/?tiles=/tiles/tileset.json');
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await placed(page);
   await untilSim(page, () => (window.__game!.state as () => { tilesSettled: boolean })().tilesSettled, null, 30);
   const markers = () => page.evaluate(() => {

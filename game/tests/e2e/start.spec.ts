@@ -14,6 +14,8 @@ test('start screen discovers, disconnects and reconnects an Xbox controller', { 
   await expect(page.locator('#gamepad-status')).toHaveText('Xbox Wireless Controller connected');
   await info.attach('start-screen', { body: await page.screenshot(), contentType: 'image/png' });
   await padButton(page, 0, 1);
+  await expect(page.locator('#intro-dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await padButton(page, 0, 0);
   await page.waitForFunction(() => (window.__game!.state as () => any)().grounded);
@@ -21,4 +23,3 @@ test('start screen discovers, disconnects and reconnects an Xbox controller', { 
   expect(state.E).toBeCloseTo(OFFICE_EN.E, 1); expect(state.N).toBeCloseTo(OFFICE_EN.N, 1);
   expect(Math.hypot(state.vehicle!.pos[0] - state.feet[0], state.vehicle!.pos[2] - state.feet[2])).toBeCloseTo(6, 0);
 });
-

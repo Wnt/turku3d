@@ -251,6 +251,12 @@ licence = "Project-owned (MIT repository)"
 reason = "Shop menu background"
 
 [[images]]
+path = "game/public/assets/ui/bg_intro.webp"
+source = "Codex built-in image model, generated from an original Aura River prompt with bg_pizzeria.webp as a style reference; see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Opening story dialog background"
+
+[[images]]
 path = "game/public/assets/ui/icon_scooter.webp"
 source = "Hand-drawn SVG textures/ui-art/icon_scooter.svg (interim until the ui_art Codex job runs), see game/src/ui/README.md"
 licence = "Project-owned (MIT repository)"

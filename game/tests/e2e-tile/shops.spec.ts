@@ -76,6 +76,7 @@ test('shop zones glow in the world and the black market menu locks movement whil
   // Loading precedes the game clock, so this bound stays wall-clock, scaled by the measured frame time.
   await expect(page.getByRole('option', { name: 'New game' })).toBeEnabled({ timeout: 60_000 * scale });
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => {
     const s = (window.__game!.state as () => { collision: { tiles: number }; tilesSettled: boolean })();
     return s.collision.tiles >= 9 && s.tilesSettled;

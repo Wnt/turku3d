@@ -12,6 +12,7 @@ async function start(page: Page, backend: string, E = OFFICE_EN.E as number, N =
   await expect(page.locator('#gamepad-status')).toHaveText('Xbox Wireless Controller connected');
   expect(await page.evaluate(() => window.__game!.backend)).toBe(backend === 'webgpu' ? 'WebGPU' : 'WebGL2');
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => { const s = (window.__game!.state as () => any)(); return s.grounded && s.tilesSettled; });
 }
 async function safety(page: Page, maxSpeed: number) {

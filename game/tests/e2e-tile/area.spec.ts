@@ -100,6 +100,7 @@ test('bridge gameplay draw budget', { tag: ['@pipeline', '@render', '@drive'] },
   await page.setViewportSize({ width: 2560, height: 1440 });
   await page.goto(`/?backend=${info.project.name}&tiles=/tiles/tileset.json&spawn=23459783,6704299,300`);
   await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => {
     const state = (window as any).__game?.state?.();
     return state?.grounded && state.tilesSettled && state.visTris > 100_000;

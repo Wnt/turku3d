@@ -5,7 +5,8 @@ DOM overlays drawn over the WebGPU/WebGL canvas. Styles live in `game/index.html
 | File | Role |
 |---|---|
 | `hud.ts` | Debug HUD (H): backend, frame times, resident tiles, collision, player position |
-| `startScreen.ts` | Controls, controller status, the main menu (Continue / New game / Load game) and the story intro of a first game; quitting a game reopens it |
+| `startScreen.ts` | Controls, controller status and the main menu (Continue / New game / Load game); quitting a game reopens it |
+| `introDialog.ts` | The full-screen opening narration after every New game |
 | `menu.ts` | `MenuList` (the row list every menu uses), `MenuPanel` (a titled menu page), `PauseMenu`, and `SaveMenuFlow` (start, pause, save, load and confirm pages over `core/save.ts`) |
 | `shopMenu.ts` | `ShopMenu`: the full-screen shop menu that renders a `ShopView` from the mission system |
 | `fullscreen.ts` | `FullscreenPolicy`: touch play runs the scene in fullscreen; the "Tap to continue in fullscreen" overlay |
@@ -52,6 +53,10 @@ game runs (never from the start screen).
 
 - **Start screen**: Continue (the most recent slot, with its label, delivery count, money and save
   time), New game (asks first when any save exists), Load game (greyed without saves).
+- **Intro dialog**: Every New game shows `intro_1` through `intro_3` over the Aura evening art,
+  with each text line shown while its narrator clip plays. A / Enter / tap Continue advances;
+  B / Escape / tap Skip ends the intro. The world remains paused and its input locked until the
+  dialog ends. Continue and Load game skip it. The first mission hint follows it.
 - **Pause menu** (`pause`: Menu, Escape, touch Pause): Resume, Respawn at the start, Save game (Slot 1–3; a filled slot asks
   before it is overwritten, then "Saved to Slot N."), Load game (autosave and slots, empty ones greyed),
   New game (always asks), Quit to start screen. While it is open the world is paused and its input is
@@ -132,7 +137,7 @@ lock and the art are checked in Chrome by `tests/e2e-tile/shops.spec.ts`
 
 ## Menu art
 
-`game/public/assets/ui/`: three 1280×720 backgrounds and nine 256×256 icons, WebP, each under
+`game/public/assets/ui/`: four 1280×720 backgrounds and nine 256×256 icons, WebP, each under
 200 KB (largest `bg_dealer.webp`, 129 KB; 338 KB in total). All but `icon_scooter` were generated with the project's
 Codex image runner and are project-owned (`game/public/assets/LICENSES.md`).
 
@@ -141,6 +146,7 @@ Codex image runner and are project-owned (`game/public/assets/LICENSES.md`).
 | `bg_market` | Black market | Stall under the stone arch of Auransilta at night, bare bulb, wet cobbles, hooded seller from behind |
 | `bg_pizzeria` | Pizzeria Linnanportti | Old family pizzeria counter, wood-fired oven, pizza boxes, delivery bag, blank menu board |
 | `bg_dealer` | Rantakadun Kulkine | Used-vehicle lot on the Aura riverbank at dusk, string lights, sales cabin |
+| `bg_intro` | Opening narration | Painterly Aura River at dusk with Turku Cathedral silhouette, generated with the built-in image model using `bg_pizzeria` as a style reference; no street imagery |
 | `icon_permit` | Rent a courier working permit | Laminated permit card on a lanyard |
 | `icon_plates` | Forged license plates | Two blank plates with a rubber band |
 | `icon_kidney` | Sell your kidney | Cartoon kidney on ice in a picnic cooler |

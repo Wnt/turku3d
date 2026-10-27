@@ -54,6 +54,8 @@ interface SaveGameOptions {
   /** The character now stands at `at`; the camera turns to `yaw`. */
   placed: (at: V3, yaw: number) => void;
   setPaused: (paused: boolean) => void;
+  /** Opening story shown after a new solo game is placed. */
+  showIntro: () => Promise<void>;
   fail: (e: unknown) => void;
   multiplayer?: () => void;
   scoreboardStart?: () => void;
@@ -65,6 +67,9 @@ interface SaveGameOptions {
 
 /** A teleport where no ground is found (outside the built area) arrives at this height (N2000 m), flying. */
 const TELEPORT_AIR_HEIGHT = 60;
+
+/** Only the explicit New game action passes null; Continue and Load pass a slot. */
+export function queuesIntro(game: SaveGame | null): boolean { return game === null; }
 
 export class SaveGameController {
   /** A loaded or new game is being placed: the world waits (paused) until the player stands on the ground. */
@@ -150,7 +155,8 @@ export class SaveGameController {
     this.o.pauseMenu.close();
     this.loading = true;
     this.o.setPaused(true);
-    void this.place(game).catch(this.o.fail).finally(() => { this.loading = false; this.o.setPaused(false); });
+    void this.place(game).then(() => queuesIntro(game) ? this.o.showIntro() : undefined)
+      .catch(this.o.fail).finally(() => { this.loading = false; this.o.setPaused(false); });
   }
 
   /** Places a multiplayer join at the server's spawn or retained pose, using the normal safe-ground snap. */

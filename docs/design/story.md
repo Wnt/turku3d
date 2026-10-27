@@ -34,8 +34,10 @@ permit is where the money goes. Fast deliveries earn tips. The same market buys 
 forged plates. A scooter or a car can be bought from a dealer at the river end of Kristiinankatu,
 where it meets Läntinen Rantakatu.
 
-The start screen shows the intro (lines `intro_1`, `intro_2`, `intro_3`) the first time, that is,
-while no saved game exists:
+Every New game shows the intro dialog (lines `intro_1`, `intro_2`, `intro_3`) after the
+player is placed and before play resumes. Each paragraph appears with its narrator clip;
+Continue advances a line and Skip enters play. Continue and Load game go directly to play.
+The first mission hint follows the dialog:
 
 > Turku, 2027. Last month you were a software developer. Then came the redundancy talks, and
 > thousands of jobs like yours went to AI.

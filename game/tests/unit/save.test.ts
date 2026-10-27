@@ -4,7 +4,7 @@ import {
 } from '../../src/core/save';
 import { SaveMenuFlow, type GameHooks, type MenuPage } from '../../src/ui/menu';
 import { MissionSystem, missionSummary } from '../../src/gameplay/missions/missions';
-import { kerbBehind } from '../../src/gameplay/saveGame';
+import { kerbBehind, queuesIntro } from '../../src/gameplay/saveGame';
 import { PERMIT_DELIVERIES } from '../../src/gameplay/economy';
 import type { Router } from '../../src/gameplay/contract';
 
@@ -150,6 +150,7 @@ describe('save menus', () => {
     expect(ids(start)).toEqual(['new', 'load-']);
     f.pick(start, 'new');
     expect(f.played).toEqual([null]);
+    expect(f.played.map(queuesIntro)).toEqual([true]);
     expect(f.shown).toHaveLength(0);
   });
 
@@ -169,6 +170,7 @@ describe('save menus', () => {
     f.pick(start, 'new');
     f.pick(f.page(), 'yes');
     expect(f.played).toEqual([game(50), null]);
+    expect(f.played.map(queuesIntro)).toEqual([false, true]);
   });
 
   it('lists the autosave and three slots for loading, empty slots greyed, back to the caller', () => {
@@ -181,6 +183,7 @@ describe('save menus', () => {
     expect(load.items[0]).toMatchObject({ label: 'Autosave · Empty', detail: null });
     f.pick(load, 'slot2');
     expect(f.played).toEqual([game(20)]);
+    expect(f.played.map(queuesIntro)).toEqual([false]);
     load.back!();
     expect(f.page().id).toBe('start');
   });
