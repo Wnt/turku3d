@@ -127,6 +127,72 @@ $PY -m turkutex.facade_rollout publish $N --queue "$Q" --run "$R" \
 sources) and regenerates `ledger.md`. `publish` binds only walls that passed the audit
 and the manual look, under the export lock, with the inventory hash unchanged.
 
+### Building styles and derived walls
+
+`turkutex.facade_derive` gives every street-facing office-core wall the generated style of
+its building without another image call. `turkutex.facade_style` reads one accepted
+generated map per building into a style record and cuts the building's other walls from
+that map's albedo, normal and ORM KTX2 (32 px/m, the facade post encoder):
+
+```sh
+source ../sandbox.env
+A="$TURKU3D_DATA/facade-approvals/assembly"; ST="$TURKU3D_WORK/textures/styles"; PY=textures/.venv/bin/python
+COMMON=(--assembly "$A" --inventory "$A/APPROVED_INVENTORY.geojson" --staging "$ST")
+$PY -m turkutex.facade_derive styles "${COMMON[@]}" --wfs "$TURKU3D_DATA/raw/wfs/work-3x3"
+$PY -m turkutex.facade_derive plan "${COMMON[@]}"      # $ST/plan.json: status of every core wall
+$PY -m turkutex.facade_derive derive "${COMMON[@]}"    # $ST/facades/<building>/<index>.*, derived.json
+$PY -m turkutex.facade_derive contact "${COMMON[@]}" --output SHEET.jpg
+$PY -m turkutex.facade_derive publish "${COMMON[@]}"   # export lock; never replaces a generated map
+```
+
+- **Reading a map.** Window glass is near-neutral (C\*ab < 20) and much darker than the
+  bright part of its own row; the mask is closed over glazing bars and reflections.
+  Window rows and, per section (upper storeys, ground floor), window columns are runs
+  of glass, plus every stretch a cut line would cross more than a few glass pixels in.
+  One cut lies in each wall gap between openings, at the column (row) whose colour
+  deviates least from its rows' (columns') non-glass wall colour.
+- **Choosing the source.** Each accepted generated map of a building is read and trial-
+  derived for all the building's other core walls; the map with the most walls passing
+  the derived QA wins, then a map with window rows, then the largest.
+- **Deriving a wall.** The source's corners, cornice and the whole ground floor with its
+  plinth stay; the bays (columns between cuts) and the upper storeys (rows between cuts,
+  from the bottom up) repeat in source order to the count nearest the measured wall, and
+  the rest is a resample of at most 12 %. A wall too narrow for one bay, or too low for
+  one storey, is plain wall: the edge bands outside every opening (corners, or cornice and
+  plinth) and the middle of the widest wall gap walked forward and back (the normal map's
+  slope flips on the backward walk). Upper storeys and the ground floor get separate bay
+  plans. When a bay plan fails QA the wall falls back to plain columns.
+- **Derived QA** (`qa.derived` in the sidecar): no seam or kept edge crosses an opening
+  (`cut_openings` 0), each seam's colour step is at most twice the 90th percentile step
+  between any two of the source's own cut positions (and always 8 ΔE), and the size is
+  exactly `metric_size(width, height, 32)`.
+- **Buildings without a generated map** get the style of another building, ranked by
+  storey-count difference (more than one storey: weight 3), facade material class (2) and
+  era (1), then distance; these walls are `derived-neighbour` and listed in `plan.json`
+  `neighbours` for review. Storey counts come from the registers, else the tallest wall
+  divided by 3.3 m.
+
+Style record (`facades/<building>/style.json`, next to its source map):
+
+| Field | Meaning |
+| --- | --- |
+| `version`, `code` | `building-style-v1` and the module source hash |
+| `building_id`, `source`, `source_key` | the building and its source map (`<building>_<index>`, sidecar `key`) |
+| `source_files`, `source_hashes` | the source's albedo/normal/ORM KTX2 and their SHA-256 |
+| `source_size_px`, `source_size_m`, `pixels_per_metre` | source map geometry |
+| `attributes` | register facade `material`, `material_class` (wood, brick, concrete, metal, render), `year`, `era`, `levels`, `address` |
+| `wall` | wall colour (`srgb`, `hex`, `lab`) and `texture_l_std` (lightness spread of plain wall) |
+| `bands` | `cornice_m`, `ground_floor_m`, `plinth_m`, `storey_m` (window-row spacing), `window_rows_read` |
+| `window_module` | `bay_m` (window-column spacing), `openings_per_row`, `window_width_m`, `window_rows` (`lintel_m`, `sill_m` above the base) |
+| `reviewer_reading` | the generated QA reviewer's `storeys`, `upper_openings`, `grid_matches` |
+| `plan` | the cut plan: `rows` and `columns.upper` / `columns.ground` (`openings_px`, `cuts_px`, `pre`, `post`), `ground_top_px` |
+| `selection` | the rule and every candidate's `walls_passing` and area |
+
+A derived sidecar has the generated sidecar's fields (`files`, `hashes`, `uv`, `size`,
+`pixels_per_metre`, `qa.gltf_basisu_valid`) plus `source_mode` (`derived` or
+`derived-neighbour`), `derived_from` (the source map), `style` (`path`, `sha256`),
+`derive` (the row and column plans used) and `qa.derived`; `references` is empty.
+
 The office pilot used the built-in image generator and put its three chosen
 images in `$RUN/generated`, with equivalent per-image records in
 `$RUN/run_generate/out.jsonl`. After image-based opening/foreign-object QA,
