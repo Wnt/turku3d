@@ -6,12 +6,12 @@ import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
-import { CHARACTER, DT } from './constants';
+import { CAR, CHARACTER, DT, SCOOTER } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 export { CHARACTER, DT };
-import type { CharacterInput, CharacterState, RayFilter, RayHit, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
+import type { CharacterInput, CharacterState, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
 
 type R = typeof RAPIER_NS;
 const MAX_SUBSTEPS = 5;
@@ -45,6 +45,7 @@ export class PhysicsWorld {
   private vehicles = new Map<string, Vehicle>();
   private drivenId: string | null = 'player';
   private nearbyVehicles = new Set<string>();
+  private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode'] }>();
   get vehicle(): Vehicle | null { return this.vehicles.get('player') ?? null; }
   private curbQueries: CurbQueries;
   /** Walls along the open edges of the loaded tiles (edgeWalls.ts). */
@@ -270,6 +271,34 @@ export class PhysicsWorld {
   resetVehicle(pos: V3, yaw: number, id = 'player') { this.vehicles.get(id)?.reset(pos, yaw); }
   vehicleState(): VehicleState | null { return this.vehicles.get(this.drivenId ?? 'player')?.state() ?? null; }
   vehicleStates(): VehicleState[] { return [...this.vehicles].map(([id, vehicle]) => ({ id, ...vehicle.state() })); }
+
+  /** Kinematic proxies are driven by interpolated network poses. They collide with the local KCC and vehicles. */
+  setRemotes(bodies: RemoteBody[]) {
+    const incoming = new Set(bodies.map(b => b.id));
+    for (const [id, remote] of this.remotes) if (!incoming.has(id)) {
+      this.world.removeRigidBody(remote.body);
+      this.remotes.delete(id);
+    }
+    for (const p of bodies) {
+      let remote = this.remotes.get(p.id);
+      if (remote?.mode !== p.mode) {
+        if (remote) this.world.removeRigidBody(remote.body);
+        const height = p.mode === 'foot' ? CHARACTER.halfHeight + CHARACTER.radius + CHARACTER.skin : 0.6;
+        const body = this.world.createRigidBody(this.R.RigidBodyDesc.kinematicPositionBased()
+          .setTranslation(p.pos.x, p.pos.y + height, p.pos.z));
+        const desc = p.mode === 'foot' ? this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius)
+          : this.R.ColliderDesc.cuboid(...Object.values(p.mode === 'car' ? CAR.halfExt : SCOOTER.halfExt) as [number, number, number]);
+        desc.setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.CHARACTER | GROUP.VEHICLE));
+        this.world.createCollider(desc, body);
+        remote = { body, mode: p.mode };
+        this.remotes.set(p.id, remote);
+      }
+      const y = p.pos.y + (p.mode === 'foot' ? CHARACTER.halfHeight + CHARACTER.radius + CHARACTER.skin : 0.6);
+      remote!.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
+      const yaw = p.mode === 'foot' ? p.yaw : p.yaw + Math.PI / 2;
+      remote!.body.setNextKinematicRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+    }
+  }
 
   // ------------------------------------------------------------------ stepping
   /** Advances real time dt with fixed 60 Hz substeps. Returns the number of substeps run. */

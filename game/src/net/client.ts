@@ -4,7 +4,7 @@ export interface NetPose {
   t: number; E: number; N: number; H: number; yaw: number;
   vE: number; vN: number; vH: number; mode: 'foot' | 'car' | 'scooter'; carrying: boolean;
 }
-interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
+export interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
 interface Score { nick: string; money: number; deliveries: number; rank: number; online: boolean }
 interface Hour { id: string; start: string; end: string; tz: string }
 interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number }

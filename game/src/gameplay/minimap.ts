@@ -90,6 +90,7 @@ export class Minimap {
   private last: MinimapView | null = null;
   private cssSize = 0;
   private area: PlayableArea | null = null;
+  private remotes: readonly { id: string; nick: string; x: number; z: number }[] = [];
 
   constructor(parent: HTMLElement, private graph: RoadGraph, router: Router) {
     this.routes = new RouteTracker(router);
@@ -124,6 +125,10 @@ export class Minimap {
 
   /** Shades everything outside the built area and outlines its edge. */
   setArea(area: PlayableArea) { this.area = area; this.dirty = true; }
+  setRemotes(players: readonly { id: string; nick: string; x: number; z: number }[]) {
+    this.remotes = players;
+    if (players.length) this.dirty = true;
+  }
 
   toggleExpanded() {
     this.expanded = !this.expanded;
@@ -261,6 +266,15 @@ export class Minimap {
     }
     ctx.restore();
     const inner = size / 2 - 12;
+    for (const remote of this.remotes) {
+      let [sx, sy] = project({ x: remote.x, z: remote.z }, view.position, rotation, k);
+      const edge = Math.max(Math.abs(sx), Math.abs(sy)) / inner;
+      if (edge > 1) { sx /= edge; sy /= edge; }
+      ctx.beginPath(); ctx.arc(size / 2 + sx, size / 2 + sy, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#e88cff'; ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(remote.nick, size / 2 + sx, size / 2 + sy - 8);
+    }
     for (const target of this.state.targets) {
       let [sx, sy] = project(target.point, view.position, rotation, k);
       const edge = Math.max(Math.abs(sx), Math.abs(sy)) / inner;

@@ -46,6 +46,7 @@ async function handle(msg: ToWorker) {
     case 'spawnVehicle': pw.spawnVehicle(msg.spec.pos, msg.spec.yaw, msg.spec); break;
     case 'driveVehicle': pw.driveVehicle(msg.id); break;
     case 'resetVehicle': pw.resetVehicle(msg.pos, msg.yaw, msg.id); break;
+    case 'remotes': pw.setRemotes(msg.bodies); break;
     case 'step': {
       const t0 = performance.now();
       const substeps = pw.step(msg.dt, msg.character, msg.vehicle);

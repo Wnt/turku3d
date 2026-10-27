@@ -46,6 +46,7 @@ import type { PerformanceMonitor } from './render/performance';
 import type { MaterialStyler } from './render/materials';
 import type { parseParams } from './core/params';
 import { MultiplayerClient } from './net/client';
+import { RemotePlayers } from './net/remotes';
 
 type Pose = V3 & { yaw: number };
 
@@ -139,6 +140,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   await Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
     scooter.load(`${import.meta.env.BASE_URL}assets/vehicles/scooter.glb`),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]);
+  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter });
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
   // Draft tiles' streets join the map and the router as the drafts arrive and leave, and with the 60 s manifest poll.
@@ -215,7 +217,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     setPaused: value => { paused = value; }, fail,
-    onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; },
+    onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; remotePlayers.dispose(); minimap.setRemotes([]); },
     multiplayer: () => {
       multiplayer?.disconnect();
       const client = new MultiplayerClient();
@@ -360,6 +362,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
       }
     }
+    if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now);
     if (!paused) physics.step(dt, charIn, carIn);
 
     const st = physics.latest;
@@ -443,6 +446,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const facingDeg = compassDeg(facing.x, facing.z);
     camera.getWorldDirection(mapDirection);
     const nearEdge = recovery.render(feet, input.source === 'touch' ? 'Reset' : input.prompt('respawn'));
+    if (multiplayerPlaying) minimap.setRemotes(remotePlayers.markers());
     minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
     zones.update(dt, camera, { x: feet.x, z: feet.z });
 
@@ -474,6 +478,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible };
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
+      remotePlayers.dispose();
       listeners.abort();
       saveGame.dispose();
       input.dispose();
