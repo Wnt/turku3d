@@ -1,44 +1,86 @@
-"""Coarse tile inputs, read from the shared raw cache only (``sources.py`` says where).
+"""Coarse tile inputs: read from the shared raw cache only, prepared once per tile and dataset.
 
 A build never downloads: when lidar, ortho or WFS data for the tile is not on disk yet,
-``gather`` raises ``MissingInputs`` with the units the prefetcher has to fetch first.
-``python -m turku3d.coarse build --fetch`` fetches them in the foreground for a hand-run build.
+``gather`` raises ``MissingInputs`` with the units the prefetcher has to fetch first
+(``python -m turku3d.coarse build --fetch`` fetches them in the foreground for a hand-run build).
+
+Each dataset is reduced to what the build needs and cached under ``<coarse root>/.inputs/<tile>/``
+as ``<dataset>.<key>.pkl``: ``ground`` (key points of the tile + POINT_MARGIN and the CELLS grid
+heights interpolated over their TIN), ``ortho`` (ORTHO_PX RGB), ``wfs`` (building shells,
+street-area polygons with their collision material, water polygons) and ``roads`` (the tile's
+encoded OSM street graph, ``roads.json``). The key hashes this module's source and the identities
+(path, size, mtime) of the raw files read, so new raw data or changed code prepares it again.
+``prepare`` fills the cache for whatever is on disk; the prefetcher runs it in the background for
+the tiles near the player, so the build itself starts from the small cached files.
 """
 
 from __future__ import annotations
 
+import hashlib
+import os
+import pickle
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import shapely
 
 from turku3d import config as C
+from turku3d.col.materials import mat_id
 
-from .sources import (
-    ORTHO_PX,
-    POINT_MARGIN,
-    WFS_LAYERS,
-    MissingInputs,
-    NoCoverage,
-    Sources,
-    covers,
-)
+from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
 
-__all__ = ["Inputs", "MissingInputs", "NoCoverage", "ORTHO_PX", "gather"]
+CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
+CODE = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
+
+__all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
+
+
+class Building:
+    def __init__(self, key, footprint, base, top, material_key):
+        self.key, self.footprint, self.base, self.top = key, footprint, base, top
+        self.material_key = material_key
 
 
 @dataclass
 class Inputs:
     points: np.ndarray  # (N,3) engine x, y, z ground key points (tile + POINT_MARGIN)
+    heights: np.ndarray  # (CELLS+1, CELLS+1) grid heights, row = z, column = x
     ortho: np.ndarray  # (ORTHO_PX, ORTHO_PX, 3) uint8, row 0 = north edge of the tile
-    buildings: Path  # bldg_Building_LOD2.parquet
-    streets: Path | None  # GIS_Katualueet.parquet
-    water: Path | None  # kanta_Vesikohde.parquet
-    sources: dict  # provenance: source name -> path or area
+    buildings: list[Building]  # LOD2 shells whose footprint centroid lies in the tile
+    streets: list  # (polygon, collision material id) of street areas over the tile
+    water: list  # water polygons over the tile
+    roads: dict  # prepare_roads: roads.json bytes of the tile's OSM street graph and its counts
+    sources: dict  # provenance: prepared dataset -> raw paths
     seconds: dict
-    osm: Path | None = None  # OSM GeoParquet holding the tile (street graph)
     key: str = ""  # Sources.input_key: the raw files' identities, recorded in the manifest
+
+
+# -- ground ---------------------------------------------------------------------------------------
+
+
+def grid_axes(tile: C.VisualTile) -> tuple[np.ndarray, np.ndarray]:
+    step = tile.size / CELLS
+    return (
+        tile.origin[0] + np.arange(CELLS + 1) * step,
+        tile.origin[2] + np.arange(CELLS + 1) * step,
+    )
+
+
+def grid_heights(points: np.ndarray, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
+    """Linear interpolation over the key-point TIN; nearest key point outside its hull."""
+    from scipy.interpolate import LinearNDInterpolator
+    from scipy.spatial import cKDTree
+
+    gx, gz = np.meshgrid(xs, zs)
+    query = np.column_stack([gx.ravel(), gz.ravel()])
+    h = LinearNDInterpolator(points[:, [0, 2]], points[:, 1])(query)
+    missing = ~np.isfinite(h)
+    if missing.any():
+        _, nearest = cKDTree(points[:, [0, 2]]).query(query[missing])
+        h[missing] = points[nearest, 1]
+    return h.reshape(gz.shape)
 
 
 def ground_points(tile: C.VisualTile, paths: list[Path]) -> np.ndarray:
@@ -56,6 +98,13 @@ def ground_points(tile: C.VisualTile, paths: list[Path]) -> np.ndarray:
     if len(points) < 16:
         raise NoCoverage(f"{tile.id}: only {len(points)} ground key points")
     return points
+
+
+def prepare_ground(tile: C.VisualTile, points: np.ndarray) -> dict:
+    return {"points": points, "heights": grid_heights(points, *grid_axes(tile))}
+
+
+# -- ortho ----------------------------------------------------------------------------------------
 
 
 def read_ortho(path: Path, tile: C.VisualTile) -> np.ndarray:
@@ -78,33 +127,218 @@ def read_ortho(path: Path, tile: C.VisualTile) -> np.ndarray:
     return np.ascontiguousarray(np.moveaxis(rgb, 0, 2))
 
 
-def gather(tile: C.VisualTile, sources: Sources | None = None) -> Inputs:
+# -- wfs ------------------------------------------------------------------------------------------
+
+
+def _frame(path: Path | None, bbox: C.BBoxLocal, kinds=("Polygon", "MultiPolygon")):
+    if path is None:
+        return []
+    import geopandas as gpd
+
+    frame = gpd.read_parquet(path)
+    frame = frame[frame.geom_type.isin(kinds)]
+    window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
+    local = frame.geometry_local.apply(lambda g: shapely.force_2d(g))
+    keep = local.intersects(window)
+    return list(zip(local[keep], frame[keep].itertuples(), strict=True))
+
+
+def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
+    """LOD2 footprints whose centroid lies in this tile, flat roof at the mean roof height."""
+    import geopandas as gpd
+
+    frame = gpd.read_parquet(path)
+    frame = frame[frame.geom_type == "Polygon"]
+    frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
+    bbox = tile.bbox.buffered(100.0)
+    window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
+    local = frame.geometry_local.apply(shapely.force_2d)
+    frame, local = frame[local.intersects(window)], local[local.intersects(window)]
+    out = []
+    for key, group in frame.groupby("feature_key", sort=True):
+        ground = group.surface_type == "GroundSurface"
+        footprint = shapely.make_valid(shapely.union_all(local[group.index[ground]].values))
+        polys = [g for g in getattr(footprint, "geoms", [footprint]) if g.geom_type == "Polygon"]
+        if not polys:
+            continue
+        footprint = max(polys, key=lambda p: p.area)
+        if footprint.area < 4.0:
+            continue
+        c = footprint.centroid
+        if not tile.bbox.contains(c.x, c.y):
+            continue
+        heights = np.concatenate(
+            [np.asarray(g.exterior.coords)[:, 2] for g in group.geometry[ground]]
+        )
+        base = float(heights.min())
+        roofs = group[~ground]
+        if len(roofs):
+            areas = roofs.geometry.area.to_numpy()
+            means = np.array([np.asarray(g.exterior.coords)[:, 2].mean() for g in roofs.geometry])
+            top = float((means * areas).sum() / max(areas.sum(), 1e-9))
+        else:
+            top = base + float(group.measuredHeight.astype(float).iloc[0])
+        if not np.isfinite(top) or top < base + 2.0:
+            top = base + 3.0
+        out.append(
+            Building(
+                key, shapely.geometry.polygon.orient(footprint, 1.0), base, top, "facade_plaster"
+            )
+        )
+    return out
+
+
+def prepare_wfs(tile: C.VisualTile, bldg: Path, streets: Path | None, water: Path | None) -> dict:
+    from turku3d.ground.materials import surface_material
+
+    return {
+        "buildings": buildings(bldg, tile),
+        "streets": [
+            (shapely.make_valid(g), mat_id(surface_material(r.Katuosalaji, r.Pintamateriaali)))
+            for g, r in _frame(streets, tile.bbox)
+        ],
+        "water": [shapely.make_valid(g) for g, _ in _frame(water, tile.bbox)],
+    }
+
+
+# -- roads ----------------------------------------------------------------------------------------
+
+
+def prepare_roads(tile: C.VisualTile, osm: Path) -> dict:
+    """``roads.json`` bytes of the tile's street graph with its node and edge counts."""
+    from turku3d.roads import build_graph, encode, osm_ways
+
+    graph = build_graph(
+        osm_ways(osm, tile.bbox), tile.bbox.as_tuple(), f"coarse-{tile.id}", connected=False
+    )
+    return {"json": encode(graph), "nodes": len(graph["nodes"]) // 2, "edges": len(graph["edges"])}
+
+
+# -- cache ----------------------------------------------------------------------------------------
+
+
+def _key(paths: list[Path]) -> str:
+    h = hashlib.sha256(CODE.encode())
+    for p in paths:
+        st = p.stat()
+        h.update(f"{p}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+    return h.hexdigest()[:24]
+
+
+_ABSENT = object()
+
+
+def _load(path: Path, key: str):
+    """The cached value, or _ABSENT when there is none for this key."""
+    try:
+        with open(path, "rb") as f:
+            entry = pickle.load(f)
+    except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ImportError):
+        return _ABSENT
+    return entry["value"] if entry.get("key") == key else _ABSENT
+
+
+def _save(path: Path, key: str, value) -> None:
+    """Write the entry and drop the dataset's entries for older keys."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with open(tmp, "wb") as f:
+        pickle.dump({"key": key, "value": value}, f, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.replace(path)
+    for old in path.parent.glob(path.name.split(".", 1)[0] + ".*.pkl"):
+        if old != path:
+            old.unlink(missing_ok=True)
+
+
+def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
+    """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
+    laz, missing = sources.lidar_paths(tile)
+    ortho = sources.ortho_source(tile)
+    wfs = [sources.wfs_source(name, tile) for name in WFS_LAYERS]
+    osm = sources.osm_source(tile)
+    return {
+        "ground": None if missing else laz,
+        "ortho": [ortho] if ortho else None,
+        "wfs": [p for _, p in wfs] if all(found for found, _ in wfs) else None,
+        "roads": [osm] if osm else None,
+    }
+
+
+def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
+    if dataset == "ground":
+        return prepare_ground(tile, ground_points(tile, paths))
+    if dataset == "ortho":
+        return read_ortho(paths[0], tile)
+    if dataset == "roads":
+        return prepare_roads(tile, paths[0])
+    bldg, streets, water = paths
+    if bldg is None:
+        raise NoCoverage(f"{tile.id}: no CityGML LOD2 coverage")
+    return prepare_wfs(tile, bldg, streets, water)
+
+
+def _entry(root: Path, tile: C.VisualTile, dataset: str, paths: list) -> tuple[Path, str]:
+    """The cache file names its key, so checking for a current entry is one stat."""
+    key = _key([p for p in paths if p])
+    return root / ".inputs" / tile.id / f"{dataset}.{key}.pkl", key
+
+
+def prepare(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> dict:
+    """Prepare every dataset whose raw files are on disk: {dataset: seconds or 'cached'}, and the
+    datasets not on disk yet under 'missing'."""
+    sources = sources or Sources()
+    out: dict = {"missing": []}
+    for dataset, paths in _sources(tile, sources).items():
+        if paths is None:
+            out["missing"].append(dataset)
+            continue
+        path, key = _entry(root, tile, dataset, paths)
+        if path.exists():
+            out[dataset] = "cached"
+            continue
+        t = time.perf_counter()
+        _save(path, key, _prepare_one(tile, dataset, paths))
+        out[dataset] = round(time.perf_counter() - t, 3)
+    return out
+
+
+def unprepared(tile: C.VisualTile, root: Path, sources: Sources) -> bool:
+    """A dataset on disk has no current prepared entry (file stats only)."""
+    for dataset, paths in _sources(tile, sources).items():
+        if paths is not None and not _entry(root, tile, dataset, paths)[0].exists():
+            return True
+    return False
+
+
+def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> Inputs:
+    """The tile's prepared inputs, preparing what is not cached yet. Raises MissingInputs (after
+    preparing the datasets that are on disk) while units are missing."""
     sources = sources or Sources()
     missing = sources.missing(tile)
     if missing:
+        prepare(tile, root, sources)
         raise MissingInputs(tile.id, [u.key for u in missing])
-    seconds = {}
-    t = time.perf_counter()
-    laz_paths, _ = sources.lidar_paths(tile)
-    points = ground_points(tile, laz_paths)
-    seconds["points"] = time.perf_counter() - t
-    t = time.perf_counter()
-    ortho_source = sources.ortho_source(tile)
-    rgb = read_ortho(ortho_source, tile)
-    seconds["ortho"] = time.perf_counter() - t
-    t = time.perf_counter()
-    buildings, streets, water = (sources.wfs_source(name, tile)[1] for name in WFS_LAYERS)
-    seconds["wfs"] = time.perf_counter() - t
-    osm = sources.osm_source(tile)
-    if buildings is None:
-        raise NoCoverage(f"{tile.id}: no CityGML LOD2 coverage")
-    provenance = {
-        "maanpinta": [str(p) for p in laz_paths],
-        "ortho": str(ortho_source),
-        "buildings": str(buildings),
-        "streets": str(streets) if streets else None,
-        "water": str(water) if water else None,
-        "osm": str(osm),
-    }
-    key = sources.input_key(tile) or ""
-    return Inputs(points, rgb, buildings, streets, water, provenance, seconds, osm, key)
+    seconds, values, provenance = {}, {}, {}
+    for dataset, paths in _sources(tile, sources).items():
+        t = time.perf_counter()
+        path, key = _entry(root, tile, dataset, paths)
+        value = _load(path, key)
+        if value is _ABSENT:
+            value = _prepare_one(tile, dataset, paths)
+            _save(path, key, value)
+        values[dataset] = value
+        provenance[dataset] = [str(p) if p else None for p in paths]
+        seconds[dataset] = time.perf_counter() - t
+    ground, wfs = values["ground"], values["wfs"]
+    return Inputs(
+        ground["points"],
+        ground["heights"],
+        values["ortho"],
+        wfs["buildings"],
+        wfs["streets"],
+        wfs["water"],
+        values["roads"],
+        provenance,
+        seconds,
+        sources.input_key(tile) or "",
+    )

@@ -65,6 +65,19 @@ JSON files (re-listed at most once a second), so the service runs them on every 
 the city lidar index (`data-manifests/laz-tiles.csv`) a tile fails with a reason: the MML 2 m DEM
 needs an API key, which this project does not use.
 
+### Prepared inputs
+
+Each dataset is reduced once per tile to what the build needs and cached under
+`<coarse root>/.inputs/<tile>/<dataset>.<key>.pkl`: `ground` (key points and the 129 x 129 grid
+heights over their TIN), `ortho` (512 px RGB), `wfs` (building shells, street polygons with their
+collision material, water polygons) and `roads` (`roads.json` of the tile's OSM street graph). The
+key covers `inputs.py` and the raw files' path, size and mtime, so new data or code prepares again.
+The prefetch workers prepare the complete tiles within 1 km of the player in the background
+(`python -m turku3d.coarse prepare <tile> --root <coarse root>`), so a build reads a few small
+pickles instead of decoding LAZ, 5 cm ortho mosaics and whole-area GeoParquet files, and imports
+neither geopandas nor rasterio nor laspy. The draft ortho is encoded with the fastest ETC1S effort
+(`draftTextures` in the visual packager request, `--clevel 0`).
+
 ## Prefetcher (`prefetch.py`)
 
 The game sends `GET /coarse/want?x=&z=&vx=&vz=` once a second (engine metres and m/s). The

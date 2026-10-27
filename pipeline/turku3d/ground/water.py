@@ -1,7 +1,6 @@
 """Explicit synthetic collision bed when measured bathymetry is unavailable."""
 
 import numpy as np
-from scipy.spatial import cKDTree
 
 from turku3d.col.materials import mat_id
 
@@ -32,6 +31,8 @@ def add_river_bed(mesh, water_level, depth=3.0):
     dry_ids = np.unique(mesh.indices[~wet])
     banks = np.empty((0, 3), dtype=np.uint32)
     if len(dry_ids):
+        from scipy.spatial import cKDTree  # imported on use: dry tiles never need it
+
         tree = cKDTree(mesh.positions[dry_ids][:, [0, 2]])
         distances, nearest = tree.query(mesh.positions[boundary][:, :, [0, 2]])
         shore = (distances < 1e-7).all(axis=1)

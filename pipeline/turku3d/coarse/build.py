@@ -28,18 +28,15 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
-from turku3d.ground.materials import surface_material
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
-from turku3d.roads import build_graph, encode, osm_ways
 
-from .inputs import Inputs, gather
+from .inputs import CELLS, Building, Inputs, gather
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
-CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
 WIRE_CAP = 8_000_000
 
@@ -51,21 +48,6 @@ def code_hash() -> str:
         h.update(p.name.encode())
         h.update(p.read_bytes())
     return h.hexdigest()[:16]
-
-
-def grid_heights(points: np.ndarray, xs: np.ndarray, zs: np.ndarray) -> np.ndarray:
-    """Linear interpolation over the key-point TIN; nearest key point outside its hull."""
-    from scipy.interpolate import LinearNDInterpolator
-    from scipy.spatial import cKDTree
-
-    gx, gz = np.meshgrid(xs, zs)
-    query = np.column_stack([gx.ravel(), gz.ravel()])
-    h = LinearNDInterpolator(points[:, [0, 2]], points[:, 1])(query)
-    missing = ~np.isfinite(h)
-    if missing.any():
-        _, nearest = cKDTree(points[:, [0, 2]]).query(query[missing])
-        h[missing] = points[nearest, 1]
-    return h.reshape(gz.shape)
 
 
 def grid_mesh(tile: C.VisualTile, heights: np.ndarray):
@@ -83,19 +65,6 @@ def grid_mesh(tile: C.VisualTile, heights: np.ndarray):
     return positions, indices.astype(np.uint32)
 
 
-def _frame(path: Path | None, bbox: C.BBoxLocal, kinds=("Polygon", "MultiPolygon")):
-    if path is None:
-        return []
-    import geopandas as gpd
-
-    frame = gpd.read_parquet(path)
-    frame = frame[frame.geom_type.isin(kinds)]
-    window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
-    local = frame.geometry_local.apply(lambda g: shapely.force_2d(g))
-    keep = local.intersects(window)
-    return list(zip(local[keep], frame[keep].itertuples(), strict=True))
-
-
 def ground_materials(
     centroids: np.ndarray, rgb: np.ndarray, tile: C.VisualTile, streets
 ) -> np.ndarray:
@@ -107,11 +76,8 @@ def ground_materials(
     r, g, b = (rgb[row, col, k].astype(float) for k in range(3))
     out[(g > 1.08 * r) & (g > 1.08 * b) & (g > 25)] = mat_id("grass")
     if streets:
-        geoms = [shapely.make_valid(g) for g, _ in streets]
-        ids = np.array(
-            [mat_id(surface_material(row.Katuosalaji, row.Pintamateriaali)) for _, row in streets],
-            np.uint8,
-        )
+        geoms = [g for g, _ in streets]
+        ids = np.array([m for _, m in streets], np.uint8)
         qi, pi = shapely.STRtree(geoms).query(
             shapely.points(centroids[:, [0, 2]]), predicate="within"
         )
@@ -122,8 +88,7 @@ def ground_materials(
 def water_mask(centroids: np.ndarray, water) -> np.ndarray:
     wet = np.zeros(len(centroids), bool)
     if water:
-        geoms = [shapely.make_valid(g) for g, _ in water]
-        qi, _ = shapely.STRtree(geoms).query(
+        qi, _ = shapely.STRtree(water).query(
             shapely.points(centroids[:, [0, 2]]), predicate="within"
         )
         wet[qi] = True
@@ -134,7 +99,7 @@ def water_level(points: np.ndarray, water) -> float:
     """Low shoreline key points approximate the surface; no class-9 lidar in maanpinta."""
     if not water:
         return 0.0
-    shore = shapely.union_all([shapely.make_valid(g) for g, _ in water]).buffer(10.0)
+    shore = shapely.union_all(water).buffer(10.0)
     near = shapely.contains_xy(shore, points[:, 0], points[:, 2])
     return float(max(-1.0, np.percentile(points[near, 1], 2))) if near.any() else 0.0
 
@@ -156,12 +121,12 @@ def bridge_decks(
     deck); every dry vertex in the corridor between the two ends is raised to the line through them (never lowered).
     Decks that do not touch water (a viaduct over a street) stay put.
     """
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-
     deck = materials == mat_id("bridge_deck")
     if not deck.any():
         return 0
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
     tris = grid_idx[deck]
     edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
     n = len(grid_pos)
@@ -203,57 +168,6 @@ def bridge_decks(
         grid_pos[span, 1] = np.maximum(grid_pos[span, 1], line)
         lifted += 1
     return lifted
-
-
-class Building:
-    def __init__(self, key, footprint, base, top, material_key):
-        self.key, self.footprint, self.base, self.top = key, footprint, base, top
-        self.material_key = material_key
-
-
-def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
-    """LOD2 footprints whose centroid lies in this tile, flat roof at the mean roof height."""
-    import geopandas as gpd
-
-    frame = gpd.read_parquet(path)
-    frame = frame[frame.geom_type == "Polygon"]
-    frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
-    bbox = tile.bbox.buffered(100.0)
-    window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
-    local = frame.geometry_local.apply(shapely.force_2d)
-    frame, local = frame[local.intersects(window)], local[local.intersects(window)]
-    out = []
-    for key, group in frame.groupby("feature_key", sort=True):
-        ground = group.surface_type == "GroundSurface"
-        footprint = shapely.make_valid(shapely.union_all(local[group.index[ground]].values))
-        polys = [g for g in getattr(footprint, "geoms", [footprint]) if g.geom_type == "Polygon"]
-        if not polys:
-            continue
-        footprint = max(polys, key=lambda p: p.area)
-        if footprint.area < 4.0:
-            continue
-        c = footprint.centroid
-        if not tile.bbox.contains(c.x, c.y):
-            continue
-        heights = np.concatenate(
-            [np.asarray(g.exterior.coords)[:, 2] for g in group.geometry[ground]]
-        )
-        base = float(heights.min())
-        roofs = group[~ground]
-        if len(roofs):
-            areas = roofs.geometry.area.to_numpy()
-            means = np.array([np.asarray(g.exterior.coords)[:, 2].mean() for g in roofs.geometry])
-            top = float((means * areas).sum() / max(areas.sum(), 1e-9))
-        else:
-            top = base + float(group.measuredHeight.astype(float).iloc[0])
-        if not np.isfinite(top) or top < base + 2.0:
-            top = base + 3.0
-        out.append(
-            Building(
-                key, shapely.geometry.polygon.orient(footprint, 1.0), base, top, "facade_plaster"
-            )
-        )
-    return out
 
 
 def extrude(b: Building):
@@ -361,6 +275,7 @@ def package_visual(
         groundBinding=None,
         textureCache=str(work / ".texture-cache"),
         coarseTerrain=False,
+        draftTextures=True,
     )
     (stage / "out").mkdir(parents=True, exist_ok=True)
     req = stage / "requests.json"
@@ -402,20 +317,14 @@ def build(
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
-    inputs = inputs or gather(tile)
+    inputs = inputs or gather(tile, out.parent)
     seconds = dict(inputs.seconds)
 
     t = time.perf_counter()
-    step = tile.size / CELLS
-    xs = tile.origin[0] + np.arange(CELLS + 1) * step
-    zs = tile.origin[2] + np.arange(CELLS + 1) * step
-    heights = grid_heights(inputs.points, xs, zs)
-    grid_pos, grid_idx = grid_mesh(tile, heights)
+    grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
     centroids = grid_pos[grid_idx].mean(axis=1)
-    bbox = tile.bbox
-    streets = _frame(inputs.streets, bbox)
-    water = _frame(inputs.water, bbox)
-    materials = ground_materials(centroids, inputs.ortho, tile, streets)
+    water = inputs.water
+    materials = ground_materials(centroids, inputs.ortho, tile, inputs.streets)
     # A bridge deck stays solid where a water polygon runs under it.
     wet = water_mask(centroids, water) & (materials != mat_id("bridge_deck"))
     level = water_level(inputs.points, water)
@@ -429,7 +338,7 @@ def build(
     seconds["ground"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    blds = buildings(inputs.buildings, tile)
+    blds = inputs.buildings
     shells = [(b, extrude(b)) for b in blds]
     seconds["buildings"] = time.perf_counter() - t
 
@@ -521,21 +430,10 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
-    t = time.perf_counter()
-    roads = None
-    if inputs.osm is not None:
-        graph = build_graph(
-            osm_ways(inputs.osm, tile.bbox),
-            tile.bbox.as_tuple(),
-            f"coarse-{tile.id}",
-            connected=False,
-        )
-        roads = encode(graph)
-    seconds["roads"] = time.perf_counter() - t
+    roads = inputs.roads
 
     _write(out / "vis.glb", vis)
-    if roads is not None:
-        _write(out / "roads.json", roads)
+    _write(out / "roads.json", roads["json"])
     for cid, data in cols.items():
         _write(out / "col" / f"{cid}.col", data)
     seconds["total"] = time.perf_counter() - started
@@ -560,16 +458,7 @@ def build(
             )
         },
         collision=collision,
-        roads=(
-            _entry(
-                "roads.json",
-                roads,
-                nodes=len(graph["nodes"]) // 2,
-                edges=len(graph["edges"]),
-            )
-            if roads is not None
-            else None
-        ),
+        roads=_entry("roads.json", roads["json"], nodes=roads["nodes"], edges=roads["edges"]),
         buildings=len(blds),
         bridges=decks,
         water_level=level,

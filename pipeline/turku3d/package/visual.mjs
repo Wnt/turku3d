@@ -192,8 +192,10 @@ async function assembleVisual(request) {
     if (srgb && slots.some(s => s !== 'baseColorTexture' && s !== 'emissiveTexture')) {
       throw new Error('One texture cannot serve both sRGB and linear material slots');
     }
+    // Draft (coarse) tiles take the fastest ETC1S effort: half the encode time at the same size.
+    const effort = srgb && request.draftTextures ? ['--clevel','0'] : [];
     const options = ['--t2','--genmipmap','--threads','2','--assign_oetf', srgb ? 'srgb' : 'linear',
-      '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128'] : ['--uastc_quality','2','--zcmp','18'])];
+      '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128', ...effort] : ['--uastc_quality','2','--zcmp','18'])];
     const key = createHash('sha256').update('ktx-4.4.2-v1').update(JSON.stringify(options)).update(t.getImage()).digest('hex');
     const dest = path.join(request.textureCache, key + '.ktx2');
     if (!fs.existsSync(dest)) {
