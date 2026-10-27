@@ -12,7 +12,7 @@ export { compassDeg } from './minimap';
 export async function createGameplay(manifest: Pick<Manifest, 'roads' | 'baseUrl' | 'collision'>, parent: HTMLElement) {
   const graph = await loadRoadGraph(manifest);
   const router = new StreetRouter(graph);
-  const area = new PlayableArea(Object.keys(manifest.collision));
+  const area = new PlayableArea(manifest.collision);
   const minimap = new Minimap(parent, graph, router);
   minimap.setArea(area);
   return { router, minimap, area };

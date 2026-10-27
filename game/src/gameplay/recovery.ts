@@ -27,25 +27,32 @@ export const RECOVERY = {
   grace: 0.5,
 } as const;
 
-/** The playable area: the union of collision tiles in the manifest (since 57eaed4 a tile list, not a rectangle). */
+/** The playable area: the union of the manifest's collision tiles (since 57eaed4 a tile list, not a rectangle). It
+ *  reads the live `manifest.collision` record, so tiles added at runtime (draft coarse tiles) join the area; the
+ *  bounding box grows when the player stands on such a tile. */
 export class PlayableArea {
-  readonly bbox: { x0: number; z0: number; x1: number; z1: number };
-  private readonly cells = new Set<string>();
+  readonly bbox = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
 
-  constructor(ids: Iterable<string>) {
-    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
-    for (const id of ids) {
+  constructor(private readonly collision: Readonly<Record<string, unknown>>) {
+    for (const id of Object.keys(collision)) {
       const ij = parseCollisionId(id);
-      if (!ij) continue;
-      this.cells.add(id);
-      x0 = Math.min(x0, ij.i * COLLISION_TILE); x1 = Math.max(x1, (ij.i + 1) * COLLISION_TILE);
-      z0 = Math.min(z0, ij.j * COLLISION_TILE); z1 = Math.max(z1, (ij.j + 1) * COLLISION_TILE);
+      if (ij) this.extend(ij.i, ij.j);
     }
-    this.bbox = { x0, z0, x1, z1 };
   }
 
-  hasCell(i: number, j: number) { return this.cells.has(collisionTileId(i, j)); }
-  has(x: number, z: number) { return this.hasCell(Math.floor(x / COLLISION_TILE), Math.floor(z / COLLISION_TILE)); }
+  hasCell(i: number, j: number) { return collisionTileId(i, j) in this.collision; }
+  has(x: number, z: number) {
+    const i = Math.floor(x / COLLISION_TILE), j = Math.floor(z / COLLISION_TILE);
+    if (!this.hasCell(i, j)) return false;
+    this.extend(i, j);
+    return true;
+  }
+
+  private extend(i: number, j: number) {
+    const b = this.bbox;
+    b.x0 = Math.min(b.x0, i * COLLISION_TILE); b.x1 = Math.max(b.x1, (i + 1) * COLLISION_TILE);
+    b.z0 = Math.min(b.z0, j * COLLISION_TILE); b.z1 = Math.max(b.z1, (j + 1) * COLLISION_TILE);
+  }
 
   /** Distance outside the bounding box of the whole area (0 inside it). */
   outsideBy(x: number, z: number) {

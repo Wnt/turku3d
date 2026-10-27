@@ -133,7 +133,8 @@ playable area (`setArea`, below) is darkened and its edge outlined, red within 2
 ## Safe reset (`recovery.ts`)
 
 The playable area is `PlayableArea`: the union of the manifest's collision tiles (a tile list, holes
-included), with its bounding box. `RecoveryMonitor` gets a `Probe` from `main.ts` every unpaused
+included), with its bounding box. It reads the live `manifest.collision` record, so collision tiles added at
+runtime (draft coarse tiles) join the area, and the box grows once the player stands on one. `RecoveryMonitor` gets a `Probe` from `main.ts` every unpaused
 frame (the feet on foot, the body of the driven car in a car) and applies one rule set to both
 (constants in `RECOVERY`):
 

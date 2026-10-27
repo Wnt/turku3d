@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { PlayableArea, RECOVERY, RecoveryMonitor, lostReason, lowestGround, type Probe } from '../../src/gameplay/recovery';
 
 // An L-shaped area of three 62.5 m tiles: x 0..125 on row 0, plus x 0..62.5 on row 1.
-const area = new PlayableArea(['c_0_0', 'c_1_0', 'c_0_1', 'not-a-tile']);
+const area = new PlayableArea({ c_0_0: {}, c_1_0: {}, c_0_1: {}, 'not-a-tile': {} });
 const spawn = { time: 0, x: 30, y: 2, z: 30, heading: 0, inVehicle: false };
 const probe = (time: number, x: number, over: Partial<Probe> = {}): Probe => ({ time, x, y: 2, z: 30, heading: 0.5,
   inVehicle: false, grounded: true, loaded: true, vy: 0, steady: true, waterDepth: null, ...over });
@@ -26,6 +26,16 @@ describe('playable area', () => {
     const corner = area.inset({ x: 124, z: 1 }, 2);
     expect(corner.x).toBeCloseTo(123); expect(corner.z).toBeCloseTo(2);
     expect(area.inset({ x: 50, z: 50 }, 2)).toEqual({ x: 50, z: 50 });
+  });
+  test('tiles added at runtime join the area and grow its bounding box once reached', () => {
+    const collision: Record<string, object> = { c_0_0: {} };
+    const growing = new PlayableArea(collision);
+    expect(growing.edgeDistance(55, 30)).toBeCloseTo(7.5);
+    collision.c_1_0 = {};
+    expect(growing.edgeDistance(55, 30)).toBe(Infinity);
+    expect(growing.outsideBy(100, 30)).toBeCloseTo(37.5);
+    expect(growing.has(100, 30)).toBe(true);
+    expect(growing.outsideBy(100, 30)).toBe(0);
   });
   test('lowest ground of the loaded tiles', () => {
     expect(lowestGround(['c_0_0', 'c_1_0'], { c_0_0: { h: [2, 9] }, c_1_0: { h: [-1.5, 4] } })).toBe(-1.5);
