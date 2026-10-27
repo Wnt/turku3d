@@ -10,7 +10,10 @@ export interface PoolAddress {
   address: string;
   /** L0 visual tile of the drop-off. */
   tile: string;
+  /** Drop-off: the sidewalk spot in front of the door, outside every footprint. */
   point: WorldPoint;
+  /** Where the drop-off meets the walkable street network. */
+  street: WorldPoint;
   /** Street-route metres from the pizzeria on foot and by car (null: no drivable route). */
   foot: number;
   car: number | null;
@@ -18,7 +21,8 @@ export interface PoolAddress {
 
 interface AddressJson {
   format: string; version: number; frame: string; origin: [number, number];
-  addresses: { id: string; address: string; tile: string; point: [number, number]; foot: number; car: number | null }[];
+  addresses: { id: string; address: string; tile: string; point: [number, number]; street: [number, number];
+    foot: number; car: number | null }[];
 }
 
 /** The pool's origin must be the game's pizzeria, or every distance would be measured from elsewhere. */
@@ -40,7 +44,8 @@ export function parseAddressPool(json: AddressJson, tiles: (tile: string) => boo
     throw new Error(`address pool: origin ${x}, ${z} is not the pizzeria`);
   }
   return json.addresses.filter(a => tiles(a.tile)).map(a => ({
-    id: a.id, address: a.address, tile: a.tile, point: { x: a.point[0], z: a.point[1] }, foot: a.foot, car: a.car,
+    id: a.id, address: a.address, tile: a.tile, point: { x: a.point[0], z: a.point[1] },
+    street: { x: a.street[0], z: a.street[1] }, foot: a.foot, car: a.car,
   }));
 }
 

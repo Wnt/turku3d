@@ -8,6 +8,7 @@ import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SAVES_KEY } from '../../src/core/save';
 import type { WorldPoint } from '../../src/gameplay/contract';
+import { MAX_STREET_STEP_M } from '../../src/gameplay/missions/dropoffs';
 import { open, untilSim } from '../e2e/waits';
 
 const shots = path.join(reportsRoot, 'gameplay-missions');
@@ -32,6 +33,13 @@ async function teleportNear(page: Page, point: WorldPoint, below = 40) {
     return Math.hypot(s.feet[0] - x, s.feet[2] - z) < 1 && s.grounded;
   }, { x: point.x + 1.5, z: point.z });
 }
+/** Turns the camera to look past the player at a point. */
+const face = (page: Page, point: WorldPoint) => page.evaluate(({ x, z }) => {
+  const game = window.__game as any;
+  const feet = (game.state as () => { feet: number[] })().feet;
+  game.orbit.yaw = Math.atan2(-(x - feet[0]), -(z - feet[2]));
+  game.orbit.pitch = -0.35;
+}, point);
 const showsMessage = (page: Page, text: string) => untilSim(page, t =>
   (window.__game!.state as () => { missions: Missions })().missions.hud.message === t, text, 20);
 
@@ -54,6 +62,7 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
     const s = (window.__game!.state as () => { collision: { tiles: number }; tilesSettled: boolean })();
     return s.collision.tiles >= 9 && s.tilesSettled;
   });
+  const spawnGround = await page.evaluate(() => (window.__game!.state as () => { feet: number[] })().feet[1]);
   expect(await missions(page)).toMatchObject({ phase: 'permit_needed', money: START_MONEY,
     hud: { activeTargetId: MARKET.id, message: lineText('hint_permit') } });
 
@@ -84,7 +93,20 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   expect(started.hud.timerSeconds).toBeGreaterThan(0);
   await shot('05-carrying');
 
-  await teleportNear(page, delivery.point);
+  // The drop-off (the pool's sidewalk point for the address, or the scripted fallback) and its marker are at street
+  // level: the ground check moves a drop-off off a roof before the marker is placed (missions/dropoffs.ts).
+  const stop = await page.evaluate(() => (window.__game!.missions as any).currentStop.point as WorldPoint);
+  await teleportNear(page, stop);
+  const marker = await page.waitForFunction(id => (window.__game!.state as () => { zones: { id: string; y: number | null }[] })()
+    .zones.find(z => z.id === id && z.y !== null)?.y, delivery.id).then(h => h.jsonValue() as Promise<number>);
+  const markerStop = await page.evaluate(() => (window.__game!.missions as any).currentStop.point as WorldPoint);
+  const feetY = await page.evaluate(() => (window.__game!.state as () => { feet: number[] })().feet[1]);
+  console.log(`drop-off ${delivery.address}: ${markerStop.x}, ${markerStop.z}, marker y ${marker.toFixed(2)}, `
+    + `feet y ${feetY.toFixed(2)}, spawn ground y ${spawnGround.toFixed(2)}`);
+  expect(markerStop).toEqual(stop); // not moved: the published drop-off passed the ground check
+  expect(Math.abs(marker - spawnGround)).toBeLessThan(MAX_STREET_STEP_M);
+  expect(Math.abs(feetY - marker)).toBeLessThan(MAX_STREET_STEP_M);
+  await face(page, stop);
   await showsMessage(page, lineText('prompt_hand_over_key'));
   const before = await missions(page);
   expect(before.hud.timerSeconds!).toBeLessThan(started.hud.timerSeconds!);

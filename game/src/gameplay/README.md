@@ -17,8 +17,10 @@ Story, locations, economy and the state machine are specified in
 | `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
 | `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
 | `zones.ts` | `ZoneMarkers`: glowing ring, light wall and floating label at every HUD target, coloured like the minimap (`KIND_COLOURS`) |
-| `content/deliveries.ts` | The scripted opening: four deliveries in play order (they repeat only without an address pool) |
-| `content/addresses.ts` | Loads `manifest.addresses` (the pool published by `pipeline/turku3d/content`), checks its origin is the pizzeria, skips addresses in tiles the manifest lacks |
+| `content/deliveries.ts` | The scripted opening: four deliveries in play order by address, each with a fallback sidewalk point for a pool that lacks it (they repeat only without an address pool) |
+| `content/addresses.ts` | Loads `manifest.addresses` (the pool published by `pipeline/turku3d/content`: drop-off, street point, route metres), checks its origin is the pizzeria, skips addresses in tiles the manifest lacks |
+| `missions/stops.ts` | `Stops`: an order stop by id (`delivery_<n>` or a pool slug); a scripted delivery takes its address's pool drop-off and keeps its own point as the fallback; `relocate` moves a rejected drop-off to its next candidate |
+| `missions/dropoffs.ts` | Street-level check of a drop-off before its marker is placed (`DropoffGuard`, used by `ZoneMarkers`): a point on a building or more than 2 m off the street height around it is rejected with a console warning and moved by `MissionSystem.relocateDropoff` |
 | `missions/save.ts` | The mission save text (format 3, opaque to `core/save.ts`) and the migrations of formats 1 and 2 |
 | `missions/orders.ts` | Seeded order draws after the opening: no repeats until the pool is exhausted, distance ladder, short hops, every fifth order a double |
 | `content/dialogue.json` | Every displayed line: intro, hints, prompts, notices, pay lines, character dialogue |
@@ -50,11 +52,21 @@ snapshots for tests.
 ### Delivery addresses
 
 Orders after the opening come from the published address pool; a new tile build adds its
-addresses without a code change (see `docs/design/story.md`, "Address pool"). To change the
-scripted opening:
+addresses without a code change (see `docs/design/story.md`, "Address pool"). The scripted opening
+resolves through the pool too: a scripted delivery takes its address's pool drop-off, route metres
+and par, and its own `point` only when the pool lacks the address. Before the marker of any
+drop-off is placed, `DropoffGuard` (`missions/dropoffs.ts`) checks it against the collision: ground
+of building material, or more than 2 m (`MAX_STREET_STEP_M`) from the median street height on two
+rings around it, rejects it with `[missions] drop-off <address> at x, z rejected: <reason>` in the
+console, and `MissionSystem.relocateDropoff` moves it (trigger and marker) to the next candidate:
+the pool's point, the scripted fallback, the pool's street point, then the nearest street-network
+point. A drop-off with every candidate rejected gets no marker. Moves are not saved; a reload checks
+again. To change the scripted opening:
 
-1. Pick an address inside the published area and a street-side point in front of it. Check that the
-   point is walkable and has no building above it in the published collision tiles.
+1. Pick an address inside the published area, preferably one in the pool
+   (`dist/tiles/addresses/<sha>.json`). Its fallback point is the pool's `point`; for an address the
+   pool lacks, apply the pipeline's rule to the buildings layer: 2.5 m (`SIDEWALK_M`) out from the
+   street-side door wall nearest the register point, outside every footprint.
 2. Add the lines `hint_deliver_<n>`, `pizzeria_handover_<n>`, `customer_<n>_fast`,
    `customer_<n>_ok` and `customer_<n>_slow` to `content/dialogue.json` (hints are
    `"voiced": false`).
@@ -82,7 +94,7 @@ previous format.
 
 ```sh
 cd game
-npx vitest run tests/unit/missions.test.ts tests/unit/orders.test.ts tests/unit/shops-ui.test.ts tests/unit/input.test.ts
+npx vitest run tests/unit/missions.test.ts tests/unit/orders.test.ts tests/unit/dropoffs.test.ts tests/unit/shops-ui.test.ts tests/unit/input.test.ts
 # Chrome checks on the real tiles (build the game first: make game-build)
 python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test -c playwright.tile.config.ts \
   tests/e2e-tile/missions.spec.ts tests/e2e-tile/shops.spec.ts tests/e2e-tile/deliveries.spec.ts
@@ -92,8 +104,11 @@ python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright t
 just finished the scripted four, takes the fifth and sixth orders at the pizzeria, checks both are
 different pool addresses with the tally and the address hint, opens the big map, hands both over and
 reloads with the delivered set intact; screenshots go to
-`$TURKU3D_WORK/reports/gameplay-delivery-pool/`. `missions.spec.ts` (WebGPU) plays permit, pickup and a timed delivery through the menus and writes
-screenshots of each prompt to `$TURKU3D_WORK/reports/gameplay-missions/`. `shops.spec.ts` (both
+`$TURKU3D_WORK/reports/gameplay-delivery-pool/`. `dropoffs.test.ts` resolves the four scripted addresses through a synthetic pool, checks their
+fallbacks lie outside synthetic block outlines, and drives `DropoffGuard` over a synthetic street
+with a roof. `missions.spec.ts` (WebGPU) plays permit, pickup and a timed delivery through the menus
+(the first drop-off's marker within 2 m of the spawn ground, unmoved by the check, and handed over
+on foot) and writes screenshots of each prompt to `$TURKU3D_WORK/reports/gameplay-missions/`. `shops.spec.ts` (both
 backends) looks at the pizzeria zone from the street, walks into the black market zone (zone visible,
 prompt shown), opens the menu with E, checks that holding W leaves the player where it was, rents a
 permit (money and permit counter), closes with Escape and checks the player moves again, then opens
