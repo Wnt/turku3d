@@ -2,6 +2,7 @@
 
 import json
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -46,6 +47,47 @@ class LanderTests(Fixture):
         self.assertIsNone(row["facade_regression_reason"])
         self.assertEqual(row["first_done_time"], self.meta("demo")["first_finished"])
         self.assertIn("SKIP   game-e2e", (self.base / "tasks/demo/gate.log").read_text())
+
+    def public_origin(self):
+        """A bare origin holding one squashed import of main's tree as its main branch."""
+        origin = self.base / "origin.git"
+        self.git("init", "-q", "--bare", str(origin))
+        self.git("remote", "add", "origin", str(origin))
+        root = self.git("commit-tree", "main^{tree}", "-m", "Import")
+        self.git("update-ref", landing.PUBLIC_REF, root)
+        self.git("push", "-q", "origin", f"{landing.PUBLIC_REF}:refs/heads/main")
+        return origin, root
+
+    def test_landing_pushes_main_tree_on_the_public_line_only(self):
+        origin, root = self.public_origin()
+        private = self.git("rev-parse", "main")
+        repo = self.start()
+        self.commit(repo, "change.md")
+        self.cli("codex-task", "land", "demo")
+        (row,) = self.ledger()
+        public = self.git("rev-parse", landing.PUBLIC_REF)
+        self.assertEqual(row["push"]["commit"], public)
+        self.assertEqual(self.git("rev-parse", "main", cwd=origin), public)
+        self.assertEqual(self.git("rev-parse", f"{public}^"), root)
+        self.assertEqual(
+            self.git("rev-parse", f"{public}^{{tree}}"), self.git("rev-parse", "main^{tree}")
+        )
+        self.assertEqual(self.git("log", "-1", "--format=%s", public), "Test change")
+        missing = subprocess.run(
+            ["git", "cat-file", "-e", private], cwd=origin, capture_output=True
+        )
+        self.assertNotEqual(missing.returncode, 0, "local main history reached the public origin")
+
+    def test_push_failure_is_recorded_and_the_landing_stands(self):
+        self.public_origin()
+        self.git("remote", "set-url", "origin", str(self.base / "missing.git"))
+        repo = self.start()
+        self.commit(repo, "change.md")
+        self.cli("codex-task", "land", "demo")
+        (row,) = self.ledger()
+        self.assertEqual(row["commit"], self.git("rev-parse", "main"))
+        self.assertIn("error", row["push"])
+        self.assertFalse(row["merge_slow"])
 
     def test_rebase_conflict_returns_task_and_keeps_main(self):
         repo = self.start()

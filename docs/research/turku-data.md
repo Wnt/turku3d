@@ -1,5 +1,8 @@
 # Turku geodata inventory for the browser game ("turku-data")
 
+> Images derived from street-level photos (Google Street View, Apple Look Around, Mapillary) or
+> Google 3D tiles were removed from the public repository on 2026-10-27; they remain in the local archive.
+
 Date: 2026-10-25. Test area: Turku city centre, lidar tile `23459500_6705000`
 (EPSG:3877 x 23459500–23460000, y 6704500–6705000: Kauppatori, Aurakatu, Eerikinkatu,
 Brahenkatu, Yliopistonkatu).

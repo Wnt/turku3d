@@ -1,5 +1,8 @@
 # W1-09b: authoritative facade batch, round 1
 
+> Images derived from street-level photos (Google Street View, Apple Look Around, Mapillary) or
+> Google 3D tiles were removed from the public repository on 2026-10-27; they remain in the local archive.
+
 Round date: 2026-10-25 UTC. Sandbox: `w1-09b-facades`. No main merge or shared production writes.
 
 ## Result
@@ -31,9 +34,9 @@ narrow return strips excluded from this batch's minimum-width selection.
 
 | View | Before | After |
 |---|---|---|
-| `sv_01` | ![Before office facade](w1-09b-facades/before-sv_01.png) | ![After office facade](w1-09b-facades/after-sv_01.png) |
-| `sv_02` | ![Before oblique office facade](w1-09b-facades/before-sv_02.png) | ![After oblique office facade](w1-09b-facades/after-sv_02.png) |
-| `sv_03` | ![Before along the street](w1-09b-facades/before-sv_03.png) | ![After along the street](w1-09b-facades/after-sv_03.png) |
+| `sv_01` | ![Before office facade](w1-09b-facades/before-sv_01.png) | *After office facade (withheld)* |
+| `sv_02` | ![Before oblique office facade](w1-09b-facades/before-sv_02.png) | *After oblique office facade (withheld)* |
+| `sv_03` | ![Before along the street](w1-09b-facades/before-sv_03.png) | *After along the street (withheld)* |
 
 [Before capture metadata](w1-09b-facades/before-render.json) and
 [after capture metadata](w1-09b-facades/after-render.json) preserve exact URLs, camera

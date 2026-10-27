@@ -1,5 +1,8 @@
 # Texture pilot: two office-block facades (2026-10-25)
 
+> Images derived from street-level photos (Google Street View, Apple Look Around, Mapillary) or
+> Google 3D tiles were removed from the public repository on 2026-10-27; they remain in the local archive.
+
 Small review previews only (full-resolution images, KTX2 files and Street View crops are in
 `~/turku3d/data/textures/{refs,pilot}/` on the Mac and are never committed). Full record: `pilot.json`.
 Rebuild: `make textures-pilot` (cached; no new Codex calls unless a prompt changes), previews only:

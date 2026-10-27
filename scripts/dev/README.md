@@ -141,6 +141,9 @@ it stay DONE for the next landing. A batch gets 180 s per member. After a fast-f
 each landed batch member remove clean, stopped sandboxes and report the bytes freed. A retained
 sandbox prints the reason; remove it later with `scripts/dev/wt rm <name>` or
 `scripts/dev/wt prune-landed`.
+Then `push_public` publishes to `origin` (github.com/Wnt/turku3d) best-effort within 60 s: main's tree becomes one
+commit on `refs/public/main`, which began as a squashed import (`docs/HISTORY.md`), and that line is pushed to
+origin's `main`. Local `main` is never pushed. The row records `push` (`commit`, `seconds`) or `push: {error}`.
 
 Deleted on 2026-10-27, because a finished branch waited a median of 80 minutes (worst 147) for main
 although the merge takes a second (`~/turku3d/logs/merge-latency-study/report.md`): the precheck

@@ -1,6 +1,27 @@
-# Turku open world
+# Turku3D
 
-GTA-V-fidelity open world of Turku for desktop Chrome (three.js r186 `three/webgpu` + Rapier 0.21 WASM worker + 3DTilesRendererJS).
+An open-world game of central Turku, Finland, for desktop Chrome (three.js r186 `three/webgpu` + Rapier 0.21 WASM
+worker + 3DTilesRendererJS). The world is built from the City of Turku's open data (buildings, lidar, street areas,
+aerial imagery) and OpenStreetMap; facade and material textures are AI-generated. Walk and drive around Läntinen
+Rantakatu 15 with an Xbox controller or keyboard and mouse.
+
+**Play:** https://wnt.github.io/turku-game/ (deploy repository [Wnt/turku-game](https://github.com/Wnt/turku-game)).
+
+## Run locally
+
+The game needs world tiles built by the pipeline from the Turku open data sources
+([`data-manifests/sources.yaml`](data-manifests/sources.yaml)); no data is committed here. On a Mac (Python 3.12,
+Node 22, `uv`):
+
+```sh
+make help                      # every target
+make fetch-aoi AREA=work-3x3   # download the open data once into ~/turku3d/data/raw
+make refresh && make tile-build T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'
+make game-preview             # built game + local tiles; open the URL with ?tiles=/tiles/tileset.json
+cd game && npm install && npm run dev     # the dev server alone runs on the synthetic dev tiles
+```
+
+Licences: the code is MIT ([LICENSE](LICENSE)); third-party data and assets are listed in [NOTICE.md](NOTICE.md).
 Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); formats are in [docs/specs/](docs/specs/).
 
 ```

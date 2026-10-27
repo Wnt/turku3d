@@ -1,5 +1,8 @@
 # W1-09g: generated office-core facades, measured per Codex model
 
+> Images derived from street-level photos (Google Street View, Apple Look Around, Mapillary) or
+> Google 3D tiles were removed from the public repository on 2026-10-27; they remain in the local archive.
+
 Date: 2026-10-26. Sandbox: `w1-09g-generated-office` (Claude worker). Pilot: [w1-09f](w1-09f-generated-facades.md).
 Raw measurements: `~/turku3d/logs/facade-bench/batch-{1,2,3}.json` (per call: model, effort, seconds,
 tokens, quota before/after; per wall: calls, automated problems, reviewer answer, manual verdict).
@@ -146,8 +149,8 @@ reference camera:
 
 Each sheet shows two walls per model:
 
-- [WebGPU street before/after](w1-09g-generated-office/street-webgpu.jpg)
-- [WebGL2 street before/after](w1-09g-generated-office/street-webgl.jpg)
+- *WebGPU street before/after (withheld)*
+- *WebGL2 street before/after (withheld)*
 
 The generated maps are sharper and free of photo smear: `103295900T_30`, `103277348B_344` and the
 ground floors. They also remove the scaffolding and hoarding baked into the photo maps. On walls whose

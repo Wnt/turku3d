@@ -1,5 +1,8 @@
 # W1-09h: generated facade rollout
 
+> Images derived from street-level photos (Google Street View, Apple Look Around, Mapillary) or
+> Google 3D tiles were removed from the public repository on 2026-10-27; they remain in the local archive.
+
 Date: 2026-10-27. Sandbox: `w1-09h-facade-rollout` (Claude worker). Method and acceptance follow
 [W1-09g](w1-09g-generated-office.md). Budget: at most 25 weekly quota points, stop at 52 %.
 Raw accounting per batch: `~/turku3d/logs/facade-rollout/batch-NN.json`, running table:
@@ -67,7 +70,7 @@ Raw accounting per batch: `~/turku3d/logs/facade-rollout/batch-NN.json`, running
   tall modern blocks lost or gained a storey (`103295901U_26`, `103295899S_368`); edge openings,
   a moved door or a gate (`103295899S_32`, `103295896N_30`, `103304659B_65`); a ground strip
   the reviewer still saw (`103304659B_67`).
-- [Contact sheet](w1-09h-facade-rollout/contact-batch-01.jpg).
+- *Contact sheet (withheld)*.
 - Stop rules: quota 28 % < 52 %, 0.1 points per accepted wall < 0.3, 10 of 23 readable walls
   (43 %) ≥ 40 %. Continue.
 
@@ -84,7 +87,7 @@ Raw accounting per batch: `~/turku3d/logs/facade-rollout/batch-NN.json`, running
   and the model invented a facade for each. The audit passed `103304670P_39`; I rejected it
   because its gable is drawn against a white canvas that would be textured onto the rectangular
   wall. The other three are plausible but tree-occluded or show sky and street strips.
-- [Contact sheet](w1-09h-facade-rollout/contact-batch-02.jpg).
+- *Contact sheet (withheld)*.
 
 **Change before batch 3.** Wrong-content references cost 9 of 13 images here and 6 of 23 in batch 1.
 They pass the black and blur screen, and the reviewer only notices them after an image has been
@@ -114,7 +117,7 @@ grid-in-prompt request, plus a gate.
   white canvas that would be textured onto the rectangular wall. That is the same failure as
   `103304670P_39` in batch 2. Pavement or sky strips, grouped windows drawn as even ones and a
   moved door rejected the rest.
-- [Contact sheet](w1-09h-facade-rollout/contact-batch-03.jpg).
+- *Contact sheet (withheld)*.
 - Stop rules: quota 30 % < 52 %. Over the last two batches, 2 points for 5 accepted walls is
   **0.40 points per accepted wall > 0.3**: stop. Acceptance was 5 of 12 readable walls (42 %),
   below the orchestrator's 45 % bar for continuing. The rule cannot separate the reference-grid
@@ -134,9 +137,9 @@ The stop rule triggered after batch 3, and the orchestrator stopped the rollout.
   (beyond 3.5:1) got no image calls.
 - **Contact sheets:** each shows the reference crop next to the generated image with the verdict
   for every wall, skipped walls included.
-  - [batch 1](w1-09h-facade-rollout/contact-batch-01.jpg)
-  - [batch 2](w1-09h-facade-rollout/contact-batch-02.jpg)
-  - [batch 3](w1-09h-facade-rollout/contact-batch-03.jpg)
+  - *batch 1 (withheld)*
+  - *batch 2 (withheld)*
+  - *batch 3 (withheld)*
   - A skipped wall with no rendered full or partial view at all (for example `gis-103295885A_30`)
     has no crop to show.
 
@@ -228,8 +231,8 @@ reading cannot separate from its 20 image calls and 19 reviews. Batch 1 cost und
 The renders use the reference camera of each wall, before (`cc7903a`, photo-derived maps) and
 after (`8e246c1`, with batch 1):
 
-- [WebGPU](w1-09h-facade-rollout/street-batch-01-webgpu.jpg)
-- [WebGL2](w1-09h-facade-rollout/street-batch-01-webgl.jpg)
+- *WebGPU (withheld)*
+- *WebGL2 (withheld)*
 
 `103295896N_1` changes from a smeared photo to a crisp pink facade with its niche statue.
 `103295901U_29` becomes a sharp modernist elevation.

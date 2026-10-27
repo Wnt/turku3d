@@ -1,5 +1,8 @@
 # Street-level 360 imagery and depth for Turku
 
+> Images derived from street-level photos (Google Street View, Apple Look Around, Mapillary) or
+> Google 3D tiles were removed from the public repository on 2026-10-27; they remain in the local archive.
+
 Research date: 2026-10-25. Target: a browser game (Chrome, WebGPU/WebGL2) of Turku, built from lidar first. Street-level panos are an **offline** input: they supply facade textures, street-furniture detection and splat training. Nothing here is streamed raw to the browser.
 
 Legend: **[VERIFIED]** means I ran it in this session. **[UNVERIFIED]** means it comes from docs or memory and was not run.

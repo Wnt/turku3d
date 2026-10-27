@@ -1,5 +1,8 @@
 # W1-09f: fully generated facade pilot
 
+> Images derived from street-level photos (Google Street View, Apple Look Around, Mapillary) or
+> Google 3D tiles were removed from the public repository on 2026-10-27; they remain in the local archive.
+
 Date: 2026-10-26. Pilot sandbox: `w1-09f-generated-facades`.
 The reuse study is [helsinki-rides-reuse.md](../research/helsinki-rides-reuse.md).
 
@@ -21,9 +24,9 @@ The built-in image generator made **four calls** (2 + 1 + 1), below the 30-call 
 
 All three accepted KTX2 map sets and JSON sidecars were published under the export lock to `$TURKU3D_DATA/facade-approvals/assembly/facades/`. The persistent shared manifest had the same authoritative inventory hash and 340 bound IDs after publication. The sandbox clone at `$TURKU3D_WORK/textures/assembly` was used for the four-tile build with 318 published-baseline bindings. The live-release symlink was not modified.
 
-- [Texture before/after sheet](w1-09f-generated-facades/texture-comparison.jpg)
-- [WebGPU street before/after sheet](w1-09f-generated-facades/webgpu-comparison.jpg)
-- [WebGL2 street before/after sheet](w1-09f-generated-facades/webgl-comparison.jpg)
+- *Texture before/after sheet (withheld)*
+- *WebGPU street before/after sheet (withheld)*
+- *WebGL2 street before/after sheet (withheld)*
 
 The sheets use the same camera pose, time and viewport for each before/after pair. Individual full-size screenshots and render metadata remain in `$TURKU3D_WORK/reports/generated-facades/`.
 

@@ -17,6 +17,8 @@ import sandbox as s
 
 BUDGET_SECONDS = 180
 FACADE_MARKER = "Facade regression reason:"
+PUBLIC_REF = "refs/public/main"
+PUSH_SECONDS = 60
 
 
 class Returned(ValueError):
@@ -161,10 +163,52 @@ def advance(repo, main, before, head):
         s.git("update-ref", "refs/heads/main", head, before, cwd=repo)
 
 
-def record(name, path, text, before, commit, source, started, gate, batch=None):
-    """Append the ledger row and store it in meta; `first_finished` is never overwritten."""
+def push_public(repo):
+    """Publish main's tree to `origin` as the next commit of the public line; best effort.
+
+    The public repository starts from one squashed import because older local history holds
+    street imagery, so local `main` itself is never pushed. Each landing adds one commit with
+    main's tree on top of PUBLIC_REF and pushes that line to origin's `main`. Returns None
+    without an origin, else {"commit", "seconds"} or {"error", "seconds"}.
+    """
+    if not s.git("remote", "get-url", "origin", cwd=repo, check=False):
+        return None
+    started = time.monotonic()
+    try:
+        parent = s.git("rev-parse", "--verify", "-q", PUBLIC_REF, cwd=repo, check=False)
+        if not parent:
+            raise ValueError(f"{PUBLIC_REF} is missing; create the public import first")
+        tree = s.git("rev-parse", "main^{tree}", cwd=repo)
+        commit = parent
+        if s.git("rev-parse", parent + "^{tree}", cwd=repo) != tree:
+            subject = s.git("log", "-1", "--format=%s", "main", cwd=repo)
+            source = s.git("rev-parse", "main", cwd=repo)
+            message = f"{subject}\n\nLanded as local main {source}."
+            commit = s.git("commit-tree", tree, "-p", parent, "-m", message, cwd=repo)
+            s.git("update-ref", PUBLIC_REF, commit, parent, cwd=repo)
+        subprocess.run(
+            ["git", "push", "-q", "origin", f"{PUBLIC_REF}:refs/heads/main"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=PUSH_SECONDS,
+        )
+        return {"commit": commit, "seconds": round(time.monotonic() - started, 3)}
+    except subprocess.CalledProcessError as exc:
+        error = (exc.stderr or exc.stdout or str(exc)).strip()[-300:]
+    except (subprocess.TimeoutExpired, ValueError) as exc:
+        error = str(exc)[-300:]
+    return {"error": error, "seconds": round(time.monotonic() - started, 3)}
+
+
+def record(name, path, text, before, commit, source, started, gate, batch=None, push=None):
+    """Append the ledger row and store it in meta; `first_finished` is never overwritten.
+
+    The best-effort push to origin is reported in `push` and excluded from the merge time.
+    """
     seconds, stages = gate
-    elapsed = round(time.monotonic() - started, 3)
+    elapsed = round(time.monotonic() - started - (push or {}).get("seconds", 0), 3)
     with s.lock(path / "lock"):
         meta = s.read_json(path / "meta.json")
         row = {
@@ -183,6 +227,8 @@ def record(name, path, text, before, commit, source, started, gate, batch=None):
         }
         if batch:
             row["batch"] = batch
+        if push is not None:
+            row["push"] = push
         meta["landed"] = row
         s.write_json(path / "meta.json", meta)
     with ledger_path().open("a") as ledger:
@@ -220,7 +266,8 @@ def land(name, force=False):
         with coord.landing_guard(name, force):
             over_budget([path], started, BUDGET_SECONDS, "merge")
             advance(repo, main, before, head)
-        row = record(name, path, text, before, head, head, started, (seconds, stages))
+        pushed = push_public(repo)
+        row = record(name, path, text, before, head, head, started, (seconds, stages), push=pushed)
         print(f"{name}: landed {head[:12]} in {row['merge_wall_seconds']}s (fast gate {seconds}s)")
         cleanup_landed(name)
         return row
@@ -314,12 +361,15 @@ def batch(names, force=False):
                     if s.git("rev-parse", "main", cwd=integration) != before:
                         raise ValueError("main changed during batch gate; retry batch")
                     advance(integration, main, before, commits[-1])
+                pushed = push_public(integration)
                 gate = gates[landed][:2]
                 for (name, path, text, source), commit in zip(
                     members[:landed], commits, strict=True
                 ):
                     rows.append(
-                        record(name, path, text, before, commit, source, started, gate, names)
+                        record(
+                            name, path, text, before, commit, source, started, gate, names, pushed
+                        )
                     )
                 print(f"batch landed: {', '.join(names[:landed])}; {log_path}")
                 for row in rows:
