@@ -303,3 +303,39 @@ path = "game/public/assets/ui/icon_warning.webp"
 source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
 licence = "Project-owned (MIT repository)"
 reason = "Shop menu icon"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1402/webgl-103304659B_65.jpg"
+source = "Turku3D Chrome game render of the office block from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1402/webgl-gis-103304660C_0.jpg"
+source = "Turku3D Chrome game render of the office block from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1402/webgl-gis-103304662E_16.jpg"
+source = "Turku3D Chrome game render of the office block from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1402/webgpu-103304659B_65.jpg"
+source = "Turku3D Chrome game render of the office block from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1402/webgpu-gis-103304660C_0.jpg"
+source = "Turku3D Chrome game render of the office block from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
+
+[[images]]
+path = "docs/reports/content-facades-1027-1402/webgpu-gis-103304662E_16.jpg"
+source = "Turku3D Chrome game render of the office block from a facade street pose"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade rollout backend evidence"
