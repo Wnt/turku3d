@@ -5,14 +5,15 @@ import { collisionTileAt } from '../core/origin';
 import type { V3 } from '../core/origin';
 import type { PhysicsClient } from '../physics/client';
 import type { PlayerVisual } from '../actors/player';
-import type { CarVisual } from '../actors/car';
+import type { CarVisual, ParkedCarVisuals } from '../actors/car';
 import type { ScooterVisual } from '../actors/scooter';
 import type { MultiplayerClient, NetPlayer, NetPose } from './client';
 import { PoseBuffer } from './interpolation';
+import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
 
 interface Remote {
   player: NetPlayer; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
-  car: THREE.Object3D; scooter: THREE.Object3D;
+  car: THREE.Object3D; scooter: THREE.Object3D; vehicleKey: string;
   label: THREE.Sprite; lastT: number;
 }
 
@@ -31,8 +32,8 @@ function distantCharacter(): THREE.Mesh {
   const parts = [
     part(new THREE.BoxGeometry(0.52, 0.68, 0.28), 0x386c62, 0, 1.17, 0),
     part(new THREE.SphereGeometry(0.19, 8, 6), 0xc79570, 0, 1.68, 0),
-    part(new THREE.BoxGeometry(0.2, 0.72, 0.22), 0x2c4356, -0.15, 0.46, 0),
-    part(new THREE.BoxGeometry(0.2, 0.72, 0.22), 0x2c4356, 0.15, 0.46, 0),
+    part(new THREE.BoxGeometry(0.2, 0.72, 0.22), 0x2c4356, -0.15, 0.36, 0),
+    part(new THREE.BoxGeometry(0.2, 0.72, 0.22), 0x2c4356, 0.15, 0.36, 0),
     part(new THREE.BoxGeometry(0.15, 0.67, 0.2), 0x386c62, -0.36, 1.14, 0),
     part(new THREE.BoxGeometry(0.15, 0.67, 0.2), 0x386c62, 0.36, 1.14, 0),
   ];
@@ -63,7 +64,7 @@ export class RemotePlayers {
   private readonly distantSource = distantCharacter();
   frameMs = 0;
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
-    private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual }) {}
+    private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; parked: ParkedCarVisuals }) {}
 
   update(client: MultiplayerClient, now: number, local: V3) {
     const t0 = performance.now();
@@ -83,14 +84,24 @@ export class RemotePlayers {
         const distant = this.distantSource.clone();
         const car = this.sources.car.root.clone(true);
         const scooter = this.sources.scooter.root.clone(true);
+        scooter.getObjectByName('scooter-lean')!.position.y = -VEHICLE_POSE_HEIGHT;
         const label = nickname(p.nick);
         this.root.add(distant, car, scooter, label);
-        remote = { player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, label, lastT: -1 };
+        remote = { player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, label, lastT: -1, vehicleKey: 'player' };
         this.remotes.set(p.id, remote);
       }
       remote.player = p;
       if (p.pose && p.pose.t !== remote.lastT) { remote.buffer.push(p.pose, now); remote.lastT = p.pose.t; }
       const pose = remote.buffer.sample(now);
+      if (pose?.mode === 'car' && pose.vehicle && pose.vehicle !== remote.vehicleKey) {
+        const model = pose.vehicle === 'player' ? this.sources.car.root.clone(true) : this.sources.parked.remoteModel(pose.vehicle);
+        if (model) {
+          remote.car.removeFromParent();
+          remote.car = model;
+          remote.vehicleKey = pose.vehicle;
+          this.root.add(model);
+        }
+      }
       const visible = !!pose && this.physics.loaded.has((() => {
         const t = collisionTileAt(pose.E, -pose.N); return `c_${t.i}_${t.j}`;
       })());
@@ -105,11 +116,12 @@ export class RemotePlayers {
       remote.scooter.visible = visible && pose?.mode === 'scooter';
       remote.label.visible = visible;
       if (!pose || !visible) continue;
-      const pos = { x: pose.E, y: pose.H, z: -pose.N };
+      const pos = { x: pose.E, y: pose.H + remoteRootHeight(pose.mode), z: -pose.N };
       for (const model of [remote.distant, remote.car, remote.scooter]) model.position.set(pos.x, pos.y, pos.z);
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
       remote.car.rotation.y = pose.yaw + Math.PI / 2;
+      if (remote.vehicleKey !== 'player') remote.car.position.y -= 0.75;
       remote.scooter.rotation.y = pose.yaw + Math.PI / 2;
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       bodies.push({ id: p.id, pos, yaw: pose.yaw, mode: pose.mode });
@@ -122,6 +134,24 @@ export class RemotePlayers {
     return [...this.remotes.values()].flatMap(r => {
       const p = r.buffer.sample(performance.now());
       return p ? [{ id: r.player.id, nick: r.player.nick, x: p.E, z: -p.N }] : [];
+    });
+  }
+
+  visualBounds(): { id: string; mode: NetPose['mode']; vehicle: string | null; paint: string | null;
+    x: number; z: number; bottom: number; rootY: number }[] {
+    const bounds = new THREE.Box3();
+    return [...this.remotes.entries()].flatMap(([id, remote]) => {
+      const model = remote.foot?.visible ? remote.foot : remote.distant.visible ? remote.distant
+        : remote.car.visible ? remote.car : remote.scooter.visible ? remote.scooter : null;
+      if (!model) return [];
+      model.updateWorldMatrix(true, true);
+      bounds.setFromObject(model);
+      const mode = remote.car.visible ? 'car' : remote.scooter.visible ? 'scooter' : 'foot';
+      const material = (model as THREE.Mesh).material;
+      const paint = !Array.isArray(material) && (material as THREE.MeshStandardMaterial | undefined)?.color
+        ? (material as THREE.MeshStandardMaterial).color.getHexString() : null;
+      return [{ id, mode, vehicle: mode === 'car' ? remote.vehicleKey : mode === 'scooter' ? 'scooter' : null, paint,
+        x: model.position.x, z: model.position.z, bottom: bounds.min.y, rootY: model.position.y }];
     });
   }
 

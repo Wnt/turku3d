@@ -17,6 +17,6 @@ export function fixture(start = '2026-10-27T12:00:00Z') {
 }
 
 export const pose = { type: 'pose', t: 1, E: 173, N: -252, H: 4, yaw: 0,
-  vE: 1, vN: 0, vH: 0, mode: 'foot', carrying: false };
+  vE: 1, vN: 0, vH: 0, mode: 'foot', vehicle: null, carrying: false };
 export const delivery = { type: 'delivery', orderId: 'order-1:stop-0', addressId: 'test-address',
   payout: 6, tip: 8, routeMeters: 120 };

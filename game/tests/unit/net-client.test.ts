@@ -3,7 +3,7 @@ import { multiplayerUrl, scoresUrl } from '../../src/net/config';
 import { shouldSendPose, type NetPose } from '../../src/net/client';
 
 const pose: NetPose = { t: 0, E: 168, N: -246, H: 3, yaw: 0, vE: 0, vN: 0, vH: 0,
-  mode: 'foot', carrying: false };
+  mode: 'foot', vehicle: null, carrying: false };
 
 test('endpoint selection uses localhost for local pages and permits a WebSocket override', () => {
   expect(multiplayerUrl({ hostname: 'localhost', search: '' })).toBe('ws://127.0.0.1:7700/');
@@ -19,4 +19,7 @@ test('pose rate keeps within 20 messages per second and sends a stationary heart
   expect(shouldSendPose(55, pose, 0, { ...pose, E: 169 })).toBe(true);
   expect(shouldSendPose(999, pose, 0, pose)).toBe(false);
   expect(shouldSendPose(1000, pose, 0, pose)).toBe(true);
+  expect(shouldSendPose(55, pose, 0, { ...pose, mode: 'car', vehicle: 'fixture/red' })).toBe(true);
+  expect(shouldSendPose(55, { ...pose, mode: 'car', vehicle: 'fixture/blue' }, 0,
+    { ...pose, mode: 'car', vehicle: 'fixture/red' })).toBe(true);
 });

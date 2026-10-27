@@ -121,6 +121,17 @@ export class ParkedCarVisuals {
     }
   }
 
+  /** A remote driver uses the same mesh and material as a local takeover. */
+  remoteModel(key: string): THREE.Mesh | null {
+    const source = this.groups.get(key)?.mesh;
+    if (!source) return null;
+    const model = new THREE.Mesh(source.geometry, source.material);
+    model.name = `remote/${key}`;
+    model.castShadow = true;
+    model.receiveShadow = true;
+    return model;
+  }
+
   update(states: VehicleState[]) {
     const byId = new Map(states.map(s => [s.id, s]));
     for (const { mesh, cars } of this.groups.values()) {

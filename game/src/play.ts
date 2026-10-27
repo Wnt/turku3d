@@ -47,6 +47,8 @@ import type { MaterialStyler } from './render/materials';
 import type { parseParams } from './core/params';
 import { MultiplayerClient } from './net/client';
 import { RemotePlayers } from './net/remotes';
+import { VEHICLE_POSE_HEIGHT } from './net/height';
+import { vehicleIdentity } from './net/identity';
 import { Scoreboard } from './net/scoreboard';
 
 type Pose = V3 & { yaw: number };
@@ -141,7 +143,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   await Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
     scooter.load(`${import.meta.env.BASE_URL}assets/vehicles/scooter.glb`),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]);
-  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter });
+  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter, parked: parkedVisuals });
   const scoreboard = new Scoreboard(document.body);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
@@ -281,7 +283,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors,
       multiplayer: multiplayer ? { connected: multiplayer.state.connected, nick: multiplayer.state.you?.nick,
         players: multiplayer.state.players.length, scores: multiplayer.state.scores,
-        remotes: remotePlayers.markers(), remoteFrameMs: remotePlayers.frameMs } : null };
+        remotes: remotePlayers.markers(), remoteVisuals: remotePlayers.visualBounds(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
   Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, multiplayerClient: () => multiplayer, ready: true });
@@ -415,13 +417,15 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           requestAnimationFrame(() => { crashFlash.style.transition = 'opacity 450ms ease-out'; crashFlash.style.opacity = '0'; });
           void input.rumble(150, 0.35, 0.6);
         }
-        if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - 0.6, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
+        if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - VEHICLE_POSE_HEIGHT, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
     }
     if (multiplayerPlaying && !startScreen.active && !saveGame.loading) {
       const yaw = mode === 'car' && vs ? yawOf(vs.rot) - Math.PI / 2 : player.root.rotation.y - Math.PI;
       multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : 'car',
+        vehicle: vehicleIdentity(mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : 'car',
+          drivenId, manifest.vehicles ?? []),
         carrying: missions.phase === 'carrying' });
     }
     if (!paused && !startScreen.active && !menuOpen) {

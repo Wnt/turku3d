@@ -50,6 +50,18 @@ test('poses coalesce to latest per player and exclude their sender', () => {
   assert.equal(b.messages.length, 1);
 });
 
+test('pose relays vehicle identity and rejects inconsistent mode or model keys', () => {
+  const f = fixture(), a = f.connect(), b = f.connect();
+  a.messages.length = b.messages.length = 0;
+  a.send({ ...pose, mode: 'car', vehicle: 'hatchback-sports/red' });
+  f.room.flushPoses();
+  assert.equal(b.messages[0].poses[0].vehicle, 'hatchback-sports/red');
+  const accepted = f.room.stats.poses;
+  a.send({ ...pose, mode: 'scooter', vehicle: 'hatchback-sports/red' });
+  a.send({ ...pose, mode: 'car', vehicle: '../red' });
+  assert.equal(f.room.stats.poses, accepted);
+});
+
 test('rate budget accepts 20, drops excess and disconnects above 25 arrivals per second', () => {
   const f = fixture(), a = f.connect();
   f.advance(1000);

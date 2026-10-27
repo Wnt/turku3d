@@ -17,6 +17,7 @@ export class ScooterVisual {
   constructor(scene: THREE.Object3D) {
     this.root.name = 'scooter';
     this.root.visible = false;
+    this.lean.name = 'scooter-lean';
     this.root.add(this.lean);
     this.seat.position.set(-0.42, 0.84, 0);
     this.seat.rotation.y = Math.PI / 2;
