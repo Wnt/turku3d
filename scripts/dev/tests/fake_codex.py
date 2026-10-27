@@ -44,7 +44,7 @@ else:
         print(json.dumps({"type": "fake.child", "pid": child.pid}), flush=True)
         signal.pause()
     out = Path(sys.argv[sys.argv.index("-o") + 1])
-    out.write_text("## Result: DONE\n\n" + prompt[-100:])
+    out.write_text(f"## Result: {os.environ.get('FAKE_RESULT', 'DONE')}\n\n" + prompt[-100:])
     print(
         json.dumps(
             {

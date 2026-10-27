@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import subprocess
 import textwrap
@@ -28,6 +29,8 @@ from watch_events import (
 
 SCROLLBACK = 4000
 TIMEBOX = 30 * 60
+# Landings the title's finish-to-main and merge times summarise.
+LANDINGS = 50
 
 
 class Tail:
@@ -433,28 +436,26 @@ class Monitor:
             return channel.title() + (" | last.md (l: events)" if channel.show_last else "")
         tasks = [c for c in self.channels if c.role == "task"]
         overdue = sum(c.overtime() for c in tasks)
-        queue = s.read_json(s.root() / ".registry/merge-queue.json", {"tasks": {}})
-        pending = sum(
-            not any(key in row for key in ("landed", "returned"))
-            for row in queue.get("tasks", {}).values()
-        )
+        # Finish-to-main and merge seconds of the last landings (landed.jsonl).
+        rows = []
+        ledger = s.root() / ".registry/landed.jsonl"
+        with contextlib.suppress(OSError):
+            for line in ledger.read_text().splitlines()[-LANDINGS:]:
+                with contextlib.suppress(ValueError):
+                    rows.append(json.loads(line))
         latencies = sorted(
-            row["landed"] - row["done"]
-            for row in queue.get("tasks", {}).values()
-            if row.get("landed") and row.get("done")
+            row["time"] - row["done_time"] for row in rows if row.get("done_time") and "time" in row
         )
         median = f"{latencies[len(latencies) // 2] / 60:.1f}m" if latencies else "-"
         maximum = f"{latencies[-1] / 60:.1f}m" if latencies else "-"
         merge_times = sorted(
-            row["merge_wall_seconds"]
-            for row in queue.get("tasks", {}).values()
-            if row.get("merge_wall_seconds") is not None
+            row["merge_wall_seconds"] for row in rows if row.get("merge_wall_seconds") is not None
         )
         merge_median = f"{merge_times[len(merge_times) // 2]:.1f}s" if merge_times else "-"
         merge_max = f"{merge_times[-1]:.1f}s" if merge_times else "-"
         return (
             f"[all] {len(tasks)} tasks, {sum(c.live for c in tasks)} live"
-            f" | queue {pending} ready, done-main {median}/{maximum}"
+            f" | done-main {median}/{maximum}"
             f" merge {merge_median}/{merge_max}"
             f" | {overdue} OVER 30m | {sum(c.tokens for c in tasks):,} tok"
             " | arrows 0-9 PgUp/PgDn End l q"

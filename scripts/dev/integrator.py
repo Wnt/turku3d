@@ -9,7 +9,9 @@ or reverted). Only a green G bisects the batch's landings and reverts the one cu
 landing on main through the land lock and the fast gate, tells its author and leaves live
 at G.
 
-Landings that reach main before the first expensive stage join the running batch. A second
+Nothing polls: each landing starts a run when none is going (ensure), and a finished run starts
+the next when main or the data root moved meanwhile. Landings that reach main before the first
+expensive stage join the running batch. A second
 lane (`--lane data`, sandbox `integration-data`) builds the live commit G against a changed
 data root while the code lane is busy; publication is serialised under `publish.lock`, and a
 lane whose live release changed meanwhile rebuilds on top of it instead of publishing over it.
@@ -32,7 +34,9 @@ from pathlib import Path
 import coordination as coord
 import host_slots
 import integration_chrome as chrome
+import landing
 import landing_class
+import pages
 import sandbox as s
 
 NAME = "integration"
@@ -88,7 +92,7 @@ def last(published):
 def data_key(published):
     """Identity of the data root a run builds against (landing_class.data_parts).
 
-    The queue retries a run for the same main head only when this key changes.
+    A new run for the same main head starts only when this key changes (settled).
     """
     parts = landing_class.data_parts(published)
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()
@@ -112,7 +116,7 @@ def code_rows(published):
 
 
 def full_due(published, now=None):
-    landed = read_rows(registry() / "landed.jsonl")
+    landed = landing.ledger_rows()
     return chrome.full_due(code_rows(published), landed, time.time() if now is None else now)
 
 
@@ -132,41 +136,6 @@ def settled(published, main):
 def live_commit(published):
     record = published / "live/live-build.json"
     return json.loads(record.read_text())["commit"] if record.is_file() else None
-
-
-def landings(start, end, repo):
-    """Bisection points in start..end: landed heads from the ledger, always ending at end."""
-    commits = s.git(
-        "rev-list", "--reverse", "--first-parent", f"{start}..{end}", cwd=repo
-    ).splitlines()
-    heads = {row.get("commit") for row in read_rows(registry() / "landed.jsonl")}
-    points = [commit for commit in commits if commit in heads]
-    return points if points[-1:] == [end] else [*points, end]
-
-
-def facade_reason(start, end, repo):
-    """The reported facade regression reason of any landing in start..end, or None."""
-    commits = set(s.git("rev-list", f"{start}..{end}", cwd=repo).splitlines())
-    return next(
-        (
-            row["facade_regression_reason"]
-            for row in read_rows(registry() / "landed.jsonl")
-            if row.get("commit") in commits and row.get("facade_regression_reason")
-        ),
-        None,
-    )
-
-
-def author(commit):
-    """The task whose landing produced commit, from landed.jsonl."""
-    return next(
-        (
-            row.get("name")
-            for row in reversed(read_rows(registry() / "landed.jsonl"))
-            if row.get("commit") == commit
-        ),
-        None,
-    )
 
 
 def checkout(commit, name, published):
@@ -250,7 +219,7 @@ class Run:
         return {
             "commit": head,
             "landing_class": self.landing_class,
-            "reason": facade_reason(start, head, self.main_repo),
+            "reason": landing.facade_reason_in(start, head, self.main_repo),
             "chrome": self.chrome,
         }
 
@@ -270,10 +239,10 @@ class Run:
         repo = checkout(commit, self.name, self.published)
         env = environment(repo, self.published, self.lane)
         work = Path(env["TURKU3D_WORK"])
-        reason = facade_reason(start, commit, repo)
+        reason = landing.facade_reason_in(start, commit, repo)
         for attempt in (1, 2):
             if join and commit != self.end:
-                commit, reason = self.end, facade_reason(start, self.end, repo)
+                commit, reason = self.end, landing.facade_reason_in(start, self.end, repo)
             log = registry() / f"integration-{commit[:12]}-{len(self.builds) + 1}.log"
             status(self.lane, commit=commit, log=str(log))
             started = time.monotonic()
@@ -310,7 +279,7 @@ class Run:
 
 def bisect(run, start, end, failure):
     """First landing in start..end whose build is red, with its failure (end is red)."""
-    points = landings(start, end, run.main_repo)
+    points = landing.landed_heads(start, end, run.main_repo)
     low, high = -1, len(points) - 1
     failures = {high: failure}
     while high - low > 1:
@@ -387,8 +356,18 @@ def revert(run, parent, culprit, task, failure):
             "time": time.time(),
             "fast_gate_seconds": seconds,
         }
-        with (registry() / "landed.jsonl").open("a") as ledger:
+        with landing.ledger_path().open("a") as ledger:
             ledger.write(json.dumps(row) + "\n")
+        # A revert moves main like a landing: active tasks rebase onto it.
+        paths = s.git("diff", "--name-only", before, head, cwd=run.main_repo).splitlines()
+        subject = s.git("log", "-1", "--format=%s", head, cwd=run.main_repo)
+        with contextlib.suppress(ValueError, OSError, subprocess.CalledProcessError):
+            coord.broadcast_landed(
+                row["name"],
+                {**row, "class": "revert", "paths": paths[:40], "changed_paths": len(paths)},
+                subject,
+                time.time(),
+            )
         return {"commit": head, "reverted": commits, "fast_gate_seconds": seconds}
 
 
@@ -496,7 +475,7 @@ def integrate(run, base, start, end):
         if base_failure:
             return data_red(run, base, failure, base_failure)
         parent, culprit, failure = bisect(run, start, end, failure)
-        task = author(culprit)
+        task = landing.author(culprit)
         reverted = revert(run, parent, culprit, task, failure)
         return record(
             run,
@@ -547,7 +526,7 @@ def integrate(run, base, start, end):
         detail = "live data changed again during the rebuild; the next run publishes"
         return record(run, {**row, "result": "failed", "failure": {"detail": detail}})
     row["result"] = "green"
-    deployed = publish_pages(published)
+    deployed = pages.deploy(published)
     if deployed:
         row["pages"] = deployed
     return record(run, row)
@@ -566,30 +545,10 @@ def repoint(run, base, start, end):
     row["result"] = "green"
     changed = landing_class.changed_paths(run.main_repo, start, end)
     if any(path in PAGES_INPUTS for path in changed):
-        deployed = publish_pages(run.published)
+        deployed = pages.deploy(run.published)
         if deployed:
             row["pages"] = deployed
     return record(run, row)
-
-
-def publish_pages(published):
-    """Deploy the live release to GitHub Pages when publish/pages.json exists and a green full
-    Chrome suite verified it; otherwise None.
-
-    A failure is reported in the integration row; the local publication stands.
-    """
-    import pages
-
-    if not chrome.verified(published):
-        return None
-    try:
-        if pages.config(published) is None:
-            return None
-        return pages.publish(published)
-    except subprocess.CalledProcessError as exc:
-        return {"error": f"{' '.join(map(str, exc.cmd[:3]))}: {(exc.stderr or '').strip()[-500:]}"}
-    except (ValueError, OSError, subprocess.SubprocessError) as exc:
-        return {"error": str(exc)[-500:]}
 
 
 @contextlib.contextmanager
@@ -715,7 +674,7 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME):
                 run, {**base, "result": "failed", "failure": {"detail": str(exc)[-1000:]}}
             )
     row["result"] = "green"
-    deployed = publish_pages(published)
+    deployed = pages.deploy(published)
     if deployed:
         row["pages"] = deployed
     return record(run, row)
@@ -746,6 +705,25 @@ def running(lane=NAME):
     return {**current, "stage": stage, "elapsed": round(elapsed, 1) if elapsed else None}
 
 
+def ensure(published, main_repo=s.REPO):
+    """Start the lanes that have work; nothing polls. Each landing and each finished run calls
+    this: the code lane when main or the data root moved past its last run or the full suite is
+    due (settled), the data lane when the data root changed beyond what the code lane covers
+    (data_due). Without a published live release nothing starts. Returns the lanes started.
+    """
+    published = Path(published)
+    if live_commit(published) is None:
+        return []
+    started = []
+    if not running(NAME) and not settled(published, s.git("rev-parse", "main", cwd=main_repo)):
+        start(published, "code")
+        started.append("code")
+    if data_due(published, main_repo):
+        start(published, "data")
+        started.append("data")
+    return started
+
+
 def start(published, lane="code"):
     """Start one detached integration of a lane; its own lock keeps one run per lane."""
     log = registry() / f"{LANES[lane]}.log"
@@ -764,7 +742,7 @@ def start(published, lane="code"):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("run", "status"))
+    parser.add_argument("command", choices=("run", "status", "ensure"))
     parser.add_argument("--published", type=Path, default=os.environ.get("TURKU3D_DATA"))
     parser.add_argument("--main-repo", type=Path, default=s.REPO)
     parser.add_argument("--lane", choices=tuple(LANES), default="code")
@@ -780,6 +758,9 @@ def main():
         return 0
     if not args.published:
         parser.error("--published or TURKU3D_DATA is required")
+    if args.command == "ensure":
+        print(json.dumps({"started": ensure(args.published.resolve(), args.main_repo)}))
+        return 0
     lock_path(lane).parent.mkdir(parents=True, exist_ok=True)
     with lock_path(lane).open("a") as file:
         try:
@@ -792,8 +773,12 @@ def main():
             row = run(args.published.resolve(), args.main_repo, args.sandbox or lane)
         finally:
             status_path(lane).unlink(missing_ok=True)
-        print(json.dumps(row))
-        return 0 if row is None or row["result"] == "green" else 1
+    print(json.dumps(row))
+    # Landings after this run's join window, or a data root changed meanwhile, start the next
+    # run now (a manual run in its own sandbox or against another clone chains nothing).
+    if row is not None and args.sandbox is None and args.main_repo.resolve() == s.REPO:
+        print(json.dumps({"started": ensure(args.published.resolve(), args.main_repo)}))
+    return 0 if row is None or row["result"] == "green" else 1
 
 
 if __name__ == "__main__":

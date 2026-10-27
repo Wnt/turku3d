@@ -1,4 +1,4 @@
-"""Headless Codex tasks with durable logs; landing.py lands finished branches."""
+"""Headless Codex tasks with durable logs; a DONE turn lands its branch (landing.py)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ import coordination as coord
 import external_worker
 import host_slots
 import landing
-import merge_queue
 import sandbox as s
 
 
@@ -135,7 +134,8 @@ def launch(
             common = (home / "repo/docs/briefs/COMMON.md").read_text()
             prompt = (
                 f"You are Codex agent '{name}'. Work only in {home / 'repo'}. "
-                "The exported TURKU3D_* variables define your sandbox. Do not land or merge main.\n\n"
+                "The exported TURKU3D_* variables define your sandbox. Do not merge main yourself: "
+                "a DONE result lands your branch when your turn ends.\n\n"
                 + common
                 + "\n\n"
                 + coord.PROMPT
@@ -315,6 +315,29 @@ def worker(name):
             meta.setdefault("first_finished", meta["finished"])
         meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         s.write_json(path / "meta.json", meta)
+    if meta["state"] == "done" and landing.result_done(path):
+        land_at_turn_end(name, path)
+
+
+# Covers the wait for land.lock behind other landings; the lander's own budget is 180 s.
+LAND_TIMEOUT_SECONDS = 600
+
+
+def land_at_turn_end(name, path):
+    """Land a DONE turn through main's current lander (`codex-task land`), log in land.log.
+
+    The runner leaves the sandbox first so the landing can remove it. A conflict or a red
+    gate leaves the task done and unlanded; the orchestrator resumes it to fix that.
+    """
+    os.chdir(path)
+    result = s.run_group(
+        [sys.executable, str(s.REPO / "scripts/dev/codex-task"), "land", name],
+        cwd=path,
+        env=dict(os.environ),
+        log=path / "land.log",
+        timeout=LAND_TIMEOUT_SECONDS,
+    )
+    print(f"{name}: turn-end landing exited {result.returncode}; see {path / 'land.log'}")
 
 
 def status(name):
@@ -325,23 +348,22 @@ def status(name):
         state = "interrupted"
     if kind := host_slots.waiting(name):
         state = f"waiting for {kind} slot"
-    if reason := merge_queue.returned(name) or (
-        meta.get("returned_reason") if state == "returned" else None
-    ):
-        state = f"returned: {reason}"
     last = deque(read_events(path), maxlen=1)
     elapsed = (meta.get("finished") or time.time()) - meta.get("started", meta["created"])
+    present = Path(meta["repo"]).exists()
     commit = (
         s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
-        if Path(meta["repo"]).exists()
+        if present
         else meta.get("last_commit", "?")
     )
+    behind = landing.behind(name) if present else 0
     idle = coord.idle_minutes(path, meta)
     account = browser_budget.read(name)
     print(
         f"{name}: {state}, {elapsed:.1f}s, last event={last[-1].get('type') if last else 'none'}, "
         f"commit={commit}, {unread_status(name, state)}"
         + (f", idle {idle} min" if idle is not None else "")
+        + (f", behind main by {behind} landings since your last rebase" if behind else "")
         + (
             f", browser {account['used_minutes']:.1f}/{account['budget_minutes']:g} min"
             if account
@@ -351,7 +373,8 @@ def status(name):
 
 
 def unread_status(name, state):
-    count = len(coord.inbox(name, unread=True))
+    # `landed` messages need no ack; status reports them as "behind main" instead.
+    count = sum(row["kind"] != coord.LANDED for row in coord.inbox(name, unread=True))
     flag = " UNACKNOWLEDGED" if count and state not in ("starting", "running") else ""
     return f"unread={count}{flag}"
 
@@ -463,19 +486,10 @@ def main_checkout(repo):
     return None
 
 
-def cleanup_landed(name, integrated_commit=None):
+def cleanup_landed(name):
     """Best-effort cleanup after main advanced; never turn a landing into a false failure."""
     try:
-        home = s.sandbox(name)
         s.reap_browsers(name)
-        repo = home / "repo"
-        if integrated_commit is not None:
-            # Batch cherry-picks preserve the source SHA in the landing ledger, but
-            # their original branches are not ancestors of main.
-            if s.git("status", "--porcelain", cwd=repo) or s.live_processes(home):
-                raise ValueError("dirty worktree or live processes")
-            if s.git("rev-parse", "HEAD", cwd=repo) != integrated_commit:
-                s.git("reset", "--hard", integrated_commit, cwd=repo)
         freed = s.remove(name)
         print(f"{name}: sandbox removed; freed {freed} bytes ({s.format_bytes(freed)})")
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
@@ -502,18 +516,12 @@ def main():
     p.add_argument("--tail", type=int, default=40, help="output lines to print (default 40)")
     p.add_argument("--timeout", type=float, help="seconds before the command group is terminated")
     p.add_argument("command", nargs=argparse.REMAINDER)
-    p = subs.add_parser("finish", help="record a DONE result written by a non-Codex worker")
+    p = subs.add_parser("finish", help="record a non-Codex worker's DONE result and land it")
     p.add_argument("name")
     p.add_argument("--result", required=True, help="markdown file with the run result headings")
-    queue = subs.add_parser("queue")
-    queue.add_argument("action", choices=("run", "status"))
-    queue.add_argument("--once", action="store_true")
-    queue.add_argument("--limit", type=int, default=4)
     for cmd in ("status", "log", "result", "resume", "stop", "land", "_worker"):
         p = subs.add_parser(cmd)
-        p.add_argument("name", nargs="?" if cmd == "land" else None)
-        if cmd == "land":
-            p.add_argument("--batch", nargs="+", help="land these tasks in order")
+        p.add_argument("name")
         if cmd == "log":
             p.add_argument("n", type=int, default=20, nargs="?")
         if cmd == "resume":
@@ -522,8 +530,13 @@ def main():
             p.add_argument("--model")
             p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max", "ultra"))
             p.add_argument("--route", choices=("task", "task_rebase", "light"))
-        if cmd in ("resume", "land"):
+        if cmd == "resume":
             p.add_argument("--force", action="store_true")
+    for p in (subs.choices["finish"], subs.choices["land"]):
+        p.add_argument(
+            "--keep-sandbox", action="store_true", help="keep the sandbox for a next slice"
+        )
+        p.add_argument("--note", help="one free-text line for the other agents' landed message")
     a = ap.parse_args()
     if coord.dispatch(a):
         return
@@ -544,27 +557,17 @@ def main():
     elif a.cmd == "adopt":
         external_worker.adopt(a.name, a.brief)
     elif a.cmd == "finish":
-        external_worker.finish(a.name, a.result)
+        external_worker.finish(a.name, a.result, a.keep_sandbox, a.note)
     elif a.cmd == "wait-cmd":
         # A cancelled tool call must still tear down the command's process group.
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
         sys.exit(s.wait_cmd(a.command, a.tail, a.timeout))
-    elif a.cmd == "queue":
-        if a.action == "status":
-            merge_queue.status()
-        else:
-            merge_queue.run(once=a.once, limit=a.limit)
     elif a.cmd == "status":
         status(a.name)
     elif a.cmd == "stop":
         stop(a.name)
     elif a.cmd == "land":
-        if bool(a.batch) == bool(a.name):
-            ap.error("land takes one name or --batch")
-        if a.batch:
-            landing.batch(a.batch, a.force)
-        else:
-            landing.land(a.name, a.force)
+        landing.land(a.name, a.keep_sandbox, a.note)
     elif a.cmd == "_worker":
         worker(a.name)
     elif a.cmd == "result":

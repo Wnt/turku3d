@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import math
 import os
@@ -13,6 +12,10 @@ from pathlib import Path
 import sandbox as s
 
 KINDS = ("note", "request", "interface", "warning")
+# Written by the lander only (broadcast); informational, never acknowledged or holding anything.
+LANDED = "landed"
+# Paths a `landed` message lists before summarising the rest.
+LANDED_PATHS = 20
 RESUME_REASONS = ("unblock", "review", "main-moved", "quota", "follow-up", "other")
 PROMPT = """## Coordination
 After each major step/commit and before finishing, check:
@@ -22,7 +25,9 @@ Acknowledge what you act on: scripts/dev/codex-task ack <id> --note "..."
 Send a message: scripts/dev/codex-task msg <name|all> --kind request --subject "..." "body"
 Announce shared interface changes with --kind interface --ref <commit> to all.
 Before changing another area's interface, request it from its running owner or the board.
-Never edit another sandbox's files. Open inbox requests/warnings prevent landing.
+Never edit another sandbox's files. A DONE result lands your branch on main (codex-task finish,
+or the runner at turn end). A `landed` inbox message means main moved: rebase onto main before
+your next gate and resolve conflicts yourself.
 Run anything that can take longer than 30 s (gate, tile build, Chrome suites) as one
 blocking call: scripts/dev/codex-task wait-cmd -- <command>. It prints the last 40 lines and the
 exit code. Otherwise poll with write_stdin at yield_time_ms 30000; never poll at 1000 ms.
@@ -69,7 +74,7 @@ def records(path):
         for number, line in enumerate(stream, 1):
             try:
                 row = json.loads(line)
-                if not isinstance(row, dict) or row.get("kind") not in (*KINDS, "ack"):
+                if not isinstance(row, dict) or row.get("kind") not in (*KINDS, LANDED, "ack"):
                     raise ValueError("invalid record kind")
                 if not line.endswith("\n"):
                     raise ValueError("incomplete record")
@@ -106,8 +111,8 @@ def entry(sender, recipient, kind, subject, body, refs=(), ack=None):
     }
 
 
-def send(recipient, kind, subject, body, refs=()):
-    sender = actor()
+def post(sender, recipient, kind, subject, body, refs=()):
+    """Append one message to a task inbox or the board; the stored row."""
     path = board_path() if recipient == "all" else inbox_path(recipient)
     if recipient not in ("all", "main", "orchestrator") and not (
         (path.parent / "meta.json").exists() or (s.root() / recipient / "sandbox.env").exists()
@@ -117,6 +122,12 @@ def send(recipient, kind, subject, body, refs=()):
     with log_lock(path):
         records(path)
         append(path, row)
+    return row
+
+
+def send(recipient, kind, subject, body, refs=()):
+    sender = actor()
+    row = post(sender, recipient, kind, subject, body, refs)
     if recipient not in ("all", "main", "orchestrator") and kind in ("request", "warning"):
         meta = s.read_json(s.tasks_root() / recipient / "meta.json", {})
         from task_runner import running
@@ -147,10 +158,88 @@ def messages(rows, reader):
 
 
 def inbox(name, unread=False):
+    """A task's messages; with `unread`, those not acknowledged. A `landed` message also counts
+    as read once the task's checkout contains its commit (the task rebased past it)."""
     path = inbox_path(name)
     with log_lock(path):
         rows = messages(records(path), name)
-    return [row for row in rows if not unread or row["ack"] is None]
+    if not unread:
+        return rows
+    rows = [row for row in rows if row["ack"] is None]
+    if any(row["kind"] == LANDED for row in rows):
+        pending = not_rebased(name)
+        rows = [row for row in rows if row["kind"] != LANDED or row["refs"][0] in pending]
+    return rows
+
+
+def not_rebased(name):
+    """Main commits the task's checkout does not contain yet; empty without a sandbox."""
+    repo = s.root() / name / "repo"
+    if not (repo / ".git").exists():
+        return set()
+    return set(s.git("rev-list", "HEAD..main", cwd=repo, check=False).splitlines())
+
+
+def active_tasks():
+    """Tasks another landing concerns: a running runner, or an adopted external worker."""
+    from task_runner import running
+
+    names = []
+    for meta_path in sorted(s.tasks_root().glob("*/meta.json")):
+        meta = s.read_json(meta_path, {})
+        external = meta.get("worker") == "external" and meta.get("state") == "external"
+        if external or (meta.get("state") in ("starting", "running") and running(meta)):
+            names.append(meta_path.parent.name)
+    return names
+
+
+def broadcast_landed(name, row, subject, since, note=None):
+    """Tell every other active task that `row` (a landed.jsonl row) moved main; the recipients.
+
+    The message lists the commit, class, changed paths (capped), the interface messages `name`
+    posted on the board after `since` (its previous landing) and the landing's note.
+    """
+    with log_lock(board_path()):
+        board_rows = messages(records(board_path()), name)
+    interfaces = [
+        message
+        for message in board_rows
+        if message["from"] == name and message["kind"] == "interface" and message["time"] > since
+    ]
+    paths = row.get("paths") or []
+    count = row.get("changed_paths", len(paths))
+    shown = ", ".join(paths[:LANDED_PATHS]) or "none"
+    more = count - min(len(paths), LANDED_PATHS)
+    lines = [
+        f"{name} landed {row['commit']} on main: {subject}",
+        f"Class {row.get('class', '?')}; changed paths ({count}): {shown}"
+        + (f" (+{more} more)" if more > 0 else ""),
+    ]
+    for message in interfaces:
+        refs = f" (refs: {', '.join(message['refs'])})" if message["refs"] else ""
+        lines.append(f"Interface {message['id']}: {message['subject']}{refs}")
+    if note:
+        lines.append(f"Note: {note}")
+    lines.append(
+        "Rebase onto main before your next gate (git rebase main) and resolve conflicts yourself."
+    )
+    recipients = [task for task in active_tasks() if task != name]
+    refs = [row["commit"], *(message["id"] for message in interfaces)]
+    for recipient in recipients:
+        post(
+            name,
+            recipient,
+            LANDED,
+            f"landed {name} {row['commit'][:12]}: {subject}",
+            "\n".join(lines),
+            refs,
+        )
+    return recipients
+
+
+def open_requests(name):
+    """Unacknowledged requests and warnings in a task's inbox (reported when it lands)."""
+    return [row for row in inbox(name, unread=True) if row["kind"] in ("request", "warning")]
 
 
 def board(since=0):
@@ -191,10 +280,11 @@ def display(rows, as_json=False):
         print("No messages.")
     else:
         for row in rows:
-            state = "acknowledged" if row["ack"] else "unread"
+            # A landed message needs no ack; `inbox --unread` lists it until the task rebases.
+            state = "" if row["kind"] == LANDED else ", acknowledged" if row["ack"] else ", unread"
             print(
                 f"{row['id']} {row['time']:.6f} {row['from']} -> {row['to']} "
-                f"[{row['kind']}, {state}] {row['subject']}\n{row['body']}"
+                f"[{row['kind']}{state}] {row['subject']}\n{row['body']}"
             )
             if row["refs"]:
                 print("refs: " + ", ".join(row["refs"]))
@@ -237,9 +327,6 @@ def idle_minutes(path, meta):
 
 def idle_tasks():
     """Stopped, unlanded tasks whose sandbox still exists: work waiting on the orchestrator."""
-    import merge_queue
-
-    queue = merge_queue.state()
     rows = []
     for meta_path in sorted(s.tasks_root().glob("*/meta.json")):
         meta = s.read_json(meta_path)
@@ -247,26 +334,8 @@ def idle_tasks():
         if meta.get("landed") or not (s.root() / name / "sandbox.env").exists():
             continue
         if (idle := idle_minutes(meta_path.parent, meta)) is not None:
-            reason = merge_queue.returned(name, queue)
-            state = f"returned: {reason}" if reason else meta.get("state")
-            rows.append(f"{name}: {state}, idle {idle} min")
+            rows.append(f"{name}: {meta.get('state')}, idle {idle} min")
     return rows
-
-
-@contextlib.contextmanager
-def landing_guard(name, force=False):
-    """Keep the final check and main update atomic with respect to inbox writers."""
-    path = inbox_path(name)
-    with log_lock(path):
-        pending = [
-            row
-            for row in messages(records(path), name)
-            if row["ack"] is None and row["kind"] in ("request", "warning")
-        ]
-        if pending and not force:
-            ids = ", ".join(row["id"] for row in pending)
-            raise ValueError(f"unacknowledged request/warning messages: {ids}; ack or use --force")
-        yield
 
 
 def add_commands(subs):

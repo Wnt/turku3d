@@ -29,10 +29,10 @@ class LanderTests(Fixture):
         return self.git("rev-parse", "main")
 
     def test_lands_after_main_moved_without_live_build_quickly(self):
-        repo = self.start()
+        repo = self.adopt()
         self.commit(repo, "change.md")
         moved = self.advance_main()
-        self.cli("codex-task", "land", "demo")
+        self.finish()
         self.assertFalse(self.live_marker.exists(), "the lander imported live_build")
         (row,) = self.ledger()
         self.assertEqual(row["before"], moved)
@@ -41,12 +41,14 @@ class LanderTests(Fixture):
         self.assertTrue((self.repo / "change.md").exists())
         for key in ("merge_wall_seconds", "fast_gate_seconds", "fast_gate_stages", "source"):
             self.assertIn(key, row)
+        self.assertGreaterEqual(row["lock_wait_seconds"], 0)
         self.assertLess(row["merge_wall_seconds"], 5, row)
         self.assertFalse(row["merge_slow"])
         self.assertNotIn("live_build", row)
         self.assertEqual((row["class"], row["paths"], row["tiles"]), ("inert", ["change.md"], []))
         self.assertEqual((row["changed_paths"], row["data_delta"]), (1, []))
         self.assertIsNone(row["facade_regression_reason"])
+        self.assertIn("browser_minutes", row)
         self.assertEqual(row["first_done_time"], self.meta("demo")["first_finished"])
         self.assertIn("SKIP   game-e2e", (self.base / "tasks/demo/gate.log").read_text())
 
@@ -63,9 +65,9 @@ class LanderTests(Fixture):
     def test_landing_pushes_main_tree_on_the_public_line_only(self):
         origin, root = self.public_origin()
         private = self.git("rev-parse", "main")
-        repo = self.start()
+        repo = self.adopt()
         self.commit(repo, "change.md")
-        self.cli("codex-task", "land", "demo")
+        self.finish()
         (row,) = self.ledger()
         public = self.git("rev-parse", landing.PUBLIC_REF)
         self.assertEqual(row["push"]["commit"], public)
@@ -83,264 +85,155 @@ class LanderTests(Fixture):
     def test_push_failure_is_recorded_and_the_landing_stands(self):
         self.public_origin()
         self.git("remote", "set-url", "origin", str(self.base / "missing.git"))
-        repo = self.start()
+        repo = self.adopt()
         self.commit(repo, "change.md")
-        self.cli("codex-task", "land", "demo")
+        self.finish()
         (row,) = self.ledger()
         self.assertEqual(row["commit"], self.git("rev-parse", "main"))
         self.assertIn("error", row["push"])
         self.assertFalse(row["merge_slow"])
 
-    def test_rebase_conflict_returns_task_and_keeps_main(self):
-        repo = self.start()
-        self.commit(repo, "shared.md")
-        before = self.advance_main("shared.md", "main version\n")
-        failure = self.cli("codex-task", "land", "demo", ok=False).stderr
-        self.assertIn("returned to worker: rebase conflict", failure)
-        self.assertEqual(self.git("rev-parse", "main"), before)
-        self.assertEqual(self.ledger(), [])
-        meta = self.meta("demo")
-        self.assertEqual(meta["state"], "returned")
-        self.assertIn("returned: rebase conflict", self.cli("codex-task", "status", "demo").stdout)
-        (request,) = json.loads(
-            self.cli("codex-task", "inbox", "demo", "--unread", "--json").stdout
+    def test_slices_land_with_a_kept_sandbox_and_keep_the_first_done_time(self):
+        repo = self.adopt("ext")
+        self.commit(repo, "one.md")
+        self.finish("ext", "--keep-sandbox")
+        first = self.meta("ext")
+        self.assertEqual(first["state"], "external")
+        self.assertTrue(repo.is_dir())
+        # The worker is active again: there is no new result to land.
+        self.assertIn(
+            "completed successfully", self.cli("codex-task", "land", "ext", ok=False).stderr
         )
-        self.assertEqual(request["kind"], "request")
-        self.assertIn("shared.md", request["body"])
-        self.assertFalse(self.git("status", "--porcelain", cwd=repo))
-        # A new finish answers the lander's own request, so the relanding is attempted again
-        # (and fails on the unresolved conflict, not on an unacknowledged message).
-        result = self.base / "result.md"
-        result.write_text("## Result: DONE\n")
-        self.cli("codex-task", "finish", "demo", "--result", str(result))
-        self.assertEqual(
-            json.loads(self.cli("codex-task", "inbox", "demo", "--unread", "--json").stdout), []
-        )
-        relanding = self.cli("codex-task", "land", "demo", ok=False).stderr
-        self.assertNotIn("unacknowledged", relanding)
-        self.assertIn("rebase conflict", relanding)
-
-    def test_batch_with_red_member_lands_green_prefix(self):
-        repos = {name: self.start(name) for name in ("batch-a", "batch-b", "batch-c")}
-        self.commit(repos["batch-a"], "a.md")
-        (repos["batch-b"] / "bad.png").write_bytes(b"x" * (2 * 1024 * 1024))
-        self.git("add", ".", cwd=repos["batch-b"])
-        self.git("commit", "-qm", "bad", cwd=repos["batch-b"])
-        self.commit(repos["batch-c"], "c.md")
-        result = self.cli("codex-task", "land", "--batch", *repos, ok=False)
-        self.assertIn("returned to worker: fast gate red in batch", result.stderr)
-        self.assertEqual([row["name"] for row in self.ledger()], ["batch-a"])
-        self.assertEqual(self.git("rev-parse", "main"), self.ledger()[0]["commit"])
-        self.assertTrue((self.repo / "a.md").exists())
-        self.assertFalse((self.repo / "bad.png").exists())
-        self.assertFalse((self.repo / "c.md").exists())
-        self.assertEqual(self.meta("batch-b")["state"], "returned")
-        self.assertEqual(self.meta("batch-c")["state"], "done")
-        (request,) = json.loads(self.cli("codex-task", "inbox", "batch-b", "--json").stdout)
-        self.assertIn("Bisected failing prefix ends at batch-b", request["body"])
-        self.assertIn("not attempted after it: batch-c", request["body"])
-
-    def test_ledger_keeps_first_done_time_across_second_finish(self):
-        self.cli("wt", "new", "ext")
-        self.cli("codex-task", "adopt", "ext", "--brief", "brief.md")
-        self.commit(self.base / "wt/ext/repo", "ext.md")
-        result = self.base / "result.md"
-        result.write_text("## Result: DONE\n\nFacade regression reason: fewer, larger facades\n")
-        self.cli("codex-task", "finish", "ext", "--result", str(result))
-        first = self.meta("ext")["first_finished"]
         time.sleep(0.01)
-        self.cli("codex-task", "finish", "ext", "--result", str(result))
-        meta = self.meta("ext")
-        self.assertEqual(meta["first_finished"], first)
-        self.assertGreater(meta["finished"], first)
-        self.cli("codex-task", "land", "ext")
-        (row,) = self.ledger()
-        self.assertEqual(row["first_done_time"], first)
-        self.assertEqual(row["done_time"], meta["finished"])
-        self.assertEqual(row["facade_regression_reason"], "fewer, larger facades")
+        self.commit(repo, "two.md")
+        self.finish("ext", text="## Result: DONE\n\nFacade regression reason: fewer, larger\n")
+        rows = self.ledger()
+        self.assertEqual([row["paths"] for row in rows], [["one.md"], ["two.md"]])
+        self.assertEqual(rows[1]["before"], rows[0]["commit"])
+        self.assertEqual(rows[1]["first_done_time"], first["first_finished"])
+        self.assertGreater(rows[1]["done_time"], rows[0]["done_time"])
+        self.assertEqual(rows[1]["facade_regression_reason"], "fewer, larger")
+        self.assertIsNone(rows[0]["facade_regression_reason"])
+        self.assertFalse(repo.exists())
 
-    def test_land_success(self):
-        repo = self.start()
+    def test_open_requests_are_reported_and_do_not_hold(self):
+        repo = self.adopt()
         self.commit(repo)
         expected = self.git("rev-parse", "HEAD", cwd=repo)
         message_id = self.cli(
             "codex-task", "msg", "demo", "--kind", "request", "--subject", "Review", "Check API"
         ).stdout.strip()
-        inbox = self.base / "tasks/demo/inbox.jsonl"
-        rows = [json.loads(line) for line in inbox.read_text().splitlines()]
-        rows[0]["time"] = (
-            json.loads((self.base / "tasks/demo/meta.json").read_text())["started"] - 1
-        )
-        inbox.write_text("".join(json.dumps(row) + "\n" for row in rows))
-        before = self.git("rev-parse", "main")
-        self.assertIn(message_id, self.cli("codex-task", "land", "demo", ok=False).stderr)
-        self.assertEqual(self.git("rev-parse", "main"), before)
-        self.assertFalse((self.base / "tasks/demo/gate.log").exists())
-        self.assertIn("unread=1 UNACKNOWLEDGED", self.cli("codex-task", "ls").stdout)
-        self.assertIn("unread=1", self.cli("codex-task", "status", "demo").stdout)
-        self.cli("codex-task", "ack", message_id, env={**self.env, "TURKU3D_SANDBOX": "demo"})
-        self.assertIn("unread=0", self.cli("codex-task", "status", "demo").stdout)
-        land_output = self.cli("codex-task", "land", "demo").stdout
-        self.assertIn("sandbox removed; freed", land_output)
+        output = self.finish().stdout
+        self.assertIn(f"open request {message_id} from orchestrator: Review (not holding", output)
+        self.assertIn("integrator not started", output)
+        self.assertIn("sandbox removed; freed", output)
         self.assertFalse((self.base / "wt/demo").exists())
         self.assertEqual(self.git("rev-parse", "main"), expected)
-        self.assertTrue((self.repo / "change.md").exists())
         self.assertFalse(self.git("status", "--porcelain"))
+        self.assertIn("unread=1 UNACKNOWLEDGED", self.cli("codex-task", "ls").stdout)
+        # A repeated land of the same finish is a no-op, not a second ledger row.
+        self.assertIn("already landed", self.cli("codex-task", "land", "demo").stdout)
+        self.assertEqual(len(self.ledger()), 1)
         log = (self.base / "tasks/demo/gate.log").read_text()
-        self.assertIn("PASS   policy", log)
-        self.assertIn("PASS   generated", log)
-        self.assertIn("materials", (self.repo / "scripts/dev/gate.toml").read_text())
-        self.assertIn("TOTAL  GREEN", log)
-        meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
+        for line in ("PASS   policy", "PASS   generated", "TOTAL  GREEN"):
+            self.assertIn(line, log)
+        meta = self.meta("demo")
         self.assertEqual(meta["landed"]["commit"], expected)
         self.assertGreater(meta["landed"]["fast_gate_seconds"], 0)
         self.assertIn("policy", meta["landed"]["fast_gate_stages"])
-
-    def test_land_force_only_overrides_open_messages(self):
-        repo = self.start()
-        self.commit(repo)
-        for kind in ("note", "interface"):
-            self.cli("codex-task", "msg", "demo", "--kind", kind, "--subject", "FYI", "FYI")
-        self.cli("codex-task", "msg", "all", "--kind", "request", "--subject", "Board", "FYI")
-        self.cli("codex-task", "land", "demo")  # Informational and board messages do not block.
-        self.assertFalse(repo.exists())
-        repo = self.start("demo2")
-        self.commit(repo, "second.md")
-        self.cli("codex-task", "msg", "demo2", "--kind", "warning", "--subject", "Check", "Check")
+        # A warning to the finished task is addressed by the orchestrator.
+        self.cli("codex-task", "msg", "demo", "--kind", "warning", "--subject", "Late", "Late")
         notice = json.loads(self.cli("codex-task", "inbox", "orchestrator", "--json").stdout)[-1]
         self.assertIn("recipient finished; addressed by orchestrator", notice["body"])
-        inbox = self.base / "tasks/demo2/inbox.jsonl"
-        rows = [json.loads(line) for line in inbox.read_text().splitlines()]
-        rows[0]["time"] = (
-            json.loads((self.base / "tasks/demo2/meta.json").read_text())["started"] - 1
-        )
-        inbox.write_text("".join(json.dumps(row) + "\n" for row in rows))
-        self.assertIn("unacknowledged", self.cli("codex-task", "land", "demo2", ok=False).stderr)
-        (repo / "dirty.md").write_text("dirty")
-        self.assertIn("dirty", self.cli("codex-task", "land", "demo2", "--force", ok=False).stderr)
-        (repo / "dirty.md").unlink()
-        self.cli("codex-task", "land", "demo2", "--force")
-        self.assertFalse(repo.exists())
-        self.assertEqual(
-            len(json.loads(self.cli("codex-task", "inbox", "demo2", "--unread", "--json").stdout)),
-            1,
-        )
 
-    def test_land_blocks_request_arriving_during_gate(self):
-        repo = self.start()
-        gate = repo / "scripts/dev/gate"
-        gate.write_text(
-            "#!/bin/sh\nexec scripts/dev/codex-task msg demo --kind request "
-            "--subject 'Arrived during gate' 'Review before landing'\n"
-        )
-        self.git("add", ".", cwd=repo)
-        self.git("commit", "-qm", "Gate message fixture", cwd=repo)
-        before = self.git("rev-parse", "main")
-        self.assertIn(
-            "unacknowledged request/warning",
-            self.cli("codex-task", "land", "demo", ok=False).stderr,
-        )
-        self.assertEqual(self.git("rev-parse", "main"), before)
-        self.assertTrue((self.base / "tasks/demo/gate.log").exists())
-
-    def test_land_refuses_result_dirty_and_red_gate(self):
-        repo = self.start()
+    def test_refusals_leave_main_unchanged_and_land_retries_the_recorded_result(self):
+        repo = self.adopt()
         self.commit(repo)
         before = self.git("rev-parse", "main")
-        result = self.base / "tasks/demo/last.md"
-        result.write_text("## Result: BLOCKED\n")
-        self.assertIn("DONE", self.cli("codex-task", "land", "demo", ok=False).stderr)
-        result.write_text("## Result: DONE\n")
+        self.assertIn("DONE", self.finish(text="## Result: BLOCKED\n", ok=False).stderr)
         (repo / "dirty.md").write_text("dirty")
-        self.assertIn("dirty", self.cli("codex-task", "land", "demo", ok=False).stderr)
+        self.assertIn("dirty", self.finish(ok=False).stderr)
         (repo / "dirty.md").unlink()
         (self.repo / "dirty-main.md").write_text("dirty")
-        self.assertIn(
-            "main worktree is dirty", self.cli("codex-task", "land", "demo", ok=False).stderr
-        )
+        self.assertIn("main worktree is dirty", self.finish(ok=False).stderr)
         (self.repo / "dirty-main.md").unlink()
         (repo / "oversized.png").write_bytes(b"\x89PNG\r\n\x1a\n" + bytes(2 * 1024 * 1024))
         self.git("add", ".", cwd=repo)
         self.git("commit", "-qm", "Red gate", cwd=repo)
-        failure = self.cli("codex-task", "land", "demo", ok=False).stderr
-        self.assertIn("fast gate failed", failure)
-        self.assertIn("host load", failure)
-        self.assertIn("FAIL", failure)
+        failure = self.finish(ok=False).stderr
+        for text in ("fast gate failed", "host load", "FAIL"):
+            self.assertIn(text, failure)
         self.assertEqual(self.git("rev-parse", "main"), before)
+        self.assertEqual(self.ledger(), [])
         self.assertIn("oversized.png", (self.base / "tasks/demo/gate.log").read_text())
         self.assertIn("TOTAL  RED", (self.base / "tasks/demo/gate.log").read_text())
+        # The orchestrator's land retries the recorded DONE result once the branch is fixed.
+        self.git("reset", "-q", "--hard", "HEAD~1", cwd=repo)
+        self.cli("codex-task", "land", "demo")
+        self.assertEqual(self.ledger()[0]["commit"], self.git("rev-parse", "main"))
 
     def test_land_refuses_missing_gate(self):
-        repo = self.start()
+        repo = self.adopt()
         before = self.git("rev-parse", "main")
-        self.git("rm", "scripts/dev/gate", cwd=repo)
+        self.git("rm", "-q", "scripts/dev/gate", cwd=repo)
         self.git("commit", "-qm", "Missing gate", cwd=repo)
-        self.assertIn(
-            "missing scripts/dev/gate", self.cli("codex-task", "land", "demo", ok=False).stderr
-        )
+        self.assertIn("missing scripts/dev/gate", self.finish(ok=False).stderr)
         self.assertEqual(self.git("rev-parse", "main"), before)
 
-    def test_land_refuses_main_change_during_gate(self):
-        repo = self.start()
+    def gate_fixture(self, repo, script):
         gate = repo / "scripts/dev/gate"
-        gate.write_text(
-            "#!/bin/sh\ngit -C "
-            + shlex.quote(str(self.repo))
-            + " -c user.name=test -c user.email=test@example.invalid commit --allow-empty -qm concurrent\n"
-        )
+        gate.write_text(script)
         gate.chmod(0o755)
         self.git("add", ".", cwd=repo)
         self.git("commit", "-qm", "Gate fixture", cwd=repo)
-        self.assertIn("main changed", self.cli("codex-task", "land", "demo", ok=False).stderr)
+
+    def test_land_refuses_main_change_during_gate(self):
+        repo = self.adopt()
+        self.gate_fixture(
+            repo,
+            "#!/bin/sh\ngit -C "
+            + shlex.quote(str(self.repo))
+            + " -c user.name=test -c user.email=test@example.invalid commit --allow-empty -qm concurrent\n",
+        )
+        self.assertIn("main changed", self.finish(ok=False).stderr)
         self.assertNotEqual(self.git("rev-parse", "main"), self.git("rev-parse", "HEAD", cwd=repo))
 
-    def test_batch_lands_once_and_records_every_member(self):
-        a = self.start("batch-a")
-        b = self.start("batch-b")
-        for repo, filename in ((a, "a.md"), (b, "b.md")):
-            (repo / filename).write_text(filename)
-            self.git("add", ".", cwd=repo)
-            self.git("commit", "-qm", filename, cwd=repo)
+    def test_land_retries_one_main_advance(self):
+        repo = self.adopt()
+        marker = self.base / "advanced"
+        self.gate_fixture(
+            repo,
+            "#!/bin/sh\nif [ ! -f "
+            + shlex.quote(str(marker))
+            + " ]; then\ntouch "
+            + shlex.quote(str(marker))
+            + "\ngit -C "
+            + shlex.quote(str(self.repo))
+            + " commit --allow-empty -qm concurrent\nfi\n",
+        )
+        self.finish()
+        self.assertFalse(repo.exists())
+
+    def test_data_root_change_is_attributed_to_the_first_landing_after_it(self):
+        repos = {name: self.adopt(name) for name in ("first", "second")}
+        for name, repo in repos.items():
+            self.commit(repo, f"{name}.md")
         # Approvals changed in the data root since the last ledger row (here: no live release).
         approvals = self.base / "data/facade-approvals/assembly/MANIFEST.json"
         approvals.parent.mkdir(parents=True)
         approvals.write_text('{"bound": []}')
-        self.cli("codex-task", "land", "--batch", "batch-a", "batch-b")
-        self.assertTrue((self.repo / "a.md").exists())
-        self.assertTrue((self.repo / "b.md").exists())
-        records = [
-            json.loads(line)
-            for line in (self.base / "wt/.registry/landed.jsonl").read_text().splitlines()
-        ]
-        self.assertEqual([row["name"] for row in records], ["batch-a", "batch-b"])
-        # The data delta is attributed to the first member; each member has its own paths.
+        for name in repos:
+            self.finish(name)
+        rows = self.ledger()
         self.assertEqual(
-            [(row["class"], row["paths"], row["data_delta"]) for row in records],
-            [("data", ["a.md"], ["facade-approvals"]), ("inert", ["b.md"], [])],
+            [(row["name"], row["class"], row["paths"], row["data_delta"]) for row in rows],
+            [
+                ("first", "data", ["first.md"], ["facade-approvals"]),
+                ("second", "inert", ["second.md"], []),
+            ],
         )
-        self.assertEqual(records[0]["tiles"], list(landing.landing_class.C.CORE_TILES))
-        self.assertEqual(records[0]["data_parts"], records[1]["data_parts"])
-        self.assertFalse((self.base / "wt/batch-a").exists())
-        self.assertFalse((self.base / "wt/batch-b").exists())
-
-    def test_land_retries_one_main_advance(self):
-        repo = self.start()
-        gate = repo / "scripts/dev/gate"
-        marker = self.base / "advanced"
-        gate.write_text(
-            "#!/bin/sh\nif [ ! -f "
-            + shlex.quote(str(marker))
-            + "]; then\ntouch "
-            + shlex.quote(str(marker))
-            + "\ngit -C "
-            + shlex.quote(str(self.repo))
-            + " commit --allow-empty -qm concurrent\nfi\n"
-        )
-        gate.chmod(0o755)
-        self.git("add", ".", cwd=repo)
-        self.git("commit", "-qm", "Gate fixture", cwd=repo)
-        self.cli("codex-task", "land", "demo")
-        self.assertFalse(repo.exists())
+        self.assertEqual(rows[0]["tiles"], list(landing.landing_class.C.CORE_TILES))
+        self.assertEqual(rows[0]["data_parts"], rows[1]["data_parts"])
 
 
 class BudgetTests(unittest.TestCase):
