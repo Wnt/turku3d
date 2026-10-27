@@ -22,7 +22,7 @@ def main():
             by_tile[C.VisualTile.at(o.x, o.z)].append(o)
         violations, unverified = [], []
         for tile in sorted(by_tile.keys() & listed):
-            validator = context(tile.bbox, {}, C.source_area(tile), layer=layer)
+            validator = context(tile.bbox, C.source_area(tile), layer=layer)
             validator.occupied.extend((o.object_id, o.shape) for o in objects)
             for o in by_tile[tile]:
                 if issues := validator.check(o):

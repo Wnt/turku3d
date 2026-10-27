@@ -11,7 +11,6 @@ from shapely.ops import unary_union
 from turku3d.buildings import roofer
 from turku3d.buildings.facades import make_visuals, roof_material
 from turku3d.buildings.inputs import Building, read_playable_footprints
-from turku3d.buildings.outer import height_for
 from turku3d.buildings.select import choose, residuals
 from turku3d.buildings.shells import Surface, make_shell, triangulate
 from turku3d.buildings.tiles import collision_tiles
@@ -246,21 +245,6 @@ def test_playable_inventory_keeps_kanta_ids_and_point_only_gis(tmp_path):
     assert [b.id for b in result] == ["gis-new-id", "gis-point-id", "original-id"]
     assert result[1].properties["point_only"]
     assert result[1].footprint.area == pytest.approx(36)
-
-
-def test_outer_massing_height_uses_roof_returns_inside_footprint():
-    from scipy.spatial import cKDTree
-
-    ground = np.array([[5, 2, 5], [50, 10, 50]], dtype=np.float32)
-    roofs = np.array([[4, 17, 4], [5, 18, 5], [6, 19, 6], [50, 40, 50]], dtype=np.float32)
-    base, roof = height_for(
-        shapely.box(0, 0, 10, 10),
-        ground,
-        cKDTree(ground[:, [0, 2]]),
-        roofs,
-        cKDTree(roofs[:, [0, 2]]),
-    )
-    assert (base, roof) == (2, 18)
 
 
 @pytest.mark.parametrize(

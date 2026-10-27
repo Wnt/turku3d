@@ -16,7 +16,7 @@ structures-build: ## Build structures using raw surveys and the completed ground
 .PHONY: bridges-build bridges-test bridges-textures
 bridges-textures: ## Stage read-only ground library textures for bridge and scene assembly
 	$(PIPELINE_RUN) python -m turku3d.bridges.textures
-bridges-build: ## Build mapped bridge decks in the four Phase 1 L0 tiles
+bridges-build: ## Build mapped bridge decks in every listed L0 tile (per tile)
 	$(PIPELINE_RUN) python -m turku3d.bridges
 bridges-test: ## Synthetic bridge geometry and layer contract checks
 	cd $(REPO)/pipeline && $(PIPELINE_RUN) python -m pytest -q tests/test_bridges.py

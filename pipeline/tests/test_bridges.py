@@ -26,8 +26,11 @@ def test_city_footprint_and_osm_bridge_semantics():
             ).__dict__
         ]
     )
-    result = crossings(city, osm)
+    from turku3d import config as C
+
+    result = crossings(city, osm, C.BBoxLocal(0, 0, 500, 500))
     assert len(result) == 1
+    assert crossings(city, osm, C.BBoxLocal(400, 0, 500, 100)) == []
     assert result[0].footprint.equals(city.geometry_local.iloc[0])
     assert result[0].road
 
@@ -97,3 +100,51 @@ def test_approach_matches_full_width_shore_contact_and_waterline():
     waterline = np.isclose(deck.positions[:, 0], 10)
     assert waterline.any()
     assert np.allclose(deck.positions[waterline, 1], 3.0, atol=1e-9)
+
+
+def test_bridges_are_built_per_tile_from_osm_and_lidar(tmp_path, monkeypatch):
+    """An unnamed footbridge over a river in t0_0_0: deck from class-12 lidar, shores on ground."""
+    import producer_world as world
+    from turku3d import config as C
+    from turku3d import tile_layer
+    from turku3d.bridges.layer import PRODUCER
+    from turku3d.layers import layer_root, read_collision, read_manifest
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_JOBS", "1")
+    river = box(0, 100, 250, 140)
+    axis = LineString([(125, 92), (125, 148)])
+    world.city()
+    world.ground(["t0_0_0", "t0_1_0"])
+    world.write_osm(
+        [
+            ({"natural": "water", "water": "river"}, river),
+            ({"highway": "footway", "bridge": "yes", "width": "3"}, axis),
+        ]
+    )
+    xs, zs = np.meshgrid(np.arange(80.25, 170, 0.5), np.arange(60.25, 180, 0.5))
+    xz = np.c_[xs.ravel(), zs.ravel()]
+    wet = shapely.contains_xy(river, xz[:, 0], xz[:, 1])
+    deck = shapely.contains_xy(axis.buffer(1.5, cap_style="flat"), xz[:, 0], xz[:, 1])
+    points = np.r_[
+        np.c_[xz[:, 0], np.where(wet, 0.2, world.GROUND_Y), xz[:, 1]],
+        np.c_[xz[deck, 0], np.full(deck.sum(), 4.0), xz[deck, 1]],
+    ]
+    classes = np.r_[np.where(wet, 9, 2), np.full(deck.sum(), 12)]
+    world.lidar(points, classes, C.BBoxLocal(-30, -30, 280, 280))
+    out = layer_root() / "bridges"
+    tile_layer.run(out, PRODUCER, ["t0_0_0", "t0_1_0"])
+    manifest = read_manifest(out)
+    assert set(manifest["tiles"]) == {"t0_0_0.vis.glb", "c_2_1.col.npz"}
+    assert manifest["params"]["crossings"] == 1 and manifest["params"]["skipped"] == 0
+    collision = read_collision(out / "c_2_1.col.npz")
+    decks = collision.material == mat_id("bridge_deck")
+    heights = collision.positions[collision.indices[decks]][:, :, 1]
+    over_water = shapely.contains_xy(
+        river, *collision.positions[collision.indices[decks]].mean(axis=1)[:, [0, 2]].T
+    )
+    assert np.allclose(heights[over_water], 4.0, atol=0.05)
+    assert heights.min() >= world.GROUND_Y  # the approach ramps meet the banks
+    assert (collision.material == mat_id("railing")).any()
+    assert tile_layer.stale(out, PRODUCER, ["t0_0_0", "t0_1_0"]) == []

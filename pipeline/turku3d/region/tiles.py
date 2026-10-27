@@ -5,7 +5,7 @@
 
 `add-tile` appends the tile to the sandbox's playable-tiles.json, makes sure its inputs exist
 (work-3x3 while that holds the tile's input area, else the tile's own `tile-<id>` area, fetched
-read-through into $TURKU3D_DATA/raw), seeds the sandbox from the published layers, runs
+read-through into $TURKU3D_DATA/raw, plus LOD2 buildings for the surrounding massing ring), seeds the sandbox from the published layers, runs
 `turku3d.refresh` (only the new tile and what depends on it rebuild), gives the tile's street
 walls without a map rough fast-pass maps (`turkutex.facade_fast`, in the sandbox's facade
 assembly) and assembles the listed tiles with the `playable-tiles` rules. It ends by putting the
@@ -101,6 +101,13 @@ def ensure_inputs(tile_id: str) -> dict:
     return result
 
 
+def ring_inputs(tiles) -> list[str]:
+    """The LOD2 buildings of the massing ring around the new list (buildings.outer)."""
+    from turku3d.buildings.outer import fetch_missing
+
+    return fetch_missing(tiles)
+
+
 def seed(work: Path, data: Path) -> list[str]:
     """Start from the published layers, textures and tiles (APFS clones) where the sandbox has none."""
     seeded = []
@@ -172,6 +179,7 @@ def add_tile(tile_id: str) -> dict:
         return result
 
     inputs = stage("inputs", ensure_inputs, tile_id)
+    inputs["massing_ring_fetched"] = stage("ring", ring_inputs, tiles)
     seeded = stage("seed", seed, work, data)
     C.write_playable_tiles(work / C.PLAYABLE_TILES_FILE, tiles)
     with (report_dir / f"{tile_id}.log").open("w") as log:

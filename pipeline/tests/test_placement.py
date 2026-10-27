@@ -2,7 +2,6 @@
 
 import json
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 from shapely.geometry import LineString, box
@@ -118,7 +117,7 @@ def test_full_batch_revalidation_fails_before_publication(tmp_path, monkeypatch)
 
     monkeypatch.setattr(report, "write_report", record)
     with pytest.raises(ValueError, match="hard placement violations"):
-        inputs.place_objects([Prop("bad", "bench", 0, 20, 0)], "props", None, {})
+        inputs.place_objects([Prop("bad", "bench", 0, 20, 0)], "props", None)
     assert saved.read_text() == "failed"
 
 
@@ -211,11 +210,47 @@ def test_producers_clear_only_inventories_published_before_them(tmp_path, monkey
     for name, content in inventories.items():
         (layers / name).parent.mkdir(parents=True)
         (layers / name).write_text(json.dumps(content))
-    seen = {}
-    for layer in PLACEMENT_ORDER:
-        inputs = {}
-        seen[layer] = [object_id for object_id, _ in placed_before(layer, inputs)]
-        assert sorted(Path(p).parent.name for p in inputs) == sorted(
-            PLACEMENT_ORDER[: PLACEMENT_ORDER.index(layer)]
-        )
+    seen = {
+        layer: [object_id for object_id, _ in placed_before(layer)] for layer in PLACEMENT_ORDER
+    }
     assert seen == {"props": [], "vegetation": ["bench"], "traffic_static": ["bench", "tree"]}
+
+
+def test_context_key_follows_only_what_reaches_the_tile(tmp_path, monkeypatch):
+    """Collision tiles within 20 m and earlier inventories within 30 m change a tile's key."""
+    import producer_world as world
+    from turku3d import config as C
+    from turku3d.layers import CollisionLayer, write_collision, write_manifest
+    from turku3d.placement.inputs import context_key
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    world.city()
+    world.write_osm([])
+    world.ground(["t0_0_0", "t0_1_0"])
+    layers = tmp_path / "work/build/layers"
+    bounds = C.VisualTile(0, 0, 0).bbox
+
+    def props(*records):
+        (layers / "props").mkdir(parents=True, exist_ok=True)
+        (layers / "props/instances.json").write_text(json.dumps(list(records)))
+
+    def structures(*cells):
+        directory = layers / "structures"
+        empty = (np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
+        for cell in cells:
+            write_collision(directory / cell, CollisionLayer(*empty))
+        write_manifest(directory, inputs={}, params={}, code="s", tiles=list(cells))
+
+    props({"object_id": "near", "x": 255, "z": 10}, {"object_id": "far", "x": 400, "z": 10})
+    key = context_key(bounds, "vegetation", "work-3x3")
+    props({"object_id": "near", "x": 255, "z": 10}, {"object_id": "far", "x": 401, "z": 10})
+    assert context_key(bounds, "vegetation", "work-3x3") == key
+    props({"object_id": "near", "x": 256, "z": 10}, {"object_id": "far", "x": 401, "z": 10})
+    changed = context_key(bounds, "vegetation", "work-3x3")
+    assert changed != key
+    assert context_key(bounds, "props", "work-3x3") == context_key(bounds, "props", "work-3x3")
+    structures("c_6_0.col.npz")  # x 375..437.5: beyond 20 m of t0_0_0
+    assert context_key(bounds, "vegetation", "work-3x3") == changed
+    structures("c_6_0.col.npz", "c_4_0.col.npz")  # x 250..312.5 touches the 20 m envelope
+    assert context_key(bounds, "vegetation", "work-3x3") != changed

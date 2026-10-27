@@ -27,13 +27,14 @@ def evaluate_ground(meshes, accepted, water, buildings, bounds, bridges=None):
     covered = np.isin(q[:, 1] * dimensions[0] + q[:, 0], keys)
     coverage = float(covered[open_cells].mean()) if open_cells.any() else 0.0
     positions, faces, offset = [], [], 0
-    water_heights = []
+    water_faces = []
     for mesh in meshes.values():
         positions.append(mesh.positions)
         solid = mesh.material != mat_id("water")
         faces.append(mesh.indices[solid] + offset)
-        water_heights.extend(mesh.positions[np.unique(mesh.indices[~solid]), 1])
+        water_faces.append(mesh.positions[mesh.indices[~solid], 1])
         offset += len(mesh.positions)
+    water_faces = np.concatenate(water_faces) if water_faces else np.empty((0, 3))
     p, inv = np.unique(np.concatenate(positions), axis=0, return_inverse=True)
     f = inv[np.concatenate(faces)]
     edges = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
@@ -61,8 +62,11 @@ def evaluate_ground(meshes, accepted, water, buildings, bounds, bridges=None):
             ),
         },
         "water": {
-            "vertices": len(water_heights),
-            "height_range_m": float(np.ptp(water_heights)) if water_heights else 0.0,
+            "triangles": len(water_faces),
+            "levels_m": sorted({float(h) for h in water_faces[:, 0]}),
+            "max_face_tilt_m": float(np.ptp(water_faces, axis=1).max())
+            if len(water_faces)
+            else 0.0,
         },
     }
     checks = {
@@ -71,7 +75,8 @@ def evaluate_ground(meshes, accepted, water, buildings, bounds, bridges=None):
         "seams": not seams,
         "holes": internal_open_edges == 0 and not (counts > 2).any(),
         "materials": metrics["mesh"]["all_triangles_material"],
-        "water_plane": metrics["water"]["height_range_m"] == 0.0,
+        # Every body is one horizontal plane at its own level.
+        "water_plane": metrics["water"]["max_face_tilt_m"] == 0.0,
     }
     checks = {key: bool(value) for key, value in checks.items()}
     return {

@@ -88,20 +88,26 @@ build reads that tile's own inputs (`tile_layer.wfs(tile, name)`, `tile_layer.os
 `.col.npz` of its sixteen collision tiles and `<tile>.records.json` (its objects or clipped
 ways). The layer MANIFEST's `tile_builds` keeps each tile's key, a hash of everything the build
 reads, so refresh (`refresh.per_tile`) and the producer rebuild only stale tiles; layer-wide
-inventories (`props/instances.json`, `roads/roadgraph.json`) are combined from the records.
+inventories (`props/instances.json`, `vegetation/trees.json`, `traffic_static/placements.json`,
+`roads/roadgraph.json`) are combined from the records.
 Placement-dependent keys include the published collision tiles within 20 m
 (`placement.inputs.context_key`), so an added tile also rebuilds a neighbour only when the
 neighbour's placement context changed.
 
 | Producer | Inputs (per tile) | Cache key | Time per tile |
 |---|---|---|---|
-| ground | LAZ under the envelope, WFS streets/water/buildings, OSM, ortho | `ground/MANIFEST.json` `tile_builds` | 82–160 s |
+| ground | LAZ under the envelope, WFS streets/water/buildings, OSM (water bodies, bridges), ortho | `ground/MANIFEST.json` `tile_builds` (+ water body levels) | 82–160 s |
 | roads | OSM ways (`tile_layer.osm`) | OSM clip + code | < 1 s (+8 s reading the work-3x3 clip) |
+| bridges | OSM `bridge=*` ways within 150 m, `GIS_Katualueet` `Silta`, LAZ, ground collision | sources + LAZ + ground cells under its crossings | 1–21 s |
 | props | WFS register points, OSM lamps/bollards, placement context | sources + collision within 20 m + footprints + code | 30–60 s |
+| vegetation | tree register (4 WFS layers), LAZ under tile + 12 m, placement context | sources + LAZ + context + assets | 190–390 s cold (each LAZ reduced once), then the placement |
+| traffic_static | OSM parking, `GIS_Katualueet`, placement context (every collider within 20 m) | sources + context + seed | 26–62 s |
+| buildings_outer | CityGML LOD2 of each ring tile (any prepared area covering it) | LOD2 file + listed neighbours | 18 s for the 32 ring tiles |
 
-The other list-following producers (buildings, outer massing, vegetation, parked cars) record
-the list they were built for in `<layer>/PLAYABLE_TILES.json` and rerun for another list.
-Structures and bridges stay on the measured office core.
+`make tile-add` builds each of these for the new tile; a neighbour rebuilds only when its key
+changes (placement context reaching into the new tile, a water body or bridge it shares).
+Buildings record the list they were built for in `<layer>/PLAYABLE_TILES.json` and keep
+per-building keys. Structures stay on the measured office core.
 
 Only the new tile is built. Ground meshes each listed L0 tile in its own envelope: its 16
 collision tiles, one ring of collision tiles and the 50 m margin (`ground.build.envelope`).

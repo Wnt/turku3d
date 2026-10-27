@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import maximum_filter
@@ -62,15 +62,15 @@ def deduplicate(candidates, distance=2.0):
     return kept
 
 
-def register(bounds):
+def register(bounds, source_area="work-3x3"):
+    """Register, mapped and row trees within bounds, from the city layers of source_area."""
     import geopandas as gpd
     from shapely import from_wkb
     from shapely.geometry import box
 
-    candidates, inputs = [], {}
+    candidates = []
     for source in SOURCES:
-        path = C.raw_dir("wfs") / "work-3x3" / f"{source}.parquet"
-        inputs[str(path)] = digest(path)
+        path = C.raw_dir("wfs") / source_area / f"{source}.parquet"
         frame = gpd.read_parquet(path)
         for _, row in frame.iterrows():
             geom = row["geometry_local"]
@@ -92,63 +92,88 @@ def register(bounds):
             for i, p in enumerate(points):
                 if bounds.contains(p.x, p.y):
                     candidates.append(Tree(f"{source}:{identity}:{i}", p.x, p.y, source, species))
-    return deduplicate(candidates), inputs
+    return deduplicate(candidates)
 
 
-def digest(path: Path):
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for block in iter(lambda: f.read(4 * 1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
+CELL = 0.5  # metres; origin-aligned, so any bounds on the half-metre grid crop whole cells
 
 
-def load_points(bounds, region=None):
-    """Stream immutable LAZ once; cache only cropped class 2/5 xyz, keyed by content.
+def laz_paths(bounds):
+    return [C.raw_dir("laz") / "pistepilvi" / f"{t.name}.laz" for t in C.laz_tiles_for_bbox(bounds)]
 
-    With a region (the listed tiles and their margin), only the LAZ tiles under it are read:
-    an L-shaped list's bounding box reaches lidar tiles no input area fetched."""
+
+def reduced_points(path):
+    """One LAZ file's class-2 ground (first return per 0.5 m cell) and class-5 canopy (highest
+    return per 0.5 m cell), cached by the file's content; immutable raw is read once."""
     import laspy
-    import shapely
 
-    tiles = C.laz_tiles_for_bbox(bounds)
-    if region is not None:
-        tiles = [
-            t for t in tiles if region.intersects(shapely.box(*t.bbox_en.to_local().as_tuple()))
-        ]
-    paths = [C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz") for t in tiles]
-    inputs = {str(p): digest(p) for p in paths}
-    key = hashlib.sha256(repr((inputs, bounds, C.ORIGIN, "xyz25-v1")).encode()).hexdigest()
+    from turku3d.tile_layer import identities
+
+    identity = identities({"laz": path})["laz"]
+    key = hashlib.sha256(repr((identity, C.ORIGIN, CELL, "reduced-v1")).encode()).hexdigest()
     dest = C.cache_dir("vegetation") / (key + ".npz")
-    if dest.exists():
-        with np.load(dest) as a:
-            return a["ground"], a["canopy"], inputs
-    parts = {2: [], 5: []}
-    for path in paths:
-        print(f"Reading {path.name}", flush=True)
-        with laspy.open(path) as f:
-            for p in f.chunk_iterator(1_000_000):
-                x, y, z = C.en_to_local(np.asarray(p.x), np.asarray(p.y), np.asarray(p.z))
-                inside = (
-                    (x >= bounds.xmin) & (x < bounds.xmax) & (z >= bounds.zmin) & (z < bounds.zmax)
-                )
-                for cls in parts:
-                    keep = inside & (np.asarray(p.classification) == cls)
-                    if keep.any():
-                        parts[cls].append(np.column_stack((x[keep], y[keep], z[keep])))
-    ground, canopy = [np.concatenate(parts[c]) if parts[c] else np.empty((0, 3)) for c in (2, 5)]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # Tiles built in parallel share LAZ files: one process reduces a file, the others wait.
+    with open(dest.with_suffix(".lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not dest.exists():
+            ground, canopy = [], []
+            print(f"Reading {path.name}", flush=True)
+            with laspy.open(path) as f:
+                for p in f.chunk_iterator(1_000_000):
+                    cls = np.asarray(p.classification)
+                    x, y, z = C.en_to_local(np.asarray(p.x), np.asarray(p.y), np.asarray(p.z))
+                    xyz = np.column_stack((x, y, z))
+                    ground.append(first_per_cell(xyz[cls == 2]))
+                    canopy.append(highest_per_cell(xyz[cls == 5]))
+            ground = first_per_cell(np.concatenate(ground)) if ground else np.empty((0, 3))
+            canopy = highest_per_cell(np.concatenate(canopy)) if canopy else np.empty((0, 3))
+            temporary = dest.with_suffix(".tmp.npz")
+            np.savez_compressed(temporary, ground=ground, canopy=canopy)
+            temporary.replace(dest)
+    with np.load(dest) as a:
+        return a["ground"], a["canopy"]
+
+
+def _cells(points):
+    return np.floor(points[:, [0, 2]] / CELL).astype(np.int64)
+
+
+def first_per_cell(points):
+    if not len(points):
+        return points.reshape(0, 3)
+    _, first = np.unique(_cells(points), axis=0, return_index=True)
+    return points[np.sort(first)]
+
+
+def highest_per_cell(points):
+    if not len(points):
+        return points.reshape(0, 3)
+    order = np.lexsort((-points[:, 1], *_cells(points).T[::-1]))
+    cells = _cells(points[order])
+    keep = np.ones(len(order), bool)
+    keep[1:] = np.any(cells[1:] != cells[:-1], axis=1)
+    return points[order[keep]]
+
+
+def load_points(bounds):
+    """Class-2 ground and class-5 canopy cells within bounds (on the half-metre grid)."""
+    grounds, canopies = [], []
+    for path in laz_paths(bounds):
+        ground, canopy = reduced_points(path)
+        for points, target in ((ground, grounds), (canopy, canopies)):
+            inside = (
+                (points[:, 0] >= bounds.xmin)
+                & (points[:, 0] < bounds.xmax)
+                & (points[:, 2] >= bounds.zmin)
+                & (points[:, 2] < bounds.zmax)
+            )
+            target.append(points[inside])
+    ground = np.concatenate(grounds) if grounds else np.empty((0, 3))
+    canopy = np.concatenate(canopies) if canopies else np.empty((0, 3))
     if not len(ground):
         raise ValueError("No class-2 ground observations in vegetation AOI")
-    # One observed ground point per 0.5 m cell bounds memory and query cost.
-    _, unique = np.unique(
-        np.floor(ground[:, [0, 2]] / 0.5).astype(np.int32), axis=0, return_index=True
-    )
-    ground = ground[unique]
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    temporary = dest.with_suffix(".tmp.npz")
-    np.savez_compressed(temporary, ground=ground, canopy=canopy)
-    temporary.replace(dest)
-    return ground, canopy, inputs
+    return ground, canopy
 
 
 def measure(trees, ground, canopy, bounds):

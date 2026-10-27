@@ -31,13 +31,14 @@ from turku3d.tile_layer import fingerprints
 
 from .breaklines import clamp_curb_heights, load_breaklines, records, validation_geojson
 from .ground_qa import evaluate_ground
-from .inputs import read_lidar, source_paths, vectors
+from .inputs import laz_paths, read_lidar, read_returns, source_paths, vectors
 from .materials import Materials
 from .mesh import Mesh, build_mesh, parts, seam_errors, tile_mesh
 from .points import Surface, select_ground, split_points
 from .qa import write_report
 from .ramps import classify_ramps
-from .water import add_river_bed
+from .water import add_river_bed, level_from_points
+from .water import bodies as water_bodies
 
 
 def log(message):
@@ -236,7 +237,51 @@ class WaterLevel:
         return self.value["metres_n2000"], self.value["source"]
 
 
-def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
+class WaterLevels:
+    """One N2000 level per water body (an OSM water area), shared by every tile it reaches.
+
+    Bodies over the office core (the Aura) take the reference level measured there once
+    (`--water-level` overrides it). Any other body is measured from the lidar under its
+    complete polygon and identified by that polygon and those LAZ files, so separately built
+    tiles give it the same level and their water surfaces meet at the seams. Levels are kept
+    in the ground manifest (`water_levels`) by identity and reused."""
+
+    def __init__(self, override, previous):
+        self.reference = WaterLevel(C.WORK_3X3.name, override, previous.get("water_level"))
+        self.known = dict(previous.get("water_levels", {}))
+        self._reference_bodies = None
+
+    def reference_bodies(self):
+        """The bodies over the office core in work-3x3's OSM clip (none without one)."""
+        if self._reference_bodies is None:
+            found = sorted((C.raw_dir("osm") / C.WORK_3X3.name).glob("*.parquet"))
+            self._reference_bodies = (
+                set(water_bodies(found[-1], WATER_REFERENCE)) if found else set()
+            )
+        return self._reference_bodies
+
+    def identity(self, body, polygon):
+        if body in self.reference_bodies():
+            return "reference:" + self.reference.key
+        laz = laz_paths(C.BBoxLocal(*polygon.buffer(3).bounds))
+        found = fingerprints({p.name: p for p in laz})
+        return digest([body, polygon.wkb_hex, {k: v["sha256"] for k, v in found.items()}])
+
+    def level(self, body, polygon, identity):
+        """Measure a body once per identity (in the parent process, before tiles build)."""
+        if identity not in self.known:
+            if identity.startswith("reference:"):
+                metres, source = self.reference()
+            else:
+                log(f"Ground: measuring the level of water body {body}")
+                bounds = C.BBoxLocal(*polygon.buffer(3).bounds)
+                points, classes = read_returns(laz_paths(bounds), bounds, [2, 9, 12])
+                metres, source = level_from_points(polygon, points, classes)
+            self.known[identity] = {"body": body, "metres_n2000": metres, "source": source}
+        return self.known[identity]
+
+
+def build_tile(tile, paths, inputs, key, curbs, levels, staging):
     """Mesh one L0 tile in its own envelope; write its own and ring collision tiles to staging."""
     started = time.monotonic()
     cells, bounds = envelope(tile)
@@ -262,7 +307,7 @@ def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
         shapely.union_all(
             [
                 crossing.footprint
-                for crossing in bridge_crossings(streets, gpd.read_parquet(paths["osm"]))
+                for crossing in bridge_crossings(streets, gpd.read_parquet(paths["osm"]), bounds)
             ]
         )
         if streets is not None
@@ -291,15 +336,20 @@ def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
             (held_cls == 2) | ((held_cls == 12) & (np.abs(heldout[:, 1] - h) <= 0.15))
         ]
         np.savez(selection_cache, accepted=accepted, heldout=heldout, stats=json.dumps(selection))
-    water_level, water_source = water_level() if not water.is_empty else (0.0, "no water")
-    log(f"{tile.id}: ground selection {selection}; water level {water_level:.3f} ({water_source})")
+    # Each body clipped to the envelope with its level ({body: level record} from the parent).
+    window = shapely.box(*bounds.as_tuple())
+    bodies = [
+        (polygon.intersection(window), levels[body]["metres_n2000"])
+        for body, polygon in water_bodies(paths["osm"], bounds).items()
+    ]
+    log(f"{tile.id}: ground selection {selection}; water levels {sorted(levels.values(), key=str)}")
     curb_key = hashlib.sha256(json.dumps(records(curbs), sort_keys=True).encode()).hexdigest()
     materials = Materials(streets, paths["ortho"])
     mesh_key = hashlib.sha256(
         (
             selection_key
             + curb_key
-            + str(water_level)
+            + json.dumps(bodies and [[p.wkb_hex, level] for p, level in bodies])
             + repr(PARAMS)
             + repr(bounds)
             + Path(__file__).with_name("mesh.py").read_text()
@@ -322,7 +372,7 @@ def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
             cells,
             curbs,
             water,
-            water_level,
+            bodies,
             materials,
             tolerance=PARAMS["adaptive_tolerance"],
             bridges=bridges,
@@ -331,7 +381,7 @@ def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
         info_cache.write_text(json.dumps(mesh_info))
     ramp_coverage, ramp_records = classify_ramps(mesh, ramp_lines)
     visual_source = mesh
-    mesh = add_river_bed(mesh, water_level)
+    mesh = add_river_bed(mesh)
     meshes = {cell: tile_mesh(mesh, cell) for cell in cells}
     if staging.exists():
         shutil.rmtree(staging)
@@ -360,7 +410,7 @@ def build_tile(tile, paths, inputs, key, curbs, water_level, staging):
             "mesh_build": mesh_info,
             "ramp_coverage": ramp_coverage,
             "source_lines": len(lines),
-            "water_level": {"metres_n2000": water_level, "source": water_source},
+            "water_levels": levels,
             "build_seconds": round(time.monotonic() - started, 3),
         }
     )
@@ -418,9 +468,9 @@ def tile_seam_errors(output, owned):
 
 
 def _build_one(job):
-    tile_id, paths, inputs, key, breaklines, water, staging = job
+    tile_id, paths, inputs, key, breaklines, levels, staging = job
     curbs = clamp_curb_heights(load_breaklines(breaklines)) if breaklines else []
-    return build_tile(C.VisualTile.parse(tile_id), paths, inputs, key, curbs, water, staging)
+    return build_tile(C.VisualTile.parse(tile_id), paths, inputs, key, curbs, levels, staging)
 
 
 def _write_if_changed(path, data: bytes):
@@ -439,23 +489,24 @@ def run(args):
     manifest_path = output / "MANIFEST.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     breaklines = getattr(args, "breaklines", None)
-    # The office core always lies in work-3x3; each tile reads its own input area otherwise.
-    water = WaterLevel(
-        args.source_area or C.WORK_3X3.name, args.water_level, previous.get("water_level")
-    )
+    water = WaterLevels(args.water_level, previous)
     code = code_hash()
-    plans = {}
+    plans, tile_bodies = {}, {}
     for tile in visual:
         source = args.source_area or C.source_area(tile)
         paths = tile_paths(envelope(tile)[1], source, breaklines)
         inputs = fingerprints(paths)
+        tile_bodies[tile] = {
+            body: (polygon, water.identity(body, polygon))
+            for body, polygon in water_bodies(paths["osm"], envelope(tile)[1]).items()
+        }
         key = digest(
             {
                 "tile": tile.id,
                 "inputs": {k: v["sha256"] for k, v in inputs.items()},
                 "params": PARAMS,
                 "code": code,
-                "water": water.key,
+                "water": {body: identity for body, (_, identity) in tile_bodies[tile].items()},
             }
         )
         plans[tile] = (paths, inputs, key)
@@ -480,12 +531,16 @@ def run(args):
     stale = sorted({tile for name, tile in owned.items() if not available(name, tile)})
     built = {}
     if stale:
+        # Levels are measured here, once per body, so every worker uses the same values.
         jobs = [
             (
                 tile.id,
                 *plans[tile],
                 breaklines,
-                water,
+                {
+                    body: water.level(body, polygon, identity)
+                    for body, (polygon, identity) in tile_bodies[tile].items()
+                },
                 stagings / tile.id,
             )
             for tile in stale
@@ -495,7 +550,6 @@ def run(args):
         if workers == 1:
             results = map(_build_one, jobs)
         else:
-            water()  # Measure once here instead of once per worker.
             pool = ProcessPoolExecutor(max_workers=workers)
             results = pool.map(_build_one, jobs)
         for tile, record in zip(stale, results, strict=True):
@@ -551,7 +605,15 @@ def run(args):
     checks["seams"] = checks.get("seams", True) and not cross_seams
     passed = all(checks.values())
     tile_builds = {t.id: builds[t.id] for t in visual}
-    layer_key = digest([tile_builds, sorted(side_files)])
+    # Levels of the bodies the listed tiles reach; a body is measured only when a rebuilt tile
+    # needs it, so one kept from an earlier build is carried over from the manifest.
+    used_levels = {
+        identity: water.known[identity]
+        for bodies in tile_bodies.values()
+        for _, identity in bodies.values()
+        if identity in water.known
+    }
+    layer_key = digest([tile_builds, sorted(side_files), used_levels])
     if (
         previous.get("cache_key") == layer_key
         and not built
@@ -569,7 +631,8 @@ def run(args):
         "acceptance": "Plain lidar ground per L0 tile; curb accuracy deferred by user decision",
         "rebuilt": sorted(built),
         "cross_tile_seam_mismatches": cross_seams,
-        "water_level": water.value,
+        "water_level": water.reference.value,
+        "water_levels": used_levels,
         "river_bed": {
             "source": "synthetic collision fallback; no measured bathymetry",
             "depth_below_water_m": 3.0,
@@ -600,7 +663,8 @@ def run(args):
             "validation": {"curbs": "curbs.geojson"},
             "schema_version": 2,
             "cache_key": layer_key,
-            "water_level": water.value,
+            "water_level": water.reference.value,
+            "water_levels": used_levels,
             "tile_builds": tile_builds,
             "artifacts": {name: sha(output / name) for name in names},
             "qa": str(reports / "ground-qa.json"),

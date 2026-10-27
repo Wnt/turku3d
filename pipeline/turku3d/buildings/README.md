@@ -50,12 +50,18 @@ four-tile build includes its visual shell.
 Footprint inventory includes kantakartta codes 66000 and 66001; no building is removed because
 lidar or a candidate model is missing. Shared data is never modified.
 
-`make buildings-outer` uses the immutable work-3x3 GIS inventory and nine lidar
-tiles to publish visual-only massing outside the playable square under
-`$TURKU3D_WORK/build/layers/buildings_outer`. Roof heights come from class-6 returns
-inside each outline, or nearby class-6 returns when an outline has no returns;
-bases use the nearest class-2 ground return. Its `metrics.json` reports source
-records, lidar extrusions, missing height evidence and counts per L0 source tile.
+`make buildings-outer` publishes visual-only massing around the playable tiles under
+`$TURKU3D_WORK/build/layers/buildings_outer`, built per L0 tile of the ring
+([`outer.py`](outer.py), [`turku3d.tile_layer`](../tile_layer.py)): every unlisted tile within
+two tiles of a listed one (for the four core tiles, exactly work-3x3). A ring tile's massing is
+the city's CityGML LOD2 buildings whose footprint centroid lies in it, extruded from the base to
+the area-weighted mean roof height (`coarse.build.buildings`/`extrude`, the draft tiles' rule),
+except buildings within 1 m of a listed tile, which the buildings layer owns. LOD2 comes from
+any prepared raw area covering the tile (work-3x3, `tile-<id>`, the draft prefetcher's blocks);
+`make tile-add` reads it through for new ring tiles (`outer.fetch_missing`, one WFS layer per
+tile). A tile's key is its LOD2 file and the listed tiles beside it, so growing the list
+rebuilds only the ring tiles it changes. `metrics.json` reports the buildings per ring tile and
+the ring tiles without LOD2 yet.
 Packaging the playable four tiles includes surrounding T1/T2 parents containing
 those L0 building visuals.
 

@@ -22,7 +22,7 @@ which covers every pair once.
 source ../sandbox.env
 bash pipeline/env/run.sh python -m turku3d.props
 bash pipeline/env/run.sh python -m turku3d.vegetation
-bash pipeline/env/run.sh python -m turku3d.parked --seed 16
+bash pipeline/env/run.sh python -m turku3d.parked
 bash pipeline/env/run.sh python -m turku3d.placement
 bash pipeline/env/run.sh python -m pytest -q -n 2 pipeline/tests/test_placement.py pipeline/tests/test_props.py pipeline/tests/test_vegetation.py pipeline/tests/test_parked.py
 scripts/dev/gate --base main

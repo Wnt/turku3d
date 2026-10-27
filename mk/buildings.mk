@@ -6,7 +6,7 @@ buildings-test-physics:
 	cd $(REPO)/tools/validator && npm run typecheck && node --test test/buildings.test.ts
 buildings-build: ## Reconstruct and compare the city/roofer buildings layer
 	$(PIPELINE_RUN) python -m turku3d.buildings
-buildings-outer: ## Build lidar massing for the surrounding 3x3 skyline
+buildings-outer: ## Build LOD2 massing for the ring of tiles around the playable list
 	$(PIPELINE_RUN) python -m turku3d.buildings.outer
 buildings-validate: ## Run 2,000 Rapier walkers against the exported buildings layer
 	$(PIPELINE_RUN) python -m turku3d.buildings.validate

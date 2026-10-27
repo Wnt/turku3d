@@ -8,14 +8,14 @@ from shapely.geometry import shape
 from turku3d import config as C
 from turku3d.layers import layer_root, read_collision, read_manifest
 from turku3d.package.assemble import collision_tile
-from turku3d.parked.__main__ import sha
 from turku3d.parked.placement import footprint
+from turku3d.tile_layer import sha
 
 
 def main():
     root = layer_root() / "traffic_static"
     manifest = read_manifest(root)
-    if sha(root / "placements.json") != manifest["inputs"]["placements.json"]:
+    if sha(root / "placements.json") != manifest["params"]["placements_sha256"]:
         raise ValueError("Placement audit hash differs from published manifest")
     report = json.loads((root / "placements.json").read_text())
     excluded = shape(report["exclusions"])

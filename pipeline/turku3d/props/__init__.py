@@ -363,7 +363,7 @@ def build_tile(tile, staging):
     area = C.source_area(tile)
     props, metadata = read_sources(tile.bbox, area)
     if props:
-        props = place_objects(props, "props", tile.bbox, {}, area, report=f"props/{tile.id}")
+        props = place_objects(props, "props", tile.bbox, area, report=f"props/{tile.id}")
     # A repair may move an object up to 2 m; one that left its tile is dropped, not handed over.
     inside = [p for p in props if tile.bbox.contains(p.x, p.z)]
     metrics = write_tile(inside, staging, tile)

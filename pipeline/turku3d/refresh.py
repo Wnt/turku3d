@@ -2,8 +2,9 @@
 
 Ground, buildings, surrounding massing, roads, props, landmarks, vegetation and parked cars
 follow the playable tile list (config.playable_tile_ids). Per-tile layers (turku3d.tile_layer:
-roads, props, landmarks) keep a key per tile and rebuild only stale tiles; the others record the list they were
-built for and rebuild for another list. Structures and bridges stay on the measured office core."""
+roads, bridges, props, landmarks, vegetation, parked cars and the massing ring) keep a key per
+tile and rebuild only stale tiles; ground and buildings keep their own per-tile keys.
+Structures stay on the measured office core."""
 
 import argparse
 import concurrent.futures
@@ -20,12 +21,10 @@ from pathlib import Path
 
 from turku3d import config as C
 from turku3d import tile_layer
-from turku3d.bridges.__main__ import code_hash as bridges_code_hash
 from turku3d.ground.build import code_hash as ground_code_hash
 from turku3d.layers import read_manifest
 from turku3d.package.ground_textures import ground_texture_code_hash
 from turku3d.structures.layer import code_hash as structures_code_hash
-from turku3d.vegetation.__main__ import code_hash as vegetation_code_hash
 
 _detach_lock = threading.Lock()
 # Written beside a tile-following layer's MANIFEST.json after it is rebuilt for the list.
@@ -56,22 +55,8 @@ def sha(path):
     return h.hexdigest()
 
 
-def code_hash(paths):
-    files = sorted(p for root in paths for p in (root.rglob("*.py") if root.is_dir() else [root]))
-    h = hashlib.sha256()
-    for path in files:
-        h.update(path.read_bytes())
-    return h.hexdigest()
-
-
 def declared_inputs_current(manifest):
     for name, identity in manifest.get("inputs", {}).items():
-        if name in ("placement_report", "placements.json"):
-            continue  # Build reports and the producer's own audit output are not inputs.
-        if name == "placement_code":
-            if identity != code_hash([C.REPO_ROOT / "pipeline/turku3d/placement"]):
-                return False
-            continue
         if isinstance(identity, dict):
             path = Path(identity["path"])
             if not path.is_file():
@@ -239,15 +224,9 @@ def buildings_code_hash():
 
 
 def outer_buildings(layers):
-    from turku3d.buildings.outer import code_hash
+    from turku3d.buildings.outer import PRODUCER, ring
 
-    directory = layers / "buildings_outer"
-    if manifest_current(directory / "MANIFEST.json", code_hash()) and tiles_current(directory):
-        return "cached"
-    local_directory(directory, layers.parents[1])
-    run("turku3d.buildings.outer")
-    record_tiles(directory)
-    return "rebuilt"
+    return per_tile(layers, PRODUCER, "turku3d.buildings.outer", ring(C.playable_tile_ids()))
 
 
 def stage_ground_library(textures):
@@ -355,12 +334,11 @@ def facades(layers, textures):
     return "cached"
 
 
-def per_tile(layers, producer, module):
+def per_tile(layers, producer, module, tiles=None):
     """A per-tile layer (turku3d.tile_layer) rebuilds only its stale tiles, in its producer."""
     directory = layers / producer.layer
-    if (directory / "MANIFEST.json").is_file() and not tile_layer.stale(
-        directory, producer, C.playable_tile_ids()
-    ):
+    tiles = C.playable_tile_ids() if tiles is None else tiles
+    if (directory / "MANIFEST.json").is_file() and not tile_layer.stale(directory, producer, tiles):
         return "cached"
     local_directory(directory, layers.parents[1])
     run(module)
@@ -386,27 +364,16 @@ def landmarks(layers):
 
 
 def vegetation(layers):
-    if layer_current(layers / "vegetation/MANIFEST.json", vegetation_code_hash()) and tiles_current(
-        layers / "vegetation"
-    ):
-        return "cached"
-    local_directory(layers / "vegetation", layers.parents[1])
-    run("turku3d.vegetation")
-    record_tiles(layers / "vegetation")
-    return "rebuilt"
+    from turku3d.vegetation.layer import PRODUCER
+
+    return per_tile(layers, PRODUCER, "turku3d.vegetation")
 
 
 def parked(layers):
     """Parked cars clear the published colliders of every other layer, so they rebuild last."""
-    code = code_hash([C.REPO_ROOT / "pipeline/turku3d/parked"])
-    if manifest_current(layers / "traffic_static/MANIFEST.json", code) and tiles_current(
-        layers / "traffic_static"
-    ):
-        return "cached"
-    local_directory(layers / "traffic_static", layers.parents[1])
-    run("turku3d.parked")
-    record_tiles(layers / "traffic_static")
-    return "rebuilt"
+    from turku3d.parked.layer import PRODUCER
+
+    return per_tile(layers, PRODUCER, "turku3d.parked")
 
 
 def timed(name, operation, *args):
@@ -421,11 +388,9 @@ def timed(name, operation, *args):
 
 
 def bridges(layers):
-    if layer_current(layers / "bridges/MANIFEST.json", bridges_code_hash()):
-        return "cached"
-    local_directory(layers / "bridges", layers.parents[1])
-    run("turku3d.bridges")
-    return "rebuilt"
+    from turku3d.bridges.layer import PRODUCER
+
+    return per_tile(layers, PRODUCER, "turku3d.bridges")
 
 
 def structures(layers):

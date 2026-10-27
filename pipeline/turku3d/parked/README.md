@@ -3,21 +3,26 @@
 Run from a sourced sandbox, with the existing native pipeline environment:
 
 ```sh
-bash pipeline/env/run.sh python -m turku3d.parked --seed 16
+bash pipeline/env/run.sh python -m turku3d.parked                    # every listed tile; only stale ones rebuild
+bash pipeline/env/run.sh python -m turku3d.parked --tiles t0_3_0     # one tile
 bash pipeline/env/run.sh python -m turku3d.parked.verify
 bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_parked.py
 make tile-build T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
 ```
 
-The default build covers the 250 m office core (`c_1_2` through `c_4_5`).
-The producer reads the latest cached `raw/osm/work-3x3/*.parquet`, city
-`GIS_Katualueet.parquet`, and published ground/structures collision heights. `--osm PATH`
-pins a particular snapshot. It never downloads or writes raw data. Outputs are
-`$TURKU3D_WORK/build/layers/traffic_static`: shared-publisher NPZ box primitives,
-GLBs (one mesh per car), a completed `MANIFEST.json`, and `placements.json`.
+The layer is built per listed L0 tile ([`turku3d.tile_layer`](../tile_layer.py), `layer.py`,
+seed 16). A tile reads its own OSM clip and city `GIS_Katualueet` (`config.source_area`) and the
+published collision heights, and places cars whose whole footprint lies in the tile at least
+`SEAM_CLEARANCE` (0.3 m) from its edges, so cars of separately built tiles keep the 0.55 m
+spacing at every seam. Its key covers those sources, the assets, the seed, the code and the
+placement context (every other layer's collision within 20 m and the props and trees there).
+Outputs are `$TURKU3D_WORK/build/layers/traffic_static`: shared-publisher NPZ box primitives,
+GLBs (one mesh per car), `t0_i_j.records.json`, a completed `MANIFEST.json` (with
+`params.placements_sha256`), and `placements.json` combined from every tile's cars.
 The assembler discovers this layer. It publishes `placements.json` as `manifest.vehicles`
 and shared model/paint GLBs as `manifest.vehicle_models`, omitting the static car meshes
 and boxes from shipped tiles so each car can move without duplicate collision.
+`clear_front_m` / `clear_rear_m` count the other parked cars of the same tile.
 
 Four CC0 Kenney Car Kit 3.1 models are bundled as authored OBJ geometry: sedan,
 hatchback, SUV and van. Dimensions are normalized to real passenger-vehicle sizes;
@@ -47,7 +52,7 @@ its footprint plus 1.5 m on each side, and an exit lane of that width reaching 6
 **or** behind it, must hold no wall, fence, railing, building, pole, trunk, bollard or street
 furniture between 0.25 m above its base and its roof. A nose-in car against a wall passes; a
 car with a fence behind and a wall ahead does not. The validator first tries the 2 m repair
-grid, then drops the car with its violations in `reports/placement/traffic_static/placement.json`.
+grid, then drops the car with its violations in `reports/placement/traffic_static/<tile>/placement.json`.
 `placements.json` (and `manifest.vehicles`) record `clear_front_m` / `clear_rear_m`: the
 straight body-width distance to the first obstacle or other parked car, capped at 30 m.
 The real-tile e2e drives the car with the longest clear reverse path.

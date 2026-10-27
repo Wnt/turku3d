@@ -24,10 +24,6 @@ INVENTORIES = {
 }
 
 
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 # context() reads ground triangles within this distance of the bounds; the inventories of
 # earlier producers matter a little farther out (their footprints reach into the envelope).
 CONTEXT_MARGIN = 20
@@ -97,7 +93,7 @@ def context_key(bounds, layer, source_area):
     }
 
 
-def context(bounds, inputs, source_area="work-3x3", layer="props"):
+def context(bounds, source_area="work-3x3", layer="props"):
     envelope = box(*bounds.as_tuple()).buffer(CONTEXT_MARGIN)
     triangles, materials, decks = [], [], []
     for name in SURFACE_LAYERS:
@@ -105,8 +101,6 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
         if not root.exists() and name in ("structures", "bridges"):
             continue
         colliders = [n for n in read_manifest(root)["tiles"] if n.endswith(".col.npz")]
-        if colliders:  # Layers without collision (such as the road graph) cannot box a car in.
-            inputs[str(root / "MANIFEST.json")] = digest(root / "MANIFEST.json")
         for filename in colliders:
             tile = C.CollisionTile.parse(filename.split(".")[0])
             if not envelope.intersects(box(*tile.bbox.as_tuple())):
@@ -118,7 +112,7 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
             decks.extend((data.material == 24) & (name in ("structures", "bridges")))
     if not triangles:
         raise ValueError("Placement requires published ground collision triangles")
-    obstacles = solid_obstacles(envelope, inputs, layer) if layer == "traffic_static" else None
+    obstacles = solid_obstacles(envelope, layer) if layer == "traffic_static" else None
     zones = {
         k: []
         for k in (
@@ -137,7 +131,6 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
     }
 
     def rows(path):
-        inputs[str(path)] = digest(path)
         for row in pq.read_table(path).to_pylist():
             g = row.get("geometry_local")
             if g:
@@ -162,7 +155,6 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
             zones["building"].append(g)
     footprints = layer_root() / "buildings/footprints.geojson"
     if footprints.exists():
-        inputs[str(footprints)] = digest(footprints)
         for f in json.loads(footprints.read_text())["features"]:
             zones["building"].append(make_valid(shape(f["geometry"])))
     osm = sorted((C.raw_dir("osm") / source_area).glob("*.parquet"))
@@ -195,19 +187,18 @@ def context(bounds, inputs, source_area="work-3x3", layer="props"):
     return Validator(
         Surfaces(triangles, materials, decks),
         {k: union_all(v) for k, v in zones.items()},
-        placed_before(layer, inputs),
+        placed_before(layer),
         obstacles,
     )
 
 
-def placed_before(layer, inputs):
+def placed_before(layer):
     """Bases of the instances published by producers that run before layer."""
     occupied = []
     for other in PLACEMENT_ORDER[: PLACEMENT_ORDER.index(layer)]:
         filename, key = INVENTORIES[other]
         p = layer_root() / other / filename
         if p.exists():
-            inputs[str(p)] = digest(p)
             records = json.loads(p.read_text())
             for record in records[key] if key else records:
                 obj = instance(record, other)
@@ -215,16 +206,13 @@ def placed_before(layer, inputs):
     return occupied
 
 
-def solid_obstacles(envelope, inputs, layer):
+def solid_obstacles(envelope, layer):
     """Obstacle colliders from every other published layer that overlaps the envelope."""
-    inputs[str(ENVELOPE_PATH)] = digest(ENVELOPE_PATH)
     triangles, materials, primitives = [], [], []
     for root in sorted(p for p in layer_root().iterdir() if p.name != layer):
         if not (root / "MANIFEST.json").is_file():
             continue
         colliders = [n for n in read_manifest(root)["tiles"] if n.endswith(".col.npz")]
-        if colliders:  # Layers without collision (such as the road graph) cannot box a car in.
-            inputs[str(root / "MANIFEST.json")] = digest(root / "MANIFEST.json")
         for filename in colliders:
             tile = C.CollisionTile.parse(filename.split(".")[0])
             if not envelope.intersects(box(*tile.bbox.as_tuple())):
@@ -265,13 +253,11 @@ def instance(record, layer):
     )
 
 
-def place_objects(
-    objects, layer, bounds, inputs, source_area="work-3x3", validator=None, report=None
-):
+def place_objects(objects, layer, bounds, source_area="work-3x3", validator=None, report=None):
     """Validate and repair; `report` names the audit directory (default: the layer)."""
     from turku3d.placement.report import write_report
 
-    validator = validator or context(bounds, inputs, source_area, layer)
+    validator = validator or context(bounds, source_area, layer)
     accepted, records = [], []
     for number, original in enumerate(sorted(objects, key=lambda o: instance(o, layer).object_id)):
         if number % 50 == 0:
@@ -304,12 +290,6 @@ def place_objects(
         if validator.check(o)
     ]
     path = write_report(report or layer, bounds, records, hard, source_area)
-    inputs["placement_report"] = digest(path)
-    inputs["placement_code"] = hashlib.sha256(
-        b"".join(
-            p.read_bytes() for p in sorted(__import__("pathlib").Path(__file__).parent.glob("*.py"))
-        )
-    ).hexdigest()
     if hard:
         raise ValueError(f"{layer}: {len(hard)} hard placement violations; see {path}")
     return accepted

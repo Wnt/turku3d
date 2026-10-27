@@ -1,200 +1,180 @@
-"""Lidar-height massing for buildings outside the playable L0 tiles (config.playable_tile_ids)."""
+"""Visual-only massing around the playable tiles, built per L0 tile (turku3d.tile_layer).
+
+The ring is every unlisted L0 tile within RING tiles of a listed one (for the four core tiles,
+exactly work-3x3). A ring tile's massing is the city's CityGML LOD2 buildings whose footprint
+centroid lies in it, extruded from the footprint base to the area-weighted mean roof height,
+except buildings within EDGE_M of a listed tile, which the buildings layer owns. LOD2 comes
+from any prepared raw area covering the tile (work-3x3, tile-<id>, the draft prefetcher's
+blocks); `fetch_missing` reads it through for ring tiles that have none."""
 
 from __future__ import annotations
 
-import hashlib
 import json
-import time
-from collections import defaultdict
 from pathlib import Path
 
-import geopandas as gpd
-import laspy
 import numpy as np
 import shapely
-from scipy.spatial import cKDTree
 
 from turku3d import config as C
-from turku3d.layers import write_manifest, write_visual
+from turku3d import tile_layer
+from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
+from turku3d.package.manifest import _atomic_write
 
-from .fallback import extrusion
-from .inputs import local_polygon
-from .shells import make_shell
-from .tiles import ownership_point
+RING = 2
+EDGE_M = 1.0
+LOD2 = "bldg_Building_LOD2"
+
+
+def ring(listed) -> list[C.VisualTile]:
+    tiles = {C.VisualTile.parse(t) if isinstance(t, str) else t for t in listed}
+    around = {
+        C.VisualTile(0, t.i + di, t.j + dj)
+        for t in tiles
+        for di in range(-RING, RING + 1)
+        for dj in range(-RING, RING + 1)
+    }
+    return sorted(around - tiles)
+
+
+def lod2_source(tile) -> Path | None:
+    """A complete LOD2 parquet of a prepared area whose bounds cover the tile."""
+    t = tile.bbox.to_en()
+    for summary in sorted(C.raw_dir("wfs").glob(f"*/{LOD2}.summary.json")):
+        s = json.loads(summary.read_text())
+        e0, n0, e1, n1 = s.get("bbox_en", (0, 0, 0, 0))
+        parquet = summary.with_name(f"{LOD2}.parquet")
+        if (
+            s.get("status") == "ok"
+            and parquet.is_file()
+            and e0 <= t.emin
+            and n0 <= t.nmin
+            and e1 >= t.emax
+            and n1 >= t.nmax
+        ):
+            return parquet
+    return None
+
+
+def fetch_missing(listed, log=print) -> list[str]:
+    """Read through the LOD2 layer of ring tiles without one, as their `tile-<id>` area."""
+    from turku3d.fetch import wfs
+    from turku3d.fetch.sources import WFS_LAYERS
+
+    layer = next(item for item in WFS_LAYERS if item.slug == LOD2)
+    fetched = []
+    for tile in ring(listed):
+        if lod2_source(tile) is None:
+            wfs.fetch_layer(layer, C.tile_input_area(tile), log=log)
+            fetched.append(tile.id)
+    return fetched
+
+
+def listed_near(tile) -> list[str]:
+    listed = set(C.playable_tile_ids())
+    return sorted(
+        n.id
+        for di in (-1, 0, 1)
+        for dj in (-1, 0, 1)
+        if (n := C.VisualTile(0, tile.i + di, tile.j + dj)).id in listed
+    )
 
 
 def code_hash():
-    files = [
+    base = Path(__file__).parents[1]
+    return tile_layer.code_hash(
         Path(__file__),
-        *[
-            Path(__file__).with_name(name + ".py")
-            for name in ("fallback", "inputs", "shells", "tiles")
-        ],
-        Path(C.__file__),
-        C.REPO_ROOT / "pipeline/turku3d/layers.py",
-        C.REPO_ROOT / "pipeline/turku3d/package/gltf.py",
-    ]
-    return hashlib.sha256(b"".join(path.read_bytes() for path in files)).hexdigest()
-
-
-def lidar_points(paths):
-    """Read only ground and building returns into bounded local arrays."""
-    ground, roofs = [], []
-    for path in paths:
-        with laspy.open(path) as reader:
-            for chunk in reader.chunk_iterator(1_000_000):
-                cls = np.asarray(chunk.classification)
-                for kind, target in ((2, ground), (6, roofs)):
-                    mask = cls == kind
-                    if mask.any():
-                        x, y, z = C.en_to_local(
-                            np.asarray(chunk.x)[mask],
-                            np.asarray(chunk.y)[mask],
-                            np.asarray(chunk.z)[mask],
-                        )
-                        target.append(np.column_stack((x, y, z)).astype(np.float32))
-    return np.concatenate(ground), np.concatenate(roofs)
-
-
-def height_for(footprint, ground, ground_tree, roofs, roof_tree):
-    center = footprint.representative_point()
-    _, ground_index = ground_tree.query([center.x, center.y])
-    base = float(ground[ground_index, 1])
-    xmin, zmin, xmax, zmax = footprint.bounds
-    radius = max(np.hypot(xmax - xmin, zmax - zmin), 12)
-    indices = roof_tree.query_ball_point([center.x, center.y], radius)
-    candidates = roofs[indices]
-    inside = shapely.intersects_xy(footprint, candidates[:, 0], candidates[:, 2])
-    elevations = candidates[inside, 1]
-    if len(elevations) < 3:
-        distance, nearby = roof_tree.query([center.x, center.y], k=3)
-        if np.max(distance) > 25:
-            return base, None
-        elevations = roofs[nearby, 1]
-    height = float(np.median(elevations))
-    return base, height if height > base + 2 else None
-
-
-def main():
-    started = time.monotonic()
-    playable = C.playable_area()
-    core_polygon = shapely.union_all(
-        [shapely.box(*t.bbox.as_tuple()) for t in playable.visual_tiles]
+        base / "coarse/build.py",
+        base / "tile_layer.py",
+        base / "config.py",
+        base / "layers.py",
+        base / "package/gltf.py",
     )
-    source = C.raw_dir("wfs") / "work-3x3/GIS_Rakennukset.parquet"
-    area = C.WORK_3X3
-    frame = gpd.read_parquet(source)
-    buildings = []
-    for row in frame.itertuples():
-        if row.geometry.geom_type not in ("Polygon", "Point"):
+
+
+def tile_key(tile):
+    source = lod2_source(tile)
+    return {
+        "lod2": tile_layer.identities({"lod2": source})["lod2"] if source else None,
+        "listed_near": listed_near(tile),
+    }
+
+
+def build_tile(tile, staging):
+    from turku3d.coarse.build import buildings, extrude
+
+    source = lod2_source(tile)
+    if source is None:
+        return {"records": [], "metrics": {"buildings": 0, "missing_lod2": True}}
+    listed = shapely.union_all(
+        [shapely.box(*C.VisualTile.parse(t).bbox.as_tuple()) for t in listed_near(tile)]
+    )
+    meshes, records = [], []
+    for b in buildings(source, tile):
+        if not listed.is_empty and b.footprint.distance(listed) < EDGE_M:
             continue
-        source_geometry = shapely.force_2d(row.geometry)
-        if source_geometry.geom_type == "Point":
-            source_geometry = source_geometry.buffer(3, cap_style="square")
-        polygon = local_polygon(source_geometry)
-        if (
-            not polygon.is_valid
-            or not polygon.intersects(shapely.box(*area.core.as_tuple()))
-            or polygon.intersects(core_polygon)
-        ):
-            continue
-        buildings.append((row.feature_key, polygon, row.Kerrosluku))
-    laz = [C.raw_dir("laz") / "pistepilvi" / f"{t.name}.laz" for t in area.laz_tiles]
-    missing = [str(p) for p in laz if not p.exists()]
-    if missing:
-        raise FileNotFoundError(f"outer massing needs lidar: {missing}")
-    ground, roofs = lidar_points(laz)
-    ground_tree = cKDTree(ground[:, [0, 2]])
-    roof_tree = cKDTree(roofs[:, [0, 2]])
-    output = C.work_root() / "build/layers/buildings_outer"
-    output.mkdir(parents=True, exist_ok=True)
-    meshes, records = defaultdict(list), []
-    tiles = C.visual_tiles_for_bbox(area.core)
-    for feature_key, footprint, levels in buildings:
-        base, roof = height_for(footprint, ground, ground_tree, roofs, roof_tree)
-        state = "lidar_extrusion"
-        if roof is None:
-            try:
-                floors = max(1, min(12, int(float(levels))))
-            except (TypeError, ValueError):
-                floors = 3
-            roof = base + 3 * floors
-            state = "placeholder"
-        try:
-            shell = make_shell(extrusion(footprint, base, roof), footprint)
-        except ValueError as exc:
-            records.append(
-                {"source_id": feature_key, "state": "invalid_outline", "reason": str(exc)}
-            )
-            continue
-        point = ownership_point(footprint, tiles)
-        tile = C.VisualTile.at(point.x, point.y)
-        ident = "outer-gis-" + feature_key
-        meshes[tile.id].append(
+        roof, roof_idx, _, _, walls, wall_uv, wall_idx = extrude(b)
+        positions = np.concatenate([walls, roof]) - tile.origin
+        indices = np.concatenate([wall_idx, roof_idx + len(walls)]).astype(np.uint32)
+        uvs = np.concatenate([wall_uv, roof[:, [0, 2]]])
+        ident = f"outer-lod2-{b.key}"
+        meshes.append(
             GlbMesh(
                 ident,
-                shell.positions,
-                shell.indices,
-                uvs=shell.positions[:, [0, 2]],
-                color=(0.86, 0.55, 0.23, 1.0) if state == "placeholder" else (0.8, 0.8, 0.8, 1.0),
+                positions,
+                indices,
+                uvs=uvs,
+                color=(0.8, 0.8, 0.8, 1.0),
                 extras={
                     "layer": "buildings_outer",
                     "object_id": ident,
                     "building_id": ident,
-                    "material_key": "facade_plaster",
-                    "lidar_massing": True,
+                    "material_key": b.material_key,
+                    "lidar_massing": False,
                 },
             )
         )
-        records.append({"source_id": feature_key, "state": state, "tile": tile.id})
-    files = []
-    for tid, tile_meshes in sorted(meshes.items()):
-        filename = tid + ".vis.glb"
+        records.append({"source_id": b.key, "base": b.base, "top": b.top})
+    if meshes:
         write_visual(
-            output / filename, tile_meshes, root_extras={"layer": "buildings_outer", "tile": tid}
+            Path(staging) / f"{tile.id}.vis.glb",
+            meshes,
+            root_translation=tile.origin,
+            root_extras={"layer": "buildings_outer", "tile": tile.id},
         )
-        files.append(filename)
-    result = {
-        "source_count": len(buildings),
-        "lidar_extruded": sum(r["state"] == "lidar_extrusion" for r in records),
-        "placeholders": sum(r["state"] == "placeholder" for r in records),
-        "by_tile": {tid: len(value) for tid, value in sorted(meshes.items())},
-        "records": records,
-        "elapsed_s": round(time.monotonic() - started, 2),
-    }
-    (output / "metrics.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return {"records": records, "metrics": {"buildings": len(records), "source": str(source)}}
 
-    def digest(path):
-        value = hashlib.sha256()
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-                value.update(chunk)
-        return value.hexdigest()
 
-    inputs = {
-        str(p): {
-            "path": str(p),
-            "size": p.stat().st_size,
-            "mtime_ns": p.stat().st_mtime_ns,
-            "sha256": digest(p),
-        }
-        for p in [source, *laz]
+def combine(directory, tiles):
+    metrics = {
+        "buildings": sum(e["metrics"]["buildings"] for e in tiles.values()),
+        "by_tile": {tid: e["metrics"]["buildings"] for tid, e in tiles.items()},
+        "missing_lod2": sorted(t for t, e in tiles.items() if e["metrics"].get("missing_lod2")),
     }
-    write_manifest(
-        output,
-        inputs=inputs,
-        params={
-            "area": area.name,
-            "playable_tiles": [t.id for t in playable.visual_tiles],
-            "visual_only": True,
-        },
-        code=code_hash(),
-        tiles=files,
+    _atomic_write(
+        Path(directory) / "metrics.json",
+        (json.dumps(metrics, indent=2, sort_keys=True) + "\n").encode(),
     )
-    print(json.dumps({k: v for k, v in result.items() if k != "records"}))
-    return 0 if result["lidar_extruded"] + result["placeholders"] == result["source_count"] else 1
+    return {"visual_only": True, "ring": RING, "height_source": "CityGML LOD2 mean roof"}
+
+
+PRODUCER = tile_layer.Producer("buildings_outer", code_hash, tile_key, build_tile, combine)
+
+
+def main(argv=None):
+    import argparse
+
+    from turku3d.layers import layer_root
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--fetch", action="store_true", help="read through missing LOD2 first")
+    args = ap.parse_args(argv)
+    listed = C.playable_tile_ids()
+    if args.fetch:
+        fetch_missing(listed)
+    result = tile_layer.run(layer_root() / "buildings_outer", PRODUCER, ring(listed))
+    print(json.dumps({k: v for k, v in result.items() if k != "tile_seconds"}, indent=2))
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

@@ -2,8 +2,9 @@
 
 import numpy as np
 from shapely.geometry import LineString, Point, box
-from turku3d.layers import read_collision, read_manifest, read_visual
-from turku3d.parked.__main__ import publish
+from turku3d import config as C
+from turku3d.layers import read_collision, read_manifest, read_visual, write_manifest
+from turku3d.parked.layer import write_tile
 from turku3d.parked.models import MODELS, model
 from turku3d.parked.placement import Feature, footprint, place
 
@@ -81,7 +82,9 @@ def test_four_models_dimensions_and_layer_roundtrip(tmp_path):
             )
         )
     root = tmp_path / "traffic_static"
-    publish(cars, root, {"fixture": "synthetic"}, 16)
+    root.mkdir()
+    write_tile(cars, root, C.VisualTile(0, 0, 0))
+    write_manifest(root, inputs={}, params={}, code="test", tiles=[p.name for p in root.iterdir()])
     m = read_manifest(root)
     primitives = []
     for name in m["tiles"]:
@@ -99,10 +102,10 @@ def test_published_boxes_stop_player_and_vehicle_shapes(tmp_path):
     import json
     import subprocess
 
-    from turku3d import config as C
     from turku3d.package.assemble import collision_tile, load_layers
 
     layer = tmp_path / "layers" / "traffic_static"
+    layer.mkdir(parents=True)
     cars = []
     for i, (name, (width, height, length)) in enumerate(MODELS.items()):
         cars.append(
@@ -119,7 +122,8 @@ def test_published_boxes_stop_player_and_vehicle_shapes(tmp_path):
                 length=length,
             )
         )
-    publish(cars, layer, {"fixture": "synthetic"}, 16)
+    write_tile(cars, layer, C.VisualTile(0, 0, 0))
+    write_manifest(layer, inputs={}, params={}, code="t", tiles=[p.name for p in layer.iterdir()])
     manifests, layers = load_layers(layer.parent)
     out = tmp_path / "collision"
     out.mkdir()
@@ -134,3 +138,34 @@ def test_published_boxes_stop_player_and_vehicle_shapes(tmp_path):
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert report["pass"] is True
     assert report["boxes"] == 4 and report["shapeSweeps"] == 8
+
+
+def test_cars_are_placed_per_tile_and_never_cross_a_seam(tmp_path, monkeypatch):
+    import json
+
+    import producer_world as world
+    from turku3d import tile_layer
+    from turku3d.layers import layer_root
+    from turku3d.parked.layer import PRODUCER, SEAM_CLEARANCE
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_JOBS", "1")
+    world.city()
+    world.ortho()
+    world.ground(["t0_0_0", "t0_1_0"], material="road")
+    lots = [box(20, 20, 85, 60), box(225, 100, 275, 140)]  # the second straddles x = 250
+    world.write_osm([({"amenity": "parking"}, lot) for lot in lots])
+    out = layer_root() / "traffic_static"
+    tile_layer.run(out, PRODUCER, ["t0_0_0", "t0_1_0"])
+    report = json.loads((out / "placements.json").read_text())
+    cars = report["cars"]
+    assert report["count"] == len(cars) > 10
+    assert {C.VisualTile.at(c["x"], c["z"]).id for c in cars} == {"t0_0_0", "t0_1_0"}
+    for c in cars:
+        xmin, _, xmax, _ = footprint(c["x"], c["z"], c["yaw"], c["width"], c["length"]).bounds
+        assert not (xmin < 250 + SEAM_CLEARANCE and xmax > 250 - SEAM_CLEARANCE)
+        assert c["y"] == world.GROUND_Y and c["clear_front_m"] > 0
+    manifest = read_manifest(out)
+    assert manifest["params"]["cars"] == len(cars)
+    assert manifest["params"]["placements_sha256"] == tile_layer.sha(out / "placements.json")
