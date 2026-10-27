@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+from .announcements import extra_lines
 from .build import build, check
 
 REPO = Path(__file__).resolve().parents[3]
@@ -22,8 +23,13 @@ def main(argv=None):
     work = Path(os.environ.get("TURKU3D_WORK", Path.home() / "turku3d/data"))
     parser.add_argument("--cache", type=Path, default=work / "cache/voice")
     args = parser.parse_args(argv)
+    extras = (
+        extra_lines(REPO)
+        if args.dialogue == REPO / "game/src/gameplay/content/dialogue.json"
+        else ()
+    )
     if args.command == "check":
-        problems = check(args.dialogue, args.voices, args.out)
+        problems = check(args.dialogue, args.voices, args.out, extras)
         for problem in problems:
             print(problem)
         if problems:
@@ -37,7 +43,9 @@ def main(argv=None):
         print(fetch(args.voices))
         return 0
     start = time.perf_counter()
-    report = build(args.dialogue, args.voices, args.out, args.cache, synthesizer)
+    report = build(
+        args.dialogue, args.voices, args.out, args.cache, synthesizer, extra_lines=extras
+    )
     print(
         f"voice: {len(report.synthesized)} synthesized, {len(report.encoded)} encoded, {len(report.reused)} reused, "
         f"{len(report.removed)} removed in {time.perf_counter() - start:.1f} s -> {args.out}"

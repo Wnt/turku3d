@@ -110,6 +110,26 @@ test('a new line fades the previous out over 100 ms and starts after it; ducking
   expect(ducks).toEqual([true, true, false]);
 });
 
+test('a double announcement speaks its phrase and both address clips in order', async () => {
+  const phrase = 'Double delivery. Two boxes, two doors: ';
+  const lines = [
+    ['phrase_double_1', phrase], ['address_lantinen_rantakatu_15', 'Läntinen Rantakatu 15'],
+    ['address_then', 'Then'], ['address_kaskenkatu_4a', 'Kaskenkatu 4a'],
+  ].map(([id, text]) => ({ id, speaker: 'pizzeria', file: `${id}.ogg`, seconds: 1, text, textSha256: id }));
+  const ctx = new FakeContext(), bus = new Node(), running: (() => void)[] = [];
+  const player = new VoicePlayer({ context: () => ctx as unknown as AudioContext, bus: () => bus as unknown as AudioNode,
+    duck: () => {}, onRunning: callback => { running.push(callback); } }, fakeFetch([], { version: 1, lines }), '/v/');
+  await player.ready;
+  ctx.state = 'running'; running.forEach(callback => callback());
+  player.show(`${phrase}Läntinen Rantakatu 15. Then Kaskenkatu 4a.`);
+  for (let i = 0; i < lines.length; i++) {
+    await settle();
+    expect(player.snapshot().playing).toBe(lines[i].id);
+    ctx.sources[i].end();
+  }
+  expect(player.snapshot().played).toEqual(lines.map(line => line.id));
+});
+
 test('lines shown before unlock wait for it, unless replaced first', async () => {
   const { ctx, player, unlock } = rig();
   await player.ready;

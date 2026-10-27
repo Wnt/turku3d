@@ -35,7 +35,8 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
 `VoicePlayer` (`voice.ts`) loads `public/assets/voice/manifest.json`, written by the voice pipeline
 ([`audio/voice`](../../../audio/voice/README.md), `make voice-build`). It subscribes to a
 `MissionHudSource` (`gameplay/contract.ts`) and plays the clip whose manifest `text` equals the message
-that was just shown, so the mission system needs no audio API. Rules:
+that was just shown. Address announcements resolve to phrase, address, optional "Then", and second
+address clips in the order shown in the HUD. Rules:
 
 - A message change starts its clip; repeated states with the same message (timer ticks) do not restart it.
   Messages without a clip (HUD-only prompts, `"voiced": false` in `dialogue.json`) leave the current line alone.

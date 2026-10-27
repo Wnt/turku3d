@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { VEHICLE_PRICE, parSeconds } from '../../src/gameplay/economy';
 import { lineText } from '../../src/gameplay/content/dialogue';
+import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { OWN_VEHICLE_ID, TRUCK_ID, ownedVehicleId } from '../../src/gameplay/missions/missions';
 import { parseSave } from '../../src/gameplay/missions/save';
@@ -20,7 +21,7 @@ describe('trophy truck at the dealer', () => {
     const money = h.missions.money;
     expect(h.choose(DEALER.point, 'buy_truck').bought).toBe('truck');
     expect(h.missions).toMatchObject({ vehicle: 'truck', money: money - VEHICLE_PRICE.truck, shop: null });
-    expect(h.last().message).toBe(lineText('dealer_sold_truck'));
+    expect(PHRASES.dealer_sold_truck).toContain(h.last().message);
     expect(ownedVehicleId('truck')).toBe(TRUCK_ID);
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: OWN_VEHICLE_ID });
     expect(h.missions.phase).not.toBe('carrying');

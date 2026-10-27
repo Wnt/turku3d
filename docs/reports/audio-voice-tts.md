@@ -1,7 +1,8 @@
 # Character voices: local TTS benchmark and choice (audio-voice-tts)
 
 2026-10-26, MacBook Pro M1 Max (10 cores, 64 GB), macOS, everything local, no API keys or paid services.
-Choice: **Kokoro-82M v1.0** (Apache-2.0), run on the CPU. Pipeline and commands: [`audio/voice/README.md`](../../audio/voice/README.md).
+Choice: **Kokoro-82M v1.0** (Apache-2.0). The original short-line build ran on CPU; the
+expanded mission voice build uses MPS. Pipeline and commands: [`audio/voice/README.md`](../../audio/voice/README.md).
 
 ## Candidates
 
@@ -74,6 +75,12 @@ and "Orakatu" for Aurakatu from every model.
 misaki turns `ɾ` into its American flap token, which is heard as "d", so lexicon entries use `ɹ`. Only
 the phoneme control of Kokoro could fix Kristiinankatu; the cloning models offer only respelling.
 
+For the 2027 mission address build, a Finnish Whisper small spot check on full address clips returned
+"Lentonen Rantokatu 15" for Läntinen Rantakatu 15, "Kaskan Kato 4A" for Kaskenkatu 4a, and
+"Mustainvilliesting Kuya 1" for Mustainveljestenkuja 1. The latter's English G2P baseline returned
+"Mustang Velju Stankuja 1", so the shipped phoneme hint preserved more of the Finnish name. These
+transcripts are an automated pronunciation proxy, not a human listening score.
+
 ### Final presets (34 lines of the current dialogue, built by `make voice-build`)
 
 The preset sweep scored 2–5 candidate packs per role on a typical line. Shipped: narrator `bf_emma` @0.95
@@ -95,7 +102,9 @@ deleted lines both reproduced every file byte for byte.
 
 ## Decision
 
-**Kokoro-82M.** Ranked on quality first, Chatterbox(-Turbo) scored about 0.2 MOS higher on the benchmark
+**Kokoro-82M.** The expanded mission voice build uses Kokoro on MPS, pinned by `voices.toml`;
+the benchmark above measured comparable quality and shorter latency than Kokoro CPU under host load.
+Ranked on quality first, Chatterbox(-Turbo) scored about 0.2 MOS higher on the benchmark
 set, but on this machine it takes 13–74 s per line, so it fails the hard limit of about 10 s per line,
 and MPS made it slower, not faster. Kokoro with tuned presets reaches the same mean MOS (4.38) on the
 real dialogue, produces a line in 1–5 s, is deterministic, needs no reference voices, and is the only

@@ -23,8 +23,9 @@ Story, locations, economy and the state machine are specified in
 | `missions/dropoffs.ts` | Street-level check of a drop-off before its marker is placed (`DropoffGuard`, used by `ZoneMarkers`): a point on a building or more than 2 m off the street height around it is rejected with a console warning and moved by `MissionSystem.relocateDropoff` |
 | `missions/save.ts` | The mission save text (format 3, opaque to `core/save.ts`) and the migrations of formats 1 and 2 |
 | `missions/orders.ts` | Seeded order draws after the opening: no repeats until the pool is exhausted, distance ladder, short hops, every fifth order a double |
-| `content/dialogue.json` | Every displayed line: intro, hints, prompts, notices, pay lines, character dialogue |
-| `content/dialogue.ts` | Typed lookup by line id (`lineText(id, vars?)` fills `{name}` placeholders of unvoiced lines, `dialogueLine`) |
+| `content/dialogue.json` | Static intro, prompts, notices, pay lines and one-time character dialogue |
+| `content/dialogue.ts` | Typed lookup by static line id (`lineText(id)`, `dialogueLine`) |
+| `content/phrases.json`, `announcements.ts` | Twelve phrasings per active announcement type; seeded shuffled cycles with per-save draw counts; address sentence assembly |
 
 `main.ts` constructs the system with the street router (below) and the address pool, calls
 `missions.update(dt, { position, interact, input, vehicleId, choose, leave })` every frame (dt 0
@@ -67,16 +68,12 @@ again. To change the scripted opening:
    (`dist/tiles/addresses/<sha>.json`). Its fallback point is the pool's `point`; for an address the
    pool lacks, apply the pipeline's rule to the buildings layer: 2.5 m (`SIDEWALK_M`) out from the
    street-side door wall nearest the register point, outside every footprint.
-2. Add the lines `hint_deliver_<n>`, `pizzeria_handover_<n>`, `customer_<n>_fast`,
-   `customer_<n>_ok` and `customer_<n>_slow` to `content/dialogue.json` (hints are
-   `"voiced": false`).
-3. Append `delivery(<n>, '<address>', { x, z })` to `DELIVERIES` in `content/deliveries.ts`, keeping
+2. Append `delivery(<n>, '<address>', { x, z })` to `DELIVERIES` in `content/deliveries.ts`, keeping
    the list ordered by route distance, and add the row to the table in `docs/design/story.md`.
-4. Run `npx vitest run tests/unit/missions.test.ts` from `game/`: it checks that every referenced
-   line exists and that prices quoted in lines match `economy.ts`.
-5. Voice the new lines: `make voice-setup` (once) and `make voice-build` from the repo root, then
+3. Run `npx vitest run tests/unit/missions.test.ts` from `game/` to check the order and economy.
+4. Voice the new address: `make voice-setup` (once) and `make voice-build` from the repo root, then
    commit the clips in `game/public/assets/voice/` (see `audio/voice/README.md`). The gate fails on a
-   voiced line without a current clip. The game plays a clip when the HUD shows its exact text.
+   missing clip. The game speaks a phrase clip, then each address clip in HUD order.
 
 A saved game stores scripted stops by id (`delivery_<n>`) and pool stops by address slug, so a
 rebuilt pool keeps existing saves valid; an order whose address left the pool is dropped on load.

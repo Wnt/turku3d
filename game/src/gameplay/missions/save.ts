@@ -3,6 +3,7 @@
 import type { VehicleOwnership } from '../economy';
 import { PERMIT_DELIVERIES, START_MONEY } from '../economy';
 import { DELIVERIES } from '../content/deliveries';
+import { PHRASES, type PhraseCounts } from '../content/announcements';
 
 export type Phase = 'idle' | 'permit_needed' | 'at_pizzeria' | 'carrying' | 'delivered' | 'failed';
 
@@ -46,6 +47,8 @@ export interface MissionSave {
   /** Euros the developer tools added to `money` (localhost only, ui/devMenu.ts), so no scoreboard counts them.
    *  Missing in saves from before the tools: 0. */
   devMoney: number;
+  /** Number of draws from each spoken phrase pool. */
+  phrases?: PhraseCounts;
 }
 
 /** The save format of main e323e39 (four looping deliveries, no address pool). */
@@ -83,7 +86,7 @@ export const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 export function freshSave(seed: number): MissionSave {
   return { version: 3, phase: 'idle', money: START_MONEY, permit: 0, plates: false, kidney: false, warning: false,
     vehicle: 'none', delivery: 0, pizzas: 0, seed, delivered: [], order: [], lastAddress: null, stop: 0, elapsed: 0,
-    par: 0, firstPar: 0, devMoney: 0 };
+    par: 0, firstPar: 0, devMoney: 0, phrases: {} };
 }
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
@@ -117,7 +120,7 @@ function migrateV2(s: MissionSaveV2, seed: number): MissionSave {
   const delivery = Math.floor(s.delivery);
   return { ...s, version: 3, delivery, pizzas: delivery, seed, delivered: [], stop: 0, firstPar: 0, devMoney: 0,
     order: s.phase === 'carrying' ? [DELIVERIES[delivery % DELIVERIES.length].id] : [],
-    lastAddress: delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null };
+    lastAddress: delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null, phrases: {} };
 }
 
 function validV3(s: Partial<MissionSave>): MissionSave | null {
@@ -144,8 +147,12 @@ export function parseSave(raw: string | null, seed: number): MissionSave {
     if (save.phase === 'delivered' || save.phase === 'failed' || (save.phase === 'carrying' && save.par <= 0)) {
       save.phase = save.permit > 0 ? 'at_pizzeria' : 'permit_needed';
     }
+    const phrases = Object.fromEntries(Object.entries(save.phrases ?? {})
+      .filter(([kind, count]) => kind in PHRASES && num(count))
+      .map(([kind, count]) => [kind, Math.floor(count as number)]));
     return { ...save, money: Math.round(save.money), permit: Math.floor(save.permit), delivery: Math.floor(save.delivery),
-      pizzas: Math.floor(save.pizzas), stop: Math.floor(save.stop), devMoney: Math.round(save.devMoney ?? 0) };
+      pizzas: Math.floor(save.pizzas), stop: Math.floor(save.stop), devMoney: Math.round(save.devMoney ?? 0),
+      phrases };
   } catch {
     return freshSave(seed);
   }

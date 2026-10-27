@@ -1,18 +1,19 @@
 // Deterministic mission state machine: courier permit, shops, pizza pickup, timed delivery, pay and tips
 // (docs/design/story.md, "Mission state machine" and "Shops"). It is driven only by update(dt, frame), so tests
-// replay it exactly. Messages are dialogue line ids resolved to their exact text (content/dialogue.json).
+// replay it exactly. Static messages use dialogue ids; rotating announcements carry their selected text.
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
   BASE_PAY, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
   PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline, parSeconds,
   sellBackPrice, tip, type VehicleOwnership,
 } from '../economy';
-import { DIALOGUE, lineText, type LineVars } from '../content/dialogue';
+import { DIALOGUE, lineText } from '../content/dialogue';
+import { addressSentence, nextPhrase, PHRASES, type PhraseKind } from '../content/announcements';
 import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
-import { drawOrder, pickLine } from './orders';
+import { drawOrder } from './orders';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
 import { applyPoleFine } from '../poles/fine';
@@ -129,10 +130,9 @@ export function lineSeconds(text: string): number {
 
 const distance = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.z - b.z);
 
-const CUSTOMER_LINES = 12;
-const ORDER_LINES = 6;
 type TipBand = 'fast' | 'ok' | 'slow';
-interface Said { id: string; vars?: LineVars }
+interface Said { id: string; text?: string }
+const saidText = (said: Said) => said.text ?? lineText(said.id);
 
 export class MissionSystem implements MissionHudSource {
   private s: MissionSave;
@@ -144,10 +144,12 @@ export class MissionSystem implements MissionHudSource {
   private checkpoint: Checkpoint | null = null;
   /** Seconds of slice energy left (not saved: a reload starts without it). */
   private energy = 0;
-  private open: { shop: Shop; line: string } | null = null;
+  private open: { shop: Shop; line: string; text?: string } | null = null;
   private view: ShopView | null = null;
   private quoteCache: { key: string; quote: OrderQuote; firstPar: number } | null = null;
   private readonly stops: Stops;
+  private hintCache: { key: string; said: Said } | null = null;
+  private phrase(kind: PhraseKind): string { return nextPhrase(kind, this.s.phrases ??= {}, this.s.seed); }
 
   constructor(private readonly options: MissionOptions) {
     this.stops = new Stops(options.addresses ?? [], options.router);
@@ -168,6 +170,7 @@ export class MissionSystem implements MissionHudSource {
       this.s.stop = 0;
     }
     this.queue = [];
+    this.hintCache = null;
     this.lastResult = null;
     this.energy = 0;
     this.open = null;
@@ -217,7 +220,6 @@ export class MissionSystem implements MissionHudSource {
     this.s.devMoney += euros;
     this.emit();
   }
-
 
   /** A pole fine changes the local wallet even if it has less than fifty euros. */
   finePole() {
@@ -322,8 +324,9 @@ export class MissionSystem implements MissionHudSource {
 
   private enter(shop: Shop) {
     const line = this.greeting(shop.id);
-    this.open = { shop, line };
-    this.say(line);
+    const text = line in PHRASES ? this.phrase(line as PhraseKind) : undefined;
+    this.open = { shop, line, text };
+    this.say({ id: line, text });
   }
 
   private greeting(id: ShopId): string {
@@ -405,8 +408,9 @@ export class MissionSystem implements MissionHudSource {
 
   /** The shopkeeper answers inside the open menu; the line is also the HUD message, so it is voiced. */
   private reply(id: string) {
-    if (this.open) this.open.line = id;
-    this.say(id);
+    const text = id in PHRASES ? this.phrase(id as PhraseKind) : undefined;
+    if (this.open) { this.open.line = id; this.open.text = text; }
+    this.say({ id, text });
   }
 
   private quote(): OrderQuote {
@@ -452,12 +456,8 @@ export class MissionSystem implements MissionHudSource {
     this.s.permit -= 1;
     this.s.phase = 'carrying';
     const [first, second] = stops;
-    if (first.scripted) this.say(first.scripted.handover);
-    else {
-      this.say(`pizzeria_order_${pickLine(this.s.seed, this.s.delivery, ORDER_LINES) + 1}`,
-        second ? { id: 'order_next_double', vars: { address: first.address, next: second.address } }
-          : { id: 'order_next', vars: { address: first.address } });
-    }
+    this.say({ id: second ? 'order_double' : 'order_single',
+      text: addressSentence(this.phrase(second ? 'double' : 'order'), first.address, second?.address) });
   }
 
   private handOver() {
@@ -474,12 +474,12 @@ export class MissionSystem implements MissionHudSource {
     this.s.pizzas += 1;
     if (!stop.scripted) this.s.delivered.push(stop.id);
     const band: TipBand = t >= 5 ? 'fast' : t >= 1 ? 'ok' : 'slow';
-    const customer = stop.scripted ? stop.scripted.customer[band]
-      : `customer_${band}_${pickLine(this.s.seed, 1000 + this.s.pizzas, CUSTOMER_LINES) + 1}`;
-    const lines = [customer, `paid_tip_${t}`, ...(bonus ? ['paid_double_bonus'] : [])];
+    const customer: Said = { id: `customer_${band}`, text: this.phrase(`customer_${band}`) };
+    const lines: (string | Said)[] = [customer, `paid_tip_${t}`, ...(bonus ? ['paid_double_bonus'] : [])];
     if (!last) {
       this.s.stop += 1; // the second pizza of a double: the timer keeps running
-      this.say(...lines);
+      this.say(...lines, { id: 'second_address',
+        text: addressSentence(this.phrase('second'), stops[1].address) });
       this.checkpoint = 'delivery';
       return;
     }
@@ -506,26 +506,26 @@ export class MissionSystem implements MissionHudSource {
     this.checkpoint = 'delivery';
   }
 
-  private permitWarning(): string[] {
-    return this.s.warning && this.s.permit <= PERMIT_WARN_AT ? [`permit_left_${this.s.permit}`] : [];
+  private permitWarning(): Said[] {
+    return this.s.warning && this.s.permit <= PERMIT_WARN_AT
+      ? [{ id: `permit_left_${this.s.permit}`, text: this.phrase(`permit_${this.s.permit}` as PhraseKind) }] : [];
   }
 
-  /** The step hint while carrying: the scripted line, or the pool address (and the second one of a double). */
-  private carryingHint(): Said {
-    const stops = this.ensureOrder();
-    const stop = stops[this.s.stop];
-    if (stop.scripted) return { id: stop.scripted.hint };
-    if (stops.length === 1) return { id: 'hint_deliver_pool', vars: { address: stop.address } };
-    return this.s.stop === 0 ? { id: 'hint_deliver_first', vars: { address: stop.address, next: stops[1].address } }
-      : { id: 'hint_deliver_second', vars: { address: stop.address } };
+  private hint(key: string, kind: PhraseKind, address?: string): Said {
+    if (this.hintCache?.key === key) return this.hintCache.said;
+    const said = { id: kind, text: address ? addressSentence(this.phrase(kind), address) : this.phrase(kind) };
+    this.hintCache = { key, said };
+    return said;
   }
 
   // ---------------------------------------------------------------------------------------- dialogue, state
   /** Replaces whatever is being said with these lines, shown one after another. */
   private say(...lines: (string | Said)[]) {
+    this.hintCache = null;
     this.queue = lines.map(line => {
-      const said = typeof line === 'string' ? { id: line } : line;
-      return { ...said, left: lineSeconds(lineText(said.id, said.vars)) };
+      const said: Said = typeof line === 'string' ? { id: line } : line;
+      if (!said.text && said.id in PHRASES) said.text = this.phrase(said.id as PhraseKind);
+      return { ...said, left: lineSeconds(saidText(said)) };
     });
   }
 
@@ -547,9 +547,9 @@ export class MissionSystem implements MissionHudSource {
     if (action && this.s.phase !== 'idle') return { id: `${action.prompt}_${this.frame!.input === 'keyboard' ? 'key' : 'pad'}` };
     switch (this.s.phase) {
       case 'idle': return null;
-      case 'permit_needed': return { id: 'hint_permit' };
-      case 'carrying': return this.carryingHint();
-      default: return { id: 'hint_pizzeria' };
+      case 'permit_needed': return this.hint(`permit:${this.s.delivery}:${this.s.permit}`, 'hint_permit');
+      case 'carrying': return this.hint(`carry:${this.s.delivery}:${this.s.stop}`, 'hint_carry', this.currentStop.address);
+      default: return this.hint(`pizzeria:${this.s.delivery}`, 'hint_pizzeria');
     }
   }
 
@@ -564,7 +564,7 @@ export class MissionSystem implements MissionHudSource {
         quote: state.quote ?? null };
     });
     const next: ShopView = { id: shop.id, title: lineText(SHOP_TITLE[shop.id]),
-      speaker: DIALOGUE.speakers[SHOP_SPEAKER[shop.id]].name, line: lineText(line), background: shop.background,
+      speaker: DIALOGUE.speakers[SHOP_SPEAKER[shop.id]].name, line: this.open.text ?? lineText(line), background: shop.background,
       money: this.s.money, permit: this.s.permit, delivered: this.s.pizzas, options };
     return this.view && JSON.stringify(this.view) === JSON.stringify(next) ? this.view : next;
   }
@@ -580,7 +580,7 @@ export class MissionSystem implements MissionHudSource {
       activeTargetId: active,
       money: this.s.money,
       timerSeconds: this.s.phase === 'carrying' ? Math.max(0, Math.ceil(deliveryDeadline(this.s.par) - this.s.elapsed)) : null,
-      message: said ? lineText(said.id, said.vars) : null,
+      message: said ? saidText(said) : null,
     };
   }
 

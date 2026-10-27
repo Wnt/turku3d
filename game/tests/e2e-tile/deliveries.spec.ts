@@ -78,10 +78,14 @@ test('after the scripted four, orders come from the address pool without repeats
       await shot(`0${order}-1-quote`);
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => (window.__game!.state as () => { missions: Missions })().missions.phase === 'carrying');
-      await showsMessage(page, lineText('order_next', { address: quoted.address! }));
+      await untilSim(page, address =>
+        (window.__game!.state as () => { missions: Missions })().missions.hud.message?.includes(address) ?? false,
+      quoted.address!, 30);
       // Out of the pizzeria's prompt range the hint names the address.
       await teleport(page, { x: PIZZERIA.point.x + 8, z: PIZZERIA.point.z });
-      await showsMessage(page, lineText('hint_deliver_pool', { address: quoted.address! }));
+      await untilSim(page, address =>
+        (window.__game!.state as () => { missions: Missions })().missions.hud.message?.includes(address) ?? false,
+      quoted.address!, 30);
       const carrying = await missions(page);
       const target = carrying.hud.targets.find(t => t.id === quoted.order[0])!;
       if (order === 5) {

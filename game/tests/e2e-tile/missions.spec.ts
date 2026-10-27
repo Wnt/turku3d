@@ -5,6 +5,7 @@ import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import { BASE_PAY, MAX_TIP, PERMIT_DELIVERIES, PERMIT_PRICE, START_MONEY } from '../../src/gameplay/economy';
 import { lineText } from '../../src/gameplay/content/dialogue';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
+import { PHRASES } from '../../src/gameplay/content/announcements';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SAVES_KEY } from '../../src/core/save';
 import type { WorldPoint } from '../../src/gameplay/contract';
@@ -65,8 +66,10 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
     return s.collision.tiles >= 9 && s.tilesSettled;
   });
   const spawnGround = await page.evaluate(() => (window.__game!.state as () => { feet: number[] })().feet[1]);
-  expect(await missions(page)).toMatchObject({ phase: 'permit_needed', money: START_MONEY,
-    hud: { activeTargetId: MARKET.id, message: lineText('hint_permit') } });
+  const beginning = await missions(page);
+  expect(beginning).toMatchObject({ phase: 'permit_needed', money: START_MONEY,
+    hud: { activeTargetId: MARKET.id } });
+  expect(PHRASES.hint_permit).toContain(beginning.hud.message);
 
   // Black market on the lower quay: the ray starts under the Auransilta deck. Its menu opens on the permit.
   await teleportNear(page, MARKET.point, 4);
@@ -77,7 +80,8 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => (window.__game!.state as () => { missions: Missions })().missions.permit > 0);
   expect(await missions(page)).toMatchObject({ phase: 'at_pizzeria', money: START_MONEY - PERMIT_PRICE, permit: PERMIT_DELIVERIES,
-    hud: { message: lineText('market_sold'), activeTargetId: PIZZERIA.id } });
+    hud: { message: expect.any(String), activeTargetId: PIZZERIA.id } });
+  expect(PHRASES.market_sold).toContain((await missions(page)).hud.message);
   await shot('03-permit-rented');
   await page.keyboard.press('Escape');
   await expect(page.locator('#shop-menu')).toBeHidden();
@@ -91,7 +95,7 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   const delivery = DELIVERIES[0];
   await page.waitForFunction(() => (window.__game!.state as () => { missions: Missions })().missions.phase === 'carrying');
   const started = await missions(page);
-  expect(started.hud).toMatchObject({ activeTargetId: delivery.id, message: lineText(delivery.handover) });
+  expect(started.hud).toMatchObject({ activeTargetId: delivery.id, message: expect.stringContaining(delivery.address) });
   expect(started.hud.timerSeconds).toBeGreaterThan(0);
   await shot('05-carrying');
 
@@ -117,7 +121,9 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   await page.keyboard.press('KeyE');
   await page.waitForFunction(() => (window.__game!.state as () => { missions: Missions })().missions.phase === 'delivered');
   const paid = START_MONEY - PERMIT_PRICE + BASE_PAY + MAX_TIP; // well inside 70 % of the par time
-  expect(await missions(page)).toMatchObject({ money: paid, hud: { timerSeconds: null, message: lineText(delivery.customer.fast) } });
+  const delivered = await missions(page);
+  expect(delivered).toMatchObject({ money: paid, hud: { timerSeconds: null } });
+  expect(PHRASES.customer_fast).toContain(delivered.hud.message);
   await shot('07-customer');
   await showsMessage(page, lineText(`paid_tip_${MAX_TIP}`));
   await shot('08-paid');
