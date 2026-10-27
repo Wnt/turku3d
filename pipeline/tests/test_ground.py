@@ -754,3 +754,29 @@ def test_adding_a_tile_builds_only_that_tile(monkeypatch, tmp_path):
     assert builder.owners([C.VisualTile(0, 0, 0), C.VisualTile(0, 1, 0)])[
         "c_4_0.col.npz"
     ] == C.VisualTile(0, 1, 0)
+
+
+def test_seams_between_separate_tile_builds_are_checked(tmp_path):
+    from turku3d.ground.build import tile_seam_errors
+    from turku3d.layers import CollisionLayer, write_collision
+
+    owned = {}
+    for i in (3, 4):  # c_3_0 in t0_0_0, c_4_0 in t0_1_0; the shared edge x = 250 at 0.25 m
+        x = i * C.COLLISION_TILE_SIZE
+        p = np.array([[x, 0, 0], [x + 62.5, 0, 0], [x + 62.5, 0, 62.5], [x, 0, 62.5]], float)
+        p[[0, 3] if i == 4 else [1, 2], 1] = 0.25
+        write_collision(
+            tmp_path / f"c_{i}_0.col.npz",
+            CollisionLayer(p, np.array([[0, 2, 1], [0, 3, 2]], np.uint32), np.ones(2, np.uint8)),
+        )
+        owned[f"c_{i}_0.col.npz"] = C.VisualTile(0, i // 4, 0)
+    assert tile_seam_errors(tmp_path, owned) == []
+    owned["c_4_0.col.npz"] = C.VisualTile(0, 0, 0)  # one build: its own QA covers the seam
+    assert tile_seam_errors(tmp_path, owned) == []
+    owned["c_4_0.col.npz"] = C.VisualTile(0, 1, 0)
+    p = np.array([[250, 0.3, 0], [312.5, 0, 0], [312.5, 0, 62.5], [250, 0.25, 62.5]], float)
+    write_collision(
+        tmp_path / "c_4_0.col.npz",
+        CollisionLayer(p, np.array([[0, 2, 1], [0, 3, 2]], np.uint32), np.ones(2, np.uint8)),
+    )
+    assert tile_seam_errors(tmp_path, owned) == [["c_3_0", "c_4_0"]]
