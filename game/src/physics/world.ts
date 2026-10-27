@@ -49,7 +49,7 @@ export class PhysicsWorld {
   private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode'] }>();
   get vehicle(): Vehicle | null { return this.vehicles.get('player') ?? null; }
   private curbQueries: CurbQueries;
-  /** Walls along the open edges of the loaded tiles (edgeWalls.ts). */
+  /** Walls along the true edges of the collision (edgeWalls.ts). */
   readonly edges: EdgeWalls;
 
   constructor(private readonly R: R) {

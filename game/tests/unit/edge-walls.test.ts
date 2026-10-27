@@ -1,5 +1,6 @@
-// Edge walls (physics/edgeWalls.ts): the character and a car stop at the edge of the loaded collision, rays and the
-// camera pass through, and loading the neighbour opens the edge. Synthetic dev tiles (public/dev-tiles, ground H 2).
+// Edge walls (physics/edgeWalls.ts): the character and a car stop at the true edge of the collision, rays and the
+// camera pass through, loading the neighbour opens the edge, and a neighbour that exists but is not loaded yet gets no
+// wall. Synthetic dev tiles (public/dev-tiles, ground H 2).
 import { test, expect } from 'vitest';
 import * as R from '@dimforge/rapier3d';
 import fs from 'node:fs';
@@ -26,6 +27,21 @@ test('open edges follow the loaded cells; a neighbour closes the shared edge and
   // Reloading the same id replaces its colliders and keeps one wall per open edge.
   await pw.loadTile('c_3_2', col('c_3_2'));
   expect(pw.edges.edges()).toHaveLength(4);
+  pw.world.free();
+});
+
+test('no wall faces a neighbour whose collision exists but is not loaded; the wall returns when it is gone', async () => {
+  const pw = new PhysicsWorld(R);
+  await pw.loadTile('c_3_2', col('c_3_2'));
+  pw.edges.setKnown(['c_4_2', 'c_3_3', 'not-a-tile'], []);
+  expect(pw.edges.edges()).toEqual([[3, 2, 1], [3, 2, 3]]);
+  // Known before its neighbour loads: the new tile gets no wall towards it either.
+  pw.edges.setKnown(['c_2_2'], []);
+  await pw.loadTile('c_2_1', col('c_3_2'));
+  expect(pw.edges.edges().filter(([i, j]) => i === 3 && j === 2)).toEqual([[3, 2, 3]]);
+  // The draft left or its load failed for good: the true edge is closed again.
+  pw.edges.setKnown([], ['c_4_2', 'c_2_2']);
+  expect(pw.edges.edges().filter(([i, j]) => i === 3 && j === 2)).toEqual([[3, 2, 0], [3, 2, 1], [3, 2, 3]]);
   pw.world.free();
 });
 

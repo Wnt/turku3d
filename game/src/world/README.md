@@ -12,11 +12,13 @@ Ground is drawn farther than collision reaches: the published far LOD (500 m and
 the playable tiles, and a draft tile can be on screen before its cells stream into the physics worker. Two rules keep
 the player from falling through visible ground:
 
-1. **Edge walls** (`physics/edgeWalls.ts`): wherever a loaded `.col` tile borders a cell whose collision is not in the
-   worker (outside the built area, a draft still building, a tile still streaming or one that failed), the worker
-   closes that edge with an invisible box (2 m thick, 20 m below to 40 m above the tile). The character and every
-   vehicle stop there; rays and the camera cast pass through. Loading the neighbour removes the wall. At the real
-   edge of the built area the HUD edge notice and the minimap's red edge (`gameplay/recovery.ts`) explain the stop.
+1. **Edge walls** (`physics/edgeWalls.ts`): wherever a loaded `.col` tile borders a cell with no collision in any
+   source (outside the published tiles and every drawn draft, a draft still building or rejected, a tile whose load
+   failed for good), the worker closes that edge with an invisible box (2 m thick, 20 m below to 40 m above the
+   tile). The character and every vehicle stop there; rays and the camera cast pass through. `CollisionStreamer`
+   tells the worker which neighbours of the loaded tiles exist (`knownTiles`: in the manifest, drafts included, not
+   failed for good); no wall faces those. Until it does, an edge is closed. At the real edge of the built area the
+   HUD edge notice and the minimap's red edge (`gameplay/recovery.ts`) explain the stop.
 2. **Collision before visibility** (`coarseTiles.ts`): a draft is added to the scene only when every one of its 16
    collision cells has an entry (published entries win) and the worker has decoded each draft `.col`
    (`PhysicsClient.checkTile`, no colliders are built). A draft that fails either check is never drawn; the HUD names
@@ -38,6 +40,13 @@ tells the map to re-merge (`gameplay/README.md`, "Draft tiles' streets").
 
 Draft entries then join `manifest.collision`, so `CollisionStreamer` loads them with the normal radius, the walls move
 out with them and `SafeReset`'s playable area grows.
+
+**Collision ahead**: `CollisionStreamer.update` takes the player's ground velocity and also loads the tiles along the
+next 8 s of travel (one-tile corridor, above 3 m/s), ranked nearest first with a bonus for lying ahead, and keeps them
+while they stay ahead. A car at full speed (40 m/s) thus meets loaded collision 520 m out with the default 200 m
+radius. If it still reaches a tile that exists but is not loaded (a slow network, a retry), `speedLimit` gives the
+speed that stops 1.5 m before it at 6 m/s², and `play.ts` brakes the car (`holdCar`) or slows the walk (`holdFoot`)
+to it: a gentle hold, not a wall.
 
 ## Tile releases swapped in place (`releaseSwap.ts`)
 
