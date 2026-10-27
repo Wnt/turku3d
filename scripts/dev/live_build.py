@@ -1,5 +1,6 @@
 """Build, check and publish the real office distribution for the integrator."""
 
+import contextlib
 import filecmp
 import hashlib
 import json
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import live_cache
 import sandbox as s
-from host_slots import integration_jobs
+from host_slots import integration_jobs, phase
 from landing_class import C, released_tiles
 
 
@@ -332,7 +333,16 @@ def inspect_car_report(path, returncode):
 
 
 def build(
-    repo, work, published, env, log_path, reason=None, previous_release=None, landing_class="code"
+    repo,
+    work,
+    published,
+    env,
+    log_path,
+    reason=None,
+    previous_release=None,
+    landing_class="code",
+    join=None,
+    joined=(),
 ):
     """Run the class's live stages on repo; the caller holds the integration host reservation.
 
@@ -340,6 +350,11 @@ def build(
     and collision checks then only rebuild what the layer delta affects. A data build runs
     the car report only when the parked-car layer changed, else it carries the previous
     release's result forward.
+
+    join is called before the first expensive stage (the first stage after refresh that is
+    not a cache hit). When it moved repo to a newer main it returns {"commit",
+    "landing_class", "reason"}; the build then starts over on that commit (cached stages
+    are free), appends to the same log and may join again; the caller bounds the joins.
     """
     stages = stages_for(landing_class)
     seed(work, published)
@@ -396,7 +411,7 @@ def build(
         ),
     ]
     scopes = {}
-    with log_path.open("w") as log:
+    with log_path.open("a" if joined else "w") as log:
         for stage, command, cwd in commands:
             if stage not in stages:
                 continue
@@ -462,6 +477,25 @@ def build(
                     report["facade_ground_audit"] = cached["facade_ground_audit"]
                 previous = key
                 continue
+            if join and stage != "refresh":
+                callback, join = join, None
+                if update := callback():
+                    log.write(
+                        f"\n== join: rebuilding {update['commit']} as {update['landing_class']} ==\n"
+                    )
+                    log.flush()
+                    return build(
+                        repo,
+                        work,
+                        published,
+                        env,
+                        log_path,
+                        update["reason"],
+                        previous_release,
+                        update["landing_class"],
+                        callback,
+                        (*joined, update["commit"]),
+                    )
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
             load_before = os.getloadavg()
@@ -470,7 +504,9 @@ def build(
                 load_rows.parent.mkdir(parents=True, exist_ok=True)
                 load_rows.unlink(missing_ok=True)
                 run_env["TURKU3D_BROWSER_LOAD_LOG"] = str(load_rows)
-            proc = s.run_group(command, cwd=cwd, env=run_env)
+            # Agents' Chrome suites queue while this phase is marked (host_slots.admissible).
+            with phase(stage) if stage.startswith("chrome") else contextlib.nullcontext():
+                proc = s.run_group(command, cwd=cwd, env=run_env)
             log.write(proc.stdout)
             durations[stage] = round(time.monotonic() - start, 3)
             load = None

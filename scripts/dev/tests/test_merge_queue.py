@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import integrator  # noqa: E402
 import live_cache  # noqa: E402
 import merge_queue  # noqa: E402
 from gate_cache import cache_root, stage_key  # noqa: E402
@@ -99,8 +100,8 @@ class QueueTests(unittest.TestCase):
         # so the reload waits for round three.
         trees = iter(["tree-a", "tree-b", "tree-b"])
         polls = iter([None, 0])
-        merge_queue._child = type("Child", (), {"poll": lambda self: next(polls)})()
-        self.addCleanup(setattr, merge_queue, "_child", None)
+        merge_queue._children["code"] = type("Child", (), {"poll": lambda self: next(polls)})()
+        self.addCleanup(merge_queue._children.clear)
         with (
             patch.object(merge_queue, "tooling_tree", side_effect=lambda: next(trees)),
             patch.object(merge_queue, "process") as process,
@@ -148,16 +149,17 @@ class QueueTests(unittest.TestCase):
         record = {"tasks": {}, "events": []}
         published = self.root / "data"
         child = type("Child", (), {"pid": 7, "poll": lambda self: None})()
+        self.addCleanup(merge_queue._children.clear)
         cases = (
-            ("live", {}, False),  # live already names main
-            ("other", {"to": "main-head"}, False),  # a row without a data key covered main
-            ("other", {"to": "main-head", "data_key": "data"}, False),  # same data root
-            ("other", {"to": "main-head", "data_key": "old-data"}, True),  # data changed
-            ("other", {"to": "older", "data_key": "data"}, True),
+            ("live", {}, []),  # live already names main
+            ("other", {"to": "main-head"}, []),  # a row without a data key covered main
+            ("other", {"to": "main-head", "data_key": "data"}, []),  # same data root
+            ("other", {"to": "main-head", "data_key": "old-data"}, ["code"]),  # data changed
+            ("other", {"to": "older", "data_key": "data"}, ["code"]),
         )
         for live, last, started in cases:
             with self.subTest(live=live, last=last):
-                merge_queue._child = None
+                merge_queue._children.clear()
                 with (
                     patch.object(merge_queue.s, "git", return_value="main-head"),
                     patch.object(merge_queue.integrator, "running", return_value=None),
@@ -168,20 +170,48 @@ class QueueTests(unittest.TestCase):
                     ),
                     patch.object(merge_queue.integrator, "last", return_value=last),
                     patch.object(merge_queue.integrator, "data_key", return_value="data"),
+                    patch.object(merge_queue.integrator, "data_due", return_value=False),
                     patch.object(merge_queue.integrator, "start", return_value=child) as start,
                 ):
                     self.assertEqual(merge_queue.integrate(record, published), started)
-                    self.assertEqual(start.called, started)
+                    self.assertEqual(start.called, bool(started))
         # A running child is never doubled.
         with (
             patch.object(merge_queue.integrator, "start") as start,
             patch.object(merge_queue.integrator, "running", return_value=None),
+            patch.object(merge_queue.integrator, "data_due", return_value=False),
+            patch.object(merge_queue.s, "git", return_value="main-head"),
         ):
-            self.assertFalse(merge_queue.integrate(record, published))
+            self.assertEqual(merge_queue.integrate(record, published), [])
             start.assert_not_called()
-        merge_queue._child = None
-        with patch.object(merge_queue.integrator, "running", return_value={"to": "x"}):
-            self.assertFalse(merge_queue.integrate(record, published))
+        merge_queue._children.clear()
+        with (
+            patch.object(merge_queue.integrator, "running", return_value={"to": "x"}),
+            patch.object(merge_queue.integrator, "data_due", return_value=False),
+            patch.object(merge_queue.s, "git", return_value="main-head"),
+        ):
+            self.assertEqual(merge_queue.integrate(record, published), [])
+
+    def test_data_lane_starts_beside_a_running_code_lane(self):
+        record = {"tasks": {}, "events": []}
+        child = type("Child", (), {"pid": 8, "poll": lambda self: None})()
+        self.addCleanup(merge_queue._children.clear)
+        lanes = {integrator.NAME: {"to": "x", "data_key": "old"}, integrator.DATA_NAME: None}
+        with (
+            patch.object(merge_queue.s, "git", return_value="main-head"),
+            patch.object(
+                merge_queue.integrator,
+                "running",
+                side_effect=lambda lane=integrator.NAME: lanes[lane],
+            ),
+            patch.object(merge_queue.integrator, "data_due", return_value=True),
+            patch.object(merge_queue.integrator, "start", return_value=child) as start,
+        ):
+            self.assertEqual(merge_queue.integrate(record, self.root / "data"), ["data"])
+            start.assert_called_once_with(self.root / "data", "data")
+            # Its child now runs: the data lane is not doubled either.
+            self.assertEqual(merge_queue.integrate(record, self.root / "data"), [])
+        self.assertIn("data_integration_started", record)
 
     def test_rebase_keeps_merge_history_already_on_main(self):
         # An integration branch merges two branches that each touch line.txt; replaying

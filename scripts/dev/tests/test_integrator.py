@@ -51,14 +51,18 @@ class IntegratorTests(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-q", "-m", "base")
         self.base = self.git("rev-parse", "HEAD")
-        home = self.wt / integrator.NAME
-        home.mkdir(parents=True)
-        self.git("worktree", "add", "-q", "--detach", str(home / "repo"), "main")
-        self.work = home / "work"
-        (home / "sandbox.env").write_text(f"export TURKU3D_WORK={self.work}\n")
+        for lane in (integrator.NAME, integrator.DATA_NAME):
+            home = self.wt / lane
+            home.mkdir(parents=True)
+            self.git("worktree", "add", "-q", "--detach", str(home / "repo"), "main")
+            (home / "sandbox.env").write_text(f"export TURKU3D_WORK={home / 'work'}\n")
         self.release(self.base)
         self.builds = []
         self.classes = []
+        # Hooks run inside the next build: `preparing` before its join point (seed,
+        # refresh), `during` after it (the first expensive stage has started).
+        self.preparing = []
+        self.during = []
         self.chrome_flakes = 0
 
     def git(self, *args, cwd=None):
@@ -99,12 +103,31 @@ class IntegratorTests(unittest.TestCase):
         live_build.publish(self.published, commit)
 
     def fake_build(
-        self, repo, work, published, env, log, reason=None, previous=None, landing_class="code"
+        self,
+        repo,
+        work,
+        published,
+        env,
+        log,
+        reason=None,
+        previous=None,
+        landing_class="code",
+        join=None,
     ):
-        """Stands in for the real stages: red on game/bad.ts, real facade inspection."""
+        """Stands in for the real stages: red on game/bad.ts, real facade inspection.
+
+        Before its first expensive stage it calls join, like live_build.build, and then
+        rebuilds the joined head; `self.during` runs as that stage starts.
+        """
+        if self.preparing:
+            self.preparing.pop(0)()
+        if join and (update := join()):
+            landing_class = update["landing_class"]
+        self.assertEqual(previous, (published / "live").resolve())
         self.builds.append(self.git("rev-parse", "HEAD", cwd=repo))
         self.classes.append(landing_class)
-        self.assertEqual(previous, (published / "live").resolve())
+        if self.during:
+            self.during.pop(0)()
         log.write_text("== tile-build: make tile-build ==\n")
         if (repo / "game/bad.ts").exists():
             raise live_build.StageFailed("tile-build", f"tile-build failed (2); {log}")
@@ -210,6 +233,107 @@ class IntegratorTests(unittest.TestCase):
         self.land("tooling", "scripts/dev/watch.py", "print()")
         row = self.integrate()
         self.assertEqual((row["class"], row["result"], self.classes), ("code", "green", ["code"]))
+
+    def test_landing_during_preparation_joins_the_batch(self):
+        self.land("one", "docs/one.md", "prose")
+        self.approve(3)
+        later = []
+        self.preparing.append(lambda: later.append(self.land("two", "game/b.ts", "b")))
+        row = self.integrate()
+        # The joined head is built once; the batch became code with the joined landing.
+        self.assertEqual(
+            (row["result"], row["to"], row["batch_joined"]), ("green", later[0], later)
+        )
+        self.assertEqual((self.builds, self.classes, row["class"]), (later, ["code"], "code"))
+        self.assertEqual(integrator.live_commit(self.published), later[0])
+
+    def test_landing_after_the_first_expensive_stage_waits_for_the_next_run(self):
+        head = self.land("one", "game/a.ts", "a")
+        late = []
+        self.during.append(lambda: late.append(self.land("late", "game/b.ts", "b")))
+        row = self.integrate()
+        self.assertEqual((row["to"], row["batch_joined"]), (head, []))
+        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertEqual(
+            (self.integrate()["from"], integrator.live_commit(self.published)), (head, late[0])
+        )
+
+    def test_data_lane_publishes_live_commit_with_new_data(self):
+        self.assertFalse(integrator.data_due(self.published, self.main))
+        self.approve(3)
+        self.assertTrue(integrator.data_due(self.published, self.main))
+        with patch.object(live_build, "build", side_effect=self.fake_build):
+            row = integrator.run_data(self.published, self.main)
+        key = row["data_key"]
+        self.assertEqual((row["lane"], row["result"], row["class"]), ("data", "green", "data"))
+        self.assertEqual(
+            (row["from"], row["to"], row["data_delta"]),
+            (self.base, self.base, ["facade-approvals"]),
+        )
+        self.assertEqual(self.classes, ["data"])
+        # Same commit, new data: a release of its own next to the code release.
+        self.assertEqual(integrator.live_commit(self.published), self.base)
+        live = (self.published / "live").resolve()
+        self.assertEqual(live.name, f"{self.base}-{key[:12]}")
+        self.assertEqual(
+            json.loads((live / "textures/assembly/MANIFEST.json").read_text())["bound"][2], "wall-2"
+        )
+        self.assertFalse(integrator.data_due(self.published, self.main))
+        # Data-lane rows never settle or unsettle the code lane.
+        self.assertNotEqual(integrator.last(self.published).get("lane"), "data")
+
+    def test_data_lane_waits_while_main_or_the_code_lane_covers_the_data(self):
+        self.approve(3)
+        head = self.land("game", "game/a.ts", "a")
+        # Main moved: the code lane's next run covers the new data.
+        self.assertFalse(integrator.data_due(self.published, self.main))
+        key = integrator.data_key(self.published)
+        lanes = {integrator.DATA_NAME: None}
+        with patch.object(
+            integrator, "running", side_effect=lambda lane=integrator.NAME: lanes[lane]
+        ):
+            for code_key, due in ((key, False), ("older", True)):
+                lanes[integrator.NAME] = {"to": head, "data_key": code_key}
+                self.assertEqual(integrator.data_due(self.published, self.main), due, code_key)
+
+    def test_code_lane_rebuilds_on_top_of_a_data_release_published_meanwhile(self):
+        head = self.land("game", "game/a.ts", "a")
+        data = []
+
+        def data_lane():
+            self.approve(3)
+            data.append(integrator.run_data(self.published, self.main))
+
+        self.during.append(data_lane)
+        row = self.integrate()
+        self.assertEqual(data[0]["result"], "green")
+        self.assertEqual(
+            (row["result"], row["rebuilt_on"]), ("green", f"{self.base}-{data[0]['data_key'][:12]}")
+        )
+        # Code build, the data lane's build of G, then the data rebuild of M on top.
+        self.assertEqual(self.classes, ["code", "data", "data"])
+        self.assertEqual(self.builds, [head, self.base, head])
+        live = self.published / "live"
+        self.assertEqual(integrator.live_commit(self.published), head)
+        self.assertEqual(
+            len(json.loads((live / "textures/assembly/MANIFEST.json").read_text())["bound"]), 3
+        )
+
+    def test_data_lane_never_publishes_over_a_newer_code_release(self):
+        self.approve(3)
+        code = []
+
+        def code_lane():
+            self.land("game", "game/a.ts", "a")
+            code.append(integrator.run_once(self.published, self.main))
+
+        self.during.append(code_lane)
+        with patch.object(live_build, "build", side_effect=self.fake_build):
+            row = integrator.run_data(self.published, self.main)
+        self.assertEqual((code[0]["result"], row["result"]), ("green", "superseded"))
+        self.assertEqual(integrator.live_commit(self.published), code[0]["to"])
+        # The code release already carries the new data; nothing is left for the data lane.
+        self.assertFalse(integrator.data_due(self.published, self.main))
 
     def test_bad_commit_in_batch_of_five_is_bisected_and_reverted(self):
         commits = [

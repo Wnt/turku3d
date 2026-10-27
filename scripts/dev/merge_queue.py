@@ -170,26 +170,40 @@ def land(name, record):
     give_back(name, reason, record, notify=meta.get("state") != "returned")
 
 
-_child = None
+_children = {}
+
+
+def busy(lane):
+    child = _children.get(lane)
+    return bool(child and child.poll() is None) or bool(integrator.running(integrator.LANES[lane]))
 
 
 def integrate(record, published):
-    """Start one integration child when main or the data root moved past the last run."""
-    global _child
-    if (_child and _child.poll() is None) or integrator.running():
-        return False
+    """Start the code lane when main or the data root moved past its last run, and the data
+    lane when the data root changed beyond what the code lane covers; returns the lanes started.
+    """
+    started = []
     main = s.git("rev-parse", "main")
-    if integrator.settled(published, main):
-        return False
-    _child = integrator.start(published)
-    record["integration_started"] = {"time": time.time(), "to": main, "pid": _child.pid}
-    save(record)
-    return True
+    if not busy("code") and not integrator.settled(published, main):
+        _children["code"] = integrator.start(published, "code")
+        record["integration_started"] = {
+            "time": time.time(),
+            "to": main,
+            "pid": _children["code"].pid,
+        }
+        started.append("code")
+    if not busy("data") and integrator.data_due(published):
+        _children["data"] = integrator.start(published, "data")
+        record["data_integration_started"] = {"time": time.time(), "pid": _children["data"].pid}
+        started.append("data")
+    if started:
+        save(record)
+    return started
 
 
 def integrating():
-    """True while this daemon's integration child runs."""
-    return bool(_child and _child.poll() is None)
+    """True while one of this daemon's integration children runs."""
+    return any(child.poll() is None for child in _children.values())
 
 
 def tooling_tree():
@@ -259,6 +273,7 @@ def status():
                 "waiting_to_land": ready(record),
                 "last_landing": landed[-1] if landed else None,
                 "integration": integrator.running(),
+                "integration_data": integrator.running(integrator.DATA_NAME),
                 "main": main,
                 "live": live,
                 "live_behind_main": int(s.git("rev-list", "--count", f"{live}..{main}"))
