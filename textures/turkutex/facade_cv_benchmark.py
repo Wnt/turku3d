@@ -16,7 +16,15 @@ from .facade_fast_render import adopt, register_description, validate
 from .facade_style import lab as srgb_to_lab
 
 
-def benchmark(fixture: Path, assembly: Path, output: Path, segmentation: str):
+def benchmark(
+    fixture: Path,
+    assembly: Path,
+    output: Path,
+    segmentation: str,
+    *,
+    measure_fn=None,
+    engine="cv",
+):
     plan = json.loads((fixture / "plan.json").read_text())
     colours = {r[0]: r[3] for r in json.loads((fixture / "colour.json").read_text())}
     astra = {
@@ -35,9 +43,11 @@ def benchmark(fixture: Path, assembly: Path, output: Path, segmentation: str):
         truth = meta.get("generated_qa", {}).get("visual_qa_answer", {})
         start = time.monotonic()
         with Image.open(fixture / "inputs" / f"{fid}.jpg") as image:
-            answer, sidecar = measure(
-                np.asarray(image.convert("RGB")), fid, wall["width_m"], wall["height_m"], segmenter
-            )
+            rgb = np.asarray(image.convert("RGB"))
+            if measure_fn is None:
+                answer, sidecar = measure(rgb, fid, wall["width_m"], wall["height_m"], segmenter)
+            else:
+                answer, sidecar = measure_fn(rgb, fid, wall["width_m"], wall["height_m"])
         seconds = time.monotonic() - start
         if validate(answer, fid):
             raise ValueError(validate(answer, fid))
@@ -113,6 +123,7 @@ def benchmark(fixture: Path, assembly: Path, output: Path, segmentation: str):
             astra=sum(r["astra"][field] == r[expected] for r in valid if r["astra"]),
         )
     summary = dict(
+        engine=engine,
         segmentation=segmentation,
         walls=len(rows),
         model_load_seconds=round(load_seconds, 3),
@@ -136,8 +147,32 @@ def main():
     parser.add_argument("--assembly", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--segmentation", choices=("classic", "segformer"), default="classic")
+    parser.add_argument("--engine", choices=("cv", "cv-priors"), default="cv")
     args = parser.parse_args()
-    benchmark(args.fixture, args.assembly, args.output, args.segmentation)
+    measure_fn = None
+    if args.engine == "cv-priors":
+        from turku3d import config
+
+        from .facade_derive import building_attributes
+        from .facade_priors import Engine
+
+        walls = json.loads((args.fixture / "plan.json").read_text())["walls"]
+        attributes = building_attributes(
+            config.raw_dir("wfs/work-3x3"), {r["building_id"] for r in walls}
+        )
+        model = Engine()
+
+        def measure_fn(rgb, fid, width, height):
+            return model.measure(rgb, fid, width, height, attributes.get(fid.rsplit("_", 1)[0], {}))
+
+    benchmark(
+        args.fixture,
+        args.assembly,
+        args.output,
+        args.segmentation,
+        measure_fn=measure_fn,
+        engine=args.engine,
+    )
 
 
 if __name__ == "__main__":

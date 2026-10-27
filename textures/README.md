@@ -663,3 +663,17 @@ label truth is excluded from scoring. The emergency pilot makes no improve/image
 ### Local CV describe experiment
 
 `facade_fast describe --engine cv` reads the existing wall-plane-rectified crops without network calls or quota use; install with `uv pip install --python .venv/bin/python -e './textures[cv]'`. Use a separate run directory with its own `plan.json`: `.venv/bin/python -m turkutex.facade_fast describe --engine cv --run "$RUN" --inventory "$FACADES" --refs "$REFS"`. Classic OpenCV measures Lab clusters, opening projections and appearance rules; `--segmentation segformer` adds NVIDIA's ADE20K building/occluder mask after the explicit download `.venv/bin/python -m turkutex.facade_cv prepare-model` (15 MB, immutable publisher revision, `~/turku3d/tools/cv/segformer-b0-ade/`). Inference always loads local files. The unchanged description schema goes to `run_describe/out.jsonl`; `confidence/<wall>.json` and record/render sidecars carry uncalibrated per-field confidence and `needs_review`. This experiment failed the original 20-wall accuracy threshold, so Astra remains the default and CV results must be reviewed before entering the bulk parameter store. Roof/material/features use weak appearance rules; balconies, arcades, and non-plaster/non-brick materials remain unresolved. Reproduce the numeric benchmark with `.venv/bin/python -m turkutex.facade_cv_benchmark --fixture "$FIXTURE" --assembly "$TURKU3D_DATA/facade-approvals/assembly" --output "$TURKU3D_WORK/reports/cv.json" [--segmentation segformer]`, where `FIXTURE` is the original fast pass's `work/textures/fast-measure` directory; all imagery remains local.
+
+`--engine cv-priors` adds an offline research variant with register/geometry tree heads and
+an appearance-to-colour ridge head, exported as JSON. It reads the existing
+`raw/wfs/work-3x3` register and needs NumPy, OpenCV, SciPy and the usual texture dependencies;
+it does not import torch or sklearn at describe time and needs no pretrained download.
+Use a separate run: `.venv/bin/python -m turkutex.facade_fast describe --engine cv-priors
+--run "$RUN" --inventory "$FACADES" --refs "$REFS"`. Score with
+`.venv/bin/python -m turkutex.facade_cv_benchmark --engine cv-priors --fixture "$FIXTURE"
+--assembly "$TURKU3D_DATA/facade-approvals/assembly" --output "$TURKU3D_WORK/reports/priors.json"`.
+Confidence sidecars identify the 33-wall held-out pseudo-label calibration and always require
+review; this variant also fails the count target, so Astra remains the default. Lidar and
+frozen DINOv2 experiments, grouped splits, learning curves, pinned preparation commands and
+the distinction between 278 direct labels and 147 fallbacks are documented in
+[the priors report](../docs/research/facade-cv-priors.md).
