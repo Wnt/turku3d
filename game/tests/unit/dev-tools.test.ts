@@ -205,11 +205,12 @@ describe('Developer pages', () => {
   });
   test('the pause menu lists Developer before Quit only where the tools run', () => {
     const store = new SaveStore(null, missionSummary);
-    const hooks: GameHooks = { capture: () => { throw new Error('unused'); }, play: () => {}, resume: () => {}, quit: () => {} };
+    const hooks: GameHooks = { capture: () => { throw new Error('unused'); }, play: () => {}, resume: () => {}, quit: () => {},
+      respawn: () => {} };
     const host = { show: () => {} };
     let opened = 0;
     const withDev = new SaveMenuFlow(host, store, hooks, undefined, undefined, () => { opened++; }).pause();
-    expect(withDev.items.map(i => i.id)).toEqual(['resume', 'save', 'load', 'new', 'dev', 'quit']);
+    expect(withDev.items.map(i => i.id)).toEqual(['resume', 'respawn', 'save', 'load', 'new', 'dev', 'quit']);
     withDev.items.find(i => i.id === 'dev')!.run();
     expect(opened).toBe(1);
     expect(new SaveMenuFlow(host, store, hooks).pause().items.map(i => i.id)).not.toContain('dev');

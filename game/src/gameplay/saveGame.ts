@@ -33,6 +33,11 @@ export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 
 
 type Pose = V3 & { yaw: number };
 
+/** The kerb 5.5 m behind a parked car (`yaw` turns the chassis +X axis): where a second vehicle waits beside it. */
+export function kerbBehind(car: Pose): Pose {
+  return { x: car.x - 5.5 * Math.cos(car.yaw), y: car.y, z: car.z + 5.5 * Math.sin(car.yaw), yaw: car.yaw };
+}
+
 interface SaveGameOptions {
   physics: PhysicsClient; streamer: CollisionStreamer; manifest: Manifest; missions: MissionSystem; recovery: SafeReset;
   saves: SaveStore; startScreen: StartScreen; pauseMenu: PauseMenu; clockControl: TimeControl;
@@ -77,6 +82,7 @@ export class SaveGameController {
       capture: () => this.capture(),
       play: game => this.play(game),
       resume: () => { o.pauseMenu.close(); o.setPaused(false); },
+      respawn: () => { void this.respawn().catch(o.fail); },
       quit: () => {
         o.onQuit?.();
         this.autosave.save('quit');
@@ -170,8 +176,8 @@ export class SaveGameController {
     const carY = saved && !scooter ? await this.snap(car) : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + 0.75, z: car.z }, car.yaw, OWN_VEHICLE_ID);
     if (scooter) {
-      // The saved scooter, or (a save from before the scooter) at the kerb 5.5 m behind the start car.
-      const at = saved ?? { x: car.x - 5.5 * Math.cos(car.yaw), y: car.y, z: car.z + 5.5 * Math.sin(car.yaw), yaw: car.yaw };
+      // The saved scooter, or (a save from before the scooter) at the kerb behind the start car.
+      const at = saved ?? kerbBehind(car);
       const y = await this.snap(at);
       physics.spawnVehicle({ x: at.x, y: y + 0.55, z: at.z }, at.yaw, { id: SCOOTER_ID, kind: 'scooter' });
     }
@@ -186,17 +192,46 @@ export class SaveGameController {
    * placed like a loaded game (the world waits paused, safe reset restarts there). Without ground (outside the
    * built area) the player arrives at TELEPORT_AIR_HEIGHT; resolves whether ground was found.
    */
-  async teleport(E: number, N: number, headingDeg: number): Promise<boolean> {
-    this.o.pauseMenu.close();
-    this.loading = true;
-    this.o.setPaused(true);
-    try {
+  teleport(E: number, N: number, headingDeg: number): Promise<boolean> {
+    return this.relocating(async () => {
       if (this.o.view().mode === 'car') this.o.leaveCar();
       const at = enToEngine(E, N, 0);
       await this.settle(at.x, at.z);
       const ground = (await this.o.physics.raycast({ x: at.x, y: 500, z: at.z }, down, 1000))?.point.y ?? null;
       await this.putCharacter({ x: at.x, y: ground ?? TELEPORT_AIR_HEIGHT, z: at.z }, headingToYaw(headingDeg));
       return ground !== null;
+    });
+  }
+
+  /**
+   * Respawn at the start (the pause menu, every build): the player goes back to where a new game starts, with the
+   * ground snap and safe-reset restart of a loaded game; money, missions and a running order are untouched. Vehicles
+   * stay where they are, except the driven one: the own car returns to its start parking, any other to the kerb
+   * behind it.
+   */
+  respawn(): Promise<void> {
+    return this.relocating(async () => {
+      const { physics, spawn, car } = this.o;
+      const view = this.o.view();
+      if (view.mode === 'car') {
+        this.o.leaveCar();
+        if (view.drivenId) {
+          const spot = view.drivenId === OWN_VEHICLE_ID ? car : kerbBehind(car);
+          const y = await this.snap(spot);
+          physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, view.drivenId);
+        }
+      }
+      await this.putCharacter({ x: spawn.x, y: await this.snap(spawn), z: spawn.z }, spawn.yaw);
+    });
+  }
+
+  /** Closes the pause menu and keeps the world paused (`loading`) while `work` moves the player. */
+  private async relocating<T>(work: () => Promise<T>): Promise<T> {
+    this.o.pauseMenu.close();
+    this.loading = true;
+    this.o.setPaused(true);
+    try {
+      return await work();
     } finally {
       this.loading = false;
       this.o.setPaused(false);
