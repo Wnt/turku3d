@@ -711,3 +711,21 @@ unqueried fields. Benchmark `--short` tests the compact five-field VLM prompt; `
 controls VLM thumbnail side or detector shortest edge. Florence needs its separate pinned
 runtime; [the research scripts](../tools/research/facade_models/README.md) reproduce it and
 the material probe. None of the experimental confidence scores is a calibrated probability.
+
+### Facade input transforms
+
+The refs rectifier directly samples panorama rays at wall-plane pixel centres. Its reusable
+API is `streetview.rectify.rectified_points(corners, pixels_per_metre=32, max_side=2048)`
+and `sample_wall(rgb, camera_model, points, camera_position)`. Coordinates are ENH; corners
+are bottom-left, bottom-right, top-right, top-left. The existing long-side API remains available.
+Re-render a saved pose from a local panorama (including a higher resolution of the same panorama):
+
+```sh
+PYTHONPATH=textures:pipeline .venv/bin/python -m turkutex.streetview.rectify \
+  --view "$REFS/$WALL/$VIEW.json" --panorama "$PANO" \
+  --pixels-per-metre 32 --max-side 2048 --output "$TURKU3D_WORK/reports/wall.png"
+```
+
+The PNG and coverage mask are local street imagery and must never be committed. A source-coverage
+mask does not detect occluders. Rectification uses the recorded provider pose conventions,
+including their existing pitch/roll limitation; it cannot fix an inaccurate pose or wrong wall.

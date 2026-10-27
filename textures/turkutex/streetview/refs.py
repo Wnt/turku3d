@@ -37,6 +37,7 @@ from turku3d import config
 from . import camera as C
 from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
+from .rectify import rectified_points, sample_wall
 
 REFS_VERSION = "4-screened-fallback"
 
@@ -83,20 +84,6 @@ def screen_problem(screen: dict) -> str | None:
 
 def source_rank(source: str) -> int:
     return SOURCE_ORDER.index(source) if source in SOURCE_ORDER else len(SOURCE_ORDER)
-
-
-def rectified_points(corners: np.ndarray, long_side: int) -> np.ndarray:
-    """Wall-plane pixel centres, left to right and top to bottom (ENH)."""
-    width = float(np.linalg.norm(corners[1] - corners[0]))
-    height = float(np.linalg.norm(corners[3] - corners[0]))
-    scale = long_side / max(width, height)
-    w, h = max(16, round(width * scale)), max(16, round(height * scale))
-    u, v = np.meshgrid((np.arange(w) + 0.5) / w, 1 - (np.arange(h) + 0.5) / h)
-    return (
-        corners[0]
-        + u[..., None] * (corners[1] - corners[0])
-        + v[..., None] * (corners[3] - corners[0])
-    )
 
 
 @dataclass
@@ -390,13 +377,8 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
         img[~visible] = 0
     points = rectified_points(e["corners"], P.long_side)
     directions = points - cam.pos
-    ru, rv = equirect_model(m).uv_from_dir(directions, equi.shape[1], equi.shape[0])
-    rectified = C.sample_bilinear(equi, ru, rv)
-    rect_mask = np.full(points.shape[:2], 255, dtype=np.uint8)
-    if hasattr(model, "project"):
-        _, _, visible = model.project(directions, equi.shape[1], equi.shape[0])
-        rectified[~visible] = 0
-        rect_mask[~visible] = 0
+    rectified, visible = sample_wall(equi, model, points, cam.pos)
+    rect_mask = visible.astype(np.uint8) * 255
     del equi
     t, inside = C.facade_hits(cam, e["corners"])
     mask = np.where(inside, 255, 0).astype(np.uint8)
