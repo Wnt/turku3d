@@ -33,7 +33,7 @@ FORMAT = "turku3d-tile-quality"
 VERSION = 1
 LEDGER = "tile-quality.json"  # in the data root
 DIST_LEDGER = "quality.json"  # in a tile dist tree
-SOURCES = ("generate", "derived", "derived-neighbour", "other", "none")
+SOURCES = ("generate", "derived", "derived-neighbour", "fast", "other", "none")
 GENERATED = ("generate", "derived", "derived-neighbour")
 
 
@@ -50,6 +50,8 @@ def source_of(meta: dict) -> str:
         return "generate" if meta.get("generated_qa") else "other"
     if mode in ("derived", "derived-neighbour") and meta.get("derived_from"):
         return mode
+    if mode == "fast" and meta.get("fast_description") and not meta.get("references"):
+        return "fast"  # procedural from photo-read parameters: covered, but rough (below derived)
     return "other"
 
 
@@ -140,6 +142,10 @@ def measure(tiles: Path, layers: Path, assembly: Path) -> dict[str, dict]:
             "street_facades": street,
             # None: no street-facing wall to cover (a park or a quay).
             "facade_coverage": round(sum(area[k] for k in GENERATED) / total, 4) if total else None,
+            # Street-facing wall area with any shippable map, rough fast maps included.
+            "rough_coverage": (
+                round(sum(area[k] for k in (*GENERATED, "fast")) / total, 4) if total else None
+            ),
             "ground": ground_kind(entry),
             "trees": int(trees.get(tid, {}).get("trees", 0)),
             "parked_cars": cars.get(tid, 0),
@@ -312,7 +318,7 @@ def table(tiles: dict) -> str:
         "build s",
         "wire MB",
         "bldgs",
-        "facades gen/der/nbr/other/none",
+        "facades gen/der/nbr/fast/other/none",
         "street cov",
         "ground",
         "trees",
