@@ -25,7 +25,8 @@ procedural wall material and its colour. The orchestrator decides what joins the
 Per landmark, inside its owner tile's build (the L0 tile holding most of the footprint, as for
 buildings):
 
-1. Class 6 returns within 1 m of the footprint, ground (class 2) returns in a 3 m ring.
+1. Configured lidar classes within 1 m of the footprint (class 6 by default), ground
+   (class 2) returns in a 3 m ring. The boat uses classes 1 and 12 and a water-based hull draft.
 2. A heightfield of the highest return per cell; empty cells take their nearest neighbour,
    a cell 3 m above all eight neighbours is clipped to them.
 3. Greedy insertion into a constrained Delaunay triangulation of the footprint rings (holes
@@ -46,4 +47,8 @@ stay whole in the 500 m and 1 km parents because they are seen from afar.
 
 Inputs: `kanta_Rakennus` and `GIS_Rakennukset` of the tile's source area, the pistepilvi LAZ
 under it and `raw/ortho/ortho2022to/<source area>.vrt`. No street imagery is read.
-Measurements of the cathedral prototype: `docs/reports/tool-landmark-meshes.md`.
+The allowlist contains Turku Cathedral (`103371570S`, owner tile `t0_3_-1`) and the
+restaurant boat at Itäinen Rantakatu 11 (owner tile `t0_0_1`). Existing sandbox packaging
+measured the cathedral tile at 7,756,116 wire bytes (3,890,833 visual + 3,865,283 ground
+textures), below the 8,000,000-byte cap, with the 40,000-triangle cathedral visual budget.
+Boat surface spikes and collision accuracy near the cathedral spire remain playtest follow-ups.
