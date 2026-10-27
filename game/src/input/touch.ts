@@ -12,7 +12,7 @@ const PINCH_ZOOM = 10;
 export type TouchContext = 'hidden' | 'foot' | 'car' | 'menu' | 'paused';
 
 interface Region { kind: 'stick' | 'look'; x: number; y: number; ox: number; oy: number }
-export interface TouchFrame { actions: Actions; taps: ReadonlySet<Action>; lookX: number; lookY: number; zoom: number }
+interface TouchFrame { actions: Actions; taps: ReadonlySet<Action>; lookX: number; lookY: number; zoom: number }
 
 /** Pointer bookkeeping without DOM: one stick pointer, up to two look pointers (pinch) and any number of buttons. */
 export class TouchPad {

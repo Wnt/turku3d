@@ -1,7 +1,6 @@
 import { ACTIONS, DEFAULT_BINDINGS, emptyActions, glyph, mapActions, clamp, type Action, type Actions, type Binding, type Bindings } from './bindings';
 import { TouchOverlay, TouchPad, type TouchContext } from './touch';
 export * from './bindings';
-export type { TouchContext } from './touch';
 export type InputSource = 'keyboard' | 'gamepad' | 'touch';
 
 /** Radians of camera turn per CSS px of mouse movement or look drag. */
