@@ -1,0 +1,305 @@
+# Images published in the public repository: path, source, licence and a one-line reason.
+# The gate's policy stage (scripts/dev/checks.py, check_published_images) requires an entry for
+# an image under docs/, textures/, qa/, game/public/ or tests/ that is larger than 512 KiB or whose
+# path, sidecar or Markdown caption carries a street-imagery marker. Street-level imagery
+# (Google Street View, Apple Look Around, Mapillary, Bing Streetside) can never be listed.
+
+[[images]]
+path = "docs/reports/lidar-relief-map.jpg"
+source = "City of Turku 2021 lidar relief over the 2022 true orthophoto"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Lidar relief report figure"
+
+[[images]]
+path = "docs/reports/player-look/after/webgl-idle.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look after evidence, webgl idle"
+
+[[images]]
+path = "docs/reports/player-look/after/webgl-run.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look after evidence, webgl run"
+
+[[images]]
+path = "docs/reports/player-look/after/webgl-walk.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look after evidence, webgl walk"
+
+[[images]]
+path = "docs/reports/player-look/after/webgpu-idle.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look after evidence, webgpu idle"
+
+[[images]]
+path = "docs/reports/player-look/after/webgpu-run.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look after evidence, webgpu run"
+
+[[images]]
+path = "docs/reports/player-look/after/webgpu-walk.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look after evidence, webgpu walk"
+
+[[images]]
+path = "docs/reports/player-look/before/webgl-idle.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look before evidence, webgl idle"
+
+[[images]]
+path = "docs/reports/player-look/before/webgl-run.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look before evidence, webgl run"
+
+[[images]]
+path = "docs/reports/player-look/before/webgl-walk.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look before evidence, webgl walk"
+
+[[images]]
+path = "docs/reports/player-look/before/webgpu-idle.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look before evidence, webgpu idle"
+
+[[images]]
+path = "docs/reports/player-look/before/webgpu-run.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look before evidence, webgpu run"
+
+[[images]]
+path = "docs/reports/player-look/before/webgpu-walk.png"
+source = "Turku3D Chrome capture of the synthetic render fixture"
+licence = "MIT (this repository)"
+reason = "Player look before evidence, webgpu walk"
+
+[[images]]
+path = "docs/reports/w1-09b-facades/before-sv_01.png"
+source = "Turku3D Chrome capture at registry street-level pose sv_01 (a game render, not a photo)"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade batch before view"
+
+[[images]]
+path = "docs/reports/w1-09b-facades/before-sv_02.png"
+source = "Turku3D Chrome capture at registry street-level pose sv_02 (a game render, not a photo)"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade batch before view"
+
+[[images]]
+path = "docs/reports/w1-09b-facades/before-sv_03.png"
+source = "Turku3D Chrome capture at registry street-level pose sv_03 (a game render, not a photo)"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Facade batch before view"
+
+[[images]]
+path = "docs/reports/w1-13b-curbs-map.jpg"
+source = "Measured curb breaklines over the City of Turku 2022 true orthophoto"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Curb measurement report figure"
+
+[[images]]
+path = "docs/reports/w1-14-trees.jpg"
+source = "Turku3D Chrome capture of the vegetation layer"
+licence = "MIT (this repository); shows City of Turku data, CC BY 4.0"
+reason = "Tree layer report figure"
+
+[[images]]
+path = "docs/research/ai-textures/albedo_bay.jpg"
+source = "Codex image_gen albedo generated from ref_facade_LR27b.jpg"
+licence = "Derived from a CC0 1.0 photo; project-owned"
+reason = "AI texture research sample t1"
+
+[[images]]
+path = "docs/research/ai-textures/cmp_tiling.jpg"
+source = "2x2 tiling comparison of generated roof and paving textures"
+licence = "Project-owned (MIT repository)"
+reason = "AI texture research sample t3/t8"
+
+[[images]]
+path = "docs/research/ai-textures/crop_darkroof.png"
+source = "City of Turku 2022 true orthophoto crop, 5 cm/px"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Aerial roof reference for sample t4"
+
+[[images]]
+path = "docs/research/ai-textures/crop_promenade.png"
+source = "City of Turku 2022 true orthophoto crop, 5 cm/px"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Aerial promenade reference for sample t3"
+
+[[images]]
+path = "docs/research/ai-textures/crop_tileroof.png"
+source = "City of Turku 2022 true orthophoto crop, 5 cm/px"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Aerial roof reference for sample t4"
+
+[[images]]
+path = "docs/research/ai-textures/facade_cleaned.jpg"
+source = "Codex image_gen edit of ref_facade_LR27b.jpg"
+licence = "Derived from a CC0 1.0 photo; project-owned"
+reason = "AI texture research sample t6"
+
+[[images]]
+path = "docs/research/ai-textures/facade_regen.jpg"
+source = "Codex image_gen facade inspired by ref_facade_LR21.jpg"
+licence = "Derived from a CC0 1.0 photo; project-owned"
+reason = "AI texture research sample t2"
+
+[[images]]
+path = "docs/research/ai-textures/ground_paving.jpg"
+source = "Codex image_gen paving albedo from crop_promenade.png"
+licence = "Derived from CC BY 4.0 City of Turku aerial imagery; project-owned"
+reason = "AI texture research sample t3"
+
+[[images]]
+path = "docs/research/ai-textures/height_bay.jpg"
+source = "Codex image_gen height attempt from albedo_bay.jpg"
+licence = "Derived from a CC0 1.0 photo; project-owned"
+reason = "AI texture research sample t7"
+
+[[images]]
+path = "docs/research/ai-textures/normal_bay_from_height.jpg"
+source = "Local Sobel normal map from height_bay.jpg"
+licence = "Derived from a CC0 1.0 photo; project-owned"
+reason = "AI texture research sample t7"
+
+[[images]]
+path = "docs/research/ai-textures/quay_edge_trim.jpg"
+source = "Codex image_gen quay trim from crop_promenade.png"
+licence = "Derived from CC BY 4.0 City of Turku aerial imagery; project-owned"
+reason = "AI texture research sample t3"
+
+[[images]]
+path = "docs/research/ai-textures/ref_facade_LR21.jpg"
+source = "Wikimedia Commons File:Läntinen_Rantakatu_21_by_Erik_Bryggman.jpg by Kotivalo (https://commons.wikimedia.org/wiki/File:L%C3%A4ntinen_Rantakatu_21_by_Erik_Bryggman.jpg), 1920 px thumbnail, downscaled"
+licence = "CC0 1.0 (verified on the Commons file page 2026-10-27)"
+reason = "Reference photo for samples t2 and t5"
+
+[[images]]
+path = "docs/research/ai-textures/ref_facade_LR27b.jpg"
+source = "Wikimedia Commons File:Läntinen_rantakatu_27b,_Turku.jpg by Jonnikjonnik (https://commons.wikimedia.org/wiki/File:L%C3%A4ntinen_rantakatu_27b,_Turku.jpg), 1920 px thumbnail, downscaled"
+licence = "CC0 1.0 (verified on the Commons file page 2026-10-27)"
+reason = "Reference photo for samples t1, t5 and t6"
+
+[[images]]
+path = "docs/research/ai-textures/ref_ortho_pilot_2022_trueortho.jpg"
+source = "City of Turku 2022 true orthophoto of the pilot block"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Aerial reference for the pilot area"
+
+[[images]]
+path = "docs/research/ai-textures/roof_claytile.jpg"
+source = "Codex image_gen roof albedo from crop_tileroof.png"
+licence = "Derived from CC BY 4.0 City of Turku aerial imagery; project-owned"
+reason = "AI texture research sample t4"
+
+[[images]]
+path = "docs/research/ai-textures/roof_standingseam.jpg"
+source = "Codex image_gen roof albedo from crop_darkroof.png"
+licence = "Derived from CC BY 4.0 City of Turku aerial imagery; project-owned"
+reason = "AI texture research sample t4"
+
+[[images]]
+path = "docs/research/ai-textures/verify_claytile_nordic_2x2.jpg"
+source = "Codex image_gen Nordic clay tile, tiled 2x2"
+licence = "Project-owned (MIT repository)"
+reason = "AI texture verification v1"
+
+[[images]]
+path = "docs/research/ai-textures/verify_deepbump_sheet.jpg"
+source = "DeepBump normal and height maps from albedo_bay.jpg"
+licence = "Derived from a CC0 1.0 photo; project-owned"
+reason = "AI texture verification of local tools"
+
+[[images]]
+path = "docs/research/img/sheet.jpg"
+source = "City of Turku aerial and drone orthophoto layers, one crop each"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Aerial imagery resolution comparison"
+
+[[images]]
+path = "docs/research/img/slope-brahe2.png"
+source = "Slope raster from City of Turku lidar with base map curb lines"
+licence = "CC BY 4.0, © City of Turku"
+reason = "Curb data research figure"
+
+[[images]]
+path = "game/public/assets/ui/bg_dealer.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu background"
+
+[[images]]
+path = "game/public/assets/ui/bg_market.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu background"
+
+[[images]]
+path = "game/public/assets/ui/bg_pizzeria.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu background"
+
+[[images]]
+path = "game/public/assets/ui/icon_bicycle.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_car.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_coins.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_kidney.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_permit.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_pizza_box.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_plates.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_slice.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
+
+[[images]]
+path = "game/public/assets/ui/icon_warning.webp"
+source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+licence = "Project-owned (MIT repository)"
+reason = "Shop menu icon"
