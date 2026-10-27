@@ -1,0 +1,30 @@
+{
+  "description": {
+    "facade_id": "103295893K_36",
+    "wall_visible": true,
+    "problem": "",
+    "material": "wood",
+    "wall_colour": "#8d8069",
+    "trim_colour": "#a09277",
+    "storeys": 1,
+    "window_columns": 0,
+    "window_width": 0,
+    "window_height": 0,
+    "ground_floor": "windows",
+    "ground_openings": 5,
+    "roof_line": "eaves",
+    "plinth": true,
+    "features": [
+      "pilasters",
+      "ornament"
+    ]
+  },
+  "wall": {
+    "facade_id": "103295893K_36",
+    "building_id": "103295893K",
+    "tile": "t0_0_1",
+    "width_m": 11.032,
+    "height_m": 6.984,
+    "current": "none"
+  }
+}
