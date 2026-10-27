@@ -17,6 +17,7 @@ from turku3d.lidar import (
     small_objects,
     surfaces,
 )
+from turku3d.lidar import walls as walls_mod
 
 
 def step_cloud(step=0.12, slope=0.04):
@@ -189,3 +190,86 @@ def test_comparison_counts_missing_mesh_as_failure():
     assert report["before"]["mesh_step_fraction"] == 0
     assert report["after"]["mesh_step_fraction"] == pytest.approx(2 / 3)
     assert report["after"]["missing_mesh_profiles"] == 1
+
+
+# Wall-frame projection of lidar points (turku3d.lidar.walls).
+
+E0, N0 = 23459600.0, 6704300.0
+
+
+def wall(outward="right"):
+    # 10 m wall running east; "right" of p0->p1 is south.
+    return walls_mod.Wall("b_1", (E0, N0), (E0 + 10, N0), 5.0, 8.0, outward)
+
+
+def points(rows):
+    xyz = np.array([r[:3] for r in rows], float)
+    rgb = np.array([r[3] for r in rows], np.uint8)
+    n = len(rows)
+    return xyz, rgb, np.full(n, 6, np.uint8), (np.ones(n, np.uint8), np.ones(n, np.uint8))
+
+
+@pytest.mark.parametrize("outward", ["right", "left"])
+def test_project_wall_frame(outward):
+    # Seen from outside, u runs from the viewer's left; d is positive on the outward side.
+    south = -1 if outward == "right" else 1
+    xyz, rgb, cls, ret = points(
+        [
+            (E0 + 2, N0 + 0.2 * south, 7.0, (10, 20, 30)),  # on the wall, 0.2 m out
+            (E0 + 2, N0 - 0.4 * south, 7.0, (1, 2, 3)),  # 0.4 m inside
+            (E0 + 2, N0 + 1.0 * south, 7.0, (9, 9, 9)),  # too far out
+            (E0 + 2, N0, 14.0, (9, 9, 9)),  # above the top
+            (E0 - 1, N0, 7.0, (9, 9, 9)),  # beyond the end
+        ]
+    )
+    out = walls_mod.project([wall(outward)], xyz, rgb, cls, ret, walls_mod.Window())["b_1"]
+    assert len(out) == 2
+    u = 2.0 if outward == "right" else 8.0
+    np.testing.assert_allclose(out["u"], [u, u], atol=1e-5)
+    np.testing.assert_allclose(out["h"], [2.0, 2.0], atol=1e-5)
+    np.testing.assert_allclose(sorted(out["d"]), [-0.4, 0.2], atol=1e-5)
+    assert out["rgb"].tolist()[0] == [10, 20, 30]
+
+
+def test_window_keeps_context():
+    xyz, rgb, cls, ret = points([(E0 + 5, N0 + 2.0, 13.5, (5, 5, 5))])  # roof, 2 m inside
+    tight = walls_mod.project([wall()], xyz, rgb, cls, ret, walls_mod.Window())
+    wide = walls_mod.project([wall()], xyz, rgb, cls, ret, walls_mod.Window(inside=3, above=3))
+    assert "b_1" not in tight and len(wide["b_1"]) == 1
+
+
+def test_walls_from_features_normal_side():
+    feature = {
+        "geometry": {"coordinates": [[E0, N0], [E0 + 10, N0]]},
+        "properties": {
+            "building_id": "b",
+            "facade_index": 1,
+            "base_height": 5.0,
+            "top_height": 13.0,
+            "normal": [0.0, 0.0, -1.0],  # engine -z is north
+        },
+    }
+    (w,) = walls_mod.walls_from_features([feature])
+    assert w.id == "b_1" and w.outward == "left" and w.height == 8.0
+
+
+def test_wall_points_reads_laz_colour(tmp_path):
+    header = laspy.LasHeader(point_format=3, version="1.2")
+    header.scales = [0.001] * 3
+    header.offsets = [23440000.0, 6700000.0, 0.0]
+    las = laspy.LasData(header)
+    las.x = np.array([E0 + 3, E0 + 300])
+    las.y = np.array([N0 - 0.1, N0])
+    las.z = np.array([8.0, 8.0])
+    las.red, las.green, las.blue = (np.array([v << 8, 0], np.uint16) for v in (200, 100, 50))
+    las.classification = np.array([6, 6], np.uint8)
+    las.write(tmp_path / "23459500_6704500.laz")
+    found = walls_mod.wall_points([wall()], source_dir=tmp_path)["b_1"]
+    assert len(found) == 1 and found["rgb"][0].tolist() == [200, 100, 50]
+    walls_mod.save(tmp_path / "p.npz", {"b_1": found})
+    assert walls_mod.load(tmp_path / "p.npz")["b_1"]["u"][0] == pytest.approx(3.0)
+
+
+def test_missing_source_tile_is_an_error(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        walls_mod.wall_points([wall()], source_dir=tmp_path)
