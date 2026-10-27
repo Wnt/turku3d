@@ -77,10 +77,21 @@ canonical vertex order. The Aura level is measured once over the office core. Th
 manifest's `tile_builds` keeps every tile's build key and file hashes, so a seeded sandbox or the
 integrator rebuilds only tiles whose inputs changed. Margin collision tiles of unlisted
 neighbours ship from the first listed tile whose envelope holds them (`ground.build.owners`).
+Ground refinement interpolates the mesh's own triangles through a grid of triangle buckets
+(`ground.mesh.HeightQuery`), not matplotlib's trapezoid map, which took most of a new tile's
+ground time. Buildings key every building by its footprint and the lidar tiles under it and
+keep its roofer reconstruction and selected shell in the layer (`buildings/README.md`), so a
+new tile runs roofer and selection only for its own buildings and their neighbours stay
+byte-identical; collision tiles index their own buildings, so their bytes stay too.
 Ground textures keep an ortho key and a tile key in `<tile>/.build-key.json`. A tile with an
 unchanged tile key is reused, and one with unchanged orthos rebuilds only its splats. Assembly
-keys each visual tile by its own layer files and ground binding, and each collision tile by its
-layer files, with sandbox-relative paths. Its neighbours stay packed.
+keys each visual tile by its own layer files, its ground binding and the facade data of its
+own buildings: the buildings its layer GLBs carry, plus those whose facades are centred in the
+tile (density planning ranks them there, so a seam neighbour's facades count too). Their bound
+facade IDs and exported facade files enter the key; the shared library maps stay global. Each
+collision tile is keyed by its layer files, with sandbox-relative paths. A buildings rebuild
+for a new tile therefore repacks only that tile, the seam neighbours whose buildings changed
+and the 500 m and 1 km parents above them.
 Coarse visual-only L0 leaves fill the other quadrants of a 500 m parent that contains a new tile
 (massing and coarse DTM, no collision) so REPLACE refinement leaves no hole. `list-tile` appends
 to `$TURKU3D_DATA/playable-tiles.json` only. The next integration then builds and publishes the tile.
