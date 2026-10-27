@@ -60,6 +60,7 @@ RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried a
 MIN_SPEED = 1.0  # m/s: slower than this the heading is noise and the queue is nearest first
 AFTER_PATH = 100_000.0  # score offset of tiles off the path ahead
 ETA_BUILDS = 8  # recent builds averaged for the queue's time estimates
+STALE_REBUILDS = 3  # a build stale on arrival is redone at most this often in a row
 WORKERS = 4  # parallel builds: a cold tile spends minutes downloading, warm ones take 5-10 s
 MIME = {
     ".json": "application/json",
@@ -129,6 +130,7 @@ class Builder:
         self.motion: tuple[float, float, float, float] | None = None  # player x, z, vx, vz
         self.version = 0  # counts finished builds; the game re-polls its tiles when it changes
         self.recent: list[float] = []  # service seconds of the latest builds
+        self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
@@ -261,13 +263,20 @@ class Builder:
                     m = json.loads(self.manifest(tile).read_text())
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
                     self.recent = [*self.recent[-(ETA_BUILDS - 1) :], seconds]
+                    self.stale.pop(tile, None)
                     outcome = "built"
+                elif proc.returncode == 0 and self.stale.get(tile, 0) < STALE_REBUILDS:
+                    # Raw data landed during the build, so the draft is stale already: again.
+                    self.stale[tile] = self.stale.get(tile, 0) + 1
+                    self.priority[tile] = distance
+                    self.lock.notify()
+                    outcome = "stale"
                 else:
                     tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [
                         "build failed"
                     ]
                     self.failed[tile] = (tail[0][:500], time.time())
-                if tile not in self.pending:
+                if tile not in self.pending and outcome != "stale":
                     self.requested.pop(tile, None)
                 print(f"coarse {tile}: {outcome} in {seconds:.1f} s", flush=True)
             if tile in self.pending:

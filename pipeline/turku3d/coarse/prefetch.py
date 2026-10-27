@@ -435,9 +435,17 @@ class Prefetcher:
                 continue
             self.sources.invalidate()
             self.ledger.add(unit, [Path(p) for p in result["paths"]], result["bytes"])
+            # A fetch that leaves the unit's tiles uncovered (a broken mosaic) waits like a failure
+            # instead of being fetched again at once.
+            complete = self.sources.unit_present(unit)
             with self.lock:
                 del self.fetching[unit]
                 self.failed.pop(unit, None)
+                if not complete:
+                    self.failed[unit] = (
+                        "fetched, but its tiles are still not covered",
+                        time.time(),
+                    )
                 s = self.stats[unit.dataset]
                 s["units"] += 1
                 s["bytes"] += result["bytes"]
