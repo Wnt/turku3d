@@ -160,28 +160,31 @@ describe('Developer pages', () => {
       flying: () => flying, setFlying: on => { flying = on; calls.push(`fly ${on}`); },
       teleport: t => calls.push(`teleport ${t.E},${t.N},${t.headingDeg}`), built: E => E > 23_459_000 && E < 23_459_800,
       ask: () => answer, setTime: phase => calls.push(`time ${phase}`), nextTrack: () => calls.push('next track'),
+      spawnTruck: () => calls.push('truck'),
     };
     const root: MenuPage = { id: 'pause', title: 'Paused', text: null, back: null, items: [] };
     const flow = new DevMenuFlow(host, hooks, () => root);
     const pick = (page: MenuPage, id: string) => page.items.find(i => i.id === id)!.run();
     return { flow, shown, calls, pick, root, last: () => shown[shown.length - 1] };
   }
-  test('money, fly mode, time of day and back', () => {
+  test('money, fly mode, truck spawn, time of day and back', () => {
     const { flow, calls, pick, last, root } = setup();
     const page = flow.root();
-    expect(page.items.map(i => i.label)).toEqual(['Money +1 000 €', 'Money +10 000 €', 'Fly mode on', 'Teleport to...',
-      'Time of day', 'Next music track', 'Back']);
+    expect(page.items.map(i => i.label)).toEqual(['Money +1 000 €', 'Money +10 000 €', 'Fly mode on',
+      'Spawn trophy truck here', 'Teleport to...', 'Time of day', 'Next music track', 'Back']);
     expect(page.text).toBe('Money 120 €.');
     pick(page, 'money-10000');
     expect(last().text).toBe('Money 10 120 €.');
     pick(last(), 'fly');
     expect(last().text).toBe('Fly mode on.');
     expect(last().items.find(i => i.id === 'fly')!.label).toBe('Fly mode off');
+    pick(last(), 'truck');
+    expect(last().text).toBe('Trophy truck spawned in front of you.');
     pick(last(), 'time');
     expect(last().items.map(i => i.label)).toEqual(['Dawn', 'Noon', 'Dusk', 'Night', 'Back']);
     pick(last(), 'time-dusk');
     expect(last().text).toBe('Dusk.');
-    expect(calls).toEqual(['money 10000', 'fly true', 'time dusk']);
+    expect(calls).toEqual(['money 10000', 'fly true', 'truck', 'time dusk']);
     last().back!();
     expect(last()).toBe(root);
   });

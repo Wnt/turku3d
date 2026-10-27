@@ -1,4 +1,4 @@
-import { isolatedTest as test, expect, installPad, padButton } from './fixtures';
+import { isolatedTest as test, expect, installPad, padAxes, padButton } from './fixtures';
 import { open, untilSim } from './waits';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -172,4 +172,40 @@ test('buys the trophy truck, drives it over a kerb at 40 km/h, to 120 km/h and o
     kerb: { travelled, height: kerb.height, speedBeforeKmh: speedBefore * 3.6, speedAfterKmh: speedAfter * 3.6 },
     topSpeedKmh: top * 3.6, jump: { airSeconds: longest, landedMaxTilt: Math.max(...landed.map(s => s.tilt)) } }, null, 2));
   expect(errors).toEqual([]);
+});
+
+test('the Developer page spawns the trophy truck in front of the player, unbought and drivable', { tag: ['@truck', '@synthetic'] }, async ({ page }, info) => {
+  test.skip(info.project.name !== 'webgpu', 'the truck route runs on WebGPU');
+  await installPad(page);
+  await open(page, `/?backend=${info.project.name}`);
+  await page.getByRole('option', { name: 'New game' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
+  await untilSim(page, () => { const s = (window as any).__game.state(); return !s.loading && !s.startScreen && s.grounded; }, null, 20);
+  await page.keyboard.press('Escape');
+  const option = (name: string) => page.locator('#pause-menu .menu-option', { hasText: name });
+  await option('Developer').click();
+  await option('Spawn trophy truck here').click();
+  await expect(page.locator('#pause-menu .menu-text')).toHaveText('Trophy truck spawned in front of you.');
+  await option('Back').click();
+  await option('Resume').click();
+  await untilSim(page, () => {
+    const s = (window as any).__game.state(), v = s.vehicles.find((c: any) => c.id === 'truck');
+    return !s.pauseMenu.open && v && Math.hypot(v.linvel.x, v.linvel.z) < 0.05 && v.wheels.every((w: any) => w.contact);
+  }, null, 10);
+  const s = await page.evaluate(() => (window as any).__game.state());
+  const truck = s.vehicles.find((v: any) => v.id === 'truck');
+  expect(Math.hypot(truck.pos[0] - s.feet[0], truck.pos[2] - s.feet[2])).toBeGreaterThan(5);
+  expect(Math.hypot(truck.pos[0] - s.feet[0], truck.pos[2] - s.feet[2])).toBeLessThan(9);
+  expect(await page.evaluate(() => (window as any).__game.missions.vehicle)).toBe('none');
+  await page.screenshot({ path: path.join(SHOTS, `${info.project.name}-truck-dev-spawn.png`) });
+  // Walk towards it (it lies along the camera's view) and climb in: free roam lets the player drive any vehicle.
+  await padAxes(page, 0, -0.5);
+  await untilSim(page, () => {
+    const s = (window as any).__game.state(), v = s.vehicles.find((c: any) => c.id === 'truck');
+    return Math.hypot(v.pos[0] - s.feet[0], v.pos[2] - s.feet[2]) < 3.6;
+  }, null, 10);
+  await padAxes(page, 0, 0);
+  await padButton(page, 3, 1);
+  await untilSim(page, () => (window as any).__game.state().drivenId === 'truck', null, 3);
+  await padButton(page, 3, 0);
 });

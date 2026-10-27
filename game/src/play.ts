@@ -245,6 +245,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     ask: question => window.prompt(question),
     setTime: phase => { const time = phaseTime(world.clockTime(), phase); world.setClock(time); clockControl.set(time); },
     nextTrack: () => audio.nextTrack(),
+    spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;
   // Save slots (core/save.ts), the start and pause menus (ui/menu.ts) and loading a game (gameplay/saveGame.ts).
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,

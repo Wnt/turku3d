@@ -1,5 +1,5 @@
 // Developer pages of the pause menu (localhost or ?dev=1 only, core/localOnly.ts devToolsEnabled): money, fly mode,
-// teleport and the time of day. The pages are MenuPages like the save pages (menu.ts); what a pick does to the
+// spawning the trophy truck, teleport and the time of day. The pages are MenuPages like the save pages (menu.ts); what a pick does to the
 // running game is in DevHooks (play.ts).
 import { DAY_PHASES, type DayPhase } from '../core/sun';
 import { PLACES, parsePlace, type Place } from '../gameplay/content/places';
@@ -22,6 +22,8 @@ export interface DevHooks {
   ask(question: string): string | null;
   setTime(phase: DayPhase): void;
   nextTrack(): void;
+  /** Puts the trophy truck on the ground in front of the camera, without buying it. */
+  spawnTruck(): void;
 }
 
 const euros = (n: number) => `${n.toLocaleString('en-US').replace(/,/g, ' ')} €`;
@@ -41,6 +43,8 @@ export class DevMenuFlow {
       ...DEV_MONEY_STEPS.map(money),
       { id: 'fly', label: `Fly mode ${flying ? 'off' : 'on'}`, detail: 'Double-tap jump in the game', enabled: true,
         run: () => { this.dev.setFlying(!flying); this.host.show(this.root(`Fly mode ${flying ? 'off' : 'on'}.`)); } },
+      { id: 'truck', label: 'Spawn trophy truck here', detail: 'In front of you; not bought', enabled: true,
+        run: () => { this.dev.spawnTruck(); this.host.show(this.root('Trophy truck spawned in front of you.')); } },
       { id: 'teleport', label: 'Teleport to...', detail: null, enabled: true, run: () => this.host.show(this.teleport()) },
       { id: 'time', label: 'Time of day', detail: null, enabled: true, run: () => this.host.show(this.time()) },
       { id: 'music-next', label: 'Next music track', detail: null, enabled: true,
