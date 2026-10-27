@@ -1,7 +1,7 @@
 // Draft (coarse) tiles: which cells are wanted, the published-parent swap rule and the game hook against a fake service.
 import { test, expect } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CoarseTiles, cellsOf, isLocalHost, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
+import { CoarseTiles, aheadTiles, cellsOf, isLocalHost, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
 import type { Manifest } from '../../src/world/manifest';
 
 const published = ['t0_0_0', 't0_1_0', 't0_0_1', 't0_1_1', 't1_0_0', 't1_1_0', 't1_0_-1'];
@@ -129,4 +129,42 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
   expect([...coarse.entries.keys()].filter(id => /^t0_[0-3]_/.test(id))).toEqual([]);
   expect(manifest.collision.c_8_0).toBeUndefined();
   expect(parent.visible).toBe(true);
+});
+
+test('prefetch: the cells along the next 30 s of travel and a one-tile ring, nearest first; none when standing', () => {
+  const none = new Set<string>();
+  expect(aheadTiles(100, 100, 0.5, 0, none)).toEqual([]);
+  // 20 m/s east from x 100: 600 m ahead reaches cell i = 2, and the ring i = 3; rows j -1..1 around the path.
+  const ahead = aheadTiles(100, 100, 20, 0, none);
+  expect(ahead.length).toBe(5 * 3);
+  expect(ahead[0]).toBe('t0_0_0');
+  for (const id of ['t0_-1_0', 't0_2_-1', 't0_3_1']) expect(ahead).toContain(id);
+  expect(ahead).not.toContain('t0_4_0');
+  expect(aheadTiles(100, 100, 20, 0, new Set(['t0_1_0']))).not.toContain('t0_1_0');
+  // 40 m/s north-east covers the diagonal out to 1200 m.
+  expect(aheadTiles(100, 100, 28.3, -28.3, none)).toContain('t0_3_-4');
+});
+
+test('a moving player gets builds ahead requested without loading them; they load once inside the window', async () => {
+  const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])), collision: {} } as unknown as Manifest;
+  const service = fakeService(manifest);
+  const loaded: string[] = [];
+  const coarse = new CoarseTiles({
+    scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest, manifestUrl: 'tiles/manifest.json',
+    pageUrl: 'http://127.0.0.1:5171/', fetch: service.fetch, unloadCollision: () => {}, checkCollision: async () => 2,
+    renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
+    loadModel: async (url) => { loaded.push(/(t0_[^/]+)\/vis/.exec(url)![1]); return new THREE.Group(); },
+  });
+  const settle = async () => { for (let k = 0; k < 4; k++) await new Promise(r => setTimeout(r, 0)); };
+  // Driving east at 25 m/s along z 100 from x 300.
+  for (let t = 0; t <= 8; t++) { coarse.update(300 + 25 * t, 100, 1000 * t); await settle(); }
+  expect(coarse.velocity.x).toBeCloseTo(25, 0);
+  expect(service.polls.get('t0_5_0')).toBeGreaterThan(0); // 750 m ahead of x 500
+  expect(coarse.entries.get('t0_5_0')?.state).toBe('built');
+  expect(loaded).not.toContain('t0_5_0');
+  expect(loaded).toContain('t0_2_0');
+  expect(coarse.status).toMatch(/drafts .*t0_2_0/);
+  // A teleport is no speed: no prefetch from it.
+  coarse.update(5000, 5000, 9000); await settle();
+  expect(coarse.velocity).toEqual({ x: 0, z: 0 });
 });

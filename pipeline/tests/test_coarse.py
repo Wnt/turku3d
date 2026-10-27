@@ -165,9 +165,9 @@ def test_bridge_deck_over_water_is_lifted_to_its_abutments():
     assert np.array_equal(pos[np.unique(idx[viaduct])], before[np.unique(idx[viaduct])])
 
 
-def _fake_command(order):
+def _fake_command(order, seconds=0.2):
     script = (
-        "import json,sys,pathlib,time; time.sleep(0.2); out=pathlib.Path(sys.argv[2]);"
+        f"import json,sys,pathlib,time; time.sleep({seconds}); out=pathlib.Path(sys.argv[2]);"
         "out.mkdir(parents=True,exist_ok=True); (out/'vis.glb').write_bytes(b'glb');"
         "(out/'manifest.json').write_text(json.dumps({'coarse':True,'tile':sys.argv[1],"
         "'code':'test','seconds':{'total':0.2}})) if sys.argv[1]!='t0_9_9' else sys.exit('no coverage')"
@@ -190,10 +190,10 @@ def _wait(predicate, timeout=20.0):
 
 def test_builder_queues_nearest_first_and_reports_failures(tmp_path):
     order = []
-    builder = Builder(tmp_path, command=_fake_command(order), code="test")
+    builder = Builder(tmp_path, command=_fake_command(order), code="test", workers=1)
     try:
         assert builder.request("t0_5_5", 900)["state"] == "queued"
-        _wait(lambda: builder.building is not None)
+        _wait(lambda: builder.building)
         for tile, d in (("t0_6_5", 700), ("t0_7_5", 100), ("t0_8_5", 300)):
             builder.request(tile, d)
         builder.request("t0_6_5", 50)  # the player moved: the latest distance wins
@@ -209,15 +209,30 @@ def test_builder_queues_nearest_first_and_reports_failures(tmp_path):
 
 def test_builder_drops_tiles_the_game_stopped_asking_for(tmp_path, monkeypatch):
     order = []
-    builder = Builder(tmp_path, command=_fake_command(order), code="test")
+    builder = Builder(tmp_path, command=_fake_command(order), code="test", workers=1)
     try:
         builder.request("t0_1_1", 10)
-        _wait(lambda: builder.building is not None)
+        _wait(lambda: builder.building)
         builder.request("t0_2_2", 20)
         builder.request("t0_3_3", 30)
         builder.requested["t0_2_2"] -= 60
         _wait(lambda: len(builder.status()["built"]) == 2)
         assert order == ["t0_1_1", "t0_3_3"]
+    finally:
+        builder.stop()
+
+
+def test_builder_runs_four_builds_at_once(tmp_path):
+    order = []
+    builder = Builder(tmp_path, command=_fake_command(order, seconds=2.0), code="test")
+    try:
+        tiles = [f"t0_{i}_0" for i in range(6)]
+        for d, tile in enumerate(tiles):
+            builder.request(tile, d)
+        _wait(lambda: len(builder.status()["building"]) == 4)
+        assert builder.status()["building"] == tiles[:4]
+        assert builder.request("t0_0_0", 0)["state"] == "building"
+        _wait(lambda: len(builder.status()["built"]) == 6)
     finally:
         builder.stop()
 

@@ -22,6 +22,12 @@ the player from falling through visible ground:
    (`PhysicsClient.checkTile`, no colliders are built). A draft that fails either check is never drawn; the HUD names
    the reason (`draft tile t0_i_j unavailable: ...`) and it is asked for again after 120 s.
 
+**Prefetch**: besides the 3x3 window it loads, `CoarseTiles` asks the service to build every cell within the next 30 s
+of travel along the player's heading plus a one-tile ring (`aheadTiles`; speed from the positions of its 1 s checks,
+a jump above 100 m/s is a teleport). Those tiles are only built (state `built`), not loaded, until they enter the
+window. The service builds four at once, so a car at full speed meets built tiles once their raw data is on disk.
+The HUD badge names the tile underfoot, lists the drafts loaded and counts those still building.
+
 Draft entries then join `manifest.collision`, so `CollisionStreamer` loads them with the normal radius, the walls move
 out with them and `SafeReset`'s playable area grows.
 

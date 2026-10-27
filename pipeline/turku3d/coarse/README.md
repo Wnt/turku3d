@@ -42,5 +42,6 @@ No curbs, stairs, structures, props, vegetation, facade maps or LOD parents.
 ## Service (`service.py`)
 
 `tools/dev/coarse-tiles` (localhost only, port `$TURKU3D_PORT_BASE + 5`, proxied at `/coarse/` by the dev and dist
-servers). Routes and queueing: `tools/dev/README.md`. Built tiles are reused until the producer code changes, so a
-producer fix rebuilds each draft the next time the game asks for it.
+servers). Up to four builds run at once (`WORKERS`), nearest to the player first; the game requests the cells
+ahead of a moving player as well as the 3x3 window. Routes and queueing: `tools/dev/README.md`. Built tiles are
+reused until the producer code changes, so a producer fix rebuilds each draft the next time the game asks for it.

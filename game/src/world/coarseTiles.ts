@@ -5,6 +5,8 @@
 // have collision and the physics worker has decoded each of its .col files; one that fails is never drawn (the
 // physics edge walls keep the player out of cells without loaded collision). Draft tiles get a desaturated tint and a HUD line. Published 500 m
 // leaf tiles are hidden once all four of their quadrants are drafted (the same REPLACE rule as the tileset).
+// Ahead of a moving player the cells within the next 30 s of travel (plus a one-tile ring) are only asked to be built,
+// so at full speed the service (four builds at once) has them ready before they enter the 3x3 window and load.
 // Every 60 s the published manifest is re-read; a tile that has been published there replaces its draft.
 // Never active off localhost (GitHub Pages) or when the service is not running.
 import * as THREE from 'three/webgpu';
@@ -20,6 +22,8 @@ const POLL_MS = 1000;
 const MANIFEST_POLL_MS = 60_000;
 /** A failed or rejected draft is asked for again after this (ms); the service retries failed builds after 120 s. */
 const RETRY_MS = 120_000;
+/** Prefetch horizon (s of travel at the current speed) and the speed above which a jump is a teleport (m/s). */
+const PREFETCH_SECONDS = 30, MAX_SPEED = 100;
 /** Drafts farther than this (m, to the tile footprint) are unloaded. */
 const KEEP_M = 2 * VISUAL_L0;
 
@@ -80,6 +84,21 @@ export function cellsOf(id: string): string[] {
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
 class DraftRejected extends Error {}
 
+/** Unpublished L0 ids to build ahead of a player moving at (vx, vz) m/s: every cell within the next
+ *  PREFETCH_SECONDS of travel along the heading plus a one-tile ring, nearest first. Empty below walking speed. */
+export function aheadTiles(x: number, z: number, vx: number, vz: number, published: ReadonlySet<string>): string[] {
+  const speed = Math.hypot(vx, vz);
+  if (speed < 1) return [];
+  const reach = speed * PREFETCH_SECONDS, steps = Math.ceil(reach / (VISUAL_L0 / 2));
+  const want = new Set<string>();
+  for (let k = 0; k <= steps; k++) {
+    const px = x + vx / speed * reach * k / steps, pz = z + vz / speed * reach * k / steps;
+    const ci = Math.floor(px / VISUAL_L0), cj = Math.floor(pz / VISUAL_L0);
+    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) if (!published.has(l0(i, j))) want.add(l0(i, j));
+  }
+  return [...want].map(id => ({ id, d: distToL0(id, x, z) })).sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1)).map(t => t.id);
+}
+
 /** A published leaf parent is hidden while every one of its quadrants is resident as a draft or swapped tile. */
 export function parentCovered(parent: string, resident: ReadonlySet<string>): boolean {
   const t = parse(parent);
@@ -88,7 +107,8 @@ export function parentCovered(parent: string, resident: ReadonlySet<string>): bo
 }
 
 interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry> }
-type State = 'pending' | 'loading' | 'draft' | 'published' | 'failed';
+/** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
+type State = 'pending' | 'loading' | 'built' | 'draft' | 'published' | 'failed';
 interface Entry { state: State; model?: THREE.Object3D; collision: string[]; nextPoll: number; error?: string }
 
 export interface CoarseHost {
@@ -125,6 +145,9 @@ export class CoarseTiles {
   status = '';
   private clock = 0;
   private badge: HTMLDivElement | null = null;
+  private last: { x: number; z: number; t: number } | null = null;
+  /** Smoothed ground velocity (m/s) of the player, for the prefetch. */
+  velocity = { x: 0, z: 0 };
   private page: string;
 
   /** The service answers /coarse/status only on a local dev server with the companion running. */
@@ -173,30 +196,54 @@ export class CoarseTiles {
     if (now >= this.nextManifest) { this.nextManifest = now + MANIFEST_POLL_MS; void this.refreshManifest(); }
     if (now < this.nextCheck) return;
     this.nextCheck = now + POLL_MS;
+    this.track(x, z, now);
     const wanted = wantedTiles(x, z, this.published, this.leaves);
+    const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id));
+    const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built') && now >= e.nextPoll;
     for (const id of wanted) {
-      const e = this.entries.get(id) ?? { state: 'pending' as State, collision: [], nextPoll: 0 };
-      this.entries.set(id, e);
-      if ((e.state === 'pending' || e.state === 'failed') && now >= e.nextPoll) void this.poll(id, e, distToL0(id, x, z));
+      const e = this.entry(id);
+      if (due(e)) void this.poll(id, e, distToL0(id, x, z), true);
+    }
+    // Ahead of a moving player only the build is requested; the tile loads once it enters the 3x3 window.
+    for (const id of ahead) {
+      const e = this.entry(id);
+      if (due(e) && e.state !== 'built') void this.poll(id, e, distToL0(id, x, z), false);
     }
     for (const [id, e] of this.entries) {
-      if (wanted.includes(id) || distToL0(id, x, z) <= KEEP_M) continue;
+      if (wanted.includes(id) || ahead.includes(id) || distToL0(id, x, z) <= KEEP_M) continue;
       this.drop(e);
       this.entries.delete(id);
     }
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
     const states = [...this.entries.values()];
     const building = states.filter(e => e.state === 'pending' || e.state === 'loading').length;
-    const drafts = states.filter(e => e.state === 'draft').length;
+    const loaded = [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort();
     const at = this.entries.get(here);
-    this.status = at?.state === 'draft' ? `draft tile ${here} (coarse; ${drafts} resident, ${building} building)`
+    const head = at?.state === 'draft' ? `draft tile ${here}`
       : at?.state === 'published' ? `published tile ${here} streamed in place of its draft (reload for LOD)`
-        : at ? `draft tile ${here} ${at.state === 'failed' ? `unavailable: ${at.error}` : 'building...'}`
-          : building ? `draft tiles: ${drafts} resident, ${building} building` : '';
+        : at ? `draft tile ${here} ${at.state === 'failed' ? `unavailable: ${at.error}` : 'building...'}` : '';
+    this.status = [head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '']
+      .filter(Boolean).join(' · ');
     if (this.badge) { this.badge.textContent = this.status; this.badge.style.display = this.status ? '' : 'none'; }
   }
 
-  private async poll(id: string, e: Entry, d: number) {
+  private entry(id: string): Entry {
+    let e = this.entries.get(id);
+    if (!e) this.entries.set(id, e = { state: 'pending', collision: [], nextPoll: 0 });
+    return e;
+  }
+
+  /** Ground velocity from the positions of successive checks; a jump faster than MAX_SPEED is a teleport. */
+  private track(x: number, z: number, now: number) {
+    const last = this.last;
+    this.last = { x, z, t: now };
+    if (!last || now <= last.t) return;
+    const dt = (now - last.t) / 1000, vx = (x - last.x) / dt, vz = (z - last.z) / dt;
+    if (Math.hypot(vx, vz) > MAX_SPEED) { this.velocity = { x: 0, z: 0 }; return; }
+    this.velocity = { x: 0.5 * this.velocity.x + 0.5 * vx, z: 0.5 * this.velocity.z + 0.5 * vz };
+  }
+
+  private async poll(id: string, e: Entry, d: number, load: boolean) {
     e.state = 'loading';
     try {
       const res = await this.fetch(new URL(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`, this.page).href, { cache: 'no-store' });
@@ -206,6 +253,7 @@ export class CoarseTiles {
         e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;
         return;
       }
+      if (!load) { e.state = 'built'; e.nextPoll = 0; return; }
       const fragment = await res.json() as CoarseFragment;
       if (!fragment.coarse || fragment.tile !== id) throw new Error(`${id}: not a coarse tile fragment`);
       const base = new URL(`${COARSE_ROOT}${id}/`, this.page);

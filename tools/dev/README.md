@@ -43,7 +43,10 @@ node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build/game" --mount "/tiles=
 
 `GET /coarse/<tile>/manifest.json?d=<m>` queues the tile (nearest to the player first; the latest
 distance wins; tiles not re-requested within 10 s leave the queue) and answers 202 until it is built.
-One build runs at a time in a child process. Built tiles are reused until the producer code changes.
+Up to four builds run at once, each in a child process: the game also asks for the cells within the next
+30 s of travel along the player's heading (`world/coarseTiles.ts`), so a cold tile's minutes of raw-data
+download overlap with the warm builds. `/coarse/status` lists the tiles `building`. Built tiles are reused
+until the producer code changes.
 A failed tile answers 404 with the reason and is retried after two minutes.
 Playwright and QA profiles use `TURKU3D_BROWSER_DIR/tmp`. See [agent tooling](../../scripts/dev/README.md).
 
