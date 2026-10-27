@@ -258,6 +258,7 @@ class Builder:
         """Queue or re-prioritise a tile; returns its state."""
         with self.lock:
             if self.built(tile):
+                self.pending.pop(tile, None)
                 self.servable = self.servable | {tile}
                 return {"state": "built"}
             self.servable = self.servable - {tile}
@@ -372,6 +373,7 @@ class Builder:
                     self.pending[tile] = (units, distance)
                     outcome = "pending"
                 elif proc.returncode == 0 and self.built(tile):
+                    self.pending.pop(tile, None)
                     m = json.loads(self.manifest(tile).read_text())
                     self.timings.pop(tile, None)
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}

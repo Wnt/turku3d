@@ -114,6 +114,7 @@ in flight, per dataset the units, bytes and seconds fetched, the most recent uni
 A tile requested while its units are missing answers `202 {"state": "pending-data", "missing":
 [...]}` immediately; other tiles keep building meanwhile, and the tile is queued again as soon as
 its last unit lands.
+Once a build succeeds or a request confirms the tile is built, its pending-input summary is cleared.
 
 ## Measuring a drive (`drive.py`)
 
