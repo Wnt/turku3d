@@ -111,7 +111,7 @@ def main():
     trees, inputs = register(bounds)
     if region is not None:
         trees = [t for t in trees if region.covers(shapely.Point(t.x, t.z))]
-    ground, canopy, lidar_inputs = load_points(bounds)
+    ground, canopy, lidar_inputs = load_points(bounds, region)
     inputs.update(lidar_inputs)
     print(f"Measuring {len(trees)} mapped trees against {len(canopy)} canopy returns", flush=True)
     trees = measure(trees, ground, canopy, bounds)

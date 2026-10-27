@@ -103,13 +103,20 @@ def digest(path: Path):
     return h.hexdigest()
 
 
-def load_points(bounds):
-    """Stream immutable LAZ once; cache only cropped class 2/5 xyz, keyed by content."""
-    import laspy
+def load_points(bounds, region=None):
+    """Stream immutable LAZ once; cache only cropped class 2/5 xyz, keyed by content.
 
-    paths = [
-        C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz") for t in C.laz_tiles_for_bbox(bounds)
-    ]
+    With a region (the listed tiles and their margin), only the LAZ tiles under it are read:
+    an L-shaped list's bounding box reaches lidar tiles no input area fetched."""
+    import laspy
+    import shapely
+
+    tiles = C.laz_tiles_for_bbox(bounds)
+    if region is not None:
+        tiles = [
+            t for t in tiles if region.intersects(shapely.box(*t.bbox_en.to_local().as_tuple()))
+        ]
+    paths = [C.raw_dir("laz") / "pistepilvi" / (t.name + ".laz") for t in tiles]
     inputs = {str(p): digest(p) for p in paths}
     key = hashlib.sha256(repr((inputs, bounds, C.ORIGIN, "xyz25-v1")).encode()).hexdigest()
     dest = C.cache_dir("vegetation") / (key + ".npz")
