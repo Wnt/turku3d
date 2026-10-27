@@ -196,8 +196,9 @@ python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m tu
 Check each core visual entry's `wire_bytes` in `$FACADE_OUT/manifest.json` against 8,000,000.
 Run `publish` above for each tile with the data-root assembly and the unchanged inventory used
 by its plan; publication validates against the target's approval inventory and preserves better
-maps under the export lock. Stream the built tiles without another build:
-`python3 scripts/dev/tile_store.py put-tiles --repo "$PWD" --tiles-dir "$FACADE_OUT" --tiles t0_0_0 t0_0_1 t0_1_0 t0_1_1`.
+maps under the export lock. Stream the built tiles without another build, preserving the
+served global road graph and address pool:
+`python3 scripts/dev/tile_store.py put-tiles --repo "$PWD" --tiles-dir "$FACADE_OUT" --tile-only --tiles t0_0_0 t0_0_1 t0_1_0 t0_1_1`.
 
 The sidecar has the derived sidecar's fields with `source_mode: fast`, `references: []` and
 `fast_description` (`version`, `code`, `source`, `description`, `layout` as drawn, and for a

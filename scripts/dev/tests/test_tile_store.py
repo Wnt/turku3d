@@ -232,6 +232,31 @@ def release_tiles(new=False):
     return visual, collision
 
 
+class TileFragmentScopeTests(unittest.TestCase):
+    def test_tile_only_keeps_served_world_metadata_and_updates_visuals(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            built = write_dist(root / "built", *release_tiles(new=True))
+            base = write_dist(root / "base", *release_tiles())
+            for name in ("roads", "addresses"):
+                source = root / "built" / name / "older.json"
+                source.parent.mkdir()
+                source.write_text("{}")
+                built[name] = {"url": f"{name}/older.json", "sha256": sha(b"{}")}
+                base[name] = {"url": f"{name}/complete.json", "sha256": "newer"}
+            (root / "built/manifest.json").write_text(json.dumps(built))
+            full, full_files = tile_compose.fragment(root / "built", "t0_0_0")
+            scoped, files = tile_compose.fragment(root / "built", "t0_0_0", tile_only=True)
+            merged, _ = tile_compose.compose_manifest(base, [{"fragment": scoped}])
+            for name in ("roads", "addresses"):
+                self.assertEqual(full[name], built[name])
+                self.assertIn(built[name]["url"], full_files)
+                self.assertNotIn(built[name]["url"], files)
+                self.assertEqual(merged[name], base[name])
+            self.assertEqual(merged["visual"]["t0_0_0"], built["visual"]["t0_0_0"])
+            self.assertNotEqual(tile_compose.tile_key(full), tile_compose.tile_key(scoped))
+
+
 class PerTileTests(unittest.TestCase):
     """put-tile, composition precedence (release, per-tile entry, newer release) and the no-double-swap rule."""
 

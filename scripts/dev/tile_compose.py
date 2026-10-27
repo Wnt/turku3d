@@ -73,9 +73,9 @@ def _in(tile, car):
     return C.VisualTile.at(car["x"], car["z"]).id == tile.id
 
 
-def fragment(tiles_dir, tile_id):
+def fragment(tiles_dir, tile_id, *, tile_only=False):
     """(fragment, files) of L0 tile tile_id in the dist tiles_dir: the manifest entries the tile owns and the
-    dist-relative files they need."""
+    dist-relative files they need. tile_only leaves global roads and addresses to the base release."""
     tiles_dir = Path(tiles_dir)
     manifest = json.loads((tiles_dir / "manifest.json").read_text())
     try:
@@ -107,7 +107,7 @@ def fragment(tiles_dir, tile_id):
     files = {e["url"] for e in [*visual.values(), *collision.values(), *models.values()]}
     files |= {image["url"] for e in visual.values() for image in e.get("shared_images", [])}
     for name in ("roads", "addresses"):
-        if manifest.get(name):
+        if not tile_only and manifest.get(name):
             files.add(manifest[name]["url"])
     for directory in (tiles_dir / "ground" / tile.id, tiles_dir / "ground/library"):
         if directory.is_dir():
@@ -123,8 +123,8 @@ def fragment(tiles_dir, tile_id):
         "collision": collision,
         "vehicles": vehicles,
         "vehicle_models": models,
-        "roads": manifest.get("roads"),
-        "addresses": manifest.get("addresses"),
+        "roads": None if tile_only else manifest.get("roads"),
+        "addresses": None if tile_only else manifest.get("addresses"),
         "keys": keys,
     }, sorted(files)
 
@@ -171,12 +171,12 @@ def same_bytes(frag, manifest):
     )
 
 
-def put_tile(published, tiles_dir, tile_id, *, source, task, listed, origin):
+def put_tile(published, tiles_dir, tile_id, *, source, task, listed, origin, tile_only=False):
     """Put the finished L0 tile tile_id of the dist tiles_dir as a per-tile entry; an existing entry is kept.
 
     origin is provenance(): the builder's commit, tile code and mainline commit."""
     tiles_dir = Path(tiles_dir)
-    frag, files = fragment(tiles_dir, tile_id)
+    frag, files = fragment(tiles_dir, tile_id, tile_only=tile_only)
     tile_key_ = tile_key(frag)
     directory = tile_store.tiles_root(published) / frag["tile"]
     target = directory / tile_key_
@@ -228,7 +228,9 @@ def own_bytes_differ(frag, manifest):
     )
 
 
-def put_tiles(published, tiles_dir, tiles, *, source, task, listed, repo, against=None):
+def put_tiles(
+    published, tiles_dir, tiles, *, source, task, listed, repo, against=None, tile_only=False
+):
     """put_tile every tile of `tiles` whose own bytes differ from the release `against` (default: live); the
     entry paths."""
     against = Path(against) if against else Path(published) / "live/tiles"
@@ -242,7 +244,7 @@ def put_tiles(published, tiles_dir, tiles, *, source, task, listed, repo, agains
     for tile in tiles:
         if tile not in built or "coarse_dtm" in built[tile]:
             continue
-        frag, _ = fragment(tiles_dir, tile)
+        frag, _ = fragment(tiles_dir, tile, tile_only=tile_only)
         if not own_bytes_differ(frag, release):
             continue
         put.append(
@@ -254,6 +256,7 @@ def put_tiles(published, tiles_dir, tiles, *, source, task, listed, repo, agains
                 task=task,
                 listed=listed,
                 origin=origin,
+                tile_only=tile_only,
             )
         )
     return put
