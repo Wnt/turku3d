@@ -24,8 +24,8 @@ Tests use sandbox ports +3, +6, +7, +8 and +9, including simultaneous servers wi
 
 `coarse-tiles` (localhost only, port `$TURKU3D_PORT_BASE + 5`) builds draft tiles for cells the
 published tileset lacks (`pipeline/turku3d/coarse`). `serve-dist.mjs` and the Vite dev server proxy
-`/coarse/*` to it, so the game stays same-origin; with the service down the proxy answers 503 and the
-game shows no drafts. `make game-dev` and `make game-preview` start it beside the server.
+`/coarse/*` to it, so the game stays same-origin; with the service down `/coarse/status` answers
+200 `{"state":"offline"}` (other paths 503) and the game shows no drafts. `make game-dev` and `make game-preview` start it beside the server.
 
 ```bash
 tools/dev/coarse-tiles                          # --port, --root (default $TURKU3D_WORK/coarse)

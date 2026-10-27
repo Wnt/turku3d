@@ -58,6 +58,10 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
     loadModel: async (url) => { loadedUrls.push(url); const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())); return g; },
   };
   expect(await CoarseTiles.start({ ...host, pageUrl: 'https://wnt.github.io/turku-game/' })).toBeNull();
+  const offline = (async () => ({ ok: true, status: 200, json: async () => ({ state: 'offline' }) })) as unknown as typeof globalThis.fetch;
+  expect(await CoarseTiles.start({ ...host, fetch: offline })).toBeNull();
+  const html = (async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('<!doctype'); } })) as unknown as typeof globalThis.fetch;
+  expect(await CoarseTiles.start({ ...host, fetch: html })).toBeNull();
   const coarse = (await CoarseTiles.start(host))!;
   const parent = new THREE.Group();
   tiles.dispatchEvent({ type: 'load-model', scene: parent, tile: { extras: { id: 't1_1_0' } } });

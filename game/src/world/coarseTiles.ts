@@ -116,7 +116,8 @@ export class CoarseTiles {
     if (!isLocalHost(page.hostname)) return null;
     try {
       const res = await (host.fetch ?? fetch)(new URL(`${COARSE_ROOT}status`, page).href, { signal: AbortSignal.timeout(2000) });
-      if (!res.ok) return null;
+      // A static host without the service answers with HTML or {"state":"offline"}.
+      if (!res.ok || (await res.json() as { state?: string }).state === 'offline') return null;
     } catch { return null; }
     return new CoarseTiles(host);
   }

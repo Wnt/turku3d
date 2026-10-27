@@ -6,7 +6,8 @@
 //  - optional --mount /tiles=<dir> to serve a tile dist next to the game build
 //  - POST /telemetry: play telemetry JSON lines (game/src/telemetry/README.md) appended to
 //    <telemetry dir>/session-<YYYYMMDD>.jsonl (local date), default $TURKU3D_WORK/telemetry; 1 MB per request, 204
-//  - /coarse/* proxied to the localhost coarse tile service (tools/dev/coarse-tiles, port base + 5), 503 when it is not running
+//  - /coarse/* proxied to the localhost coarse tile service (tools/dev/coarse-tiles, port base + 5); when it is not running
+//    /coarse/status answers 200 {"state":"offline"} and other paths 503
 // No dependencies (Node >= 20).
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
@@ -114,7 +115,7 @@ async function telemetry(req, res) {
   res.end();
 }
 
-// Same-origin access to the coarse tile service; the game treats 503 as "no coarse tiles".
+// Same-origin access to the coarse tile service.
 function proxyCoarse(req, res) {
   const isolation = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cross-Origin-Resource-Policy': 'cross-origin' };
   const upstream = http.request({ host: COARSE.hostname, port: COARSE.port, path: req.url, method: req.method, headers: { accept: req.headers.accept ?? '*/*' } }, (up) => {
@@ -123,7 +124,8 @@ function proxyCoarse(req, res) {
   });
   upstream.on('error', () => {
     if (res.headersSent) return res.destroy();
-    res.writeHead(503, { 'Content-Type': 'application/json', ...isolation });
+    // The game probes /coarse/status on every local page load: an offline service is an answer, not an error.
+    res.writeHead(req.url.split('?')[0] === '/coarse/status' ? 200 : 503, { 'Content-Type': 'application/json', ...isolation });
     res.end('{"state":"offline"}\n');
   });
   upstream.end();

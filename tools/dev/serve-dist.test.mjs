@@ -125,7 +125,7 @@ test('POST /telemetry appends JSON lines to the day file', async () => {
   }
 });
 
-test('/coarse/* is proxied to the coarse tile service, 503 when it is not running', async () => {
+test('/coarse/* is proxied to the coarse tile service; offline status when it is not running', async () => {
   const http = (await import('node:http')).default;
   const upstream = http.createServer((req, res) => {
     res.writeHead(req.url.startsWith('/coarse/t0_1_1/') ? 202 : 200, { 'Content-Type': 'application/json' });
@@ -154,8 +154,9 @@ test('/coarse/* is proxied to the coarse tile service, 503 when it is not runnin
     assert.deepEqual(await ok.json(), { path: '/coarse/t0_1_1/manifest.json?d=5' });
     assert.equal((await fetch(`http://127.0.0.1:${port(8)}/coarse/status`)).status, 200);
     const down = await fetch(`http://127.0.0.1:${port(9)}/coarse/status`);
-    assert.equal(down.status, 503);
+    assert.equal(down.status, 200);
     assert.deepEqual(await down.json(), { state: 'offline' });
+    assert.equal((await fetch(`http://127.0.0.1:${port(9)}/coarse/t0_1_1/vis.glb`)).status, 503);
   } finally {
     await Promise.all(servers.map((child) => new Promise((resolve) => { child.once('exit', resolve); child.kill(); })));
     await new Promise((r) => upstream.close(r));
