@@ -6,6 +6,7 @@
 //  GET  /__localhost/status the badge status: { service, commit, verification, tiles }; { service: false } without it
 //  POST /__localhost/event  the game reports a loaded page, a hot swap or a tile release swap; appended to state.events
 // A changed state file is pushed to open tabs as the custom HMR event `turku3d:status`.
+// `vite preview` (the browser checks' server) gets POST /telemetry only, into the same directory.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import { resolveUnder, serveFile, telemetryHandler } from '../http.mjs';
@@ -28,9 +29,19 @@ const json = (res, status, body) => {
 
 /** `statePath`: the service's state.json (TURKU3D_LOCALHOST_STATE), or undefined for a plain `make game-dev`. */
 export function localhostGame({ statePath, tiles, telemetryDir }) {
+  const telemetry = telemetryHandler(telemetryDir);
+  /** POST /telemetry on the dev and the preview server; whether it was this request. */
+  const postTelemetry = (req, res, next) => {
+    if (req.method !== 'POST' || (req.url ?? '/').split('?')[0] !== '/telemetry') return false;
+    telemetry(req, res).catch(next);
+    return true;
+  };
   return {
     name: 'turku3d-localhost',
     apply: 'serve',
+    configurePreviewServer(server) {
+      server.middlewares.use((req, res, next) => { if (!postTelemetry(req, res, next)) next(); });
+    },
     configureServer(server) {
       let state = statePath ? readState(statePath) : null;
       if (statePath) {
@@ -40,11 +51,10 @@ export function localhostGame({ statePath, tiles, telemetryDir }) {
         });
         server.httpServer?.on('close', () => fs.unwatchFile(statePath));
       }
-      const telemetry = telemetryHandler(telemetryDir);
       server.middlewares.use((req, res, next) => {
+        if (postTelemetry(req, res, next)) return;
         const url = req.url ?? '/';
         const p = url.split('?')[0];
-        if (req.method === 'POST' && p === '/telemetry') return void telemetry(req, res).catch(next);
         if (p === '/__localhost/status') return json(res, 200, publicStatus(state));
         if (req.method === 'POST' && p === '/__localhost/event') return void event(req, res, state).catch(next);
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();

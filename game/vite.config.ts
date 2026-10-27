@@ -13,7 +13,7 @@ export default defineConfig({
   base: './',
   cacheDir: path.join(workRoot, 'cache/vite'),
   // Dev server only: /tiles from the sandbox dist (or the localhost service's tile release, tools/dev/localhost-game),
-  // POST /telemetry and the localhost build status.
+  // POST /telemetry (also on `vite preview`, the browser checks' server) and the localhost build status.
   plugins: [wasm(), localhostGame({ statePath: process.env.TURKU3D_LOCALHOST_STATE, tiles: tileDist,
     telemetryDir: process.env.TURKU3D_TELEMETRY_DIR ?? path.join(workRoot, 'telemetry') })],
   worker: { format: 'es', plugins: () => [wasm()] },

@@ -200,7 +200,7 @@ async function runQa() {
 // ------------------------------------------------------------------------------------------- play mode
 async function runPlay() {
   // Play telemetry (telemetry/README.md): local origins only, never on the published Pages site.
-  const telemetry = telemetryEnabled(location, navigator.webdriver)
+  const telemetry = telemetryEnabled(location)
     ? new Telemetry(httpTransport(`${location.origin}/telemetry`)) : null;
   if (telemetry) {
     tiles.events.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) =>

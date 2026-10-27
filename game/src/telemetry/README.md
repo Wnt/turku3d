@@ -12,8 +12,14 @@ tiles.
 - on in play mode when the page is served from `localhost`, `127.0.0.1` or `[::1]`, or with `?telemetry=1`;
 - always off on `github.io` (the published Pages build), even with `?telemetry=1`, so that build makes no
   telemetry request;
-- off under browser automation (`navigator.webdriver`) unless the URL has `?telemetry=1`, so test suites do not
-  write play sessions. QA render mode never records.
+- off with `?telemetry=0` (an ad-hoc probe against the user's localhost service that should not count as play).
+  QA render mode never records.
+
+Browser automation does not turn it off. The player may be playing in a Chrome window that a tool launched
+(`chrome-devtools-mcp` starts Chrome with `--enable-automation`, so `navigator.webdriver` is true): an earlier
+webdriver rule silently dropped every session played there (2026-10-27, from 15:01 on). Browser checks record too,
+into the telemetry directory of their own sandbox's server (`vite preview`, the dev server or `serve-dist`), never
+into the data root that the content loop reads.
 
 ## What it records
 
@@ -55,10 +61,13 @@ wall; `angle_deg` is between the wall normal and the direction from the wall cen
 Samples are POSTed every 5 s as JSON lines (`Content-Type: application/x-ndjson`) to `/telemetry` on the serving
 origin, and sent with `navigator.sendBeacon` when the page is hidden. `tools/dev/serve-dist.mjs` (`make play`,
 `make game-preview`) appends them to `$TURKU3D_WORK/telemetry/session-<YYYYMMDD>.jsonl`; the main checkout writes
-`~/turku3d/data/telemetry/`. Failed sends are dropped and counted (`stats.failed`); the Vite dev server has no
-endpoint.
+`~/turku3d/data/telemetry/`. The Vite dev server (the localhost game, `tools/dev/localhost-game`) and `vite preview`
+(the browser checks) do the same through `tools/dev/localhost/vitePlugin.mjs`, into `$TURKU3D_TELEMETRY_DIR` or
+`$TURKU3D_WORK/telemetry`. Failed sends are dropped and counted (`stats.failed`).
 
 ```sh
 cd game && npx vitest run tests/unit/telemetry.test.ts     # guard, grid, wall fit and projection, batching
-node --test tools/dev/serve-dist.test.mjs                  # endpoint (from the repository root)
+node --test tools/dev/serve-dist.test.mjs tools/dev/localhost/localhost.test.mjs   # endpoints (repository root)
+# A new game on the dev server under automation posts its first batch within 10 s (Chrome, WebGPU):
+cd game && ../scripts/dev/host_slots.py browser -- node_modules/.bin/playwright test -c playwright.hotswap.config.ts tests/e2e-hotswap/telemetry.spec.ts
 ```

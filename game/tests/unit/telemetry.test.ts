@@ -7,15 +7,14 @@ import { tilesAhead, visualTileAt } from '../../src/telemetry/grid';
 const loc = (url: string) => { const u = new URL(url); return { hostname: u.hostname, search: u.search }; };
 
 test('telemetry runs on local origins only and never on GitHub Pages', () => {
-  expect(telemetryEnabled(loc('http://localhost:5170/'), false)).toBe(true);
-  expect(telemetryEnabled(loc('http://127.0.0.1:5221/?backend=webgl'), false)).toBe(true);
-  expect(telemetryEnabled(loc('https://wnt.github.io/turku-game/game/'), false)).toBe(false);
-  expect(telemetryEnabled(loc('https://wnt.github.io/turku-game/game/?telemetry=1'), false)).toBe(false);
-  expect(telemetryEnabled(loc('https://example.org/'), false)).toBe(false);
-  expect(telemetryEnabled(loc('https://example.org/?telemetry=1'), false)).toBe(true);
-  // Browser test suites do not write play sessions unless they ask for it.
-  expect(telemetryEnabled(loc('http://localhost:5171/'), true)).toBe(false);
-  expect(telemetryEnabled(loc('http://localhost:5171/?telemetry=1'), true)).toBe(true);
+  expect(telemetryEnabled(loc('http://localhost:5170/'))).toBe(true);
+  expect(telemetryEnabled(loc('http://127.0.0.1:5221/?backend=webgl'))).toBe(true);
+  expect(telemetryEnabled(loc('http://[::1]:5171/'))).toBe(true);
+  expect(telemetryEnabled(loc('https://wnt.github.io/turku-game/game/'))).toBe(false);
+  expect(telemetryEnabled(loc('https://wnt.github.io/turku-game/game/?telemetry=1'))).toBe(false);
+  expect(telemetryEnabled(loc('https://example.org/'))).toBe(false);
+  expect(telemetryEnabled(loc('https://example.org/?telemetry=1'))).toBe(true);
+  expect(telemetryEnabled(loc('http://localhost:5171/?tiles=/tiles/tileset.json&telemetry=0'))).toBe(false);
 });
 
 test('level-0 tile ids match the pipeline grid, including negative indices', () => {
@@ -24,6 +23,20 @@ test('level-0 tile ids match the pipeline grid, including negative indices', () 
   expect(tilesAhead(240, 10, 1, 0)).toEqual(['t0_1_0', 't0_2_0']);
   expect(tilesAhead(10, 10, 0, -1)).toEqual(['t0_0_-1', 't0_0_-2']);
   expect(tilesAhead(10, 10, 0, 0)).toEqual([]);
+});
+
+test('a session that starts after the page has loaded posts its first sample at once', () => {
+  const bodies: string[] = [];
+  const telemetry = new Telemetry((body) => { bodies.push(body); return true; });
+  const camera = cameraAt(0, 5, 20, new THREE.Vector3(0, 5, 0), 60);
+  const pose = { x: 0, y: 0, z: 22, vehicle: null, speed: 0 };
+  // The play session starts its frame loop seconds into the page (performance.now), not at 0.
+  telemetry.tick(42_000, camera, () => pose);
+  expect(bodies).toHaveLength(1);
+  telemetry.tick(43_000, camera, () => pose);
+  expect(bodies).toHaveLength(1);
+  telemetry.tick(47_000, camera, () => pose);
+  expect(bodies).toHaveLength(2);
 });
 
 /** A batched tile mesh: wall A (10 x 10 m in the plane z = 0, facing +z) and wall B (facing -x at x = 20). */
