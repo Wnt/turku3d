@@ -8,11 +8,17 @@ current data root first: a red G is `data-red` (the data root changed, no commit
 or reverted). Only a green G bisects the batch's landings and reverts the one culprit
 landing on main through the land lock and the fast gate, tells its author and leaves live
 at G.
+
+Landings that reach main before the first expensive stage join the running batch. A second
+lane (`--lane data`, sandbox `integration-data`) builds the live commit G against a changed
+data root while the code lane is busy; publication is serialised under `publish.lock`, and a
+lane whose live release changed meanwhile rebuilds on top of it instead of publishing over it.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -28,6 +34,10 @@ import landing_class
 import sandbox as s
 
 NAME = "integration"
+DATA_NAME = "integration-data"
+LANES = {"code": NAME, "data": DATA_NAME}
+# Main heads one batch may take in before its first expensive stage.
+JOIN_LIMIT = 3
 # An inert batch republishes Pages only when the image licence list changed.
 PAGES_INPUTS = ("docs/published-images.toml",)
 
@@ -40,12 +50,17 @@ def ledger_path():
     return registry() / "integrations.jsonl"
 
 
-def status_path():
-    return registry() / "integration.json"
+def status_path(lane=NAME):
+    return registry() / f"{lane}.json"
 
 
-def lock_path():
-    return registry() / "integration.lock"
+def lock_path(lane=NAME):
+    return registry() / f"{lane}.lock"
+
+
+def publish_lock():
+    """Held while a lane checks the live release and publishes over it."""
+    return s.lock(registry() / "publish.lock")
 
 
 def read_rows(path):
@@ -63,8 +78,12 @@ def read_rows(path):
 
 
 def last(published):
-    """The latest integration row for this published root, or {}."""
-    rows = [row for row in read_rows(ledger_path()) if row.get("published") == str(published)]
+    """The latest code-lane integration row for this published root, or {}."""
+    rows = [
+        row
+        for row in read_rows(ledger_path())
+        if row.get("published") == str(published) and row.get("lane") != "data"
+    ]
     return rows[-1] if rows else {}
 
 
@@ -155,57 +174,103 @@ def checkout(commit, name, published):
     return repo
 
 
-def environment(repo, published):
+def environment(repo, published, lane=NAME):
     env = {**os.environ, **s.read_env(repo.parent / "sandbox.env")}
     env["TURKU3D_DATA"] = str(published)
     owner = os.environ.get("TURKU3D_INTEGRATION_OWNER")
     if owner:
         env["TURKU3D_INTEGRATION_OWNER"] = owner
-        env["TURKU3D_JOBS"] = str(host_slots.integration_jobs())
+        env["TURKU3D_JOBS"] = str(host_slots.integration_jobs(lane=lane))
     return env
 
 
-def status(**fields):
-    current = s.read_json(status_path(), {})
-    s.write_json(status_path(), {**current, **fields})
+def status(lane=NAME, **fields):
+    current = s.read_json(status_path(lane), {})
+    s.write_json(status_path(lane), {**current, **fields})
 
 
 class Run:
     """One integration of G..M; `build` counts builds and keeps every stage log."""
 
-    def __init__(self, published, main_repo, name, end, kind="code"):
+    def __init__(self, published, main_repo, name, end, landing=None, lane=NAME):
         self.published = published
         self.main_repo = main_repo
         self.name = name
-        self.landing_class = kind
+        self.lane = lane
+        # The batch end M and its class fields; a join moves both to a newer main.
+        self.end = end
+        self.landing = landing or {"class": "code"}
+        self.joined = []
         runs = sum(row.get("to") == end for row in read_rows(ledger_path()))
         # The row id names the integration in revert commits and messages.
         self.id = f"{end[:12]}.{runs + 1}"
         self.builds = []
         self.started = time.monotonic()
         self.previous = (published / "live").resolve()
+        # What live held when the run started; a different value at publication means
+        # another lane published meanwhile.
+        self.live_parts = landing_class.release_parts(self.previous)
 
-    def build(self, start, commit):
-        """(report, None) when commit builds green, else (None, failure)."""
+    @property
+    def landing_class(self):
+        return self.landing["class"]
+
+    def join(self, start):
+        """Take in a newer main before the first expensive stage; the build update or None."""
+        head = s.git("rev-parse", "main", cwd=self.main_repo)
+        if head == self.end or len(self.joined) >= JOIN_LIMIT:
+            return None
+        self.landing = batch_class(self.published, start, head, self.main_repo)
+        checkout(head, self.name, self.published)
+        self.end = head
+        self.joined.append(head)
+        # The restarted build seeds the current data root, so the lane now covers its key.
+        key = data_key(self.published)
+        status(self.lane, to=head, commit=head, data_key=key, **{"class": self.landing_class})
+        return {
+            "commit": head,
+            "landing_class": self.landing_class,
+            "reason": facade_reason(start, head, self.main_repo),
+        }
+
+    def build(self, start, commit, join=False, kind=None):
+        """(report, None) when commit builds green, else (None, failure).
+
+        join lets main heads that land before the first expensive stage join (self.end);
+        kind overrides the batch class (a data rebuild on top of another lane's release).
+        """
         # Imported here: the daemon imports this module, and the lander path must not
         # load the live build.
         import live_build
 
         repo = checkout(commit, self.name, self.published)
-        env = environment(repo, self.published)
+        env = environment(repo, self.published, self.lane)
         work = Path(env["TURKU3D_WORK"])
         reason = facade_reason(start, commit, repo)
         for attempt in (1, 2):
+            if join and commit != self.end:
+                commit, reason = self.end, facade_reason(start, self.end, repo)
             log = registry() / f"integration-{commit[:12]}-{len(self.builds) + 1}.log"
-            status(commit=commit, log=str(log))
+            status(self.lane, commit=commit, log=str(log))
             started = time.monotonic()
             try:
                 report = live_build.build(
-                    repo, work, self.published, env, log, reason, self.previous, self.landing_class
+                    repo,
+                    work,
+                    self.published,
+                    env,
+                    log,
+                    reason,
+                    self.previous,
+                    kind or self.landing_class,
+                    (lambda: self.join(start)) if join else None,
                 )
             except live_build.StageFailed as exc:
                 self.builds.append(
-                    {"commit": commit, "seconds": round(time.monotonic() - started, 3)}
+                    {
+                        "commit": self.end if join else commit,
+                        "seconds": round(time.monotonic() - started, 3),
+                    }
                 )
                 # One rerun guards against a flaky Chrome stage; cached stages are free.
                 if exc.stage.startswith("chrome") and attempt == 1:
@@ -217,10 +282,18 @@ class Run:
                 return None, failure
             except (ValueError, OSError, subprocess.CalledProcessError) as exc:
                 self.builds.append(
-                    {"commit": commit, "seconds": round(time.monotonic() - started, 3)}
+                    {
+                        "commit": self.end if join else commit,
+                        "seconds": round(time.monotonic() - started, 3),
+                    }
                 )
                 return None, {"stage": "build", "detail": str(exc)[-1000:], "log": str(log)}
-            self.builds.append({"commit": commit, "seconds": round(time.monotonic() - started, 3)})
+            self.builds.append(
+                {
+                    "commit": self.end if join else commit,
+                    "seconds": round(time.monotonic() - started, 3),
+                }
+            )
             return {**report, "work": str(work)}, None
         raise AssertionError("unreachable")
 
@@ -403,7 +476,9 @@ def integrate(run, base, start, end):
     import live_build
 
     published = run.published
-    report, failure = run.build(start, end)
+    report, failure = run.build(start, end, join=True)
+    end = run.end
+    base.update(run.landing, to=end, batch_joined=run.joined)
     if report is None:
         # Base check before blame: G was green when published, so a red G means the data
         # root changed under it, and no commit in the batch caused the failure.
@@ -433,14 +508,30 @@ def integrate(run, base, start, end):
         "facades_baseline": report["facades_baseline"],
         "culprit": None,
     }
-    work = Path(report.pop("work"))
-    try:
-        live_build.prepare(work, published, end, report)
-        # Main is already at M; only the live link moves, and publish rolls it
-        # back to G if any stable path does not resolve into the new release.
-        live_build.publish(published, end)
-    except (ValueError, OSError) as exc:
-        return record(run, {**row, "result": "failed", "failure": {"detail": str(exc)}})
+    for _attempt in (1, 2):
+        work = Path(report.pop("work"))
+        with publish_lock():
+            live = (published / "live").resolve()
+            if landing_class.release_parts(live) == run.live_parts:
+                try:
+                    live_build.prepare(work, published, end, report)
+                    # Main is already at M; only the live link moves, and publish rolls it
+                    # back to G if any stable path does not resolve into the new release.
+                    live_build.publish(published, end)
+                except (ValueError, OSError) as exc:
+                    failure = {"detail": str(exc)}
+                    return record(run, {**row, "result": "failed", "failure": failure})
+                break
+        # The data lane published newer data meanwhile: verified code M is rebuilt on top of
+        # it with the data stages, as a data landing after M would be, never published over it.
+        run.previous, run.live_parts = live, landing_class.release_parts(live)
+        row["rebuilt_on"] = live.name
+        report, failure = run.build(start, end, kind="data")
+        if report is None:
+            return data_red(run, base, failure, failure)
+    else:
+        detail = "live data changed again during the rebuild; the next run publishes"
+        return record(run, {**row, "result": "failed", "failure": {"detail": detail}})
     row["result"] = "green"
     deployed = publish_pages(published)
     if deployed:
@@ -454,7 +545,8 @@ def repoint(run, base, start, end):
 
     row = {**base, "skipped": True, "culprit": None}
     try:
-        live_build.repoint(run.published, start, end)
+        with publish_lock():
+            live_build.repoint(run.published, start, end)
     except (ValueError, OSError) as exc:
         return record(run, {**row, "result": "failed", "failure": {"detail": str(exc)}})
     row["result"] = "green"
@@ -483,6 +575,27 @@ def publish_pages(published):
         return {"error": str(exc)[-500:]}
 
 
+@contextlib.contextmanager
+def reserved(lane):
+    """The lane's host slot; nested make targets inherit it through the owner variable."""
+    with host_slots.slot(lane) as inherited:
+        if not inherited:
+            os.environ["TURKU3D_INTEGRATION_OWNER"] = (
+                f"{os.getpid()}:{host_slots.identity(os.getpid())}"
+            )
+        try:
+            yield
+        finally:
+            if not inherited:
+                os.environ.pop("TURKU3D_INTEGRATION_OWNER", None)
+
+
+def begin(lane, start, end, landing, key):
+    status_path(lane).parent.mkdir(parents=True, exist_ok=True)
+    fields = {"pid": os.getpid(), "started": time.time(), "from": start, "to": end}
+    s.write_json(status_path(lane), {**fields, "class": landing["class"], "data_key": key})
+
+
 def run_once(published, main_repo=s.REPO, name=NAME):
     """Integrate the batch from the published commit G to main head M; returns the row."""
     published = Path(published)
@@ -493,40 +606,102 @@ def run_once(published, main_repo=s.REPO, name=NAME):
     if start == end:
         return None
     landing = batch_class(published, start, end, main_repo)
-    run = Run(published, main_repo, name, end, landing["class"])
-    status_path().parent.mkdir(parents=True, exist_ok=True)
-    s.write_json(
-        status_path(),
-        {
-            "pid": os.getpid(),
-            "started": time.time(),
-            "from": start,
-            "to": end,
-            "class": landing["class"],
-        },
-    )
-    base = {"from": start, "to": end, "data_key": data_key(published), **landing}
+    run = Run(published, main_repo, name, end, landing)
+    key = data_key(published)
+    begin(NAME, start, end, landing, key)
+    base = {"from": start, "to": end, "data_key": key, **landing}
     if landing["class"] == "inert":
         return repoint(run, base, start, end)
-    with host_slots.slot("integration") as inherited:
-        if not inherited:
-            os.environ["TURKU3D_INTEGRATION_OWNER"] = (
-                f"{os.getpid()}:{host_slots.identity(os.getpid())}"
-            )
+    with reserved(NAME):
         try:
             return integrate(run, base, start, end)
         except (ValueError, OSError, subprocess.CalledProcessError) as exc:
             # Infrastructure failures (sandbox, env sync, git) name no culprit.
             failure = {"detail": str(exc)[-1000:]}
             return record(run, {**base, "result": "failed", "failure": failure})
-        finally:
-            if not inherited:
-                os.environ.pop("TURKU3D_INTEGRATION_OWNER", None)
 
 
-def running():
-    """The in-progress integration (from, to, commit, stage, elapsed), or None."""
-    path = lock_path()
+def data_due(published, main_repo=s.REPO):
+    """Whether the data lane should build live G against the changed data root now.
+
+    Only while the code lane cannot cover the change: it runs with an older data key, or
+    main is live so no code run follows. One run per (G, data key).
+    """
+    start = live_commit(published)
+    if start is None or running(DATA_NAME):
+        return False
+    key = data_key(published)
+    code = running(NAME)
+    if code:
+        if code.get("data_key") == key:
+            return False
+    elif s.git("rev-parse", "main", cwd=main_repo) != start:
+        return False
+    live = (published / "live").resolve()
+    if not landing_class.data_delta(
+        landing_class.data_parts(published), landing_class.release_parts(live)
+    ):
+        return False
+    return not any(
+        row.get("lane") == "data" and row.get("from") == start and row.get("data_key") == key
+        for row in read_rows(ledger_path())
+        if row.get("published") == str(published)
+    )
+
+
+def run_data(published, main_repo=s.REPO, name=DATA_NAME):
+    """Data lane: build live G with the data stages against the current data root and
+    publish it as release <G>-<data key> unless live moved meanwhile."""
+    import live_build
+
+    published = Path(published)
+    start = live_commit(published)
+    if start is None:
+        raise ValueError(f"no published live release in {published}")
+    live = (published / "live").resolve()
+    current = landing_class.data_parts(published)
+    delta = landing_class.data_delta(current, landing_class.release_parts(live))
+    if not delta:
+        return None
+    landing = landing_class.classify(main_repo, start, start, delta, published)
+    run = Run(published, main_repo, name, start, landing, lane=DATA_NAME)
+    key = data_key(published)
+    begin(DATA_NAME, start, start, landing, key)
+    base = {"lane": "data", "from": start, "to": start, "data_key": key, **landing}
+    with reserved(DATA_NAME):
+        try:
+            report, failure = run.build(start, start)
+            if report is None:
+                return data_red(run, base, failure, failure)
+            row = {
+                **base,
+                "seconds": report["seconds"],
+                "cache_hits": report["cache_hits"],
+                "facades_bound": report["facades_bound"],
+                "culprit": None,
+            }
+            work = Path(report.pop("work"))
+            with publish_lock():
+                if (published / "live").resolve() != live:
+                    # The code lane published first; the next round rebuilds on top of it.
+                    return record(run, {**row, "result": "superseded"})
+                release = f"{start}-{key[:12]}"
+                live_build.prepare(work, published, start, report, release)
+                live_build.publish(published, start, release)
+        except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+            return record(
+                run, {**base, "result": "failed", "failure": {"detail": str(exc)[-1000:]}}
+            )
+    row["result"] = "green"
+    deployed = publish_pages(published)
+    if deployed:
+        row["pages"] = deployed
+    return record(run, row)
+
+
+def running(lane=NAME):
+    """The lane's in-progress integration (from, to, commit, stage, elapsed), or None."""
+    path = lock_path(lane)
     if not path.exists():
         return None
     with path.open("a") as file:
@@ -537,7 +712,7 @@ def running():
         else:
             fcntl.flock(file, fcntl.LOCK_UN)
             return None
-    current = s.read_json(status_path(), {})
+    current = s.read_json(status_path(lane), {})
     stage = None
     try:
         for line in Path(current.get("log", "")).read_text().splitlines():
@@ -549,13 +724,14 @@ def running():
     return {**current, "stage": stage, "elapsed": round(elapsed, 1) if elapsed else None}
 
 
-def start(published):
-    """Start one detached integration; its own lock keeps a single run at a time."""
-    log = registry() / "integration.log"
+def start(published, lane="code"):
+    """Start one detached integration of a lane; its own lock keeps one run per lane."""
+    log = registry() / f"{LANES[lane]}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
+    command = ["run", "--published", str(published), "--lane", lane]
     with log.open("a") as output:
         return subprocess.Popen(
-            [sys.executable, str(Path(__file__).resolve()), "run", "--published", str(published)],
+            [sys.executable, str(Path(__file__).resolve()), *command],
             cwd=s.REPO,
             stdin=subprocess.DEVNULL,
             stdout=output,
@@ -569,24 +745,28 @@ def main():
     parser.add_argument("command", choices=("run", "status"))
     parser.add_argument("--published", type=Path, default=os.environ.get("TURKU3D_DATA"))
     parser.add_argument("--main-repo", type=Path, default=s.REPO)
-    parser.add_argument("--sandbox", default=NAME)
+    parser.add_argument("--lane", choices=tuple(LANES), default="code")
+    parser.add_argument("--sandbox", help="integration sandbox (default: the lane's)")
     args = parser.parse_args()
+    lane = LANES[args.lane]
     if args.command == "status":
-        print(json.dumps({"running": running(), "last": last(args.published)}, indent=2))
+        lanes = {name: running(name) for name in LANES.values()}
+        print(json.dumps({"running": lanes, "last": last(args.published)}, indent=2))
         return 0
     if not args.published:
         parser.error("--published or TURKU3D_DATA is required")
-    lock_path().parent.mkdir(parents=True, exist_ok=True)
-    with lock_path().open("a") as file:
+    lock_path(lane).parent.mkdir(parents=True, exist_ok=True)
+    with lock_path(lane).open("a") as file:
         try:
             fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print("integration already running", file=sys.stderr)
+            print(f"{lane} already running", file=sys.stderr)
             return 0
+        run = run_data if args.lane == "data" else run_once
         try:
-            row = run_once(args.published.resolve(), args.main_repo, args.sandbox)
+            row = run(args.published.resolve(), args.main_repo, args.sandbox or lane)
         finally:
-            status_path().unlink(missing_ok=True)
+            status_path(lane).unlink(missing_ok=True)
         print(json.dumps(row))
         return 0 if row is None or row["result"] == "green" else 1
 

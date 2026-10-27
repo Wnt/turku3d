@@ -59,7 +59,7 @@ class HostSlotsTest(unittest.TestCase):
         self.fail(f"slot state did not converge: {self.snapshot()}")
 
     def kinds(self, child):
-        return [(e["kind"], e["state"]) for e in self.snapshot() if e["pid"] == child.pid]
+        return [(host_slots.lane(e), e["state"]) for e in self.snapshot() if e["pid"] == child.pid]
 
     def test_integration_reservation_leaves_build_budget(self):
         integration = self.start("integration")
@@ -91,15 +91,15 @@ class HostSlotsTest(unittest.TestCase):
         self.until(lambda: self.kinds(extra) == [("build", "running")])
 
     def test_dead_owner_reclaimed_and_browser_cap(self):
-        browsers = [self.start("browser") for _ in range(3)]
-        self.until(lambda: len(self.snapshot()) == 3)
-        self.assertEqual(sum(e["state"] == "running" for e in self.snapshot()), 2)
+        # One agent Chrome suite per host at a time.
+        browsers = [self.start("browser") for _ in range(2)]
+        self.until(lambda: len(self.snapshot()) == 2)
+        self.assertEqual(sum(e["state"] == "running" for e in self.snapshot()), 1)
         owner = next(e for e in self.snapshot() if e["state"] == "running")
         child = next(c for c in browsers if c.pid == owner["pid"])
         os.killpg(child.pid, signal.SIGKILL)
         child.wait(timeout=3)
-        self.until(lambda: all(e["state"] == "running" for e in self.snapshot()))
-        self.assertEqual(len(self.snapshot()), 2)
+        self.until(lambda: [e["state"] for e in self.snapshot()] == ["running"])
 
     def test_child_worker_budget(self):
         for kind, expected in (("build", "2"), ("browser", "1")):
@@ -157,6 +157,114 @@ class HostSlotsTest(unittest.TestCase):
             check=True,
         )
         return result.stdout.strip()
+
+    def test_integrator_chrome_workers_follow_the_load(self):
+        self.assertEqual((host_slots.browser_workers(59.9), host_slots.browser_workers(60)), (4, 2))
+        self.assertEqual(host_slots.integration_jobs(lane="integration-data"), 4)
+
+    def test_agents_chrome_queues_while_the_integrator_runs_chrome(self):
+        # The integration child marks its Chrome phase for 1.5 s, then works without it.
+        script = (
+            "import sys, time; sys.path.insert(0, sys.argv[1]); import host_slots; "
+            "time.sleep(0.3)\n"
+            "with host_slots.phase('chrome'): time.sleep(1.5)\n"
+            "time.sleep(20)"
+        )
+        integration = subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(host_slots.__file__)),
+                "integration",
+                "--",
+                sys.executable,
+                "-c",
+                script,
+                str(Path(host_slots.__file__).parent),
+            ],
+            env=self.env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.children.append(integration)
+
+        def phase():
+            return [e.get("phase") for e in self.snapshot() if e["kind"] == "integration"]
+
+        self.until(lambda: phase() == ["chrome"])
+        browser = self.start("browser")
+        self.until(lambda: self.kinds(browser) == [("browser", "waiting")])
+        self.until(lambda: phase() == [None])
+        self.until(lambda: self.kinds(browser) == [("browser", "running")])
+        # The marked entry is still released as the same admission.
+        os.killpg(integration.pid, signal.SIGTERM)
+        integration.wait(timeout=3)
+        self.until(lambda: [host_slots.lane(e) for e in self.snapshot()] == ["browser"])
+
+    def test_code_and_data_lanes_hold_their_own_slots(self):
+        code = self.start("integration")
+        data = self.start("integration-data")
+        self.until(
+            lambda: (
+                self.kinds(code) + self.kinds(data)
+                == [
+                    ("integration", "running"),
+                    ("integration-data", "running"),
+                ]
+            )
+        )
+        # Stored as kind `integration` with a lane: tooling that predates the data lane counts it.
+        self.assertEqual(
+            {(e["kind"], e.get("lane")) for e in self.snapshot()},
+            {
+                ("integration", "integration"),
+                ("integration", "integration-data"),
+            },
+        )
+        # 6 + 4 jobs fill the budget: a build waits, a second data lane waits for its slot.
+        build = self.start("build")
+        again = self.start("integration-data")
+        self.until(lambda: self.kinds(build) == [("build", "waiting")])
+        self.until(lambda: self.kinds(again) == [("integration-data", "waiting")])
+        os.killpg(data.pid, signal.SIGTERM)
+        data.wait(timeout=3)
+        # Whichever is admitted first takes the freed jobs; both run once the code lane ends.
+        os.killpg(code.pid, signal.SIGTERM)
+        code.wait(timeout=3)
+        self.until(
+            lambda: (
+                self.kinds(build) + self.kinds(again)
+                == [
+                    ("build", "running"),
+                    ("integration-data", "running"),
+                ]
+            )
+        )
+
+    def test_data_lane_children_use_its_budget(self):
+        script = (
+            "import os, subprocess, sys; "
+            "subprocess.run([sys.executable, sys.argv[1], 'build', '--', "
+            "sys.executable, '-c', \"import os; print(os.environ['TURKU3D_JOBS'])\"], check=True)"
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(host_slots.__file__)),
+                "integration-data",
+                "--",
+                sys.executable,
+                "-c",
+                script,
+                str(Path(host_slots.__file__)),
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        self.assertEqual(result.stdout.strip(), "4")
 
     def test_admissions_log_waits_and_stats_report_median_and_p90(self):
         first = self.start("integration")

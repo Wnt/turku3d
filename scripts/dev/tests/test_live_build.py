@@ -1,5 +1,6 @@
 """Small, offline fixtures for live artifact verification and publication."""
 
+import contextlib
 import json
 import sys
 import tempfile
@@ -334,7 +335,10 @@ class LiveBuildTests(unittest.TestCase):
             repo, work, published = self.stage_fixture(root)
             calls = []
             run = self.stage_runner(work, calls)
-            with patch.object(live_build.s, "run_group", side_effect=run):
+            with (
+                patch.object(live_build.s, "run_group", side_effect=run),
+                patch("os.getloadavg", return_value=(12.0, 11.0, 10.0)),
+            ):
                 report = live_build.build(
                     repo, work, published, {"TURKU3D_WORK": str(work)}, root / "build.log"
                 )
@@ -364,12 +368,49 @@ class LiveBuildTests(unittest.TestCase):
             self.assertEqual(report["car_validation"]["status"], "fail")
             self.assertEqual(report["car_validation"]["failed_tiles"], 1)
             self.assertEqual(calls[-1][1], repo / "game")
-            # Chrome runs with the integration reservation's four browser workers.
+            # Chrome runs with the integration reservation's four workers under load 60.
             self.assertEqual(calls[-1][3], "4")
             self.assertEqual(report["facades_bound"], 2)
             self.assertEqual(list(report["browser_load"]), ["chrome"])
             self.assertEqual(report["browser_load"]["chrome"]["frame_p95_ms"]["max"], 20.0)
             self.assertEqual(report["facade_ground_audit"]["sampled"], 2)
+
+    def test_join_before_first_expensive_stage_restarts_on_the_new_head(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, work, published = self.stage_fixture(root)
+            calls, joins = [], []
+
+            def join():
+                joins.append(len(calls))
+                if len(joins) == 1:
+                    return {"commit": "m2", "landing_class": "code", "reason": "joined reason"}
+                return None
+
+            with (
+                patch.object(live_build.s, "run_group", side_effect=self.stage_runner(work, calls)),
+                patch.object(live_build, "phase", return_value=contextlib.nullcontext()) as phase,
+            ):
+                report = live_build.build(
+                    repo,
+                    work,
+                    published,
+                    {"TURKU3D_WORK": str(work)},
+                    root / "build.log",
+                    landing_class="data",
+                    join=join,
+                )
+            # Refresh is preparation; the join point is the first later stage. The restart
+            # runs refresh again (a cache hit in real builds) and the joined class's stages.
+            self.assertEqual(joins, [1, 2])
+            self.assertEqual(
+                [call[0][1] for call in calls[:3]], ["refresh", "refresh", "tile-build"]
+            )
+            self.assertEqual(list(report["seconds"])[-1], "chrome")
+            phase.assert_called_once_with("chrome")
+            log = (root / "build.log").read_text()
+            self.assertIn("== join: rebuilding m2 as code ==", log)
+            self.assertLess(log.index("== join"), log.rindex("== refresh"))
 
     def test_data_build_skips_chrome_and_collision_and_carries_unchanged_car_result(self):
         self.assertEqual(live_build.stages_for("inert"), ())

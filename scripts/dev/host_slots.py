@@ -14,7 +14,11 @@ import sys
 import time
 from pathlib import Path
 
-LIMITS = {"build": 3, "browser": 2, "integration": 1}
+LIMITS = {"build": 3, "browser": 1, "integration": 1, "integration-data": 1}
+# The code lane (`integration`, with Chrome) and the data lane (no Chrome) of the integrator.
+# Both are stored as kind `integration` with their `lane`, so tooling that predates the data
+# lane counts it as an integration instead of failing on an unknown kind.
+INTEGRATIONS = ("integration", "integration-data")
 
 # Host budget in CPU job units and browser (GPU) workers. One integration reserves a
 # fixed share; build and browser admissions continue within what remains.
@@ -25,38 +29,57 @@ COST = {
     # Chrome suites share one GPU. On the M1 Max the 20-test real-tile suite passed in
     # 1.9 min with four workers; ten workers timed out on 9 tests.
     "integration": {"jobs": 6, "gpu": 4},
+    "integration-data": {"jobs": 4},
 }
+# Above this 1-minute load average the integrator's Chrome stage halves its workers:
+# the same 32 tests took 251 s at load 50 and 1086 s at load 150-250 with four.
+BROWSER_LOAD = 60
 
 
-def integration_jobs(kind="build"):
-    """TURKU3D_JOBS for commands nested in an integration reservation."""
-    return COST["integration"]["gpu" if kind == "browser" else "jobs"]
+def browser_workers(load=None):
+    """Chrome workers of the integrator: 4 under BROWSER_LOAD, else 2."""
+    load = os.getloadavg()[0] if load is None else load
+    return COST["integration"]["gpu"] if load < BROWSER_LOAD else COST["integration"]["gpu"] // 2
+
+
+def integration_jobs(kind="build", lane="integration"):
+    """TURKU3D_JOBS for commands nested in the `lane` integration reservation."""
+    return browser_workers() if kind == "browser" else COST[lane]["jobs"]
+
+
+def lane(entry):
+    """The slot class of an entry: its integration lane, else its kind."""
+    return entry.get("lane", entry["kind"])
 
 
 def fits(entries, kind):
     """Whether `kind` fits beside the running entries within every budgeted resource."""
     running = [e for e in entries if e["state"] == "running"]
-    if sum(e["kind"] == kind for e in running) >= LIMITS[kind]:
+    if sum(lane(e) == kind for e in running) >= LIMITS[kind]:
         return False
     return all(
-        sum(COST[e["kind"]].get(resource, 0) for e in running) + COST[kind].get(resource, 0)
-        <= budget
+        sum(COST[lane(e)].get(resource, 0) for e in running) + COST[kind].get(resource, 0) <= budget
         for resource, budget in BUDGET.items()
     )
 
 
 def admissible(entries, entry):
-    """Admit within budget; later admissions never starve a waiting integration."""
-    if not fits(entries, entry["kind"]):
+    """Admit within budget; later admissions never starve a waiting integration, and
+    agents' Chrome suites queue while the integrator's Chrome stage runs."""
+    if not fits(entries, lane(entry)):
+        return False
+    if entry["kind"] == "browser" and any(
+        lane(e) == "integration" and e.get("phase") == "chrome" for e in entries
+    ):
         return False
     older = any(
-        e["kind"] == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]
+        lane(e) == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]
         for e in entries
     )
     if not older:
         return True
     # Admit only what still leaves room for the waiting integration.
-    return entry["kind"] != "integration" and fits(
+    return lane(entry) != "integration" and fits(
         [*entries, {**entry, "state": "running"}], "integration"
     )
 
@@ -104,6 +127,40 @@ def state(directory=None):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+def same(a, b):
+    """The same admission: entries gain fields (phase) while they are held."""
+    return all(a[key] == b[key] for key in ("pid", "identity", "kind", "since"))
+
+
+def owner():
+    """(pid, identity) of the integration reservation this process runs under, or None."""
+    pid, _, started = os.environ.get("TURKU3D_INTEGRATION_OWNER", "").partition(":")
+    return (pid, started) if pid else None
+
+
+@contextlib.contextmanager
+def phase(name):
+    """Mark the owning integration reservation as in `name` (e.g. its Chrome stage)."""
+    held = owner()
+
+    def mark(value):
+        if not held:
+            return
+        with state() as data:
+            for entry in data["entries"]:
+                if (
+                    entry["kind"] == "integration"
+                    and (str(entry["pid"]), entry["identity"]) == held
+                ):
+                    entry["phase"] = value
+
+    mark(name)
+    try:
+        yield
+    finally:
+        mark(None)
+
+
 def snapshot(directory=None):
     with state(directory) as data:
         return list(data["entries"])
@@ -112,7 +169,7 @@ def snapshot(directory=None):
 def waiting(sandbox):
     return next(
         (
-            entry["kind"]
+            lane(entry)
             for entry in snapshot()
             if entry["sandbox"] == sandbox and entry["state"] == "waiting"
         ),
@@ -124,20 +181,22 @@ def waiting(sandbox):
 def slot(kind):
     if kind not in LIMITS:
         raise ValueError(f"unknown slot class: {kind}")
-    owner = os.environ.get("TURKU3D_INTEGRATION_OWNER", "")
-    # Build and browser commands nested in a running integration use its reservation.
-    if owner:
-        pid, _, started = owner.partition(":")
+    # Build and browser commands nested in a running integration use its reservation;
+    # the slot yields that reservation's kind (its lane), else False.
+    if held := owner():
         with state() as data:
-            inherited = any(
-                entry["kind"] == "integration"
-                and entry["state"] == "running"
-                and str(entry["pid"]) == pid
-                and entry["identity"] == started
-                for entry in data["entries"]
+            inherited = next(
+                (
+                    lane(entry)
+                    for entry in data["entries"]
+                    if entry["kind"] == "integration"
+                    and entry["state"] == "running"
+                    and (str(entry["pid"]), entry["identity"]) == held
+                ),
+                None,
             )
         if inherited:
-            yield True
+            yield inherited
             return
     pid = os.getpid()
     started = identity(pid)
@@ -146,21 +205,24 @@ def slot(kind):
     entry = {
         "pid": pid,
         "identity": started,
-        "kind": kind,
+        "kind": "integration" if kind in INTEGRATIONS else kind,
         "state": "waiting",
         "sandbox": os.environ.get("TURKU3D_SANDBOX", "main"),
         "since": time.time(),
     }
+    if kind in INTEGRATIONS:
+        entry["lane"] = kind
     try:
         announced = False
         while True:
             with state() as data:
                 entries = data["entries"]
-                if entry not in entries:
-                    entries.append(entry)
-                admitted = admissible(entries, entry)
-                if admitted:
-                    entries[entries.index(entry)]["state"] = "running"
+                stored = next((e for e in entries if same(e, entry)), None)
+                if stored is None:
+                    stored = dict(entry)
+                    entries.append(stored)
+                if admissible(entries, stored):
+                    stored["state"] = "running"
                     entry["state"] = "running"
                     break
             if not announced:
@@ -173,7 +235,7 @@ def slot(kind):
         yield False
     finally:
         with state() as data:
-            data["entries"] = [e for e in data["entries"] if e != entry]
+            data["entries"] = [e for e in data["entries"] if not same(e, entry)]
 
 
 def record_wait(kind, name, seconds):
@@ -227,12 +289,18 @@ def main():
         parser.error("command required")
     with slot(args.kind) as inherited:
         env = os.environ.copy()
-        if args.kind == "integration" and not inherited:
-            env["TURKU3D_JOBS"] = str(integration_jobs())
+        if args.kind in INTEGRATIONS and not inherited:
+            env["TURKU3D_JOBS"] = str(integration_jobs(lane=args.kind))
             env["TURKU3D_INTEGRATION_OWNER"] = f"{os.getpid()}:{identity(os.getpid())}"
         else:
-            # Children of an integration keep its budget, GPU-bounded for Chrome.
-            cap = integration_jobs(args.kind) if inherited else 1 if args.kind == "browser" else 2
+            # Children of an integration keep its lane's budget, GPU-bounded for Chrome.
+            cap = (
+                integration_jobs(args.kind, inherited)
+                if inherited
+                else 1
+                if args.kind == "browser"
+                else 2
+            )
             env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))
         return subprocess.call(command, env=env)
 

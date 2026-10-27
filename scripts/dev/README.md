@@ -581,21 +581,23 @@ Playwright suites, playtest, the gate's e2e stage and the integrator's live buil
 
 Admission is budgeted, not exclusive. The host has 10 CPU job units and 6 browser (GPU)
 workers (`BUDGET`). A `build` costs 2 job units (at most three at once, each with
-`TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (at most two, `TURKU3D_JOBS` = 1), and the
-single `integration` reservation 6 job units plus one 4-worker browser (`COST`). Builds and
-browser suites keep being admitted beside a running integration within the remaining
-capacity: two builds and both browser suites. A waiting integration is not starved: later
-admissions are taken only if the integration still fits after them, so at most the
-builds already running finish first. The integration and every build or browser command nested
-in it (`TURKU3D_INTEGRATION_OWNER`) use its budget: `TURKU3D_JOBS` = 6 for builds and 4 Chrome
-workers, because the Chrome suites share one GPU (the 20-test real-tile suite passed in 1.9 min
-with four workers; ten workers timed out on 9 tests). Nested commands are not admissions.
+`TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (one agent suite at a time, `TURKU3D_JOBS` = 1), the
+single `integration` reservation (the integrator's code lane) 6 job units plus 4 browser
+workers, and the single `integration-data` reservation (its data lane, no Chrome; stored as kind
+`integration` with `lane`, so older tooling counts it) 4 job units (`COST`). Builds and browser suites keep being admitted beside a running integration within the
+remaining capacity. A waiting `integration` is not starved: later admissions are taken only if
+it still fits after them, so at most the builds already running finish first. The integration
+and every build or browser command nested in it (`TURKU3D_INTEGRATION_OWNER`) use its lane's
+budget: `TURKU3D_JOBS` = 6 (code) or 4 (data) for builds. Nested commands are not admissions.
 Refresh divides its job budget between independent steps and passes it to Roofer.
 Dead owner PIDs are removed on the next admission or status read. Waiting appears
 in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
 
-The whole-host `land` class is deleted: it made every precheck's live build freeze all other
-gates (merge latency study, R2), and nothing on the landing path builds any more.
+Browser share: the integrator's Chrome stage gets 4 workers while the 1-minute load average is
+under 60 (`BROWSER_LOAD`) and 2 above it (`browser_workers`; the same 32 tests took 251 s at load
+50 and 1086 s at load 150–250; ten workers timed out). While it runs, `host_slots.phase("chrome")`
+marks the integration entry (`phase: chrome` in `state.json`) and agents' `browser` admissions
+wait behind it; suites already running finish. They are admitted again when the stage ends.
 
 Every admission appends `{"time", "kind", "name", "wait_seconds"}` (name is the sandbox) to
 `~/turku3d/host-slots/waits.jsonl`.
@@ -649,11 +651,11 @@ verified from exactly the commit it names.
 worker: commit → codex-task finish (no precheck, no polling)
 lander (serial, seconds, no host slot): validate → rebase (conflict → inbox) → gate --fast
         → git merge --ff-only → landed.jsonl row
-integrator (asynchronous, one run at a time, integration host reservation):
+integrator code lane (asynchronous, one run at a time, `integration` host reservation):
         batch = landings from the published commit G up to main M
         class (landing_class.classify): inert → live_build.repoint(M), no build, no slot
-        data/code → live_build.build(M, stages_for(class)) in the `integration` sandbox
-        green: live_build.prepare + publish(M); G := M
+        data/code → live_build.build(M, stages_for(class)); early landings join (batch_joined)
+        green: publish(M) under publish.lock, on top of a data-lane release published meanwhile
         red:   rerun a red Chrome stage once (flake guard)
                → base check: live_build.build(G) against the current data root
                G red:   data-red, revert nothing, warning to all, live stays at G;
@@ -661,53 +663,54 @@ integrator (asynchronous, one run at a time, integration host reservation):
                G green: bisect G..M over landed heads → revert the culprit landing as one
                         commit through land.lock + gate --fast → request to its author
                         → live stays at G; the next run integrates the rest plus the revert
+data lane (`--lane data`): build(G, data stages) on a changed data root → release <G>-<key12>
 ```
 
 ```sh
 scripts/dev/codex-task queue run          # one daemon, started by the orchestrator
 scripts/dev/codex-task queue status       # read-only JSON
 python3 scripts/dev/integrator.py status  # running integration and last ledger row
-# One integration by hand, e.g. against a copy of the published root:
+# One integration by hand (add --lane data for the data lane), e.g. against a copy of the published root:
 python3 scripts/dev/integrator.py run --published /path/to/data-copy --main-repo /path/to/clone --sandbox integration-measure
 ```
 
 `queue run` (`merge_queue.run`) polls every 5 s. Each round it (a) discovers DONE results (exact `## Result: DONE`, a
 new `meta.finished`) and lands them in `first_finished` order, each through a child `codex-task land <task>` (log
-`tasks/<task>/land.log`, 600 s timeout) that runs main's current lander; and (b) when no integration is running and
-main has moved past both the live commit and the last integration's `to` (or the data key changed since that
-integration), it starts `integrator.py run` as a detached child (log `wt/.registry/integration.log`). The queue never
-resumes a worker. A failed landing records event `returned` with the reason in `merge-queue.json` and posts a
+`tasks/<task>/land.log`, 600 s timeout) that runs main's current lander; and (b) when no code lane runs and main has
+moved past both the live commit and the last integration's `to` (or the data key changed since that integration), it
+starts `integrator.py run` as a detached child (log `wt/.registry/integration.log`), and when `data_due` holds,
+`integrator.py run --lane data` (log `integration-data.log`). The queue never resumes a worker. A failed landing records event `returned` with the reason in `merge-queue.json` and posts a
 `request` to the task inbox (a rebase conflict is returned by the lander, which already posted it); the worker
 rebases, fixes, acks and runs `codex-task finish` again, which re-enqueues it. An unacknowledged request/warning
 records `held` and retries after 60 s. `codex-task ls`/`status`, the board's idle list and the sentinel show
-`returned: <reason>`. `queue status` shows the tasks waiting to land, the last landing, the integration in progress
-(from → to, stage, elapsed), the live and main commits, how far live is behind, and red or data-red runs awaiting a
+`returned: <reason>`. `queue status` shows the tasks waiting to land, the last landing, both lanes in progress
+(`integration`, `integration_data`: from → to, class, stage, elapsed), the live and main commits, how far live is behind, and red or data-red runs awaiting a
 fix. The daemon follows main's tooling: when main's `scripts/dev/` tree hash (`git rev-parse main:scripts/dev`)
 differs from the one it started with, it finishes the round, waits for its integration child, appends event `reloaded`
 (`from`, `to`) to `merge-queue.json`, prints `merge queue: reloaded <old> -> <new>` and re-executes itself
 (`os.execv`, same argv).
 
-**Landing classes** (`landing_class.py`). `classify(repo, base, head, data_delta)` sorts `git diff --name-only`
-and the data-root delta; any path outside both allowlists makes it `code`. `inert`: `docs/*`, `*.md`, `LICENSE`.
-`data`: `game/public/assets/{voice,content}/*` or a changed data-root part (`data_parts`: JSON of
-`facade-approvals/assembly` and `build/layers`, the playable tile list). `code`: everything else. `tiles`: none
-(inert), every listed tile (code, approvals or layers changed), else the tiles listed since the live release.
-The lander compares `data_parts` with the last ledger row's (else the live release's), so a data-root change counts
-for the first landing after it. `queue status`, `watch` (`landed <sha> as <class>`) and `here` show the class.
+**Landing classes** (`landing_class.py`): `classify(repo, base, head, data_delta)` sorts `git diff --name-only` and
+the data-root delta; a path outside both allowlists makes it `code`. `inert`: `docs/*`, `*.md`, `LICENSE`. `data`:
+`game/public/assets/{voice,content}/*` or a changed `data_parts` part (JSON of `facade-approvals/assembly` and
+`build/layers`, the tile list), compared with the last ledger row's (else the live release's). `tiles`: none (inert),
+all listed (code, approvals or layers), else the newly listed. `queue status`, `watch` and `here` show the class.
 
-`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json` and M from main and
-classifies G..M against the live release's parts (`batch_class`). `inert` takes no slot: `live_build.repoint` APFS-
-clones the live release to `live-releases/<M>` (record `commit` M, `verified_commit`, `repointed_from`) and
-swaps the link; Pages re-publishes only when `docs/published-images.toml` changed. Row: `result: green`,
-`skipped: true`. `data` and `code` take the `integration` slot, reset the reused `integration` sandbox to M and run
-`live_build.build` with `live_build.stages_for(class)` (the one seam for stage selection): `code` runs all nine
-stages; `data` runs refresh, tile-build, tile-validate, car-report (only when `layers/traffic_static` changed;
-otherwise the previous car result is carried forward with `carried_from`), facade-ground-audit and game-build,
-and no Chrome or collision sweep. The previous release is the published one: refresh and tile-build hit the shared cache for
-game-only batches, and changed layer meshes select only the affected tiles. A batch facade count below the published
-baseline is red unless a `landed.jsonl` row in the batch carries `facade_regression_reason` (the lander copies it from
-the result's `Facade regression reason:` line). Green runs `prepare` and `publish` (main is already at M, so only the
-`live` link moves; `publish` restores the previous link if any stable path fails to resolve into the new release).
+`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json`, M from main, and
+classifies G..M against the live release (`batch_class`). `inert` takes no slot: `live_build.repoint` APFS-clones
+the live release to `live-releases/<M>` (record `commit` M, `verified_commit`, `repointed_from`), swaps the link
+(Pages only when `docs/published-images.toml` changed) and records `result: green`, `skipped: true`. `data` and
+`code` take the `integration` slot and run `live_build.build` on M in the `integration` sandbox with
+`live_build.stages_for(class)`, the one stage-selection seam: `code` all nine stages; `data` refresh, tile-build,
+tile-validate, car-report (only when `layers/traffic_static` changed, else the previous result is carried forward
+with `carried_from`), facade-ground-audit and game-build. **Join:** before the first expensive stage (the first
+non-cached stage after refresh) the head build re-reads main; a newer head (at most `JOIN_LIMIT` = 3) is checked
+out, reclassified and built instead (`batch_joined`); later landings wait. A facade count below the published
+baseline is red unless a `landed.jsonl` row in the batch carries `facade_regression_reason`. Green publishes under
+`wt/.registry/publish.lock`; if the data lane published meanwhile (live parts changed), M is first rebuilt with the
+data stages on that release (`rebuilt_on`), so no lane publishes over a release it did not build on. The data lane
+(`run_data`) builds G on the changed data root and publishes `<G>-<data key 12>` (record `commit` G) only if live
+is unchanged, else records `superseded`.
 
 A red head is never blamed on a commit before the base check: the integrator builds G itself
 against the current data root (its stages are mostly cache hits). G was green when it was
@@ -716,27 +719,24 @@ records G's failing stage (`failure`, with `facades_bound`/`facades_baseline` fo
 the head's failure (`head_failure`), `data_cause` (`approval-root-changed` when the SHA-256 of
 `facade-approvals/assembly/MANIFEST.json` differs from the published release's
 `textures/assembly/MANIFEST.json`, else `data-root`) and both hashes (`approval_manifest`). It
-reverts nothing, posts a `warning` to the board (`codex-task board`) and keeps live at G. Each row
-carries `data_key`, a hash of `landing_class.data_parts`; the queue starts a new run for the same main head only when that key changes
-(`integrator.settled`).
+reverts nothing, posts a `warning` to the board and keeps live at G. A new run for the same main
+head starts only when `data_key` (a hash of `landing_class.data_parts`) changes (`settled`).
 
 Only a green G bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further builds) and reverts the
 culprit landing `parent..culprit` on current main as one commit under `wt/.registry/land.lock`
 after `gate --fast` in the integration sandbox. A run makes at most one revert; a second culprit
 is only blamed by a later run, which first builds the reverted main and checks the base again.
 The revert message names the integration row id and the failing stage and lists every reverted
-commit (`Integration: <id>`, `Failing stage: <stage>`, `Reverted commits:`). The integrator
-appends a `revert-<sha8>` row to `landed.jsonl` (`integration`, `reverts`, `reverted`) and posts a
-`request` with the row id, the failing stage and log to the culprit's task (from `landed.jsonl`).
-A revert conflict, an empty revert or a red revert gate is reported in the same request and
-leaves main alone.
+commit. It appends a `revert-<sha8>` row to `landed.jsonl` (`integration`, `reverts`,
+`reverted`) and posts a `request` with the row id, stage and log to the culprit's task. A revert
+conflict, an empty revert or a red revert gate is reported in the same request; main stays.
 
-Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`, n counting
-runs for that head), `published`, `from`, `to`, `data_key`, the class fields (`class`, `paths`,
-`changed_paths`, `data_delta`, `tiles`), `skipped` (inert), `result` (`green`, `red`, `data-red`, `failed`), `seconds` per stage, `cache_hits`, `facades_bound`, `builds`,
-`wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`,
-`approval_manifest`, `revert` (`commit`, `reverted`, `fast_gate_seconds`, or `error`).
-`wt/.registry/integration.json` names the running integration and its stage log.
+Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`), `published`,
+`from`, `to`, `data_key`, the class fields (`class`, `paths`, `changed_paths`, `data_delta`, `tiles`),
+`batch_joined`, `rebuilt_on`, `lane` (`data` for the data lane), `skipped` (inert), `result` (`green`,
+`red`, `data-red`, `failed`, `superseded`), `seconds`, `cache_hits`, `facades_bound`, `builds`,
+`wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`, `approval_manifest`,
+`revert`. `integration.json`/`integration-data.json` name each lane's running integration and log.
 
 Deleted on 2026-10-27 (`~/turku3d/logs/merge-latency-study/report.md`: a finished branch waited a median
 of 80 min for main): precheck receipts (`codex-task precheck`, `verification.py`, `land --prechecked`/`--dry-run`),
