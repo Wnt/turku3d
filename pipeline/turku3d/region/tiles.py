@@ -117,7 +117,10 @@ def add_tile(tile_id: str) -> dict:
         raise RuntimeError("add-tile builds in a sandbox; use list-tile for the data root")
     started = time.monotonic()
     stages: dict[str, float] = {}
-    tiles = plan(tile_id, C.playable_tile_ids())
+    listed = C.playable_tile_ids()
+    published = C.playable_tile_ids(data)
+    # A failed run leaves the tile in the sandbox list; rerunning resumes from cached layers.
+    tiles = listed if tile_id in listed and tile_id not in published else plan(tile_id, listed)
     report_dir = work / "reports/tile-add"
     report_dir.mkdir(parents=True, exist_ok=True)
 

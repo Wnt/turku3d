@@ -349,8 +349,10 @@ def run(args):
         (output / name).write_text(json.dumps(data, indent=2) + "\n")
         artifacts.append(name)
     log("Evaluating coverage, topology, water, materials and seams")
+    # QA covers the listed tiles' bounding rectangle, which the CDT meshes completely; an
+    # L-shaped tile list must not count its own inner outline as holes.
     report = evaluate_ground(
-        {tile: meshes[tile] for tile in core_tiles},
+        {tile: meshes[tile] for tile in C.collision_tiles_for_bbox(core)},
         accepted,
         water,
         buildings,
