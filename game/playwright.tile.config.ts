@@ -9,6 +9,7 @@ isolateBrowser();
 // dist mounted at /tiles. TILE_DIST overrides the local output (default $TURKU3D_WORK/dist/tiles).
 const PORT = Number(process.env.E2E_TILE_PORT ?? port(1));
 const TILE_DIST = tileDist;
+const DEV = process.env.E2E_TILE_DEV === '1';
 export default defineConfig({
   testDir: 'tests/e2e-tile',
   timeout: 120_000,
@@ -33,7 +34,8 @@ export default defineConfig({
       ...(process.env.TURKU3D_BROWSER_WS_WEBGL ? { connectOptions: { wsEndpoint: process.env.TURKU3D_BROWSER_WS_WEBGL } } : {}) } as never },
   ],
   webServer: {
-    command: `node ../tools/dev/serve-dist.mjs --root ${JSON.stringify(gameDist)} --port ${PORT} --mount ${JSON.stringify(`/tiles=${TILE_DIST}`)}`,
+    command: DEV ? `./node_modules/.bin/vite --host 127.0.0.1 --port ${PORT} --strictPort`
+      : `node ../tools/dev/serve-dist.mjs --root ${JSON.stringify(gameDist)} --port ${PORT} --mount ${JSON.stringify(`/tiles=${TILE_DIST}`)}`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 30_000,
