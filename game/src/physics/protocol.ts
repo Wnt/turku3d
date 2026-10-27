@@ -24,7 +24,7 @@ export interface WheelState { pos: V3; steer: number; rotation: number; contact:
 export interface CurbStrikeState { id: number; wheel: number; height: number; speed: number; loss: number; blocked: boolean; rumble: number }
 export interface VehicleState { id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
 export interface VehicleSpec { id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean }
-export interface RemoteBody { id: string; pos: V3; yaw: number; mode: 'foot' | 'car' | 'scooter' }
+export interface RemoteBody { id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 
 export interface TileStats { curbTris?: number; id: string; tris: number; prims: number; bytes: number; buildMs: number; colliders: number }
 

@@ -96,6 +96,12 @@ ART: tuple[Art, ...] = (
     ),
     Art("icon_car", "icon", "A small dented second-hand hatchback car, three-quarter front view."),
     Art(
+        "icon_truck",
+        "icon",
+        "An orange desert trophy truck with big off-road tyres, long-travel suspension, a roll cage over the bed and a "
+        "roof light bar, side view.",
+    ),
+    Art(
         "icon_coins",
         "icon",
         "A small pile of gold and silver coins with two folded banknotes, no numbers.",

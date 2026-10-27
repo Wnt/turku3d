@@ -11,7 +11,7 @@ import { SaveMenuFlow, type GameHooks } from '../ui/menu';
 import type { StartScreen } from '../ui/startScreen';
 import type { CollisionStreamer } from '../world/collisionStreaming';
 import type { Manifest } from '../world/manifest';
-import { OWN_VEHICLE_ID, SCOOTER_ID, ownedVehicleId, type MissionSystem } from './missions/missions';
+import { OWN_VEHICLE_ID, ownedVehicleId, type MissionSystem } from './missions/missions';
 import type { VehicleKind } from '../physics/constants';
 import type { SafeReset } from './safeReset';
 
@@ -25,9 +25,15 @@ export function yawOf(rot: Quat) {
   return Math.atan2(-axis.z, axis.x);
 }
 
-/** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame), beside a scooter. */
+/** Sideways distance from the chassis centre to where the player stands after leaving: beside a scooter, outside the
+ *  car's door, outside the truck's outboard tyres. */
+const EXIT_OFFSET: Record<VehicleKind, number> = { scooter: 0.9, car: 1.9, truck: 2.1 };
+/** Height above the ground at which a parked vehicle is spawned or reset, so it settles onto its wheels. */
+export const SPAWN_HEIGHT: Record<VehicleKind, number> = { scooter: 0.55, car: 0.75, truck: 1.0 };
+
+/** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame). */
 export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 {
-  axis.set(0, 0, car.kind === 'scooter' ? -0.9 : -(1.0 + 0.9)).applyQuaternion(quat.set(car.rot.x, car.rot.y, car.rot.z, car.rot.w));
+  axis.set(0, 0, -EXIT_OFFSET[car.kind ?? 'car']).applyQuaternion(quat.set(car.rot.x, car.rot.y, car.rot.z, car.rot.w));
   return { x: car.pos.x + axis.x, y: car.pos.y + 0.2, z: car.pos.z + axis.z };
 }
 
@@ -114,7 +120,7 @@ export class SaveGameController {
     const driven = view.mode === 'car' ? physics.latest?.vehicles.find(v => v.id === view.drivenId) : undefined;
     const at = driven ? driverSide(driven) : view.feet;
     const p = engineToEN(at.x, at.y, at.z);
-    // The owned vehicle (the scooter or the start car), else the start car where it was left.
+    // The owned vehicle (the scooter, the truck or the start car), else the start car where it was left.
     const ownId = ownedVehicleId(missions.vehicle) ?? OWN_VEHICLE_ID;
     const own = physics.latest?.vehicles.find(v => v.id === ownId);
     const c = own ? engineToEN(own.pos.x, own.pos.y, own.pos.z) : null;
@@ -178,15 +184,16 @@ export class SaveGameController {
     this.o.setClock(game?.clock ? new Date(game.clock.timeOfDay) : this.o.defaultTime);
     this.o.clockControl.set(this.o.clock());
     const saved = game?.vehicle?.owned ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
-    const scooter = missions.vehicle === 'scooter';
-    const car = saved && !scooter ? saved : this.o.car;
-    const carY = saved && !scooter ? await this.snap(car) : (await this.settle(car.x, car.z), car.y);
-    physics.resetVehicle({ x: car.x, y: carY + 0.75, z: car.z }, car.yaw, OWN_VEHICLE_ID);
-    if (scooter) {
-      // The saved scooter, or (a save from before the scooter) at the kerb behind the start car.
+    // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
+    const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;
+    const car = saved && !bought ? saved : this.o.car;
+    const carY = saved && !bought ? await this.snap(car) : (await this.settle(car.x, car.z), car.y);
+    physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
+    if (bought) {
+      // The saved vehicle, or (a save from before the scooter) at the kerb behind the start car.
       const at = saved ?? kerbBehind(car);
       const y = await this.snap(at);
-      physics.spawnVehicle({ x: at.x, y: y + 0.55, z: at.z }, at.yaw, { id: SCOOTER_ID, kind: 'scooter' });
+      physics.spawnVehicle({ x: at.x, y: y + SPAWN_HEIGHT[bought], z: at.z }, at.yaw, { id: ownedVehicleId(bought)!, kind: bought });
     }
     const at = override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
     const y = override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y);
@@ -224,8 +231,8 @@ export class SaveGameController {
         this.o.leaveCar();
         if (view.drivenId) {
           const spot = view.drivenId === OWN_VEHICLE_ID ? car : kerbBehind(car);
-          const y = await this.snap(spot);
-          physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, view.drivenId);
+          const y = await this.snap(spot), kind = physics.latest?.vehicles.find(v => v.id === view.drivenId)?.kind ?? 'car';
+          physics.resetVehicle({ x: spot.x, y: y + SPAWN_HEIGHT[kind], z: spot.z }, spot.yaw, view.drivenId);
         }
       }
       await this.putCharacter({ x: spawn.x, y: await this.snap(spawn), z: spawn.z }, spawn.yaw);

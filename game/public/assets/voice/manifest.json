@@ -313,11 +313,11 @@
    "id": "dealer_greet",
    "speaker": "dealer",
    "file": "dealer_greet.ogg",
-   "seconds": 2.308,
-   "text": "Wheels! Scooters, cars, everything runs. Mostly.",
-   "textSha256": "38989e647b54125c2040e2f204a148b790759202fc6e21abf48ef19dd3a4f917",
-   "key": "b6ab340f8611ee8ab5298adf38f7735d8050432dcb7ca13242efaf8d5183dfa9",
-   "fileSha256": "112dff51c02dd45bb3f67c1800b3dca37ae2ff4b68a14445f41557ac341ee68b"
+   "seconds": 3.436,
+   "text": "Wheels! Scooters, cars, even a trophy truck. Everything runs. Mostly.",
+   "textSha256": "35f82cba7427066fbc4416c6f44d12aa8285f1ffefd902c12f04c4f1d6c285f5",
+   "key": "faf9bc11fa891ea684de3f8d7df32d93ac58cf9a226e28432504b8364cdb6fde",
+   "fileSha256": "0aa30adbcf5c72f002be8fba8c9565862bf1c09a80f0d663f595b8ac66676c43"
   },
   {
    "id": "dealer_sold_scooter",
@@ -338,6 +338,16 @@
    "textSha256": "267ff64027902119aba16323e592dee982cecec69f2bdf20d2391b01d9ddd154",
    "key": "e5ca58b194a151daaea9964bfb7e216024609b876e4c25da76568694a9e59097",
    "fileSha256": "6fb25163d80b3a92aa61c190d7ad9f69a56560534cc3a7591c73f1dfdc1955f3"
+  },
+  {
+   "id": "dealer_sold_truck",
+   "speaker": "dealer",
+   "file": "dealer_sold_truck.ogg",
+   "seconds": 4.703,
+   "text": "A thousand, cash. Real roll cage, the suspension eats kerbs. She's at the kerb, keys in.",
+   "textSha256": "52fc9daaf8adb8997417c64a4b16fa2952b537ec01f971199b74641c7716a06d",
+   "key": "143ca6ac73ce00e209e0580a7f8658d74bc5a8cbcfb0b8c092f607046cd5cf9a",
+   "fileSha256": "d748134f4cb4bf1767341774ba11650dadf04367a34326a8e0a2e30959e3ad2b"
   },
   {
    "id": "dealer_bought_back",

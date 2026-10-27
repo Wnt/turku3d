@@ -9,7 +9,7 @@ const game = await import(`data:text/javascript,${encodeURIComponent(stripTypeSc
 
 test('economy constants and timing match the actual game module', () => {
   for (const key of ['BASE_PAY', 'MAX_TIP', 'DOUBLE_BONUS', 'PAR_HANDLING_SECONDS']) assert.equal(economy[key], game[key]);
-  for (const distance of [0, 1, 120, 1000, 100_000]) for (const vehicle of ['none', 'scooter', 'car']) {
+  for (const distance of [0, 1, 120, 1000, 100_000]) for (const vehicle of ['none', 'scooter', 'car', 'truck']) {
     const par = game.parSeconds(distance, vehicle);
     assert.equal(economy.parSeconds(distance, vehicle), par);
     assert.equal(economy.deliveryDeadline(par), game.deliveryDeadline(par));

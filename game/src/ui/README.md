@@ -137,8 +137,8 @@ lock and the art are checked in Chrome by `tests/e2e-tile/shops.spec.ts`
 
 ## Menu art
 
-`game/public/assets/ui/`: four 1280×720 backgrounds and nine 256×256 icons, WebP, each under
-200 KB (largest `bg_dealer.webp`, 129 KB; 338 KB in total). All but `icon_scooter` were generated with the project's
+`game/public/assets/ui/`: four 1280×720 backgrounds and ten 256×256 icons, WebP, each under
+200 KB (largest `bg_dealer.webp`, 129 KB; 434 KB in total). All but `icon_scooter` and `icon_truck` were generated with the project's
 Codex image runner and are project-owned (`game/public/assets/LICENSES.md`).
 
 | Job id = file | Used by | Subject (full prompt: `textures/turkutex/ui_art.py`) |
@@ -156,6 +156,7 @@ Codex image runner and are project-owned (`game/public/assets/LICENSES.md`).
 | `icon_coins` | Tip rules, sell your vehicle back | Coins and banknotes |
 | `icon_scooter` | Scooter | Moped scooter with a pizza box on the rear rack (interim hand-drawn file, see below) |
 | `icon_car` | Car | Dented second-hand hatchback |
+| `icon_truck` | Trophy truck | Orange trophy truck with big tyres, bed cage and light bar (interim hand-drawn file, see below) |
 
 Every prompt shares one style block (flat-shaded vector illustration, palette navy #141a2e, slate
 #2c3550, amber #f2a541, brick #c8553d, teal #3fa7a0, off-white #efe6d8; no text, letters, logos or
@@ -180,6 +181,8 @@ cd textures
 `icon_scooter.webp` (2026-10-27) is an interim, project-owned flat-vector drawing in the same palette:
 `textures/ui-art/icon_scooter.svg`, rendered at 256×256 in headless Chromium and saved as WebP (quality 90)
 with Pillow. The `ART` entry `icon_scooter` holds its prompt; the next Codex `ui_art` run replaces it.
+`icon_truck.webp` (2026-10-27) is made the same way from `textures/ui-art/icon_truck.svg`; its `ART` entry is
+`icon_truck`.
 
 `encode` centre-crops each primary PNG to its aspect ratio, scales it with Lanczos and writes WebP at
 the highest quality (86 down to 38) that fits 200 KB. To change one picture, edit its subject in

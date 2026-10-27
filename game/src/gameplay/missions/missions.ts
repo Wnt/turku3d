@@ -22,12 +22,16 @@ type BoughtVehicle = Exclude<VehicleOwnership, 'none'>;
 export const INTERACT_RADIUS = 3;
 /** An open shop closes when the player is moved further than this from its zone centre. */
 const SHOP_LEAVE_RADIUS = 6;
-/** Physics vehicle ids: the player's own car (also the start car) and the scooter, which exists once bought. */
+/** Physics vehicle ids: the player's own car (also the start car), and the scooter and the trophy truck, which exist
+ *  once bought. */
 export const OWN_VEHICLE_ID = 'player';
 export const SCOOTER_ID = 'scooter';
+export const TRUCK_ID = 'truck';
+const OWNED_IDS: Record<VehicleOwnership, string | null> = { none: null, scooter: SCOOTER_ID, car: OWN_VEHICLE_ID, truck: TRUCK_ID };
 /** The physics vehicle that a vehicle ownership class drives. */
-export const ownedVehicleId = (vehicle: VehicleOwnership) =>
-  vehicle === 'scooter' ? SCOOTER_ID : vehicle === 'car' ? OWN_VEHICLE_ID : null;
+export const ownedVehicleId = (vehicle: VehicleOwnership) => OWNED_IDS[vehicle];
+/** The dealer's purchase options and the vehicle each one sells. */
+const SOLD: Partial<Record<OptionId, BoughtVehicle>> = { buy_scooter: 'scooter', buy_car: 'car', buy_truck: 'truck' };
 
 export interface MissionFrame {
   /** Player feet (on foot) or vehicle position (driving). */
@@ -353,8 +357,9 @@ export class MissionSystem implements MissionHudSource {
       case 'slice': return money(SLICE_PRICE);
       case 'tip_rules': return { price: null, reason: null };
       case 'buy_scooter':
-      case 'buy_car': {
-        const price = VEHICLE_PRICE[id === 'buy_car' ? 'car' : 'scooter'];
+      case 'buy_car':
+      case 'buy_truck': {
+        const price = VEHICLE_PRICE[SOLD[id]!];
         if (!dealerOpen) return { price, reason: 'reason_no_permit' };
         return s.vehicle !== 'none' ? { price, reason: 'reason_vehicle_owned' } : money(price);
       }
@@ -389,8 +394,9 @@ export class MissionSystem implements MissionHudSource {
       case 'tip_rules': this.reply('pizzeria_tip_rules'); break;
       case 'buy_scooter':
       case 'buy_car':
-        this.s.vehicle = id === 'buy_car' ? 'car' : 'scooter';
-        this.say(id === 'buy_car' ? 'dealer_sold_car' : 'dealer_sold_scooter');
+      case 'buy_truck':
+        this.s.vehicle = SOLD[id]!;
+        this.say(`dealer_sold_${this.s.vehicle}`);
         this.open = null; // the vehicle waits at the kerb
         break;
       case 'sell_vehicle': this.s.vehicle = 'none'; this.reply('dealer_bought_back'); break;
@@ -419,8 +425,8 @@ export class MissionSystem implements MissionHudSource {
     return this.quoteCache.quote;
   }
 
-  /** Route metres from the pizzeria: the published walking or driving distance of a pool address (scooter and car
-   *  ride the streets), the router's path for a scripted one. */
+  /** Route metres from the pizzeria: the published walking or driving distance of a pool address (every vehicle
+   *  rides the streets), the router's path for a scripted one. */
   private metresFromPizzeria(stop: OrderStop, vehicle: VehicleOwnership): number {
     if (stop.pool) return vehicle === 'none' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
     return this.streetMetres(PIZZERIA.point, stop.point);

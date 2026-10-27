@@ -58,8 +58,18 @@ test('pose relays vehicle identity and rejects inconsistent mode or model keys',
   assert.equal(b.messages[0].poses[0].vehicle, 'hatchback-sports/red');
   const accepted = f.room.stats.poses;
   a.send({ ...pose, mode: 'scooter', vehicle: 'hatchback-sports/red' });
+  a.send({ ...pose, mode: 'truck', vehicle: 'scooter' });
   a.send({ ...pose, mode: 'car', vehicle: '../red' });
   assert.equal(f.room.stats.poses, accepted);
+});
+
+test('every vehicle mode is a valid pose with its own vehicle key; an unknown mode is rejected', () => {
+  const f = fixture(), a = f.connect();
+  const modes = [['foot', null], ['car', 'player'], ['scooter', 'scooter'], ['truck', 'truck']];
+  for (const [t, [mode, vehicle]] of modes.entries()) a.send({ ...pose, t: t + 1, mode, vehicle });
+  assert.equal(f.room.stats.poses, 4); assert.equal(f.room.stats.rejected, 0);
+  a.send({ ...pose, t: 9, mode: 'tank', vehicle: 'tank' });
+  assert.equal(f.room.stats.poses, 4); assert.equal(f.room.stats.rejected, 1);
 });
 
 test('rate budget accepts 20, drops excess and disconnects above 25 arrivals per second', () => {
