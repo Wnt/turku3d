@@ -136,6 +136,7 @@ outward), plus 8-bit RGB, class and returns. `walls_from_features` reads the bui
 
 ```python
 from turku3d.lidar import walls as W
+
 walls = W.walls_from_features(features)
 points = W.wall_points(walls, W.Window(inside=0.6, outside=0.6))  # {wall_id: records}
 ```

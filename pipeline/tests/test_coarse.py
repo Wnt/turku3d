@@ -345,3 +345,35 @@ def test_service_drain_lets_running_builds_finish_and_starts_no_more(tmp_path):
         server.shutdown()
         server.server_close()
         builder.stop()
+
+
+def test_draft_has_osm_trees_with_trunks_and_a_water_surface(tmp_path, inputs, monkeypatch):
+    import dataclasses
+
+    import producer_world as world
+    from turku3d.coarse.inputs import prepare_trees
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    x0, _, z0 = TILE.origin
+    osm = world.write_osm(
+        [
+            ({"natural": "tree", "leaf_type": "needleleaved"}, shapely.Point(x0 + 30, z0 + 20)),
+            ({"natural": "tree", "height": "18"}, shapely.Point(x0 + 60, z0 + 20)),
+            ({"natural": "tree"}, shapely.Point(x0 + 105, z0 + 105)),  # inside the building
+            ({"natural": "tree"}, shapely.Point(x0 + 300, z0 + 20)),  # outside the tile
+        ]
+    )
+    trees = prepare_trees(TILE, osm)
+    assert [(t[3], t[4]) for t in trees] == [(10.0, True), (18.0, False), (10.0, False)]
+    out = tmp_path / "coarse" / TILE.id
+    m = build(
+        TILE.id, out, inputs=dataclasses.replace(inputs, trees=trees), library=tmp_path / "lib"
+    )
+    assert m["trees"] == 2
+    cols = {cid: read_col((out / e["url"]).read_bytes()) for cid, e in m["collision"].items()}
+    trunks = [p for c in cols.values() for p in c.primitives]
+    assert len(trunks) == 2 and {p.material for p in trunks} == {mat_id("tree_trunk")}
+    js, _ = read_glb((out / "vis.glb").read_bytes())
+    assert "EXT_mesh_gpu_instancing" in js["extensionsRequired"]
+    keys = {n.get("extras", {}).get("material_key") for n in js["nodes"]}
+    assert "water" in keys

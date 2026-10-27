@@ -27,7 +27,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   collision use the same vertices, so the drawn ground is the collision ground. Street-area polygons set the
   collision material; green ortho pixels are grass, the rest paving.
 - **Water**: cells inside water polygons become the water sensor at the shoreline level over a synthetic bed
-  (`ground.water.add_river_bed`).
+  (`ground.water.add_river_bed`), and are drawn as a flat surface at that level (`material_key` water, which the
+  game renders as a river) instead of the ortho.
 - **Bridges**: `maanpinta` has no points on a deck, so a street-area bridge (`Silta`) over water would lie at river
   level between quay-high road ends. `bridge_decks` lifts each deck patch that touches water to the line between
   its abutments (the 90th percentile of the dry ground 5–25 m beyond each end, inside the deck's corridor), raising
@@ -36,7 +37,12 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
 - **Buildings**: LOD2 footprints whose centroid is in the tile, extruded to the mean roof height; the collision shell
   goes to the centroid's collision tile.
 
-No curbs, stairs, structures, props, vegetation, facade maps or LOD parents.
+- **Trees**: OSM `natural=tree` points on dry ground outside the buildings, drawn with the vegetation layer's
+  GPU-instanced prototypes (10 m unless `height` is tagged, conifers by `leaf_type=needleleaved`); each trunk is a
+  `tree_trunk` cylinder in its collision tile. They are unmeasured stand-ins for the full layer's register and lidar
+  trees.
+
+No curbs, stairs, structures, props, facade maps or LOD parents.
 
 ## Service (`service.py`)
 
@@ -77,7 +83,8 @@ needs an API key, which this project does not use.
 Each dataset is reduced once per tile to what the build needs and cached under
 `<coarse root>/.inputs/<tile>/<dataset>.<key>.pkl`: `ground` (key points and the 129 x 129 grid
 heights over their TIN), `ortho` (512 px RGB), `wfs` (building shells, street polygons with their
-collision material, water polygons) and `roads` (`roads.json` of the tile's OSM street graph). The
+collision material, water polygons), `roads` (`roads.json` of the tile's OSM street graph) and
+`trees` (the tile's OSM `natural=tree` points). The
 key covers `inputs.py` and the raw files' path, size and mtime, so new data or code prepares again.
 The prefetch workers prepare the complete tiles within 1 km of the player in the background
 (`python -m turku3d.coarse prepare <tile> --root <coarse root>`), so a build reads a few small
