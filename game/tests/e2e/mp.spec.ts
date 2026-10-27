@@ -98,6 +98,9 @@ test('two pages collide and share a paid delivery', { tag: ['@gameplay', '@synth
     console.log('[mp] payout observed');
     expect(await pageB.locator('#mp-scoreboard').textContent()).toContain('€14');
     const paidScores = await pageB.evaluate(() => (window.__game!.state as () => any)().multiplayer.scores);
+    await page.evaluate(() => window.__render!.perf.reset());
+    await frames(page, 60);
+    const baselinePerf = await page.evaluate(() => window.__render!.perf.snapshot());
     // Nine extra synthetic peers make ten remote actors without opening ten more browsers.
     await page.evaluate(() => {
       const client = (window.__game as any).multiplayerClient();
@@ -106,13 +109,17 @@ test('two pages collide and share a paid delivery', { tag: ['@gameplay', '@synth
         pose: { t: performance.now(), E: 145 + i * 2, N: -245, H: 2, yaw: 0,
           vE: 0, vN: 0, vH: 0, mode: 'foot', carrying: false } });
     });
+    await page.evaluate(() => window.__render!.perf.reset());
     await frames(page, 100);
     console.log('[mp] ten remote frames sampled');
     const tenRemoteMs = await page.evaluate(() => (window.__game!.state as () => any)().multiplayer.remoteFrameMs);
+    const tenPerf = await page.evaluate(() => window.__render!.perf.snapshot());
+    const addedCpuMs = (tenPerf.cpuMs.p50 ?? 0) - (baselinePerf.cpuMs.p50 ?? 0);
     expect(tenRemoteMs).toBeLessThan(1);
+    expect(addedCpuMs).toBeLessThan(1);
     fs.writeFileSync(path.join(shots, 'metrics.json'), JSON.stringify({
       remoteFrameMs: { a: a.multiplayer.remoteFrameMs, b: b.multiplayer.remoteFrameMs },
-      tenRemoteFrameMs: tenRemoteMs,
+      tenRemoteFrameMs: tenRemoteMs, addedCpuMs, baselinePerf, tenPerf,
       movedMeters: { b: Math.hypot(b.feet[0] - b0[0], b.feet[2] - b0[2]),
         aOnB: Math.hypot(b.multiplayer.remotes[0].x - remoteA0.x, b.multiplayer.remotes[0].z - remoteA0.z) },
       score: paidScores,

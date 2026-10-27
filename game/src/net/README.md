@@ -4,7 +4,7 @@
 
 `MultiplayerClient` owns the WebSocket, session token in `sessionStorage`, reconnect backoff, roster and score snapshots. `sendPose` limits traffic to less than 20 messages per second and emits a one-second stationary heartbeat. A delivery takes the place of the next pose in the same rate budget. Play sessions construct it when Multiplayer is selected and dispose it when the session ends.
 
-`RemotePlayers` keeps about 100 ms of pose history, extrapolates at most 200 ms, and draws cloned player, car or scooter models with nicknames. It only places kinematic collision proxies in loaded collision tiles; all remote positions remain on the minimap. A local car's Rapier contact impulses drive its existing impact sound, plus a screen flash and controller rumble. `Scoreboard` renders the live podium and self, a final-ten-second countdown, and a full start/pause menu page with Finnish clock-hour archives. Only delivery drop-offs produce score claims.
+`RemotePlayers` keeps about 100 ms of pose history and extrapolates at most 200 ms. Nearby people use the full skinned character model; beyond 6 m they use a single-draw static character silhouette. Cars and scooters use their game models. Nicknames remain visible above actors. Kinematic collision proxies are placed only in loaded collision tiles; all remote positions remain on the minimap. A local car's Rapier contact impulses drive its existing impact sound, plus a screen flash and controller rumble. `Scoreboard` renders the live podium and self, a final-ten-second countdown, and a full start/pause menu page with Finnish clock-hour archives. Only delivery drop-offs produce score claims.
 
 From the repository root, with the sandbox environment sourced:
 

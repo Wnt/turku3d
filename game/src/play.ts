@@ -387,7 +387,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
       }
     }
-    if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now);
+    if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now, feet);
     if (!paused) physics.step(dt, charIn, carIn);
 
     const st = physics.latest;
