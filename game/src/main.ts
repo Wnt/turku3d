@@ -15,6 +15,7 @@ import { VisualTiles } from './world/tiles';
 import { loadManifest, type Manifest } from './world/manifest';
 import { CollisionStreamer } from './world/collisionStreaming';
 import { CoarseTiles } from './world/coarseTiles';
+import { swapRelease } from './world/releaseSwap';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
@@ -80,8 +81,8 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
 const renderFrame = () => { if (post) post.render(); else renderer.render(scene, camera); };
 const tiles = new VisualTiles(params.tileset, renderer, camera, scene, !!idPass);
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa, params.tileset);
-tiles.tiles.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.apply(model));
-tiles.tiles.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.release(model));
+tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.apply(model));
+tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => materials?.release(model));
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -129,7 +130,7 @@ async function runQa() {
     return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
   };
   const loadedTiles: string[] = [];
-  tiles.tiles.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) => {
+  tiles.events.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) => {
     const id = tile?.extras?.id ?? null;
     if (id) loadedTiles.push(id);
     idPass?.apply(model, id);
@@ -202,9 +203,9 @@ async function runPlay() {
   const telemetry = telemetryEnabled(location, navigator.webdriver)
     ? new Telemetry(httpTransport(`${location.origin}/telemetry`)) : null;
   if (telemetry) {
-    tiles.tiles.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) =>
+    tiles.events.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) =>
       telemetry.addModel(model, tile?.extras?.id));
-    tiles.tiles.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => telemetry.removeModel(model));
+    tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => telemetry.removeModel(model));
     addEventListener('pagehide', () => telemetry.flush(true));
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
   }
@@ -214,7 +215,7 @@ async function runPlay() {
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   telemetry?.setBuiltTiles(Object.keys(manifest.visual));
   // Localhost only: draft tiles from tools/dev/coarse-tiles beyond the published tileset (null elsewhere).
-  const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.tiles,
+  const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
     unloadCollision: id => physics.unloadTile(id), style: m => materials?.apply(m), unstyle: m => materials?.release(m) });
 
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
@@ -260,13 +261,20 @@ async function runPlay() {
   const badge = import.meta.hot ? new BuildBadge(document.body) : null;
   let session = await startPlay(world, null);
   if (import.meta.hot && badge) {
-    // A new tile release under /tiles (a data landing) reloads the page; the autosave keeps the game.
+    // A new tile release under /tiles (a data landing) is swapped in place (world/releaseSwap.ts); if that fails,
+    // the page reloads into the autosave.
     let release: string | null | undefined;
+    let releases = Promise.resolve();
     const onStatus = (status: BuildStatus) => {
       badge.set(status);
       const key = status.tiles?.key ?? null;
-      if (release === undefined) release = key;
-      else if (key !== release && params.tileset.startsWith('/tiles/')) session.reload();
+      if (release === undefined || key === release || !params.tileset.startsWith('/tiles/')) { release ??= key; return; }
+      release = key;
+      releases = releases.then(() => swapRelease({ manifest, manifestUrl: params.manifest, tilesetUrl: params.tileset, tiles,
+        streamer, unloadCollision: id => physics.unloadTile(id), coarse })).then(delta => {
+        console.info(`[tiles] release ${key?.slice(0, 12)}: ${delta.visual.length} visual, ${delta.collision.length} collision changed`);
+        badge.applied('tiles');
+      }, e => { console.warn(`[tiles] release swap failed, reloading: ${(e as Error).message}`); session.reload(); });
     };
     import.meta.hot.on('turku3d:status', onStatus);
     void fetch('/__localhost/status').then(r => r.json()).then(onStatus).catch(() => {});

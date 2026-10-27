@@ -33,8 +33,11 @@ It replaces the `serve-dist.mjs` invocation on port 5171 and keeps its routes (`
    (world, render, physics worker, `core/save.ts`, `main.ts` itself) is a Vite full reload; a dev-server restart is
    a socket disconnect. On either event the session writes the autosave slot and a `sessionStorage` marker
    (`turku3d.resume`), and the next page load continues from the autosave without the start menu.
-5. **Data landings.** `/tiles/*` serves the tile release `state.json` names, with `Cache-Control: no-cache`
-   (revalidation only). When the release changes, the open tab autosaves and reloads into it.
+5. **Data landings swap in place.** `/tiles/*` serves the tile release `state.json` names, with
+   `Cache-Control: no-cache` (revalidation only). When the release changes, the open tab applies it without a page
+   load (`game/src/world/README.md`): changed collision tiles are replaced in the worker, the visual tileset is
+   swapped once the new one has settled, the player and the session stay. Measured on a one-tile landing: 193 s from
+   the landing to the swapped tileset, of which 191 s is the quick `make tile-build` and 1.4 s the swap itself.
 
 ## Tile releases (`scripts/dev/tile_store.py`)
 

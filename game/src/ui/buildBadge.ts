@@ -45,8 +45,9 @@ export class BuildBadge {
     this.element.style.color = COLORS[status.verification?.state ?? 'unverified'];
   }
 
-  /** Reports a loaded page or an applied hot swap to the service's event log (landing-to-visible measurements). */
-  applied(type: 'loaded' | 'hot-swap' = 'hot-swap') {
+  /** Reports a loaded page, an applied hot swap or a swapped tile release to the service's event log
+   *  (landing-to-visible measurements). */
+  applied(type: 'loaded' | 'hot-swap' | 'tiles') {
     void fetch('/__localhost/event', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type }) }).catch(() => {});
   }

@@ -4,7 +4,7 @@
 //  GET  /tile-store/<key>/* one immutable tile store release (state.store), for in-place tile swaps
 //  POST /telemetry          play telemetry (http.mjs)
 //  GET  /__localhost/status the badge status: { service, commit, verification, tiles }; { service: false } without it
-//  POST /__localhost/event  the game reports a loaded page or an applied hot swap; appended to state.events
+//  POST /__localhost/event  the game reports a loaded page, a hot swap or a tile release swap; appended to state.events
 // A changed state file is pushed to open tabs as the custom HMR event `turku3d:status`.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -66,7 +66,7 @@ async function event(req, res, state) {
   for await (const chunk of req) body += chunk;
   let row;
   try { row = JSON.parse(body); } catch { return json(res, 400, { error: 'JSON body required' }); }
-  if (!state?.events || !['loaded', 'hot-swap'].includes(row?.type)) return json(res, 204, {});
+  if (!state?.events || !['loaded', 'hot-swap', 'tiles'].includes(row?.type)) return json(res, 204, {});
   await fsp.appendFile(state.events, JSON.stringify({ time: Date.now() / 1000, type: row.type, commit: state.commit }) + '\n');
   json(res, 204, {});
 }

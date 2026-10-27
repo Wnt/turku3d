@@ -211,6 +211,19 @@ export class CoarseTiles {
     }
   }
 
+  /** A new release's tileset now renders `published` (world/releaseSwap.ts): drafts and streamed copies of those
+   *  tiles leave, and the draft window and leaf parents follow the new list. */
+  release(published: Iterable<string>) {
+    this.published = new Set(published);
+    this.leaves = leafParents(this.published);
+    for (const [id, e] of this.entries) {
+      if (!this.published.has(id)) continue;
+      this.drop(e);
+      this.entries.delete(id);
+    }
+    this.updateParents();
+  }
+
   /** Re-read the published manifest; a drafted tile that is published now is swapped for the published one. */
   private async refreshManifest() {
     try {

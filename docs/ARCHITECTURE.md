@@ -90,7 +90,9 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   carrying missions, money, permit, clock and the driven vehicle; changes outside the session autosave and reload
   into the autosave. `/tiles` there serves a content-addressed tile release (`$TURKU3D_DATA/tile-store/<key>`, key =
   tile-build inputs of the commit + the data root's parts) that the integrator fills right after its
-  tile-build stage and the service fills by a quick `make tile-build` of the affected tiles. The hot hooks exist only
+  tile-build stage and the service fills by a quick `make tile-build` of the affected tiles; the open tab swaps a new
+  release in place (changed collision tiles replaced in the worker, the visual tileset swapped once the new one has
+  settled; `game/src/world/README.md`). The hot hooks exist only
   under `import.meta.hot`; production builds are unchanged. See `tools/dev/localhost/README.md`.
 
 ### D5. Collision vs visual layer strategy (the core decision)

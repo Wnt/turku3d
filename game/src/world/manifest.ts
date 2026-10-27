@@ -13,13 +13,15 @@ export interface Manifest {
   vehicles?: ParkedVehicle[];
   vehicle_models?: Record<string, { url: string; sha256: string; bytes: number }>;
   roads?: { url: string; sha256: string; bytes: number; nodes: number; edges: number };
+  /** tileset.json of the same release. */
+  tileset?: { url: string; sha256: string; bytes: number };
   /** Delivery address pool (pipeline/turku3d/content, format turku3d-addresses v1). */
   addresses?: { url: string; sha256: string; bytes: number; count: number };
   baseUrl: string;
 }
 
-export async function loadManifest(url: string): Promise<Manifest> {
-  const res = await fetch(url);
+export async function loadManifest(url: string, init?: RequestInit): Promise<Manifest> {
+  const res = await fetch(url, init);
   if (!res.ok) throw new Error(`manifest ${url}: HTTP ${res.status}`);
   const m = (await res.json()) as Manifest;
   if (m.format !== 'turku3d-manifest' || m.version !== 1) throw new Error(`manifest ${url}: unsupported format ${m.format} v${m.version}`);
