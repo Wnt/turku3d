@@ -109,7 +109,8 @@ export class PhysicsWorld {
   private applyClass(desc: RAPIER_NS.ColliderDesc, cls: 'solid' | 'query' | 'sensor', friction: number) {
     if (cls === 'solid') desc.setCollisionGroups(groups(GROUP.STATIC_SOLID, GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00)).setFriction(friction);
     else if (cls === 'query') desc.setCollisionGroups(groups(GROUP.STATIC_QUERY, 0xff00)).setSolverGroups(0);
-    else desc.setSensor(true).setCollisionGroups(groups(GROUP.STATIC_SENSOR, GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC));
+    // 0xff00: scene queries; only the 'water' ray filter includes sensors, every other query excludes them.
+    else desc.setSensor(true).setCollisionGroups(groups(GROUP.STATIC_SENSOR, GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00));
   }
 
   unloadTile(id: string): boolean {
@@ -311,8 +312,10 @@ export class PhysicsWorld {
     const l = Math.hypot(dir.x, dir.y, dir.z) || 1;
     const d = { x: dir.x / l, y: dir.y / l, z: dir.z / l };
     const ray = new R.Ray(origin, d);
-    const mask = filter === 'solid' ? GROUP.STATIC_SOLID : filter === 'query' ? GROUP.STATIC_QUERY : GROUP.STATIC_SOLID | GROUP.STATIC_QUERY | GROUP.VEHICLE;
-    const hit = this.world.castRayAndGetNormal(ray, maxToi, true, R.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xff00, mask), this.charCollider ?? undefined);
+    const mask = filter === 'solid' ? GROUP.STATIC_SOLID : filter === 'query' ? GROUP.STATIC_QUERY : filter === 'water' ? GROUP.STATIC_SENSOR
+      : GROUP.STATIC_SOLID | GROUP.STATIC_QUERY | GROUP.VEHICLE;
+    const flags = filter === 'water' ? R.QueryFilterFlags.EXCLUDE_SOLIDS : R.QueryFilterFlags.EXCLUDE_SENSORS;
+    const hit = this.world.castRayAndGetNormal(ray, maxToi, true, flags, groups(0xff00, mask), this.charCollider ?? undefined);
     if (!hit) return null;
     const info = this.colliderInfo.get(hit.collider.handle);
     let material = info?.mat ?? 0;

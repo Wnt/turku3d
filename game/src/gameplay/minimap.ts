@@ -3,6 +3,8 @@
 import type { MissionHudSource, MissionHudState, Router, RouteTarget, TargetKind, WorldPoint } from './contract';
 import { EMPTY_HUD_STATE } from './contract';
 import { edgeClass, type RoadGraph, type TravelMode } from './roadGraph';
+import type { PlayableArea } from './recovery';
+import { COLLISION_TILE } from '../core/origin';
 
 /** Marker colour per target kind, shared with the world zones (zones.ts). */
 export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
@@ -23,6 +25,8 @@ interface MinimapView {
   /** Player or car compass heading (deg) for the centre arrow. */
   facingDeg: number;
   mode: TravelMode;
+  /** Within `RECOVERY.edgeWarning` of the edge of the built area: the edge line turns red. */
+  nearEdge: boolean;
 }
 
 /** Keeps the route to the active target current without re-planning every frame. */
@@ -82,6 +86,7 @@ export class Minimap {
   private dirty = true;
   private last: MinimapView | null = null;
   private cssSize = 0;
+  private area: PlayableArea | null = null;
 
   constructor(parent: HTMLElement, private readonly graph: RoadGraph, router: Router) {
     this.routes = new RouteTracker(router);
@@ -107,6 +112,9 @@ export class Minimap {
     this.unsubscribe = source.subscribe(state => this.setState(state));
   }
 
+  /** Shades everything outside the built area and outlines its edge. */
+  setArea(area: PlayableArea) { this.area = area; this.dirty = true; }
+
   toggleExpanded() {
     this.expanded = !this.expanded;
     this.element.classList.toggle('expanded', this.expanded);
@@ -126,7 +134,7 @@ export class Minimap {
       this.dirty = true;
     }
     const l = this.last;
-    if (!this.dirty && l && l.mode === view.mode && Math.hypot(l.position.x - view.position.x, l.position.z - view.position.z) < 0.02
+    if (!this.dirty && l && l.mode === view.mode && l.nearEdge === view.nearEdge && Math.hypot(l.position.x - view.position.x, l.position.z - view.position.z) < 0.02
       && Math.abs(angle(l.headingDeg - view.headingDeg)) < 0.05 && Math.abs(angle(l.facingDeg - view.facingDeg)) < 0.5) return;
     const t0 = performance.now();
     this.draw(view);
@@ -180,6 +188,28 @@ export class Minimap {
     return layer;
   }
 
+  /** Outside cells darkened, the boundary between inside and outside cells stroked (world units). */
+  private drawArea(area: PlayableArea, view: MinimapView, reach: number, k: number) {
+    const { ctx } = this;
+    const x0 = view.position.x - reach, z0 = view.position.z - reach, x1 = view.position.x + reach, z1 = view.position.z + reach;
+    const s = COLLISION_TILE;
+    ctx.beginPath();
+    ctx.rect(x0, z0, x1 - x0, z1 - z0);
+    for (const [i, j] of area.cellsIn(x0, z0, x1, z1)) ctx.rect(i * s, j * s, s, s);
+    ctx.fillStyle = 'rgba(8, 10, 14, 0.72)';
+    ctx.fill('evenodd');
+    ctx.beginPath();
+    for (const [i, j] of area.cellsIn(x0, z0, x1, z1)) {
+      if (!area.hasCell(i, j - 1)) { ctx.moveTo(i * s, j * s); ctx.lineTo((i + 1) * s, j * s); }
+      if (!area.hasCell(i, j + 1)) { ctx.moveTo(i * s, (j + 1) * s); ctx.lineTo((i + 1) * s, (j + 1) * s); }
+      if (!area.hasCell(i - 1, j)) { ctx.moveTo(i * s, j * s); ctx.lineTo(i * s, (j + 1) * s); }
+      if (!area.hasCell(i + 1, j)) { ctx.moveTo((i + 1) * s, j * s); ctx.lineTo((i + 1) * s, (j + 1) * s); }
+    }
+    ctx.strokeStyle = view.nearEdge ? '#ff6b6b' : 'rgba(255, 255, 255, 0.45)';
+    ctx.lineWidth = (view.nearEdge ? 3 : 1.5) / k;
+    ctx.stroke();
+  }
+
   private draw(view: MinimapView) {
     const { ctx, cssSize: size } = this;
     const span = this.expanded ? SPAN_M.expanded : SPAN_M[view.mode];
@@ -203,6 +233,7 @@ export class Minimap {
       ctx.drawImage(this.streets, x0 - STATIC_PAD_M, z0 - STATIC_PAD_M,
         this.streets.width / STATIC_PX_PER_M, this.streets.height / STATIC_PX_PER_M);
     }
+    if (this.area) this.drawArea(this.area, view, span / Math.SQRT1_2 / 2, k);
     const route = this.routes.route;
     if (route && route.length > 1) {
       ctx.lineCap = ctx.lineJoin = 'round';

@@ -1,0 +1,121 @@
+// Safe-reset driver for main.ts: builds the per-frame probe from the physics state, samples the river surface,
+// runs the RecoveryMonitor rules and performs the reset through the physics worker. See README.md "Safe reset".
+import * as THREE from 'three/webgpu';
+import { collisionTileAt } from '../core/origin';
+import type { Manifest } from '../world/manifest';
+import type { PhysicsClient } from '../physics/client';
+import type { CollisionStreamer } from '../world/collisionStreaming';
+import type { RecoveryHud } from '../ui/recovery';
+import { RECOVERY, RecoveryMonitor, lowestGround, type PlayableArea, type Probe, type SafeSample } from './recovery';
+
+/** What the frame loop knows about the player this frame. */
+interface PlayerFrame {
+  mode: 'foot' | 'car';
+  drivenId: string | null;
+  feet: THREE.Vector3;
+  vel: THREE.Vector3;
+  grounded: boolean;
+  /** The character's facing (`PlayerVisual.root.rotation.y`, forward = (sin, cos) in x/z). */
+  facing: number;
+}
+
+const tileId = (x: number, z: number) => { const t = collisionTileAt(x, z); return `c_${t.i}_${t.j}`; };
+
+export class SafeReset {
+  readonly monitor: RecoveryMonitor;
+  /** Game-clock seconds: unpaused frames only, so the countdown waits while paused or in a menu. */
+  time = 0;
+  waterDepth: number | null = null;
+  recovering = false;
+  private waterBusy = false;
+  private lastWaterProbe = -Infinity;
+  private readonly lowestManifestGround: number;
+  private readonly quat = new THREE.Quaternion();
+  private readonly axis = new THREE.Vector3();
+
+  /** `onReset` turns the camera behind the player: `car` snaps the chase camera, `foot` gets the facing. */
+  constructor(private readonly area: PlayableArea, private readonly manifest: Manifest,
+    private readonly physics: PhysicsClient, private readonly streamer: CollisionStreamer,
+    private readonly hud: RecoveryHud, spawn: SafeSample, private readonly onReset: (mode: 'foot' | 'car', heading: number) => void) {
+    this.monitor = new RecoveryMonitor(area, spawn);
+    this.lowestManifestGround = lowestGround(Object.keys(manifest.collision), manifest.collision);
+  }
+
+  get lost() { return this.monitor.lost; }
+
+  /** Call every unpaused frame outside menus; `resetNow` is a respawn / vehicleReset press while lost. */
+  update(dt: number, player: PlayerFrame, resetNow: boolean) {
+    if (this.recovering) return;
+    this.time += dt;
+    const probe = this.probe(player);
+    if (!probe) return;
+    if (!this.waterBusy && this.time - this.lastWaterProbe >= 0.25) {
+      this.waterBusy = true; this.lastWaterProbe = this.time;
+      const y = probe.y;
+      void this.physics.raycast({ x: probe.x, y: y + 50, z: probe.z }, { x: 0, y: -1, z: 0 }, 100, 'water').then(hit => {
+        if (!this.recovering) this.waterDepth = hit ? hit.point.y - y : null;
+      }).finally(() => { this.waterBusy = false; });
+    }
+    const ground = lowestGround(this.physics.loaded.keys(), this.manifest.collision);
+    if (this.monitor.update(probe, Number.isFinite(ground) ? ground : this.lowestManifestGround) || resetNow) void this.recover(player);
+  }
+
+  /** The lost prompt or the edge notice for this frame; true when the edge notice shows. */
+  render(feet: THREE.Vector3, button: string) {
+    const lost = this.monitor.lost;
+    const nearEdge = !lost && this.area.edgeDistance(feet.x, feet.z) <= RECOVERY.edgeWarning;
+    this.hud.setEdge(nearEdge);
+    if (lost) this.hud.lost(lost.reason, this.monitor.countdown(this.time) ?? 0, button);
+    return nearEdge;
+  }
+
+  snapshot(feet: THREE.Vector3) {
+    const m = this.monitor;
+    return { lost: m.lost, countdown: m.countdown(this.time), samples: m.samples.length, resets: m.resets,
+      waterDepth: this.waterDepth, edgeDistance: this.area.edgeDistance(feet.x, feet.z), hud: this.hud.snapshot() };
+  }
+
+  /** The lost rules see the feet on foot and the car body in a car. */
+  private probe(p: PlayerFrame): Probe | null {
+    const base = { time: this.time, inVehicle: p.mode === 'car', waterDepth: this.waterDepth };
+    if (p.mode === 'foot') {
+      return { ...base, x: p.feet.x, y: p.feet.y, z: p.feet.z, heading: p.facing, grounded: p.grounded, steady: true,
+        vy: p.vel.y, loaded: this.physics.loaded.has(tileId(p.feet.x, p.feet.z)) };
+    }
+    const v = this.physics.latest?.vehicles.find(c => c.id === p.drivenId);
+    if (!v) return null;
+    this.quat.set(v.rot.x, v.rot.y, v.rot.z, v.rot.w);
+    const forward = this.axis.set(1, 0, 0).applyQuaternion(this.quat);
+    const heading = Math.atan2(forward.x, forward.z);
+    const upright = this.axis.set(0, 1, 0).applyQuaternion(this.quat).y > 0.7;
+    const contacts = v.wheels.filter(w => w.contact).length;
+    return { ...base, x: v.pos.x, y: v.pos.y, z: v.pos.z, heading, grounded: contacts > 0, steady: contacts >= 3 && upright,
+      vy: v.linvel.y, loaded: this.physics.loaded.has(tileId(v.pos.x, v.pos.z)) };
+  }
+
+  /** Puts the player (or the driven car, upright and still) back at the chosen safe sample. */
+  private async recover(player: PlayerFrame) {
+    this.recovering = true;
+    const target = this.monitor.target();
+    const id = tileId(target.x, target.z);
+    this.streamer.update(target.x, target.z, true);
+    for (let i = 0; i < 600 && this.manifest.collision[id] && !this.physics.loaded.has(id); i++) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      this.streamer.update(target.x, target.z, true);
+    }
+    const hit = await this.physics.raycast({ x: target.x, y: target.y + 2, z: target.z }, { x: 0, y: -1, z: 0 }, 60);
+    const y = hit?.point.y ?? target.y;
+    if (player.mode === 'car' && player.drivenId) {
+      // heading is the forward direction atan2(x, z); resetVehicle's yaw turns the chassis +X axis.
+      this.physics.resetVehicle({ x: target.x, y: y + 0.75, z: target.z },
+        Math.atan2(-Math.cos(target.heading), Math.sin(target.heading)), player.drivenId);
+    } else {
+      this.physics.setCharacterEnabled(true, { x: target.x, y: y + 0.05, z: target.z });
+    }
+    this.onReset(player.mode, target.heading);
+    this.waterDepth = null;
+    this.monitor.recovered(target, this.time);
+    this.hud.recovered();
+    this.recovering = false;
+  }
+}

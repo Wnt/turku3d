@@ -28,11 +28,13 @@ import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
 import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
 import { ShopMenu } from './ui/shopMenu';
+import { RecoveryHud } from './ui/recovery';
 import { MissionSystem, OWN_VEHICLE_ID, hasSavedGame } from './gameplay/missions/missions';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { BICYCLE_TOP_SPEED } from './gameplay/economy';
 import { createGameplay, compassDeg } from './gameplay';
+import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
@@ -290,7 +292,7 @@ async function runPlay() {
   }
   await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
-  const { router, minimap } = await createGameplay(manifest, document.body);
+  const { router, minimap, area } = await createGameplay(manifest, document.body);
   const missions = new MissionSystem({ router, storage });
   minimap.setSource(missions);
   voice.attach(missions);
@@ -317,6 +319,13 @@ async function runPlay() {
   const tmp = new THREE.Vector3();
   const carQuat = new THREE.Quaternion();
   const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
+  // Safe reset (gameplay/safeReset.ts): the spawn is the fallback before the first safe sample.
+  let snapChase = false;
+  const recovery = new SafeReset(area, manifest, physics, streamer, new RecoveryHud(document.body),
+    { time: 0, x: spawn.x, y: spawn.y, z: spawn.z, heading: yaw0 + Math.PI, inVehicle: false }, (resetMode, heading) => {
+      if (resetMode === 'car') snapChase = true;
+      else { orbit.yaw = heading - Math.PI; orbit.pitch = -0.12; }
+    });
 
   const state = () => {
     const en = engineToEN(feet.x, feet.y, feet.z);
@@ -327,9 +336,10 @@ async function runPlay() {
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
       frameMs: frameEma, missions: missions.snapshot(), zones: zones.snapshot(),
+      recovery: recovery.snapshot(feet),
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, errors };
   };
-  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones,
+  Object.assign(window.__game!, { input, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
     shopMenu, orbit, telemetry, ready: true });
 
   startScreen.ready();
@@ -371,6 +381,11 @@ async function runPlay() {
     const { moveY: fwd, moveX: side } = menuOpen ? { moveY: 0, moveX: 0 } : input.actions;
 
     const vs = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
+    // Lost (gameplay/recovery.ts): Y, R or touch Reset returns to solid ground instead of entering or leaving a car.
+    const lost = recovery.lost !== null;
+    const respawn = input.consume('respawn');
+    const resetNow = lost && !paused && (input.consume('vehicleReset') || respawn);
+    if (lost) input.consume('interact');
     if (!paused && input.consume('interact')) {
       const nearest = mode === 'foot' ? physics.latest?.vehicles
         .map(v => ({ vehicle: v, distance: Math.hypot(v.pos.x - feet.x, v.pos.z - feet.z) }))
@@ -396,7 +411,7 @@ async function runPlay() {
         orbit.distance = 4.5;
       }
     }
-    if (mode === 'car' && !paused && input.consume('vehicleReset') && vs) {
+    if (mode === 'car' && !paused && !lost && input.consume('vehicleReset') && vs) {
       const fwdV = tmp.set(1, 0, 0).applyQuaternion(carQuat.set(vs.rot.x, vs.rot.y, vs.rot.z, vs.rot.w));
       physics.resetVehicle({ x: vs.pos.x, y: vs.pos.y + 1.5, z: vs.pos.z }, Math.atan2(-fwdV.z, fwdV.x), drivenId ?? 'player');
     }
@@ -452,6 +467,9 @@ async function runPlay() {
         if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - 0.6, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
     }
+    if (!paused && !startScreen.active && !menuOpen) {
+      recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y }, resetNow);
+    }
     if (renderVehicle && (drivenId === null || drivenId === 'player')) car.update(renderVehicle);
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
@@ -463,7 +481,10 @@ async function runPlay() {
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
     const chaseVehicle = drivenId && drivenId !== 'player'
       ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
-    if (mode === 'car' && chaseVehicle && !paused) chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera);
+    if (mode === 'car' && chaseVehicle && !paused) {
+      chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
+      snapChase = false;
+    }
     else if (mode === 'foot') orbit.update(dt, focus);
     // camera collision: async ray from the focus towards the camera (result applies next frame)
     if (mode === 'foot' && !camRayBusy) {
@@ -492,7 +513,8 @@ async function runPlay() {
       : mapDirection.set(Math.sin(player.root.rotation.y), 0, Math.cos(player.root.rotation.y));
     const facingDeg = compassDeg(facing.x, facing.z);
     camera.getWorldDirection(mapDirection);
-    minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode });
+    const nearEdge = recovery.render(feet, input.source === 'touch' ? 'Reset' : input.prompt('respawn'));
+    minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
     zones.update(dt, camera, { x: feet.x, z: feet.z });
 
     const en = engineToEN(feet.x, feet.y, feet.z);
@@ -506,9 +528,12 @@ async function runPlay() {
       ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`,
       perf,
     });
-    input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden' : menuOpen || missions.shop ? 'menu' : paused ? 'paused' : mode);
+    input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden' : menuOpen || missions.shop ? 'menu' : paused ? 'paused'
+      : recovery.lost ? 'lost' : mode);
     const help = document.getElementById('help')!;
-    help.textContent = paused ? `${input.prompt('pause')} Resume` : mode === 'foot'
+    help.textContent = paused ? `${input.prompt('pause')} Resume`
+      : recovery.lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
+      : mode === 'foot'
       ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter car · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`;
     perf.end();
@@ -516,7 +541,7 @@ async function runPlay() {
 }
 
 /** Actions ignored while a shop menu is open (Escape and D-pad down are also pause and mute). */
-const LOCKED_IN_MENU = ['pause', 'mute', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset'] as const;
+const LOCKED_IN_MENU = ['pause', 'mute', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
 /** localStorage, or null where the browser blocks it (the mission system then runs without persistence). */
 function browserStorage(): Storage | null {

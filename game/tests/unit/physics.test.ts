@@ -138,6 +138,19 @@ describe('physics world on dev tiles', () => {
     expect(Math.abs(v.pos.x - 120)).toBeLessThan(1.5);
     expect(v.wheels.filter((w) => w.contact).length).toBe(4);
   });
+  test('the water filter sees only the river surface, which other rays and the character pass through', () => {
+    const down = { x: 0, y: -1, z: 0 };
+    const water = pw.raycast({ x: 94, y: 50, z: 156 }, down, 100, 'water')!;
+    expect(water.point.y).toBeCloseTo(G - 0.4, 4);
+    expect(water.material).toBe(MAT.water);
+    expect(pw.raycast({ x: 94, y: 50, z: 156 }, down, 100)!.point.y).toBeCloseTo(G - 2, 4); // the river bed
+    expect(pw.raycast({ x: 94, y: 50, z: 156 }, down, 100, 'all')!.point.y).toBeCloseTo(G - 2, 4);
+    expect(pw.raycast({ x: 168, y: 50, z: 246 }, down, 100, 'water')).toBeNull();
+    pw.spawnCharacter({ x: 94, y: G, z: 125 });
+    const s = walk(pw, 0, 3.6, 10);
+    expect(s.pos.z).toBeGreaterThan(150);
+    expect(s.pos.y).toBeCloseTo(G - 2, 1);
+  });
   test('unload removes colliders', async () => {
     const p2 = await worldWith(['c_2_3']);
     expect(p2.raycast({ x: 168, y: 50, z: 246 }, { x: 0, y: -1, z: 0 }, 100)).not.toBeNull();

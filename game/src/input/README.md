@@ -16,6 +16,13 @@ device indices; `tests/unit/input.test.ts` fails if code outside `src/input/` li
 (`input.prompt(action)`) show gamepad glyphs for gamepad and touch, key names for the keyboard. Per action
 the frame takes the largest magnitude of the three sources.
 
+## Safe reset
+
+`respawn` (Xbox Y, keyboard R, touch Reset) returns a lost player to solid ground; `vehicleReset` (R) does the
+same in a car. Both are read only while the player is lost (gameplay/recovery.ts); Y is `interact` otherwise, and
+while lost `interact` is swallowed so Y never enters or leaves a car. Outside the lost state R keeps flipping the
+car upright in place.
+
 ## Touch
 
 Touch is enabled when `navigator.maxTouchPoints > 0` or on the first touch pointer event; it then becomes
@@ -30,9 +37,10 @@ the active source until a key, a mouse click or a gamepad takes over, and back o
   of the finger distance.
 - **Buttons** (`TOUCH_BUTTONS`, 64 px bottom right, 56 px top right, gamepad glyph plus a label): Use (`mission`,
   the A action that opens shops), Sprint (hold), Jump, Enter car / Exit car (`interact`), Handbrake, Map and
-  Pause / Resume, and Back (`menuBack`) while a shop menu is open. A button holds its action until lifted; a tap
+  Pause / Resume, Back (`menuBack`) while a shop menu is open, and Reset (`respawn`) with Map and Pause while the
+  player is lost off the built area or in the river (`lost`, gameplay/README.md "Safe reset"). A button holds its action until lifted; a tap
   between two frames is still a press edge. `main.ts` calls `input.setTouchContext('foot' | 'car' | 'menu' |
-  'paused' | 'hidden')` every frame to pick the visible set; the overlay is hidden unless the source is touch.
+  'paused' | 'lost' | 'hidden')` every frame to pick the visible set; the overlay is hidden unless the source is touch.
 - **Multi-touch**: Pointer Events tracked by `pointerId`, so stick, look and buttons work at once. The canvas has
   `touch-action: none`; each touch is captured by the element it started on, so a finger that started on a
   button never selects a shop row under it.
