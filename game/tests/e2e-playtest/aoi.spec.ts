@@ -8,10 +8,10 @@ async function start(page: Page, backend: string, E = OFFICE_EN.E as number, N =
   await installPad(page);
   await page.goto(`/?backend=${backend}&tiles=/tiles/tileset.json&spawn=${E},${N},${heading}&quality=${quality}`);
   await page.waitForFunction(() => window.__game?.ready);
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled();
+  await expect(page.getByRole('option', { name: 'New game' })).toBeEnabled();
   await expect(page.locator('#gamepad-status')).toHaveText('Xbox Wireless Controller connected');
   expect(await page.evaluate(() => window.__game!.backend)).toBe(backend === 'webgpu' ? 'WebGPU' : 'WebGL2');
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   await page.waitForFunction(() => { const s = (window.__game!.state as () => any)(); return s.grounded && s.tilesSettled; });
 }
 async function safety(page: Page, maxSpeed: number) {

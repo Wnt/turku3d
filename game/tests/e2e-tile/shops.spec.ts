@@ -6,7 +6,7 @@ import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import { PERMIT_DELIVERIES, PERMIT_PRICE, START_MONEY } from '../../src/gameplay/economy';
 import { lineText } from '../../src/gameplay/content/dialogue';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
-import { SAVE_KEY } from '../../src/gameplay/missions/missions';
+import { SAVES_KEY } from '../../src/core/save';
 import type { WorldPoint } from '../../src/gameplay/contract';
 
 const shots = path.join(reportsRoot, 'gameplay-shops-ui');
@@ -71,11 +71,11 @@ test('shop zones glow in the world and the black market menu locks movement whil
   const shot = async (name: string) => fs.writeFileSync(path.join(shots, `${backend}-${name}.png`), await page.screenshot());
 
   const { scale } = await open(page, `/?backend=${backend}&tiles=/tiles/tileset.json`);
-  await page.evaluate(key => localStorage.removeItem(key), SAVE_KEY);
+  await page.evaluate(key => localStorage.removeItem(key), SAVES_KEY);
   await page.reload();
   // Loading precedes the game clock, so this bound stays wall-clock, scaled by the measured frame time.
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 * scale });
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await expect(page.getByRole('option', { name: 'New game' })).toBeEnabled({ timeout: 60_000 * scale });
+  await page.getByRole('option', { name: 'New game' }).click();
   await page.waitForFunction(() => {
     const s = (window.__game!.state as () => { collision: { tiles: number }; tilesSettled: boolean })();
     return s.collision.tiles >= 9 && s.tilesSettled;
@@ -148,5 +148,5 @@ test('shop zones glow in the world and the black market menu locks movement whil
   await shot('05-dealer-menu');
   await page.keyboard.press('Escape');
   await expect(page.locator('#shop-menu')).toBeHidden();
-  await page.evaluate(key => localStorage.removeItem(key), SAVE_KEY);
+  await page.evaluate(key => localStorage.removeItem(key), SAVES_KEY);
 });

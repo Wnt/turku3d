@@ -6,7 +6,7 @@ import { BASE_PAY, MAX_TIP, PERMIT_DELIVERIES, PERMIT_PRICE, START_MONEY } from 
 import { lineText } from '../../src/gameplay/content/dialogue';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
-import { SAVE_KEY } from '../../src/gameplay/missions/missions';
+import { SAVES_KEY } from '../../src/core/save';
 import type { WorldPoint } from '../../src/gameplay/contract';
 import { open, untilSim } from '../e2e/waits';
 
@@ -43,13 +43,13 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   const shot = async (name: string) => fs.writeFileSync(path.join(shots, `${name}.png`), await page.screenshot());
 
   const { scale } = await open(page, `/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
-  await page.evaluate(key => localStorage.removeItem(key), SAVE_KEY);
+  await page.evaluate(key => localStorage.removeItem(key), SAVES_KEY);
   await page.reload();
   await expect(page.locator('.start-intro')).toContainText(lineText('intro_1'));
   // Loading precedes the game clock, so these bounds stay wall-clock, scaled by the measured frame time.
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 * scale });
+  await expect(page.getByRole('option', { name: 'New game' })).toBeEnabled({ timeout: 60_000 * scale });
   await shot('01-start-intro');
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   await page.waitForFunction(() => {
     const s = (window.__game!.state as () => { collision: { tiles: number }; tilesSettled: boolean })();
     return s.collision.tiles >= 9 && s.tilesSettled;
@@ -98,10 +98,14 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   await showsMessage(page, lineText(`paid_tip_${MAX_TIP}`));
   await shot('08-paid');
 
-  // A reload continues the saved game without the intro.
+  // A reload autosaves on page hide; Continue resumes that save without the intro.
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Start playing' })).toBeEnabled({ timeout: 60_000 * scale });
+  const resume = page.getByRole('option', { name: 'Continue' });
+  await expect(resume).toBeEnabled({ timeout: 60_000 * scale });
+  await expect(resume).toContainText(delivery.address);
   await expect(page.locator('.start-intro')).toHaveCount(0);
+  await resume.click();
+  await page.waitForFunction(() => !(window.__game!.state as () => { loading: boolean; startScreen: boolean })().loading);
   expect(await missions(page)).toMatchObject({ permit: PERMIT_DELIVERIES - 1, money: paid, hud: { activeTargetId: PIZZERIA.id } });
-  await page.evaluate(key => localStorage.removeItem(key), SAVE_KEY);
+  await page.evaluate(key => localStorage.removeItem(key), SAVES_KEY);
 });

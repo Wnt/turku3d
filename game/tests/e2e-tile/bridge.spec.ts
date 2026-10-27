@@ -31,7 +31,7 @@ test('Auransilta walk and drive traversal', { tag: ['@pipeline', '@walk', '@driv
     const s = (window as any).__game?.state?.();
     return s?.grounded && s.collision.tiles >= 9;
   }, null, 120);
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   const start = await page.evaluate(() => (window as any).__game.state());
   expect(start.H).toBeGreaterThan(4.9);
   await page.screenshot({ path: path.join(shots, `auransilta-near-bank-${backend}.png`) });

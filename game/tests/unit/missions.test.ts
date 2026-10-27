@@ -10,7 +10,7 @@ import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SHOPS, ZONE_LABELS, optionDetail, optionLabel, type OptionId } from '../../src/gameplay/content/shops';
 import {
-  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, hasSavedGame, SAVE_KEY, lineSeconds, type KeyValueStore, type MissionFrame,
+  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, lineSeconds, missionSummary, type MissionFrame,
 } from '../../src/gameplay/missions/missions';
 
 /** Synthetic router: an L-shaped path (x first, then z), so route length differs from the straight line. */
@@ -20,17 +20,13 @@ const lRouter: Router = {
 };
 const lDistance = (a: WorldPoint, b: WorldPoint) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 
-class MemoryStore implements KeyValueStore {
-  data = new Map<string, string>();
-  getItem(key: string) { return this.data.get(key) ?? null; }
-  setItem(key: string, value: string) { this.data.set(key, value); }
-}
-
 const near = (p: WorldPoint, dx = 1): WorldPoint => ({ x: p.x + dx, z: p.z });
 const far: WorldPoint = { x: -500, z: -500 };
 
-function harness(store: KeyValueStore = new MemoryStore()) {
-  const missions = new MissionSystem({ router: lRouter, storage: store });
+/** A mission system, continued from a `serialize()` text when `saved` is given. */
+function harness(saved: string | null = null) {
+  const missions = new MissionSystem({ router: lRouter });
+  if (saved !== null) missions.restore(saved);
   const states: MissionHudState[] = [];
   missions.subscribe(s => states.push(s));
   const frame = (position: WorldPoint, extra: Partial<MissionFrame> = {}): MissionFrame =>
@@ -54,7 +50,7 @@ function harness(store: KeyValueStore = new MemoryStore()) {
       press(near(missions.currentDelivery.point));
     }
   };
-  return { missions, states, at, press, wait, choose, leave, option, earn, store, last: () => states[states.length - 1] };
+  return { missions, states, at, press, wait, choose, leave, option, earn, last: () => states[states.length - 1] };
 }
 
 describe('contract', () => {
@@ -440,20 +436,17 @@ describe('mission state machine', () => {
   });
 
   it('continues a saved game after a reload, including the running timer', () => {
-    const store = new MemoryStore();
-    const a = harness(store);
-    expect(hasSavedGame(store)).toBe(false);
+    const a = harness();
     a.missions.begin();
-    expect(hasSavedGame(store)).toBe(true);
     a.choose(MARKET.point, 'rent_permit');
     a.choose(MARKET.point, 'expiry_warning');
     a.choose(MARKET.point, 'leave');
     a.choose(PIZZERIA.point, 'take_order');
     a.wait(far, 10);
-    const saved = JSON.parse(store.getItem(SAVE_KEY)!);
-    expect(saved).toMatchObject({ version: 2, phase: 'carrying', permit: PERMIT_DELIVERIES - 1, warning: true,
+    const saved = a.missions.serialize();
+    expect(JSON.parse(saved)).toMatchObject({ version: 2, phase: 'carrying', permit: PERMIT_DELIVERIES - 1, warning: true,
       money: START_MONEY - PERMIT_PRICE - WARNING_PRICE });
-    const b = harness(store);
+    const b = harness(saved);
     expect(b.missions).toMatchObject({ phase: 'carrying', permit: PERMIT_DELIVERIES - 1 });
     b.missions.begin();
     b.at(far, 0);
@@ -462,39 +455,81 @@ describe('mission state machine', () => {
     expect(b.last().activeTargetId).toBe(DELIVERIES[0].id);
   });
 
+  it('restores over a running game: dialogue and the open shop are dropped, null starts a new game', () => {
+    const h = harness();
+    h.missions.begin();
+    h.choose(MARKET.point, 'rent_permit');
+    const rented = h.missions.serialize();
+    h.choose(MARKET.point, 'sell_kidney');
+    expect(h.missions.shop?.id).toBe('market');
+    h.missions.restore(rented);
+    expect(h.missions).toMatchObject({ phase: 'at_pizzeria', permit: PERMIT_DELIVERIES, kidney: false, shop: null,
+      money: START_MONEY - PERMIT_PRICE });
+    expect(h.missions.snapshot().dialogue).toEqual([]);
+    expect(h.last().money).toBe(START_MONEY - PERMIT_PRICE);
+    h.missions.restore(null);
+    expect(h.missions).toMatchObject({ phase: 'idle', permit: 0, money: START_MONEY, deliveries: 0, lastAddress: null });
+    h.missions.begin();
+    expect(h.missions.phase).toBe('permit_needed');
+  });
+
+  it('reports a checkpoint after each purchase and each finished delivery, and nothing else', () => {
+    const h = harness();
+    h.missions.begin();
+    const checkpoints: (string | null)[] = [];
+    const record = (r: { checkpoint: string | null }) => { checkpoints.push(r.checkpoint); return r; };
+    record(h.press(near(MARKET.point)));
+    record(h.at(near(MARKET.point), 0.1, { choose: 'rent_permit' }));
+    record(h.at(near(MARKET.point), 0.1, { choose: 'forged_plates' })); // not enough money: no purchase
+    record(h.leave(MARKET.point));
+    expect(checkpoints).toEqual([null, 'purchase', null, null]);
+    h.choose(PIZZERIA.point, 'take_order');
+    const deliveryAddress = h.missions.currentDelivery.address;
+    expect(record(h.press(near(h.missions.currentDelivery.point))).checkpoint).toBe('delivery');
+    expect(h.missions).toMatchObject({ deliveries: 1, lastAddress: deliveryAddress });
+    expect(record(h.at(far, 0.1)).checkpoint).toBeNull();
+    h.choose(PIZZERIA.point, 'take_order');
+    let failed: string | null = null;
+    for (let t = 0; t < 2000 && failed === null; t += 1) failed = h.at(far, 1).checkpoint;
+    expect(failed).toBe('delivery');
+    expect(h.missions.deliveries).toBe(2);
+  });
+
+  it('summarises a save text for the slot list', () => {
+    const h = harness();
+    expect(missionSummary(h.missions.serialize())).toEqual({ deliveries: 0, money: START_MONEY, lastAddress: null });
+    h.missions.begin();
+    h.earn(START_MONEY + 1);
+    expect(missionSummary(h.missions.serialize())).toEqual({ deliveries: h.missions.deliveries, money: h.missions.money,
+      lastAddress: h.missions.lastAddress });
+    expect(missionSummary('not json')).toEqual({ deliveries: 0, money: START_MONEY, lastAddress: null });
+  });
+
   it('migrates a save from main 2673ec0: an owned licence becomes a fresh permit rental', () => {
     // Byte-for-byte what MissionSystem.persist() of 2673ec0 wrote.
     const v1 = (fields: string) => `{"version":1,${fields},"vehicle":"bicycle","delivery":5,"elapsed":12.5,"par":140}`;
-    const store = new MemoryStore();
-    store.setItem(SAVE_KEY, v1('"phase":"carrying","money":57,"licence":true'));
-    expect(hasSavedGame(store)).toBe(true);
-    const h = harness(store);
+    const h = harness(v1('"phase":"carrying","money":57,"licence":true'));
     expect(h.missions).toMatchObject({ phase: 'carrying', money: 57, permit: PERMIT_DELIVERIES, vehicle: 'bicycle',
       plates: false, kidney: false, currentDelivery: DELIVERIES[1] });
     expect(h.last().timerSeconds).toBe(Math.ceil(2 * 140 - 12.5));
     h.press(near(DELIVERIES[1].point));
-    expect(JSON.parse(store.getItem(SAVE_KEY)!)).toMatchObject({ version: 2, permit: PERMIT_DELIVERIES, delivery: 6 });
+    expect(JSON.parse(h.missions.serialize())).toMatchObject({ version: 2, permit: PERMIT_DELIVERIES, delivery: 6 });
 
-    store.setItem(SAVE_KEY, v1('"phase":"licence_needed","money":120,"licence":false'));
-    expect(harness(store).missions).toMatchObject({ phase: 'permit_needed', permit: 0, money: 120 });
-    store.setItem(SAVE_KEY, v1('"phase":"delivered","money":80,"licence":true'));
-    expect(harness(store).missions).toMatchObject({ phase: 'at_pizzeria', permit: PERMIT_DELIVERIES });
+    expect(harness(v1('"phase":"licence_needed","money":120,"licence":false')).missions)
+      .toMatchObject({ phase: 'permit_needed', permit: 0, money: 120 });
+    expect(harness(v1('"phase":"delivered","money":80,"licence":true')).missions)
+      .toMatchObject({ phase: 'at_pizzeria', permit: PERMIT_DELIVERIES });
   });
 
   it('falls back to a new game on a corrupt save', () => {
-    const store = new MemoryStore();
-    store.setItem(SAVE_KEY, '{"version":1,"phase":"carrying","money":-5}');
-    expect(harness(store).missions).toMatchObject({ phase: 'idle', money: START_MONEY });
-    store.setItem(SAVE_KEY, '{"version":2,"phase":"carrying","money":5,"permit":"many"}');
-    expect(harness(store).missions.phase).toBe('idle');
-    store.setItem(SAVE_KEY, 'not json');
-    expect(harness(store).missions.phase).toBe('idle');
-    store.setItem(SAVE_KEY, 'null');
-    expect(harness(store).missions.phase).toBe('idle');
+    expect(harness('{"version":1,"phase":"carrying","money":-5}').missions).toMatchObject({ phase: 'idle', money: START_MONEY });
+    expect(harness('{"version":2,"phase":"carrying","money":5,"permit":"many"}').missions.phase).toBe('idle');
+    expect(harness('not json').missions.phase).toBe('idle');
+    expect(harness('null').missions.phase).toBe('idle');
   });
 
   it('notifies subscribers only on change and stops after unsubscribe', () => {
-    const missions = new MissionSystem({ router: lRouter, storage: null });
+    const missions = new MissionSystem({ router: lRouter });
     const seen: MissionHudState[] = [];
     const off = missions.subscribe(s => seen.push(s));
     expect(seen).toHaveLength(1);

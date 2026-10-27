@@ -25,7 +25,7 @@ test('loads, walks 5 m forward on the dummy tile, no console errors', { tag: ['@
   const backend = info.project.name; // 'webgpu' | 'webgl'
   const con = watchConsole(page);
   const { scale } = await open(page, `/?backend=${backend}`);
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   // Loading precedes the game clock, so this bound stays wall-clock, scaled by the measured frame time.
   await page.waitForFunction(() => (window as any).__game?.ready === true, null, { timeout: 60_000 * scale });
   // wait for the visual tile and the spawn collision tile
@@ -100,7 +100,7 @@ test('enter the car with F, drive forward, exit with F', { tag: ['@drive', '@veh
   const backend = info.project.name;
   const con = watchConsole(page);
   await open(page, `/?backend=${backend}`);
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   await untilSim(page, () => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; }, null, 60);
   // the car is parked 6 m to the right (east) of the spawn: strafe right until within 3 m
   await page.keyboard.down('KeyD');

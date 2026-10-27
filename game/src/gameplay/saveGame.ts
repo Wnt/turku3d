@@ -1,0 +1,185 @@
+// The running game's side of the save slots (core/save.ts) and menus (ui/menu.ts): capture the game into a slot,
+// place a loaded or new game in the world, the autosave triggers and the pause menu's frame handling.
+import * as THREE from 'three/webgpu';
+import { collisionTileAt, enToEngine, engineToEN, type V3 } from '../core/origin';
+import { Autosave, formatLabel, type SaveGame, type SaveStore } from '../core/save';
+import type { Input } from '../input';
+import type { PhysicsClient } from '../physics/client';
+import type { TimeControl } from '../render/debug';
+import type { PauseMenu } from '../ui/menu';
+import { SaveMenuFlow, type GameHooks } from '../ui/menu';
+import type { StartScreen } from '../ui/startScreen';
+import type { CollisionStreamer } from '../world/collisionStreaming';
+import type { Manifest } from '../world/manifest';
+import { OWN_VEHICLE_ID, type MissionSystem } from './missions/missions';
+import type { SafeReset } from './safeReset';
+
+type Quat = { x: number; y: number; z: number; w: number };
+const quat = new THREE.Quaternion(), axis = new THREE.Vector3();
+const down = { x: 0, y: -1, z: 0 };
+
+/** Chassis yaw (engine radians) of a physics vehicle. */
+export function yawOf(rot: Quat) {
+  axis.set(1, 0, 0).applyQuaternion(quat.set(rot.x, rot.y, rot.z, rot.w));
+  return Math.atan2(-axis.z, axis.x);
+}
+
+/** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame). */
+export function driverSide(car: { pos: V3; rot: Quat }): V3 {
+  axis.set(0, 0, -(1.0 + 0.9)).applyQuaternion(quat.set(car.rot.x, car.rot.y, car.rot.z, car.rot.w));
+  return { x: car.pos.x + axis.x, y: car.pos.y + 0.2, z: car.pos.z + axis.z };
+}
+
+type Pose = V3 & { yaw: number };
+
+interface SaveGameOptions {
+  physics: PhysicsClient; streamer: CollisionStreamer; manifest: Manifest; missions: MissionSystem; recovery: SafeReset;
+  saves: SaveStore; startScreen: StartScreen; pauseMenu: PauseMenu; clockControl: TimeControl;
+  /** The ?time= start, used by a new game. */
+  defaultTime: Date;
+  clock: () => Date;
+  setClock: (date: Date) => void;
+  /** Where a new game starts, and the own car's spawn parking. */
+  spawn: Pose; car: Pose;
+  /** The live player: mode, driven vehicle, feet and camera yaw. */
+  view: () => { mode: 'foot' | 'car'; drivenId: string | null; feet: V3; cameraYaw: number };
+  /** Leaves the driven car without placing the character. */
+  leaveCar: () => void;
+  /** The character now stands at `at`; the camera turns to `yaw`. */
+  placed: (at: V3, yaw: number) => void;
+  setPaused: (paused: boolean) => void;
+  fail: (e: unknown) => void;
+}
+
+export class SaveGameController {
+  /** A loaded or new game is being placed: the world waits (paused) until the player stands on the ground. */
+  loading = false;
+  readonly autosave: Autosave;
+  readonly hooks: GameHooks;
+  readonly startFlow: SaveMenuFlow;
+  private readonly pauseFlow: SaveMenuFlow;
+  /** Collision streams around this point instead of the feet until the placed character reports it. */
+  private focus: { x: number; z: number } | null = null;
+
+  constructor(private readonly o: SaveGameOptions) {
+    this.hooks = {
+      capture: () => this.capture(),
+      play: game => this.play(game),
+      resume: () => { o.pauseMenu.close(); o.setPaused(false); },
+      quit: () => {
+        this.autosave.save('quit');
+        o.pauseMenu.close();
+        o.setPaused(false);
+        o.startScreen.reopen(this.startFlow.start());
+      },
+    };
+    this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks);
+    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks);
+    this.autosave = new Autosave(o.saves, () => o.startScreen.active || this.loading ? null : this.capture());
+    this.autosave.attach(window, document);
+  }
+
+  /** The running game as a save slot. */
+  capture(): SaveGame {
+    const { physics, missions } = this.o;
+    const view = this.o.view();
+    const driven = view.mode === 'car' ? physics.latest?.vehicles.find(v => v.id === view.drivenId) : undefined;
+    const at = driven ? driverSide(driven) : view.feet;
+    const p = engineToEN(at.x, at.y, at.z);
+    const own = physics.latest?.vehicles.find(v => v.id === OWN_VEHICLE_ID);
+    const c = own ? engineToEN(own.pos.x, own.pos.y, own.pos.z) : null;
+    const clock = this.o.clock();
+    return { version: 1, savedAt: Date.now(), label: formatLabel(missions.lastAddress, clock), mission: missions.serialize(),
+      // In a car the camera sits behind the chassis: its yaw is the chassis yaw minus a quarter turn.
+      player: { E: p.E, N: p.N, H: p.H, yaw: driven ? yawOf(driven.rot) - Math.PI / 2 : view.cameraYaw },
+      vehicle: own && c ? { owned: missions.vehicle !== 'none', E: c.E, N: c.N, H: c.H, yaw: yawOf(own.rot) } : null,
+      clock: { timeOfDay: clock.toISOString() }, stats: { deliveries: missions.deliveries, money: missions.money } };
+  }
+
+  /**
+   * Per frame after the shop menu: the pause action opens the pause menu; while it is open it owns the menu input
+   * (Menu resumes from any page, Escape and B go back). Returns whether the pause menu was open this frame.
+   */
+  frame(input: Input): boolean {
+    const menu = this.o.pauseMenu;
+    if (menu.open) {
+      const pause = input.consume('pause');
+      const back = menu.panel.handle(input);
+      if (pause && !back && menu.open) this.hooks.resume();
+      return true;
+    }
+    if (input.consume('pause') && !this.loading) {
+      this.o.setPaused(true);
+      menu.show(this.pauseFlow.pause());
+    }
+    return false;
+  }
+
+  /** The point collision streams around this frame. */
+  streamPoint(feet: V3): { x: number; z: number } {
+    if (this.focus && !this.loading && Math.hypot(feet.x - this.focus.x, feet.z - this.focus.z) < 3) this.focus = null;
+    return this.focus ?? feet;
+  }
+
+  private play(game: SaveGame | null) {
+    if (this.o.startScreen.active) this.o.startScreen.close();
+    this.o.pauseMenu.close();
+    this.loading = true;
+    this.o.setPaused(true);
+    void this.place(game).catch(this.o.fail).finally(() => { this.loading = false; this.o.setPaused(false); });
+  }
+
+  /** Puts the world in the state of `game` (null: a new game): missions, clock, the own car, then the player. */
+  private async place(game: SaveGame | null) {
+    const { physics, missions, spawn } = this.o;
+    if (this.o.view().mode === 'car') this.o.leaveCar();
+    missions.restore(game?.mission ?? null);
+    this.o.setClock(game?.clock ? new Date(game.clock.timeOfDay) : this.o.defaultTime);
+    this.o.clockControl.set(this.o.clock());
+    const savedCar = game?.vehicle?.owned ? game.vehicle : null;
+    const car = savedCar ? { ...enToEngine(savedCar.E, savedCar.N, savedCar.H), yaw: savedCar.yaw } : this.o.car;
+    const carY = savedCar ? await this.snap(car) : (await this.settle(car.x, car.z), car.y);
+    physics.resetVehicle({ x: car.x, y: carY + 0.75, z: car.z }, car.yaw, OWN_VEHICLE_ID);
+    const at = game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn;
+    const y = game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y);
+    physics.setCharacterEnabled(true, { x: at.x, y: y + 0.05, z: at.z });
+    // The world stays paused until the worker reports the character at its new place, so nothing reads the old one.
+    const t0 = performance.now();
+    const arrived = () => { const c = physics.latest?.character?.pos; return !!c && Math.hypot(c.x - at.x, c.z - at.z) < 0.5; };
+    while (!arrived()) {
+      if (performance.now() - t0 > 10000) throw new Error('the placed character did not arrive');
+      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      await new Promise(r => setTimeout(r, 20));
+    }
+    this.o.placed({ x: at.x, y, z: at.z }, at.yaw);
+    this.o.recovery.restart({ x: at.x, y, z: at.z, heading: at.yaw + Math.PI, inVehicle: false });
+    missions.begin();
+  }
+
+  /** Streams the collision tile under (x, z) and waits until queries see it. */
+  private async settle(x: number, z: number) {
+    const { physics, streamer, manifest } = this.o;
+    this.focus = { x, z };
+    streamer.update(x, z, true);
+    const t = collisionTileAt(x, z), id = `c_${t.i}_${t.j}`;
+    const t0 = performance.now();
+    while (manifest.collision[id] && !physics.loaded.has(id)) {
+      if (performance.now() - t0 > 30000) throw new Error(`collision tile ${id} did not load`);
+      await new Promise(r => setTimeout(r, 20));
+      streamer.update(x, z);
+    }
+    physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+  }
+
+  /**
+   * Ground under a saved pose, the same rule as safe reset (gameplay/safeReset.ts): a downward ray from 2 m above
+   * the saved height (under a bridge it finds the road, not the deck), else from the sky, else the saved height.
+   */
+  private async snap(p: V3): Promise<number> {
+    await this.settle(p.x, p.z);
+    const { physics } = this.o;
+    const hit = await physics.raycast({ x: p.x, y: p.y + 2, z: p.z }, down, 60)
+      ?? await physics.raycast({ x: p.x, y: 500, z: p.z }, down, 1000);
+    return hit?.point.y ?? p.y;
+  }
+}

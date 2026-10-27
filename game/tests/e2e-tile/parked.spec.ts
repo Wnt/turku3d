@@ -13,7 +13,7 @@ test('published parked car enters with F and drives on both backends', { tag: ['
   const car = [...manifest.vehicles].sort((a: any, b: any) => b.clear_rear_m - a.clear_rear_m || a.object_id.localeCompare(b.object_id))[0];
   expect(car.clear_rear_m, `${car.object_id} has room to reverse`).toBeGreaterThan(21);
   await open(page, `/?backend=${info.project.name}&tiles=/tiles/tileset.json`);
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   await page.waitForFunction(count => {
     const s = (window as any).__game?.state?.();
     return s?.vehicles?.length === count + 1 && s.collision.tiles >= 9 && s.tilesSettled;

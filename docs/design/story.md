@@ -149,9 +149,13 @@ Customers react at the door by tip band: fast (tip ≥ 5 €), ok (1–4 €), s
 Minimap targets and world zones: `pizzeria`, `dealer` and `market` always, and the current
 drop-off while carrying (its zone disappears with the hand-over until the next order).
 
-State persists in `localStorage` under one JSON key, `turku3d.missions`, format version 2: phase,
-money, permit deliveries left, plates, kidney, warning, vehicle, delivery index, elapsed and par
-seconds. A reload continues, including a running delivery timer; slice energy is not saved. A
+The mission save (`MissionSystem.serialize()`) is format version 2: phase, money, permit deliveries
+left, plates, kidney, warning, vehicle, delivery index, elapsed and par seconds. It is stored inside a
+save slot (three named slots and an autosave in `localStorage` key `turku3d.saves`, with the player's
+position, the own car and the clock: `game/src/ui/README.md`). The game autosaves after every finished
+delivery and shop purchase, on quit and on page hide; Continue resumes the latest slot, including a
+running delivery timer; slice energy is not saved. An unslotted save from before the slots (key
+`turku3d.missions`) becomes slot 1 on the first run. A
 version 1 save (main 2673ec0: `licence` instead of the permit) is migrated on load: an owned licence
 becomes one fresh rental of 10 deliveries and `licence_needed` becomes `permit_needed`. A corrupt or
 foreign save starts a new game.

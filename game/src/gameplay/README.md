@@ -11,7 +11,8 @@ Story, locations, economy and the state machine are specified in
 
 | File | Role |
 |---|---|
-| `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; persists to `localStorage` key `turku3d.missions` (format 2, migrates format 1) |
+| `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; `serialize()` / `restore(text \| null)` for the save slots (format 2, migrates format 1; `core/save.ts` stores the text) |
+| `saveGame.ts` | `SaveGameController`: captures the running game into a save slot, places a loaded or new game (missions, clock, own car, player on the ground), autosave triggers, the pause menu's frame handling (`game/src/ui/README.md`, "Main menu, pause menu and save slots") |
 | `economy.ts` | Prices, permit rental, payouts, base pay, tip formula, par time, deadline |
 | `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
 | `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
@@ -20,7 +21,7 @@ Story, locations, economy and the state machine are specified in
 | `content/dialogue.json` | Every displayed line: intro, hints, prompts, notices, pay lines, character dialogue |
 | `content/dialogue.ts` | Typed lookup by line id (`lineText`, `dialogueLine`) |
 
-`main.ts` constructs the system with the street router (below) and `localStorage`, calls
+`main.ts` constructs the system with the street router (below), calls
 `missions.update(dt, { position, interact, input, vehicleId, choose, leave })` every frame (dt 0
 while paused or on the start screen), asks `missions.mayDrive(id)` before entering a vehicle, caps
 the player's car at bicycle speed when the bicycle is owned, scales run and sprint speed by
@@ -31,8 +32,13 @@ and the menu's `choose` / `leave` go back through the next `update`. While `shop
 `main.ts` feeds no movement, camera or vehicle input (the car holds its handbrake) and swallows the
 other buttons (Escape is pause and D-pad down is mute outside the menu). `ZoneMarkers` follows the
 same HUD source as the minimap and finds each zone's ground with a physics ray once its collision
-tile is resident. The start screen shows the intro lines unless `hasSavedGame(localStorage)`, and
-`missions.begin()` runs when it closes.
+tile is resident. The mission system does not touch storage: `serialize()` returns its save text and
+`restore(text)` continues from one (null starts a new game; dialogue, the open shop and slice energy are
+dropped, a running order keeps its timer). `update()` returns `checkpoint: 'delivery' | 'purchase' | null`
+when a delivery ended or something was bought or sold, and `main.ts` autosaves then; `deliveries`,
+`lastAddress` and `missionSummary(text)` feed the slot list (save slots and menus: `game/src/ui/README.md`).
+The start screen shows the intro lines only when no save exists, and `missions.begin()` runs once a
+loaded or new game is placed.
 `window.__game.missions`, `__game.zones`, `__game.shopMenu` and `__game.orbit` expose the pieces;
 `__game.state()` adds `missions` (with `shop`, `permit`, `runFactor`), `zones` and `shopMenu`
 snapshots for tests.

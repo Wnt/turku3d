@@ -28,7 +28,7 @@ test('office integration: street spawn, L0, batched draws and visible facade pix
   await page.setViewportSize({ width: 2560, height: 1440 });
   const backend = info.project.name;
   await open(page, `/?backend=${backend}&tiles=/tiles/tileset.json`);
-  await page.getByRole('button', { name: 'Start playing' }).click();
+  await page.getByRole('option', { name: 'New game' }).click();
   await untilSim(page, () => {
     const game = (window as any).__game;
     const s = game?.state?.();

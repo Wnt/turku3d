@@ -84,6 +84,18 @@ describe('lost rules', () => {
     expect(m.lost).toBe(null);
   });
 
+  test('a loaded game restarts sampling at its position and drops a pending lost state', () => {
+    const m = new RecoveryMonitor(area, spawn);
+    for (let t = 0; t < 5; t += 0.1) m.update(probe(t, 30), 2);
+    for (let t = 5; !m.lost; t += 0.1) m.update(probe(t, 131), 2);
+    const loaded = { time: 20, x: 100, y: 3, z: 40, heading: 1, inVehicle: false };
+    m.restart(loaded);
+    expect(m.lost).toBe(null);
+    expect(m.samples).toEqual([]);
+    expect(m.target()).toMatchObject({ x: 100, z: 40, heading: 1 });
+    expect(m.update(probe(20.1, 131), 2)).toBe(false); // the grace period after a placement
+  });
+
   test('walking into the river: lost after 2 s under the surface, reset before the bank', () => {
     const m = new RecoveryMonitor(area, spawn);
     let t = 0;
