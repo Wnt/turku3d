@@ -18,6 +18,11 @@ progress updates and final reports. This overrides personal default language set
 
 ## Working rules
 
+You own the outcome of your brief. Decide the means yourself: plain `git`, `npm`, `python`, `make` and the repo's
+scripts are all yours to use, and the scripts under `scripts/dev/` are conveniences, not a cage. When a tool refuses or
+breaks, fix its cause or go around it with the underlying tools and say so in your report; do not stop for a process
+reason. The rules below are the ones that stay hard.
+
 1. **Fix things where they belong.** You may edit any part of the system, so do not leave workarounds in your own area
    for a problem elsewhere. Remove the code you replace in the same change, and leave no commented-out code.
 2. **No feature flags** unless you are A/B-measuring two real alternatives. Then register the flag (owner, reason,
@@ -28,10 +33,10 @@ progress updates and final reports. This overrides personal default language set
    command and its output. Never weaken a test or a check to pass.
 5. **Fast tests.** Run only the tests relevant to your change, in parallel. Unit tests use small synthetic fixtures, not
    real tiles. The target is 5–20 s for the gate on a typical change. If yours is slower, fix that too.
-   Run anything that can take longer than 30 s through `scripts/dev/codex-task wait-cmd -- <command>` or poll it
-   with `write_stdin` at `yield_time_ms: 30000`; never poll at 1000 ms.
+   Long commands (over 30 s) go through `scripts/dev/codex-task wait-cmd -- <command>` or are polled every 30 s.
 6. **Commit** on your branch with clear messages, and end each message with
-   `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`. Do not merge to `main`: the orchestrator lands branches.
+   `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`. You land your own slices on `main` with
+   `codex-task finish` (see below); nobody lands for you.
 7. **Isolation.** Use only your sandbox's ports, data/build/cache dirs and browser profile. Never kill processes you
    did not start, and never use `pkill -f` / `pgrep -f` with a pattern that appears in your own command line.
    Run heavy builds and Chrome suites through the host slot scheduler (`scripts/dev/host_slots.py`).
@@ -62,7 +67,8 @@ progress updates and final reports. This overrides personal default language set
 - The orchestrator starts work with `scripts/dev/codex-task run <name> --brief docs/briefs/X.md`.
   Inspect with `ls`, `status <name>`, `log <name>`, and `result <name>`; follow up with `resume <name> "text"`.
   `stop <name>` stops only that task's process group. The runner refuses exhausted or unreadable quota.
-- Rebase on current main at the start of every turn. DONE means finish, which lands: committed on your
+- Rebase on current main at the start of every turn. DONE means finish, which lands (if finish itself is
+  broken, land with git the way `scripts/dev/landing.py` does and tell the orchestrator): committed on your
   branch, `scripts/dev/gate --fast --base main` green, a result file with the headings below, and
   `scripts/dev/codex-task finish <name> --result <file>` (Codex runs record the result themselves and
   their runner lands it at turn end). Finish rebases onto main, reruns the fast gate and fast-forwards main
