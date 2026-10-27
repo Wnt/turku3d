@@ -67,7 +67,7 @@ interface MissionSaveV1 {
 }
 
 const VALID_PHASES: readonly Phase[] = ['idle', 'permit_needed', 'at_pizzeria', 'carrying', 'delivered', 'failed'];
-const VALID_VEHICLES: readonly VehicleOwnership[] = ['none', 'bicycle', 'car'];
+const VALID_VEHICLES: readonly VehicleOwnership[] = ['none', 'scooter', 'car'];
 
 export const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 
@@ -123,7 +123,9 @@ function validV3(s: Partial<MissionSave>): MissionSave | null {
 export function parseSave(raw: string | null, seed: number): MissionSave {
   if (!raw) return freshSave(seed);
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown };
+    const parsed = JSON.parse(raw) as { version?: unknown; vehicle?: unknown };
+    // The dealer's bicycle (a speed-capped car) became the scooter; every save version stores the same value.
+    if (parsed?.vehicle === 'bicycle') parsed.vehicle = 'scooter';
     const v2 = parsed?.version === 1 ? migrateV1(parsed as Partial<MissionSaveV1>)
       : parsed?.version === 2 ? validV2(parsed as Partial<MissionSaveV2>) : null;
     const save = v2 ? migrateV2(v2, seed) : parsed?.version === 3 ? validV3(parsed as Partial<MissionSave>) : null;

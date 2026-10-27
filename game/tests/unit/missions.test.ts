@@ -10,7 +10,7 @@ import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SHOPS, ZONE_LABELS, optionDetail, optionLabel, type OptionId } from '../../src/gameplay/content/shops';
 import {
-  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, lineSeconds, missionSummary, type MissionFrame,
+  INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, ownedVehicleId, lineSeconds, missionSummary, type MissionFrame,
 } from '../../src/gameplay/missions/missions';
 
 /** Synthetic router: an L-shaped path (x first, then z), so route length differs from the straight line. */
@@ -74,11 +74,11 @@ describe('economy', () => {
   });
   it('derives par time from route distance and the vehicle class', () => {
     expect(parSeconds(140, 'none')).toBeCloseTo(100 + PAR_HANDLING_SECONDS);
-    expect(parSeconds(500, 'bicycle')).toBeCloseTo(100 + PAR_HANDLING_SECONDS);
+    expect(parSeconds(700, 'scooter')).toBeCloseTo(100 + PAR_HANDLING_SECONDS);
     expect(parSeconds(900, 'car')).toBeCloseTo(100 + PAR_HANDLING_SECONDS);
   });
   it('buys vehicles back at half price', () => {
-    expect(sellBackPrice('bicycle')).toBe(30);
+    expect(sellBackPrice('scooter')).toBe(30);
     expect(sellBackPrice('car')).toBe(175);
   });
 });
@@ -374,27 +374,27 @@ describe('mission state machine', () => {
     h.press(near(DEALER.point));
     expect(h.missions.shop).toMatchObject({ id: 'dealer', line: lineText('dealer_no_permit') });
     expect(h.missions.shop!.options.filter(o => o.id !== 'leave').every(o => o.reason === lineText('reason_no_permit'))).toBe(true);
-    expect(h.choose(DEALER.point, 'buy_bicycle').bought).toBeNull();
+    expect(h.choose(DEALER.point, 'buy_scooter').bought).toBeNull();
     h.leave(DEALER.point);
     h.choose(MARKET.point, 'rent_permit'); // 40 € left
     h.leave(MARKET.point);
     h.press(near(DEALER.point));
     expect(h.missions.shop!.line).toBe(lineText('dealer_greet'));
-    expect(h.option('buy_bicycle')).toMatchObject({ enabled: false, reason: lineText('reason_no_money'), price: VEHICLE_PRICE.bicycle });
+    expect(h.option('buy_scooter')).toMatchObject({ enabled: false, reason: lineText('reason_no_money'), price: VEHICLE_PRICE.scooter });
     expect(h.option('sell_vehicle')).toMatchObject({ enabled: false, reason: lineText('reason_no_vehicle') });
-    h.choose(DEALER.point, 'buy_bicycle');
+    h.choose(DEALER.point, 'buy_scooter');
     expect(h.missions.shop!.line).toBe(lineText('dealer_no_money'));
     h.leave(DEALER.point);
-    h.earn(VEHICLE_PRICE.bicycle);
+    h.earn(VEHICLE_PRICE.scooter);
     const money = h.missions.money;
-    expect(h.choose(DEALER.point, 'buy_bicycle').bought).toBe('bicycle');
-    expect(h.missions).toMatchObject({ vehicle: 'bicycle', money: money - VEHICLE_PRICE.bicycle, shop: null });
-    expect(h.last().message).toBe(lineText('dealer_sold_bicycle'));
+    expect(h.choose(DEALER.point, 'buy_scooter').bought).toBe('scooter');
+    expect(h.missions).toMatchObject({ vehicle: 'scooter', money: money - VEHICLE_PRICE.scooter, shop: null });
+    expect(h.last().message).toBe(lineText('dealer_sold_scooter'));
     h.press(near(DEALER.point));
     expect(h.option('buy_car')).toMatchObject({ enabled: false, reason: lineText('reason_vehicle_owned') });
-    expect(h.option('sell_vehicle')).toMatchObject({ enabled: true, price: -sellBackPrice('bicycle') });
+    expect(h.option('sell_vehicle')).toMatchObject({ enabled: true, price: -sellBackPrice('scooter') });
     h.choose(DEALER.point, 'sell_vehicle');
-    expect(h.missions).toMatchObject({ vehicle: 'none', money: money - VEHICLE_PRICE.bicycle + sellBackPrice('bicycle') });
+    expect(h.missions).toMatchObject({ vehicle: 'none', money: money - VEHICLE_PRICE.scooter + sellBackPrice('scooter') });
     expect(h.missions.shop!.line).toBe(lineText('dealer_bought_back'));
   });
 
@@ -403,18 +403,23 @@ describe('mission state machine', () => {
     h.missions.begin();
     h.choose(MARKET.point, 'rent_permit');
     h.leave(MARKET.point);
-    h.earn(VEHICLE_PRICE.bicycle);
-    expect(h.choose(DEALER.point, 'buy_bicycle').bought).toBe('bicycle');
+    h.earn(VEHICLE_PRICE.scooter);
+    expect(h.choose(DEALER.point, 'buy_scooter').bought).toBe('scooter');
+    expect(ownedVehicleId('scooter')).toBe(SCOOTER_ID);
     expect(h.missions.mayDrive('parked-1')).toBe(true); // free roam: any car
     h.press(near(PIZZERIA.point), { vehicleId: 'parked-1' });
     expect(h.option('take_order')).toMatchObject({ enabled: false, reason: lineText('reason_own_vehicle_only') });
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: 'parked-1' });
     expect(h.missions.phase).not.toBe('carrying');
+    // With a scooter owned, the start car is not the player's vehicle.
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: OWN_VEHICLE_ID });
+    expect(h.missions.phase).not.toBe('carrying');
+    h.choose(PIZZERIA.point, 'take_order', { vehicleId: SCOOTER_ID });
     expect(h.missions.phase).toBe('carrying');
     const d = h.missions.currentStop;
-    expect(h.missions.snapshot().par).toBeCloseTo(parSeconds(lDistance(PIZZERIA.point, d.point), 'bicycle'));
-    expect(h.missions.mayDrive(OWN_VEHICLE_ID)).toBe(true);
+    expect(h.missions.snapshot().par).toBeCloseTo(parSeconds(lDistance(PIZZERIA.point, d.point), 'scooter'));
+    expect(h.missions.mayDrive(SCOOTER_ID)).toBe(true);
+    expect(h.missions.mayDrive(OWN_VEHICLE_ID)).toBe(false);
     expect(h.missions.mayDrive('parked-1')).toBe(false);
     expect(h.last().message).toBe(lineText('notice_own_vehicle_only'));
   });
@@ -505,11 +510,22 @@ describe('mission state machine', () => {
     expect(missionSummary('not json')).toEqual({ deliveries: 0, money: START_MONEY, lastAddress: null });
   });
 
+  it('migrates an owned bicycle in any save version to the scooter', () => {
+    const v2 = { version: 2, phase: 'at_pizzeria', money: 40, permit: 3, plates: false, kidney: false, warning: false,
+      vehicle: 'bicycle', delivery: 4, elapsed: 0, par: 0 };
+    const h = harness(JSON.stringify(v2));
+    expect(h.missions).toMatchObject({ vehicle: 'scooter', money: 40, permit: 3 });
+    const v3 = JSON.parse(h.missions.serialize());
+    expect(v3).toMatchObject({ version: 3, vehicle: 'scooter' });
+    expect(harness(JSON.stringify({ ...v3, vehicle: 'bicycle' })).missions.vehicle).toBe('scooter');
+    expect(harness(JSON.stringify({ ...v2, vehicle: 'unicycle' })).missions).toMatchObject({ vehicle: 'none', money: START_MONEY });
+  });
+
   it('migrates a save from main 2673ec0: an owned licence becomes a fresh permit rental', () => {
     // Byte-for-byte what MissionSystem.persist() of 2673ec0 wrote.
     const v1 = (fields: string) => `{"version":1,${fields},"vehicle":"bicycle","delivery":5,"elapsed":12.5,"par":140}`;
     const h = harness(v1('"phase":"carrying","money":57,"licence":true'));
-    expect(h.missions).toMatchObject({ phase: 'carrying', money: 57, permit: PERMIT_DELIVERIES, vehicle: 'bicycle',
+    expect(h.missions).toMatchObject({ phase: 'carrying', money: 57, permit: PERMIT_DELIVERIES, vehicle: 'scooter',
       plates: false, kidney: false, currentStop: { scripted: DELIVERIES[1] } });
     expect(h.last().timerSeconds).toBe(Math.ceil(2 * 140 - 12.5));
     h.press(near(DELIVERIES[1].point));

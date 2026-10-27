@@ -38,6 +38,8 @@ const definitions = {
   traffic: [8, t => (brown() * 3 + sine(72, t) * 0.12) * (0.6 + 0.4 * sine(0.125, t))],
   wind: [8, t => brown() * 4 * (0.7 + 0.3 * sine(0.25, t))],
   connect: [0.2, t => pulse(t, 18) * sine(t < 0.09 ? 660 : 990, t)],
+  // Last, so the seeded noise of the earlier sounds is unchanged. A 50 cc two-stroke: a nasal buzz at a higher pitch than the car engine, with a fast exhaust flutter.
+  scooter: [4, t => (Math.sign(sine(90, t)) * 0.35 + sine(180, t) * 0.5 + 0.3 * sine(270, t) + noise() * 0.12) * (0.75 + 0.25 * sine(45, t))],
 };
 const manifest = {};
 for (const [name, [seconds, sample]] of Object.entries(definitions)) {

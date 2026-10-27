@@ -1,6 +1,6 @@
 import type { V3 } from '../core/origin';
 import type { CharacterState, VehicleInput, VehicleState } from '../physics/protocol';
-import { CAR } from '../physics/constants';
+import { VEHICLES } from '../physics/constants';
 import { rotate } from '../vehicle/math';
 import { clamp, type AudioEvent } from './mix';
 
@@ -25,7 +25,8 @@ export class GameplayAudio {
     this.emit({ type: 'listener', position: frame.position, forward: frame.forward, up: frame.up, paused: frame.paused });
     if (frame.connected && !this.connected) this.emit({ type: 'gamepad-connected' });
     this.connected = frame.connected;
-    if (mode !== this.mode && v) {
+    // Car doors open and close on entry and exit; a scooter has none.
+    if (mode !== this.mode && v && v.kind !== 'scooter') {
       this.emit({ type: 'door', position: v.pos, open: true });
       this.doorPosition = { ...v.pos }; this.closeAt = frame.time + 0.3;
       this.previousFeet = null; this.distance = 0;
@@ -39,9 +40,11 @@ export class GameplayAudio {
       const sideSpeed = Math.abs(v.linvel.x * lateral.x + v.linvel.z * lateral.z);
       const contact = v.wheels.some(w => w.contact);
       const throttle = clamp(Math.abs(input?.throttle ?? 0) + (v.forwardSpeed < 0 ? input?.brake ?? 0 : 0));
-      // Vehicle v1 has no drivetrain RPM. A three-gear approximation provides an audible rev range.
-      const speed = Math.abs(v.forwardSpeed), gear = speed < 8 ? 1 : speed < 17 ? 2 : 3;
-      this.emit({ type: 'car', position: v.pos, rpm: 850 + speed / gear * 300 + throttle * 700,
+      // Vehicle v1 has no drivetrain RPM. A three-gear approximation provides an audible rev range;
+      // the scooter's continuously variable transmission holds high revs that climb with speed.
+      const kind = v.kind ?? 'car', speed = Math.abs(v.forwardSpeed), gear = speed < 8 ? 1 : speed < 17 ? 2 : 3;
+      const rpm = kind === 'scooter' ? 1800 + throttle * 4200 + speed * 160 : 850 + speed / gear * 300 + throttle * 700;
+      this.emit({ type: 'car', kind, position: v.pos, rpm,
         throttle, speed: contact ? v.speed : 0, slip: contact ? Math.max(sideSpeed / 5, input?.handbrake ? 0.9 : 0) : 0,
         running: mode === 'car' });
     }
@@ -61,7 +64,7 @@ export class GameplayAudio {
     } else { this.previousFeet = null; this.distance = 0; }
     if (v?.curbStrike && v.curbStrike.id !== this.curbId) {
       this.curbId = v.curbStrike.id;
-      this.emit({ type: 'curb', position: v.pos, impulse: v.curbStrike.speed * CAR.mass * v.curbStrike.loss });
+      this.emit({ type: 'curb', position: v.pos, impulse: v.curbStrike.speed * VEHICLES[v.kind ?? 'car'].mass * v.curbStrike.loss });
     }
     if (v?.impact && v.impact.id !== this.impactId) {
       this.impactId = v.impact.id;

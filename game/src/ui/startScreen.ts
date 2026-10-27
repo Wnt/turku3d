@@ -38,7 +38,7 @@ export class StartScreen implements MenuHost {
       <p class="start-touch">Touch: left thumb moves and drives · drag right to look · pinch to zoom · buttons bottom right</p>
       <p class="start-fullscreen" hidden></p>
       <p class="start-hint">Loading the world…</p>
-      <p class="start-credits">Map data, lidar and aerial imagery © City of Turku, CC BY 4.0 · Streets © OpenStreetMap contributors, ODbL</p>
+      <p class="start-credits">Map data, lidar and aerial imagery © City of Turku, CC BY 4.0 · Streets © OpenStreetMap contributors, ODbL · Scooter model by MiniPoly, CC BY 3.0</p>
     </div>`;
     const actions: [Action, string][] = [['moveY', 'Move / steer'], ['lookX', 'Look'], ['sprint', 'Sprint'],
       ['jump', 'Jump'], ['mission', 'Interact'], ['interact', 'Enter / exit car'], ['throttle', 'Accelerate'], ['brake', 'Brake / reverse'],

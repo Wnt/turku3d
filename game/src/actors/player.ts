@@ -23,6 +23,8 @@ export class PlayerVisual {
   private air: THREE.AnimationAction | null = null;
   private airWeight = 0;
   private stair: THREE.AnimationAction | null = null;
+  private seated: THREE.AnimationAction | null = null;
+  private hips: THREE.Object3D | null = null;
   private stairWeight = 0;
   private heading = 0;
   loaded = false;
@@ -56,6 +58,11 @@ export class PlayerVisual {
     }
     const stairClip = find('Walk_Formal_Loop');
     if (stairClip) { this.stair = this.mixer.clipAction(stairClip).play(); this.stair.setEffectiveWeight(0); }
+    const seated = find('Driving_Loop');
+    if (!seated) throw new Error('character clip Driving_Loop missing');
+    this.seated = this.mixer.clipAction(seated).play();
+    this.seated.setEffectiveWeight(0);
+    this.hips = model.getObjectByName('DEF-hips') ?? null;
     const jl = find('Jump_Loop');
     if (jl) { this.air = this.mixer.clipAction(jl); this.air.play(); this.air.setEffectiveWeight(0); }
     this.loaded = true;
@@ -76,6 +83,8 @@ export class PlayerVisual {
       this.heading += d * Math.min(1, dt * 12);
     }
     this.root.rotation.y = this.heading;
+    this.root.rotation.x = this.root.rotation.z = 0;
+    this.seated?.setEffectiveWeight(0);
     const stairs = grounded && material === MAT.stair_slope;
     this.locomotion = !grounded ? 'air' : stairs ? (vel.y > 0.05 ? 'stairUp' : vel.y < -0.05 ? 'stairDown' : 'stairIdle')
       : hs < 0.1 ? 'idle' : hs < 1.8 ? 'walk' : hs < 4.3 ? 'jog' : 'sprint';
@@ -103,5 +112,28 @@ export class PlayerVisual {
     this.air?.setEffectiveWeight(this.airWeight);
     this.mixer.update(dt);
     this.ik?.update(dt, grounded, stairs);
+  }
+
+  /** Seated on a two-wheeler: the UAL driving pose, hips placed on `seat` (its +Z faces forward). */
+  ride(dt: number, seat: THREE.Object3D) {
+    this.locomotion = 'ride';
+    this.positioned = false;
+    this.ik?.restore();
+    for (const action of this.loco) action.setEffectiveWeight(0);
+    this.stair?.setEffectiveWeight(0);
+    this.air?.setEffectiveWeight(0);
+    this.airWeight = this.stairWeight = 0;
+    this.seated?.setEffectiveWeight(1);
+    this.mixer?.update(dt);
+    seat.updateWorldMatrix(true, false);
+    seat.matrixWorld.decompose(this.root.position, this.root.quaternion, this.root.scale);
+    this.heading = Math.atan2(2 * (this.root.quaternion.w * this.root.quaternion.y + this.root.quaternion.x * this.root.quaternion.z),
+      1 - 2 * (this.root.quaternion.y ** 2 + this.root.quaternion.x ** 2));
+    if (!this.hips) return;
+    // Shift the root so the posed hips sit on the seat anchor.
+    this.root.updateMatrixWorld(true);
+    const hips = this.hips.getWorldPosition(new THREE.Vector3());
+    const anchor = new THREE.Vector3().setFromMatrixPosition(seat.matrixWorld);
+    this.root.position.add(anchor.sub(hips));
   }
 }

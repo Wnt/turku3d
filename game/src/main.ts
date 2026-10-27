@@ -24,6 +24,7 @@ import { PhysicsClient } from './physics/client';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
+import { ScooterVisual } from './actors/scooter';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { StartScreen } from './ui/startScreen';
@@ -33,10 +34,9 @@ import { RecoveryHud } from './ui/recovery';
 import { PauseMenu } from './ui/menu';
 import { SaveStore } from './core/save';
 import { SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
-import { MissionSystem, OWN_VEHICLE_ID, missionSummary } from './gameplay/missions/missions';
+import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, missionSummary } from './gameplay/missions/missions';
 import { INTRO_LINE_IDS, lineText } from './gameplay/content/dialogue';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
-import { BICYCLE_TOP_SPEED } from './gameplay/economy';
 import { createGameplay, compassDeg } from './gameplay';
 import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
@@ -260,10 +260,12 @@ async function runPlay() {
     unloadCollision: id => physics.unloadTile(id), style: m => materials?.apply(m), unstyle: m => materials?.release(m) });
   const player = new PlayerVisual(scene, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(scene);
+  const scooter = new ScooterVisual(scene);
   const parkedVisuals = new ParkedCarVisuals(scene);
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const carLoad = car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`);
+  const scooterLoad = scooter.load(`${import.meta.env.BASE_URL}assets/vehicles/scooter.glb`);
   const playerLoad = player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer);
 
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
@@ -300,10 +302,13 @@ async function runPlay() {
         mass: Math.round(1200 * parked.width * parked.length * parked.height / (1.85 * 4.55 * 1.48)),
         halfExt: { x: parked.length / 2 - 0.18, y: Math.min(0.55, parked.height * 0.32), z: parked.width / 2 - 0.05 } });
   }
-  await Promise.all([playerLoad, carLoad, parkedVisuals.load(manifest)]);
+  await Promise.all([playerLoad, carLoad, scooterLoad, parkedVisuals.load(manifest)]);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses } = await createGameplay(manifest, document.body);
   const missions = new MissionSystem({ router, addresses });
+  // The scooter exists once bought (a loaded game places it in gameplay/saveGame.ts).
+  const parkScooter = async (spot: V3 & { yaw: number }) => physics.spawnVehicle(
+    { x: spot.x, y: await groundAt(spot.x, spot.z) + 0.55, z: spot.z }, spot.yaw, { id: SCOOTER_ID, kind: 'scooter' });
   minimap.setSource(missions);
   voice.attach(missions);
   // Activation zones at every target the HUD lists; the shop menu opens from them and locks movement.
@@ -315,6 +320,7 @@ async function runPlay() {
   const mapDirection = new THREE.Vector3();
 
   let mode: 'foot' | 'car' = 'foot';
+  let owned = missions.vehicle;
   let drivenId: string | null = null;
   let paused = false;
   let lastRumble = 0;
@@ -358,7 +364,9 @@ async function runPlay() {
     const en = engineToEN(feet.x, feet.y, feet.z);
     const v = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
     return { mode, paused, locomotion: player.locomotion, contacts: player.contacts, visualFeet: player.root.position.toArray(), visualVehicle: car.root.position.toArray(), cameraYaw: orbit.yaw, inputSource: input.source, feet: feet.toArray(), vel: vel.toArray(), grounded, groundMaterial: groundMat, E: en.E, N: en.N, H: en.H,
-      vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : true } : null,
+      vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : v.id === SCOOTER_ID ? scooter.loaded : true } : null,
+      scooter: { visible: scooter.root.visible, lean: scooter.leanAngle, rider: player.root.visible && player.locomotion === 'ride',
+        riderPos: player.root.position.toArray(), seatPos: scooter.seat.getWorldPosition(new THREE.Vector3()).toArray() },
       vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
@@ -427,11 +435,12 @@ async function runPlay() {
         .sort((a, b) => a.distance - b.distance)[0] : null;
       if (mode === 'foot' && nearest && nearest.distance < 4 && missions.mayDrive(nearest.vehicle.id ?? OWN_VEHICLE_ID)) {
         drivenId = nearest.vehicle.id ?? 'player';
-        if (drivenId !== 'player') parkedVisuals.takeOver(drivenId);
+        if (drivenId !== 'player' && drivenId !== SCOOTER_ID) parkedVisuals.takeOver(drivenId);
         physics.driveVehicle(drivenId);
         mode = 'car';
         physics.setCharacterEnabled(false);
-        player.root.visible = false;
+        // A rider stays visible on the scooter; a driver disappears into the car.
+        player.root.visible = drivenId === SCOOTER_ID;
         orbit.distance = 8;
       } else if (mode === 'car' && vs) {
         leaveCar(driverSide(vs));
@@ -452,10 +461,8 @@ async function runPlay() {
       charIn = { vx: desiredVelocity.x, vz: desiredVelocity.y, jump: input.consume('jump') };
     } else {
       desiredVelocity.set(0, 0);
-      // The player's own car stands in for a bought bicycle: no throttle above bicycle speed.
-      const bicycle = drivenId === OWN_VEHICLE_ID && missions.vehicle === 'bicycle' && (vs?.speed ?? 0) > BICYCLE_TOP_SPEED;
       carIn = menuOpen ? { throttle: 0, steer: 0, brake: 0, handbrake: true }
-        : { throttle: bicycle ? 0 : input.actions.throttle, steer: input.actions.steer,
+        : { throttle: input.actions.throttle, steer: input.actions.steer,
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
@@ -465,10 +472,16 @@ async function runPlay() {
     if (mission.checkpoint) saveGame.autosave.save(mission.checkpoint);
     shopMenu.render(missions.shop, input);
     zones.setHidden(missions.shop !== null);
-    if (mission.bought && drivenId !== OWN_VEHICLE_ID) {
-      // A bought vehicle waits at the dealer's kerb: move the player's own car there.
+    // A bought vehicle waits at the dealer's kerb: the scooter appears there, or the player's own car moves there.
+    // A game being loaded places its own vehicle (gameplay/saveGame.ts).
+    if (saveGame.loading) owned = missions.vehicle;
+    else if (missions.vehicle !== owned) {
+      owned = missions.vehicle;
       const spot = DEALER_VEHICLE_SPOT;
-      void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
+      if (owned === 'scooter' && drivenId !== SCOOTER_ID) void parkScooter({ ...spot, y: 0 });
+      if (owned === 'car' && drivenId !== OWN_VEHICLE_ID) {
+        void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + 0.75, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
+      }
     }
     if (!paused) physics.step(dt, charIn, carIn);
 
@@ -496,7 +509,12 @@ async function runPlay() {
     if (!paused && !startScreen.active && !menuOpen) {
       recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y }, resetNow);
     }
-    if (renderVehicle && (drivenId === null || drivenId === 'player')) car.update(renderVehicle);
+    // renderVehicle interpolates the driven vehicle (the start car while on foot); the others follow the latest step.
+    const latestOf = (id: string) => (drivenId ?? 'player') === id ? renderVehicle : st?.vehicles.find(v => v.id === id) ?? null;
+    const carState = latestOf('player'), scooterState = latestOf(SCOOTER_ID);
+    if (carState) car.update(carState);
+    if (scooterState) scooter.update(dt, scooterState);
+    if (mode === 'car' && drivenId === SCOOTER_ID && scooterState) player.ride(dt, scooter.seat);
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
@@ -505,7 +523,7 @@ async function runPlay() {
     }
 
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
-    const chaseVehicle = drivenId && drivenId !== 'player'
+    const chaseVehicle = drivenId && drivenId !== 'player' && drivenId !== SCOOTER_ID
       ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
     if (mode === 'car' && chaseVehicle && !paused) {
       chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
@@ -562,7 +580,7 @@ async function runPlay() {
     help.textContent = paused ? `${input.prompt('pause')} Resume`
       : recovery.lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : mode === 'foot'
-      ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter car · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
+      ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter vehicle · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`;
     perf.end();
   });

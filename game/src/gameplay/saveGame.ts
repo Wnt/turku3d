@@ -11,7 +11,8 @@ import { SaveMenuFlow, type GameHooks } from '../ui/menu';
 import type { StartScreen } from '../ui/startScreen';
 import type { CollisionStreamer } from '../world/collisionStreaming';
 import type { Manifest } from '../world/manifest';
-import { OWN_VEHICLE_ID, type MissionSystem } from './missions/missions';
+import { OWN_VEHICLE_ID, SCOOTER_ID, ownedVehicleId, type MissionSystem } from './missions/missions';
+import type { VehicleKind } from '../physics/constants';
 import type { SafeReset } from './safeReset';
 
 type Quat = { x: number; y: number; z: number; w: number };
@@ -24,9 +25,9 @@ export function yawOf(rot: Quat) {
   return Math.atan2(-axis.z, axis.x);
 }
 
-/** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame). */
-export function driverSide(car: { pos: V3; rot: Quat }): V3 {
-  axis.set(0, 0, -(1.0 + 0.9)).applyQuaternion(quat.set(car.rot.x, car.rot.y, car.rot.z, car.rot.w));
+/** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame), beside a scooter. */
+export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 {
+  axis.set(0, 0, car.kind === 'scooter' ? -0.9 : -(1.0 + 0.9)).applyQuaternion(quat.set(car.rot.x, car.rot.y, car.rot.z, car.rot.w));
   return { x: car.pos.x + axis.x, y: car.pos.y + 0.2, z: car.pos.z + axis.z };
 }
 
@@ -86,7 +87,9 @@ export class SaveGameController {
     const driven = view.mode === 'car' ? physics.latest?.vehicles.find(v => v.id === view.drivenId) : undefined;
     const at = driven ? driverSide(driven) : view.feet;
     const p = engineToEN(at.x, at.y, at.z);
-    const own = physics.latest?.vehicles.find(v => v.id === OWN_VEHICLE_ID);
+    // The owned vehicle (the scooter or the start car), else the start car where it was left.
+    const ownId = ownedVehicleId(missions.vehicle) ?? OWN_VEHICLE_ID;
+    const own = physics.latest?.vehicles.find(v => v.id === ownId);
     const c = own ? engineToEN(own.pos.x, own.pos.y, own.pos.z) : null;
     const clock = this.o.clock();
     return { version: 1, savedAt: Date.now(), label: formatLabel(missions.lastAddress, clock), mission: missions.serialize(),
@@ -136,10 +139,17 @@ export class SaveGameController {
     missions.restore(game?.mission ?? null);
     this.o.setClock(game?.clock ? new Date(game.clock.timeOfDay) : this.o.defaultTime);
     this.o.clockControl.set(this.o.clock());
-    const savedCar = game?.vehicle?.owned ? game.vehicle : null;
-    const car = savedCar ? { ...enToEngine(savedCar.E, savedCar.N, savedCar.H), yaw: savedCar.yaw } : this.o.car;
-    const carY = savedCar ? await this.snap(car) : (await this.settle(car.x, car.z), car.y);
+    const saved = game?.vehicle?.owned ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
+    const scooter = missions.vehicle === 'scooter';
+    const car = saved && !scooter ? saved : this.o.car;
+    const carY = saved && !scooter ? await this.snap(car) : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + 0.75, z: car.z }, car.yaw, OWN_VEHICLE_ID);
+    if (scooter) {
+      // The saved scooter, or (a save from before the scooter) at the kerb 5.5 m behind the start car.
+      const at = saved ?? { x: car.x - 5.5 * Math.cos(car.yaw), y: car.y, z: car.z + 5.5 * Math.sin(car.yaw), yaw: car.yaw };
+      const y = await this.snap(at);
+      physics.spawnVehicle({ x: at.x, y: y + 0.55, z: at.z }, at.yaw, { id: SCOOTER_ID, kind: 'scooter' });
+    }
     const at = game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn;
     const y = game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y);
     physics.setCharacterEnabled(true, { x: at.x, y: y + 0.05, z: at.z });

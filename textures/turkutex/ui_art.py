@@ -90,7 +90,9 @@ ART: tuple[Art, ...] = (
     ),
     Art("icon_slice", "icon", "A single slice of pizza with melted cheese and pepperoni."),
     Art(
-        "icon_bicycle", "icon", "A sturdy second-hand city bicycle with a front basket, side view."
+        "icon_scooter",
+        "icon",
+        "A small second-hand moped scooter with a red pizza delivery box on the rear rack, side view.",
     ),
     Art("icon_car", "icon", "A small dented second-hand hatchback car, three-quarter front view."),
     Art(
