@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { GameAudio } from '../../src/audio';
 import { GameplayAudio } from '../../src/audio/gameplay';
-import { ambience, carMix, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
+import { ENGINE_SOUND, ambience, carMix, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
 import { MAT } from '../../src/shared/col/materials';
 
 class Param {
@@ -60,6 +60,11 @@ test('river fades with distance, engine follows RPM/throttle, rolling and slip a
   expect(idle.roll).toBe(0); expect(idle.screech).toBe(0); expect(fast.screech).toBeGreaterThan(0);
   expect(carMix(900, 0, 0, 1, false).engine).toBe(0);
   expect(Object.values(carMix(NaN, Infinity, NaN, Infinity, true)).every(Number.isFinite)).toBe(true);
+  // The scooter buzzes higher than the car at the same estimated rpm and rolls more quietly.
+  const scooter = carMix(3000, 0.5, 10, 0, true, 'scooter'), car = carMix(3000, 0.5, 10, 0, true, 'car');
+  expect(scooter.rate).toBeGreaterThan(carMix(1500, 0.5, 10, 0, true, 'car').rate);
+  expect(scooter.roll).toBeLessThan(car.roll);
+  expect(ENGINE_SOUND).toEqual({ car: 'engine', scooter: 'scooter' });
 });
 
 test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded voices and teardown', async () => {
@@ -71,8 +76,9 @@ test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded v
   expect(created).toBe(1); expect(audio.snapshot().loaded).toBe(SOUNDS.length);
   expect(audio.snapshot().loops).toBe(5); expect(audio.snapshot().played.connect).toBe(1);
   expect(ctx.nodes[0].connections[0].connections).toContain(ctx.destination);
-  audio.emit({ type: 'car', position, rpm: 3000, throttle: 1, speed: 12, slip: 0.7, running: true });
-  expect(audio.snapshot().loops).toBe(8);
+  audio.emit({ type: 'car', kind: 'car', position, rpm: 3000, throttle: 1, speed: 12, slip: 0.7, running: true });
+  // Both engine loops exist; only the driven class's one is audible.
+  expect(audio.snapshot().loops).toBe(9);
   audio.emit({ ...listener, position: { x: 1, y: 2, z: 3 } });
   expect(ctx.listener.positionX.value).toBe(1); expect(ctx.listener.forwardZ.value).toBe(-1);
   audio.emit({ type: 'volume', channel: 'master', value: 0.4 });
@@ -122,4 +128,20 @@ test('gameplay emits by travelled distance, suppresses duplicate ticks/airborne/
   frame.paused = false; frame.mode = 'car'; adapter.update(frame);
   frame.time += 0.4; adapter.update(frame);
   expect(events.filter(e => e.type === 'door').map(e => e.type === 'door' && e.open)).toEqual([true, false]);
+});
+
+test('gameplay: the scooter has no doors and revs its own engine loop higher than the car', () => {
+  const events: AudioEvent[] = [], adapter = new GameplayAudio(e => events.push(e));
+  const vehicle = (kind: 'car' | 'scooter') => ({ kind, pos: position, rot: { x: 0, y: 0, z: 0, w: 1 }, linvel: { x: 6, y: 0, z: 0 },
+    speed: 6, forwardSpeed: 6, wheels: [], curbStrike: null, impact: null });
+  const frame = (kind: 'car' | 'scooter', tick: number, mode: 'foot' | 'car') => ({ tick, time: tick, paused: false, mode, connected: false,
+    character: null, vehicle: vehicle(kind), input: { throttle: 0.5, brake: 0, steer: 0, handbrake: false },
+    position, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
+  adapter.update(frame('scooter', 1, 'car')); adapter.update(frame('scooter', 2, 'foot'));
+  expect(events.some(e => e.type === 'door')).toBe(false);
+  const engines = events.filter(e => e.type === 'car');
+  expect(engines.every(e => e.type === 'car' && e.kind === 'scooter')).toBe(true);
+  adapter.update(frame('car', 3, 'car'));
+  const [scooterRpm, carRpm] = [engines[0], events.filter(e => e.type === 'car').at(-1)].map(e => e?.type === 'car' ? e.rpm : 0);
+  expect(scooterRpm).toBeGreaterThan(carRpm);
 });

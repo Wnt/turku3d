@@ -1,5 +1,5 @@
 import type { V3 } from '../core/origin';
-import { SOUNDS, ambience, carMix, clamp, duckGain, oneShot, type AudioEvent, type Channel, type Sound } from './mix';
+import { ENGINE_SOUND, SOUNDS, ambience, carMix, clamp, duckGain, oneShot, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
 
 type Voice = { source: AudioBufferSourceNode; gain: GainNode; panner?: PannerNode };
@@ -158,8 +158,10 @@ export class GameAudio {
       this.loop('gulls', 'ambience', mix.gulls, { ...mix.river, y: 16 });
     }
     if (this.car) {
-      const c = this.car, mix = carMix(c.rpm, c.throttle, c.speed, c.slip, c.running);
-      this.loop('engine', 'vehicle', mix.engine, c.position, mix.rate);
+      const c = this.car, mix = carMix(c.rpm, c.throttle, c.speed, c.slip, c.running, c.kind);
+      for (const sound of Object.values(ENGINE_SOUND)) {
+        this.loop(sound, 'vehicle', sound === ENGINE_SOUND[c.kind] ? mix.engine : 0, c.position, mix.rate);
+      }
       this.loop('roll', 'vehicle', mix.roll, c.position);
       this.loop('screech', 'vehicle', mix.screech, c.position);
     }

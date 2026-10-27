@@ -313,21 +313,21 @@
    "id": "dealer_greet",
    "speaker": "dealer",
    "file": "dealer_greet.ogg",
-   "seconds": 2.434,
-   "text": "Wheels! Bicycles, cars, everything runs. Mostly.",
-   "textSha256": "37416e8f8aed9507ae92180bafa3b814c0d87df0e58e05f3c666c4bc9ecac314",
-   "key": "3f2718fc2babfca19279364e874831810703a9bcaae47758485a2d7fafb411c8",
-   "fileSha256": "e1e80504971a5745c3f442caa15b666f63bfbdc755d91eba17366278aa83551c"
+   "seconds": 2.308,
+   "text": "Wheels! Scooters, cars, everything runs. Mostly.",
+   "textSha256": "38989e647b54125c2040e2f204a148b790759202fc6e21abf48ef19dd3a4f917",
+   "key": "b6ab340f8611ee8ab5298adf38f7735d8050432dcb7ca13242efaf8d5183dfa9",
+   "fileSha256": "112dff51c02dd45bb3f67c1800b3dca37ae2ff4b68a14445f41557ac341ee68b"
   },
   {
-   "id": "dealer_sold_bicycle",
+   "id": "dealer_sold_scooter",
    "speaker": "dealer",
-   "file": "dealer_sold_bicycle.ogg",
-   "seconds": 3.3,
-   "text": "One bicycle, barely ridden. It's waiting for you right by the kerb.",
-   "textSha256": "8e108a2a59fbf0426ea0850463c9987b5540a017e94c14a5aafce3e53cce832b",
-   "key": "241c50aa9b2db8682725064440df99085425d4eedb18ddab05b19ea8dcf36d6b",
-   "fileSha256": "cffe9e2a7f622189e76535bde17276a8d469ffbc84eec9c9b94ffed8426b57e4"
+   "file": "dealer_sold_scooter.ogg",
+   "seconds": 3.132,
+   "text": "One scooter, barely ridden. It's waiting for you right by the kerb.",
+   "textSha256": "350192172ab024881ba52ee232a8b67184d869fedb8db45d4720153d6d113b62",
+   "key": "6e1f0dfce6621707e0decdfdc218397fc7cada225fbc0b077dc3f85f86890c5d",
+   "fileSha256": "d613b55cc54e5d8300029ac8439c6c12193dee394bd66392e9a4ffc2336183df"
   },
   {
    "id": "dealer_sold_car",

@@ -1,8 +1,9 @@
 import type { V3 } from '../core/origin';
+import type { VehicleKind } from '../physics/constants';
 import { MATERIALS } from '../shared/col/materials';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
-  'engine', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
+  'engine', 'scooter', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
   'city', 'river', 'gulls', 'traffic', 'wind', 'connect'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
@@ -35,10 +36,15 @@ export function ambience(position: V3) {
     city: 0.16 - near * 0.07, traffic: 0.12 - near * 0.04, wind: 0.06 + near * 0.04 };
 }
 
-export function carMix(rpm: number, throttle: number, speed: number, slip: number, running: boolean) {
-  return { rate: 0.65 + clamp(rpm / 6000) * 2,
-    engine: running ? 0.12 + clamp(throttle) * 0.23 : 0,
-    roll: clamp(Math.abs(speed) / 24) * 0.22,
+/** Engine loop per vehicle class: the car's low four-stroke rumble or the scooter's buzzing single cylinder. */
+export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter' } as const satisfies Record<VehicleKind, Sound>;
+
+export function carMix(rpm: number, throttle: number, speed: number, slip: number, running: boolean, kind: VehicleKind = 'car') {
+  // The scooter's small engine idles and revs higher; its tyres are quieter.
+  const scooter = kind === 'scooter';
+  return { rate: scooter ? 0.8 + clamp(rpm / 9000) * 1.6 : 0.65 + clamp(rpm / 6000) * 2,
+    engine: running ? (scooter ? 0.1 + clamp(throttle) * 0.2 : 0.12 + clamp(throttle) * 0.23) : 0,
+    roll: clamp(Math.abs(speed) / 24) * (scooter ? 0.12 : 0.22),
     screech: clamp((Math.abs(slip) - 0.15) / 0.65) * clamp(Math.abs(speed) / 5) * 0.3 };
 }
 
@@ -50,7 +56,7 @@ export type AudioEvent =
   | { type: 'mute' }
   | { type: 'volume'; channel: Channel; value: number }
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
-  | { type: 'car'; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean };
+  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean };
 
 export function oneShot(event: AudioEvent): { sound: Sound; channel: Channel; gain: number; position?: V3 } | null {
   switch (event.type) {

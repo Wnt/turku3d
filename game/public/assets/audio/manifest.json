@@ -124,5 +124,12 @@
     "seconds": 0.2,
     "sha256": "2f85aa2656d74c52310a0e98529ad7519db76d14e1620fd54f1b845b396b15c2",
     "license": "CC0-1.0"
+  },
+  "scooter.ogg": {
+    "bytes": 23639,
+    "channels": 1,
+    "seconds": 3.9,
+    "sha256": "78b4d80f58749839355d54643c72659ab284d03bf8d7c6dc2c1a9e26c0cf4aea",
+    "license": "CC0-1.0"
   }
 }

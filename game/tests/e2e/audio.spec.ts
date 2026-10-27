@@ -10,7 +10,7 @@ test('audio unlocks, decodes the CC0 bank and builds spatial graph without error
   await page.getByRole('option', { name: 'New game' }).click();
   await page.keyboard.press('KeyN');
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot()), { timeout: 30_000 })
-    .toMatchObject({ state: 'running', loaded: 18, loops: 8, errors: [] });
+    .toMatchObject({ state: 'running', loaded: 19, loops: 9, errors: [] });
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot().muted)).toBe(true);
   await page.keyboard.press('KeyN');
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot().muted)).toBe(false);

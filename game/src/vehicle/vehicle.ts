@@ -4,7 +4,7 @@ export type RapierModule = typeof Rapier;
 type RapierApi = Pick<RapierModule, 'RigidBodyDesc' | 'ColliderDesc' | 'QueryFilterFlags' | 'Ray'>;
 import type { V3 } from '../core/origin.ts';
 import type { VehicleInput, VehicleState } from '../physics/protocol.ts';
-import { CAR } from '../physics/constants.ts';
+import { VEHICLES, type VehicleKind, type VehicleTuning } from '../physics/constants.ts';
 import { GROUP } from '../shared/col/materials.ts';
 import { curbResponse, isCurbMaterial } from './curbStrike.ts';
 import { handling } from './handling.ts';
@@ -16,6 +16,8 @@ const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
 export class Vehicle {
   readonly body: Rapier.RigidBody;
   readonly controller: Rapier.DynamicRayCastVehicleController;
+  readonly kind: VehicleKind;
+  readonly tuning: VehicleTuning;
   private contacts = new Map<string, V3>();
   private strikeId = 0;
   private lastStrike: VehicleState['curbStrike'] = null;
@@ -29,28 +31,37 @@ export class Vehicle {
   private surfaces: WheelQueries;
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
-    tuning: { mass?: number; halfExt?: V3; parked?: boolean } = {}) {
+    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean } = {}) {
     this.R = R; this.world = world; this.surfaces = surfaces;
+    this.kind = spec.kind ?? 'car';
+    const t = this.tuning = VEHICLES[this.kind];
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
       .setCanSleep(true).setCcdEnabled(true).setAngularDamping(1.2));
-    const h = tuning.halfExt ?? CAR.halfExt;
-    world.createCollider(R.ColliderDesc.cuboid(h.x, h.y, h.z).setMass(tuning.mass ?? CAR.mass).setFriction(0.5)
+    const h = spec.halfExt ?? t.halfExt, mass = spec.mass ?? t.mass;
+    const chassis = R.ColliderDesc.cuboid(h.x, h.y, h.z).setFriction(0.5);
+    // A lowered centre of mass keeps the narrow outrigger layout upright; inertia stays the box's own.
+    if (t.comDrop) {
+      chassis.setMassProperties(mass, { x: 0, y: -t.comDrop, z: 0 }, {
+        x: mass * (h.y * h.y + h.z * h.z) / 3, y: mass * (h.x * h.x + h.z * h.z) / 3, z: mass * (h.x * h.x + h.y * h.y) / 3,
+      }, { x: 0, y: 0, z: 0, w: 1 });
+    } else chassis.setMass(mass);
+    world.createCollider(chassis
       .setCollisionGroups((GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00), this.body);
     const v = this.controller = world.createVehicleController(this.body);
     v.indexUpAxis = 1;
     // Rapier exposes this setter under the name setIndexForwardAxis.
     v.setIndexForwardAxis = 0;
-    for (const w of CAR.wheels) v.addWheel(w, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, CAR.rest, CAR.wheelRadius);
-    for (let i = 0; i < 4; i++) {
-      v.setWheelSuspensionStiffness(i, 38);
+    for (const w of t.wheels) v.addWheel(w, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, t.rest, t.wheelRadius);
+    for (let i = 0; i < t.wheels.length; i++) {
+      v.setWheelSuspensionStiffness(i, t.suspensionStiffness);
       v.setWheelSuspensionCompression(i, 4.8);
       v.setWheelSuspensionRelaxation(i, 5.5);
       v.setWheelMaxSuspensionTravel(i, 0.22);
-      v.setWheelMaxSuspensionForce(i, 18000);
+      v.setWheelMaxSuspensionForce(i, t.maxSuspensionForce);
       v.setWheelSideFrictionStiffness(i, 1.1);
     }
-    if (tuning.parked) this.body.sleep();
+    if (spec.parked) this.body.sleep();
   }
 
   reset(pos: V3, yaw: number) {
@@ -66,13 +77,14 @@ export class Vehicle {
     const v = this.controller, b = this.body;
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
     const speed = lv.x * f.x + lv.y * f.y + lv.z * f.z;
-    const h = handling(input, speed);
-    this.steering += Math.max(-dt * 2.5, Math.min(dt * 2.5, h.steer - this.steering));
-    for (let i = 0; i < 4; i++) {
-      v.setWheelSteering(i, i < 2 ? this.steering : 0);
-      v.setWheelEngineForce(i, i < 2 ? 0 : h.engine);
-      v.setWheelBrake(i, h.brake + (i >= 2 && h.handbrake ? CAR.brakeForce : 0));
-      v.setWheelFrictionSlip(i, i < 2 ? h.frontGrip : h.rearGrip);
+    const t = this.tuning, h = handling(input, speed, t);
+    this.steering += Math.max(-dt * t.steerRate, Math.min(dt * t.steerRate, h.steer - this.steering));
+    for (let i = 0; i < t.wheels.length; i++) {
+      const steered = t.steered.includes(i), driven = t.driven.includes(i);
+      v.setWheelSteering(i, steered ? this.steering : 0);
+      v.setWheelEngineForce(i, driven ? h.engine : 0);
+      v.setWheelBrake(i, h.brake + (driven && h.handbrake ? t.brakeForce : 0));
+      v.setWheelFrictionSlip(i, steered ? h.frontGrip : h.rearGrip);
     }
     v.updateVehicle(dt, this.R.QueryFilterFlags.EXCLUDE_SENSORS, group);
     // Quadratic aerodynamic drag gives a soft 25 m/s terminal speed, including downhill coasting.
@@ -93,11 +105,12 @@ export class Vehicle {
     for (const [key, old] of this.contacts) {
       if (Math.hypot(p.x - old.x, p.z - old.z) > 0.9) this.contacts.delete(key);
     }
-    for (let i = 0; i < 4; i++) {
-      const wheel = CAR.wheels[i];
-      const offset = rotate({ x: wheel.x, y: wheel.y - (this.controller.wheelSuspensionLength(i) ?? CAR.rest), z: wheel.z }, q);
+    const t = this.tuning;
+    for (let i = 0; i < t.wheels.length; i++) {
+      const wheel = t.wheels[i];
+      const offset = rotate({ x: wheel.x, y: wheel.y - (this.controller.wheelSuspensionLength(i) ?? t.rest), z: wheel.z }, q);
       const center = { x: p.x + offset.x, y: p.y + offset.y + 0.015, z: p.z + offset.z };
-      const hit = this.surfaces.castWheel(center, dir, distance);
+      const hit = this.surfaces.castWheel(center, dir, distance, t.wheelRadius);
       if (!hit || !isCurbMaterial(hit.material)) continue;
       // Measure the lower road beside the face: suspension compression and chassis roll must
       // not inflate the step height, particularly for the rear axle after the front jolt.
@@ -145,11 +158,11 @@ export class Vehicle {
   state(): VehicleState {
     const b = this.body, v = this.controller, lv = b.linvel();
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
-    return { pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
+    return { kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
       curbStrike: this.lastStrike, impact: this.impact,
-      wheels: CAR.wheels.map((cp, i) => {
-        const suspension = v.wheelSuspensionLength(i) ?? CAR.rest;
+      wheels: this.tuning.wheels.map((cp, i) => {
+        const suspension = v.wheelSuspensionLength(i) ?? this.tuning.rest;
         return { pos: { x: cp.x, y: cp.y - suspension, z: cp.z }, steer: v.wheelSteering(i) ?? 0,
           rotation: v.wheelRotation(i) ?? 0, contact: v.wheelIsInContact(i), suspension };
       }) };

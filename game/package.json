@@ -17,6 +17,7 @@
     "prepare-character": "node scripts/prepare-character.mjs",
     "test:vehicle-node": "node --test tests/headless/vehicle.test.ts",
     "prepare-car": "node scripts/prepare-car.mjs",
+    "prepare-scooter": "node scripts/prepare-scooter.mjs",
     "render-fixture": "node scripts/make-render-fixture.mjs",
     "render-qa": "node scripts/render-qa-views.mjs",
     "prepare-audio": "node scripts/prepare-audio.mjs",

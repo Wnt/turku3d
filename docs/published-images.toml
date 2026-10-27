@@ -251,8 +251,8 @@ licence = "Project-owned (MIT repository)"
 reason = "Shop menu background"
 
 [[images]]
-path = "game/public/assets/ui/icon_bicycle.webp"
-source = "Codex image runner (gpt-6-astra), see game/src/ui/README.md"
+path = "game/public/assets/ui/icon_scooter.webp"
+source = "Hand-drawn SVG textures/ui-art/icon_scooter.svg (interim until the ui_art Codex job runs), see game/src/ui/README.md"
 licence = "Project-owned (MIT repository)"
 reason = "Shop menu icon"
 

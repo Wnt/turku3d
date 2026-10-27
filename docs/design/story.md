@@ -18,7 +18,7 @@ The player starts with a little money. A traditional pizzeria on Linnankatu need
 platform requires a courier permit first. The only permits left are rented out, ten deliveries at a
 time, on the black market by people who joined the platform economy at the right time. Renewing the
 permit is where the money goes. Fast deliveries earn tips. The same market buys organs and sells
-forged plates. A bicycle or a car can be bought from a dealer at the river end of Kristiinankatu,
+forged plates. A scooter or a car can be bought from a dealer at the river end of Kristiinankatu,
 where it meets Läntinen Rantakatu.
 
 The start screen shows the intro (lines `intro_1`, `intro_2`, `intro_3`) the first time, that is,
@@ -62,12 +62,12 @@ euros. A unit test checks that dialogue lines quoting a price or pay match these
 | Sell your kidney | +400 €, once; run and sprint speed drop 15 % for good |
 | Permit expiry warning (bought back) | 10 €, once: after a hand-over the HUD warns at 2, 1 and 0 deliveries left |
 | Slice for yourself | 4 €: full run speed for 120 s (game time) after the kidney sale; no effect otherwise |
-| Bicycle | 60 € |
+| Scooter | 60 € |
 | Car | 350 € |
 | Vehicle sold back | half the price, rounded down: 30 € / 175 € |
 | Base pay per delivery | 6 € |
 | Tip | 0–8 €: 8 € up to 70 % of the par time, falling linearly to 0 € at 130 %, rounded to whole euros |
-| Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 5 m/s bicycle, 9 m/s car |
+| Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 7 m/s scooter, 9 m/s car |
 | Delivery deadline | 2 × par time; after that the customer cancels (no pay) |
 
 The route distance is the `Router` path length from the pizzeria to the drop-off. If the router has
@@ -85,13 +85,18 @@ short of the permit and no income would be possible). The player owns at most on
 another needs the current one sold back first.
 
 Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so on foot
-the permit eats most of the margin and a bicycle takes some twenty deliveries. The kidney (+400 €) is
+the permit eats most of the margin and a scooter takes some twenty deliveries. The kidney (+400 €) is
 the shortcut to a car, and the 15 % run penalty is what it costs for the rest of the game; the slice
 is a cheap way to hide that for two minutes.
 
-**Bicycle stand-in.** There is no bicycle model in this slice. A bought bicycle is the player's
-existing car (`player` vehicle) with its throttle cut above 6 m/s (`BICYCLE_TOP_SPEED`). Buying
-either vehicle moves that car to the dealer's kerb. A bicycle model and handling are follow-ups.
+**Scooter.** The 60 € vehicle is a 50 cc scooter with a red pizza case on the rack (physics vehicle
+`scooter`, tuning `SCOOTER` in `game/src/physics/constants.ts`): 45 km/h top speed, about 2.8 s to
+30 km/h, a tighter turning circle than the car, curbs felt like the car's. It exists once bought: the
+purchase parks it at the dealer's kerb (`DEALER_VEHICLE_SPOT`). A save slot stores where it was left
+(`gameplay/saveGame.ts`); a save from before the scooter parks it 5.5 m behind the start car. The rider stays visible on it. Buying the car moves the player's start car
+(`player`) to the same kerb instead. Owning the scooter makes it, not the start car, the player's own
+vehicle for deliveries. Saves that owned the former bicycle (the speed-capped car) load as owning
+the scooter.
 
 ## Deliveries
 
@@ -132,7 +137,7 @@ four repeat.
   6 € plus its tip, the first against the first leg's par, the second against the whole par; the
   second also pays the double bonus of 4 € (`paid_double_bonus`) unless it earns no tip. Missing
   the deadline cancels what is left. A double uses one permit delivery.
-- **Par.** The published walking distance on foot, the driving distance with a bicycle or a car
+- **Par.** The published walking distance on foot, the driving distance with a scooter or a car
   (the walking one when no car route exists), at the vehicle's par speed; tip bands as above.
 
 The pizzeria quotes the address (both, joined with `+`, for a double), route metres and par. On
@@ -220,7 +225,7 @@ selecting one the player cannot afford makes the shopkeeper refuse (`*_no_money`
 |---|---|---|
 | Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Leave |
 | Pizzeria Linnanportti | `pizzeria_first`, `pizzeria_back`, `pizzeria_after_fail`, `pizzeria_no_permit`, `pizzeria_carrying` or `pizzeria_greet` | Take the next delivery order (shows address, route metres and par time; ends the visit), A slice for yourself (4 €), Ask about the tip rules (free, `pizzeria_tip_rules`), Leave |
-| Rantakadun Kulkine (dealer) | `dealer_greet`; `dealer_no_permit` before the first permit, with every option greyed | Bicycle (60 €), Car (350 €) (both end the visit; the vehicle waits at the kerb), Sell your vehicle back (+half), Leave |
+| Rantakadun Kulkine (dealer) | `dealer_greet`; `dealer_no_permit` before the first permit, with every option greyed | Scooter (60 €), Car (350 €) (both end the visit; the vehicle waits at the kerb), Sell your vehicle back (+half), Leave |
 
 The drop-off has no menu: the button hands over the pizza, the customer's line and the pay line
 play, and the zone disappears until the next order.
@@ -234,8 +239,7 @@ so the voice player can match the clip. Rules: `~/turku3d/briefs/dialogue-contra
 
 ## Out of scope for this slice
 
-- Save-game UI, NPC characters or models at the locations, new vehicle or bicycle models.
+- NPC characters or models at the locations, a bicycle.
 - A HUD permit counter outside the menus (the bought-back warning is the in-world reminder).
-- Bicycle handling (the car with a speed cap stands in).
 - Police, wanted level, theft consequences, or penalties for driving others' cars outside deliveries.
 - More pizzerias, random orders, order choice, multiple concurrent orders or a day/night schedule.

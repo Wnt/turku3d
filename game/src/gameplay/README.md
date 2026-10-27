@@ -26,9 +26,10 @@ Story, locations, economy and the state machine are specified in
 
 `main.ts` constructs the system with the street router (below) and the address pool, calls
 `missions.update(dt, { position, interact, input, vehicleId, choose, leave })` every frame (dt 0
-while paused or on the start screen), asks `missions.mayDrive(id)` before entering a vehicle, caps
-the player's car at bicycle speed when the bicycle is owned, scales run and sprint speed by
-`missions.runFactor` (the kidney), and moves the player's car to the dealer kerb after a purchase.
+while paused or on the start screen), asks `missions.mayDrive(id)` before entering a vehicle, scales
+run and sprint speed by `missions.runFactor` (the kidney), and parks a bought vehicle at the dealer kerb
+when `missions.vehicle` changes: the scooter (physics id `SCOOTER_ID`, spawned then) or the player's car
+(`OWN_VEHICLE_ID`). `ownedVehicleId(missions.vehicle)` is the physics id deliveries accept.
 The interaction button is the `mission` input action (Xbox A / keyboard E / touch Use); targets act within 3 m.
 At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
 and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,
