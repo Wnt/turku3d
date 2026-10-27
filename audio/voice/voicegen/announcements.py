@@ -48,7 +48,7 @@ SCRIPTED = {
 }
 
 
-def extra_lines(repo):
+def extra_lines(repo, addresses=None):
     phrases = json.loads((repo / "game/src/gameplay/content/phrases.json").read_text())
     for kind, pool in phrases.items():
         if kind not in SPEAKERS or len(pool) != 12 or len(set(pool)) != 12:
@@ -59,10 +59,20 @@ def extra_lines(repo):
         for i, text in enumerate(pool)
     ]
     lines.append(Line("address_then", "pizzeria", "Then"))
+    if addresses is None:
+        addresses = json.loads((repo / "audio/voice/addresses.json").read_text())
+    lines.extend(
+        Line(f"address_{id.replace('-', '_')}", "pizzeria", address)
+        for id, address in sorted(addresses.items())
+    )
+    return lines
+
+
+def published_addresses():
+    """Collect the current build inputs; committed checks never call this reader."""
     data = Path(os.environ.get("TURKU3D_DATA", Path.home() / "turku3d/data"))
     work = Path(os.environ.get("TURKU3D_WORK", data))
     addresses = dict(SCRIPTED)
-    found_pool = False
     for root in (data, work):
         tiles = root / "dist/tiles"
         manifest = tiles / "manifest.json"
@@ -70,18 +80,6 @@ def extra_lines(repo):
             continue
         entry = json.loads(manifest.read_text()).get("addresses")
         if entry:
-            found_pool = True
             for row in json.loads((tiles / entry["url"]).read_text())["addresses"]:
                 addresses[row["id"]] = row["address"]
-    if not found_pool:
-        # Source-less CI checks keep the committed pool as their inventory; a tile build replaces it.
-        committed = repo / "game/public/assets/voice/manifest.json"
-        if committed.exists():
-            for row in json.loads(committed.read_text())["lines"]:
-                if row["id"].startswith("address_") and row["id"] != "address_then":
-                    addresses[row["id"][len("address_") :].replace("_", "-")] = row["text"]
-    lines.extend(
-        Line(f"address_{id.replace('-', '_')}", "pizzeria", address)
-        for id, address in sorted(addresses.items())
-    )
-    return lines
+    return dict(sorted(addresses.items()))

@@ -4,7 +4,7 @@ import shutil
 
 import numpy as np
 import pytest
-from voicegen.announcements import extra_lines
+from voicegen.announcements import extra_lines, published_addresses
 from voicegen.build import build, check, text_sha256
 from voicegen.content import load_voices, voiced_lines
 from voicegen.loudness import integrated_loudness, normalize, trim
@@ -116,7 +116,7 @@ def test_new_published_address_gets_a_clip_source(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
-    lines = extra_lines(repo)
+    lines = extra_lines(repo, published_addresses())
     assert any(line.id == "address_testikatu_9" and line.text == "Testikatu 9" for line in lines)
 
 

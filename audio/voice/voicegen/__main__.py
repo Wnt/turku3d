@@ -1,12 +1,13 @@
 """python -m voicegen build|check [--dialogue P] [--voices P] [--out DIR] [--cache DIR]"""
 
 import argparse
+import json
 import os
 import sys
 import time
 from pathlib import Path
 
-from .announcements import extra_lines
+from .announcements import extra_lines, published_addresses
 from .build import build, check
 
 REPO = Path(__file__).resolve().parents[3]
@@ -23,9 +24,11 @@ def main(argv=None):
     work = Path(os.environ.get("TURKU3D_WORK", Path.home() / "turku3d/data"))
     parser.add_argument("--cache", type=Path, default=work / "cache/voice")
     args = parser.parse_args(argv)
+    addresses = published_addresses() if args.command == "build" else None
     extras = (
-        extra_lines(REPO)
-        if args.dialogue == REPO / "game/src/gameplay/content/dialogue.json"
+        extra_lines(REPO, addresses)
+        if args.command != "fetch"
+        and args.dialogue == REPO / "game/src/gameplay/content/dialogue.json"
         else ()
     )
     if args.command == "check":
@@ -46,6 +49,10 @@ def main(argv=None):
     report = build(
         args.dialogue, args.voices, args.out, args.cache, synthesizer, extra_lines=extras
     )
+    if addresses is not None and args.dialogue == REPO / "game/src/gameplay/content/dialogue.json":
+        (REPO / "audio/voice/addresses.json").write_text(
+            json.dumps(addresses, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
     print(
         f"voice: {len(report.synthesized)} synthesized, {len(report.encoded)} encoded, {len(report.reused)} reused, "
         f"{len(report.removed)} removed in {time.perf_counter() - start:.1f} s -> {args.out}"
