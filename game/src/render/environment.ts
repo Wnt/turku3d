@@ -28,6 +28,14 @@ export class Environment {
     this.sky.cloudSpeed.value = 0;
     // Mesh.clone shares the sky material/uniforms; keep one IBL source mesh across time edits.
     this.skyScene.add(this.sky.clone());
+    // The sky is a back-faced unit box scaled to a 2250 m half-extent (corners 3.9 km, inside the 6 km far plane).
+    // Its colour depends only on the view direction, so it is centred on whichever camera draws it: it stays around
+    // the player kilometres from the origin and looks the same at the origin.
+    this.sky.frustumCulled = false;
+    this.sky.onBeforeRender = (_renderer, _scene, camera) => {
+      this.sky.position.setFromMatrixPosition(camera.matrixWorld);
+      this.sky.updateMatrixWorld();
+    };
     scene.add(this.sky);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(q.shadowSize, q.shadowSize);

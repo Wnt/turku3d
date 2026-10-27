@@ -9,6 +9,8 @@ local time, including the date and daylight-saving offset. H hides both the HUD 
 
 - `SkyMesh` supplies analytic Rayleigh/Mie scattering. It was smoke-tested under both backends before adding effects;
   no takram dependency is needed. Clouds are off for this clear-afternoon scene.
+  The sky box (2250 m half-extent) re-centres on the rendering camera in `onBeforeRender`, so it surrounds the
+  player anywhere in the world; its colour depends only on view direction.
 - A 128-pixel PMREM cube derived from the same sky provides IBL. It is regenerated only on time edits, reusing the target to retain material bindings and shader programs. The sun uses `core/sun.ts`, including true-north to grid-north convergence.
 - `CSMShadowNode` uses custom street-scale splits, PCF, a 2.5 cm normal bias, cascade fades and the addon's existing
   light-space texel snapping. FOV/aspect changes update the cascade frustums. Camera motion does not resize them.
