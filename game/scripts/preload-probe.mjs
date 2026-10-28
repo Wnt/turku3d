@@ -38,7 +38,11 @@ try {
   page.on('request', r => requests.push({ at: Date.now(), url: r.url() }));
   page.on('pageerror', e => errors.push(e.message));
   const started = Date.now();
-  await page.goto(`${base}?backend=${backend}&test&time=2026-06-21T10:00:00Z`);
+  const url = new URL(base);
+  url.searchParams.set('backend', backend);
+  url.searchParams.set('test', '');
+  url.searchParams.set('time', '2026-06-21T10:00:00Z');
+  await page.goto(url.href);
   await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 600000 });
   if (await page.evaluate(() => window.__qaError)) throw new Error(await page.evaluate(() => window.__qaError));
   const readyMs = Date.now() - started;
