@@ -1,14 +1,14 @@
-"""Low-priority parameter upgrades. One screened panorama description per building, no maps.
+"""Local appearance enrichment followed by quota-limited Astra refinement.
 
-The service schedules a single nice(15) child at a time, at most 12 attempts per rolling hour,
-only inside the player's ring/cone. Calls stop at 60% quota (unknown quota fails closed).
-Reference pixels stay in the sandbox; only validated descriptions enter facade-params/.
+One persistent nice(15) child keeps offline models warm. Reference pixels stay in the
+sandbox; only validated descriptions and per-field provenance enter facade-params/.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -20,10 +20,35 @@ from turku3d import config as C
 from turku3d.facade_kit import read_description, renderer, store_path, write_description
 
 CALLS_PER_HOUR = 12
+APPEARANCE_FIELDS = ("wall_colour", "trim_colour", "material")
+_model = None
 
 
-def upgrade(inventory: Path, building: str, root: Path) -> dict:
-    os.nice(15)
+def appearance_fields(register: dict, fields: dict) -> tuple[dict, dict]:
+    """Accept only measured appearance; absent/abstaining fields retain register values."""
+    result = dict(register)
+    sources = {field: "register" for field in register}
+    for field in APPEARANCE_FIELDS:
+        row = fields.get(field, {})
+        if row.get("state") == "measured" and row.get("value") is not None:
+            result[field] = row["value"]
+            sources[field] = "hybrid"
+    return result, sources
+
+
+def completed(building: str, engine: str) -> bool:
+    if not read_description(building):
+        return False
+    try:
+        row = json.loads(store_path(building).read_text())
+        # Legacy rows came exclusively from Astra.
+        stored = row.get("engine", "astra")
+        return stored == "astra" or engine == "hybrid"
+    except (OSError, ValueError):
+        return False
+
+
+def upgrade(inventory: Path, building: str, root: Path, engine: str = "astra") -> dict:
     renderer()  # make the texture package available to a pipeline-only interpreter
     from turkutex import facade_fast as ff
     from turkutex.building_jobs import latest
@@ -31,10 +56,11 @@ def upgrade(inventory: Path, building: str, root: Path) -> dict:
     from turkutex.codex.usage import used_percent
     from turkutex.streetview.facades import load_facades
 
-    quota = used_percent()
-    if quota is None or quota >= 60:
-        return dict(state="quota-paused", quota=quota)
-    if read_description(building):
+    if engine == "astra":
+        quota = used_percent()
+        if quota is None or quota >= 60:
+            return dict(state="quota-paused", quota=quota)
+    if completed(building, engine):
         return dict(state="cached")
     facades = [f for f in load_facades(inventory) if str(f.props["building_id"]) == building]
     if not facades:
@@ -48,6 +74,42 @@ def upgrade(inventory: Path, building: str, root: Path) -> dict:
         return dict(state="no-reference")
     # Screen all candidates, call for only the first usable wall. Other walls adopt its style.
     job = jobs[0]
+    if engine == "hybrid":
+        import numpy as np
+        from PIL import Image
+        from turkutex.facade_derive import building_attributes
+        from turkutex.facade_hybrid import Engine
+
+        global _model
+        if _model is None:
+            _model = Engine()
+        wall = next(f for f in facades if f.id == job["meta"]["facade_id"])
+        attrs = wall.props.get("register_attributes")
+        if attrs is None:
+            attrs = building_attributes(C.raw_dir("wfs/work-3x3"), [building]).get(building, {})
+        register = renderer().register_description(
+            wall.id, building, attrs, wall.length, wall.height_m
+        )
+        with Image.open(job["images"][0]) as image:
+            _, metadata = _model.measure(
+                np.asarray(image.convert("RGB")), wall.id, wall.length, wall.height_m, attrs
+            )
+        fields = metadata["fields"]
+        for field in APPEARANCE_FIELDS:
+            fields.setdefault(field, dict(state="abstain", value=None, reason="no hybrid head"))
+        d, sources = appearance_fields(register, fields)
+        reference = job["meta"]["reference"]
+        write_description(
+            building,
+            d,
+            reference["source"],
+            reference["crop_sha256"],
+            width=wall.length,
+            engine="hybrid",
+            field_sources=sources,
+            fields=fields,
+        )
+        return dict(state="upgraded", building=building, engine=engine)
     job_path = run / "jobs.jsonl"
     job_path.write_text(json.dumps(job) + "\n")
     result = Runner(
@@ -73,7 +135,10 @@ class DescribeQueue:
         self.lock = threading.Lock()
         self.proc: subprocess.Popen | None = None
         self.state = {"state": "idle", "calls_per_hour": CALLS_PER_HOUR}
-        self.retried: dict[str, float] = {}
+        self.retried: dict[tuple[str, str], float] = {}
+        self.next_astra = 0.0
+        self.prefer_astra = False
+        self.child_log = None
         self.budget = root / ".facade-describe-budget.json"
         self.thread = threading.Thread(target=self._run, name="facade-describe", daemon=True)
         self.thread.start()
@@ -101,7 +166,7 @@ class DescribeQueue:
         temp.replace(self.budget)
         return True
 
-    def _candidate(self):
+    def _candidate(self, engine="hybrid"):
         from .service import rank
 
         with self.builder.lock:
@@ -127,68 +192,125 @@ class DescribeQueue:
                 continue
             for f in features:
                 key = str(f["properties"]["building_id"])
-                if self.retried.get(key, 0) > time.time() - 3600 or store_path(key).exists():
+                if self.retried.get((key, engine), 0) > time.time() - 3600 or completed(
+                    key, engine
+                ):
                     continue
                 choices.append((ranked[0], -scores.get(key, 0), ranked[1], key, tile, inventory))
         return min(choices) if choices else None
 
+    def _describe(self, inventory, key, engine):
+        with self.lock:
+            if self.closed.is_set():
+                return dict(state="stopped")
+            if self.proc is None:
+                self.root.mkdir(parents=True, exist_ok=True)
+                self.child_log = (self.root / ".facade-worker.log").open("a")
+                self.proc = subprocess.Popen(
+                    # Keep Torch out of the native geo environment's conflicting OpenMP runtime.
+                    [
+                        str(C.REPO_ROOT / ".venv/bin/python"),
+                        "-m",
+                        "turku3d.coarse.facades",
+                        "--worker",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=self.child_log,
+                    start_new_session=True,
+                    text=True,
+                    bufsize=1,
+                )
+            proc = self.proc
+        proc.stdin.write(
+            json.dumps([str(inventory), key, str(self.root / ".facade-upgrades"), engine]) + "\n"
+        )
+        proc.stdin.flush()
+        if not select.select([proc.stdout], [], [], 900)[0]:
+            raise TimeoutError("facade worker exceeded 900 seconds")
+        return json.loads(proc.stdout.readline())
+
     def _run(self):
-        while not self.closed.wait(15):
-            candidate = self._candidate()
+        while not self.closed.wait(1):
+            engine = "hybrid"
+            candidate = None
+            if self.prefer_astra and time.time() >= self.next_astra:
+                candidate = self._candidate("astra")
+                if candidate and self._attempt():
+                    engine = "astra"
+                else:
+                    candidate = None
+                    self.next_astra = time.time() + 60
+            if candidate is None:
+                candidate = self._candidate("hybrid")
+            self.prefer_astra = engine == "hybrid"
             if not candidate:
                 self._status(state="idle")
-                continue
-            if not self._attempt():
-                self._status(state="hourly-budget")
+                self.closed.wait(14)
                 continue
             _, _, _, key, tile, inventory = candidate
-            self.retried[key] = time.time()
-            self._status(state="describing", building=key)
+            self.retried[key, engine] = time.time()
+            self._status(state="describing", building=key, engine=engine)
             try:
-                with self.lock:
-                    if self.closed.is_set():
-                        return
-                    self.proc = subprocess.Popen(
-                        [
-                            sys.executable,
-                            "-m",
-                            "turku3d.coarse.facades",
-                            str(inventory),
-                            key,
-                            str(self.root / ".facade-upgrades"),
-                        ],
-                        stdout=subprocess.PIPE,
-                        start_new_session=True,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                    )
-                    proc = self.proc
-                stdout, stderr = proc.communicate(timeout=900)
-                if proc.returncode:
-                    raise RuntimeError(stderr[-500:])
-                result = json.loads(stdout.strip().splitlines()[-1])
+                result = self._describe(inventory, key, engine)
                 self._status(**result)
                 if result["state"] == "upgraded":
-                    # Increment the service counter and requeue; resident clients retain the old wall until ready.
                     with self.builder.lock:
                         self.builder.version += 1
                     self.builder.request(tile, 0)
                 elif result["state"] == "quota-paused":
-                    self.closed.wait(300)
-            except (OSError, ValueError, subprocess.TimeoutExpired, RuntimeError) as exc:
-                if self.proc and self.proc.poll() is None:
-                    os.killpg(self.proc.pid, signal.SIGKILL)
+                    self.next_astra = time.time() + 300
+            except (OSError, ValueError, TimeoutError) as exc:
+                self.stop_child()
                 self._status(state="failed", error=str(exc)[-500:])
-            finally:
-                with self.lock:
-                    self.proc = None
+
+    def stop_child(self):
+        with self.lock:
+            if self.proc:
+                if self.proc.poll() is None:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                self.proc.wait()
+                self.proc.stdin.close()
+                self.proc.stdout.close()
+                self.proc = None
+            if self.child_log:
+                self.child_log.close()
+                self.child_log = None
 
     def stop(self):
         self.closed.set()
-        with self.lock:
-            if self.proc and self.proc.poll() is None:
-                os.killpg(self.proc.pid, signal.SIGTERM)
+        self.stop_child()
+
+
+def worker():
+    """Keep model loading off both the draft request and subsequent enrichment jobs."""
+    import contextlib
+
+    os.nice(15)
+    for line in sys.stdin:
+        try:
+            inventory, building, root, engine = json.loads(line)
+            started = time.monotonic()
+            with contextlib.redirect_stdout(sys.stderr):
+                result = upgrade(Path(inventory), building, Path(root), engine)
+            result["seconds"] = time.monotonic() - started
+        except Exception as exc:
+            result = dict(state="failed", error=str(exc)[-500:])
+        print(json.dumps(result), flush=True)
 
 
 if __name__ == "__main__":
-    print(json.dumps(upgrade(Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]))))
+    if sys.argv[1:] == ["--worker"]:
+        worker()
+    else:
+        os.nice(15)
+        print(
+            json.dumps(
+                upgrade(
+                    Path(sys.argv[1]),
+                    sys.argv[2],
+                    Path(sys.argv[3]),
+                    sys.argv[4] if len(sys.argv) > 4 else "astra",
+                )
+            )
+        )

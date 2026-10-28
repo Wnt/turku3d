@@ -26,6 +26,10 @@ it under `$TURKU3D_WORK/tools/ktx`. It does not run a system installer. On other
 `toktx` and `ktx` on PATH, or set `TURKUTEX_TOKTX` to the executable. The old WASM encoder was
 removed: it was substantially slower and emitted linear-map primaries incompatible with glTF.
 
+The default dependencies include the offline hybrid inference runtime (Torch and Transformers)
+used by the background facade queue. Run that worker in the clean repository `.venv`, rather
+than the native geo environment; local pinned model preparation is in [CV.md](CV.md).
+
 `streetlevel==0.12.13` is installed with `--no-deps` plus `requirements-streetlevel.txt`; unsupported
 `pyexiv2` is stubbed only in the Street View adapter. DeepBump uses ONNX, not torch.
 Decoded panorama pixels are reused through read-only memory maps in

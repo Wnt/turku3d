@@ -11,6 +11,9 @@ dependencies = [
   "jsonschema>=4.23",
   "turku3d",
   "requests>=2.31",
+  "transformers==4.57.1",
+  "torch==2.14.1",
+  "scipy>=1.13",
 ]
 
 [project.optional-dependencies]
