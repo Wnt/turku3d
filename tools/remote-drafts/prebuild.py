@@ -49,7 +49,7 @@ def main():
                 with urlopen(
                     f"http://127.0.0.1:{settings['port']}/coarse/{name}/manifest.json", timeout=30
                 ) as reply:
-                    if reply.status == 200:
+                    if reply.status == 200 and not json.load(reply).get("stale", False):
                         return {
                             "tile": name,
                             "code": 0,
