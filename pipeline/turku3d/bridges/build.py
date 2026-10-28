@@ -192,8 +192,13 @@ def _box(object_id, centre, half, material):
         ]
     )
     faces = Faces()
-    for ids in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
-        faces.face(vertices[list(ids)])
+    faces.quads(
+        vertices[
+            np.array(
+                ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
+            )
+        ]
+    )
     return faces.mesh(object_id, material)
 
 

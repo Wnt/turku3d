@@ -274,6 +274,7 @@ def build(
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             base / "structures/layer.py",
+            base / "bridges/build.py",
         ),
         [
             tile,
@@ -289,6 +290,8 @@ def build(
     )
     water = inputs.water
     seconds["ground"] = time.perf_counter() - t
+    seconds["terrain"] = cache.metrics["terrain"]["seconds"]
+    seconds["bridges"] = cache.metrics["bridges"]["seconds"]
 
     t = time.perf_counter()
     blds = inputs.buildings

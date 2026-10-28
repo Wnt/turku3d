@@ -54,9 +54,50 @@ class Faces:
         offset = len(self.positions)
         self.positions.extend(p)
         self.uvs.extend(uv)
-        for k in range(1, len(p) - 1):
-            if np.linalg.norm(np.cross(p[k] - p[0], p[k + 1] - p[0])) > 1e-12:
-                self.indices.append([offset, offset + k, offset + k + 1])
+        fan = np.arange(1, len(p) - 1)
+        keep = np.linalg.norm(np.cross(p[fan] - p[0], p[fan + 1] - p[0]), axis=1) > 1e-12
+        self.indices.extend(
+            np.column_stack(
+                (np.full(keep.sum(), offset), offset + fan[keep], offset + fan[keep] + 1)
+            )
+        )
+
+    def triangles(self, positions, indices, uvs):
+        """Append unshared triangles in one native array pass, retaining flat normals."""
+        p = positions[indices]
+        keep = np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1) > 1e-12
+        offset = len(self.positions)
+        self.positions.extend(p.reshape(-1, 3))
+        self.uvs.extend(uvs[indices].reshape(-1, 2))
+        self.indices.extend((np.arange(p.size // 3).reshape(-1, 3) + offset)[keep])
+
+    def quads(self, points):
+        """Batch independent hard-edged quads with the same metric UV convention."""
+        p = np.asarray(points, dtype=np.float64).reshape(-1, 4, 3)
+        horizontal = p[:, 1][:, [0, 2]] - p[:, 0][:, [0, 2]]
+        vertical = np.linalg.norm(horizontal, axis=1) < 1e-10
+        horizontal[vertical] = (p[:, -1][:, [0, 2]] - p[:, 0][:, [0, 2]])[vertical]
+        horizontal /= np.maximum(np.linalg.norm(horizontal, axis=1), 1e-10)[:, None]
+        uv = np.stack(
+            (
+                np.sum((p[:, :, [0, 2]] - p[:, :1, [0, 2]]) * horizontal[:, None], axis=2),
+                p[:, :, 1] - p[:, :, 1].min(axis=1)[:, None],
+            ),
+            axis=2,
+        )
+        offset = len(self.positions)
+        indices = (np.arange(len(p))[:, None, None] * 4 + [[0, 1, 2], [0, 2, 3]]).reshape(-1, 3)
+        triangles = p.reshape(-1, 3)[indices]
+        keep = (
+            np.linalg.norm(
+                np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]),
+                axis=1,
+            )
+            > 1e-12
+        )
+        self.positions.extend(p.reshape(-1, 3))
+        self.uvs.extend(uv.reshape(-1, 2))
+        self.indices.extend(indices[keep] + offset)
 
     def mesh(self, object_id, material, **kwargs):
         return Mesh(object_id, material, self.positions, self.indices, self.uvs, **kwargs)

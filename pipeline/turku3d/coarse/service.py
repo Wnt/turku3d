@@ -273,6 +273,15 @@ class Builder:
                     if tile in self.servable and self.built(tile)
                     else self._building(tile)
                 )
+            if tile in self.priority:
+                # Already admitted from complete sources. The worker checks fresh
+                # inputs when it starts; polling must not repeat every disk lookup.
+                self.priority[tile] = distance
+                order = self._prune()
+                self.lock.notify_all()
+                return ({"state": "queued", "position": order.index(tile),
+                         "eta": self.eta()[tile]} if tile in self.priority
+                        else {"state": "deferred"})
             if self.built(tile):
                 self.requested[tile] = time.time()
                 if self.two_pass and tile not in self.upgrading and self.manifest(tile).exists():

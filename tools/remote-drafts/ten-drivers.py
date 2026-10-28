@@ -143,7 +143,7 @@ def main():
     started, moving = time.monotonic(), None
     initial_cpu, samples, ready, pending, first_request, statuses = cpu(), [], {}, {}, {}, {}
     states, demands = {}, {}
-    initial = {cell(*point(route, 0)) for route in paths}
+    initial = {f"{i}/{cell(*point(route, 0))}" for i, route in enumerate(paths)}
 
     def fetch_collision(tile, client):
         status, manifest = get(args.base, tile + "/collision.json?client=" + client)
@@ -163,7 +163,10 @@ def main():
                 return 0, None
         return 200, time.monotonic() - started
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
+    with (
+        concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool,
+        concurrent.futures.ThreadPoolExecutor(max_workers=10) as clients,
+    ):
         while time.monotonic() - started < 540:
             tick = time.monotonic()
             elapsed = tick - started
@@ -171,6 +174,7 @@ def main():
             if moving is not None and tick - moving > args.seconds:
                 break
             wanted_all = set()
+            plans = []
             for i, route in enumerate(paths):
                 here = cell(*point(route, travel))
                 urgent = list(
@@ -197,14 +201,19 @@ def main():
                         visible=",".join(visible),
                     )
                 )
-                demand_status, _ = get(args.base, "demand?" + query)
+                plans.append(
+                    (i, here, wanted, client, clients.submit(get, args.base, "demand?" + query))
+                )
+            for i, here, wanted, client, lease in plans:
+                demand_status, _ = lease.result()
                 demands[demand_status] = demands.get(demand_status, 0) + 1
                 for tile in wanted:
-                    first_request.setdefault(tile, elapsed)
-                    if tile not in ready and tile not in pending:
-                        pending[tile] = pool.submit(fetch_collision, tile, client)
+                    key = f"{i}/{tile}"
+                    first_request.setdefault(key, elapsed)
+                    if key not in ready and key not in pending:
+                        pending[key] = pool.submit(fetch_collision, tile, client)
                 # Full visuals compete with first passes just as in the game.
-                if here in ready:
+                if f"{i}/{here}" in ready:
                     pool.submit(get, args.base, here + "/manifest.json?client=" + client)
             for tile, future in list(pending.items()):
                 if future.done():
@@ -243,7 +252,7 @@ def main():
             if startup is None or not 0 < distance / speed <= args.seconds:
                 continue
             arrival = startup + distance / speed
-            at = ready.get(tile)
+            at = ready.get(f"{driver}/{tile}")
             rows.append(
                 dict(
                     driver=driver,

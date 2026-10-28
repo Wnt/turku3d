@@ -147,3 +147,14 @@ def test_request_hash_cache_observes_producer_file_edits(tmp_path, monkeypatch):
     path.write_text("second")
     assert packaging.current_code() == "second"
     assert len(calls) == 2
+
+
+def test_queued_polling_does_not_repeat_source_admission(tmp_path):
+    calls = []
+    builder = Builder(tmp_path, code="test", workers=0,
+                      inputs=lambda tile: calls.append(tile) or [])
+    assert builder.request("t0_0_0", 10)["state"] == "queued"
+    assert builder.request("t0_0_0", 5)["state"] == "queued"
+    assert calls == ["t0_0_0"]
+    assert builder.priority["t0_0_0"] == 5
+    builder.stop()
