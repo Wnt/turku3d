@@ -95,7 +95,8 @@ startup warmup. A glTF `afterRoot` hook queues maps after the loader finalizes c
 holds model publication until uploads complete. Ground keeps its source material until its replacement maps
 are resident. Shared texture/version pairs upload once. Pending jobs run largest first with a 2 MiB / 2 ms
 budget per animation frame; three.js uploads a texture atomically, so a texture larger than the budget runs
-alone and may exceed it. No map resolution or mip chain is discarded. Startup still warms all six directions.
+alone and may exceed it. Shared ground-library sampler settings only invalidate arrays when they actually change; loading another tile
+does not mark the same resident arrays for upload again. No map resolution or mip chain is discarded. Startup still warms all six directions.
 The normal/beauty/shadow/reflection passes share one scene-matrix update per rendered frame.
 
 ## Instrumentation

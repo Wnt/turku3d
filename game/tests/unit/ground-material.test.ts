@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { GROUND_KEYS, validateGroundSpec } from '../../src/render/ground/material';
+import * as THREE from 'three/webgpu';
+import { GROUND_KEYS, validateGroundSpec, createGroundMaterial } from '../../src/render/ground/material';
 import type { GroundTileSpec } from '../../src/render/ground/material';
 
 const spec = (): GroundTileSpec => ({ version: 1, material_keys: [...GROUND_KEYS],
@@ -18,4 +19,21 @@ describe('ground material contract', () => {
     const t = spec(); t.ortho_uv.scale = 1;
     expect(() => validateGroundSpec(t)).toThrow(/gutter/);
   });
+});
+
+it('new ground tiles reuse resident library arrays without invalidating their GPU contents', () => {
+  const texture = () => new THREE.Texture();
+  const library = { albedo: texture(), normal: texture(), orm: texture() };
+  const maps = { ortho: texture(), splat0: texture(), splat1: texture() };
+  const first = createGroundMaterial(spec(), maps, library);
+  const versions = Object.values(library).map(map => map.version);
+  expect(versions.every(version => version > 0)).toBe(true);
+  const second = createGroundMaterial(spec(), maps, library);
+  expect(Object.values(library).map(map => map.version)).toEqual(versions);
+  library.albedo.anisotropy = 1;
+  const corrected = createGroundMaterial(spec(), maps, library);
+  expect(library.albedo.anisotropy).toBe(4);
+  expect(library.albedo.version).toBe(versions[0] + 1);
+  expect(library.normal.version).toBe(versions[1]);
+  first.dispose(); second.dispose(); corrected.dispose();
 });
