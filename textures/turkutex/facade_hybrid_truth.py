@@ -474,10 +474,56 @@ def collect(args):
     print(json.dumps(dict(agreed=len(kept), rejected=dict(Counter(rejected.values())))))
 
 
+def combine(args):
+    """Select independently agreed, unique-building walls from local collections."""
+    if not args.source_root:
+        raise ValueError("combine requires --source-root")
+    candidates = []
+    for root in args.source_root:
+        root = root.resolve()
+        agreed = json.loads((root / "agreed.json").read_text())
+        readings = [read_labels(root, reviewer) for reviewer in ("a", "b")]
+        for fid, row in agreed.items():
+            if not all(fid in reading for reading in readings):
+                continue
+            label, _ = agreement(*(reading[fid] for reading in readings))
+            if label == row["label"] and row["width_m"] >= args.min_width:
+                candidates.append(row)
+    candidates.sort(key=lambda row: (-row["width_m"], row["facade_id"]))
+    selected, buildings = [], set()
+    for row in candidates:
+        if row["building_id"] in buildings:
+            continue
+        selected.append(row)
+        buildings.add(row["building_id"])
+        if len(selected) == args.limit:
+            break
+    if len(selected) < args.limit:
+        raise ValueError(f"only {len(selected)} agreed unique-building walls; need {args.limit}")
+    args.root.mkdir(parents=True, exist_ok=True)
+    ff.write_json(
+        args.root / "screened.json",
+        [{k: v for k, v in r.items() if k != "label"} for r in selected],
+    )
+    ff.write_json(args.root / "agreed.json", {r["facade_id"]: r for r in selected})
+    ff.write_json(
+        args.root / "selection.json",
+        dict(
+            source_roots=[str(root.resolve()) for root in args.source_root],
+            agreed_candidates=len(candidates),
+            minimum_width_m=args.min_width,
+            selected=len(selected),
+            independent_buildings=len(buildings),
+        ),
+    )
+    print(json.dumps(dict(selected=len(selected), independent_buildings=len(buildings))))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=["inventory", "prepare", "screen", "prescreen", "label", "collect"]
+        "command",
+        choices=["inventory", "prepare", "screen", "prescreen", "label", "collect", "combine"],
     )
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--inventory", type=Path)
@@ -494,6 +540,8 @@ def main():
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--parallel", type=int, default=3)
     parser.add_argument("--label-limit", type=int, default=1000)
+    parser.add_argument("--source-root", type=Path, action="append")
+    parser.add_argument("--min-width", type=float, default=8)
     args = parser.parse_args()
     args.root = args.root.resolve()
     globals()[args.command](args)
