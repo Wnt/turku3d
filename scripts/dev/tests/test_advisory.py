@@ -28,7 +28,7 @@ class AdvisoryTests(test_integrator.IntegratorFixture):
         self.assertEqual(live_build.stages_for("full", post_publish=True), ("chrome",))
         self.assertEqual(
             live_build.stages_for("data", post_publish=True),
-            ("collision-checks", "car-report", "facade-ground-audit", "chrome"),
+            ("collision-checks", "car-report", "facade-ground-audit"),
         )
 
     def test_red_chrome_is_advisory_publishes_live_and_pages_and_warns_the_authors(self):
@@ -66,10 +66,17 @@ class AdvisoryTests(test_integrator.IntegratorFixture):
         row = self.integrate()
         self.assertEqual((row["advisory"], self.live_record()["advisory"]), ([], []))
 
+    def test_normal_publication_never_starts_the_deep_gate(self):
+        self.land("game", "game/a.ts", "a")
+        with patch.object(advisory, "deep_gate") as deep:
+            row = self.integrate()
+        deep.assert_not_called()
+        self.assertEqual(row["result"], "green")
+
     def test_red_deep_gate_after_publication_is_advisory_and_warned_once(self):
         red = '#!/bin/sh\ncase "$*" in *--deep*) echo "FAIL   tooling-tests 9.0s"; exit 1;; esac\n'
         head = self.land("one", "scripts/dev/gate", red)
-        row = self.integrate()
+        row = self.integrate(full=True)
         self.assertEqual((row["result"], integrator.live_commit(self.published)), ("green", head))
         [deep] = row["advisory"]
         self.assertEqual((deep["stage"], deep["checks"]), ("deep-gate", ["tooling-tests"]))
@@ -141,8 +148,7 @@ class AdvisoryTests(test_integrator.IntegratorFixture):
         head = self.land("later", "game/c.ts", "c")
         self.assertEqual(self.integrate()["result"], "green")
         self.builds.clear()
-        with patch.object(integrator, "full_due", return_value=True):
-            row = self.integrate()
+        row = self.integrate(full=True)
         # The full run of live main is recorded in place: one build, no bisection.
         self.assertEqual((row["result"], row["from"], row["culprit"]), ("green", head, None))
         self.assertEqual((self.builds, self.git("rev-parse", "main")), ([head], head))

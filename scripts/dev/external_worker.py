@@ -6,6 +6,7 @@ Their meta.json carries `worker: external` and state `external` while the worker
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -55,11 +56,16 @@ def finish(name, result_path, keep_sandbox=False, note=None):
         raise ValueError("result must contain an exact ## Result: DONE heading")
     with s.lock(path / "lock"):
         meta = s.read_json(path / "meta.json")
-        if running(meta):
-            raise ValueError("task is still running; stop it first")
+        own_turn = running(meta) and os.environ.get("TURKU3D_SANDBOX") == name
+        if running(meta) and not own_turn:
+            raise ValueError("another task is still running")
         (path / "last.md").write_text(text)
-        meta.update(state="done", exit_code=0, finished=time.time(), worker="external")
-        meta.setdefault("first_finished", meta["finished"])
+        if own_turn:
+            meta["finish_requested"] = time.time()
+            keep_sandbox = True
+        else:
+            meta.update(state="done", exit_code=0, finished=time.time(), worker="external")
+            meta.setdefault("first_finished", meta["finished"])
         meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         s.write_json(path / "meta.json", meta)
     print(f"{name}: DONE result recorded; landing")

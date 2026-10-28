@@ -362,9 +362,9 @@ def selection(config, changed, *, full=False, lint_only=False, fast=False, deep_
         if lint_only and stage["kind"] not in ("python-lint", "js-lint", "shell"):
             selected, reason = False, "pre-commit: lint/format only"
         elif fast and browser(stage):
-            selected, reason = False, "--fast: browser stages run in the integrator"
+            selected, reason = False, "--fast: browser stages are explicit investigations"
         elif fast and deep(stage):
-            selected, reason = False, "--fast: deep tier (make gate-deep, integrator)"
+            selected, reason = False, "--fast: deep tier (explicit make gate-deep)"
         elif deep_only and not deep(stage):
             selected, reason = False, "--deep: deep tier only"
         elif not selected:

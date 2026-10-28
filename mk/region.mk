@@ -9,4 +9,4 @@ cache-gc: ## Report shared streetlevel cache size; APPLY=1 removes old partial d
 	$(PIPELINE_RUN) python -m turku3d.region.cache $(if $(filter 1,$(APPLY)),--apply)
 tile-add: col-deps textures-venv textures-ktx ## Grow the sandbox's playable area by L0 tile T (fetch, refresh, assemble); report in reports/tile-add
 	@test -n "$(T)" || { echo "usage: make tile-add T=t0_i_j"; exit 2; }
-	python3 $(REPO)/scripts/dev/host_slots.py build -- $(PIPELINE_RUN) python -m turku3d.region add-tile $(T)
+	$(PIPELINE_RUN) python -m turku3d.region add-tile $(T)

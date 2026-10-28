@@ -179,8 +179,8 @@ pushed to origin's `main`. Local `main` is never pushed. The row records `push` 
 
 Live and Pages publish as soon as the build passes: code/full batches run `game-build` with the served tiles;
 data batches run refresh, tile-build and format/seam validation, carrying the live game. Only after live and Pages
-are published do selected or scheduled full Chrome, collision/walk checks, car reports, facade ground audits and
-(code lane) the deep gate run in that build's checkout. Results update the exact release record, ledger advisory
+are published do cheap collision/walk checks, car reports and facade ground audits run in that build's
+checkout. Chrome and the deep gate run only with explicit `integrator.py run --full`. Results update the exact release record, ledger advisory
 list, inbox warnings and Pages commit notes (a notes-only update protected against newer deployments).
 A newer landing cancels advisory command groups and records `advisory_interrupted`; interrupted full Chrome runs
 are not marked complete. `advisory_chrome.py` owns Playwright and its dist server in one timed group; stale server
@@ -195,8 +195,8 @@ ground audit, tile-validate's `buildings`/`curbs`, the facade baseline
 (`facade-baseline`: fewer `facades_bound` than the published release with no `Facade regression reason:` line in
 a batch landing's ledger row) and Chrome. Each failure is appended to `report["advisory"]` (`stage`, `detail`,
 `log`, Chrome `specs`, tile-validate `checks`), publication stands, and a failed advisory stage is not cached.
-`stages_for(kind, checks=False)` runs the build stages only (base check and bisection builds). Every 2 h with a
-landing since the last full run (or `integrator.py run --full`) all specs run on both projects on live
+`stages_for(kind, checks=False)` runs the build stages only (base check and bisection builds).
+Explicit `integrator.py run --full` runs all tile specs on both projects on live
 (`full_suite: true`, `integration_chrome.py`), as information. Stage times and output are in `live-build.log`.
 Each gate and live-build command runs in its own process group, which is terminated on exit.
 Failures name the failing stage or test and include the host load and log path. For a Playwright
@@ -418,8 +418,8 @@ and the unit-test stages whose full run stays under 20 s; target under 30 s at h
 stage that starts Playwright or Chrome is not marked) and the deep tier: stages with `tier = "deep"`
 (`pipeline-tests`, `textures-tests`, `gate-tests`, `tooling-tests`, `integrator-tests`,
 `watch-tests`, `knip`, `validator-tests`, `dependency-imports`). `--deep` runs only deep stages;
-the integrator runs `gate --deep --all` (cached per stage input hash) after it publishes a code
-batch; red stages are advisory (`deep-gate` with the failing stage names in the ledger row, warned
+explicit `integrator.py run --full` runs `gate --deep --all` (cached per stage input hash)
+after publication; red stages are advisory (`deep-gate` with the failing stage names in the ledger row, warned
 to the batch's authors when new). A stage whose full run exceeds 20 s moves to the deep tier.
 `full_triggers` are only the gate's own `gate.toml`, `gate_lib.py`, `gate_fixtures.py` and
 `gate_cache.py`; they widen the selection to every stage of the chosen tier.
@@ -567,76 +567,11 @@ Real permission failures remain errors. `wt rm` checks cheap Git refusals first,
 separately, and inspects sockets only when IPv4/IPv6 wildcard port probes detect occupancy.
 See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limitations and timings.
 
-## Load-robust gates and environment sync
+## Verification and host capacity
 
-### Host slots
-
-`make refresh`, `make tile-build`, `make game-build`, the game, tile and render
-Playwright suites, playtest, the gate's e2e stage and the integrator's live build use
-`scripts/dev/host_slots.py`. The shared state is `~/turku3d/host-slots/` (override with
-`TURKU3D_SLOT_DIR` only for synthetic tests).
-
-Admission is budgeted, not exclusive. The host has 10 CPU job units and 5 browser (GPU)
-workers (`BUDGET`). A `build` costs 2 job units (at most three at once, each with
-`TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (at most three agent suites at once, `TURKU3D_JOBS` = 1), the
-single `integration` reservation (the integrator's code lane) 6 job units plus 2 browser
-workers, and the single `integration-data` reservation (its data lane, no Chrome; stored as kind
-`integration` with `lane`, so older tooling counts it) 4 job units (`COST`). Builds and browser suites keep being admitted beside a running integration within the
-remaining capacity. A waiting `integration` is not starved: later admissions are taken only if
-it still fits after them, so at most the builds already running finish first. A queued code integration
-replaces the running one in reservation checks; later tasks enter only if they do not increase its
-CPU/GPU deficit, so Chrome may enter during an existing CPU shortfall. Current limits still apply.
-Integration-owned children (`TURKU3D_INTEGRATION_OWNER`) use their lane's `TURKU3D_JOBS` budget: 6 (code) or 4 (data) for builds; they are not admissions.
-Refresh divides its job budget between independent steps and passes it to Roofer.
-Dead owner PIDs are removed on the next admission or status read. Waiting appears
-in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
-
-Browser share: Chrome gets 2 workers below load 60 (`BROWSER_LOAD`), else 1 (`browser_workers`). The 20-test real-tile suite took 1.9 min with 4 workers: estimate 3.8 min with 2 or 7.6 min with 1,
-before load overhead, within `advisory_chrome.TIMEOUT` (2 h per invocation). Playwright's 120 s limit is per test.
-Agent suites use 1 worker, including playtest's two backends serially. During integrator Chrome,
-`host_slots.phase("chrome")` marks `phase: chrome` in `state.json` for status tools; agent `browser`
-admissions continue within the GPU budget (5 workers, at most 2 for the integrator).
-
-Every admission appends `{"time", "kind", "name", "wait_seconds"}` (name is the sandbox) to
-`~/turku3d/host-slots/waits.jsonl`.
-`python3 scripts/dev/host_slots.py stats [--hours 24]` prints admissions, median and p90 wait
-seconds per kind. Raise agent concurrency only while the median wait stays low (study R6/M4).
-
-Direct heavy commands should use the same wrapper, for example:
-
-```sh
-python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.refresh
-cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test
-```
-
-```sh
-source ../sandbox.env
-export TURKU3D_JOBS=3
-scripts/dev/wt sync-env                 # current checkout
-scripts/dev/wt sync-env example         # named sandbox (or --all)
-scripts/dev/gate --all
-scripts/dev/gate --paths game/src/core/origin.ts --json
-python3 scripts/dev/integrator.py status
-# Explicit budgets, on an unloaded machine:
-TURKU3D_JOBS=1 make streaming-perf
-TURKU3D_JOBS=1 make render-perf
-```
-
-`env-sync` hashes pyproject/requirements files and each npm package/lock pair into
-`.cache/env-sync/stamp.json`. It serializes installs, writes stamps only after success,
-and detects missing environments. Python uses editable packages with declared extras;
-Node uses npm ci. It does not mutate linked hook dependencies: sync the source checkout
-first. A fresh-environment import stage checks dependency declarations when manifests change.
-Native test tools resolve from the same prepared directories as pipeline/env/run.sh.
-
-Successful stages are stored by content hash under `$TURKU3D_DATA/cache/tool-stages/gate`.
-The key includes
-routed source/dependency domains, inventory (including deletions), selected test/lint scope,
-configuration, tools and installed Python versions. Sandbox paths and ports are excluded. Only GREEN stages
-can report `cached PASS`; failures are never cached. Policy runs every time because flag expiry
-depends on main's merge count. Live build stages keep APFS-cloned verified artifacts under
-`$TURKU3D_DATA/cache/tool-stages/live`; keys include declared source paths, input manifests
-and the preceding stage key.
+See [verification.md](verification.md) for focused checks, host slots, budgets,
+environment sync and stage caches. Normal integration runs no Chrome or deep gate;
+`integrator.py run --full` is an explicit investigation.
 
 ### Landing and integration
 
@@ -652,7 +587,7 @@ integrator code lane (asynchronous, one run at a time, `integration` host reserv
         class by paths (landing_class.classify): inert → live_build.repoint(M), no build, no slot
         else → live_build.build(M, code): game-build + served tiles; joins only while free
         builds: publish(M) under publish.lock, recomposed on a data-lane release published meanwhile
-               → Pages → Chrome/audits/deep gate (cancelled for newer landings) → new advisory failures: warning to the batch's authors
+               → Pages → cheap data audits (Chrome/deep only with explicit --full; cancelled for newer landings) → new advisory failures: warning to the batch's authors
         build red: base check: live_build.build(G, build stages)
                G red:   data-red, revert nothing, warning to all, live stays at G until main moves
                G green: bisect G..M (build stages) → revert the culprit landing as one
@@ -671,11 +606,11 @@ python3 scripts/dev/integrator.py run --published /path/to/data-copy --main-repo
 
 Nothing polls. `integrator.ensure` (after each landing, and after each finished run) starts
 `integrator.py run` as a detached child (log `wt/.registry/integration.log`) when no code lane runs and
-main moved past both the live commit and the last integration's `to`, or the full suite is due; and
+main moved past both the live commit and the last integration's `to`, ; and
 `--lane data` (log `integration-data.log`, beside the code lane) when the data root has parts the live release
 lacks and no data run took this (G, data key) (`data_due`); green rows settle both `from` and published `to`. Live input identity (`data_key`, `tiles_commit`; legacy release name) skips duplicates before building, with a second check under `publish.lock` (`result: skipped`). Nothing starts without a published live release. A run that recorded a row calls `ensure` again
 when it ends, so landings after its join window start the next run at once (a manual run with
-`--sandbox` or another `--main-repo` chains nothing). A data-root change or a due full suite without a
+`--sandbox` or another `--main-repo` chains nothing). A data-root change without a
 landing waits for the next landing, finished run or `integrator.py ensure`.
 
 **Landing classes** (`landing_class.py`): `classify(repo, base, head, data_delta)` sorts `git diff --name-only` and
@@ -688,7 +623,7 @@ all listed (code, approvals or layers), else the newly listed. `here` shows the 
 classifies G..M by paths (`batch_class`). `inert` takes no slot: `live_build.repoint` APFS-clones
 the live release to `live-releases/<M>` (record `commit` M, `verified_commit`, `repointed_from`), swaps the link
 (Pages only when `docs/published-images.toml` changed) and records `result: green`, `skipped: true`. Other classes
-run `live_build.build(M, "code")` (`full` for the scheduled suite) in the `integration` sandbox and slot; the data
+run `live_build.build(M, "code")` (`full` only for an explicit `--full` run) in the `integration` sandbox and slot; the data
 lane's car report runs only when `layers/traffic_static` changed (else `carried_from`). **Join** only while free:
 the build re-reads main once, before its first stage that is not a cache hit; a newer head (at most `JOIN_LIMIT` =
 3) is checked out, reclassified and built instead (`batch_joined`), repeating only cached stages, each at most once. After a stage has run for real the batch is frozen; later landings wait for the next run. A batch that

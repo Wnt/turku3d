@@ -1,0 +1,16 @@
+[
+  {
+    "tile": "t0_0_0",
+    "seconds": 332.355,
+    "exit": 0,
+    "visual_before": "4c2c163556b2f0df48c303cdde52cbd061c8f8a9e895a5ca882220a36cdd0941",
+    "visual_after": "bc1e7f4da03fd47c330ebbf51d05f7cf78eaa42b032ce29a576d02af9916d253"
+  },
+  {
+    "tile": "t0_1_0",
+    "seconds": 313.968,
+    "exit": 0,
+    "visual_before": "b71a35d940a5873e8c3805839b1b66aa727f2b7e0d2b20f69e97b76cbe807357",
+    "visual_after": "2b8def46602a639ab4a70557013b59135876133ecf49a032c1a6ceb7e2b8629e"
+  }
+]

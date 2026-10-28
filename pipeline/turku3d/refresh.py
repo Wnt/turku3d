@@ -437,6 +437,24 @@ def refresh(work, target=None):
             result["buildings"] = timed("buildings", buildings, layers)
             result["facades"] = timed("facades", facades, layers, textures)
             return result
+        steps = {
+            "ground": (ground, (layers,)),
+            "buildings": (buildings, (layers,)),
+            "structures": (structures, (layers,)),
+            "bridges": (bridges, (layers,)),
+            "roads": (roads, (layers,)),
+            "landmarks": (landmarks, (layers,)),
+            "buildings_outer": (outer_buildings, (layers,)),
+            "props": (props, (layers,)),
+            "vegetation": (vegetation, (layers,)),
+            "traffic_static": (parked, (layers,)),
+            "bridge-textures": (bridge_textures, (textures,)),
+        }
+        if target is not None:
+            if target not in steps:
+                raise ValueError(f"unknown refresh stage: {target}")
+            action, args = steps[target]
+            return {target: timed(target, action, *args)}
         result = {}
         # Ground and buildings may share a linked layers ancestor. Detach it once
         # before refreshing them, but leave a fully cached tree linked.
@@ -478,7 +496,24 @@ def refresh(work, target=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work", type=Path, default=C.work_root())
-    parser.add_argument("--target", choices=["ground-textures", "facades"])
+    parser.add_argument(
+        "--target",
+        choices=[
+            "ground-textures",
+            "facades",
+            "ground",
+            "buildings",
+            "structures",
+            "bridges",
+            "roads",
+            "landmarks",
+            "buildings_outer",
+            "props",
+            "vegetation",
+            "traffic_static",
+            "bridge-textures",
+        ],
+    )
     args = parser.parse_args(argv)
     refresh(args.work, args.target)
 

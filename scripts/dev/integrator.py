@@ -118,15 +118,8 @@ def code_rows(published):
     ]
 
 
-def full_due(published, now=None):
-    landed = landing.ledger_rows()
-    return chrome.full_due(code_rows(published), landed, time.time() if now is None else now)
-
-
 def settled(published, main):
     """True when main needs no new code-lane run: it is live, or its last run took it."""
-    if full_due(published):
-        return False
     return main in (live_commit(published), last(published).get("to"))
 
 
@@ -248,20 +241,22 @@ class Run:
         status(self.lane, commit=commit, log=str(log))
         started = time.monotonic()
         try:
-            report = live_build.build(
-                repo,
-                work,
-                self.published,
-                env,
-                log,
-                reason,
-                self.previous,
-                self.kind,
-                (lambda cached: self.join(start, cached)) if join else None,
-                chrome=self.chrome,
-                timings=self.stage_seconds,
-                checks=checks,
-            )
+            with reserved(self.lane):
+                env = environment(repo, self.published, self.lane)
+                report = live_build.build(
+                    repo,
+                    work,
+                    self.published,
+                    env,
+                    log,
+                    reason,
+                    self.previous,
+                    self.kind,
+                    (lambda cached: self.join(start, cached)) if join else None,
+                    chrome=self.chrome,
+                    timings=self.stage_seconds,
+                    checks=checks,
+                )
         except live_build.StageFailed as exc:
             failure = {"stage": exc.stage, "detail": str(exc)[-1000:], "log": str(log)}
             return None, failure
@@ -532,7 +527,6 @@ def run_once(published, main_repo=s.REPO, name=NAME, full=False):
     end = s.git("rev-parse", "main", cwd=main_repo)
     if live is None:
         raise ValueError(f"no published live release in {published}")
-    full = full or full_due(published)
     if live == end and not full:
         return None
     start = live
@@ -543,13 +537,12 @@ def run_once(published, main_repo=s.REPO, name=NAME, full=False):
     base = {"from": start, "to": end, **landing, "full_suite": full}
     if landing["class"] == "inert":
         return repoint(run, base, start, end)
-    with reserved(NAME):
-        try:
-            return integrate(run, base, start, end)
-        except (ValueError, OSError, subprocess.CalledProcessError) as exc:
-            # Infrastructure failures (sandbox, env sync, git) name no culprit.
-            failure = {"detail": str(exc)[-1000:]}
-            return record(run, {**base, "result": "failed", "failure": failure})
+    try:
+        return integrate(run, base, start, end)
+    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+        # Infrastructure failures (sandbox, env sync, git) name no culprit.
+        failure = {"detail": str(exc)[-1000:]}
+        return record(run, {**base, "result": "failed", "failure": failure})
 
 
 def data_due(published):
@@ -594,74 +587,67 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
     base = {"lane": "data", "from": start, "to": start, "data_key": key, **landing}
     if refresh_stale:
         base["refresh_stale"] = stale
-    with reserved(DATA_NAME):
-        try:
-            report, failure = run.build(start, builder)
-            if report is None:
-                return data_red(run, base, failure, failure)
-            row = {
-                **base,
+    try:
+        report, failure = run.build(start, builder)
+        if report is None:
+            return data_red(run, base, failure, failure)
+        row = {
+            **base,
+            "tiles_commit": builder,
+            "seconds": report["seconds"],
+            "cache_hits": report["cache_hits"],
+            "facades_bound": report["facades_bound"],
+            "advisory": report["advisory"],
+            "culprit": None,
+        }
+        work = Path(report.pop("work"))
+        shipped = served.built(builder, live, report["tiles"], report.pop("tiles_built"))
+        with publish_lock():
+            current = (published / "live").resolve()
+            if integration_data.already_live(
+                current.name,
+                served.record(current),
+                live_commit(published),
+                key,
+                builder if refresh_stale else None,
+            ):
+                return record(run, {**row, "to": live_commit(published), "result": "skipped"})
+            if current != live:
+                if landing_class.release_parts(current) != run.live_parts:
+                    # New tiles were published first; the next round rebuilds on them.
+                    return record(run, {**row, "result": "superseded"})
+                # A code release of a newer main on the same tiles: ship its game.
+                start = live_commit(published)
+                served.carry_game(current, work)
+                row["to"] = start
+            release = integration_data.release_id(start, key, builder if refresh_stale else None)
+            fields = {
+                **report,
+                **served.provenance(main_repo, start, shipped),
+                "data_key": key,
                 "tiles_commit": builder,
-                "seconds": report["seconds"],
-                "cache_hits": report["cache_hits"],
-                "facades_bound": report["facades_bound"],
-                "advisory": report["advisory"],
-                "culprit": None,
+                "from": start,
+                "advisory_pending": True,
             }
-            work = Path(report.pop("work"))
-            shipped = served.built(builder, live, report["tiles"], report.pop("tiles_built"))
-            with publish_lock():
-                current = (published / "live").resolve()
-                if integration_data.already_live(
-                    current.name,
-                    served.record(current),
-                    live_commit(published),
-                    key,
-                    builder if refresh_stale else None,
-                ):
-                    return record(run, {**row, "to": live_commit(published), "result": "skipped"})
-                if current != live:
-                    if landing_class.release_parts(current) != run.live_parts:
-                        # New tiles were published first; the next round rebuilds on them.
-                        return record(run, {**row, "result": "superseded"})
-                    # A code release of a newer main on the same tiles: ship its game.
-                    start = live_commit(published)
-                    served.carry_game(current, work)
-                    row["to"] = start
-                release = integration_data.release_id(
-                    start, key, builder if refresh_stale else None
-                )
-                fields = {
-                    **report,
-                    **served.provenance(main_repo, start, shipped),
-                    "data_key": key,
-                    "tiles_commit": builder,
-                    "from": start,
-                    "advisory_pending": True,
-                }
-                live_build.prepare(work, published, start, fields, release)
-                live_build.publish(published, start, release)
-        except (ValueError, OSError, subprocess.CalledProcessError) as exc:
-            return record(
-                run, {**base, "result": "failed", "failure": {"detail": str(exc)[-1000:]}}
-            )
+            live_build.prepare(work, published, start, fields, release)
+            live_build.publish(published, start, release)
+    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+        return record(run, {**base, "result": "failed", "failure": {"detail": str(exc)[-1000:]}})
     if deployed := pages.deploy(published):
         row["pages"] = deployed
     row["publish_seconds"] = round(time.monotonic() - run.started, 3)
     release = published / "live-releases" / release
-    # Diagnostics need a host reservation too; code and data builds retain separate slots.
-    with reserved(DATA_NAME):
-        return integration_advisory.finish(
-            run,
-            row,
-            report,
-            work,
-            release,
-            advisory.release_advisory(live),
-            environment=environment,
-            registry=registry,
-            record=record,
-        )
+    return integration_advisory.finish(
+        run,
+        row,
+        report,
+        work,
+        release,
+        advisory.release_advisory(live),
+        environment=environment,
+        registry=registry,
+        record=record,
+    )
 
 
 def running(lane=NAME):

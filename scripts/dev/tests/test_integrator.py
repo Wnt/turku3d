@@ -699,37 +699,28 @@ class IntegratorTests(IntegratorFixture):
         row = self.integrate()
         self.assertEqual((self.plans, row["chrome_plan"], row["chrome"]), ([None], None, None))
 
-    def test_data_build_runs_streaming_specs_only_when_the_tile_list_changed(self):
+    def test_data_build_does_not_run_chrome_even_when_the_tile_list_changed(self):
         self.approve(3)
         self.data()
         self.assertEqual(self.plans[-1]["specs"], [])
         tiles = [*CORE, "t0_1_-1"]
         live_build.C.write_playable_tiles(self.published / "playable-tiles.json", tiles)
         self.data()
-        self.assertEqual(self.plans[-1]["specs"], ["game/tests/e2e-tile/tile.spec.ts"])
+        self.assertEqual(self.plans[-1]["specs"], [])
         self.assertEqual(self.plans[-1]["projects"], ["webgpu"])
 
-    def test_full_suite_is_due_two_hours_after_the_last_with_a_landing_since(self):
-        now = 1_000_000.0
-        self.assertFalse(integrator.full_due(self.published, now))
-        self.land("game", "game/a.ts", "a", when=now - 10)
-        self.assertTrue(integrator.full_due(self.published, now))
-        self.integrate(full=True)
-        last = json.loads(integrator.ledger_path().read_text().splitlines()[-1])["time"]
-        # Two hours later a full run is due only once something landed after the last one.
-        self.assertFalse(integrator.full_due(self.published, last + 7201))
-        self.land("more", "game/b.ts", "b", when=last + 60)
-        self.assertFalse(integrator.full_due(self.published, last + 7199))
-        self.assertTrue(integrator.full_due(self.published, last + 7201))
+    def test_live_main_does_not_start_periodic_browser_suites(self):
+        head = self.land("game", "game/a.ts", "a")
+        self.integrate()
+        self.assertTrue(integrator.settled(self.published, head))
+        self.assertIsNone(self.integrate())
 
-    def test_due_full_run_of_live_main_checks_the_release_in_place(self):
+    def test_explicit_full_run_of_live_main_checks_the_release_in_place(self):
         head = self.land("game", "game/a.ts", "a")
         self.assertEqual(self.integrate()["result"], "green")
         self.assertFalse(self.live_record()["full_suite"])
         self.assertTrue(integrator.settled(self.published, head))
-        with patch.object(integrator, "full_due", return_value=True):
-            self.assertFalse(integrator.settled(self.published, head))
-            row = self.integrate()
+        row = self.integrate(full=True)
         self.assertEqual((row["result"], row["full_suite"], row["class"]), ("green", True, "code"))
         # With no earlier green full run, G is the live commit.
         self.assertEqual((row["from"], row["to"]), (head, head))

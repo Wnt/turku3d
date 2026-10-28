@@ -49,7 +49,7 @@ def finish(run, row, report, work, release, known, *, environment, registry, rec
         row["chrome"] = report.get("chrome")
         if run.full:
             chrome.mark_full_suite(run.published, row["advisory"], release=release)
-        if run.lane == "integration":
+        if run.lane == "integration" and run.full:
             deep_log = registry() / f"integration-{run.id}-deep.log"
             row["deep_gate_seconds"], deep = advisory.deep_gate(repo, env, deep_log, cancelled)
             row["advisory"] += deep

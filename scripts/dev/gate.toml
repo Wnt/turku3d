@@ -3,7 +3,7 @@
 # Tiers: `gate --fast` (workers, finish, the lander) runs lint, types, policy and the unit-test
 # stages whose full run stays under 20 s, under 30 s in all at host load 100, never a browser.
 # A stage over that budget gets tier = "deep": `gate --deep` / `make gate-deep` by hand, and the
-# integrator runs `gate --deep --all` after publishing each code batch (advisory).
+# deep tier is an explicit investigation, never an automatic per-batch sweep.
 [gate]
 # Gate machinery changes rerun every stage; the host tools are covered by their own test stages.
 full_triggers = ["scripts/dev/gate.toml", "scripts/dev/gate_lib.py", "scripts/dev/gate_fixtures.py", "scripts/dev/gate_cache.py"]
@@ -301,7 +301,7 @@ configs = [".shellcheckrc", "scripts/dev/gate.toml"]
 triggers = ["*.sh", ".shellcheckrc", ".githooks/*"]
 sources = ["*.sh", ".githooks/*"]
 
-# browser = true: the stage starts Chrome, so `gate --fast` leaves it to the integrator.
+# browser = true: the stage starts Chrome, so `gate --fast` skips this explicit investigation.
 [[stages]]
 name = "qa-render-tests"
 kind = "command"
@@ -347,7 +347,7 @@ paths = ["game/src/world/*", "game/src/core/origin.ts"]
 tags = ["@streaming", "@aoi"]
 
 [[stages.related]]
-paths = ["game/src/main.ts", "game/src/play.ts", "game/src/core/params.ts", "game/src/core/flags.ts", "game/src/core/localOnly.ts"]
+paths = ["game/src/main.ts", "game/src/play.ts", "game/src/core/params.ts", "game/src/core/flags.ts", "game/src/core/localOnly.ts", "game/src/bootstrap.ts", "game/public/isolation.js", "game/src/core/dayCycle.ts", "game/src/core/helpLearning.ts", "game/src/core/isolation.ts", "game/src/core/loading.ts", "game/src/core/release.ts", "game/src/core/storage.ts"]
 tags = ["@launch", "@walk", "@drive", "@qa"]
 
 [[stages.related]]

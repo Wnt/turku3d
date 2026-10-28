@@ -9,7 +9,6 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import integration_chrome as chrome  # noqa: E402
 import spec_selection as sel  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
@@ -265,21 +264,6 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(
             sorted(p.name for p in directory.iterdir()), ["2.json", "3.json", "4.json"]
         )
-
-    # Schedule ------------------------------------------------------------------------
-
-    def test_full_suite_schedule(self):
-        hour = 3600
-        landed = [{"time": 10.0}]
-        self.assertTrue(chrome.full_due([], landed, 3 * hour))
-        self.assertFalse(chrome.full_due([], [], 3 * hour))
-        rows = [{"full_suite": True, "time": 100.0, "result": "red"}]
-        self.assertFalse(chrome.full_due(rows, landed, 100.0 + 3 * hour))
-        landed.append({"time": 200.0})
-        self.assertFalse(chrome.full_due(rows, landed, 100.0 + hour))
-        self.assertTrue(chrome.full_due(rows, landed, 100.0 + 2 * hour))
-        rows.append({"full_suite": False, "time": 300.0, "result": "green", "to": "b"})
-        self.assertEqual(chrome.last_full(rows)["time"], 100.0)
 
 
 class MapTests(unittest.TestCase):

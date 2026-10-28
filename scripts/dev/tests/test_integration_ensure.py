@@ -23,14 +23,13 @@ class EnsureTests(unittest.TestCase):
 
     published = Path("/published")
 
-    def ensure(self, *, live="older", last=None, lanes=None, data_due=False, full_due=False):
+    def ensure(self, *, live="older", last=None, lanes=None, data_due=False):
         lanes = lanes or {}
         with (
             patch.object(integrator.s, "git", return_value="main-head"),
             patch.object(integrator, "live_commit", return_value=live),
             patch.object(integrator, "last", return_value=last or {}),
             patch.object(integrator, "data_key", return_value="data"),
-            patch.object(integrator, "full_due", return_value=full_due),
             patch.object(
                 integrator, "running", side_effect=lambda lane=integrator.NAME: lanes.get(lane)
             ),
@@ -52,8 +51,8 @@ class EnsureTests(unittest.TestCase):
             with self.subTest(live=live, last=last):
                 self.assertEqual(self.ensure(live=live, last=last), started)
 
-    def test_due_full_suite_starts_the_code_lane_for_live_main(self):
-        self.assertEqual(self.ensure(live="main-head", full_due=True), ["code"])
+    def test_idle_live_main_never_starts_periodic_suites(self):
+        self.assertEqual(self.ensure(live="main-head"), [])
 
     def test_running_code_lane_is_not_doubled_and_data_lane_starts_beside_it(self):
         running = {integrator.NAME: {"to": "x", "data_key": "old"}}

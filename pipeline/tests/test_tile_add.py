@@ -133,6 +133,23 @@ def test_facade_fast_reads_result_before_cleanup_warning(monkeypatch):
     assert T.facade_fast("refs", [], None) == {"walls": 172, "errors": {}}
 
 
+def test_facade_downloads_and_remote_descriptions_hold_no_cpu_slot(monkeypatch):
+    commands = []
+
+    def stream(command, log):
+        commands.append(command)
+        return ['{"ok": true}']
+
+    monkeypatch.setattr(T, "stream", stream)
+    for step in ("refs", "describe", "render", "publish"):
+        T.facade_fast(step, [], None)
+    assert all(
+        "scripts/dev/host_slots.py" not in " ".join(command)
+        for command in (commands[0], commands[1], commands[3])
+    )
+    assert commands[2][1:4] == [str(C.REPO_ROOT / "scripts/dev/host_slots.py"), "build", "--"]
+
+
 def test_refresh_layers_built_for_another_list_are_stale(roots):
     _, work = roots
     layer = work / "build/layers/ground"

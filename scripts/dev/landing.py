@@ -130,13 +130,22 @@ def author(commit):
     )
 
 
+def completed_at(meta):
+    return meta.get("finished") if meta.get("state") == "done" else meta.get("finish_requested")
+
+
 def member(name):
     """A finished task's (path, meta, result text): DONE result recorded."""
     from task_runner import task
 
     path = task(name)
     meta = s.read_json(path / "meta.json")
-    if meta.get("state") != "done" or meta.get("exit_code") != 0:
+    own_turn = (
+        meta.get("state") in ("starting", "running")
+        and os.environ.get("TURKU3D_SANDBOX") == name
+        and meta.get("finish_requested")
+    )
+    if not own_turn and (meta.get("state") != "done" or meta.get("exit_code") != 0):
         raise ValueError(f"{name}: task must have completed successfully before landing")
     if not result_done(path):
         raise ValueError(f"{name}: result must contain an exact ## Result: DONE heading")
@@ -298,7 +307,7 @@ def record(name, path, text, before, commit, started, gate, landing, push, lock_
             "fast_gate_seconds": seconds,
             "fast_gate_stages": stages,
             "first_done_time": meta.get("first_finished", meta.get("finished")),
-            "done_time": meta.get("finished"),
+            "done_time": completed_at(meta),
             "facade_regression_reason": facade_reason(text),
             # The task's agent Chrome use (browser_budget.py); None for an unbudgeted task.
             "browser_minutes": (browser_budget.read(name) or {}).get("used_minutes"),
@@ -335,7 +344,7 @@ def land(name, keep_sandbox=False, note=None):
         deadline = started + BUDGET_SECONDS
         path, meta, text = member(name)
         landed = meta.get("landed")
-        if landed and landed.get("done_time") == meta.get("finished"):
+        if landed and landed.get("done_time") == completed_at(meta):
             print(f"{name}: already landed {landed['commit'][:12]}; finish again to land more")
             return landed
         repo = checkout(name)

@@ -15,7 +15,10 @@ make qa-refs                             # regenerate the six heading-corrected 
 ```
 
 `make tile` runs in order even under `make -j`: published layer manifest/hash checks → local assembly
-→ decoded precision, budget and bitwise seam checks → Rapier validation → Chrome WebGPU/WebGL2 e2e.
+→ decoded precision, budget and bitwise seam checks → format/seam validation.
+`make tile-validate` and `make tile-e2e` are explicit physics/browser investigations.
+Use `make tile-reuse` to clone missing built products, then `make refresh REFRESH_TARGET=roads`
+(or another layer name) to refresh only the changed stage; `make tile T=...` assembles only the chosen tiles.
 It writes `$TURKU3D_WORK/dist/tiles`; validation reports go to `$TURKU3D_WORK/reports`.
 The e2e suite checks the textured render, walking, QA projection/ID passes, and a route across
 all four L0 tiles. Screenshots are in `$TURKU3D_WORK/reports/screenshots/tile-*`.

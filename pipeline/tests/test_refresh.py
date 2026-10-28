@@ -281,3 +281,17 @@ def test_per_tile_layers_rebuild_only_when_a_tile_is_stale(tmp_path, monkeypatch
         ("turku3d.buildings.outer",),
         ("turku3d.structures",),
     ]
+
+
+def test_single_stage_target_reuses_prerequisites_and_leaves_unrelated_stages_alone(
+    tmp_path, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(refresh, "ground", lambda *a: pytest.fail("unrelated ground rebuild"))
+    monkeypatch.setattr(refresh, "buildings", lambda *a: pytest.fail("unrelated building rebuild"))
+    monkeypatch.setattr(refresh, "roads", lambda layers: calls.append(layers) or "cached")
+    result = refresh.refresh(tmp_path, "roads")
+    assert result == {"roads": "cached"}
+    assert calls == [tmp_path / "build/layers"]
+    with pytest.raises(ValueError, match="unknown refresh stage"):
+        refresh.refresh(tmp_path, "typo")
