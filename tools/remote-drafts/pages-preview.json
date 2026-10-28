@@ -1,0 +1,55 @@
+{
+  "mode": "CDP preview of local production bundle on actual Pages origin; not the unmodified published build",
+  "url": "https://wnt.github.io/turku-game/game/?dev=1",
+  "client_commit": "7df9d5d",
+  "pipeline_base": "38e57aff",
+  "backport": "9ad546a _extrude ring weld",
+  "cached_requests": true,
+  "measurement": "first wanted poll with load=true to completed scene insertion; includes polling, collision decode, GLB decode and GPU preparation",
+  "tiles": [
+    {
+      "tile": "t0_4_4",
+      "wanted_to_scene_ms": 7649
+    },
+    {
+      "tile": "t0_3_4",
+      "wanted_to_scene_ms": 13318
+    },
+    {
+      "tile": "t0_5_4",
+      "wanted_to_scene_ms": 39519
+    },
+    {
+      "tile": "t0_2_4",
+      "wanted_to_scene_ms": 25117
+    },
+    {
+      "tile": "t0_4_5",
+      "wanted_to_scene_ms": 21349
+    },
+    {
+      "tile": "t0_3_5",
+      "wanted_to_scene_ms": 17790
+    },
+    {
+      "tile": "t0_5_5",
+      "wanted_to_scene_ms": 34260
+    },
+    {
+      "tile": "t0_2_5",
+      "wanted_to_scene_ms": 30856
+    }
+  ],
+  "game_errors": [],
+  "evidence_root": "/home/wnt/turku3d-drafts/agent-work/reports",
+  "screenshots": [
+    "pages-preview-menu.png",
+    "pages-preview-drive.png",
+    "t0_2_-1-top.png",
+    "t0_2_-1-oblique.png",
+    "t0_1_5-top.png",
+    "t0_1_5-oblique.png"
+  ],
+  "profile": "preview-profile-valid/trace.json.gz",
+  "browser_minutes_approx": 17
+}
