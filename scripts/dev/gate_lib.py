@@ -448,8 +448,8 @@ def _run_gate(
             def action():
                 return execute(root, stage, changed, files, full, env, config, plan)
 
-            # Policy depends on current main's merge count and is already inexpensive.
-            if lint_only or stage["kind"] == "policy":
+            # Policy depends on main's merge count; launch checks scan current sources.
+            if lint_only or stage["kind"] == "policy" or stage.get("cache") is False:
                 return action()
             kind = stage["kind"]
             if kind in ("python-lint", "js-lint", "shell"):

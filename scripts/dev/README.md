@@ -16,7 +16,7 @@ import the same module; localhost, the integrator and gate delegate to protected
 Do not append another `--disable-features` switch after the helper.
 
 ```bash
-node tools/dev/check-chrome-launches.mjs        # also runs in every fast gate
+node tools/dev/check-chrome-launches.mjs        # runs uncached in every fast gate
 node --test tools/dev/chrome-args.test.mjs       # synthetic merger and policy checks
 python3 scripts/dev/host_slots.py browser -- node tools/dev/verify-chrome-clone.mjs
 ```
