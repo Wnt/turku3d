@@ -70,8 +70,16 @@ const perf=new PerformanceMonitor(renderer,'webgpu');
 window.probe={async view(v){
  camera.position.set(...v.position);
  if(${phase === 'after'}&&v.grounding){
-  const ray=new THREE.Raycaster(new THREE.Vector3(camera.position.x,1000,camera.position.z),new THREE.Vector3(0,-1,0));
-  const hit=ray.intersectObjects(surfaces[v.grounding],false)[0];
+  const support=(x,z,layer)=>new THREE.Raycaster(new THREE.Vector3(x,1000,z),new THREE.Vector3(0,-1,0)).intersectObjects(surfaces[layer],false)[0];
+  let hit=support(camera.position.x,camera.position.z,v.grounding);
+  if(!hit&&v.grounding==='ground')hit=support(camera.position.x,camera.position.z,'bridges');
+  for(const radius of [3,8,16,32]){
+   if(hit)break;
+   for(const [dx,dz] of [[radius,0],[-radius,0],[0,radius],[0,-radius]]){
+    hit=support(camera.position.x+dx,camera.position.z+dz,v.grounding);
+    if(hit){camera.position.x+=dx;camera.position.z+=dz;break;}
+   }
+  }
   if(!hit)throw new Error('Missing camera support: '+v.name);
   camera.position.y=hit.point.y+1.7;
  }

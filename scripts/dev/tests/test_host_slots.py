@@ -104,7 +104,8 @@ class HostSlotsTest(unittest.TestCase):
         # The current and replacement integrations both retain their six jobs.
         full = [*entries, {**build, "state": "running", "since": 0.5}]
         self.assertFalse(host_slots.admissible(full, build))
-        self.assertFalse(host_slots.admissible(entries, {**build, "kind": "browser"}))
+        # Browser admission uses GPU capacity and can share the integrator's Chrome stage.
+        self.assertTrue(host_slots.admissible(entries, {**build, "kind": "browser"}))
         # Without a running integration, three builds would still starve the queued one.
         self.assertFalse(host_slots.admissible(full[1:], build))
 

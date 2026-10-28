@@ -1,7 +1,8 @@
 # Draft bridge appearance and profile audit
 
-Implementation and real-data builds are complete; game-renderer visual inspection, draw counts
-and authoritative private reference comparisons remain pending. This is not a landing approval.
+Implementation, real-data builds and paired game-renderer inspection are complete. Private
+reference score/diff remains unavailable until the independent capture passes its highest-detail
+gate; the existing captures must not be treated as measured reference truth.
 
 OSM crossing outlines and membership remain authoritative for one deck per crossing. Optional
 classified city lidar supplies robust longitudinal deck profiles and positive support evidence.
@@ -56,6 +57,42 @@ Detailed bridge triangles, summed across clipped visual tiles: Myllysilta 23,362
 Hämeensilta 36,206; Hämeenramppi 6,213; Raunistulansilta 29,546; railway 50,738; Betanianpolku 6,688.
 These are geometry counts, not scene draw-call measurements.
 
+## Game-renderer inspection
+
+The sandbox game renderer captured 81 views for each build, using identical camera poses: top and
+oblique views for every distinct crossing in the 13 affected tiles, plus street, bank and deck
+views for each named bridge. The 48 after top/oblique images were inspected together, with full
+resolution checks at the named river and rail crossings. The bridge shapes occupy the mapped
+crossings once, and the widened Teatterisilta bay stays level. Auransilta's before/after bank
+pair shows the former blank slab and sticks replaced by an edge beam, open rail, substantial
+support and bank abutment. Hämeensilta's deck pair shows asphalt, lane paint, raised pavement
+and rails in place of the bare slab. The river ground/water boundary remains visibly jagged in
+these draft scenes; it is a separate source-ground issue.
+
+The whole visible scene stayed at 53–161 draw calls after (50–156 before), below the 500-draw
+bridge-spot budget. It drew 212,715–782,533 triangles after (141,686–590,040 before). These
+counts include all loaded visible models, not only bridge meshes. For the three street/bank/deck
+views of each named crossing, the after maxima were:
+
+| Bridge | Max draws | Max scene triangles |
+| --- | ---: | ---: |
+| Myllysilta | 115 | 648,167 |
+| Martinsilta | 150 | 782,533 |
+| Teatterisilta | 135 | 677,476 |
+| Auransilta | 154 | 695,628 |
+| Kirjastosilta | 161 | 731,844 |
+| Tuomiokirkkosilta | 88 | 340,790 |
+| Betanianpolku | 149 | 749,139 |
+| Hämeensilta | 90 | 581,968 |
+| Hämeenramppi | 67 | 405,682 |
+| Raunistulansilta | 96 | 657,218 |
+| Aurajoen ratasilta | 103 | 664,954 |
+
+The exact screenshots, performance JSON and own-source EPSG:3877/N2000 reference camera lists
+are retained only under `$TURKU3D_WORK/reports/bridge-quality/`. A street camera at the raised
+Hämeenramppi had no ground directly underneath; the QA harness now uses the bridge surface or
+nearest mapped ground as support and records the adjusted pose for both builds.
+
 ## Commands
 
 ```sh
@@ -76,18 +113,20 @@ The renderer samples street/bank/deck eye positions 1.7 m above the supporting a
 reuses the exact positions for before. It records top/oblique views of every crossing and
 street/bank/deck views of all named crossings, plus per-view performance counters.
 
-The focused bridge/tunnel tests pass (22 tests, 12.81 s at measured host load); host-slot tests
-pass (13 tests, 8.23 s). The fast gate passed in 2.664 s before this report was added.
+The focused bridge/tunnel tests passed (22 tests, 12.81 s at measured host load); host-slot tests
+passed (13 tests, 8.23 s). The fast gate passed in 2.664 s before this report was added.
 
-## Admission fix and pending checks
+## Admission fix and private reference status
 
 The audit exposed a host scheduler error: a running code integration and its queued replacement
 were counted simultaneously, preventing later builds even when CPU capacity was free. The
 replacement-reservation check now removes only the current code reservation when checking the
-future state. Current CPU/GPU limits, integration priority and Chrome exclusion remain enforced.
+future state. Current CPU/GPU limits and integration priority remain enforced. The later main
+admission change allows three agent Chrome suites beside integration.
 
-The paired game-renderer run is pending browser admission. The **under-500 scene draw-call target
-has not yet been measured**, and the 81 planned views per phase have not yet been inspected.
-The private comparison tool's highest-detail completeness check has not passed; there are no
-accepted reference pairs or scores. Keep all eventual reference renders and detailed comparison
-evidence private, and record only permitted aggregate scores here.
+The private comparison tool's highest-detail completeness check has not passed for any affected
+tile. In particular, the latest Aura capture is incomplete, and the northern railway tile has no
+capture. No reference score or diff is accepted. Own camera pose lists are ready for the offline
+`render`/`pair` tool; any partial reference images remain private and cannot supply numerical
+claims. The separate gmaps-validation-loop owner has been asked for completion status and
+railway capture coverage.
