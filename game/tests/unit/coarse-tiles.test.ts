@@ -1,7 +1,7 @@
 // Draft (coarse) tiles: which cells are wanted, the published-parent swap rule and the game hook against a fake service.
 import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CoarseTiles, RESTARTING, aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
+import { CoarseTiles, RESTARTING, aheadTiles, cellsOf, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
 import { arrivalToL0 } from '../../src/world/coarseRegion';
 import { isLocalHost } from '../../src/core/localOnly';
 import { draftsUrl } from '../../src/net/config';
@@ -23,16 +23,12 @@ test('localhost drafts stay same-origin; Pages uses HTTPS remote drafts', () => 
   vi.unstubAllEnvs();
 });
 
-test('wanted cells: 3x3 window minus published tiles, widened to whole published leaf parents, nearest first', () => {
-  const leaves = leafParents(published);
-  expect([...leaves].sort()).toEqual(['t1_0_-1', 't1_1_0']);
-  const want = wantedTiles(480, 100, new Set(published), leaves);
-  expect(want[0]).toBe('t0_2_0');
-  expect(want).not.toContain('t0_1_0');
-  // t1_1_0 is a leaf: all four of its quadrants, including t0_3_0 two cells away.
-  for (const id of ['t0_2_0', 't0_3_0', 't0_2_1', 't0_3_1', 't0_0_-1', 't0_1_-1', 't0_0_-2', 't0_1_-2', 't0_2_-1']) expect(want).toContain(id);
-  expect(parentCovered('t1_1_0', new Set(['t0_2_0', 't0_3_0', 't0_2_1']))).toBe(false);
-  expect(parentCovered('t1_1_0', new Set(['t0_2_0', 't0_3_0', 't0_2_1', 't0_3_1']))).toBe(true);
+test('all world cells use the nearest-first draft window, including the starting tile', () => {
+  const want = wantedTiles(480, 100);
+  expect(want).toHaveLength(9);
+  expect(want[0]).toBe('t0_1_0');
+  expect(want).toContain('t0_0_0');
+  expect(want).not.toContain('t0_3_0');
 });
 
 function fakeService(manifest: Manifest) {
@@ -68,17 +64,16 @@ function fakeService(manifest: Manifest) {
   return { fetch: serve, polls, colUrls, publish: (m: Manifest) => { freshManifest = m; } };
 }
 
-test('streams a draft tile into the scene and the collision manifest, hides the covered parent, swaps on publish', async () => {
+test('streams only drafts, validates all collision before visibility and unloads on departure', async () => {
   const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])), collision: {} } as unknown as Manifest;
   const service = fakeService(manifest);
   const scene = new THREE.Scene();
-  const tiles = new THREE.EventDispatcher() as CoarseHost['tiles'];
   const unloaded: string[] = [];
   const loadedUrls: string[] = [];
   const checked = new Set<string>();
   const shownBeforeCheck: string[] = [];
   const host: CoarseHost = {
-    scene, tiles, manifest, manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/',
+    scene, manifest, pageUrl: 'http://127.0.0.1:5171/',
     renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
     unloadCollision: id => unloaded.push(id), refreshCollision: () => {}, fetch: service.fetch,
     // The physics worker accepts a buffer unless it starts with 0xff.
@@ -101,8 +96,6 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
   const coarse = (await CoarseTiles.start(host))!;
   let mapChanges = 0;
   coarse.onMapChange = () => mapChanges++;
-  const parent = new THREE.Group();
-  tiles.dispatchEvent({ type: 'load-model', scene: parent, tile: { extras: { id: 't1_1_0' } } });
   const settle = () => new Promise(r => setTimeout(r, 0));
 
   coarse.update(600, 100, 0); await settle();
@@ -123,7 +116,7 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
     expect(cellsOf(id).filter(cid => manifest.collision[cid])).toEqual([]);
   }
   coarse.update(600, 100, 4100); await settle(); // the badge follows at the next 1 s check
-  expect(coarse.status).toBe('draft tile t0_2_0 · drafts t0_0_-1 t0_0_-2 t0_1_-2 t0_2_0 t0_2_1 t0_3_0 t0_3_1');
+  expect(coarse.status).toContain('draft tile t0_2_0');
   // Its street graph is on the map: one graph (t0_2_0's; the other drafts have none), announced once.
   expect(coarse.roadGraphs().map(g => g.bbox)).toEqual([[500, 0, 750, 250]]);
   expect(mapChanges).toBe(1);
@@ -134,41 +127,23 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
   expect(material.colorNode).toBeNull();
   expect(material.color.getHex()).toBe(0xffffff);
   expect(material.polygonOffset).toBe(true);
-  // All four quadrants of t1_1_0 are drafts now (the fake builds every tile), so the published leaf is hidden.
-  expect(parent.visible).toBe(false);
-
-  // The pipeline publishes t0_2_0: after the 60 s manifest poll the published GLB and collision replace the draft.
-  service.publish({ ...manifest, visual: { ...manifest.visual, t0_2_0: { url: 'visual/0/t0_2_0.glb' } },
-    collision: { c_8_0: { url: 'collision/t0_2_0/c_8_0.col' } } } as unknown as Manifest);
-  coarse.update(600, 100, 61_000); await settle(); await settle(); await settle();
-  expect(coarse.entries.get('t0_2_0')?.state).toBe('published');
-  expect(draft.parent).toBeNull();
-  // The published tile's streets come with the release's graph: the draft's leave the map.
-  expect(coarse.roadGraphs()).toEqual([]);
-  expect(mapChanges).toBeGreaterThanOrEqual(2);
-  expect(unloaded).toContain('c_8_0');
-  expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/tiles/collision/t0_2_0/c_8_0.col');
-  expect(loadedUrls).toContain('http://127.0.0.1:5171/tiles/visual/0/t0_2_0.glb');
-
   // Driving far away drops drafts and their collision entries.
   coarse.update(5000, 5000, 70_000); await settle();
   expect([...coarse.entries.keys()].filter(id => /^t0_[0-3]_/.test(id))).toEqual([]);
   expect(manifest.collision.c_8_0).toBeUndefined();
-  expect(parent.visible).toBe(true);
 });
 
 test('prefetch: the cells along the next 30 s of travel and a one-tile ring, nearest first; none when standing', () => {
-  const none = new Set<string>();
-  expect(aheadTiles(100, 100, 0.5, 0, none)).toEqual([]);
+  expect(aheadTiles(100, 100, 0.5, 0)).toEqual([]);
   // 20 m/s east from x 100: 600 m ahead reaches cell i = 2, and the ring i = 3; rows j -1..1 around the path.
-  const ahead = aheadTiles(100, 100, 20, 0, none);
+  const ahead = aheadTiles(100, 100, 20, 0);
   expect(ahead.length).toBe(5 * 3);
   expect(ahead[0]).toBe('t0_0_0');
   for (const id of ['t0_-1_0', 't0_2_-1', 't0_3_1']) expect(ahead).toContain(id);
   expect(ahead).not.toContain('t0_4_0');
-  expect(aheadTiles(100, 100, 20, 0, new Set(['t0_1_0']))).not.toContain('t0_1_0');
+  expect(aheadTiles(100, 100, 20, 0)).toContain('t0_1_0');
   // 40 m/s north-east covers the diagonal out to 1200 m.
-  expect(aheadTiles(100, 100, 28.3, -28.3, none)).toContain('t0_3_-4');
+  expect(aheadTiles(100, 100, 28.3, -28.3)).toContain('t0_3_-4');
 });
 
 test('a moving player gets builds ahead requested without loading them; they load once inside the window', async () => {
@@ -176,7 +151,7 @@ test('a moving player gets builds ahead requested without loading them; they loa
   const service = fakeService(manifest);
   const loaded: string[] = [];
   const coarse = new CoarseTiles({
-    scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest, manifestUrl: 'tiles/manifest.json',
+    scene: new THREE.Scene(), manifest,
     pageUrl: 'http://127.0.0.1:5171/', fetch: service.fetch, unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2,
     renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
     loadModel: async (url) => { loaded.push(/(t0_[^/]+)\/vis/.exec(url)![1]); return new THREE.Group(); },
@@ -205,8 +180,8 @@ test('reports the player motion once a second and names the data a waiting tile 
     if (u.pathname === '/coarse/status') return json(200, { state: 'idle' });
     return json(202, { state: 'pending-data', missing: ['lidar/23460000_6704500', 'lidar/23460500_6704500', 'wfs/23460000_6704500'] });
   }) as typeof globalThis.fetch;
-  const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
-    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
+  const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), manifest,
+    pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() }))!;
   const settle = () => new Promise(r => setTimeout(r, 0));
   coarse.update(600, 100, 0); await settle(); await settle();
@@ -236,8 +211,8 @@ test('a restarting service pauses the drafts: one console line, only status prob
     if (u.pathname === '/coarse/want') return mode === 'old' ? json(404, { error: 'not found' }) : json(200, {});
     return json(202, { state: 'queued' });
   }) as typeof globalThis.fetch;
-  const host: CoarseHost = { scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
-    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
+  const host: CoarseHost = { scene: new THREE.Scene(), manifest,
+    pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() };
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const info = vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -318,8 +293,8 @@ test('a finished build reaches the game at the next check, and the badge shows w
     if (u.pathname === '/coarse/t0_2_0/manifest.json') { polls++; return json(202, { state: 'queued', position: 0, eta: 6.2 }); }
     return json(404, { error: 'not here' });
   }) as typeof globalThis.fetch;
-  const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
-    manifestUrl: 'tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
+  const coarse = (await CoarseTiles.start({ scene: new THREE.Scene(), manifest,
+    pageUrl: 'http://127.0.0.1:5171/', fetch, unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() }))!;
   const settle = async () => { for (let k = 0; k < 4; k++) await new Promise(r => setTimeout(r, 0)); };
   coarse.update(600, 100, 0); await settle();
@@ -333,43 +308,6 @@ test('a finished build reaches the game at the next check, and the badge shows w
   expect(polls).toBe(3); // the 2 s poll, then at once on the new version instead of at 4000
 });
 
-test('a drawn draft owns the collision of all its cells, also a published margin cell, and returns it when it leaves', async () => {
-  // The release publishes c_8_0 (t0_2_0's corner) as a margin cell: ground and props whose visuals no tile draws.
-  const margin = { url: 'collision/t0_2_0/c_8_0.col', sha256: 'm', bytes: 4, tris: 1, h: [0, 1] };
-  const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])),
-    collision: { c_8_0: margin } } as unknown as Manifest;
-  const service = fakeService(manifest);
-  const refreshed: string[] = [], unloaded: string[] = [];
-  const coarse = new CoarseTiles({
-    scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest, manifestUrl: 'tiles/manifest.json',
-    pageUrl: 'http://127.0.0.1:5171/', fetch: service.fetch, unloadCollision: id => unloaded.push(id),
-    refreshCollision: ids => refreshed.push(...ids), checkCollision: async () => 2,
-    renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
-    loadModel: async () => new THREE.Group(),
-  });
-  const settle = async () => { for (let k = 0; k < 6; k++) await new Promise(r => setTimeout(r, 0)); };
-  coarse.update(600, 100, 0); await settle();
-  coarse.update(600, 100, 3000); await settle();
-  expect(coarse.entries.get('t0_2_0')?.state).toBe('draft');
-  // The draft's own .col replaces the margin cell, and a loaded margin collider is swapped for it.
-  expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_8_0.col');
-  expect(manifest.collision.c_9_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_9_0.col');
-  expect(refreshed).toEqual(['c_8_0']);
-  expect(coarse.held()).toContain('c_8_0');
-
-  // A new release keeps the drafted cell the draft's; the draft returns the release's entry when it leaves.
-  const next = { ...margin, url: 'collision/t0_2_0/c_8_0.col', sha256: 'm2' };
-  coarse.release(published, { c_8_0: next } as unknown as Manifest['collision']);
-  expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_8_0.col');
-  coarse.update(5000, 5000, 10_000); await settle();
-  expect(coarse.entries.has('t0_2_0')).toBe(false);
-  expect(manifest.collision.c_8_0).toBe(next);
-  expect(refreshed).toEqual(['c_8_0', 'c_8_0']);
-  expect(unloaded).not.toContain('c_8_0');
-  expect(unloaded).toContain('c_9_0');
-  expect(manifest.collision.c_9_0).toBeUndefined();
-});
-
 test('Pages retries offline and queue-full states, then draws remote drafts after collision checks', async () => {
   const manifest = { visual: { t0_0_0: { url: 'vis.glb' } }, collision: {} } as unknown as Manifest;
   const service = fakeService(manifest);
@@ -378,8 +316,8 @@ test('Pages retries offline and queue-full states, then draws remote drafts afte
   let checks = 0;
   let loads = 0;
   const host: CoarseHost = {
-    scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
-    manifestUrl: '/tiles/manifest.json', pageUrl: 'https://wnt.github.io/turku-game/',
+    scene: new THREE.Scene(), manifest,
+    pageUrl: 'https://wnt.github.io/turku-game/',
     renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
     unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async () => { checks++; },
@@ -397,8 +335,8 @@ test('Pages retries offline and queue-full states, then draws remote drafts afte
     }) as typeof globalThis.fetch,
   };
   const coarse = (await CoarseTiles.start(host))!;
-  expect(coarse.progressAt(100, 100)).toEqual({ loaded: 0, total: 0, errors: [] });
-  expect(coarse.progressAt(600, 100)).toEqual({ loaded: 0, total: 1, errors: [] });
+  expect(coarse.progressAt(100, 100)).toEqual({ loaded: 0, total: 9, errors: [] });
+  expect(coarse.progressAt(600, 100)).toEqual({ loaded: 0, total: 9, errors: [] });
   const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0)); };
   coarse.update(600, 100, 0);
   expect(coarse.status).toBe('drafts: remote service offline');
@@ -448,8 +386,8 @@ test('a full draft upgrades geometry, changed collision and streets only after t
     if (name.endsWith('.json') && name.includes('/roads.')) return json(200, graph());
     return json(404, {});
   }) as typeof globalThis.fetch;
-  const coarse = new CoarseTiles({ scene, manifest, tiles: new THREE.EventDispatcher() as CoarseHost['tiles'],
-    manifestUrl: '/tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', renderer: {} as THREE.WebGPURenderer,
+  const coarse = new CoarseTiles({ scene, manifest,
+    pageUrl: 'http://127.0.0.1:5171/', renderer: {} as THREE.WebGPURenderer,
     fetch, unloadCollision: () => {}, refreshCollision: ids => refreshed.push(...ids), checkCollision: async () => 2,
     loadModel: async () => phase === 'first' ? first : new Promise(resolve => { release = resolve; }) });
   const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };

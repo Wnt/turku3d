@@ -1,7 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { modelTextures, textureUploads } from '../render/textureUploads';
 import type { PlayWorld } from '../play';
-import { VISUAL_RING_RADIUS } from './residency';
 import { worldLoad } from './loadProgress';
 import type { V3 } from '../core/origin';
 import { loading, loadBytes } from '../core/loading';
@@ -30,8 +29,7 @@ async function drainGpu(renderer: THREE.WebGPURenderer) {
 
 /** The session has loaded actors/parked cars but has not enabled input or installed its animation loop yet. */
 export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<V3[]>) {
-  const { tiles, streamer, coarse, materials, renderer, scene, camera, env, renderFrame, params } = world;
-  tiles.setFocus(focus.x, focus.z, Math.max(VISUAL_RING_RADIUS, params.collisionRadius));
+  const { streamer, coarse, materials, renderer, scene, camera, env, renderFrame } = world;
   env.follow(new THREE.Vector3(focus.x, camera.position.y, focus.z));
   worldLoad.update({ phase: 'loading' });
   const downloaded = loading.begin('360° world preload');
@@ -42,18 +40,16 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     await frame();
     coarse?.update(focus.x, focus.z);
     streamer.update(focus.x, focus.z);
-    tiles.update(camera);
     const collision = streamer.progressAt(focus.x, focus.z);
     const drafts = coarse?.progressAt(focus.x, focus.z) ?? { loaded: 0, total: 0, errors: [] };
-    const visual = tiles.progress;
-    const errors = [...tiles.errors, ...materials?.ground?.errors ?? [], ...collision.errors, ...drafts.errors];
-    worldLoad.update({ visual: { loaded: visual.loaded + drafts.loaded, total: visual.total + drafts.total },
+    const errors = [...materials?.ground?.errors ?? [], ...collision.errors, ...drafts.errors];
+    worldLoad.update({ visual: { loaded: drafts.loaded, total: drafts.total },
       collision: { loaded: collision.loaded, total: collision.total }, textures: { loaded: 0, pending: materials?.ground?.pending ?? 0 }, errors });
-    const counts = `${visual.loaded + drafts.loaded}/${visual.total + drafts.total} models · ${collision.loaded}/${collision.total} collision cells`;
+    const counts = `${drafts.loaded}/${drafts.total} models · ${collision.loaded}/${collision.total} collision cells`;
     if (counts !== lastCounts) { loading.note(`360° preload · ${counts}`); lastCounts = counts; }
     if (errors.length) throw new Error(`world preload: ${errors.join('; ')}`);
     if (performance.now() - started > 300_000) throw new Error(`world preload timed out: ${JSON.stringify(worldLoad.snapshot())}`);
-    stable = tiles.settled && !materials?.ground?.pending && drafts.loaded === drafts.total && collision.loaded === collision.total
+    stable = drafts.total > 0 && !materials?.ground?.pending && drafts.loaded === drafts.total && collision.loaded === collision.total
       ? stable + 1 : 0;
   }
   downloaded(`${lastCounts} · ${loadBytes(worldLoad.snapshot().bytesLoaded)}`);

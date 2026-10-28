@@ -1,39 +1,9 @@
 // The visible world edge: the unbuilt mask over the L0 grid and the far LOD materials it styles (render/unbuilt.ts),
 // and the striped band along the true edges (world/edgeMarker.ts, CollisionStreamer.trueEdges).
-import { test, expect, vi } from 'vitest';
+import { test, expect } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { UnbuiltArea } from '../../src/render/unbuilt';
 import { EdgeMarker, edgeLine } from '../../src/world/edgeMarker';
 import { CollisionStreamer } from '../../src/world/collisionStreaming';
-
-const renderer = { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer;
-
-test('built cells are the published and drafted L0 tiles; far LOD models get the unbuilt look and give it back', () => {
-  const area = new UnbuiltArea(renderer);
-  area.setBuilt(['t0_0_0', 't0_1_0', 't1_0_0', 't0_-1_2']);
-  expect(area.built(10, 10)).toBe(true);
-  expect(area.built(260, 249)).toBe(true);
-  expect(area.built(-1, 600)).toBe(true);
-  expect(area.built(510, 10)).toBe(false);
-  expect(area.built(1e6, 0)).toBe(false);
-  const version = area.mask.version;
-  area.setBuilt(['t0_1_0', 't0_0_0', 't0_-1_2']); // same set: the mask is not uploaded again
-  expect(area.mask.version).toBe(version);
-
-  const source = new THREE.MeshStandardMaterial();
-  const far = new THREE.Group().add(new THREE.Mesh(new THREE.BoxGeometry(), source));
-  const near = new THREE.Group().add(new THREE.Mesh(new THREE.BoxGeometry(), source));
-  area.apply(far, 't1_1_1');
-  area.apply(near, 't0_0_0');
-  const styled = (far.children[0] as THREE.Mesh).material as THREE.MeshStandardNodeMaterial;
-  expect(styled).not.toBe(source);
-  expect(styled.colorNode).toBeTruthy();
-  expect((near.children[0] as THREE.Mesh).material).toBe(source); // full-detail tiles keep their materials
-  const dispose = vi.spyOn(styled, 'dispose');
-  area.release(far);
-  expect((far.children[0] as THREE.Mesh).material).toBe(source);
-  expect(dispose).toHaveBeenCalled();
-});
 
 test('true edges are the sides of loaded tiles with no collision in any source', () => {
   const collision = Object.fromEntries(['c_0_0', 'c_1_0', 'c_2_0'].map(id => [id, { url: `${id}.col`, bytes: 4 }]));

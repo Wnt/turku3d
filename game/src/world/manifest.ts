@@ -20,14 +20,10 @@ export interface Manifest {
   baseUrl: string;
 }
 
-export async function loadManifest(url: string, init?: RequestInit): Promise<Manifest> {
-  const res = await fetch(url, init);
-  if (!res.ok) throw new Error(`manifest ${url}: HTTP ${res.status}`);
-  const m = (await res.json()) as Manifest;
-  if (m.format !== 'turku3d-manifest' || m.version !== 1) throw new Error(`manifest ${url}: unsupported format ${m.format} v${m.version}`);
-  if (m.origin_en[0] !== E0 || m.origin_en[1] !== N0) throw new Error(`manifest origin ${m.origin_en} != engine origin ${E0},${N0}`);
-  if (m.grid.collision !== COLLISION_TILE || m.grid.visual_l0 !== VISUAL_L0) throw new Error(`manifest grid ${JSON.stringify(m.grid)} != engine grid`);
-  if (m.col_version[0] !== 1) throw new Error(`manifest col_version ${m.col_version} unsupported`);
-  m.baseUrl = new URL('.', new URL(url, location.href)).href;
-  return m;
+/** Mutable residency inventory filled only by validated draft fragments. No published tile request. */
+export function draftManifest(baseUrl: string): Manifest {
+  return { format: 'turku3d-manifest', version: 1, built: '', code: '',
+    origin_en: [E0, N0, 0], crs: 'EPSG:3877',
+    grid: { visual_l0: VISUAL_L0, collision: COLLISION_TILE, levels: 1 },
+    materials_version: 1, col_version: [1, 0], visual: {}, collision: {}, baseUrl };
 }

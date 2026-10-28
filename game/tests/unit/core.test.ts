@@ -22,10 +22,6 @@ test('url params', () => {
   expect(p.qa).toEqual({ E: 23459668, N: 6704254, H: 4.5, yawDeg: 90, pitchDeg: -5, fovDeg: 70, rollDeg: 0 });
   expect(p.pass).toBe('color');
   expect(p.time.toISOString()).toBe('2026-07-01T10:00:00.000Z');
-  expect(p.manifest).toBe('../tiles/manifest.json');
-  expect(parseParams('?tiles=/tiles/tileset.json').manifest).toBe('/tiles/manifest.json');
-  expect(parseParams('?tiles=../tiles/tileset.json').manifest).toBe('../tiles/manifest.json');
-  expect(parseParams('?tiles=http://tiles.example/tiles/tileset.json').manifest).toBe('http://tiles.example/tiles/manifest.json');
   expect(() => parseParams('?colRadius=abc')).toThrow(/colRadius/);
   expect(() => parseParams('?cam=1,2,3')).toThrow();
   // qa/README.md §2 contract: roll as its own param (or 7th cam value), pass=id, qa=1 accepted
@@ -56,23 +52,12 @@ test('sun direction is rotated from true to grid azimuth (meridian convergence)'
   expect(Math.hypot(d.x, d.y, d.z)).toBeCloseTo(1, 9);
 });
 
-test('Turku is the deployment-relative default; development requires an explicit scene', () => {
+test('the default world starts at the office and ignores removed full-tile URL overrides', () => {
   const defaults = parseParams('');
-  expect(defaults.tileset).toBe('../tiles/tileset.json');
   expect(defaults.spawn).toMatchObject(OFFICE_EN);
-  for (const [page, tiles] of [
-    ['https://wnt.github.io/turku-game/game/', 'https://wnt.github.io/turku-game/tiles/'],
-    ['http://localhost:5220/', 'http://localhost:5220/tiles/'],
-    ['http://localhost:5221/', 'http://localhost:5221/tiles/'],
-  ]) {
-    expect(new URL(defaults.tileset, page).href).toBe(`${tiles}tileset.json`);
-    expect(new URL(defaults.manifest, page).href).toBe(`${tiles}manifest.json`);
-  }
-  expect(parseParams('?scene=dev').tileset).toBe('dev-tiles/tileset.json');
-  expect(parseParams('?scene=dev').manifest).toBe('dev-tiles/manifest.json');
-  expect(parseParams('?scene=unknown').tileset).toBe(defaults.tileset);
-  const override = parseParams('?scene=dev&tiles=qa/tileset.json&backend=webgl');
-  expect(override.tileset).toBe('qa/tileset.json');
-  expect(override.manifest).toBe('qa/manifest.json');
-  expect(override.backend).toBe('webgl');
+  const overridden = parseParams('?scene=dev&tiles=qa/tileset.json&manifest=/old.json&backend=webgl');
+  expect(overridden.spawn).toEqual(defaults.spawn);
+  expect(overridden).not.toHaveProperty('tileset');
+  expect(overridden).not.toHaveProperty('manifest');
+  expect(overridden.backend).toBe('webgl');
 });

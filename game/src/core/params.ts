@@ -10,8 +10,6 @@ interface Params {
   backend: 'webgpu' | 'webgl';
   /** ?backend= or ?webgl was in the URL (the touch-device default does not override it). */
   backendGiven: boolean;
-  tileset: string;
-  manifest: string;
   qa: QaCam | null;
   /** QA render pass: 'color' (default) or 'id' (flat unlit object ids, qa/README.md §2). */
   pass: 'color' | 'id';
@@ -28,16 +26,6 @@ interface Params {
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
 const DEFAULT_TIME = '2026-10-15T14:00:00+03:00';
-
-/** manifest.json next to the tileset. Same-origin paths stay page-relative (as before); an absolute tileset URL on
- *  another host (e.g. `make game-serve-dist` on the sandbox dist port) keeps its origin, otherwise the manifest would be fetched from
- *  the game server. */
-function defaultManifest(tileset: string): string {
-  // A page-relative tileset (e.g. the Pages build's `../tiles/tileset.json`) keeps its own directory.
-  if (!/^([a-z][a-z\d+.-]*:|\/)/i.test(tileset)) return tileset.replace(/[^/]*$/, 'manifest.json');
-  const u = new URL('manifest.json', new URL(tileset, 'http://x/'));
-  return u.origin === 'http://x' ? u.pathname : u.href;
-}
 
 export function parseParams(search: string): Params {
   const p = new URLSearchParams(search);
@@ -57,8 +45,6 @@ export function parseParams(search: string): Params {
   const time = new Date(timeStr ?? DEFAULT_TIME);
   if (Number.isNaN(time.getTime())) throw new Error(`bad ?time= (want ISO-8601): ${timeStr}`);
   const sp = nums(p.get('spawn'));
-  // One relative default works at / (local servers) and /turku-game/game/ (Pages).
-  const tileset = p.get('tiles') ?? (p.get('scene') === 'dev' ? 'dev-tiles/tileset.json' : '../tiles/tileset.json');
   const colRadius = Number(p.get('colRadius') ?? 200);
   if (!(colRadius > 0)) throw new Error(`bad ?colRadius= (metres > 0): ${p.get('colRadius')}`);
   const backend = (p.get('backend') ?? '').toLowerCase() === 'webgl' || p.has('webgl') ? 'webgl' : 'webgpu';
@@ -67,8 +53,6 @@ export function parseParams(search: string): Params {
   return {
     backend,
     backendGiven: p.has('backend') || p.has('webgl'),
-    tileset,
-    manifest: p.get('manifest') ?? defaultManifest(tileset),
     qa,
     pass: passStr,
     time,

@@ -393,6 +393,7 @@ def build(
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
+    producer_code = code_hash()
     inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
 
@@ -723,7 +724,7 @@ def build(
         coarse=True,
         pass_kind="first" if first_pass else "full",
         tile=tile.id,
-        code=code_hash(),
+        code=producer_code,
         built=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         origin_en=list(C.ORIGIN),
         grid=dict(visual_l0=C.VISUAL_TILE_SIZE, collision=C.COLLISION_TILE_SIZE, cells=CELLS),
