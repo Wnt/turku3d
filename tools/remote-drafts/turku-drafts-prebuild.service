@@ -1,0 +1,18 @@
+[Unit]
+Description=Warm the published Turku3D draft ring
+After=turku-drafts.service
+Requires=turku-drafts.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/turku3d-drafts/repo/tools/remote-drafts/run.sh python scripts/dev/host_slots.py build python tools/remote-drafts/prebuild.py %h/turku3d-drafts/work/prebuild-tiles.json
+Nice=15
+TimeoutStartSec=infinity
+KillMode=control-group
+NoNewPrivileges=true
+UMask=0027
+StandardOutput=append:%h/turku3d-drafts/reports/prebuild.log
+StandardError=append:%h/turku3d-drafts/reports/prebuild.log
+
+[Install]
+WantedBy=default.target
