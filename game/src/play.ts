@@ -452,7 +452,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now, feet);
     physics.updateInput(charIn, carIn, !paused);
-
     const st = physics.latest;
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
     clock.simSeconds = (st?.tick ?? 0) * DT;

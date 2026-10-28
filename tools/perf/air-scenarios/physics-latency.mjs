@@ -82,7 +82,7 @@ try {
    if(typeof p.updateInput==='function'&&window.__prof)window.__prof.sent.clear();
    window.__air.rows.push({t:n,frame:n-last,tick:s?.tick,age:s?.publishedAt?performance.timeOrigin+n-s.publishedAt:null,
     stepMs:s?.stepMs,bytes:p.stateBytes,transport:p.transport,heap:performance.memory?.usedJSHeapSize,
-    speed:s?.vehicle?.speed,position:s?.vehicle?.position,phase:window.__air.phase??'idle'});
+    speed:s?.vehicle?.speed,position:s?.vehicle?.pos,phase:window.__air.phase??'idle'});
    last=n;requestAnimationFrame(sample);
   }requestAnimationFrame(sample);
  });

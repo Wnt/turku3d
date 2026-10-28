@@ -105,7 +105,11 @@ sessions were stopped after each capture and handed back to perf-air-render.
 Pre-rebase fast gate passed (9.009 s full relevant run, latest cached run 0.912 s).
 Policy, materials, lint, types and fast units passed; five budget tests passed
 explicitly. Final production bundle compiled successfully in 1.25 s after all
-transport/actor/locking changes. Final combined-main verification is recorded below.
+transport/actor/locking changes. After rebasing onto startup landing `537d39f1`, the combined fast gate passed
+in 7.389 s (7.7 s wrapper), including game types, lint and fast unit tests.
+Startup retained-region/prepared-placement behavior and the shared bootstrap entry
+were preserved during the rebase. The combined production rebuild is queued for
+a host slot; its outcome will be recorded before finishing.
 No gate was weakened and no slow/browser test was added to the gate.
 
 ## Follow-ups
