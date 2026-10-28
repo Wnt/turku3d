@@ -477,6 +477,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       const poseMode = mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : drivenId === TRUCK_ID ? 'truck' : 'car';
       multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
+        ...(poseMode !== 'foot' && vs ? { rot: vs.rot, wheels: vs.wheels } : {}),
         carrying: missions.phase === 'carrying' });
     }
     if (!paused && !startScreen.active && !menuOpen) {

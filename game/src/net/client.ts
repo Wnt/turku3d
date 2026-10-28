@@ -1,8 +1,10 @@
+import type { Quat, WheelState } from '../physics/protocol';
 import { loading } from '../core/loading';
 import type { VehicleKind } from '../physics/constants';
 import { multiplayerUrl, scoresUrl } from './config';
 
 export interface NetPose {
+  rot?: Quat; wheels?: WheelState[];
   t: number; E: number; N: number; H: number; yaw: number;
   vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }
@@ -25,7 +27,8 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   if (!previous) return true;
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
-  const changed = moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.carrying !== previous.carrying
+  const articulated = JSON.stringify([pose.rot, pose.wheels]) !== JSON.stringify([previous.rot, previous.wheels]);
+  const changed = articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;
 }

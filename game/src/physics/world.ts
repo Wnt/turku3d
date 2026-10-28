@@ -329,7 +329,7 @@ export class PhysicsWorld {
       const y = p.pos.y + remoteColliderHeight(p.mode);
       remote!.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
       const yaw = p.mode === 'foot' ? p.yaw : p.yaw + Math.PI / 2;
-      remote!.body.setNextKinematicRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+      remote!.body.setNextKinematicRotation(p.mode !== 'foot' && p.rot ? p.rot : { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
     }
   }
 

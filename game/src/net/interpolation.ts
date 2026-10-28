@@ -1,3 +1,4 @@
+import { interpolateRotation } from './orientation';
 import type { NetPose } from './client';
 
 interface Sample { pose: NetPose; arrival: number }
@@ -23,10 +24,19 @@ export class PoseBuffer {
     for (let i = 1; i < this.samples.length; i++) {
       const a = this.samples[i - 1], b = this.samples[i];
       if (target > b.arrival) continue;
+      if (a.pose.mode !== b.pose.mode || a.pose.vehicle !== b.pose.vehicle) return b.pose;
       const f = Math.min(1, Math.max(0, (target - a.arrival) / Math.max(1, b.arrival - a.arrival)));
       const angle = Math.atan2(Math.sin(b.pose.yaw - a.pose.yaw), Math.cos(b.pose.yaw - a.pose.yaw));
       const lerp = (x: keyof Pick<NetPose, 'E' | 'N' | 'H' | 'vE' | 'vN' | 'vH'>) => a.pose[x] + (b.pose[x] - a.pose[x]) * f;
       return { ...b.pose, E: lerp('E'), N: lerp('N'), H: lerp('H'), yaw: a.pose.yaw + angle * f,
+        rot: b.pose.mode === 'foot' ? undefined : interpolateRotation(a.pose, b.pose, f),
+        wheels: b.pose.wheels?.map((w, i) => {
+          const prev = a.pose.wheels?.[i];
+          if (!prev) return w;
+          const mix = (a: number, b: number) => a + (b - a) * f;
+          return { ...w, pos: { x: mix(prev.pos.x, w.pos.x), y: mix(prev.pos.y, w.pos.y), z: mix(prev.pos.z, w.pos.z) },
+            steer: mix(prev.steer, w.steer), rotation: mix(prev.rotation, w.rotation), suspension: mix(prev.suspension, w.suspension) };
+        }),
         vE: lerp('vE'), vN: lerp('vN'), vH: lerp('vH') };
     }
     const last = this.samples.at(-1)!;
