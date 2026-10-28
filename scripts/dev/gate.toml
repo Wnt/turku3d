@@ -57,6 +57,12 @@ triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
 sources = ["tools/validator/*.py", "tools/compare/*.py", "tools/remote-drafts/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
 
 [[stages]]
+name = "coarse-latency-unit"
+kind = "command"
+triggers = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse_latency.py"]
+commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_latency.py"]]
+
+[[stages]]
 name = "gmaps-compare-unit"
 kind = "command"
 triggers = ["tools/compare/*.py", "pipeline/turku3d/config.py"]

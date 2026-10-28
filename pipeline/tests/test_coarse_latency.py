@@ -231,3 +231,19 @@ def test_fixed_producer_retries_a_failed_tile_without_old_backoff(tmp_path):
     builder.code = lambda: "fixed"
     assert builder.request(tile, 0)["state"] == "queued"
     builder.stop()
+
+
+def test_missing_first_pass_inputs_do_not_start_full_preparation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+    from turku3d import config as C
+
+    def prepare(*_):
+        raise AssertionError("pending first pass started full survey preparation")
+
+    monkeypatch.setattr(inputs, "prepare", prepare)
+    sources = SimpleNamespace(missing=lambda _: [SimpleNamespace(key="wfs/source")])
+    with pytest.raises(inputs.MissingInputs) as error:
+        inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
+    assert error.value.units == ["wfs/source"]

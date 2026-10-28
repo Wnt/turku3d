@@ -265,9 +265,11 @@ def test_builder_drops_tiles_the_game_stopped_asking_for(tmp_path, monkeypatch):
         builder.stop()
 
 
-def test_builder_runs_four_builds_at_once(tmp_path):
+def test_builder_runs_explicit_four_worker_configuration_at_once(tmp_path):
     order = []
-    builder = Builder(tmp_path, run=one_shot(_fake_command(order, seconds=2.0)), code="test")
+    builder = Builder(
+        tmp_path, run=one_shot(_fake_command(order, seconds=2.0)), code="test", workers=4
+    )
     try:
         tiles = [f"t0_{i}_0" for i in range(6)]
         for d, tile in enumerate(tiles):

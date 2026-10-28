@@ -510,7 +510,8 @@ def gather(
     sources = sources or Sources()
     missing = sources.missing(tile)
     if missing:
-        prepare(tile, root, sources)
+        if not first_pass:
+            prepare(tile, root, sources)
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance = {}, {}, {}
     for dataset, paths in _sources(tile, sources).items():

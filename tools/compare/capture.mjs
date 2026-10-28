@@ -25,7 +25,7 @@ export async function consent(context, page) {
     const reject = page.getByRole('button', { name: 'Reject all', exact: true });
     await reject.waitFor({ timeout: 15000 });
     await reject.click();
-    await page.waitForFunction(() => ![...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Reject all'));
+    await reject.waitFor({ state: 'hidden', timeout: 15000 });
   }
   // Record presence/expiry, never cookie values. The dedicated profile is never signed in.
   const cookies = (await context.cookies('https://www.google.com')).filter(c => ['SOCS', 'CONSENT'].includes(c.name));
