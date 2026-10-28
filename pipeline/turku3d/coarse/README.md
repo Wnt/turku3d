@@ -87,6 +87,8 @@ reused until the producer code changes, so a producer fix rebuilds each draft th
 On main the localhost game service runs it and restarts it when a landing changes a file it loaded
 (`tools/dev/localhost/README.md`): `/coarse/status` reports `started` and `modules` (the repository files the process
 imported), and `POST /coarse/drain` stops new builds so the running ones finish first.
+Manifest requests keep reporting `building` until the worker commits completion, including the
+`built` and `version` counters and timings; a manifest written by a running worker is not yet published.
 Payload requests (`.col`, GLB and roads) use the immutable in-memory servable set: a successful build or manifest
 request admits a tile, and a manifest request that finds it stale removes it. They never recheck manifests or raw
 inputs and hold no builder lock while reading or sending bytes. `/coarse/want` returns `queued` and `building`

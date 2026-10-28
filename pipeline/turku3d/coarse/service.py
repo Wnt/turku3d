@@ -262,6 +262,10 @@ class Builder:
     def request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
         with self.lock:
+            # A worker may have written its manifest but not committed its completion yet.
+            # Publish only after counters, timings and servability are updated under this lock.
+            if tile in self.building:
+                return self._building(tile)
             if self.built(tile):
                 self.pending.pop(tile, None)
                 self.servable = self.servable | {tile}
@@ -271,8 +275,6 @@ class Builder:
             if error and time.time() - at < RETRY_SECONDS:
                 return {"state": "failed", "error": error}
             self.failed.pop(tile, None)
-            if tile in self.building:
-                return self._building(tile)
         try:
             missing = self.inputs(tile)
         except NoCoverage as e:
