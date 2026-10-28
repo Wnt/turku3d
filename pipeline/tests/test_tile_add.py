@@ -124,6 +124,15 @@ def test_add_tile_refuses_the_published_data_root(monkeypatch, roots):
         T.add_tile("t0_2_0")
 
 
+def test_facade_fast_reads_result_before_cleanup_warning(monkeypatch):
+    monkeypatch.setattr(
+        T,
+        "stream",
+        lambda command, log: ['{"walls": 172, "errors": {}}', "Unclosed client session"],
+    )
+    assert T.facade_fast("refs", [], None) == {"walls": 172, "errors": {}}
+
+
 def test_refresh_layers_built_for_another_list_are_stale(roots):
     _, work = roots
     layer = work / "build/layers/ground"
