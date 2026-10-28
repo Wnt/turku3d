@@ -23,3 +23,30 @@ def test_area_selection_keeps_complete_buildings_and_refreshes_changed_source(tm
     data.loc[0, "feature_key"] = "new"
     data.to_parquet(path)
     assert frame(path, box).feature_key.tolist() == ["new"]
+
+
+def test_stair_input_reads_only_nearby_complete_ways(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.stairs import prepare
+
+    path = tmp_path / "osm.parquet"
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                dict(
+                    osm_id=i,
+                    tags=json.dumps({"highway": "steps"}),
+                    geometry_local=shapely.LineString([(x, 10), (x + 10, 10)]).wkb,
+                )
+                for i, x in enumerate((10, 1000))
+            ]
+        ),
+        path,
+    )
+    lines, areas = prepare(C.VisualTile(0, 0, 0), path)
+    assert len(lines) == 1 and not areas
+    assert lines[0][0] == "0"
+    assert list(lines[0][1].coords) == [(10, 10), (20, 10)]

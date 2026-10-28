@@ -15,11 +15,11 @@ from .surfaces import split_boundaries
 
 
 def prepare(tile, path):
-    from turku3d.spatial import rows
+    from turku3d.spatial import rows as source_rows
 
     rows, areas, seen = [], [], set()
     window = shapely.box(*tile.bbox.buffered(50).as_tuple())
-    for _, row in rows(path, tile.bbox.buffered(50)):
+    for _, row in source_rows(path, tile.bbox.buffered(50)):
         tags = json.loads(row["tags"] or "{}")
         if tags.get("highway") != "steps" and tags.get("area:highway") != "steps":
             continue

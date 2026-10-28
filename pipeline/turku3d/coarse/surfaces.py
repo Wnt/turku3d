@@ -358,9 +358,8 @@ def library(root: Path, base: Path, channels):
 
 def mapped_paint(tile, path):
     """Only explicit OSM line markings/crosswalks; points cannot establish a paint heading."""
-    from turku3d.spatial import rows
-
     from turku3d.facade_kit import renderer
+    from turku3d.spatial import rows
 
     renderer()  # expose the optional texture package to the native pipeline environment
     from turkutex.ground.markings import paint_polygons
@@ -496,7 +495,7 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
     ends = ring_ends[polygon_rings[1:] - 1]
     starts = np.r_[0, ends[:-1]]
     ix, face_materials = [], []
-    for k, (start, end) in enumerate(zip(starts, ends)):
+    for k, (start, end) in enumerate(zip(starts, ends, strict=True)):
         triangles = mapbox_earcut.triangulate_float64(
             xz[start:end],
             (ring_ends[polygon_rings[k] : polygon_rings[k + 1]] - start).astype(np.uint32),

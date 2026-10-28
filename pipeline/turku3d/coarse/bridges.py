@@ -208,8 +208,8 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
                 width=way_width(tags),
             )
         )
-    from .bridge_survey import height_anchors, spot_heights
     from .area import passages as area_passages
+    from .bridge_survey import height_anchors, spot_heights
 
     passages = area_passages(osm)
     spots = spot_heights(spot_paths)
