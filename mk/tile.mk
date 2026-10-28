@@ -6,7 +6,7 @@ TILE_WALKERS ?= 2000
 comma := ,
 VALIDATOR_REQUIRE ?= buildings,curbs,cars$(if $(wildcard $(TURKU3D_WORK)/build/layers/structures/MANIFEST.json),$(comma)stairs,)
 
-.PHONY: tile tile-reuse tile-fetch tile-build tile-validate tile-e2e tile-show tile-test tile-qa tiles-refresh-stale
+.PHONY: tile tile-reuse tile-fetch tile-build tile-validate tile-e2e tile-show tile-test tile-qa
 tile: ## Assemble changed tiles and check format/seams; focused behavior evidence is separate
 	$(MAKE) tile-build
 	$(MAKE) tile-validate VALIDATOR_REQUIRE=format,seams 'VALIDATOR_ARGS=--checks format,seams'
@@ -21,8 +21,6 @@ tile-build: ## Build T into TURKU3D_WORK/dist/tiles and verify hashes and seams;
 	python3 $(REPO)/scripts/dev/host_slots.py $(if $(word 2,$(TILE_IDS)),build,check) -- $(PIPELINE_RUN) python -m turku3d.package.assemble --area $(AREA) --tile $(TILE_IDS)
 	$(if $(filter 1,$(PUT)),python3 $(REPO)/scripts/dev/tile_store.py put-tiles --repo $(REPO) --tiles-dir $(TURKU3D_WORK)/dist/tiles --tiles $(TILE_IDS))
 
-tiles-refresh-stale: ## Start the data lane on the live tiles built with older tile code than main's (sentinel heartbeat, load < 40)
-	python3 $(REPO)/scripts/dev/integrator.py refresh-stale
 
 tile-validate: col-deps ## Node Rapier validation (TILE_WALKERS=2000); verdicts go into the tile quality ledger
 	mkdir -p $(TILE_REPORTS)

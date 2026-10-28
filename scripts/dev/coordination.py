@@ -18,19 +18,13 @@ LANDED = "landed"
 LANDED_PATHS = 20
 RESUME_REASONS = ("unblock", "review", "main-moved", "quota", "follow-up", "other")
 PROMPT = """## Coordination
-Runner hooks announce new inbox messages after tool calls and stop once for unread requests
-or warnings. Handle announced requests and warnings, then acknowledge them with
-scripts/dev/codex-task ack <id> --note "...". Check the board after each major step/commit
-and before finishing: scripts/dev/codex-task board
-Send a message: scripts/dev/codex-task msg <name|all> --kind request --subject "..." "body"
-Announce shared interface changes with --kind interface --ref <commit> to all.
-Before changing another area's interface, request it from its running owner or the board.
-Never edit another sandbox's files. A DONE result lands your branch on main (codex-task finish,
-or the runner at turn end). A `landed` inbox message means main moved: rebase onto main before
-your next gate and resolve conflicts yourself.
-Run anything that can take longer than 30 s (gate, tile build, Chrome suites) as one
-blocking call: scripts/dev/codex-task wait-cmd -- <command>. It prints the last 40 lines and the
-exit code. Otherwise poll with write_stdin at yield_time_ms 30000; never poll at 1000 ms.
+Use codex-task agents for the one active-agent/branch register and git for details.
+Commit often. Give a short high-level shared-change heads-up when needed. Finish
+rebases, runs your selected affected tests within 30 seconds, merges into main and
+deploys Pages immediately; five-second curl smoke and your selective ten-minute
+async run follow. No deployment queue or rollback. See AGENTS.md for exact commands.
+Handle requests/warnings, acknowledge them with codex-task ack ID, and check the board
+after commits and before finishing. A merge notice means rebase before selected checks.
 """
 
 
@@ -181,58 +175,26 @@ def not_rebased(name):
 
 
 def active_tasks():
-    """Tasks another landing concerns: a running runner, or an adopted external worker."""
-    from task_runner import running
+    """The one active-agent register; no separate overlap/ownership database."""
+    import active_agents
 
-    names = []
-    for meta_path in sorted(s.tasks_root().glob("*/meta.json")):
-        meta = s.read_json(meta_path, {})
-        external = meta.get("worker") == "external" and meta.get("state") == "external"
-        if external or (meta.get("state") in ("starting", "running") and running(meta)):
-            names.append(meta_path.parent.name)
-    return names
+    return [row["name"] for row in active_agents.refresh()]
 
 
 def broadcast_landed(name, row, subject, since, note=None):
-    """Tell every other active task that `row` (a landed.jsonl row) moved main; the recipients.
-
-    The message lists the commit, class, changed paths (capped), the interface messages `name`
-    posted on the board after `since` (its previous landing) and the landing's note.
-    """
-    with log_lock(board_path()):
-        board_rows = messages(records(board_path()), name)
-    interfaces = [
-        message
-        for message in board_rows
-        if message["from"] == name and message["kind"] == "interface" and message["time"] > since
-    ]
-    paths = row.get("paths") or []
-    count = row.get("changed_paths", len(paths))
-    shown = ", ".join(paths[:LANDED_PATHS]) or "none"
-    more = count - min(len(paths), LANDED_PATHS)
-    lines = [
-        f"{name} landed {row['commit']} on main: {subject}",
-        f"Class {row.get('class', '?')}; changed paths ({count}): {shown}"
-        + (f" (+{more} more)" if more > 0 else ""),
-    ]
-    for message in interfaces:
-        refs = f" (refs: {', '.join(message['refs'])})" if message["refs"] else ""
-        lines.append(f"Interface {message['id']}: {message['subject']}{refs}")
-    if note:
-        lines.append(f"Note: {note}")
-    lines.append(
-        "Rebase onto main before your next gate (git rebase main) and resolve conflicts yourself."
-    )
+    """Historical wire kind, with a high-level merge notice; details stay in git."""
     recipients = [task for task in active_tasks() if task != name]
-    refs = [row["commit"], *(message["id"] for message in interfaces)]
+    body = f"{name} merged {row['commit']} into main: {subject}. Rebase before your selected checks; details are in git."
+    if note:
+        body += "\n" + note
     for recipient in recipients:
         post(
             name,
             recipient,
             LANDED,
-            f"landed {name} {row['commit'][:12]}: {subject}",
-            "\n".join(lines),
-            refs,
+            f"merged {name} {row['commit'][:12]}: {subject}",
+            body,
+            [row["commit"]],
         )
     return recipients
 

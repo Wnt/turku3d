@@ -212,11 +212,6 @@ kind = "command"
 triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "docs/flags.toml"]
 commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py", "test_gate_state.py", "test_spec_selection.py"]]
 
-[[stages]]
-name = "advisory-chrome-tests"
-kind = "command"
-triggers = ["scripts/dev/advisory_chrome.py", "scripts/dev/tests/test_advisory_chrome.py", "scripts/dev/sandbox.py", "scripts/dev/live_build.py", "game/playwright.tile.config.ts"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_advisory_chrome.py"]]
 
 [[stages]]
 name = "tooling-tests"
@@ -224,22 +219,10 @@ tier = "deep"
 inputs = ["pipeline/turku3d/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
 kind = "command"
 triggers = ["scripts/dev/task_runner.py", "scripts/dev/inbox_hook.py", "scripts/dev/external_worker.py", "scripts/dev/landing.py", "scripts/dev/integrator.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/advisory.py", "scripts/dev/spec_selection.py", "scripts/dev/browser_budget.py", "scripts/dev/tests/test_browser_budget.py", "scripts/dev/host_slots.py", "scripts/dev/env_sync.py", "scripts/dev/resources.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/codex-task", "scripts/dev/wt", "scripts/dev/here", "scripts/dev/tests/test_tooling.py", "scripts/dev/tests/test_inbox_hook.py", "scripts/dev/tests/test_lander.py", "scripts/dev/tests/test_finish.py", "scripts/dev/tests/test_live_build.py", "scripts/dev/tests/test_host_slots.py", "scripts/dev/tests/test_stop.py", "scripts/dev/tests/test_environment.py", "scripts/dev/tests/fake_codex.py", "scripts/dev/tests/run.py", "tools/dev/environment.*", "Makefile", "mk/*", "textures/turkutex/codex/usage.py"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_inbox_hook.py", "test_lander.py", "test_finish.py", "test_live_build.py", "test_host_slots.py", "test_browser_budget.py", "test_environment.py", "test_stop.py"]]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_tooling.py", "test_inbox_hook.py", "test_host_slots.py", "test_browser_budget.py", "test_environment.py", "test_stop.py"]]
 
 # The integrator tests patch module globals and os.environ, so they run serially in their own process.
-[[stages]]
-name = "integrator-tests"
-tier = "deep"
-kind = "command"
-triggers = ["scripts/dev/integrator.py", "scripts/dev/integration_chrome.py", "scripts/dev/integration_advisory.py", "scripts/dev/advisory.py", "scripts/dev/tests/test_advisory.py", "scripts/dev/spec_selection.py", "scripts/dev/landing.py", "scripts/dev/landing_class.py", "scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/gate_cache.py", "scripts/dev/host_slots.py", "scripts/dev/task_runner.py", "scripts/dev/external_worker.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py", "scripts/dev/pages.py", "scripts/dev/pages_region.py", "scripts/dev/publish-pages", "scripts/dev/pages-site/*", "scripts/dev/served.py", "scripts/dev/integration_messages.py", "scripts/dev/tile_store.py", "scripts/dev/tile_compose.py", "scripts/dev/tests/test_tile_store.py", "scripts/dev/tests/test_caches.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_landing_class.py", "pipeline/turku3d/config.py"]
-commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_caches.py", "scripts/dev/tests/test_integrator.py", "scripts/dev/tests/test_advisory.py", "scripts/dev/tests/test_pages.py", "scripts/dev/tests/test_tile_store.py", "scripts/dev/tests/test_landing_class.py"]]
 
-# What live and Pages ship (served.py) and which lanes start; a few seconds, in the fast tier.
-[[stages]]
-name = "publish-tests"
-kind = "command"
-triggers = ["scripts/dev/served.py", "scripts/dev/tile_store.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/integrator.py", "scripts/dev/live_build.py", "scripts/dev/landing_class.py", "scripts/dev/tests/test_served.py", "scripts/dev/tests/test_integration_ensure.py", "scripts/dev/integration_data.py", "scripts/dev/tests/test_integration_data.py", "scripts/dev/tests/test_pages_order.py"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_served.py", "test_integration_ensure.py", "test_integration_data.py", "test_pages_order.py"]]
 
 [[stages]]
 name = "watch-tests"
@@ -446,3 +429,9 @@ name = "draft-reference-score-unit"
 kind = "command"
 triggers = ["scripts/dev/integration_reference.py", "scripts/dev/integration_advisory.py", "scripts/dev/draft_reference_score.py", "scripts/dev/tests/test_draft_reference_score.py", "mk/draft-reference.mk"]
 commands = [["{python}", "scripts/dev/tests/run.py", "test_draft_reference_score.py"]]
+
+[[stages]]
+name = "delivery-tests"
+kind = "command"
+triggers = ["scripts/dev/delivery.py", "scripts/dev/bounded_checks.py", "scripts/dev/post_deploy.py", "scripts/dev/landing.py", "scripts/dev/pages.py", "scripts/dev/active_agents.py", "scripts/dev/tests/test_delivery.py", "scripts/dev/tests/test_pages.py"]
+commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_delivery.py", "scripts/dev/tests/test_pages.py"]]

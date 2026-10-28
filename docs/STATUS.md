@@ -4,24 +4,13 @@ Updated 2026-10-25 (W1-04 layer assembler). Run from the current worktree.
 The native osx-arm64 toolchain is shared under `~/turku3d/tools` and `~/turku3d/envs/pipeline`.
 Inputs live under `$TURKU3D_DATA/raw`; build products under `$TURKU3D_WORK`.
 
-```sh
-make pipeline-bootstrap && make pipeline-versions
-make fetch-aoi AREA=work-3x3              # initial shared input preparation / explicit refresh
-make fetch-checksums AREA=work-3x3
-# Publish the Wave 1 layer manifests under $TURKU3D_WORK/build/layers first.
-make tile T="t0_0_0 t0_0_1 t0_1_0 t0_1_1"
-make tile-show                           # sandbox port base + 1
-make qa-refs                             # regenerate the six heading-corrected references
-```
-
-`make tile` runs in order even under `make -j`: published layer manifest/hash checks → local assembly
-→ decoded precision, budget and bitwise seam checks → format/seam validation.
-`make tile-validate` and `make tile-e2e` are explicit physics/browser investigations.
-Use `make tile-reuse` to clone missing built products, then `make refresh REFRESH_TARGET=roads`
-(or another layer name) to refresh only the changed stage; `make tile T=...` assembles only the chosen tiles.
-It writes `$TURKU3D_WORK/dist/tiles`; validation reports go to `$TURKU3D_WORK/reports`.
-The e2e suite checks the textured render, walking, QA projection/ID passes, and a route across
-all four L0 tiles. Screenshots are in `$TURKU3D_WORK/reports/screenshots/tile-*`.
+Current delivery (2026-10-28): the world is generated on demand; Pages carries only
+the game. Agents select affected tests for `codex-task finish` (30 seconds total),
+merge into main and immediately package/upload Pages. Five-second curl smoke and a
+selective ten-minute async run follow. There is no automatic integrator or full-tile
+publication stage. See [AGENTS.md](../AGENTS.md) and [tool commands](../scripts/dev/README.md).
+The data-readiness notes below describe the source inventory, not a requirement to
+rebuild hand-built starting tiles.
 
 ## Data readiness
 

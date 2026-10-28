@@ -140,11 +140,16 @@ def wait_cmd(command, tail=40, timeout=None):
     if name != "main" and (root() / name_ok(name) / "sandbox.env").exists():
         env.update(read_env(root() / name / "sandbox.env"))
     if (tasks_root() / name / "meta.json").exists():
-        log = tasks_root() / name / "wait-cmd.log"
+        log_root = tasks_root() / name
     else:
         work = env.get("TURKU3D_WORK") or env.get("TURKU3D_DATA") or Path.home() / "turku3d/data"
-        log = Path(work) / "wait-cmd.log"
+        log_root = Path(work)
+    log = log_root / "wait-cmd" / f"{time.time_ns()}-{os.getpid()}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
+    latest = log_root / "wait-cmd-latest.log"
+    temporary = log_root / f".wait-cmd-latest-{os.getpid()}"
+    temporary.symlink_to(log.relative_to(log_root))
+    os.replace(temporary, latest)
     start = time.monotonic()
     result = run_group(command, cwd=Path.cwd(), env=env, log=log, timeout=timeout)
     for line in result.stdout.splitlines()[-tail:] if tail else ():

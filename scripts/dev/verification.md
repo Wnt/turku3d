@@ -1,111 +1,43 @@
-## Verification scope (2026-10-28)
+# Focused verification and direct delivery
 
-Normal integration runs no Chrome or deep gate, including after a tile-list change.
-Cheap data audits remain advisory. Use the routed fast gate and one focused behavior
-check. Reuse built tiles and render only changed instances; see AGENTS.md rule 11.
-The complete runtime/failure inventory is in
-[iteration measurements](../../docs/reports/fix-iteration-pace.md).
-
-```sh
-python3 scripts/dev/iteration_metrics.py --days 3
-# Explicit investigation only, not a worker completion requirement:
-python3 scripts/dev/integrator.py run --full
-scripts/dev/gate --deep --all
-```
-
-## Load-robust gates and environment sync
-
-### Host slots
-
-`make refresh`, `make tile-build`, `make game-build`, the game, tile and render
-Playwright suites, playtest, the gate's e2e stage and the integrator's live build use
-`scripts/dev/host_slots.py`. The shared state is `~/turku3d/host-slots/` (override with
-`TURKU3D_SLOT_DIR` only for synthetic tests).
-
-Admission uses dedicated CPU shares on the ten-core host: two bulk `build` commands
-(two jobs each), two short `check` commands (one job each), one `integration` (two
-jobs) and one `integration-data` (two jobs). All six fit simultaneously. Game builds
-use `check`, so tile builds cannot consume their capacity. Cache hits acquire no slot.
-The observed public game build takes 4.044 s including type checking and both bundles;
-its hash-verified repeat takes 0.320 s. Keeping three bulk builds would consume the
-capacity needed to admit two checks beside both publication lanes; two is the largest
-bulk count that leaves those measured short checks independent on ten cores.
-GPU capacity remains five workers; explicit integrator Chrome uses one browser slot.
-Builds queue FIFO. Short checks and browser admission stop with an actionable error
-after 300 s rather than waiting through an entire task. This is a queue bound, not a
-promise that bulk builds finish in five minutes.
-
-Shared state keeps checks as `kind: build, purpose: check`; old scheduler processes
-conservatively count them as builds and do not crash on an unknown cost-table key.
-Existing old processes must exit naturally before the new lane counts apply fully.
-Integration reservations cover actual builds only; checkout, Pages and diagnostics
-hold no CPU reservation. `tile-add` acquires build slots per local compute stage,
-releasing them during source downloads and remote facade-description calls.
-Nested commands inherit their integration lane's budget. Dead owner PIDs are
-reclaimed on admission/status; waiting is visible in `codex-task ls` and `watch`.
-
-Explicit integrator Chrome acquires one scheduled GPU worker while it runs.
-There is no automatic full-suite schedule or two-hour invocation timeout on the
-normal publication path. A focused worker browser run still debits its task budget.
-
-Every admission appends `{"time", "kind", "name", "wait_seconds"}` (name is the sandbox) to
-`~/turku3d/host-slots/waits.jsonl`.
-`python3 scripts/dev/host_slots.py stats [--hours 24]` prints admissions, median and p90 wait
-seconds per kind. Raise agent concurrency only while the median wait stays low (study R6/M4).
-
-Direct heavy commands should use the same wrapper, for example:
+The normative flow is [AGENTS.md](../../AGENTS.md). Agents select only affected
+commands, including grep filters. Finish runs them in parallel under one hard
+30-second deadline after rebase. There is no compulsory full fast/deep gate.
+New quick tests need a strong reason; delivery boundaries justify the small tests
+for deadline enforcement, merge safety, upload races and forward-only failures.
 
 ```sh
-python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.refresh
-cd game && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test
+scripts/dev/codex-task agents --json
+scripts/dev/codex-task checks --last 10
+scripts/dev/codex-task finish NAME --result "$TURKU3D_WORK/reports/result.md" \
+  --test 'python3 scripts/dev/tests/run.py test_delivery.py test_pages.py' \
+  --async-test 'python3 scripts/dev/tests/run.py test_tooling.py test_caches.py'
 ```
 
-```sh
-source ../sandbox.env
-export TURKU3D_JOBS=3
-scripts/dev/wt sync-env                 # current checkout
-scripts/dev/wt sync-env example         # named sandbox (or --all)
-scripts/dev/gate --all
-scripts/dev/gate --paths game/src/core/origin.ts --json
-python3 scripts/dev/integrator.py status
-# Explicit budgets, on an unloaded machine:
-TURKU3D_JOBS=1 make streaming-perf
-TURKU3D_JOBS=1 make render-perf
-```
+Do not copy the example as a blanket gate. Choose your own affected area. A change
+with no affected quick tests uses `--no-tests-reason TEXT`. Check recent async runs
+before choosing the bigger run; `--async-reason TEXT` records why more evidence is useful.
+The selective async run has a hard ten-minute wall limit, including bulk-slot waits.
+It uses frozen deployed source in the task's checks directory, independent of the
+mutable sandbox. Only one forward fix is allowed with `--fix-for JOB`.
 
-`env-sync` hashes pyproject/requirements files and each npm package/lock pair into
-`.cache/env-sync/stamp.json`. It serializes installs, writes stamps only after success,
-and detects missing environments. Python uses editable packages with declared extras;
-Node uses npm ci. It does not mutate linked hook dependencies: sync the source checkout
-first. A fresh-environment import stage checks dependency declarations when manifests change.
-Native test tools resolve from the same prepared directories as pipeline/env/run.sh.
+Immediately after merge, deployment packages/uploads the game and bypasses host
+admission. No type checks, tile builds, deploy locks or rollback copies run there.
+The bundle's content/output hashes avoid rebuilding unchanged output; Node/dependency,
+source and Vite environment changes invalidate it. Corrupt/missing/extra output files
+also invalidate it. A production bundle contains only the public game; a solo build
+for a deliberately selected browser investigation is a separate explicit command.
+Five-second curl-level smoke follows upload; it never runs a browser.
 
-Successful stages are stored by content hash under `$TURKU3D_DATA/cache/tool-stages/gate`.
-The key includes
-routed source/dependency domains, inventory (including deletions), selected test/lint scope,
-configuration, tools and installed Python versions. Sandbox paths and ports are excluded. Only GREEN stages
-can report `cached PASS`; failures are never cached. Policy runs every time because flag expiry
-depends on main's merge count. Live build stages keep APFS-cloned verified artifacts under
-`$TURKU3D_DATA/cache/tool-stages/live`; keys include declared source paths, input manifests
-and the preceding stage key.
+Heavy optional local work uses `host_slots.py build` or `browser`. Short local checks
+use `check`; shared entries serialize as `kind: build, purpose: check` so old running
+copies read them safely. Unknown resource classes conservatively count as a build.
+FIFO applies independently to bulk, check and browser lanes. Old integration entries
+remain readable only until their already-running processes exit; no new integrator
+is started. Do not restart or kill another agent's processes.
 
-
-## Focused tile iteration
-
-```sh
-source ../sandbox.env
-make tile-reuse                         # only missing products; keeps local work
-make refresh REFRESH_TARGET=roads       # only this stage, reusing built prerequisites
-make tile T=t0_0_0 AREA=playable-tiles   # assembly + format/seams, no Chrome
-make tile-show                         # bundle is reused when intact
-```
-
-Single-stage refresh accepts ground, buildings, structures, bridges, roads, landmarks,
-buildings_outer, props, vegetation, traffic_static and bridge-textures. Existing
-`ground-textures` and `facades` targets keep their prerequisite ordering. Single-stage
-calls deliberately use existing prerequisites; if those inputs changed too, refresh
-them first or omit REFRESH_TARGET for the complete dependency chain. The producers'
-per-tile keys and assembler caches already rebuild only stale tiles. `tile-reuse`
-freezes one release's tile list when cloning its tiles, so a new shared tile-list entry
-does not unexpectedly turn a focused check into an area expansion. Existing local
-products/lists are preserved. Add new coverage with `make tile-add T=...` explicitly.
+The old full-tile pipeline and `make tile-add` are not a world-publication path.
+The live world is generated by the latest coarse generator on demand. Keep generative
+AI facade descriptions and texture-library assets; generator/assets publication is
+separate from the Pages game package. Compiler-style stage/tile cache ownership is
+with the coarse pipeline, not a batch integration daemon.

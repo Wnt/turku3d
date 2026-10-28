@@ -183,25 +183,6 @@ def compose(target, game, shipped, published, repo, commit):
     return target
 
 
-def release(published, main_repo):
-    """The release dir of main's production bundle with the tiles localhost serves."""
-    import integrator
-
-    published = Path(published)
-    head = s.git("rev-parse", "main", cwd=main_repo)
-    shipped = tiles(main_repo, head, published)
-    live = (published / "live").resolve()
-    if record(live)["commit"] == head and shipped["source"] == "live":
-        return live
-    repo = integrator.checkout(head, PAGES_SANDBOX, published)
-    env = integrator.environment(repo, published)
-    built = s.run_group(["make", "game-build"], cwd=repo, env={**env, "VITE_PUBLIC_RELEASE": "1"})
-    if built.returncode:
-        raise ValueError(f"game-build of {head[:12]} failed: {s.failure_detail(built.stdout)}")
-    work = Path(env["TURKU3D_WORK"])
-    return compose(work / "pages-release", work / "build/game", shipped, published, repo, head)
-
-
 def carry_game(release, work):
     """Replace the game bundle in work with release's (a data build shipping a newer live game)."""
     from live_build import _replace

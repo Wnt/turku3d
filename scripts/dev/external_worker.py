@@ -40,13 +40,14 @@ def adopt(name, brief):
     print(f"{name}: adopted; land each green slice with codex-task finish")
 
 
-def finish(name, result_path, keep_sandbox=False, note=None):
+def finish(name, result_path, keep_sandbox=False, note=None, **selection):
     """Record a non-Codex worker's DONE result, then land it (landing.land).
 
     A new `finished` time makes a landed task land again; `first_finished` keeps the first.
     A failed landing (rebase conflict, red gate) leaves the result recorded and main unchanged;
     the worker fixes its branch and runs finish again.
     """
+    import delivery
     import landing
     from task_runner import running, task
 
@@ -54,6 +55,7 @@ def finish(name, result_path, keep_sandbox=False, note=None):
     text = Path(result_path).read_text()
     if not landing.done(text):
         raise ValueError("result must contain an exact ## Result: DONE heading")
+    delivery.plan(path, Path(s.read_json(path / "meta.json")["repo"]), **selection)
     with s.lock(path / "lock"):
         meta = s.read_json(path / "meta.json")
         own_turn = running(meta) and os.environ.get("TURKU3D_SANDBOX") == name

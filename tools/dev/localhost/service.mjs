@@ -12,7 +12,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { port, workRoot } from '../environment.mjs';
 import { CoarseService } from './coarse.mjs';
-import { landingOf, readRows, runningStage, verdict } from './status.mjs';
+import { landingOf, readRows, verdict } from './status.mjs';
 import { TileStore } from './tiles.mjs';
 
 const run = promisify(execFile);
@@ -163,13 +163,8 @@ export class LocalhostGame {
 
   /** Recomputes the verdict and the tile release; writes state.json when either changed. */
   async status() {
-    const live = (() => { try { return JSON.parse(fs.readFileSync(path.join(this.o.published, 'live/live-build.json'), 'utf8')).commit; } catch { return null; } })();
-    const published = fs.realpathSync(this.o.published);
-    const rows = readRows(path.join(this.o.registry, 'integrations.jsonl')).filter(r => !r.published || r.published === published);
-    let running = null;
-    try { running = JSON.parse(fs.readFileSync(path.join(this.o.registry, 'integration.json'), 'utf8')); } catch { /* none running */ }
-    if (running?.log) running.stage = runningStage(running.log);
-    const verification = verdict({ head: this.current, live, rows, running, isAncestor: (a, b) => this.isAncestor(a, b) });
+    const rows = readRows(path.join(this.o.registry, 'checks.jsonl'));
+    const verification = verdict({ head: this.current, rows });
     this.verification = verification;
     await this.write();
     // The tile release lookup (a Python key over the commit's tree) runs beside the follow loop, so a landing is
