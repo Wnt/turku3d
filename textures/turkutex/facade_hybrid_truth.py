@@ -290,6 +290,37 @@ def screen(args, errors=None):
     print(json.dumps(dict(screened=len(rows), rejected=len(errors))))
 
 
+def refresh(args):
+    """Regenerate selected local references with the current geometry and screen versions."""
+    facades = load_facades(args.root / "candidates.geojson")
+    errors = {}
+    start = time.monotonic()
+    for index in range(0, len(facades), 10):
+        errors.update(
+            ff.make_refs(
+                facades[index : index + 10],
+                args.root / "refs",
+                ("lookaround", "google", "mapillary"),
+                workers=3,
+                max_views=2,
+            )
+        )
+        ff.write_json(args.root / "errors.json", errors)
+        print(
+            json.dumps(
+                dict(
+                    stage="refs",
+                    processed=min(index + 10, len(facades)),
+                    total=len(facades),
+                    seconds=round(time.monotonic() - start, 1),
+                    errors=len(errors),
+                )
+            ),
+            flush=True,
+        )
+    screen(args, errors)
+
+
 def label_schema():
     properties = {
         "facade_id": {"type": "string"},
@@ -503,6 +534,25 @@ def combine(args):
     if len(selected) < args.limit:
         raise ValueError(f"only {len(selected)} agreed unique-building walls; need {args.limit}")
     args.root.mkdir(parents=True, exist_ok=True)
+    selected_ids = {row["facade_id"] for row in selected}
+    facades = {
+        facade.id: facade
+        for root in args.source_root
+        for facade in load_facades(root / "candidates.geojson")
+        if facade.id in selected_ids
+    }
+    if set(facades) != selected_ids:
+        raise ValueError("selected wall geometry missing from source inventories")
+    save_facades([facades[row["facade_id"]] for row in selected], args.root / "candidates.geojson")
+    for reviewer in ("a", "b"):
+        records = args.root / reviewer / "out.jsonl"
+        records.parent.mkdir(parents=True, exist_ok=True)
+        with records.open("w") as output:
+            for root in args.source_root:
+                source = root / reviewer / "out.jsonl"
+                if source.exists():
+                    with source.open() as stream:
+                        shutil.copyfileobj(stream, output)
     ff.write_json(
         args.root / "screened.json",
         [{k: v for k, v in r.items() if k != "label"} for r in selected],
@@ -525,7 +575,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=["inventory", "prepare", "screen", "prescreen", "label", "collect", "combine"],
+        choices=[
+            "inventory",
+            "prepare",
+            "screen",
+            "refresh",
+            "prescreen",
+            "label",
+            "collect",
+            "combine",
+        ],
     )
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--inventory", type=Path)
