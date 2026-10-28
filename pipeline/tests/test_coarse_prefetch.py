@@ -589,6 +589,12 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
     assert inputs.key == sources.input_key(tile) and inputs.key
     laz = C.raw_dir("laz") / "maanpinta" / f"{block_of(tile).name}.laz"
     os.utime(laz, ns=(laz.stat().st_atime_ns, laz.stat().st_mtime_ns + 10**9))
+    assert not unprepared(tile, root, sources)  # unchanged content keeps prepared inputs
+    import laspy
+
+    cloud = laspy.read(laz)
+    cloud.z = np.asarray(cloud.z) + 0.1
+    cloud.write(laz)
     assert unprepared(tile, root, sources)
     assert isinstance(prepare(tile, root, sources)["ground"], float)
     assert len(list((root / ".inputs" / tile.id).glob("ground.*.pkl"))) == 1  # the old key is gone
