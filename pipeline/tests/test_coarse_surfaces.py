@@ -379,3 +379,38 @@ def test_stair_ground_cut_preserves_vertical_bank_faces():
     result = cut_ground(mesh, [shapely.box(-1, 1, 1, 3)])
     np.testing.assert_array_equal(result.positions[result.indices], p[mesh.indices])
     np.testing.assert_array_equal(result.material, mesh.material)
+
+
+def test_ortho_distinguishes_dry_vegetation_gravel_and_paving():
+    tile = C.VisualTile(0, 0, 0)
+    rgb = np.array([[[155, 156, 90], [140, 125, 100], [170, 172, 171]]], np.uint8)
+    # The classifier accepts square tile rasters, north-up rows.
+    rgb = np.repeat(rgb, 3, axis=0)
+    points = np.array([[40, 0, 40], [125, 0, 40], [210, 0, 40]])
+    assert classify(points, rgb, tile, []).tolist() == [
+        mat_id(k) for k in ("grass", "gravel", "road")
+    ]
+
+
+def test_park_and_field_keep_grass_but_explicit_yard_keeps_paving(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.surfaces import osm_surfaces
+
+    rows = [
+        dict(tags=json.dumps(tags), geometry_local=geom.wkb)
+        for tags, geom in (
+            ({"leisure": "park"}, shapely.box(0, 0, 250, 250)),
+            ({"landuse": "farmland"}, shapely.box(0, 0, 100, 100)),
+            ({"surface": "paving_stones"}, shapely.box(10, 10, 20, 20)),
+        )
+    ]
+    path = tmp_path / "osm.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    points = np.array([[15, 0, 15], [50, 0, 50], [150, 0, 150]])
+    rgb = np.full((8, 8, 3), 125, np.uint8)
+    assert classify(
+        points, rgb, C.VisualTile(0, 0, 0), [], osm_surfaces(C.VisualTile(0, 0, 0), path)
+    ).tolist() == [mat_id(k) for k in ("paving_slab", "grass", "grass")]

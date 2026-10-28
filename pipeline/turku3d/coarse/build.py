@@ -463,6 +463,7 @@ def build(
         surface_ids,
         np.ones(len(surface_idx), bool),
         surface_normals,
+        None if first_pass else inputs.ortho,
     )
     ground_meshes = cache.run(
         "ground_visual",

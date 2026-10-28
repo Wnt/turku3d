@@ -84,6 +84,23 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
     const selected = own ?? library(key);
     let { albedo } = selected.maps;
     const { normal, orm } = selected.maps;
+    if (e.ground_ortho_size !== undefined) {
+      // Albedo follows the own-source ortho; normal/ORM retain metric library UVs.
+      const size = e.ground_ortho_size;
+      if (!Number.isFinite(size) || size <= 0 || !material.getBaseColorTexture()) {
+        throw new Error('Invalid draft ground orthophoto binding');
+      }
+      const position = prim.getAttribute('POSITION');
+      const uv = new Float32Array(position.getCount() * 2);
+      for (let i = 0; i < position.getCount(); i++) {
+        const p = position.getElement(i, []);
+        uv.set([p[0] / size, p[2] / size], i * 2);
+      }
+      prim.setAttribute('TEXCOORD_1', doc.createAccessor().setBuffer(position.getBuffer())
+        .setType('VEC2').setArray(uv));
+      material.getBaseColorTextureInfo().setTexCoord(1).setWrapS(33071).setWrapT(33071);
+      albedo = undefined;
+    }
     if (e.roof_rgb) {
       bindRoofColour(doc, material, prim, e.roof_rgb);
       albedo = undefined;

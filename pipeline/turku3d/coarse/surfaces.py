@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import io
 import json
 import subprocess
 import tempfile
@@ -103,8 +104,10 @@ def osm_surfaces(tile, path):
         key = "quay" if retaining else SURFACES.get(tags.get("surface"))
         highway = tags.get("highway")
         if not key and (
-            tags.get("landuse") in ("grass", "meadow", "forest")
+            tags.get("landuse")
+            in ("grass", "meadow", "forest", "farmland", "orchard", "allotments")
             or tags.get("natural") in ("grassland", "wood", "scrub")
+            or tags.get("leisure") in ("park", "garden", "nature_reserve")
         ):
             key = "grass"
         if not key and highway:
@@ -150,12 +153,15 @@ def osm_surfaces(tile, path):
 
 
 def classify(centroids, rgb, tile, streets, regions=()):
-    out = np.full(len(centroids), mat_id("paving_slab"), np.uint8)
+    # Unmapped neutral ground is paving, not evidence of concrete slab joints.
+    out = np.full(len(centroids), mat_id("road"), np.uint8)
     px = rgb.shape[0]
     col = np.clip(((centroids[:, 0] - tile.origin[0]) / tile.size * px).astype(int), 0, px - 1)
     row = np.clip(((centroids[:, 2] - tile.origin[2]) / tile.size * px).astype(int), 0, px - 1)
     r, g, b = (rgb[row, col, k].astype(float) for k in range(3))
-    out[(g > 1.08 * r) & (g > 1.08 * b) & (g > 25)] = mat_id("grass")
+    out[(r > 1.05 * g) & (g > 1.1 * b) & (r < 1.6 * np.maximum(b, 1))] = mat_id("gravel")
+    # Yellow/dry lawns and fields have little green/red contrast in the true ortho.
+    out[(g > 0.95 * r) & (g > 1.15 * b) & (g > 25)] = mat_id("grass")
     # Surveyed city paving wins over estimated OSM corridor widths and RGB fallback.
     for polygons in (regions, streets):
         if not polygons:
@@ -178,8 +184,13 @@ def slope_fallback(positions, indices, materials):
     return result
 
 
-def visuals(tile, positions, indices, materials, keep, normals=None):
+def visuals(tile, positions, indices, materials, keep, normals=None, ortho=None):
     """Same terrain triangles/normals as collision; metric UVs on steep banks too."""
+    image = None
+    if ortho is not None:
+        encoded = io.BytesIO()
+        Image.fromarray(ortho).save(encoded, format="PNG")
+        image = encoded.getvalue()
     normal = vertex_normals(positions, indices) if normals is None else normals
     triangles = positions[indices]
     face = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
@@ -211,10 +222,12 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
                     normals=normal[ids],
                     uvs=uv,
                     color=(1, 1, 1, 1),
+                    image=image if projection == 1 else None,
                     extras=dict(
                         layer="ground",
                         object_id=f"ground_{tile.id}_{key}_{projection}",
                         material_key=key,
+                        **({"ground_ortho_size": tile.size} if image and projection == 1 else {}),
                     ),
                 )
             )
