@@ -39,7 +39,7 @@ def code_hash() -> str:
 
 def store_path(key: str, root: Path | None = None) -> Path:
     """Opaque WFS/building ids cannot escape the parameter store."""
-    return (root or C.data_root() / "facade-params") / (
+    return (root or C.work_root() / "facade-params") / (
         hashlib.sha256(str(key).encode()).hexdigest() + ".json"
     )
 

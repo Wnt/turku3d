@@ -18,6 +18,12 @@ def test_parameter_key_is_stable_and_cannot_escape(tmp_path):
     assert path != store_path("unsafe/id", tmp_path)
 
 
+def test_default_parameter_store_is_sandboxed(monkeypatch, tmp_path):
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "shared"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "own"))
+    assert store_path("building").parent == tmp_path / "own" / "facade-params"
+
+
 def test_only_own_building_parameters_invalidate(tmp_path):
     from turku3d.facade_kit import parameter_hash
 
