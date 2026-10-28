@@ -1,9 +1,13 @@
 """Small synthetic roof-selection fixtures; real-data validation is a manual audit."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import shapely
-from turku3d.buildings.facades import roof_colour
+from turku3d.buildings.facades import ortho_roof_key, roof_colour
+from turku3d.coarse.build import extrude
+from turku3d.coarse.inputs import Building
 from turku3d.coarse.roofs import envelope, plane_height, supported_offset
 
 
@@ -49,6 +53,25 @@ def test_roof_colour_keeps_dark_roof_and_rejects_shadow_and_green():
     ]
     assert roof_colour(samples)[0] == pytest.approx([205, 210, 210])
     assert roof_colour(np.full((100, 3), 40))[0] == pytest.approx([40] * 3)
+
+
+def test_roof_without_valid_ortho_pixels_has_explicit_fallback():
+    building = SimpleNamespace(footprint=shapely.box(0, 0, 4, 4))
+    key, colour = ortho_roof_key(building, [])
+    assert key == "roof_metal_gray"
+    assert colour["pixels"] == 0
+    assert colour["source"] == "no_valid_true_ortho_pixels"
+
+
+def test_roof_parts_below_base_fall_back_to_closed_flat_shell():
+    footprint = shapely.box(0, 0, 8, 6)
+    building = Building("missing-roof", footprint, 2.0, 10.0, "roof_metal_gray")
+    building.roof_parts = [(footprint, np.array([0.0, 0.0, 1.0]))]
+    roof, roof_idx, _, _, walls, wall_uv, wall_idx = extrude(building)
+    assert len(roof_idx) > 0
+    assert len(wall_idx) > 0
+    assert len(wall_uv) == len(walls)
+    assert roof[:, 1].max() == pytest.approx(10.0)
 
 
 def test_passage_keeps_upper_terrace_and_never_resurrects_lower_roof():

@@ -204,12 +204,7 @@ def extrude(b: Building):
             )
             parts.append(_extrude(part, lambda xz, p=plane: plane_height(p, xz), collision_origin))
     if not parts:
-        if not b.roof_parts:
-            return _extrude(b, lambda xz: np.full(len(xz), b.top), collision_origin)
-        return tuple(
-            np.empty((0, 2 if k == 5 else 3), dtype=np.uint32 if k in (1, 3, 6) else float)
-            for k in range(7)
-        )
+        return _extrude(b, lambda xz: np.full(len(xz), b.top), collision_origin)
     result = []
     for index in range(7):
         if index in (1, 3, 6):
