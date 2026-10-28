@@ -150,6 +150,8 @@ def public_handler(builder, prefetcher, settings):
                     if (
                         tile not in active
                         and not builder.built(tile)
+                        and not ((builder.root / tile / "collision.json").exists()
+                                 and collision_fragment(builder, tile) is not None)
                         and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
                     ):
                         return self._json(429, {"state": "queue-full"})

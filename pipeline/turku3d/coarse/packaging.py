@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import threading
+from functools import lru_cache
 from pathlib import Path
 
 from turku3d import config as C
@@ -46,11 +47,9 @@ PRODUCERS = (
 )
 
 
-def code_hash() -> str:
-    """Producer identity: the coarse sources plus the shared visual packager they call."""
-    h = hashlib.sha256(kit_hash().encode())
+def producer_paths():
     props = Path(__file__).parents[1] / "props"
-    for p in sorted(
+    return sorted(
         [
             *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
             Path(__file__).parents[1] / "stage_cache.py",
@@ -76,10 +75,29 @@ def code_hash() -> str:
             *sorted((Path(__file__).parents[1] / "structures").glob("*.py")),
             C.REPO_ROOT / "pipeline/env/package-lock.json",
         ]
-    ):
+    )
+
+
+def code_hash() -> str:
+    """Producer identity: the coarse sources plus the shared visual packager they call."""
+    h = hashlib.sha256(kit_hash().encode())
+    for p in producer_paths():
         h.update(p.name.encode())
         h.update(p.read_bytes())
     return h.hexdigest()[:16]
+
+
+@lru_cache(maxsize=2)
+def _current_code(signature):
+    return code_hash()
+
+
+def current_code():
+    """Reuse content hashes between requests; edits still invalidate by file identity."""
+    from turku3d import facade_kit
+
+    paths = [*producer_paths(), Path(facade_kit.__file__), Path(facade_kit.renderer().__file__)]
+    return _current_code(tuple((str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in paths))
 
 
 class Packager:

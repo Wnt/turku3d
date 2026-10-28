@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from turku3d import config as C
-from turku3d.spatial import frame
+from turku3d.spatial import rows
 from turku3d.stage_cache import StageCache, source_key
 from turku3d.tile_layer import identities
 
@@ -28,5 +28,7 @@ def passages(path):
             Path(__file__).with_name("bridge_details.py"),
             Path(__file__).with_name("tunnels.py"),
         ],
-        lambda: underpasses.quay_passages(frame(path).to_dict("records")),
+        lambda: underpasses.quay_passages(
+            row for _, row in rows(path, columns=("osm_id", "tags", "geometry_local"))
+        ),
     )

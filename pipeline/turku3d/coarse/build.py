@@ -225,6 +225,7 @@ def build(
     library: Path | None = None,
     sources=None,
     first_pass: bool = False,
+    collision_only: bool = False,
 ) -> dict:
     """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
 
@@ -500,19 +501,19 @@ def build(
         collision[cid]["url"] = url
         _write(out / "col" / f"{cid}.col", data)
     seconds["collision_ready"] = time.perf_counter() - started
-    _write(
-        out / "collision.json",
-        json.dumps(
-            dict(
-                coarse=True,
-                tile=tile.id,
-                collision=collision,
-                code=producer_code,
-                inputs=inputs.key,
-                pass_kind="first" if first_pass else "full",
-            )
-        ).encode(),
+    structural = dict(
+        coarse=True,
+        tile=tile.id,
+        collision=collision,
+        code=producer_code,
+        inputs=inputs.key,
+        pass_kind="first" if first_pass else "full",
+        buildings=len(blds),
+        seconds={**seconds, "total": seconds["collision_ready"]},
     )
+    _write(out / "collision.json", json.dumps(structural).encode())
+    if collision_only:
+        return structural
     t = time.perf_counter()
     dry_keep = np.ones(len(dry.indices), bool)
     visual_materials = surfaces.slope_fallback(dry.positions, dry.indices, dry.material)

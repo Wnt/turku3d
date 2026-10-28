@@ -52,8 +52,9 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
-from .build import code_hash
+from .packaging import current_code
 from .collision import fragment as collision_fragment
+from .collision import current as collision_current
 from .demand import Demand, write_snapshot
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
@@ -159,7 +160,7 @@ class Builder:
         self.inputs = inputs or (lambda tile: [])
         self.on_missing = on_missing or (lambda units: None)
         # Re-hashed per check, so a code edit while the service runs rebuilds each tile once.
-        self.code = (lambda: code) if code else code_hash
+        self.code = (lambda: code) if code else current_code
         self.two_pass = run is None
         self.run = run or Workers()
         self.demand = Demand()
@@ -286,6 +287,15 @@ class Builder:
                 self.pending.pop(tile, None)
                 self.servable = self.servable | {tile}
                 return {"state": "built"}
+            # A structural job releases its worker before any visual packaging.
+            # Visual polling must enqueue enrichment, never repeat the first pass.
+            if self.two_pass and collision_current(self, tile) is not None:
+                self.upgrade_queue.add(tile)
+                self.upgrade_requested[tile] = time.time()
+                self.pending.pop(tile, None)
+                self.priority.pop(tile, None)
+                self.lock.notify_all()
+                return {"state": "queued"}
             self.servable = self.servable - {tile}
             error, at = self.failed.get(tile, (None, 0.0))
             current_code = self.failure_key(tile)
@@ -434,11 +444,14 @@ class Builder:
                     units = json.loads(proc.stdout.strip().splitlines()[-1])["pending"]
                     self.pending[tile] = (units, distance)
                     outcome = "pending"
-                elif proc.returncode == 0 and self.built(tile):
+                elif proc.returncode == 0 and (self.built(tile) or
+                        (self.two_pass and collision_current(self, tile) is not None)):
                     self.pending.pop(tile, None)
                     self.failed.pop(tile, None)
                     self.failure_codes.pop(tile, None)
-                    m = json.loads(self.manifest(tile).read_text())
+                    visual_ready = self.built(tile)
+                    m = (json.loads(self.manifest(tile).read_text()) if visual_ready
+                         else collision_current(self, tile))
                     previous = self.timings.pop(tile, {})
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
                     first = (
@@ -463,7 +476,8 @@ class Builder:
                         self.journal.discard(tile)
                         self.replay_until.pop(tile, None)
                         self.upgrade_requested.pop(tile, None)
-                    self.servable = self.servable | {tile}
+                    if visual_ready:
+                        self.servable = self.servable | {tile}
                     outcome = "built"
                     if self.two_pass and m.get("pass_kind") == "first":
                         self.upgrade_queue.add(tile)

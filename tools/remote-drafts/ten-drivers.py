@@ -142,11 +142,13 @@ def main():
     client_prefix = "ten-drivers-" + str(time.time_ns())
     started, moving = time.monotonic(), None
     initial_cpu, samples, ready, pending, first_request, statuses = cpu(), [], {}, {}, {}, {}
+    states, demands = {}, {}
     initial = {cell(*point(route, 0)) for route in paths}
 
     def fetch_collision(tile, client):
         status, manifest = get(args.base, tile + "/collision.json?client=" + client)
         if status != 200:
+            states[tile] = dict(at=time.monotonic() - started, status=status, **manifest)
             return status, None
         entries = manifest.get("collision", {})
         if len(entries) != 16:
@@ -195,7 +197,8 @@ def main():
                         visible=",".join(visible),
                     )
                 )
-                get(args.base, "demand?" + query)
+                demand_status, _ = get(args.base, "demand?" + query)
+                demands[demand_status] = demands.get(demand_status, 0) + 1
                 for tile in wanted:
                     first_request.setdefault(tile, elapsed)
                     if tile not in ready and tile not in pending:
@@ -267,6 +270,7 @@ def main():
         queue_peak=max((s["queued"] or 0 for s in samples), default=0),
         host_cpu_percent=busy,
         http=statuses,
+        demand_http=demands,
         passed=startup is not None and bool(rows) and not late,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -277,6 +281,7 @@ def main():
                 crossings=rows,
                 samples=samples,
                 first_request=first_request,
+                last_unready=states,
                 routes=paths,
             ),
             indent=2,

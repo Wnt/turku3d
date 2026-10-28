@@ -11,22 +11,32 @@ from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 
 
-def fragment(builder, tile):
+def current(builder, tile):
     """Only current, atomically published structural payloads can bypass visuals."""
+    code = builder.code()
     for name in ("collision.json", "manifest.json"):
         try:
             value = json.loads((builder.root / tile / name).read_text())
-            if value.get("code") != builder.code():
+            if value.get("code") != code:
                 continue
             key = builder.input_key(tile)
             if key is not None and value.get("inputs") != key:
                 continue
             cells = {c.id for c in C.VisualTile.parse(tile).collision_tiles()}
             if value.get("tile") == tile and set(value.get("collision", {})) == cells:
-                return {k: value[k] for k in ("coarse", "tile", "collision", "pass_kind")}
+                return value
         except (OSError, ValueError, KeyError, TypeError):
             continue
     return None
+
+
+def fragment(builder, tile):
+    value = current(builder, tile)
+    return (
+        None
+        if value is None
+        else {k: value[k] for k in ("coarse", "tile", "collision", "pass_kind")}
+    )
 
 
 def solid_triangles(pos, idx, mat):
