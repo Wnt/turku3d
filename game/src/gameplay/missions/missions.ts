@@ -3,7 +3,7 @@
 // replay it exactly. Static messages use dialogue ids; rotating announcements carry their selected text.
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
-  basePay, LONG_UNLOCK_ROUNDS, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
+  basePay, LONG_UNLOCK_DELIVERIES, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
   PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
@@ -148,8 +148,7 @@ export class MissionSystem implements MissionHudSource {
   get money(): number { return this.s.money; }
   /** Euros of `money` the developer tools added (never reported to the multiplayer server). */
   get devMoney(): number { return this.s.devMoney; }
-  get completedRounds(): number { return Math.floor(this.s.shortDeliveries / PERMIT_DELIVERIES); }
-  get longUnlocked(): boolean { return this.completedRounds >= LONG_UNLOCK_ROUNDS; }
+  get longUnlocked(): boolean { return this.s.shortDeliveries >= LONG_UNLOCK_DELIVERIES; }
   get permit(): number { return this.s.permit; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
   get plates(): boolean { return this.s.plates; }

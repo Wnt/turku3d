@@ -82,10 +82,10 @@
     {"id": "pole_fine_10", "speaker": "officer", "text": "The taxpayers bought that pole once. You buy it next. Fifty euros."},
     {"id": "pole_fine_11", "speaker": "officer", "text": "We found the sign. It is horizontal. Fifty euros."},
     {"id": "pole_fine_12", "speaker": "officer", "text": "The road furniture has filed a complaint. Fifty euros."},
-    {"id": "long_unlocked", "speaker": "narrator", "text": "Four delivery rounds complete. Long-range deliveries are now available at the pizzeria. Bigger pay, tighter times."},
+    {"id": "long_unlocked", "speaker": "narrator", "text": "Four deliveries complete. Long-range deliveries are now available at the pizzeria. Bigger pay, tighter times."},
     {"id": "option_take_long_order", "speaker": "narrator", "text": "Long-range delivery", "voiced": false},
     {"id": "detail_take_long_order", "speaker": "narrator", "text": "Deliver to Turku landmarks and museums. Higher distance pay; a fast, clean drive earns the full tip.", "voiced": false},
-    {"id": "reason_long_locked", "speaker": "narrator", "text": "Complete four rounds of ten short deliveries to unlock.", "voiced": false},
+    {"id": "reason_long_locked", "speaker": "narrator", "text": "Complete four short deliveries to unlock.", "voiced": false},
     {"id": "reason_no_long_route", "speaker": "narrator", "text": "No drivable long-range destination is available.", "voiced": false},
     {"id": "reason_long_vehicle", "speaker": "narrator", "text": "Buy a delivery vehicle or use forged plates first.", "voiced": false}
   ]

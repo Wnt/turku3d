@@ -11,7 +11,7 @@ const pool: PoolAddress[] = [100, 3000, 5000].map((m, i) => ({ id: `district-${i
   tile: `t0_${i}_0`, point: { x: m, z: 0 }, street: { x: m, z: 1 }, foot: m, car: m, landmark: i > 0 }));
 const frame = (extra: Partial<MissionFrame> = {}): MissionFrame => ({ position: PIZZERIA.point,
   interact: false, vehicleId: 'player', input: 'keyboard', ...extra });
-function game(shortDeliveries = 39) {
+function game(shortDeliveries = 3) {
   const m = new MissionSystem({ router: lRouter, addresses: pool, seed: 1 });
   m.restore(JSON.stringify({ ...freshSave(1), phase: 'at_pizzeria', permit: 20, vehicle: 'car',
     delivery: shortDeliveries, shortDeliveries, money: 100 }));
@@ -30,12 +30,10 @@ describe('long-range deliveries', () => {
   it('counts finished short orders, including failed orders, rather than pickups or remaining permit stock', () => {
     for (const fail of [false, true]) {
       const m = game();
-      expect(m.completedRounds).toBe(3);
       pickup(m);
       expect(m.permit).toBe(19);
       expect(m.longUnlocked).toBe(false);
       finish(m, fail);
-      expect(m.completedRounds).toBe(4);
       expect(m.longUnlocked).toBe(true);
       // Queue drains; the saved once-only announcement is delivered after the result.
       m.update(100, frame({ position: { x: -500, z: -500 } }));
@@ -84,7 +82,7 @@ describe('long-range deliveries', () => {
     const m = game(); pickup(m, true);
     expect(m.phase).toBe('at_pizzeria');
     expect(m.permit).toBe(20);
-    expect(m.shop!.options.find(o => o.id === 'take_long_order')!.reason).toContain('four rounds');
+    expect(m.shop!.options.find(o => o.id === 'take_long_order')!.reason).toContain('four short deliveries');
   });
 
   it('emits the long job and exact road distance for multiplayer payout validation', () => {

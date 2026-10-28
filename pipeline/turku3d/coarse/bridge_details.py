@@ -234,8 +234,23 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
             top = height_at(line) - spec["thickness"]
             depth = 0.2 + min(2.5, axis.length * 0.035) * (2 * s / axis.length - 1) ** 2
             if spec["arch_edge"]:
-                depth = 0.45 + min(3.0, axis.length * 0.065) * (2 * s / axis.length - 1) ** 2
-            meshes.append(wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"]))
+                depth = 0.25 + min(3.0, axis.length * 0.065) * (2 * s / axis.length - 1) ** 2
+                # The widened concrete fascia is an open-spandrel arch: a rib
+                # below the deck with vertical posts, rather than a filled web.
+                rib_top = top - depth
+                meshes.append(wall(key, line, rib_top - 0.5, rib_top, 0.65, spec["body"]))
+                for station in np.arange(3, axis.length - 2, 4.5):
+                    p = np.asarray(axis.interpolate(float(station)).coords[0]) + normal * offset
+                    post = np.asarray([p - direction * 0.15, p + direction * 0.15])
+                    yy = height_at(post) - spec["thickness"]
+                    drop = (
+                        0.25 + min(3.0, axis.length * 0.065) * (2 * station / axis.length - 1) ** 2
+                    )
+                    meshes.append(wall(key, post, yy - drop, yy, 0.4, spec["body"]))
+            else:
+                meshes.append(
+                    wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"])
+                )
     if spec["body"] == "steel" and spec["structure"] == "beam" and not way.get("landing"):
         # Exposed transverse floor beams and edge stiffeners under steel decks.
         # These remain below the surveyed road, with no extra road collision skin.

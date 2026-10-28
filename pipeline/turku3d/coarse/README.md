@@ -485,6 +485,25 @@ estimates; the city-lidar deck and OSM widths remain authoritative. Profiles use
 permanent Wikidata crossing identities and apply in every tile and draft pass.
 Other bridges retain their existing profiles. Photos and private references stay local.
 
+Bridge approaches join the same globally aligned ground triangles as the rendered and
+collision terrain. Nearest lidar keys can be metres above the bank TIN and must not
+set a ramp endpoint. Mapped continuation corridors fill the wedges at skew abutments.
+Tuomiokirkkosilta's outer concrete arches have open spandrels and vertical posts.
+
+Browser-free crossing regression (production car, Rapier 0.21, hash-verified OCI COLs):
+
+```sh
+node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings"
+# Repeat against the frozen downloaded payloads, without network/build waits:
+node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings" Auransilta,Tuomiokirkkosilta --cached
+node --test tools/validator/test/bridge-crossing.test.ts
+```
+
+The live command holds anonymous tile demand and requires full/current manifests;
+it never accepts stale fallback. All seven named bridges run in both directions.
+The synthetic continuous-join and two-metre-gap case is in the affected quick stage
+`coarse-bridge-crossing`; real live builds stay outside the 30-second quick budget.
+
 The manual audit includes Teatterisilta, Myllysilta, Martinsilta, Auransilta, Kirjastosilta,
 Tuomiokirkkosilta, Hämeensilta, Aurajoen ratasilta, Raunistulansilta, Betanianpolku and incidental
 landings in their tiles. It retains before/after GLBs, collision, source membership, held-out

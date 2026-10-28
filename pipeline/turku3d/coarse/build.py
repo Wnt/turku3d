@@ -95,10 +95,8 @@ def water_level(points: np.ndarray, water) -> float:
     return float(max(-1.0, np.percentile(points[near, 1], 2))) if near.any() else 0.0
 
 
-ABUTMENT_M = (
-    5.0,
-    25.0,
-)  # dry ground this far beyond a deck end (m, along the deck) sets that end's height
+# Dry ground this far beyond a deck end (m, along the deck) sets its height.
+ABUTMENT_M = (5.0, 25.0)
 
 
 def bridge_decks(
@@ -329,6 +327,7 @@ def build(
             Path(bridges.__file__),
             Path(__file__).with_name("tunnels.py"),
             Path(__file__).with_name("bridge_details.py"),
+            Path(__file__).with_name("bridge_join.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             base / "structures/layer.py",

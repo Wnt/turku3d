@@ -359,6 +359,80 @@ def test_approach_join_reaches_mapped_road_level_on_each_bank_independently():
     assert approach_lengths(deck, [1, 1], lambda x, z: -20, shapely.GeometryCollection()) == (2, 2)
 
 
+def test_join_sampler_matches_ground_tin_across_visual_tile_seam():
+    from turku3d.coarse.bridge_join import terrain_sampler
+    from turku3d.coarse.build import grid_height, grid_mesh
+    from turku3d.coarse.inputs import grid_axes, grid_heights
+
+    # A sparse bank keypoint is high while the interpolated road triangle is low.
+    points = np.array([[230, 1, -20], [270, 7, -20], [230, 3, 40], [270, 4, 40], [252, -1, 8]])
+    sample = terrain_sampler(points)
+    for tile in (C.VisualTile(0, 0, 0), C.VisualTile(0, 1, 0)):
+        pos, _ = grid_mesh(tile, grid_heights(points, *grid_axes(tile)))
+        for x in (249.5, 250, 250.5):
+            if tile.bbox.xmin <= x <= tile.bbox.xmax:
+                assert abs(sample(x, 7) - grid_height(tile, pos, x, 7)) < 1e-10
+
+
+def test_join_does_not_end_on_a_bank_lip_before_a_depression():
+    from turku3d.coarse.bridges import approach_lengths
+
+    deck = way("deck", [(0, 0), (40, 0)], width=8)
+    deck["approaches"] = [way("road", [(40, 0), (70, 0)], bridge=False, width=8)]
+
+    def ground(x, z):
+        return 6 if x < 45 or x >= 52 else 4
+
+    assert approach_lengths(deck, [6, 6], ground, shapely.GeometryCollection())[1] == 12
+
+
+def test_cathedral_arch_has_open_spandrels_between_rib_and_deck():
+    from turku3d.coarse.bridge_details import furniture
+
+    deck = way("cathedral", [(0, 0), (48, 0)], width=25.9)
+    deck["tags"] = {"highway": "secondary", "bridge:structure": "arch", "wikidata": "Q11898665"}
+    meshes = furniture(
+        deck,
+        shapely.GeometryCollection(),
+        lambda p: np.full(len(p), 7.2),
+        lambda p: np.zeros(len(p)),
+        [],
+        shapely.box(0, -13, 48, 13),
+    )
+    concrete = next(m for m in meshes if m.metadata["surface"] == "concrete")
+    # At x=11 (between posts), a transverse ray through the spandrel is clear.
+    # Project each structural triangle onto X/Y and test the ray's section point.
+    triangles = concrete.positions[concrete.indices]
+    point = shapely.Point(11, 6.1)
+    assert not any(shapely.Polygon(t[:, :2]).buffer(1e-8).contains(point) for t in triangles)
+    assert concrete.positions[:, 1].min() < 3.5
+
+
+def test_skew_abutment_fills_wedge_on_mapped_continuation(monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d.coarse.bridges import produce
+
+    monkeypatch.setattr("turku3d.coarse.tunnels.ground_sampler", lambda fallback: lambda x, z: 6)
+    deck = way("skew", [(20, 20), (60, 20)], width=10)
+    deck.update(
+        outline=shapely.Polygon([(18, 15), (58, 15), (62, 25), (22, 25)]),
+        approaches=[way("east", [(58, 17), (80, 17)], bridge=False, width=6)],
+        under=[],
+        survey={"stations": [0, 40], "heights": [6, 6]},
+    )
+    inputs = SimpleNamespace(
+        points=np.array([[0, 6, 0], [100, 6, 0], [0, 6, 100], [100, 6, 100]]),
+        roads={"bridge_ways": [deck]},
+        buildings=[],
+    )
+    result = produce(C.VisualTile(0, 0, 0), np.empty((0, 3)), inputs)[0]
+    top = result.meshes[0]
+    footprint = shapely.union_all(shapely.polygons(top.positions[top.indices][:, :, [0, 2]]))
+    assert footprint.covers(shapely.Point(59.5, 17))
+    assert not deck["outline"].covers(shapely.Point(59.5, 17))
+
+
 def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
     from turku3d.coarse.bridge_details import surfaces
 

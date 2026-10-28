@@ -344,9 +344,12 @@ def approach_lengths(way, ends, sample, obstacles):
     if way.get("landing"):
         return 0.0, 0.0
     minimum = min(3.0, axis.length * 0.1)
-    corridor = shapely.union_all(
-        [w["line"].buffer(w["width"] / 2 + 2) for w in way.get("approaches", [])]
-    )
+    approaches = way.get("approaches", [])
+    corridor = shapely.union_all([w["line"].buffer(w["width"] / 2 + 2) for w in approaches])
+    # A divided carriageway's outline axis lies between its mapped continuations.
+    # Fill that narrow median, rather than treating it as an unmapped bank.
+    if len(approaches) > 1:
+        corridor = corridor.buffer(way["width"] / 4).buffer(-way["width"] / 4)
     coords = np.asarray(axis.coords)
     result = []
     for endpoint, other, height in (
@@ -360,7 +363,11 @@ def approach_lengths(way, ends, sample, obstacles):
             p = shapely.Point(point)
             if not corridor.covers(p) or obstacles.covers(p):
                 break
-            if abs(height - sample(*point)) <= distance * 0.08:
+            ahead = point + direction * 2
+            if (
+                abs(height - sample(*point)) <= distance * 0.08
+                and abs(sample(*ahead) - sample(*point)) <= 0.2
+            ):
                 length = float(distance)
                 break
         result.append(length)
@@ -480,6 +487,9 @@ def produce(tile, grid_pos, inputs):
     from .tunnels import ground_sampler
 
     full_ground = ground_sampler(lambda x, z: float(ground([[x, z]])[0]))
+    from .bridge_join import terrain_sampler
+
+    join_ground = terrain_sampler(points)
 
     def sample_ground(xz):
         return np.asarray([full_ground(x, z) for x, z in xz])
@@ -570,7 +580,7 @@ def produce(tile, grid_pos, inputs):
                 anchors = []
         # Preserve measured crown stations in the slab's piecewise-linear surface.
         start_ramp, end_ramp = approach_lengths(
-            way, (heights[0], heights[-1]), full_ground, obstacles
+            way, (heights[0], heights[-1]), join_ground, obstacles
         )
         has_ramp = bool(start_ramp or end_ramp)
         line = extended(axis, (start_ramp, end_ramp)) if has_ramp else axis
@@ -581,9 +591,9 @@ def produce(tile, grid_pos, inputs):
         hh = np.interp(
             ss,
             np.r_[0, start_ramp + s, line.length],
-            np.r_[float(sample_ground(xx[:1])[0]), heights, float(sample_ground(xx[-1:])[0])],
+            np.r_[join_ground(*xx[0]), heights, join_ground(*xx[-1])],
         )
-        hh = np.maximum(hh, sample_ground(xx)) + 0.02
+        hh += 0.02
         # Preserve a straight span, including the highest ground across the deck width.
         inside = (ss >= start_ramp) & (ss <= start_ramp + axis.length)
         hh[inside] = np.interp(ss[inside] - start_ramp, s, heights) + 0.02
@@ -597,11 +607,19 @@ def produce(tile, grid_pos, inputs):
             "outline", axis.buffer(width / 2, cap_style="flat", join_style="mitre")
         )
         if has_ramp:
-            footprint_poly = footprint_poly.union(
-                line.buffer(width / 2, cap_style="flat", join_style="mitre").difference(
-                    axis.buffer(width / 2, cap_style="flat", join_style="mitre")
-                )
+            corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
+            # Skew abutments end each carriageway at a different axis station.
+            # The rectangular extension alone leaves wedges between those road
+            # ends and the outline. Fill only the mapped continuation corridors.
+            continuations = shapely.union_all(
+                [
+                    w["line"].buffer(w["width"] / 2, cap_style="flat", join_style="mitre")
+                    for w in way.get("approaches", [])
+                ]
             )
+            footprint_poly = footprint_poly.union(
+                corridor.difference(axis.buffer(width / 2, cap_style="flat", join_style="mitre"))
+            ).union(continuations.intersection(corridor))
         footprint_poly = footprint_poly.difference(obstacles.buffer(0.15))
 
         ramps = approach_branches(way)
