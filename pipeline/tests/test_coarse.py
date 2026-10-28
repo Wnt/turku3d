@@ -528,3 +528,70 @@ def test_forest_osm_types_clip_to_tile(tmp_path, monkeypatch):
     }
     assert areas[0][1].bounds == (0, 0, 20, 20)
     assert areas[-1][3] == "broadleaved"
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [{"leisure": value} for value in ("track", "pitch", "stadium", "sports_centre", "playground")]
+    + [
+        {"landuse": "recreation_ground"},
+        {"highway": "raceway"},
+        {"sport": "bmx"},
+        {"sport": "cycling"},
+        {"sport": "running;cycling"},
+    ],
+)
+def test_forest_open_surfaces_exclude_scatter_and_canopy_keep_mapped(tmp_path, monkeypatch, tags):
+    from dataclasses import replace
+
+    import producer_world as world
+    from turku3d.coarse.forests import OPEN_MARGIN, produce, read_areas
+    from turku3d.coarse.inputs import Inputs
+    from turku3d.vegetation.trees import Tree
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path))
+    tile = C.VisualTile(0, 0, 0)
+    # A closed way with no polygon duplicate must exclude its interior too.
+    outline = shapely.LineString(shapely.box(30, 30, 120, 120).exterior.coords)
+    path = world.write_osm(
+        [
+            ({"leisure": "park"}, shapely.box(0, 0, 250, 250)),
+            (tags, outline),
+            ({"natural": "tree_row"}, shapely.LineString([(50, 50), (100, 50)])),
+            # Buffer before clipping: an outline outside the tile still excludes its edge.
+            (tags, shapely.LineString([(-1, 0), (-1, 250)])),
+        ]
+    )
+    areas = read_areas(tile, path)
+    excluded = shapely.union_all([g for _, g, kind, _ in areas if kind == "open"])
+    assert excluded.covers(shapely.Point(70, 70))
+    assert excluded.covers(shapely.Point(30 - OPEN_MARGIN / 2, 70))
+    assert excluded.covers(shapely.Point(0, 150))
+    empty = Inputs(
+        np.empty((0, 3)), np.empty((0, 0)), np.empty((0, 0, 3)), [], [], [], None, {}, {}
+    )
+    mapped = Tree("mapped", 80, 80, "osm", height=10)
+    for canopy in ((), np.array([[70, 20, 70], [28, 20, 80], [180, 20, 180]])):
+        inputs = replace(empty, forests=areas, canopy=canopy)
+        trees, bushes = produce(tile, inputs, lambda x, z: 0, [mapped])
+        assert mapped in trees
+        assert any(t.object_id.startswith("area:2:") for t in trees)
+        generated = [t for t in trees if t is not mapped and not t.object_id.startswith("area:2:")]
+        assert generated
+        assert all(not excluded.covers(shapely.Point(t.x, t.z)) for t in generated + bushes)
+
+
+def test_forest_open_outline_preserves_holes_and_buffers_open_tracks():
+    from turku3d.coarse.forests import open_outline, open_surface
+
+    polygon = shapely.Polygon(
+        [(0, 0), (100, 0), (100, 100), (0, 100)], holes=[[(20, 20), (80, 20), (80, 80), (20, 80)]]
+    )
+    mask = open_outline(polygon)
+    assert not mask.covers(shapely.Point(50, 50))
+    mask = open_outline(shapely.LineString([(0, 0), (100, 0)]))
+    assert mask.covers(shapely.Point(50, 2))
+    assert not mask.covers(shapely.Point(50, 10))
+    assert not open_surface({"leisure": "park"})
+    assert not open_surface({"leisure": "sports_centre", "indoor": "yes"})
+    assert not open_surface({"leisure": "sports_centre", "building": "yes"})

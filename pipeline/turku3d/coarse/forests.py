@@ -14,6 +14,7 @@ from turku3d.vegetation.trees import VARIANTS, Tree, deduplicate, variant
 TREE_CAP = 768
 BUSH_CAP = 24
 SPACING = 5.0
+OPEN_MARGIN = 3.0
 # Trees / square metre. Parks keep open lawns; scrub/heath stay low and sparse.
 DENSITY = {
     "forest": 0.018,
@@ -25,6 +26,32 @@ DENSITY = {
 }
 
 
+def open_surface(tags):
+    """OSM sports/open grounds where area vegetation must not invent trees."""
+    return (
+        tags.get("indoor") != "yes"
+        and tags.get("building", "no") == "no"
+        and (
+            tags.get("leisure")
+            in {"track", "pitch", "stadium", "sports_centre", "playground", "recreation_ground"}
+            or tags.get("landuse") == "recreation_ground"
+            or tags.get("highway") == "raceway"
+            or bool(set(tags.get("sport", "").split(";")) & {"bmx", "cycling"})
+        )
+    )
+
+
+def open_outline(geom):
+    """Fill closed way outlines; buffer open track lines and area edges by three metres."""
+    parts = []
+    for part in shapely.get_parts(geom):
+        if part.geom_type == "LineString" and part.is_ring:
+            part = shapely.make_valid(shapely.Polygon(part))
+        if part.geom_type in ("Polygon", "MultiPolygon", "LineString", "MultiLineString"):
+            parts.append(part.buffer(OPEN_MARGIN))
+    return shapely.union_all(parts)
+
+
 def read_areas(tile, path):
     import pyarrow.parquet as pq
 
@@ -32,6 +59,7 @@ def read_areas(tile, path):
     result = []
     for i, row in enumerate(pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist()):
         tags = json.loads(row["tags"]) if row["tags"] else {}
+        excluded = open_surface(tags)
         kind = next(
             (
                 tags[k]
@@ -40,9 +68,14 @@ def read_areas(tile, path):
             ),
             "",
         )
-        if kind not in (*DENSITY, "tree_row"):
+        if not excluded and kind not in (*DENSITY, "tree_row"):
             continue
         geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
+        if excluded:
+            geom = open_outline(geom)
+            if not geom.is_empty and geom.intersects(window):
+                result.append((f"open:{i}", geom.intersection(window), "open", ""))
+            continue
         if not geom.intersects(window):
             continue
         if kind == "tree_row" and geom.geom_type in ("LineString", "MultiLineString"):
@@ -106,10 +139,16 @@ def produce(tile, inputs, height_at, mapped):
             coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
             paths.append(shapely.LineString(coords).buffer(2))
         blocked = shapely.union_all([blocked, *paths])
+    generated_blocked = shapely.union_all(
+        [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
+    )
     trees = [t for t in mapped if not blocked.covers(shapely.Point(t.x, t.z))][:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())
     for identity, geom, kind, leaf in inputs.forests:
+        if kind == "open":
+            continue
+        placement_blocked = blocked if kind == "tree_row" else generated_blocked
         seed = int(hashlib.sha256(f"{tile.id}:{identity}".encode()).hexdigest()[:8], 16)
         rng = np.random.default_rng(seed)
         candidates = []
@@ -129,7 +168,11 @@ def produce(tile, inputs, height_at, mapped):
             candidates.extend(sorted(peaks.values(), key=lambda p: -p[2]))
             if not candidates:
                 points = scatter(
-                    geom, DENSITY[kind], blocked, seed, occupied=[(t.x, t.z) for t in trees]
+                    geom,
+                    DENSITY[kind],
+                    placement_blocked,
+                    seed,
+                    occupied=[(t.x, t.z) for t in trees],
                 )
                 candidates = [
                     (
@@ -147,7 +190,7 @@ def produce(tile, inputs, height_at, mapped):
                 continue
             if len(trees) >= TREE_CAP:
                 break
-            if blocked.covers(shapely.Point(x, z)) or any(
+            if placement_blocked.covers(shapely.Point(x, z)) or any(
                 np.hypot(t.x - x, t.z - z) < SPACING for t in trees
             ):
                 continue
@@ -170,7 +213,7 @@ def produce(tile, inputs, height_at, mapped):
             for x, z in scatter(
                 edge,
                 0.008,
-                blocked,
+                generated_blocked,
                 seed + 1,
                 spacing=3,
                 limit=BUSH_CAP - len(bushes),
@@ -190,3 +233,19 @@ def produce(tile, inputs, height_at, mapped):
                     )
                 )
     return deduplicate(trees, SPACING), bushes
+
+
+def trunks(trees, ct):
+    """Trunk cylinders of the trees standing in collision tile ct (tile-local centres)."""
+    from turku3d import config as C
+    from turku3d.col.format import Primitive
+    from turku3d.col.materials import mat_id
+
+    result = []
+    for t in trees:
+        if C.CollisionTile.at(t.x, t.z) != ct:
+            continue
+        height = min(t.height * 0.55, 8.0)
+        centre = (t.x - ct.origin[0], t.y + height / 2, t.z - ct.origin[2])
+        result.append(Primitive.cylinder(mat_id("tree_trunk"), centre, height / 2, t.trunk_radius))
+    return result
