@@ -52,12 +52,20 @@ def main():
     parser.add_argument("--baseline-ref", default="d78eb3c7bc45")
     parser.add_argument("--tiles", nargs="+", default=TILES)
     parser.add_argument(
+        "--out", type=Path, help="Audit output root (default reports/bridge-quality/PHASE)"
+    )
+    parser.add_argument(
+        "--first-pass", action="store_true", help="Audit the initial structural draft"
+    )
+    parser.add_argument(
         "--wfs-cache",
         type=Path,
         help="Supplementary sandbox WFS index, including shared input links",
     )
     args = parser.parse_args()
-    root = C.work_root() / "reports/bridge-quality" / args.phase
+    if args.first_pass and args.out is None:
+        parser.error("--first-pass requires --out to keep full-pass evidence separate")
+    root = args.out or C.work_root() / "reports/bridge-quality" / args.phase
     root.mkdir(parents=True, exist_ok=True)
     if args.phase == "before":
         name = "turku3d.coarse._baseline_bridges"
@@ -79,7 +87,7 @@ def main():
     for name in args.tiles:
         try:
             tile = C.VisualTile.parse(name)
-            inputs = gather(tile, root.parent, sources)
+            inputs = gather(tile, root.parent, sources, first_pass=args.first_pass)
             pos, _ = grid_mesh(tile, inputs.heights)
             decks = bridges.produce(tile, pos, inputs)
             summary[name] = [
@@ -104,7 +112,7 @@ def main():
                 )
                 for d in decks
             ]
-            build(name, root / name, inputs=inputs)
+            build(name, root / name, inputs=inputs, first_pass=args.first_pass)
             print(name, "built", len(decks), flush=True)
         except (ValueError, FileNotFoundError, MissingInputs) as exc:
             failed = True

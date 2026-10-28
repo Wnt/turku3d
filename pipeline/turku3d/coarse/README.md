@@ -453,6 +453,13 @@ with shared inputs linked read-only and newly downloaded layers kept in the sand
 Private reference pairs/scores require the comparison tool's own coverage and
 calibration checks and remain outside this repository. No reference values feed generation.
 
+For a current-generator baseline, pass `before --baseline-ref HEAD` explicitly; the default
+baseline is the historical pre-quality producer. Audit the initial structural pass separately
+with `--first-pass --out "$TURKU3D_WORK/reports/bridge-first/before"`. Use a separate output
+parent for a cold initial-pass audit: prepared full-pass roads in the same parent are reused
+by the runtime and include optional bridge survey profiles. Full-pass and initial-pass output
+must not overwrite each other.
+
 ## Latency diagnostics
 
 `manifest.seconds` separates terrain, bridges, building shells, surface boundary cuts,
