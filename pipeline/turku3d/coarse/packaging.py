@@ -21,6 +21,7 @@ BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
 PRODUCERS = (
     "build",
     "area",
+    "collision",
     "banks",
     "parked",
     "packaging",
