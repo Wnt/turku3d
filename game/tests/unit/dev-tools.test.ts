@@ -17,13 +17,13 @@ const loc = (url: string) => { const u = new URL(url); return { hostname: u.host
 const router: Router = { route: (from, to) => [from, to], distance: p => Math.hypot(p[1].x - p[0].x, p[1].z - p[0].z) };
 
 describe('gate', () => {
-  test('on a local origin or with ?dev=1, never on GitHub Pages', () => {
+  test('on a local origin or with ?dev=1, also on GitHub Pages', () => {
     expect(devToolsEnabled(loc('http://localhost:5171/'))).toBe(true);
     expect(devToolsEnabled(loc('http://127.0.0.1:5351/?backend=webgl'))).toBe(true);
     expect(devToolsEnabled(loc('http://[::1]:5171/'))).toBe(true);
     expect(devToolsEnabled(loc('http://localhost:5171/?dev=0'))).toBe(false);
     expect(devToolsEnabled(loc('https://wnt.github.io/turku-game/game/'))).toBe(false);
-    expect(devToolsEnabled(loc('https://wnt.github.io/turku-game/game/?dev=1'))).toBe(false);
+    expect(devToolsEnabled(loc('https://wnt.github.io/turku-game/game/?dev=1'))).toBe(true);
     expect(devToolsEnabled(loc('https://example.org/'))).toBe(false);
     expect(devToolsEnabled(loc('https://example.org/?dev=1'))).toBe(true);
   });

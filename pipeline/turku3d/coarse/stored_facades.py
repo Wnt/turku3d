@@ -1,5 +1,7 @@
 """Bind existing facade maps to surveyed draft walls without changing their geometry."""
 
+import math
+
 import numpy as np
 
 from turku3d import config as C
@@ -49,15 +51,56 @@ def match_wall(points, facades):
     return facade, uv
 
 
+def row_sections(vertices, uv, params, eave):
+    """Keep only complete storeys below the lower end of a sloped wall top.
+
+    The atlas already leaves roughly a quarter-storey of wall above its windows.
+    Finishing at a floor boundary preserves that frieze; any remaining roof/gable
+    area uses the same material's blank module, with no partial window rows.
+    """
+    base = vertices[0, 1]
+    height = min(eave, min(vertices[2:, 1])) - base
+    ground, upper = params["ground"], params["upper"]
+    rows = math.floor((height - ground + 1e-6) / upper)
+    cutoff = base + ground + rows * upper if height + 1e-6 >= ground else base
+    cutoff = min(cutoff, min(vertices[2:, 1]))
+    if cutoff > base:
+        lower, lower_uv = vertices.copy(), uv.copy()
+        lower[2:, 1] = cutoff
+        lower_uv[2:, 1] = cutoff
+        yield False, lower, lower_uv
+    if max(vertices[2:, 1]) > cutoff + 1e-6:
+        cap, cap_uv = vertices.copy(), uv.copy()
+        cap[:2, 1] = cutoff
+        cap_uv[:2, 1] = cutoff
+        yield True, cap, cap_uv
+
+
 def wall_meshes(b, walls, wuv, widx, origin, params):
     stored = building(b.facade_key).get("facades", [])
-    meshes, fallback = [], []
+    meshes, fallback = [], {False: [], True: []}
+    # Each extrusion ring closes before the next roof part starts. Its lowest top
+    # is the eave, including when a gable side has several collinear segments.
+    eaves = {}
+    ring_start = 0
+    for end in range(0, len(walls), 4):
+        if np.linalg.norm(walls[end + 1, [0, 2]] - walls[ring_start, [0, 2]]) < 1e-6:
+            eave = float(walls[ring_start : end + 4].reshape(-1, 4, 3)[:, 2:, 1].min())
+            eaves.update((i, eave) for i in range(ring_start, end + 4, 4))
+            ring_start = end + 4
     # The extrusion contract emits four vertices and two triangles for each vertical wall.
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
         match = match_wall(vertices, stored)
         if match is None:
-            fallback.extend(widx[np.all((widx >= start) & (widx < start + 4), axis=1)])
+            if params["module"] >= 42:
+                fallback[True].append((vertices, wuv[start : start + 4]))
+            else:
+                eave = eaves.get(start, min(vertices[2:, 1]))
+                for blank, points, uv in row_sections(
+                    vertices, wuv[start : start + 4], params, eave
+                ):
+                    fallback[blank].append((points, uv))
             continue
         f, uv = match
         meta = f["metadata"]
@@ -80,22 +123,31 @@ def wall_meshes(b, walls, wuv, widx, origin, params):
                 ),
             )
         )
-    if fallback:
+    for blank, parts in fallback.items():
+        if not parts:
+            continue
+        style = dict(params)
+        if blank and style["module"] < 42:
+            style["module"] = 42 + style["module"] // 6
+        suffix = "_frieze" if blank else ""
         meshes.append(
             GlbMesh(
-                f"walls_{b.key}",
-                walls - origin,
-                np.asarray(fallback, np.uint32),
-                uvs=wuv,
+                f"walls_{b.key}{suffix}",
+                np.concatenate([p for p, _ in parts]) - origin,
+                np.concatenate([
+                    np.array([[0, 3, 2], [0, 2, 1]], np.uint32) + 4 * i
+                    for i in range(len(parts))
+                ]),
+                uvs=np.concatenate([uv for _, uv in parts]),
                 color=(1, 1, 1, 1),
                 extras=dict(
                     layer="buildings",
-                    object_id=f"walls_{b.key}",
+                    object_id=f"walls_{b.key}{suffix}",
                     building_id=b.facade_key,
                     material_key="facade_kit",
                     base_height=b.base,
                     top_height=b.top,
-                    facade_kit=params,
+                    facade_kit=style,
                 ),
             )
         )
