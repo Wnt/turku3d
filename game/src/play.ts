@@ -47,7 +47,6 @@ import { holdCar, holdFoot, type CollisionStreamer } from './world/collisionStre
 import { EdgeMarker } from './world/edgeMarker';
 import type { CoarseTiles } from './world/coarseTiles';
 import { preloadStarts } from './world/preloadStarts';
-import { VISUAL_RING_RADIUS } from './world/residency';
 import { browserStorage, sessionStore } from './core/storage';
 import type { VisualTiles } from './world/tiles';
 import type { Telemetry } from './telemetry';
@@ -298,7 +297,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       ...seated.snapshot(player, drivenId),
       vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
-      visModels: tiles.residentModels, tilesSettled: tiles.settled && !materials?.ground?.pending,
+      visModels: tiles.residentModels, tilesSettled: !!coarse && coarse.progressAt(feet.x, feet.z).loaded === coarse.progressAt(feet.x, feet.z).total && !materials?.ground?.pending,
       frameMs: frameEma, missions: missions.snapshot(), zones: zones.snapshot(),
       recovery: recovery.snapshot(feet),
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, fly: fly?.active ?? null,
@@ -526,8 +525,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
-    tiles.setFocus(streamAt.x, streamAt.z, Math.max(VISUAL_RING_RADIUS, params.collisionRadius));
-    tiles.update(camera);
     renderFrame();
     window.__render?.afterFrame?.();
     if (!startScreen.active && !paused) {

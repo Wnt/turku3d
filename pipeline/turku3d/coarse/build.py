@@ -30,17 +30,21 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
+from turku3d.facade_assets import stored_request
 from turku3d.facade_kit import candidates, ensure_kit, parameter_hash, parameters
 from turku3d.facade_kit import code_hash as kit_hash
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
+from turku3d.stage_cache import StageCache, source_key
 
 from . import bridges, fences, kerbs, surfaces
 from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
+from .packaging import package_visual
 from .sources import Sources
+from .stored_facades import wall_meshes
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
@@ -55,11 +59,23 @@ def code_hash() -> str:
     for p in sorted(
         [
             *Path(__file__).parent.glob("*.py"),
+            Path(__file__).parents[1] / "stage_cache.py",
             *BRIDGE.parent.glob("*.mjs"),
             Path(__file__).parents[1] / "buildings/source_surfaces.py",
             props / "__init__.py",
             props / "models.py",
             props / "orientation.py",
+            Path(C.__file__),
+            Path(__file__).parents[1] / "layers.py",
+            Path(__file__).parents[1] / "facade_assets.py",
+            Path(__file__).parents[1] / "package/gltf.py",
+            Path(__file__).parents[1] / "ground/water.py",
+            *sorted((Path(__file__).parents[1] / "col").glob("*.py")),
+            *sorted((Path(__file__).parents[1] / "col").glob("*.mjs")),
+            Path(__file__).parents[1] / "col/materials_v1.json",
+            *sorted((Path(__file__).parents[1] / "vegetation").glob("*.py")),
+            *sorted((Path(__file__).parents[1] / "structures").glob("*.py")),
+            C.REPO_ROOT / "pipeline/env/package-lock.json",
         ]
     ):
         h.update(p.name.encode())
@@ -296,7 +312,7 @@ class Packager:
 PACKAGER = Packager()
 
 
-def package_visual(
+def _package_visual(
     tile: C.VisualTile,
     layer_files: list[Path],
     stage: Path,
@@ -304,6 +320,7 @@ def package_visual(
     library: Path,
     *,
     first_pass: bool = False,
+    building_keys=(),
 ) -> tuple[bytes, dict]:
     request = dict(
         tile=tile.id,
@@ -322,6 +339,7 @@ def package_visual(
         facadeKit=None if first_pass else ensure_kit(work / "shared"),
         firstPass=first_pass,
     )
+    request.update(stored_request(building_keys))
     (stage / "out").mkdir(parents=True, exist_ok=True)
     req = stage / "requests.json"
     req.write_text(json.dumps([request]))
@@ -348,6 +366,30 @@ def _write(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
+def terrain_stage(tile, inputs):
+    """Terrain and deck outputs, including the approaches that mutate the ground grid."""
+    grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
+    centroids = grid_pos[grid_idx].mean(axis=1)
+    water = inputs.water
+    materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
+    # A bridge deck stays solid where a water polygon runs under it.
+    separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
+    wet = water_mask(centroids, water)
+    if not separate_decks:
+        wet &= materials != mat_id("bridge_deck")
+    level = water_level(inputs.points, water)
+    if wet.any():
+        materials[wet] = mat_id("water")
+        wet_vertices = np.unique(grid_idx[wet])
+        dry_vertices = np.unique(grid_idx[~wet])
+        inner = np.setdiff1d(wet_vertices, dry_vertices)
+        grid_pos[inner, 1] = np.minimum(grid_pos[inner, 1], level)
+    # OSM decks are separate solids: lifting the span's ground blocks underpasses.
+    osm_decks = bridges.produce(tile, grid_pos, inputs)
+    decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
+    return grid_pos, grid_idx, materials, wet, level, osm_decks, decks
+
+
 def build(
     tile_id: str,
     out: Path,
@@ -366,53 +408,83 @@ def build(
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
+    producer_code = code_hash()
     inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
 
+    cache = StageCache(out.parent / ".stages" / tile.id)
+    base = Path(__file__).parents[1]
+    common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
-    grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
-    centroids = grid_pos[grid_idx].mean(axis=1)
+    grid_pos, grid_idx, materials, wet, level, osm_decks, decks = cache.run(
+        "terrain",
+        source_key(
+            terrain_stage,
+            grid_mesh,
+            water_mask,
+            water_level,
+            bridge_decks,
+            *common,
+            Path(surfaces.__file__),
+            Path(bridges.__file__),
+            Path(__file__).with_name("tunnels.py"),
+            Path(__file__).with_name("bridge_details.py"),
+            Path(__file__).with_name("geometry.py"),
+            base / "structures/geometry.py",
+            base / "structures/layer.py",
+        ),
+        [
+            tile,
+            inputs.heights,
+            inputs.points,
+            inputs.ortho,
+            inputs.streets,
+            inputs.surfaces,
+            inputs.water,
+            inputs.roads,
+            inputs.buildings,
+        ],
+        lambda: terrain_stage(tile, inputs),
+    )
     water = inputs.water
-    materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
-    # A bridge deck stays solid where a water polygon runs under it.
-    separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
-    wet = water_mask(centroids, water)
-    if not separate_decks:
-        wet &= materials != mat_id("bridge_deck")
-    level = water_level(inputs.points, water)
-    if wet.any():
-        materials[wet] = mat_id("water")
-        wet_vertices = np.unique(grid_idx[wet])
-        dry_vertices = np.unique(grid_idx[~wet])
-        inner = np.setdiff1d(wet_vertices, dry_vertices)
-        grid_pos[inner, 1] = np.minimum(grid_pos[inner, 1], level)
-    # OSM decks are separate solids: lifting the span's ground blocks underpasses.
-    t_bridges = time.perf_counter()
-    osm_decks = bridges.produce(tile, grid_pos, inputs)
-    decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
-    seconds["bridges"] = time.perf_counter() - t_bridges
-    seconds["terrain"] = t_bridges - t
     seconds["ground"] = time.perf_counter() - t
 
     t = time.perf_counter()
     blds = inputs.buildings
     facade_params = parameter_hash(b.facade_key for b in blds)
-    shells = [(b, extrude(b)) for b in blds]
-    shells = [(b, shell) for b, shell in shells if len(shell[1])]
+    shells = cache.run(
+        "buildings",
+        source_key(
+            *common, Path(__file__).with_name("extrusion.py"), Path(__file__).with_name("roofs.py")
+        ),
+        blds,
+        lambda: [(b, shell) for b in blds if len((shell := extrude(b))[1])],
+    )
     seconds["buildings"] = time.perf_counter() - t
 
     from .tunnels import ground_sampler
     from .tunnels import produce as produce_tunnels
 
     t = time.perf_counter()
-    tunnels = produce_tunnels(
-        tile,
-        inputs.tunnels,
-        grid_pos,
-        grid_idx,
-        shells,
-        extrude,
-        ground_sampler(lambda x, z: grid_height(tile, grid_pos, x, z)),
+    tunnels = cache.run(
+        "tunnels",
+        source_key(
+            grid_height,
+            *common,
+            Path(__file__).with_name("tunnels.py"),
+            Path(__file__).with_name("extrusion.py"),
+            Path(__file__).with_name("roofs.py"),
+        ),
+        [tile, inputs.tunnels, grid_pos, grid_idx, shells],
+        lambda: produce_tunnels(
+            tile,
+            inputs.tunnels,
+            grid_pos,
+            grid_idx,
+            shells,
+            extrude,
+            ground_sampler(lambda x, z: grid_height(tile, grid_pos, x, z)),
+        ),
     )
     shells = tunnels.shells
     seconds["tunnels"] = time.perf_counter() - t
@@ -423,6 +495,7 @@ def build(
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
+    centroids = grid_pos[grid_idx].mean(axis=1)
     visual_materials = surfaces.slope_fallback(grid_pos, grid_idx, materials)
     fallback_materials = surfaces.slope_fallback(
         grid_pos, grid_idx, surfaces.classify(centroids, inputs.ortho, tile, [])
@@ -436,13 +509,19 @@ def build(
         )
         surface_normals = None
     else:
-        surface_pos, surface_idx, surface_ids, surface_normals = surfaces.split_boundaries(
+        surface_args = (
             grid_pos,
             grid_idx,
             visual_materials,
             ~wet & tunnels.keep,
             [*inputs.surfaces, *inputs.streets],
             fallback_materials,
+        )
+        surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
+            "surface_boundaries",
+            source_key(Path(surfaces.__file__), *common),
+            surface_args,
+            lambda: surfaces.split_boundaries(*surface_args),
         )
     seconds["surface_boundaries"] = time.perf_counter() - t_surface
     ground_meshes = surfaces.visuals(
@@ -552,24 +631,7 @@ def build(
         for b, (_, _, _, _, walls, wuv, widx) in shells:
             width = max(float(wuv[:, 0].max()), 1.0)
             params = parameters(b.facade_key, b.top - b.base, width, getattr(b, "attributes", {}))
-            meshes.append(
-                GlbMesh(
-                    f"walls_{b.key}",
-                    walls - origin,
-                    widx,
-                    uvs=wuv,
-                    color=(1, 1, 1, 1),
-                    extras=dict(
-                        layer="buildings",
-                        object_id=f"walls_{b.key}",
-                        building_id=b.facade_key,
-                        material_key="facade_kit",
-                        base_height=b.base,
-                        top_height=b.top,
-                        facade_kit=params,
-                    ),
-                )
-            )
+            meshes.extend(wall_meshes(b, walls, wuv, widx, origin, params))
         write_visual(stage / "buildings.vis.glb", meshes, root_translation=tile.origin)
         layer_files.append(stage / "buildings.vis.glb")
     barrier_cols, barrier_stats = fences.produce(
@@ -614,7 +676,17 @@ def build(
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
-        data = write_col(col, encoding="meshopt", optimize=False)
+        data = cache.run(
+            "collision_" + ct.id,
+            source_key(
+                *sorted((base / "col").glob("*.py")),
+                *sorted((base / "col").glob("*.mjs")),
+                *common,
+                C.REPO_ROOT / "pipeline/env/package-lock.json",
+            ),
+            col,
+            lambda col=col: write_col(col, encoding="meshopt", optimize=False),
+        )
         bounds_lo, bounds_hi = col.compute_bbox()
         lo, hi = bounds_lo[1], bounds_hi[1]
         cols[ct.id] = data
@@ -650,7 +722,7 @@ def build(
         coarse=True,
         pass_kind="first" if first_pass else "full",
         tile=tile.id,
-        code=code_hash(),
+        code=producer_code,
         built=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         origin_en=list(C.ORIGIN),
         grid=dict(visual_l0=C.VISUAL_TILE_SIZE, collision=C.COLLISION_TILE_SIZE, cells=CELLS),
@@ -706,5 +778,7 @@ def build(
         seconds={k: round(v, 3) for k, v in seconds.items()},
     )
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
+    cache.metrics.update(json.loads((stage / "package-times.json").read_text()))
+    cache.report(out / "stage-times.json")
     shutil.rmtree(stage, ignore_errors=True)
     return manifest

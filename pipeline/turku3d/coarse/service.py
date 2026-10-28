@@ -268,7 +268,6 @@ class Builder:
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}  # the latest STATUS_ITEMS builds, oldest first
         self.code_seen = self.code()  # producer hash of the latest check, for /coarse/status
-        self.upgrades = None
         self.stopped = False
         self.draining = False
         self.workers = workers
@@ -312,7 +311,11 @@ class Builder:
             # A worker may have written its manifest but not committed its completion yet.
             # Publish only after counters, timings and servability are updated under this lock.
             if tile in self.building:
-                return {"state": "built"} if tile in self.servable else self._building(tile)
+                return (
+                    {"state": "built"}
+                    if tile in self.servable and self.built(tile)
+                    else self._building(tile)
+                )
             if self.built(tile):
                 self.requested[tile] = time.time()
                 if self.two_pass and tile not in self.upgrading and self.manifest(tile).exists():
@@ -582,8 +585,6 @@ class Builder:
             self.draining = True
 
     def stop(self):
-        if self.upgrades:
-            self.upgrades.stop()
         with self.lock:
             self.stopped = True
             self.lock.notify_all()
@@ -650,8 +651,6 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                 status = builder.status() | {"started": started, "modules": loaded_files()}
                 if prefetcher:
                     status["prefetch"] = prefetcher.status()
-                if builder.upgrades:
-                    status["facades"] = builder.upgrades.status()
                 return self._json(200, status)
             if url.path == "/coarse/want":
                 q = parse_qs(url.query)
@@ -713,7 +712,7 @@ def serve(
         prefetcher = Prefetcher(sources, root=root)
 
         def inputs(tile: str) -> list[str]:
-            return [u.key for u in sources.missing(C.VisualTile.parse(tile))]
+            return [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))]
 
         builder = Builder(
             root,
@@ -722,9 +721,6 @@ def serve(
             input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
         )
         prefetcher.on_landed = lambda unit: builder.landed()
-        from .facades import DescribeQueue
-
-        builder.upgrades = DescribeQueue(root, builder)
     server = Server((host, port), handler(builder, prefetcher))
     return server, builder, prefetcher
 

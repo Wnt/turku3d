@@ -1,5 +1,6 @@
 // Explicit GLB assembly: bind/encode textures first, then lossless meshopt. No L0 simplification or position quantization.
 import fs from 'node:fs';
+import { cachedEncoder } from './encode_cache.mjs';
 import { batchVisual } from './batch.mjs';
 import { createMaterialBinder } from './materials.mjs';
 import { atlasFacades } from './facade_atlas.mjs';
@@ -21,8 +22,12 @@ const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrim
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 const sharp = (await dep('sharp')).default;
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
+let meshCache;
+const meshEncoder = cachedEncoder(MeshoptEncoder,
+  createHash('sha256').update(fs.readFileSync(require.resolve('meshoptimizer'))).digest('hex'),
+  () => meshCache);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
-  .registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
+  .registerDependencies({ 'meshopt.encoder': meshEncoder.encoder, 'meshopt.decoder': MeshoptDecoder });
 function run(tool, args) {
   const proc = spawnSync(tool, args, { encoding:'utf8' });
   if (proc.status !== 0) throw new Error(`${tool}: ${proc.error?.message ?? proc.stderr}\n${proc.stdout ?? ''}`);
@@ -78,6 +83,8 @@ async function encodeFacade(t, request) {
   }
 }
 async function assembleVisual(request) {
+  meshCache = path.join(request.textureCache, 'meshopt');
+  const initialHits = meshEncoder.stats.hits, initialMisses = meshEncoder.stats.misses;
   const seconds = {};
   let stageTime = performance.now();
   const stage = name => { seconds[name] = (performance.now() - stageTime) / 1000; stageTime = performance.now(); };
@@ -280,7 +287,7 @@ async function assembleVisual(request) {
   }
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
   stage('packaging');
-  fs.writeFileSync(request.stats, JSON.stringify({ seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
+  fs.writeFileSync(request.stats, JSON.stringify({ mesh_cache: { hits:meshEncoder.stats.hits-initialHits, misses:meshEncoder.stats.misses-initialMisses }, seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
     bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, shared_images:shared,
     textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()), facade_shares:facadeShares }));
 

@@ -1,30 +1,10 @@
+// Draft service is the only world source. Each visible tile owns all sixteen collision cells.
+// Requests are checked against the current generator version; resident tiles swap only after
+// their replacement geometry and collision have been validated.
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
-// Coarse (draft) tiles: when the player comes within one tile of an L0 cell the published tileset lacks,
-// the local companion or Pages' remote service builds it and this module streams it
-// in like a published tile: the GLB goes into the scene, its .col entries into the manifest so CollisionStreamer
-// loads them with the normal residency rules. Collision comes first: a draft is drawn only when all 16 of its cells
-// have collision and the physics worker has decoded each of its .col files; one that fails is never drawn (the
-// physics edge walls keep the player out of cells without loaded collision). A drawn draft's collision is used for
-// all 16 of its cells, also where the release publishes a margin cell there (the ring of ground and old margin props
-// around the playable tiles): collision follows what is drawn, and the published entry returns when the draft leaves.
-// Draft tiles get a desaturated tint and a HUD line. Published 500 m
-// leaf tiles are hidden once all four of their quadrants are drafted (the same REPLACE rule as the tileset).
-// Ahead of a moving player the cells within the next 30 s of travel (plus a one-tile ring) are only asked to be built,
-// so at full speed the service (four builds at once) has them ready before they enter the 3x3 window and load.
-// Every 60 s the published manifest is re-read; a tile that has been published there replaces its draft.
-// Once a second the player's position and velocity go to /coarse/want, so the service prefetches the raw data ahead
-// of the player; a tile whose data is still downloading answers 202 pending-data and is polled like a queued one.
-// A landing restarts the service (tools/dev/localhost/coarse.mjs): a connection error (the dev server's 503) pauses the
-// drafts with one console line and the badge `drafts: service restarting`; only /coarse/status is probed until any
-// process answers it, so a restart is no console error spam. Then the ring and the path ahead are asked for at once (a
-// new producer rebuilds them on request). A page whose first /coarse/status outlasts its 2 s budget (a busy service)
-// starts paused the same way. A 404 from /coarse/want (an older service without the route) only skips the prefetch.
-// The /coarse/want answer carries the service's build counter: when it moves, the waiting tiles are polled at once, so a finished
-// draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
-// Pages uses the public health probe and tile routes, without sending player motion or requesting service internals.
-import { arrivalToL0, aheadTiles, cellsOf, distToL0, leafParents, parentCovered, startupDraftTiles, wantedTiles } from './coarseRegion';
-export { aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles } from './coarseRegion';
+import { arrivalToL0, aheadTiles, cellsOf, distToL0, startupDraftTiles, wantedTiles } from './coarseRegion';
+export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -37,7 +17,6 @@ import type { Manifest, ManifestEntry } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
 const POLL_MS = 1000;
-const MANIFEST_POLL_MS = 60_000;
 /** A failed or rejected draft is asked for again after this (ms); the service retries failed builds after 120 s. */
 const RETRY_MS = 120_000;
 /** Speed above which a jump is a teleport (m/s). */
@@ -63,13 +42,11 @@ interface CoarseFragment { coarse: true; tile: string; visual: Record<string, Ma
   /** The tile's OSM street graph (absent without an OSM extract). */
   roads?: { url: string; bytes: number } | null }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
-type State = 'pending' | 'loading' | 'built' | 'draft' | 'published' | 'failed';
+type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
 interface Entry {
   state: State; model?: THREE.Object3D; nextPoll: number; error?: string; roads?: RoadGraphJson;
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */
   collision: Map<string, ManifestEntry>;
-  /** Published (margin) entries of its cells that its collision replaced, restored when it leaves. */
-  replaced: Map<string, ManifestEntry>;
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
@@ -79,12 +56,8 @@ interface Entry {
 export interface CoarseHost {
   scene: THREE.Scene;
   renderer: THREE.WebGPURenderer;
-  /** The live published manifest; draft collision entries are added to and removed from `collision`. */
+  /** Runtime residency inventory populated by draft fragments. */
   manifest: Manifest;
-  manifestUrl: string;
-  /** Published tileset renderer: its leaf parents are hidden under complete drafts. */
-  tiles: THREE.EventDispatcher<{ 'load-model': { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } };
-    'dispose-model': { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } } }>;
   unloadCollision: (id: string) => void;
   /** Loaded collision tiles whose manifest entry changed are fetched again and swapped (CollisionStreamer.refresh). */
   refreshCollision: (ids: string[]) => void;
@@ -106,11 +79,7 @@ export interface CoarseHost {
 
 export class CoarseTiles {
   readonly entries = new Map<string, Entry>();
-  private published: Set<string>;
-  private leaves: Set<string>;
-  private parents = new Map<string, THREE.Object3D>();
   private nextCheck = 0;
-  private nextManifest = -1;
   private fetch: typeof fetch;
   private load: (url: string) => Promise<THREE.Object3D>;
   status = '';
@@ -165,8 +134,6 @@ export class CoarseTiles {
 
   constructor(private host: CoarseHost) {
     this.fetch = host.fetch ?? fetch.bind(globalThis);
-    this.published = new Set(Object.keys(host.manifest.visual));
-    this.leaves = leafParents(this.published);
     this.load = host.loadModel ?? this.gltfLoader();
     this.page = host.pageUrl ?? location.href;
     const page = new URL(this.page);
@@ -176,14 +143,7 @@ export class CoarseTiles {
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
       font: '12px/1.4 system-ui, sans-serif', pointerEvents: 'none', zIndex: '20', display: 'none' });
-    host.tiles.addEventListener('load-model', ({ scene, tile }) => {
-      const id = tile.extras?.id;
-      if (typeof id === 'string' && this.leaves.has(id)) { this.parents.set(id, scene); this.updateParents(); }
-    });
-    host.tiles.addEventListener('dispose-model', ({ tile }) => {
-      const id = tile.extras?.id;
-      if (typeof id === 'string') this.parents.delete(id);
-    });
+
   }
 
   private gltfLoader() {
@@ -200,16 +160,16 @@ export class CoarseTiles {
     return () => { this.startup = null; this.nextCheck = 0; };
   }
   private wantedStarts(x: number, z: number) {
-    if (this.startup) return startupDraftTiles(this.startup.points, this.published, this.startup.radius);
-    return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.published, this.leaves)))];
+    if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
+    return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z)))];
   }
-  private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, draft: boolean) {
+  private async prepareModel(id: string, entry: Entry, model: THREE.Object3D) {
     const state = entry.state;
     let ready = false;
     try {
       await this.host.style?.(model);
       if (this.entries.get(id) !== entry || entry.state !== state) return false;
-      if (draft) tintDraft(model, this.host.renderer);
+      tintDraft(model, this.host.renderer);
       await this.host.styled?.(model);
       ready = this.entries.get(id) === entry && entry.state === state;
       return ready;
@@ -221,8 +181,6 @@ export class CoarseTiles {
   /** Call every frame with the player position; work is throttled to once per second (`now` in ms). */
   update(x: number, z: number, now = performance.now()) {
     this.clock = now;
-    if (this.nextManifest < 0) this.nextManifest = now + MANIFEST_POLL_MS;
-    if (now >= this.nextManifest) { this.nextManifest = now + MANIFEST_POLL_MS; void this.refreshManifest(); }
     if (now < this.nextCheck) return;
     this.nextCheck = now + POLL_MS;
     this.track(x, z, now);
@@ -236,7 +194,7 @@ export class CoarseTiles {
     const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
       - arrivalToL0(b, x, z, this.velocity.x, this.velocity.z) || distToL0(a, x, z) - distToL0(b, x, z);
     const wanted = this.wantedStarts(x, z).sort(byArrival);
-    const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id)).sort(byArrival);
+    const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z).filter(id => !wanted.includes(id)).sort(byArrival);
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {
@@ -266,19 +224,16 @@ export class CoarseTiles {
     const soonest = wanted.map(id => this.entries.get(id)).filter(e => e?.state === 'pending' && !e.error)
       .map(inSeconds).filter((v): v is number => v !== null).sort((a, b) => a - b)[0];
     const head = at?.state === 'draft' ? `draft tile ${here}`
-      : at?.state === 'published' ? `published tile ${here} streamed in place of its draft (reload for LOD)`
-        : at ? `draft tile ${here}${at.state === 'failed' ? ` unavailable: ${at.error}` : waiting}` : '';
+      : at ? `draft tile ${here}${at.state === 'failed' ? ` unavailable: ${at.error}` : waiting}` : '';
     const next = soonest !== undefined && at?.state === 'draft' ? `next tile in ${soonest} s` : '';
     this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '', queueFull ? 'remote queue full; retrying' : '', next]
       .filter(Boolean).join(' · '));
   }
 
-  /** Local startup warms the full window. Remote speculative neighbours must not block a published start offline. */
+  /** Startup waits for the requested draft ground on both localhost and Pages. */
   progressAt(x: number, z: number) {
-    const wanted = this.remote ? [...new Set([{ x, z }, ...this.retainedStarts]
-      .map(p => `t0_${Math.floor(p.x / VISUAL_L0)}_${Math.floor(p.z / VISUAL_L0)}`))]
-      .filter(id => !this.published.has(id)) : this.wantedStarts(x, z);
-    const ready = wanted.filter(id => ['draft', 'published'].includes(this.entries.get(id)?.state ?? ''));
+    const wanted = this.wantedStarts(x, z);
+    const ready = wanted.filter(id => this.entries.get(id)?.state === 'draft');
     const errors = wanted.flatMap(id => this.entries.get(id)?.state === 'failed' ? [`draft ${id}: ${this.entries.get(id)!.error}`] : []);
     return { loaded: ready.length, total: wanted.length, errors };
   }
@@ -312,7 +267,7 @@ export class CoarseTiles {
     this.outage = null;
     this.nextCheck = 0;
     for (const e of this.entries.values()) {
-      if (e.state === 'draft' || e.state === 'published') continue;
+      if (e.state === 'draft') continue;
       e.state = 'pending'; e.nextPoll = 0; e.error = undefined; e.readyAt = undefined;
     }
     console.info('[coarse] service back: drafts resume');
@@ -329,7 +284,7 @@ export class CoarseTiles {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) this.entries.set(id, e = { state: 'pending', collision: new Map(), replaced: new Map(), nextPoll: 0 });
+    if (!e) this.entries.set(id, e = { state: 'pending', collision: new Map(), nextPoll: 0 });
     return e;
   }
 
@@ -368,7 +323,10 @@ export class CoarseTiles {
       const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}`);
       if (!res.ok || res.status === 202) return;
       const fragment = await res.json() as CoarseFragment;
-      if (!fragment.coarse || fragment.tile !== id || fragment.visual[id]?.sha256 === e.visualHash) return;
+      if (!fragment.coarse || fragment.tile !== id) throw new DraftRejected(`${id}: invalid draft fragment`);
+      const visualChanged = fragment.visual[id]?.sha256 !== e.visualHash;
+      const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
+      if (missing.length) throw new DraftRejected(`${id}: incomplete collision`);
       const base = new URL(`${this.root}${id}/`, this.page);
       const changed = Object.entries(fragment.collision).filter(([cid, entry]) => entry.sha256 !== e.collision.get(cid)?.sha256);
       await Promise.all(changed.map(async ([cid, entry]) => {
@@ -380,14 +338,19 @@ export class CoarseTiles {
       }));
       const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
         .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
+      if (!visualChanged) {
+        this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
+        if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
+        return;
+      }
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e || e.state !== 'draft') { this.dispose(model); return; }
-      if (!await this.prepareModel(id, e, model, true)) return;
+      if (!await this.prepareModel(id, e, model)) return;
       this.host.scene.add(model);
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
-      if (roads) { e.roads = roads; this.onMapChange?.(); }
+      if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
       this.host.trackModel?.(model, id);
     } catch (err) {
       if (err instanceof ServiceDown) this.down();
@@ -420,11 +383,9 @@ export class CoarseTiles {
       const fragment = await res.json() as CoarseFragment;
       if (!fragment.coarse || fragment.tile !== id) throw new Error(`${id}: not a coarse tile fragment`);
       const base = new URL(`${this.root}${id}/`, this.page);
-      // Collision before visibility: every cell of the tile needs a collision entry (a published margin cell may stand
-      // in for a cell the draft lacks), and every draft entry must decode in the physics worker. A draft that fails is
-      // never drawn; the edge walls (physics/edgeWalls.ts) keep the player out of it and the HUD names the reason.
+      // Every cell belongs to this draft and must decode before the model becomes visible.
       const own = Object.entries(fragment.collision);
-      const uncovered = cellsOf(id).filter(cid => !fragment.collision[cid] && !this.host.manifest.collision[cid]);
+      const uncovered = cellsOf(id).filter(cid => !fragment.collision[cid]);
       if (uncovered.length) throw new DraftRejected(`no collision for ${uncovered.length} of 16 cells (${uncovered[0]})`);
       await Promise.all(own.map(async ([cid, entry]) => {
         const col = await this.request(new URL(entry.url, base).href);
@@ -438,14 +399,13 @@ export class CoarseTiles {
         .catch((err: Error) => { console.warn(`[coarse] ${id} streets: ${err.message}`); return null; }) : null;
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
-      if (!await this.prepareModel(id, e, model, true)) return;
+      if (!await this.prepareModel(id, e, model)) return;
       this.host.scene.add(model);
       this.host.trackModel?.(model, id);
       e.model = model;
       this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       e.state = 'draft'; e.visualHash = fragment.visual[id].sha256; e.nextPoll = this.clock + 15_000;
-      this.updateParents();
-      if (roads) { e.roads = roads; this.onMapChange?.(); }
+      if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
     } catch (err) {
       if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down(); return; }
       const rejected = err instanceof DraftRejected;
@@ -456,9 +416,9 @@ export class CoarseTiles {
     }
   }
 
-  /** L0 tiles drawn from this module: drafts, and tiles published since the page loaded. */
+  /** Draft L0 tiles currently drawn. */
   drawn(): string[] {
-    return [...this.entries].filter(([, e]) => e.state === 'draft' || e.state === 'published').map(([id]) => id);
+    return [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id);
   }
 
   /** Street graphs of the drafts in the scene, for the map and the router (gameplay/index.ts StreetMap). */
@@ -466,72 +426,16 @@ export class CoarseTiles {
     return [...this.entries.values()].flatMap(e => e.state === 'draft' && e.roads ? [e.roads] : []);
   }
 
-  /** A new release's tileset now renders `published` (world/releaseSwap.ts): drafts and streamed copies of those
-   *  tiles leave, giving their cells to the release's `collision` entries, and the draft window and leaf parents
-   *  follow the new list. Drafts that stay keep their cells and return them to the new release when they leave. */
-  release(published: Iterable<string>, collision: Record<string, ManifestEntry>) {
-    this.published = new Set(published);
-    this.leaves = leafParents(this.published);
-    for (const [id, e] of this.entries) {
-      for (const cid of e.collision.keys()) {
-        if (collision[cid]) e.replaced.set(cid, collision[cid]);
-        else e.replaced.delete(cid);
-      }
-      if (!this.published.has(id)) continue;
-      this.drop(e);
-      this.entries.delete(id);
-    }
-    this.updateParents();
-    this.onMapChange?.();
-  }
-
-  /** Re-read the published manifest; a drafted tile that is published now is swapped for the published one. */
-  private async refreshManifest() {
-    try {
-      const res = await this.fetch(new URL(this.host.manifestUrl, this.page).href, { cache: 'no-store' });
-      if (!res.ok) return;
-      const fresh = await res.json() as Manifest;
-      const base = new URL('.', new URL(this.host.manifestUrl, this.page));
-      for (const [id, e] of this.entries) {
-        const visual = fresh.visual[id];
-        if (!visual || e.state === 'published') continue;
-        const model = await this.load(new URL(visual.url, base).href);
-        this.drop(e);
-        if (!await this.prepareModel(id, e, model, false)) continue;
-        this.host.scene.add(model);
-        this.host.trackModel?.(model, id);
-        e.model = model;
-        this.take(e, cellsOf(id).filter(cid => fresh.collision[cid])
-          .map(cid => [cid, { ...fresh.collision[cid], url: new URL(fresh.collision[cid].url, base).href }]));
-        e.state = 'published';
-        this.published.add(id);
-      }
-      this.updateParents();
-      this.onMapChange?.();
-    } catch (err) {
-      console.warn(`[coarse] manifest refresh: ${(err as Error).message}`);
-    }
-  }
-
-  /** Puts `entries` into the manifest as this tile's collision; a published entry they replace is kept for `drop`,
-   *  and loaded colliders of those cells are swapped for the new ones. */
+  /** Publish the tile's validated collision and refresh loaded cells in place. */
   private take(e: Entry, entries: [string, ManifestEntry][]) {
     const swapped: string[] = [];
     for (const [cid, entry] of entries) {
       const current = this.host.manifest.collision[cid];
-      if (current && current !== e.collision.get(cid)) { e.replaced.set(cid, current); swapped.push(cid); }
-      else if (current) swapped.push(cid);
+      if (current) swapped.push(cid);
       this.host.manifest.collision[cid] = entry;
       e.collision.set(cid, entry);
     }
     if (swapped.length) this.host.refreshCollision(swapped);
-  }
-
-  /** Collision ids drafts hold in the manifest: a release swap leaves them to `release`. */
-  held(): Set<string> {
-    const out = new Set<string>();
-    for (const e of this.entries.values()) for (const [cid, entry] of e.collision) if (this.host.manifest.collision[cid] === entry) out.add(cid);
-    return out;
   }
 
   private drop(e: Entry) {
@@ -540,20 +444,15 @@ export class CoarseTiles {
       if (id) this.host.untrackModel?.(e.model, id);
       this.host.unstyle?.(e.model); e.model.removeFromParent(); this.dispose(e.model); e.model = undefined;
     }
-    const restored: string[] = [];
     for (const [cid, entry] of e.collision) {
-      // A release swap may have replaced the entry since (world/releaseSwap.ts): then it is no longer this tile's.
+      // An asynchronous replacement may already own the cell.
       if (this.host.manifest.collision[cid] !== entry) continue;
-      const published = e.replaced.get(cid);
-      if (published) { this.host.manifest.collision[cid] = published; restored.push(cid); }
-      else { delete this.host.manifest.collision[cid]; this.host.unloadCollision(cid); }
+      delete this.host.manifest.collision[cid];
+      this.host.unloadCollision(cid);
     }
     e.collision.clear();
-    e.replaced.clear();
-    if (restored.length) this.host.refreshCollision(restored);
     if (e.roads) { e.roads = undefined; this.onMapChange?.(); }
-    if (e.state === 'draft' || e.state === 'published') e.state = 'pending';
-    this.updateParents();
+    if (e.state === 'draft') e.state = 'pending';
   }
 
   private dispose(model: THREE.Object3D) {
@@ -568,8 +467,4 @@ export class CoarseTiles {
     });
   }
 
-  private updateParents() {
-    const resident = new Set([...this.entries].filter(([, e]) => e.state === 'draft' || e.state === 'published').map(([id]) => id));
-    for (const [id, scene] of this.parents) scene.visible = !parentCovered(id, resident);
-  }
 }

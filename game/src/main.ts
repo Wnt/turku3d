@@ -17,12 +17,10 @@ import { AdaptiveResolution } from './render/adaptiveResolution';
 import { renderPixelRatio } from './render/quality';
 import { VegetationLod } from './world/vegetationLod';
 import { MaterialStyler } from './render/materials';
-import { UnbuiltArea } from './render/unbuilt';
 import { VisualTiles } from './world/tiles';
-import { loadManifest, type Manifest } from './world/manifest';
+import { draftManifest } from './world/manifest';
 import { CollisionStreamer } from './world/collisionStreaming';
 import { CoarseTiles } from './world/coarseTiles';
-import { swapRelease } from './world/releaseSwap';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
@@ -88,12 +86,9 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   dayClock.set(date);
 } };
 const vegetation = idPass ? null : new VegetationLod(params.quality);
-const tiles = new VisualTiles(params.tileset, renderer, camera, scene, !!idPass);
-const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa, params.tileset);
+const tiles = new VisualTiles(!!idPass);
+const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => { vegetation?.remove(model); materials?.release(model); });
-// Play mode: far LOD outside the playable tiles (published L0 and drawn drafts) is drawn unbuilt grey (render/unbuilt.ts).
-const unbuilt = params.qa || idPass ? null : new UnbuiltArea(renderer);
-let builtTiles: () => Iterable<string> = () => [];
 let graphicsReady = Promise.resolve();
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
   // Startup warms the complete scene with real draws before Ready. Per-model async compilation
@@ -107,14 +102,6 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
   graphicsReady = prepared.catch(() => {});
   return prepared;
 };
-tiles.prepareModel = async (model, tile, signal) => {
-  const bound = materials?.apply(model);
-  vegetation?.add(model);
-  unbuilt?.apply(model, tile.extras?.id as string | undefined);
-  await bound;
-  await prepareGraphics(model, signal);
-};
-tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => unbuilt?.release(model));
 const resolution = new AdaptiveResolution();
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
@@ -124,7 +111,6 @@ const renderFrame = () => {
   }
   dayClock.update();
   vegetation?.update(camera);
-  if (unbuilt && clock.frames % 15 === 0) unbuilt.setBuilt(builtTiles());
   if (post) post.render(); else renderer.render(scene, camera);
 };
 
@@ -141,7 +127,7 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
-window.__game = { dayClock, backend, params, errors, tiles, clock, unbuilt, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot() };
+window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot() };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
@@ -161,10 +147,27 @@ function applyQaCamera() {
   camera.updateMatrixWorld();
 }
 
+async function draftWorld() {
+  const physics = new PhysicsClient();
+  physics.onError = e => fail(`physics: ${e}`);
+  const rapier = await physics.ready;
+  const manifest = draftManifest(location.href);
+  const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
+  const coarse = await CoarseTiles.start({ scene, renderer, manifest,
+    unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
+    checkCollision: buffer => physics.checkTile(buffer),
+    trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
+    style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); materials?.release(m); },
+    styled: async m => { vegetation?.add(m); await prepareGraphics(m); } });
+  if (!coarse) throw new Error('World generation service is unavailable');
+  return { physics, rapier, manifest, streamer, coarse };
+}
+
 async function runQa() {
   const q = params.qa!;
   document.body.classList.add('qa');
   applyQaCamera();
+  const { coarse } = await draftWorld();
   window.__qaPose = { E: q.E, N: q.N, H: q.H, yaw: q.yawDeg, pitch: q.pitchDeg, roll: q.rollDeg, fov: q.fovDeg };
   window.__qaProject = (E: number, N: number, H: number) => {
     const p = enToEngine(E, N, H);
@@ -184,12 +187,10 @@ async function runQa() {
     window.__qaIdTable = idPass.table;
   }
   window.__qaInfo = { renderer: `three.js r${THREE.REVISION} WebGPURenderer`, backend, pass: params.pass,
-    time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, tileset: params.tileset,
+    time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, world: 'draft-service',
     quality: params.quality, effectiveTime: params.time.toISOString(), sseUnits: 'drawing-buffer-pixels' };
   env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
   let stable = 0;
-  let idleEmptySince: number | null = null;
-  const bounds = new THREE.Box3();
   let t0 = performance.now();
   window.__qaMove = pose => {
     Object.assign(q, { E: pose.E, N: pose.N, H: pose.H, yawDeg: pose.yaw,
@@ -200,7 +201,6 @@ async function runQa() {
     window.__qaReady = false;
     window.__qaError = undefined;
     stable = 0;
-    idleEmptySince = null;
     t0 = performance.now();
     perf.reset();
   };
@@ -212,26 +212,15 @@ async function runQa() {
     clock.simSeconds += Math.min(0.1, (now - last) / 1000); // the play loop's dt clamp
     last = now;
     perf.begin();
-    tiles.update(camera);
+    coarse.update(camera.position.x, camera.position.z);
     renderFrame();
     perf.end();
     window.__render?.afterFrame?.();
     if (window.__qaReady || window.__qaError) return;
-    if (tiles.errors.length) { window.__qaError = tiles.errors[0]; return; }
+    const progress = coarse.progressAt(camera.position.x, camera.position.z);
+    if (progress.errors.length) { window.__qaError = progress.errors.join('; '); return; }
     if (materials?.ground?.errors.length) { window.__qaError = materials.ground.errors[0]; return; }
-    stable = tiles.settled && !materials?.ground?.pending ? stable + 1 : 0;
-    // contract: a pose outside the loaded data reports __qaError instead of running into the 120 s timeout. Only when
-    // nothing loaded for ~2 s although the tileset is idle, and the camera stands outside the tileset footprint.
-    const empty = tiles.tiles.root && tiles.loadedModels === 0 && tiles.tiles.loadProgress >= 1;
-    idleEmptySince = empty ? idleEmptySince ?? performance.now() : null;
-    if (idleEmptySince !== null && performance.now() - idleEmptySince >= 2000 && tiles.tiles.getBoundingBox(bounds)) {
-      bounds.applyMatrix4(tiles.tiles.group.matrixWorld);
-      const c = camera.position;
-      if (c.x < bounds.min.x || c.x > bounds.max.x || c.z < bounds.min.z || c.z > bounds.max.z) {
-        window.__qaError = `pose outside the tileset: camera E ${q.E} N ${q.N}, nothing in view loaded`;
-        return;
-      }
-    }
+    stable = progress.total > 0 && progress.loaded === progress.total && !materials?.ground?.pending ? stable + 1 : 0;
     // Allow temporal colour history to converge after textures finish uploading (QA contract: >= 2 frames).
     if (stable >= 32) {
       window.__qaReady = true;
@@ -253,52 +242,32 @@ async function runPlay() {
     addEventListener('pagehide', () => telemetry.flush(true));
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
   }
-  const physics = new PhysicsClient();
-  physics.onError = (e) => fail(`physics: ${e}`);
-  const [rapier, manifest] = await Promise.all([physics.ready, loading.track('Tile manifest', loadManifest(params.manifest) as Promise<Manifest>)]);
-  const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
-  telemetry?.setBuiltTiles(Object.keys(manifest.visual));
-  // Draft tiles beyond the published tileset: local companion on localhost, public endpoint on Pages.
-  const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
-    unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids), checkCollision: buffer => physics.checkTile(buffer),
-    trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
-    style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); materials?.release(m); },
-    styled: async m => { vegetation?.add(m); await prepareGraphics(m); } });
-  builtTiles = () => [...Object.keys(manifest.visual), ...coarse?.drawn() ?? []];
-
+  const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
-  const selected = params.spawnGiven ? undefined : manifest.spawn;
-  const spawn = selected ? { x: selected.position[0], y: selected.position[1], z: selected.position[2] } : enToEngine(params.spawn.E, params.spawn.N, 0);
+  const spawn = enToEngine(params.spawn.E, params.spawn.N, 0);
+  const yaw0 = headingToYaw(params.spawn.headingDeg);
+  const carPos = { x: spawn.x + 6 * Math.cos(yaw0), z: spawn.z - 6 * Math.sin(yaw0) };
+  const carCell = collisionTileAt(carPos.x, carPos.z);
+  const carId = `c_${carCell.i}_${carCell.j}`;
   const spawnId = (() => { const t = collisionTileAt(spawn.x, spawn.z); return `c_${t.i}_${t.j}`; })();
-  const required = [spawnId];
-  if (selected) {
-    const t = collisionTileAt(selected.vehicle.position[0], selected.vehicle.position[2]);
-    required.push(`c_${t.i}_${t.j}`);
-  }
-  streamer.update(spawn.x, spawn.z, true);
   const tWait = performance.now();
-  while (required.some(id => !physics.loaded.has(id) && manifest.collision[id])) {
-    if (performance.now() - tWait > 30000) throw new Error(`spawn collision tile ${spawnId} did not load`);
-    await new Promise((r) => setTimeout(r, 20));
+  while (!physics.loaded.has(spawnId) || !physics.loaded.has(carId)) {
+    if (performance.now() - tWait > 300_000) throw new Error(`spawn draft collision ${spawnId} did not load`);
+    coarse.update(spawn.x, spawn.z);
     streamer.update(spawn.x, spawn.z);
+    const progress = coarse.progressAt(spawn.x, spawn.z);
+    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, errors: progress.errors });
+    if (progress.errors.length) throw new Error(progress.errors.join('; '));
+    await new Promise(r => setTimeout(r, 20));
   }
   // the worker needs one world step before queries see new colliders
   physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
   const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? manifest.collision[spawnId]?.h[1] ?? 0;
   spawn.y = await groundAt(spawn.x, spawn.z);
   physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
-  const yaw0 = headingToYaw(selected?.headingDeg ?? params.spawn.headingDeg);
-  // Published starts use mapped parking. Explicit/debug spawns retain a nearby car.
-  const carPos = selected ? { x: selected.vehicle.position[0], z: selected.vehicle.position[2] } : { x: spawn.x + 6 * Math.cos(yaw0), z: spawn.z - 6 * Math.sin(yaw0) };
   const carGround = await groundAt(carPos.x, carPos.z);
-  const carYaw = selected?.vehicle.yaw ?? yaw0 + Math.PI / 2;
+  const carYaw = yaw0 + Math.PI / 2;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
-  for (const parked of manifest.vehicles ?? []) {
-    physics.spawnVehicle({ x: parked.x, y: parked.y + 0.75, z: parked.z }, parked.yaw - Math.PI / 2,
-      { id: parked.object_id, parked: true,
-        mass: Math.round(1200 * parked.width * parked.length * parked.height / (1.85 * 4.55 * 1.48)),
-        halfExt: { x: parked.length / 2 - 0.18, y: Math.min(0.55, parked.height * 0.32), z: parked.width / 2 - 0.05 } });
-  }
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, groundAt,
     loadingScreen, clockTime: () => dayClock.time, setClock: date => dayClock.restore(date),
@@ -310,21 +279,7 @@ async function runPlay() {
   let session = await startPlay(world, null);
   worldLoad.update({ phase: 'ready' });
   if (import.meta.hot && badge) {
-    // A new tile release under /tiles (a data landing) is swapped in place (world/releaseSwap.ts); if that fails,
-    // the page reloads into the autosave.
-    let release: string | null | undefined;
-    let releases = Promise.resolve();
-    const onStatus = (status: BuildStatus) => {
-      badge.set(status);
-      const key = status.tiles?.key ?? null;
-      if (release === undefined || key === release || new URL(params.tileset, location.href).href !== new URL('/tiles/tileset.json', location.href).href) { release ??= key; return; }
-      release = key;
-      releases = releases.then(() => swapRelease({ manifest, manifestUrl: params.manifest, tilesetUrl: params.tileset, tiles,
-        streamer, unloadCollision: id => physics.unloadTile(id), coarse })).then(delta => {
-        console.info(`[tiles] release ${key?.slice(0, 12)}: ${delta.visual.length} visual, ${delta.collision.length} collision changed`);
-        badge.applied('tiles');
-      }, e => { console.warn(`[tiles] release swap failed, reloading: ${(e as Error).message}`); session.reload(); });
-    };
+    const onStatus = (status: BuildStatus) => badge.set(status);
     import.meta.hot.on('turku3d:status', onStatus);
     void fetch('/__localhost/status').then(r => r.json()).then(onStatus).catch(() => {});
     badge.applied('loaded');
