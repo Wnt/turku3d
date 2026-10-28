@@ -6081,16 +6081,6 @@
    "fileSha256": "699fb6ccbd61ed206b07639cab416c6f00687ce27ebfa0b8dba104d45be6c71f"
   },
   {
-   "id": "address_turun_taidemuseo",
-   "speaker": "pizzeria",
-   "file": "address_turun_taidemuseo.ogg",
-   "seconds": 1.717,
-   "text": "Turun taidemuseo",
-   "textSha256": "da7e4adbac2155eda54f1af675b4bf88231454c692a2594bd6ef557ec43e3888",
-   "key": "a5f2518449bcc514f97010e36056aa49488ea4604505f7136789a1004400397f",
-   "fileSha256": "4bdb93350a9faa40163668b4f0a021d89eedc297f51c3ad821087f553a20db7d"
-  },
-  {
    "id": "address_turun_tuomiokirkko",
    "speaker": "pizzeria",
    "file": "address_turun_tuomiokirkko.ogg",

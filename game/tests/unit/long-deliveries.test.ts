@@ -105,5 +105,7 @@ describe('long-range deliveries', () => {
     expect(tip(0.7 * long, long)).toBe(8);
     expect(tip(0.7 * short, long)).toBeLessThan(8);
     expect(tip(1.3 * long, long)).toBe(0);
+    // A clean scooter run at its 45 km/h top speed can still earn a full tip.
+    expect(tip(6000 / 12.5 + 10, parSeconds(6000, 'scooter', 'long'))).toBe(8);
   });
 });

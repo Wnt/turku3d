@@ -12,9 +12,8 @@ Drop-offs are outside mapped buildings beside reachable public driving streets; 
 checks actual collision too. Short draws stay within 1.2 km on foot and exclude landmarks. Long draws use the curated
 landmarks in `content/landmarks.json` (OSM feature and entrance identities), require reachable car routes
 and never substitute residential destinations. Nearer central landmarks are deliberately eligible too.
-`audio/voice/long-addresses.json` lists the thirteen voiced landmark names; `make voice-build` includes them in the common spoken inventory.
-Long pay is €24 + ceil(€12/km), plus the existing tip. Par uses 1.4 times the short-job speed for the
-same vehicle; the existing late-tip curve and zero-pay cancellation deadline apply.
+`audio/voice/long-addresses.json` lists the twelve voiced landmark names; `make voice-build` includes them in the common spoken inventory.
+Long pay is €24 + ceil(€12/km), plus the existing tip. Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
 `play.ts` sends the remaining minimap polyline through `CoarseTiles.setRouteHint`; the streaming
 scheduler owns its bounded 30-second look-ahead and request ordering.
 

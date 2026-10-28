@@ -12,7 +12,8 @@ export const FAIL_AFTER_PAR = 2;
 export const basePay = (metres, job = 'short') => job === 'long' ? 24 + Math.ceil(metres * 0.012) : BASE_PAY;
 
 export function parSeconds(routeMeters, vehicle, job = 'short') {
-  return routeMeters / (PAR_SPEED[vehicle] * (job === 'long' ? 1.4 : 1)) + PAR_HANDLING_SECONDS;
+  const boost = job === 'long' ? (vehicle === 'scooter' ? 1.2 : 1.4) : 1;
+  return routeMeters / (PAR_SPEED[vehicle] * boost) + PAR_HANDLING_SECONDS;
 }
 
 export function tip(elapsed, par) {

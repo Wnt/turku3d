@@ -9,6 +9,7 @@ const {chromeExecutable,chromeArgs,chromeIgnoreDefaultArgs}=await import(repo+'/
 const {isolateBrowser}=await import(repo+'/tools/dev/environment.mjs');
 isolateBrowser();
 const browser=await chromium.launch({executablePath:chromeExecutable(),headless:true,ignoreDefaultArgs:chromeIgnoreDefaultArgs,args:chromeArgs(['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist'])});
+try {
 const page=await browser.newPage({viewport:{width:1100,height:700}});
 page.on('response',r=>{if(r.status()>=400 && !r.url().includes('/coarse/want'))console.log('HTTP',r.status(),r.url());});
 page.on('pageerror',e=>console.log('PAGEERROR',e.message));
@@ -46,11 +47,21 @@ await page.evaluate(async()=>{
 await page.waitForTimeout(1000);await page.keyboard.press('KeyF');
 await page.waitForFunction(()=>window.__game.state().mode==='car',{},{timeout:5000});
 await page.evaluate(()=>{
- const g=window.__game; const original=g.input.update.bind(g.input); let stuck=0,reverse=0;
+ const g=window.__game; const original=g.input.update.bind(g.input); let stuck=0,reverse=0,parking=false;
  g.driveEvidence={samples:[],start:g.state().feet,travelled:0};
  g.input.update=function(dt){
   original(dt);const s=g.state(),r=g.minimap.routes.route;
-  if(s.mode!=='car'||g.missions.phase!=='carrying'||!r?.length)return;
+  if(g.missions.phase!=='carrying'||!r?.length)return;
+  if(s.mode==='foot'){
+   if(!parking)return;
+   const t=g.missions.currentStop.point,dx=t.x-s.feet[0],dz=t.z-s.feet[2],d=Math.hypot(dx,dz),b=g.orbit.basis();
+   this.actions.moveY=d>1.7?(dx*b.fx+dz*b.fz)/d:0;this.actions.moveX=d>1.7?(dx*b.rx+dz*b.rz)/d:0;
+   if(d<2.7)this.edges.add('mission');return;
+  }
+  if(g.minimap.routes.length<28)parking=true;
+  if(parking){this.actions.throttle=0;this.actions.brake=1;
+   if(Math.abs(s.vehicle.forwardSpeed)<.4)this.edges.add('interact');return;}
+
   let goal=r[r.length-1],remaining=10+Math.abs(s.vehicle.forwardSpeed)*.45;
   for(let i=1;i<r.length;i++){
    const a=r[i-1],b=r[i],len=Math.hypot(b.x-a.x,b.z-a.z);
@@ -81,8 +92,10 @@ for(let i=0;i<100;i++){
  recovery:s.recovery,draft:g.coarse.status};});
  console.log('DRIVE',JSON.stringify(s));
  if(s.phase!=='carrying')break;
- if(s.route<12){await page.keyboard.press('KeyF');await page.keyboard.press('KeyE');}
+
 }
 await page.screenshot({path:process.env.TURKU3D_WORK+'/reports/long-drive.png'});
-console.log('END',JSON.stringify(await page.evaluate(()=>({state:window.__game.state(),evidence:window.__game.driveEvidence}))));
-await browser.close();
+const result=await page.evaluate(()=>({state:window.__game.state(),evidence:window.__game.driveEvidence}));
+console.log('END',JSON.stringify(result));
+if(result.state.missions.phase!=='delivered')process.exitCode=1;
+} finally { await browser.close(); }

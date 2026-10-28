@@ -102,17 +102,6 @@
     ]
   },
   {
-    "name": "Turun taidemuseo",
-    "source": [
-      "way",
-      26491362
-    ],
-    "entrance": [
-      "node",
-      5576056669
-    ]
-  },
-  {
     "name": "Aboa Vetus Ars Nova",
     "source": [
       "node",
