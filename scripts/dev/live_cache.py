@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 
 import sandbox as s
 
@@ -45,7 +46,38 @@ INPUTS = {
 }
 
 
+def game_key(repo, env):
+    """Bundle inputs only: tiles, layers and facade approvals are fetched at runtime."""
+    h = hashlib.sha256(b"game-build-v1\0")
+    patterns = (
+        *INPUTS["game-build"],
+        "tools/dev/localhost/*",
+        "tools/dev/http.mjs",
+        "scripts/dev/game_build.py",
+    )
+    names = set(
+        s.git("ls-files", "--cached", "--others", "--exclude-standard", cwd=repo).splitlines()
+    )
+    names.update(str(p.relative_to(repo)) for p in (repo / "game").glob(".env*"))
+    for name in sorted(names):
+        path = repo / name
+        if path.is_file() and (
+            any(fnmatch.fnmatchcase(name, p) for p in patterns) or name.startswith("game/.env")
+        ):
+            h.update(name.encode() + b"\0" + path.read_bytes() + b"\0")
+    settings = {
+        k: v for k, v in env.items() if k.startswith("VITE_") or k in ("NODE_ENV", "NODE_OPTIONS")
+    }
+    h.update(json.dumps(settings, sort_keys=True).encode())
+    h.update(subprocess.check_output(["node", "--version"]))
+    installed = repo / "game/node_modules/.package-lock.json"
+    h.update(installed.read_bytes() if installed.is_file() else b"missing:node_modules")
+    return h.hexdigest()
+
+
 def digest(repo, work, published, stage, previous, scope=None):
+    if stage == "game-build":
+        return game_key(repo, {**os.environ, "VITE_PUBLIC_RELEASE": "1"})
     h = hashlib.sha256(
         json.dumps(
             {"v": 2, "stage": stage, "previous": previous, "scope": scope}, sort_keys=True

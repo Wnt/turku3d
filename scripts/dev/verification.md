@@ -22,22 +22,31 @@ Playwright suites, playtest, the gate's e2e stage and the integrator's live buil
 `scripts/dev/host_slots.py`. The shared state is `~/turku3d/host-slots/` (override with
 `TURKU3D_SLOT_DIR` only for synthetic tests).
 
-Admission uses dedicated CPU shares on the ten-core host: at most three agent `build`
-commands (two jobs each), one `integration` (two jobs) and one `integration-data`
-(two jobs). Both integration lanes fit beside all agent builds, so publication never
-waits for an agent's tile build. GPU capacity remains five workers: three single-worker
-agent suites and two integrator workers. Builds queue FIFO within their own lane.
-Integration reservations cover `Run.build` only; checkout/dependency sync, release
-preparation, Pages upload and diagnostics hold no CPU reservation. Nested build commands
-inherit their lane's two-job budget through `TURKU3D_INTEGRATION_OWNER`.
-Dead owner PIDs are removed on the next admission or status read. Waiting appears
-in `codex-task ls` and `watch`, and commands print when a slot is acquired.
+Admission uses dedicated CPU shares on the ten-core host: two bulk `build` commands
+(two jobs each), two short `check` commands (one job each), one `integration` (two
+jobs) and one `integration-data` (two jobs). All six fit simultaneously. Game builds
+use `check`, so tile builds cannot consume their capacity. Cache hits acquire no slot.
+The observed public game build takes 4.044 s including type checking and both bundles;
+its hash-verified repeat takes 0.320 s. Keeping three bulk builds would consume the
+capacity needed to admit two checks beside both publication lanes; two is the largest
+bulk count that leaves those measured short checks independent on ten cores.
+GPU capacity remains five workers; explicit integrator Chrome uses one browser slot.
+Builds queue FIFO. Short checks and browser admission stop with an actionable error
+after 300 s rather than waiting through an entire task. This is a queue bound, not a
+promise that bulk builds finish in five minutes.
 
-Browser share: Chrome gets 2 workers below load 60 (`BROWSER_LOAD`), else 1 (`browser_workers`). The 20-test real-tile suite took 1.9 min with 4 workers: estimate 3.8 min with 2 or 7.6 min with 1,
-before load overhead, within `advisory_chrome.TIMEOUT` (2 h per invocation). Playwright's 120 s limit is per test.
-Agent suites use 1 worker, including playtest's two backends serially. During integrator Chrome,
-`host_slots.phase("chrome")` marks `phase: chrome` in `state.json` for status tools; agent `browser`
-admissions continue within the GPU budget (5 workers, at most 2 for the integrator).
+Shared state keeps checks as `kind: build, purpose: check`; old scheduler processes
+conservatively count them as builds and do not crash on an unknown cost-table key.
+Existing old processes must exit naturally before the new lane counts apply fully.
+Integration reservations cover actual builds only; checkout, Pages and diagnostics
+hold no CPU reservation. `tile-add` acquires build slots per local compute stage,
+releasing them during source downloads and remote facade-description calls.
+Nested commands inherit their integration lane's budget. Dead owner PIDs are
+reclaimed on admission/status; waiting is visible in `codex-task ls` and `watch`.
+
+Explicit integrator Chrome acquires one scheduled GPU worker while it runs.
+There is no automatic full-suite schedule or two-hour invocation timeout on the
+normal publication path. A focused worker browser run still debits its task budget.
 
 Every admission appends `{"time", "kind", "name", "wait_seconds"}` (name is the sandbox) to
 `~/turku3d/host-slots/waits.jsonl`.

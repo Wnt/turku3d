@@ -53,3 +53,22 @@ facade-ground audit 1.349 s / 10 in 28, car report 10.162 s / zero in 9.
 These remain scoped to changed colliders/parked cars and run after publication.
 AGENTS.md now defaults to one focused check and one changed real tile/instance,
 with extra tiles/views only for a relevant boundary or input case.
+
+## Slice 3: short checks and bundle reuse
+
+Reserve two one-job short-check slots alongside two two-job bulk builds and both
+two-job publishing lanes (10 total). The largest bulk count that preserves all
+these shares is two; this replaces the earlier three-build count. Normal game
+checks use the short lane and never queue behind bulk tile work. A 300 s queue
+limit for short checks/Chrome reports exhaustion instead of silently waiting.
+Checks serialize as `kind: build, purpose: check` for old live readers; a first
+four-second benchmark exposed an incompatible `kind: check`, which was corrected
+and covered by a compatibility regression before landing.
+
+Measured in this sandbox: public cold `make game-build` **4.044 s**, hash-verified
+repeat **0.320 s** (12.6x faster); both exit zero. The cold run includes types and
+both the public and solo companion bundles. The stamp includes source, dependency,
+Node version, Vite environment and all output-file hashes. Missing, extra or corrupt
+outputs rebuild. Cache hits take no host slot. The shared live bundle key now
+excludes runtime tile/layer/facade data and prior tile-stage keys, which previously
+invalidated the bundle for unrelated data changes. Environment changes still miss.

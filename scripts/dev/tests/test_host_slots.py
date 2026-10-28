@@ -66,13 +66,15 @@ class HostSlotsTest(unittest.TestCase):
     def kinds(self, child):
         return [(host_slots.lane(e), e["state"]) for e in self.snapshot() if e["pid"] == child.pid]
 
-    def test_publishing_and_data_never_wait_behind_three_agent_builds(self):
-        builds = [self.start("build") for _ in range(3)]
-        self.until(lambda: sum(e["state"] == "running" for e in self.snapshot()) == 3)
+    def test_publishing_and_data_never_wait_behind_bulk_builds_and_short_checks(self):
+        builds = [self.start("build") for _ in range(2)]
+        for _ in range(2):
+            self.start("check")
+        self.until(lambda: sum(e["state"] == "running" for e in self.snapshot()) == 4)
         code, data = self.start("integration"), self.start("integration-data")
         self.until(lambda: self.kinds(code) == [("integration", "running")])
         self.until(lambda: self.kinds(data) == [("integration-data", "running")])
-        self.assertEqual(len(self.snapshot()), 5)
+        self.assertEqual(len(self.snapshot()), 6)
         browser = self.start("browser")
         self.until(lambda: self.kinds(browser) == [("browser", "running")])
         extra = self.start("build")
@@ -83,7 +85,10 @@ class HostSlotsTest(unittest.TestCase):
 
     def test_all_lane_combinations_fit_the_ten_core_budget(self):
         # Exhaust the actual supported counts, including legacy entries with no lane.
-        running = [{"kind": "build", "state": "running", "since": i} for i in range(3)]
+        running = [{"kind": "build", "state": "running", "since": i} for i in range(2)]
+        running += [
+            {"kind": "build", "purpose": "check", "state": "running", "since": i} for i in range(2)
+        ]
         code = {"kind": "integration", "state": "waiting", "since": 4}
         data = {**code, "lane": "integration-data"}
         self.assertTrue(host_slots.admissible(running, code))
@@ -95,7 +100,7 @@ class HostSlotsTest(unittest.TestCase):
 
     def test_build_waiters_are_fifo_when_only_one_fits(self):
         integration = {"kind": "integration", "state": "running", "since": 0}
-        running = [{"kind": "build", "state": "running", "since": i} for i in (0.5, 1)]
+        running = [{"kind": "build", "state": "running", "since": i} for i in (1,)]
         older = {"kind": "build", "state": "waiting", "since": 2}
         newer = {"kind": "build", "state": "waiting", "since": 3}
         entries = [integration, *running, older, newer]
@@ -104,6 +109,27 @@ class HostSlotsTest(unittest.TestCase):
         self.assertTrue(host_slots.admissible([integration, *running, newer], newer))
         browser = {"kind": "browser", "state": "waiting", "since": 4}
         self.assertTrue(host_slots.admissible(entries, browser))
+
+    def test_short_checks_are_readable_by_preexisting_schedulers(self):
+        child = self.start("check")
+        self.until(lambda: self.kinds(child) == [("check", "running")])
+        [entry] = self.snapshot()
+        self.assertEqual((entry["kind"], entry["purpose"]), ("build", "check"))
+        # This is the lane lookup used by already-running old scheduler processes.
+        self.assertEqual(entry.get("lane", entry["kind"]), "build")
+
+    def test_normal_check_queue_has_a_five_minute_limit(self):
+        from unittest.mock import patch
+
+        with (
+            patch.dict(os.environ, {"TURKU3D_SLOT_DIR": self.directory.name}),
+            patch.object(host_slots, "admissible", return_value=False),
+            patch.object(host_slots, "CHECK_WAIT", 0),
+        ):
+            with self.assertRaisesRegex(TimeoutError, "check capacity busy"):
+                with host_slots.slot("check"):
+                    self.fail("overfull check was admitted")
+        self.assertEqual(self.snapshot(), [])
 
     def test_dead_owner_reclaimed_and_browser_cap(self):
         # At most LIMITS["browser"] (3) agent Chrome suites per host; the fourth waits.
@@ -119,7 +145,7 @@ class HostSlotsTest(unittest.TestCase):
         self.until(lambda: [e["state"] for e in self.snapshot()] == ["running"] * 3)
 
     def test_child_worker_budget(self):
-        for kind, expected in (("build", "2"), ("browser", "1")):
+        for kind, expected in (("build", "2"), ("check", "1"), ("browser", "1")):
             result = subprocess.run(
                 [
                     sys.executable,

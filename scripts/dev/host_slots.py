@@ -16,18 +16,19 @@ from pathlib import Path
 
 import browser_budget
 
-LIMITS = {"build": 3, "browser": 3, "integration": 1, "integration-data": 1}
+LIMITS = {"build": 2, "check": 2, "browser": 3, "integration": 1, "integration-data": 1}
 # The code lane (`integration`, with Chrome) and the data lane (no Chrome) of the integrator.
 # Both are stored as kind `integration` with their `lane`, so tooling that predates the data
 # lane counts it as an integration instead of failing on an unknown kind.
 INTEGRATIONS = ("integration", "integration-data")
 
-# Dedicated CPU shares: three two-job agent builds, two jobs for publishing and two
-# for data integration fit simultaneously on the measured ten-core host. Publishing
+# Dedicated CPU shares: two two-job bulk builds, two single-job checks, two jobs
+# for publishing and two for data fit on the ten-core host. Publishing
 # never queues behind agent work; Chrome has its independent GPU budget.
 BUDGET = {"jobs": 10, "gpu": 5}
 COST = {
     "build": {"jobs": 2},
+    "check": {"jobs": 1},
     "browser": {"gpu": 1},
     # The integrator's Chrome takes at most two of the five GPU workers; agents' Chrome shares
     # the rest, also while the integrator's Chrome stage runs. Jonni plays on another machine.
@@ -37,6 +38,8 @@ COST = {
 # At or above this 1-minute load average the integrator's Chrome stage halves its workers:
 # the same 32 tests took 251 s at load 50 and 1086 s at load 150-250 with four.
 BROWSER_LOAD = 60
+# A focused check should fail with an actionable queue error instead of consuming a turn.
+CHECK_WAIT = 300
 
 
 def browser_workers(load=None):
@@ -52,7 +55,7 @@ def integration_jobs(kind="build", lane="integration"):
 
 def lane(entry):
     """The slot class of an entry: its integration lane, else its kind."""
-    return entry.get("lane", entry["kind"])
+    return entry.get("purpose", entry.get("lane", entry["kind"]))
 
 
 def fits(entries, kind):
@@ -205,13 +208,17 @@ def slot(kind):
     entry = {
         "pid": pid,
         "identity": started,
-        "kind": "integration" if kind in INTEGRATIONS else kind,
+        "kind": "integration" if kind in INTEGRATIONS else "build" if kind == "check" else kind,
         "state": "waiting",
         "sandbox": sandbox_name(),
         "since": time.time(),
     }
     if kind in INTEGRATIONS:
         entry["lane"] = kind
+    if kind == "check":
+        # Older schedulers know only build/browser/integration. They conservatively
+        # count a short check as a build instead of crashing on a new cost-table key.
+        entry["purpose"] = "check"
     try:
         announced = False
         while True:
@@ -228,6 +235,10 @@ def slot(kind):
             if not announced:
                 print(f"waiting for {kind} slot", file=sys.stderr, flush=True)
                 announced = True
+            if kind in ("check", "browser") and time.time() - entry["since"] >= CHECK_WAIT:
+                raise TimeoutError(
+                    f"{kind} capacity busy for {CHECK_WAIT}s; use a focused check or retry later"
+                )
             time.sleep(0.2)
         if announced:
             print(f"acquired {kind} slot", file=sys.stderr, flush=True)
@@ -302,7 +313,7 @@ def main():
                 integration_jobs(args.kind, inherited)
                 if inherited
                 else 1
-                if args.kind == "browser"
+                if args.kind in ("browser", "check")
                 else 2
             )
             env["TURKU3D_JOBS"] = str(min(int(env.get("TURKU3D_JOBS", cap)), cap))

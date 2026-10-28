@@ -21,7 +21,7 @@ game-dev: game-install ## Vite dev server http://localhost:$(TURKU3D_PORT_BASE) 
 	$(COARSE_SERVICE) $(GAME_NPM) run dev
 
 game-build: game-install ## Typecheck + production build into $(GAME_DIST)
-	cd $(GAME_DIR) && python3 $(REPO)/scripts/dev/host_slots.py build -- node scripts/build.mjs
+	python3 $(REPO)/scripts/dev/game_build.py
 
 game-test: game-install ## Node unit tests (vitest: .col reader, Rapier character/car on the dev tiles, origin, sun)
 	$(GAME_NPM) test
