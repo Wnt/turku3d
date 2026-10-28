@@ -14,7 +14,9 @@ For each facade:
     Outputs per view: <view>.jpg (plain crop), <view>_outline.jpg (target facade outlined in red),
     <view>_mask.png (255 facade visible, 128 facade but occluded by depth proxy, 0 not facade),
     <view>.json (pose + scores + provenance).
-Camera Z = pano elevation (orthometric camera height for Google). Facade base height = facade.base_h,
+Camera Z = pano elevation for Google; Look Around uses a supported local N2000 ground plane
+plus the assumed camera height where available, retaining provider elevation in provenance.
+Facade base height = facade.base_h,
 else the median ground estimate (elevation - campaign camera height) of the Google candidates.
 """
 
@@ -39,7 +41,7 @@ from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 from .rectify import rectified_points, sample_wall
 
-REFS_VERSION = "4-screened-fallback"
+REFS_VERSION = "5-n2000-camera-height"
 
 # Reference fallback order when the best-scored full view fails screening.
 SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")
@@ -248,7 +250,10 @@ def evaluate(
     cache: PanoCache, f: Facade, m: PanoMeta, base_h: float, P: SelectParams
 ) -> list[dict]:
     """0-2 evaluations per pano: a full-facade view and/or a partial (detail) view."""
+    from .height import camera_elevation
+
     cam_en = np.array([m.E, m.N])
+    elevation, elevation_source = camera_elevation(m, base_h)
     res = []
     for part in ("full", "partial"):
         g = f if part == "full" else _sub_facade(f, cam_en, float((cam_en - f.centre) @ f.normal))
@@ -264,9 +269,7 @@ def evaluate(
             continue
         signed = theta * (1 if float(v @ g.tangent) >= 0 else -1)
         corners = g.corners(base_h)
-        pos = np.array(
-            [m.E, m.N, m.elevation if m.elevation is not None else base_h + m.cam_height]
-        )
+        pos = np.array([m.E, m.N, elevation])
         model = equirect_model(m)
         visible_fraction = 1.0
         if hasattr(model, "project"):
@@ -302,6 +305,7 @@ def evaluate(
             {
                 "meta": m,
                 "cam": cam,
+                "camera_height_source": elevation_source,
                 "corners": corners,
                 "part": part,
                 "source_visible_fraction": visible_fraction,
@@ -430,6 +434,7 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
         },
         "pano_file": str(src),
         "camera": cam.to_dict(),
+        "camera_height_source": e.get("camera_height_source", "provider elevation"),
         "facade_corners_EN_H": [[round(float(v), 3) for v in c] for c in e["corners"]],
         "facade_corners_px": [[round(float(v), 1) for v in p] for p in px],
         "facade_visible_frac": round(float((mask == 255).sum() / max(1, (mask > 0).sum())), 3),
@@ -489,7 +494,10 @@ def scaled_params(f: Facade, P: SelectParams) -> SelectParams:
 def facade_refs(
     cache: PanoCache, f: Facade, out_root: Path, P: SelectParams, sources=("google",)
 ) -> dict:
+    from .height import ground_fingerprint
+
     P = scaled_params(f, P)
+    terrain = ground_fingerprint(*f.centre, P.radius) if "lookaround" in sources else None
 
     def geometry(feature):
         p = feature["properties"]
@@ -497,7 +505,7 @@ def facade_refs(
 
     key = hashlib.sha256(
         json.dumps(
-            [REFS_VERSION, geometry(f.to_feature()), P.__dict__, sources], sort_keys=True
+            [REFS_VERSION, geometry(f.to_feature()), P.__dict__, sources, terrain], sort_keys=True
         ).encode()
     ).hexdigest()
     summary_path = out_root / f.id / "refs.json"
@@ -506,7 +514,7 @@ def facade_refs(
         # Older rectified caches hashed all properties. An index/material change does not change a crop.
         old_key = hashlib.sha256(
             json.dumps(
-                [REFS_VERSION, old["facade"], old["params"], sources], sort_keys=True
+                [REFS_VERSION, old["facade"], old["params"], sources, terrain], sort_keys=True
             ).encode()
         ).hexdigest()
         same_geometry = (

@@ -788,3 +788,17 @@ tests column votes across metric upper-storey bands while preserving DINO's stor
 The benchmark records unsupported model inputs as failures without removing their count targets;
 colour is scored only where a prediction exists, with measured coverage reported explicitly.
 See [the transform study](../docs/research/facade-cv-transforms.md) for the measured outcomes.
+
+### Look Around camera elevation
+
+Reference preparation uses the local N2000 `raw/laz/maanpinta` key-point plane at each
+Look Around camera plus the existing 2.4 m camera-height estimate. A six-point minimum,
+5 m nearest-point / 20 m neighbourhood limit, slope and residual checks reject unsupported
+terrain fits. Without support, the recorded provider elevation remains explicitly uncalibrated.
+Raw provider heights remain in `pano.elevation`; the effective height and source are recorded
+in `camera.pos_EN_H` and `camera_height_source`. Reference cache keys include nearby ground
+file identities, so new ground data invalidates an earlier uncalibrated crop. Re-run the
+normal `facade-batch refs` command to regenerate older references. This fixes observed
+19.5 m vertical errors; it does not resolve horizontal pose or foreground-building occlusion.
+Verify without imagery: `PYTHONPATH=textures:pipeline .venv/bin/python -m pytest -q
+textures/tests/test_streetview_height.py textures/tests/test_streetview_geometry.py`.
