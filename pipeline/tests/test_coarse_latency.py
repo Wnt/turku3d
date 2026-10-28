@@ -204,6 +204,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "barriers",
         "forests",
         "tunnels",
+        "stairs",
         "poles",
         "surfaces",
         "markings",
@@ -235,6 +236,8 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return {"bridge_ways": [{"id": "crossing"}]}
         if dataset == "tunnels":
             return [{"id": "passage"}]
+        if dataset == "stairs":
+            return ((), ())
         if dataset == "parking":
             return ((), ())
         raise AssertionError(f"first pass prepared decorative input {dataset}")
@@ -242,7 +245,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     monkeypatch.setattr(inputs, "_prepare_one", prepare)
     sources = SimpleNamespace(missing=lambda _: [], input_key=lambda _: "raw-key")
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
-    assert called == ["ground", "wfs", "roads", "tunnels", "parking"]
+    assert called == ["ground", "wfs", "roads", "tunnels", "stairs", "parking"]
     assert result.parking == ((), ())
     assert result.kerbs is None
     assert result.buildings[0].key == "solid"
@@ -257,7 +260,7 @@ def test_fixed_producer_retries_a_failed_tile_without_old_backoff(tmp_path):
     builder = Builder(tmp_path, run=lambda *_: None, code="old", workers=0)
     tile = "t0_1_2"
     builder.failed[tile] = ("old producer failed", time.time())
-    builder.failure_codes[tile] = "old"
+    builder.failure_codes[tile] = builder.failure_key(tile)
     assert builder.request(tile, 0)["state"] == "failed"
     builder.code = lambda: "fixed"
     assert builder.request(tile, 0)["state"] == "queued"
@@ -296,7 +299,7 @@ def test_idle_foreground_workers_upgrade_old_served_tiles_in_request_order(tmp_p
     builder.stop()
 
 
-def test_revalidating_textured_tile_skips_structural_downgrade(tmp_path):
+def test_revalidating_textured_tile_starts_with_first_pass(tmp_path):
     from types import SimpleNamespace
 
     from turku3d.coarse.upgrade_queue import next_job
@@ -313,5 +316,18 @@ def test_revalidating_textured_tile_skips_structural_downgrade(tmp_path):
         manifest=lambda _: path,
         _next=lambda: ("t0_0_0", 0),
     )
-    assert next_job(builder) == (("t0_0_0", 0), True)
-    assert builder.upgrading == {"t0_0_0"}
+    assert next_job(builder) == (("t0_0_0", 0), False)
+    assert not builder.upgrading
+
+
+def test_ortho_raster_content_invalidates_prepared_input_without_vrt_change(tmp_path):
+    raster = tmp_path / "ortho.tif"
+    raster.write_bytes(b"old")
+    vrt = tmp_path / "ortho.vrt"
+    vrt.write_text('<VRTDataset><SourceFilename relativeToVRT="1">ortho.tif</SourceFilename></VRTDataset>')
+    key = inputs._key([vrt], "ortho")
+    import os
+    os.utime(raster, None)
+    assert inputs._key([vrt], "ortho") == key
+    raster.write_bytes(b"new")
+    assert inputs._key([vrt], "ortho") != key

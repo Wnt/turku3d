@@ -73,8 +73,7 @@ def deploy(repo, commit):
         f"{HOME}/tools/bin/caddy validate --config {destination}/tools/remote-drafts/Caddyfile "
         "--adapter caddyfile >/dev/null"
     )
-    # Standby ignores journal replay until activation, but serves the same complete
-    # textured cache through request_tile's stale-while-revalidate path.
+    # Standby queues outdated tiles until activation; unchanged cache stays available.
     remote(
         f"install -m 644 {destination}/tools/remote-drafts/turku-drafts-slot@.service ~/.config/systemd/user/ && "
         f"printf '%s\\n' TURKU3D_DRAFT_HOME={HOME} TURKU3D_DRAFT_PORT={port} "

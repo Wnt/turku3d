@@ -592,13 +592,14 @@ and stored facade parameters/assets; mesh encoding also caches individual buffer
 Service scheduling edits do not change the producer identity. Geometry/material edits
 change the manifest producer hash and request a fresh build.
 
-A complete previous tile stays available during revalidation. A previously full tile
-is rebuilt directly as full, never replaced by an untextured structural pass. New tiles
-serve a structural first pass and remain queued for a full upgrade; every idle worker
-helps, ordered by recent manifest polls then distance from the office. Immutable old
-assets remain addressable for resident clients. Unfinished demand is written atomically
-to `.requests.json` and replayed after a deploy without an age cutoff. Successful full
-builds remove their journal entry; persistent stage caches live outside the source tree.
+A requested outdated tile returns 202 until its new structural first pass is ready,
+then receives the full upgrade. Only a failed replacement permits a complete last-good
+manifest with `stale: true` and a failure marker. Service logs report the error and
+health exposes cumulative build failures and currently failed tile counts. Raw input
+identities hash bytes, including rasters referenced by VRTs; timestamps only memoize
+hash reads. Git commits and scheduling edits do not invalidate generator output.
+Immutable old assets remain addressable for resident clients. Recent unfinished demand
+is journaled in `.requests.json`; stage caches live outside the source tree.
 
 Reproduce the real-tile cache comparison (build slot required):
 

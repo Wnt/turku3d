@@ -35,6 +35,17 @@ def spawn_tiles(points=None, radius=200):
 def main():
     root = C.work_root()
     results = []
+    def report(state, error=None):
+        (root/'prebuild.json').write_text(json.dumps(
+            {'scope': 'startup', 'state': state, 'results': results, 'error': error}, indent=2)+'\n')
+
+    def fail(tile, reason):
+        message = f'startup tile failed: {tile}: {reason}'
+        results.append({'tile': tile, 'state': 'failed', 'error': reason})
+        report('failed', message)
+        raise RuntimeError(message)
+
+    report('running')
     # Use the stable proxy; either producer slot can be active after a deployment.
     for tile in spawn_tiles():
         started = time.monotonic()
@@ -49,16 +60,22 @@ def main():
             try:
                 with urlopen(f'http://127.0.0.1:7764/coarse/{tile}/manifest.json', timeout=5) as r:
                     m = json.load(r)
+                    if m.get('stale') or m.get('state') == 'failed':
+                        fail(tile, 'build failed; last good output retained')
                     if r.status == 200 and not m.get('stale') and m.get('pass_kind') == 'full':
                         break
-            except (HTTPError, URLError, TimeoutError):
+            except HTTPError as error:
+                if error.code == 404:
+                    fail(tile, f'HTTP {error.code}')
+            except (URLError, TimeoutError):
                 pass
             time.sleep(2)
         else:
-            raise SystemExit(f'startup tile timed out: {tile}')
-        results.append({'tile': tile, 'seconds': round(time.monotonic()-started, 2)})
-        (root/'prebuild.json').write_text(json.dumps({'scope': 'startup', 'results': results}, indent=2)+'\n')
+            fail(tile, 'timed out')
+        results.append({'tile': tile, 'state': 'done', 'seconds': round(time.monotonic()-started, 2)})
+        report('running')
         print(json.dumps(results[-1]), flush=True)
+    report('done')
     return 0
 
 

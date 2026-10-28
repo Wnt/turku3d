@@ -140,8 +140,9 @@ environment persist across reboot. Caddy signal reload follows its
 [documented signal contract](https://caddyserver.com/docs/command-line#signals).
 
 The demand journal survives source changes, but abandoned legacy requests no
-longer replay forever. Complete old textured tiles remain served until their full
-replacement is ready. Existing facade assets and stage caches stay in place.
+longer replay forever. Outdated manifests return 202 until the new first pass is ready, followed by
+a full upgrade. A failed build alone permits stale last-good output. Health reports
+`failure_count` and `failed_tiles`; `prebuild.json` records startup build failures. Existing facade assets and stage caches stay in place.
 Only requested tiles and startup cells revalidate; content hashes select the
 changed stages. Inspect a tile's `stage-times.json` for hit/miss evidence. Native
 dependency changes still require the ARM64 bootstrap before source deployment.

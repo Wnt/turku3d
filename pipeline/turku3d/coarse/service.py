@@ -178,7 +178,8 @@ class Builder:
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
-        self.failure_codes: dict[str, str] = {}
+        self.failure_codes: dict[str, tuple] = {}
+        self.failure_count = 0
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}  # the latest STATUS_ITEMS builds, oldest first
         self.code_seen = self.code()  # producer hash of the latest check, for /coarse/status
@@ -246,6 +247,12 @@ class Builder:
             return True
         return now is None or m.get("inputs") == now
 
+    def failure_key(self, tile):
+        try:
+            return self.code(), self.input_key(tile)
+        except NoCoverage:
+            return self.code(), None
+
     def cached(self, tile: str) -> bool:
         return complete_tile(self.root, tile, FILE)
 
@@ -280,7 +287,7 @@ class Builder:
                 return {"state": "built"}
             self.servable = self.servable - {tile}
             error, at = self.failed.get(tile, (None, 0.0))
-            current_code = self.code()
+            current_code = self.failure_key(tile)
             if (
                 error
                 and self.failure_codes.get(tile, current_code) == current_code
@@ -294,7 +301,7 @@ class Builder:
         except NoCoverage as e:
             with self.lock:
                 self.failed[tile] = (str(e), time.time())
-                self.failure_codes[tile] = self.code()
+                self.failure_codes[tile] = self.failure_key(tile)
             return {"state": "failed", "error": str(e)}
         with self.lock:
             self.requested[tile] = time.time()
@@ -428,6 +435,8 @@ class Builder:
                     outcome = "pending"
                 elif proc.returncode == 0 and self.built(tile):
                     self.pending.pop(tile, None)
+                    self.failed.pop(tile, None)
+                    self.failure_codes.pop(tile, None)
                     m = json.loads(self.manifest(tile).read_text())
                     previous = self.timings.pop(tile, {})
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
@@ -470,8 +479,9 @@ class Builder:
                     tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [
                         "build failed"
                     ]
+                    self.failure_count += 1
                     self.failed[tile] = (tail[0][:500], time.time())
-                    self.failure_codes[tile] = self.code()
+                    self.failure_codes[tile] = self.failure_key(tile)
                     if upgrade:
                         self.upgrade_queue.add(tile)
                 if (
@@ -527,6 +537,7 @@ class Builder:
                 "eta": {tile: eta[tile] for tile in shown},
                 "version": self.version,
                 "built": self.built_count,
+                "failure_count": self.failure_count,
                 "failed": {
                     tile: error for tile, (error, _) in list(self.failed.items())[-STATUS_ITEMS:]
                 },
@@ -657,7 +668,7 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                         {
                             **json.loads(builder.manifest(tile).read_text()),
                             "stale": True,
-                            "refresh": state["refresh"],
+                            "failure": state["failure"],
                         },
                     )
             elif tile not in builder.servable and not immutable_payload(name):

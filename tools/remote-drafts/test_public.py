@@ -63,6 +63,7 @@ class PublicTest(unittest.TestCase):
             requests = []
             builder = SimpleNamespace(
                 root=root,
+                failure_count=0, failed={},
                 lock=threading.Condition(),
                 priority={"t0_1_1": 0},
                 building={},
@@ -169,6 +170,25 @@ class PublicTest(unittest.TestCase):
             prebuild.spawn_tiles([(249, 249)], radius=3), ["t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"]
         )
         self.assertLess(len(prebuild.spawn_tiles()), 10)
+        self.assertTrue({"t0_1_0", "t0_1_1"} <= set(prebuild.spawn_tiles()))
+
+    def test_warmer_records_failed_fallback_instead_of_done(self):
+        from unittest.mock import patch
+        from io import BytesIO
+        spec = importlib.util.spec_from_file_location("prebuild", Path(__file__).with_name("prebuild.py"))
+        prebuild = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prebuild)
+        with tempfile.TemporaryDirectory() as temp:
+            response = BytesIO(json.dumps({"stale": True, "pass_kind": "full"}).encode())
+            response.status = 200
+            with (patch.object(prebuild.C, "work_root", return_value=Path(temp)),
+                  patch.object(prebuild, "spawn_tiles", return_value=["t0_1_0"]),
+                  patch.object(prebuild, "urlopen", return_value=response)):
+                with self.assertRaisesRegex(RuntimeError, "startup tile failed"):
+                    prebuild.main()
+            report = json.loads((Path(temp)/"prebuild.json").read_text())
+            self.assertEqual(report["state"], "failed")
+            self.assertEqual(report["results"][0]["state"], "failed")
 
 
 if __name__ == "__main__":

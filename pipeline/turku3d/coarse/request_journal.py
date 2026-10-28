@@ -63,7 +63,7 @@ def complete_tile(root: Path, tile: str, pattern) -> bool:
 
 
 def request_tile(builder, tile: str, distance: float) -> dict:
-    """Journal demand and retain complete old output while admission schedules its replacement."""
+    """Journal demand; only a failed replacement permits last-good fallback."""
     with builder.lock:
         builder.journal.record(tile, distance)
         state = builder._request(tile, distance)
@@ -73,7 +73,7 @@ def request_tile(builder, tile: str, distance: float) -> dict:
             and tile not in builder.upgrade_queue
         ):
             builder.journal.discard(tile)
-        if state["state"] != "built" and builder.cached(tile):
+        if (state["state"] == "failed" or (state["state"] == "built" and tile in builder.failed)) and builder.cached(tile):
             builder.servable = builder.servable | {tile}
-            return {"state": "built", "stale": True, "refresh": state}
+            return {"state": "built", "stale": True, "failure": {"state": "failed", "error": builder.failed[tile][0]}}
         return state
