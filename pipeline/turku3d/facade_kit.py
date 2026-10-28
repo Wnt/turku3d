@@ -219,9 +219,12 @@ def ensure_kit(root: Path) -> dict:
                 "--assign_oetf",
                 "srgb" if slot == "albedo" else "linear",
                 "--encode",
-                "etc1s",
-                "--clevel",
-                "0",
+                "uastc" if slot == "normal" else "etc1s",
+                *(
+                    ["--uastc_quality", "2", "--zcmp", "6"]
+                    if slot == "normal"
+                    else ["--clevel", "0"]
+                ),
                 str(dest),
                 str(src),
             ]

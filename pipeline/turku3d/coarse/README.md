@@ -251,6 +251,8 @@ and places one entrance bay per wall instead of repeating a door in every bay. S
 retain glazing in each bay. Rebuild using the commands below; old version 1/2 tiles remain readable.
 Atlas samples use gradients from continuous metre UVs before wrapping, preventing coarse mip
 stripes at bay boundaries. Blank modules retain a three-metre horizontal scale on wide sheds.
+Shared normals use UASTC with Zstd level 6 to preserve smooth plaster relief; albedo/masks and
+ORM use ETC1S. These maps are encoded once per kit hash and reused by subsequent tiles.
 The atlas is rendered once with `turkutex.facade_fast_render` and reused through `shared/`. Per-building colour,
 bay spacing and storey height travel in per-vertex kit attributes, with one shared kit material
 per tile/layer (the same package binder as published tiles); roofs retain the ortho. Seven blank modules preserve mapped sheds and garages without cloning residential windows. The game samples the
