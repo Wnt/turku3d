@@ -8,9 +8,6 @@ from turku3d.col.materials import mat_id
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 
-from .inputs import CELLS
-
-
 def solid_triangles(pos, idx, mat):
     """Drop the slivers and duplicates that successive bank, tunnel and kerb cuts can leave (measured on the stored
     tile-local float32 positions); the .col format rejects both, which would fail the whole tile upgrade."""
@@ -30,13 +27,14 @@ def collision_tiles(
     tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None, shore=None
 ):
     """Split ground along the 62.5 m grid; carved building parts retain the original owner."""
-    per = CELLS // C.COLLISION_PER_VISUAL
+    cells_per_side = round(np.sqrt(len(grid_pos))) - 1
+    per = cells_per_side // C.COLLISION_PER_VISUAL
     out = {}
     for ct in tile.collision_tiles():
         ci, cj = ct.i - tile.i * C.COLLISION_PER_VISUAL, ct.j - tile.j * C.COLLISION_PER_VISUAL
         rows = np.arange(cj * per, (cj + 1) * per)
         cols = np.arange(ci * per, (ci + 1) * per)
-        cells = (rows[:, None] * CELLS + cols[None, :]).ravel()
+        cells = (rows[:, None] * cells_per_side + cols[None, :]).ravel()
         tris = np.stack([2 * cells, 2 * cells + 1], axis=1).ravel()
         if ground_keep is not None:
             tris = tris[ground_keep[tris]]
