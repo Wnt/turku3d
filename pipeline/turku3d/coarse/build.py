@@ -25,7 +25,7 @@ import shapely
 from PIL import Image
 
 from turku3d import config as C
-from turku3d.col.format import ColTile, write_col
+from turku3d.col.format import MIN_TRI_AREA, ColTile, write_col
 from turku3d.col.materials import mat_id
 from turku3d.facade_kit import candidates, parameter_hash
 from turku3d.ground.mesh import Mesh
@@ -45,6 +45,21 @@ FORMAT = "turku3d-coarse-tile"
 VERSION = 1
 WIRE_CAP = 8_000_000
 
+
+
+def solid_triangles(pos, idx, mat):
+    """Drop the slivers and duplicates that successive bank, tunnel and kerb cuts can leave (measured on the stored
+    tile-local float32 positions); the .col format rejects both, which would fail the whole tile upgrade."""
+    idx = np.asarray(idx).reshape(-1, 3)
+    mat = np.asarray(mat)
+    p = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+    a, b, c = p[idx[:, 0]], p[idx[:, 1]], p[idx[:, 2]]
+    keep = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1) >= MIN_TRI_AREA
+    _, first = np.unique(np.sort(idx, axis=1), axis=0, return_index=True)
+    unique = np.zeros(len(idx), bool)
+    unique[first] = True
+    keep &= unique
+    return idx[keep], mat[keep]
 
 def grid_mesh(tile: C.VisualTile, heights: np.ndarray):
     n = CELLS + 1
@@ -677,6 +692,7 @@ def build(
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
+        col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
         data = cache.run(
             "collision_" + ct.id,
             source_key(
