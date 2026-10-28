@@ -22,8 +22,16 @@ try {
     const { StreetRouter } = await import('/src/gameplay/router.ts');
     const { RouteTracker, routeView } = await import('/src/gameplay/routeTracker.ts');
     const { Minimap } = await import('/src/gameplay/minimap.ts');
+    const { createGameplay } = await import('/src/gameplay/index.ts');
+    const { draftManifest } = await import('/src/world/manifest.ts');
     const metadata = await fetch('/coarse/navigation.json').then(r => { if (!r.ok) throw Error(`navigation HTTP ${r.status}`); return r.json(); });
-    const graph = parseRoadGraph(metadata.roads), router = new StreetRouter(graph);
+    const runtime = await createGameplay(draftManifest(new URL('/coarse/', location.href).href), document.body);
+    const { router } = runtime, graph = router.graph;
+    runtime.minimap.dispose();
+    await runtime.streets.update([]);
+    await runtime.streets.update([{ ...metadata.roads, edges: [] }]);
+    if (router.graph !== graph) throw Error('tile load/unload replaced the city graph');
+    if (graph.edges.length !== metadata.roads.edges.length) throw Error('city loader changed the network');
     router.mode = 'car';
     const start = { x: 168, z: 246 };
     const resident = new StreetRouter(parseRoadGraph({ ...metadata.roads, edgeHeights: undefined,
