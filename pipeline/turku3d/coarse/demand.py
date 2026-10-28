@@ -36,6 +36,24 @@ class Demand:
                  if time.time() - at < TTL and tile in tiles]
         return min(ranks) if ranks else None
 
+    def admit(self, builder, tile):
+        """A bounded queue must evict later work before rejecting an earlier crossing."""
+        incoming = self.rank(tile)
+        if incoming is None:
+            return False
+        waiting = [(self.rank(t) or (3, 0), t)
+                   for t in set(builder.priority) | set(builder.pending)]
+        if not waiting:
+            return False
+        rank, old = max(waiting)
+        if rank <= incoming:
+            return False
+        builder.priority.pop(old, None)
+        builder.pending.pop(old, None)
+        builder.requested.pop(old, None)
+        builder.journal.discard(old)
+        return True
+
     def prune(self, builder):
         self.expire()
         now = time.time()

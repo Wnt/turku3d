@@ -157,6 +157,7 @@ def public_handler(builder, prefetcher, settings):
                         and not ((builder.root / tile / "collision.json").exists()
                                  and collision_fragment(builder, tile) is not None)
                         and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
+                        and not builder.demand.admit(builder, tile)
                     ):
                         return self._json(429, {"state": "queue-full"})
                     lease = builder.demand.rank(tile) if hasattr(builder, "demand") else None

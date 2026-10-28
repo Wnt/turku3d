@@ -181,22 +181,20 @@ def _triangles(polygon):
 
 
 def _box(object_id, centre, half, material):
-    cx, cy, cz = centre
-    hx, hy, hz = half
-    vertices = np.array(
-        [
-            [cx + sx * hx, cy + sy * hy, cz + sz * hz]
-            for sx in (-1, 1)
-            for sy in (-1, 1)
-            for sz in (-1, 1)
-        ]
-    )
+    return _boxes(object_id, [centre], half, material)
+
+
+def _boxes(object_id, centres, half, material):
+    """Identical boxes retain hard face vertices and metre UVs in a single batch."""
+    signs = np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)])
+    vertices = np.asarray(centres)[:, None, :] + signs * np.asarray(half)
     faces = Faces()
     faces.quads(
         vertices[
+            :,
             np.array(
                 ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
-            )
+            ),
         ]
     )
     return faces.mesh(object_id, material)
