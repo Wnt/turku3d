@@ -94,3 +94,29 @@ it('keeps the original ground visible until its maps finish uploading', async ()
   expect(binding.pending).toBe(0);
   binding.dispose();
 });
+
+it('batches indexed and plain ground with local transforms and fallback normals', async () => {
+  mocks.library.mockResolvedValue({});
+  const material = new THREE.MeshStandardNodeMaterial();
+  mocks.tile.mockResolvedValue({ material, maps: {}, dispose: vi.fn() });
+  const model = new THREE.Group(); model.position.set(10, 0, 20);
+  model.userData = { ground_binding: { spec: 'ground/t0/material.json', library: 'ground/library/' }, layer: 'ground' };
+  const first = new THREE.BufferGeometry();
+  first.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 0, 1], 3));
+  first.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  first.setIndex([0, 1, 2]);
+  const second = new THREE.BufferGeometry(); second.setAttribute('position', first.getAttribute('position').clone());
+  const a = new THREE.Mesh(first), b = new THREE.Mesh(second);
+  a.position.x = 2; b.position.z = 3; model.add(a, b);
+  const binding = new GroundBindings({} as THREE.WebGPURenderer, 'https://tiles.test/tileset.json');
+  await binding.apply(model);
+  const batch = model.getObjectByName('ground-batch') as THREE.Mesh;
+  expect(Array.from(batch.geometry.getAttribute('position').array)).toEqual([2, 0, 0, 3, 0, 0, 2, 0, 1, 0, 0, 3, 1, 0, 3, 0, 0, 4]);
+  expect(Array.from(batch.geometry.getAttribute('normal').array)).toEqual([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
+  expect(Array.from(batch.geometry.getIndex()!.array)).toEqual([0, 1, 2, 3, 4, 5]);
+  expect([a.visible, b.visible]).toEqual([false, false]);
+  binding.release(model);
+  expect([a.visible, b.visible]).toEqual([true, true]);
+  expect(batch.parent).toBeNull();
+  binding.dispose();
+});

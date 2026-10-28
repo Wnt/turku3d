@@ -4,6 +4,7 @@ import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { sunDirection } from '../core/sun';
 import { QUALITY, type QualityTier } from './quality';
+import { REFLECTION_LAYER } from './reflections';
 import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
 
 export class Environment {
@@ -33,12 +34,14 @@ export class Environment {
     // Its colour depends only on the view direction, so it is centred on whichever camera draws it: it stays around
     // the player kilometres from the origin and looks the same at the origin.
     this.sky.frustumCulled = false;
+    this.sky.layers.enable(REFLECTION_LAYER);
     this.sky.onBeforeRender = (_renderer, _scene, camera) => {
       this.sky.position.setFromMatrixPosition(camera.matrixWorld);
       this.sky.updateMatrixWorld();
     };
     scene.add(this.sky);
     this.sun.castShadow = true;
+    this.sun.layers.enable(REFLECTION_LAYER);
     this.sun.shadow.mapSize.set(q.shadowSize, q.shadowSize);
     this.sun.shadow.camera.near = 0.5;
     this.sun.shadow.camera.far = 600;

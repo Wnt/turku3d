@@ -39,7 +39,7 @@ These are permanent user quality settings (`?quality=low|medium|high`, default *
 | GTAO resolution / samples / blend | ½ / 4 / 0.22 | ½ / 8 / 0.28 | ¾ / 16 / 0.30 |
 | TRAA subpixel correction | off | on | on |
 | Bloom resolution / strength | ¼ / 0.035 | ¼ / 0.045 | ½ / 0.050 |
-| River reflection resolution | ¼ | ½ | ¾ |
+| River reflection resolution / updates per second | ¼ / 20 | ½ / 30 | ¾ / 60 |
 | Surface detail strength | 0.035 | 0.055 | 0.070 |
 | Grading saturation | 0.98 | 0.97 | 0.97 |
 
@@ -64,6 +64,15 @@ Only the replacement materials and their private resources are disposed on tile 
 `water`/`river` keys select a planar river material. A plane derived from the mesh's local vertex/normal follows its
 world transform. A non-recursive planar reflection, Fresnel response, sun highlight and two scrolling normal-map bands
 provide the surface. The small periodic normal map is generated locally; there is no asset fetch. QA freezes waves.
+Reflections render static terrain, buildings, structures and the sky on a dedicated layer, excluding actors,
+vegetation and small props. They use the default lighting context rather than sampling the main camera's GTAO.
+`MaterialStyler.prepare` serializes `compileAsync` work in each river's actual target and virtual-camera context;
+new published/draft models stay hidden until their final ground bindings, uploads and reflection programs are ready.
+Startup prepares the complete 360° ring after the main compile. QA updates reflections every rendered frame.
+`GameRenderer` separates opaque/cutout shadow overrides and keeps their depth context stable across colour and
+reflection passes: alternating the shared override's alpha-test state otherwise invalidates all caster keys per draw.
+Normal source-material and dynamic shader invalidation checks remain active.
+
 Water geometry must be planar and have upward normals; vertical quay faces use their stone material instead.
 The fixture tests render all material paths, water and the ID pass on both backends at all three tiers.
 
@@ -196,3 +205,5 @@ material styler counts tile references and transfers the target when its origina
 unloads, then disposes it after the last user. This prevents each tile from rendering the
 same river reflection and shadow cascades again. Assembler material batches retain source
 object index ranges; the ID pass restores those ranges for per-facade QA colors.
+
+Air reproduction and validation use the capture-only [renderer scenario](../../../tools/perf/air-scenarios/renderer.md).

@@ -126,6 +126,8 @@ interface Bucket {
   matrices: Float32Array;
   objectIds: unknown[];
   distance: number;
+  selectedCount: number;
+  selectedLevel: number;
   count: number;
   index: number;
 }
@@ -134,8 +136,8 @@ interface Draw {
   levels: THREE.InstancedMesh[];
   foliage: boolean;
   mergeFar: boolean;
-  selections: { bucket: Bucket; count: number }[][];
-  signatures: string[];
+  selections: Bucket[][];
+  previous: number[][];
 }
 interface Model {
   combined: THREE.InstancedMesh[];
@@ -154,6 +156,7 @@ export class VegetationLod {
   private sphere = new THREE.Sphere();
   private position = new THREE.Vector3();
   private visible: Bucket[] = [];
+  private remaining = [0, 0, 0];
   constructor(private tier: QualityTier) {}
 
   add(model: THREE.Object3D) {
@@ -215,7 +218,7 @@ export class VegetationLod {
         return batch;
       });
       mesh.parent!.add(root);
-      const draw: Draw = { root, levels, foliage, mergeFar, selections: [[], [], []], signatures: ['', '', ''] };
+      const draw: Draw = { root, levels, foliage, mergeFar, selections: [[], [], []], previous: [[], [], []] };
       data.draws.push(draw);
       mesh.geometry.computeBoundingSphere();
       const all = new THREE.Sphere().makeEmpty();
@@ -228,7 +231,7 @@ export class VegetationLod {
           bounds.union(sphere);
         });
         all.union(bounds);
-        data.buckets.push({ draw, matrices, objectIds: ids.map(id => owner.userData.instance_object_ids?.[id]), bounds, distance: 0, count: ids.length, index: data.buckets.length });
+        data.buckets.push({ draw, matrices, objectIds: ids.map(id => owner.userData.instance_object_ids?.[id]), bounds, distance: 0, selectedCount: 0, selectedLevel: -1, count: ids.length, index: data.buckets.length });
       }
       // Static conservative bounds cover every possible packed selection and all cheaper LODs.
       for (const batch of levels) batch.boundingSphere = all.clone();
@@ -252,46 +255,56 @@ export class VegetationLod {
         for (const batch of draw.levels) batch.visible = false;
         if (active) draw.root.updateWorldMatrix(true, false);
       }
-      if (!active) continue;
       for (const bucket of data.buckets) {
+        bucket.selectedLevel = -1;
+        if (!active) continue;
         this.sphere.copy(bucket.bounds).applyMatrix4(bucket.draw.root.matrixWorld);
         bucket.distance = Math.max(0, this.position.distanceTo(this.sphere.center) - this.sphere.radius);
         if (bucket.distance <= q.far && this.frustum.intersectsSphere(this.sphere)) this.visible.push(bucket);
       }
     }
     this.visible.sort((a, b) => a.distance - b.distance);
-    const remaining = [q.nearInstances, q.midInstances, q.farInstances];
+    const remaining = this.remaining;
+    remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = q.farInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
       while (level < 3 && remaining[level] <= 0) level++;
       if (level > 2 || (level === 2 && !bucket.draw.foliage)) continue;
       const count = Math.min(bucket.count, remaining[level]);
       remaining[level] -= count;
-      bucket.draw.selections[level].push({ bucket, count });
+      bucket.selectedCount = count;
+      bucket.selectedLevel = level === 2 && bucket.draw.mergeFar ? 1 : level;
     }
     // Cells cull independently, but compact into one draw per tile/prototype/LOD.
     // Only changed cell selections upload matrices; stationary views do no buffer writes.
-    for (const data of this.models.values()) for (const draw of data.draws) {
-      if (draw.mergeFar) draw.selections[1].push(...draw.selections[2]);
-      draw.levels.forEach((batch, level) => {
-        const selections = draw.selections[level];
-        if (!selections.length) return;
-        const signature = selections.map(s => `${s.bucket.index}:${s.count}`).join(',');
-        if (signature !== draw.signatures[level]) {
-          const target = batch.instanceMatrix.array as Float32Array;
-          let offset = 0;
-          const objectIds: unknown[] = [];
-          for (const { bucket, count } of selections) {
-            target.set(bucket.matrices.subarray(0, count * 16), offset * 16); offset += count;
-            objectIds.push(...bucket.objectIds.slice(0, count));
+    for (const data of this.models.values()) {
+      for (const bucket of data.buckets) if (bucket.selectedLevel >= 0) bucket.draw.selections[bucket.selectedLevel].push(bucket);
+      for (const draw of data.draws) {
+        for (let level = 0; level < draw.levels.length; level++) {
+          const batch = draw.levels[level], selections = draw.selections[level], previous = draw.previous[level];
+          if (!selections.length) continue;
+          // Distance chooses membership, not buffer order. Passing a cell must not repack unchanged instances.
+          let changed = previous.length !== selections.length * 2;
+          for (let i = 0; !changed && i < selections.length; i++) {
+            changed = previous[i * 2] !== selections[i].index || previous[i * 2 + 1] !== selections[i].selectedCount;
           }
-          batch.count = offset;
-          batch.userData.instance_object_ids = objectIds;
-          batch.instanceMatrix.needsUpdate = true;
-          draw.signatures[level] = signature;
+          if (changed) {
+            const target = batch.instanceMatrix.array as Float32Array;
+            let offset = 0;
+            const objectIds = batch.userData.instance_object_ids as unknown[];
+            objectIds.length = 0; previous.length = 0;
+            for (const bucket of selections) {
+              const count = bucket.selectedCount;
+              target.set(bucket.matrices.subarray(0, count * 16), offset * 16); offset += count;
+              for (let i = 0; i < count; i++) objectIds.push(bucket.objectIds[i]);
+              previous.push(bucket.index, count);
+            }
+            batch.count = offset;
+            batch.instanceMatrix.needsUpdate = true;
+          }
+          batch.visible = batch.count > 0;
         }
-        batch.visible = batch.count > 0;
-      });
+      }
     }
   }
 

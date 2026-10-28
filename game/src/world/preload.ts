@@ -75,6 +75,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   const offset = position.clone().sub(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
   try {
     await renderer.compileAsync(scene, camera);
+    await materials?.prepare(scene, scene, camera);
     for (const [object, value] of culled) object.frustumCulled = value;
     culled.clear();
     // Real draws warm the MRT, shadow, GTAO and temporal variants that compileAsync's default target cannot

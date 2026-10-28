@@ -1,6 +1,7 @@
 // WebGPURenderer with an explicit WebGL2 switch (?backend=webgl). TSL-only code keeps both backends equal.
 import { loading } from '../core/loading';
 import * as THREE from 'three/webgpu';
+import { GameRenderer } from './shadowMaterials';
 import { renderPixelRatio } from './quality';
 
 /**
@@ -17,7 +18,7 @@ interface RendererInfo { renderer: THREE.WebGPURenderer; backend: 'WebGPU' | 'We
 /** opts.qa: canvas 1:1 with the viewport (pixel ratio 1, qa/README.md §2); opts.idPass: no antialiasing. */
 export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTMLElement, opts: { qa?: boolean; idPass?: boolean } = {}): Promise<RendererInfo> {
   // TRAA handles color antialiasing; MSAA must be off for its depth/velocity history.
-  const renderer = new THREE.WebGPURenderer({ antialias: false, forceWebGL: want === 'webgl', trackTimestamp: true });
+  const renderer = new GameRenderer({ antialias: false, forceWebGL: want === 'webgl', trackTimestamp: true });
   renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;

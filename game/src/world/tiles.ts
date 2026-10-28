@@ -54,6 +54,7 @@ export class VisualTiles {
   errors: string[] = [];
   private current: Tileset;
   private next: Tileset | null = null;
+  private preparing = new Set<THREE.Object3D>();
   private triCount = new Map<THREE.Object3D, number>();
   private shadowBatches = new Map<THREE.Object3D, THREE.Mesh>();
   private resolution = new THREE.Vector2();
@@ -66,6 +67,15 @@ export class VisualTiles {
     private scene: THREE.Scene, private idPass = false) {
     this.ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
     this.current = this.create(url);
+  }
+
+  /** Keep streamed models hidden until final material bindings and reflection programs are ready. */
+  prepare(model: THREE.Object3D, prepared: Promise<void>) {
+    const visible = model.visible;
+    model.visible = false; this.preparing.add(model);
+    void prepared.then(() => { if (this.models.has(model)) model.visible = visible; }, error => {
+      this.errors.push(`visual GPU preparation: ${String(error)}`);
+    }).finally(() => this.preparing.delete(model));
   }
 
   /** The current tileset renderer. */
@@ -166,6 +176,7 @@ export class VisualTiles {
   }
 
   private ready(set: Tileset) {
+    if (this.preparing.size) return false;
     if (set.region) return set.region.settled;
     return set.renderer.root !== null && (set.loaded + (set.reuse?.loaded ?? 0)) > 0 && set.renderer.loadProgress >= 1;
   }
@@ -216,6 +227,7 @@ export class VisualTiles {
 
   /** Required ring models are resident in play; QA keeps its current-view settled contract. */
   get settled(): boolean {
+    if (this.preparing.size) return false;
     if (this.current.region) return this.current.region.settled;
     return this.tiles.root !== null && this.loadedModels > 0 && this.tiles.loadProgress >= 1;
   }

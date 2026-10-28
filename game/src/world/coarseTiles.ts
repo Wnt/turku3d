@@ -164,7 +164,7 @@ export interface CoarseHost {
   styled?: (model: THREE.Object3D) => void;
   trackModel?: (model: THREE.Object3D, id: string) => void;
   untrackModel?: (model: THREE.Object3D, id: string) => void;
-  style?: (model: THREE.Object3D) => void;
+  style?: (model: THREE.Object3D) => void | Promise<void>;
   unstyle?: (model: THREE.Object3D) => void;
   fetch?: typeof fetch;
   loadModel?: (url: string) => Promise<THREE.Object3D>;
@@ -409,7 +409,9 @@ export class CoarseTiles {
       }));
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e || e.state !== 'draft') { this.dispose(model); return; }
-      this.host.style?.(model); tintDraft(model, this.host.renderer);
+      await this.host.style?.(model);
+      if (this.entries.get(id) !== e || e.state !== 'draft') { this.host.unstyle?.(model); this.dispose(model); return; }
+      tintDraft(model, this.host.renderer);
       this.host.styled?.(model);
       this.host.scene.add(model);
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
@@ -461,7 +463,8 @@ export class CoarseTiles {
         .catch((err: Error) => { console.warn(`[coarse] ${id} streets: ${err.message}`); return null; }) : null;
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
-      this.host.style?.(model);
+      await this.host.style?.(model);
+      if (this.entries.get(id) !== e) { this.host.unstyle?.(model); this.dispose(model); return; }
       tintDraft(model, this.host.renderer);
       this.host.styled?.(model);
       this.host.scene.add(model);
@@ -522,7 +525,8 @@ export class CoarseTiles {
         if (!visual || e.state === 'published') continue;
         const model = await this.load(new URL(visual.url, base).href);
         this.drop(e);
-        this.host.style?.(model);
+        await this.host.style?.(model);
+        if (this.entries.get(id) !== e) { this.host.unstyle?.(model); this.dispose(model); continue; }
         this.host.styled?.(model);
         this.host.scene.add(model);
         this.host.trackModel?.(model, id);

@@ -6,10 +6,13 @@ import { UploadBudget } from './uploadBudget';
 /** Includes TSL array maps as well as ordinary glTF PBR slots. */
 export function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
   const textures = new Set<THREE.Texture>();
+  const visited = new Set<THREE.Material>();
   scene.traverse(object => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (visited.has(material)) continue;
+      visited.add(material);
       for (const value of Object.values(material)) {
         if (value?.isTexture) textures.add(value);
         else if (value?.isNode) (value as Node).traverse(node => {

@@ -149,3 +149,26 @@ describe('vegetation LOD', () => {
     expect(mesh.castShadow).toBe(false);
   });
 });
+
+it('moving past equal-distance cells preserves packed matrices and object identities', () => {
+  const scene = new THREE.Scene(), model = new THREE.Group();
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 2);
+  mesh.userData = { layer: 'vegetation', material_key: 'tree_foliage', instance_object_ids: ['west', 'east'] };
+  mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(-10, 0, -100));
+  mesh.setMatrixAt(1, new THREE.Matrix4().makeTranslation(10, 0, -100));
+  model.add(mesh); scene.add(model);
+  const lod = new VegetationLod('medium'), camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
+  lod.add(model); camera.position.x = -1; lod.update(camera);
+  const batches: THREE.InstancedMesh[] = [];
+  model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== mesh) batches.push(o as THREE.InstancedMesh); });
+  const versions = batches.map(batch => batch.instanceMatrix.version);
+  const visible = batches.find(batch => batch.visible)!;
+  const ids = visible.userData.instance_object_ids;
+  expect(ids).toEqual(['west', 'east']);
+  expect(visible.count).toBe(2);
+  camera.position.x = 1; lod.update(camera);
+  expect(batches.map(batch => batch.instanceMatrix.version)).toEqual(versions);
+  expect(visible.userData.instance_object_ids).toBe(ids);
+  expect(ids).toEqual(['west', 'east']);
+  lod.remove(model);
+});

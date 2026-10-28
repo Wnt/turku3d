@@ -70,31 +70,37 @@ export class GroundBindings {
     const inverse = model.matrixWorld.clone().invert();
     const position = new THREE.Vector3();
     const normal = new THREE.Vector3();
-    const vertices: number[] = [], normals: number[] = [], indices: number[] = [];
+    let vertexCount = 0, indexCount = 0;
     for (const mesh of sources) {
-      if ((mesh as THREE.InstancedMesh).isInstancedMesh) return;
+      if ((mesh as THREE.InstancedMesh).isInstancedMesh || !mesh.geometry.getAttribute('position')) return;
+      vertexCount += mesh.geometry.getAttribute('position').count;
+      indexCount += mesh.geometry.index?.count ?? mesh.geometry.getAttribute('position').count;
+    }
+    // Ground can contain hundreds of thousands of vertices: fill its final buffers without temporary JS arrays.
+    const vertices = new Float32Array(vertexCount * 3), normals = new Float32Array(vertexCount * 3);
+    const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
+    let vertexOffset = 0, indexOffset = 0;
+    for (const mesh of sources) {
       const geometry = mesh.geometry;
-      const points = geometry.getAttribute('position');
-      if (!points) return;
-      const directions = geometry.getAttribute('normal');
+      const points = geometry.getAttribute('position'), directions = geometry.getAttribute('normal');
       const matrix = inverse.clone().multiply(mesh.matrixWorld);
       const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
-      const offset = vertices.length / 3;
+      const offset = vertexOffset;
       for (let i = 0; i < points.count; i++) {
         position.fromBufferAttribute(points, i).applyMatrix4(matrix);
-        vertices.push(position.x, position.y, position.z);
         if (directions) normal.fromBufferAttribute(directions, i).applyMatrix3(normalMatrix).normalize();
         else normal.set(0, 1, 0);
-        normals.push(normal.x, normal.y, normal.z);
+        position.toArray(vertices, vertexOffset * 3); normal.toArray(normals, vertexOffset * 3);
+        vertexOffset++;
       }
       const index = geometry.getIndex();
-      if (index) for (let i = 0; i < index.count; i++) indices.push(offset + index.getX(i));
-      else for (let i = 0; i < points.count; i++) indices.push(offset + i);
+      if (index) for (let i = 0; i < index.count; i++) indices[indexOffset++] = offset + index.getX(i);
+      else for (let i = 0; i < points.count; i++) indices[indexOffset++] = offset + i;
     }
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geometry.setIndex(indices);
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = 'ground-batch';

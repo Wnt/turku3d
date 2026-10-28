@@ -90,7 +90,11 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
 const vegetation = idPass ? null : new VegetationLod(params.quality);
 const tiles = new VisualTiles(params.tileset, renderer, camera, scene, !!idPass);
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa, params.tileset);
-tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => { materials?.apply(model); vegetation?.add(model); });
+tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => {
+  const bound = materials?.apply(model);
+  vegetation?.add(model);
+  if (materials) tiles.prepare(model, Promise.resolve(bound).then(() => materials.prepare(model, scene, camera)));
+});
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => { vegetation?.remove(model); materials?.release(model); });
 // Play mode: far LOD outside the playable tiles (published L0 and drawn drafts) is drawn unbuilt grey (render/unbuilt.ts).
 const unbuilt = params.qa || idPass ? null : new UnbuiltArea(renderer);
@@ -245,7 +249,7 @@ async function runPlay() {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids), checkCollision: buffer => physics.checkTile(buffer),
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
-    style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); materials?.release(m); },
+    style: async m => { await materials?.apply(m); await materials?.prepare(m, scene, camera); }, unstyle: m => { vegetation?.remove(m); materials?.release(m); },
     styled: m => vegetation?.add(m) });
   builtTiles = () => [...Object.keys(manifest.visual), ...coarse?.drawn() ?? []];
 

@@ -1,3 +1,5 @@
+import { reflectionSurface, REFLECTION_LAYER } from './reflections';
+import { modelTextures, textureUploads } from './textureUploads';
 // The assembler resolves COMMON §4 texture paths and binds KTX2 maps into glTF.
 // Runtime styling preserves those maps, their UV transforms, ORM channels and facade colours.
 import * as THREE from 'three/webgpu';
@@ -49,6 +51,7 @@ export class MaterialStyler {
   private detail = detailTexture();
   private owned = new Map<THREE.Object3D, { materials: THREE.Material[]; rivers: THREE.Mesh[] }>();
   private rivers = new Map<string, { river: RiverMaterial; meshes: Set<THREE.Mesh> }>();
+  private preparing: Promise<void> = Promise.resolve();
   private riverKeys = new Map<THREE.Mesh, string>();
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
     private tier: QualityTier, private deterministic: boolean, tileset?: string) {
@@ -61,6 +64,7 @@ export class MaterialStyler {
     model.traverse(object => {
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh) return;
+      if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
       const style = (source: THREE.Material): THREE.Material => {
         const key = materialKey(mesh, source);
         if (!key) return source;
@@ -72,6 +76,7 @@ export class MaterialStyler {
         }
         const kind = surfaceStyle(key);
         if (kind === 'water') {
+          mesh.layers.disable(REFLECTION_LAYER);
           mesh.updateWorldMatrix(true, false);
           const normal = new THREE.Vector3(0, 1, 0);
           const attribute = mesh.geometry.getAttribute('normal');
@@ -82,7 +87,7 @@ export class MaterialStyler {
           const key = [...normal.toArray(), plane.constant].map(v => v.toFixed(4)).join(',');
           let shared = this.rivers.get(key);
           if (!shared) {
-            shared = { river: new RiverMaterial(mesh, this.env, this.tier, this.deterministic), meshes: new Set() };
+            shared = { river: new RiverMaterial(mesh, this.env, this.tier, this.deterministic, this.renderer), meshes: new Set() };
             this.rivers.set(key, shared);
           }
           shared.meshes.add(mesh); this.riverKeys.set(mesh, key);
@@ -114,7 +119,18 @@ export class MaterialStyler {
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
     });
     this.owned.set(model, { materials, rivers });
-    void this.ground?.apply(model);
+    return this.ground?.apply(model);
+  }
+
+  prepare(model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera): Promise<void> {
+    // Initial residency precedes CSM setup; preloadWorld prepares the complete ring after its main compile.
+    if (!this.env.csm.camera) return Promise.resolve();
+    const prepared = this.preparing.then(async () => {
+      await Promise.all([...modelTextures(model)].map(map => textureUploads(this.renderer).enqueue(map)));
+      for (const { river } of this.rivers.values()) await river.prepare(this.renderer, model, scene, camera);
+    });
+    this.preparing = prepared.catch(() => {});
+    return prepared;
   }
 
   release(model: THREE.Object3D) {

@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { cameraPosition, dot, float, max, mix, normalize, positionWorld, pow, reflect, reflector,
   texture, time, uniform, vec2, vec3 } from 'three/tsl';
+import { REFLECTION_LAYER } from './reflections';
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
 
@@ -32,8 +33,26 @@ export class RiverMaterial {
   private normals = waveNormalTexture();
   private reflection = reflector({ bounces: false, samples: 0 });
 
-  constructor(mesh: THREE.Mesh, env: Environment, tier: QualityTier, deterministic: boolean) {
+  constructor(mesh: THREE.Mesh, env: Environment, tier: QualityTier, deterministic: boolean, renderer: THREE.WebGPURenderer) {
     this.reflection.reflector.resolutionScale = QUALITY[tier].reflectionScale;
+    // Reflections do not sample the main camera's screen-space GTAO context.
+    const context = renderer.contextNode;
+    const reflector = this.reflection.reflector;
+    const virtualCamera = reflector.getVirtualCamera.bind(reflector);
+    reflector.getVirtualCamera = camera => {
+      const reflected = virtualCamera(camera);
+      reflected.layers.set(REFLECTION_LAYER);
+      return reflected;
+    };
+    const update = reflector.updateBefore.bind(reflector);
+    let last = -Infinity;
+    reflector.updateBefore = frame => {
+      const now = performance.now();
+      if (!deterministic && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
+      const previous = renderer.contextNode;
+      renderer.contextNode = context;
+      try { update(frame); last = now; } finally { renderer.contextNode = previous; }
+    };
     this.attach(mesh);
     const clock = deterministic ? float(0) : time;
     const uv = positionWorld.xz.mul(0.12);
@@ -49,6 +68,28 @@ export class RiverMaterial {
     // Opaque colour, but exclude the river from the opaque normal/velocity prepass and its recursive reflection.
     this.material.transparent = true;
     this.material.name = 'river-planar';
+  }
+
+  /** Compile every eligible surface in this exact target/camera context before publishing streamed content. */
+  async prepare(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
+    const reflected = this.reflection.reflector.getVirtualCamera(camera);
+    const target = this.reflection.reflector.getRenderTarget(reflected);
+    const oldTarget = renderer.getRenderTarget(), oldMrt = renderer.getMRT();
+    const culled = new Map<THREE.Object3D, boolean>();
+    model.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
+    const visible = model.visible;
+    model.visible = true;
+    let compiled: Promise<void>;
+    try {
+      renderer.setRenderTarget(target); renderer.setMRT(null);
+      compiled = renderer.compileAsync(model, reflected, scene);
+    } finally {
+      // compileAsync collects draw items synchronously before its first yield; never leak renderer state across awaits.
+      renderer.setRenderTarget(oldTarget); renderer.setMRT(oldMrt);
+      model.visible = visible;
+      for (const [object, value] of culled) object.frustumCulled = value;
+    }
+    await compiled;
   }
 
   /** Transfer the shared reflection plane when its original tile unloads. */
