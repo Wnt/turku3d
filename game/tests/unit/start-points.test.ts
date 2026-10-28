@@ -21,10 +21,10 @@ test('multiplayer uses retained local pose before assigned spawn, with no EPSG o
   expect(startPoints(spawn, car, [], at)).toEqual([spawn, car, at]);
 });
 
-test('coincident starts share one region and unowned vehicles do not add a remote parking region', () => {
+test('coincident starts share one region and the unowned start car retains its saved parking', () => {
   const saved = game({ E: 23459670, N: 6704250, H: 4, yaw: 0 },
     { E: 23461000, N: 6703000, H: 4, yaw: 0, owned: false });
-  expect(startPoints(spawn, car, [saved, saved], spawn)).toEqual([spawn, car]);
+  expect(startPoints(spawn, car, [saved, saved], spawn)).toEqual([spawn, car, { x: 1500, y: 4, z: 1500 }]);
 });
 
 test('GPU warmup covers each selectable visual cell and deduplicates neighbouring parkings', () => {

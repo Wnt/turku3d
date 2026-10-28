@@ -132,6 +132,15 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const voicePreload = audioPreload.then(() => voice.preload());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true, signal: listeners.signal });
   const saves = new SaveStore(browserStorage(), missionSummary);
+  // A borrowed vehicle can outlive the draft tile that originally supplied its model and identity.
+  for (const id of SLOT_IDS) {
+    const last = saves.get(id)?.lastVehicle;
+    if (!last?.appearance || !last.modelAsset) continue;
+    manifest.vehicles ??= [];
+    if (!manifest.vehicles.some(v => v.object_id === last.id)) manifest.vehicles.push(last.appearance);
+    manifest.vehicle_models ??= {};
+    manifest.vehicle_models[`${last.appearance.model}/${last.appearance.color}`] ??= last.modelAsset;
+  }
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
   const resume = !hot && import.meta.hot && takeResume(sessionStore()) ? saves.get('auto') : null;
   const fullscreen = new FullscreenPolicy();
@@ -227,6 +236,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const enterVehicle = (id: string) => {
     fly?.set(false);
     drivenId = id;
+    saveGame.usedVehicle(id);
     if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId);
     mode = 'car';
     player.root.visible = !!seated.of(drivenId);
@@ -250,7 +260,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   }, () => saveGame.pausePage()) : null;
   // Save slots (core/save.ts), the start and pause menus (ui/menu.ts) and loading a game (gameplay/saveGame.ts).
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
-    clock: world.clockTime,
+    clock: world.clockTime, router,
+    enterVehicle: id => { enterVehicle(id); snapChase = true; },
     spawn, car: world.car,
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
@@ -277,6 +288,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   scoreboard.setClient(client);
   let owned = missions.vehicle;
   if (hot) {
+    saveGame.restoreLastVehicle(hot.save?.lastVehicle);
     const restored = applyHot(hot, { missions, setClock: date => { world.setClock(date); }, camera: orbit });
     if (restored.drivenId) { enterVehicle(restored.drivenId); snapChase = true; }
     owned = missions.vehicle;
