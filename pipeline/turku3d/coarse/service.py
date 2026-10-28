@@ -55,6 +55,7 @@ from turku3d.facade_kit import parameter_hash
 
 from .build import code_hash
 from .prefetch import Prefetcher
+from .request_journal import MAX_AGE, RequestJournal
 from .sources import NoCoverage, Sources, Unit
 
 REPO = Path(__file__).resolve().parents[3]
@@ -276,6 +277,11 @@ class Builder:
         self.stopped = False
         self.draining = False
         self.workers = workers
+        self.journal = RequestJournal(root)
+        replay = list(self.journal.rows.items())
+        self.replay_until = {tile: time.time() + MAX_AGE for tile, _ in replay}
+        for tile, row in sorted(replay, key=lambda item: (item[1]["distance"], item[0])):
+            self.request(tile, row["distance"])
         self.threads = [
             threading.Thread(target=self._run, name=f"coarse-builder-{k}", daemon=True)
             for k in range(workers)
@@ -310,7 +316,40 @@ class Builder:
             return True
         return now is None or m.get("inputs") == now
 
+    def cached(self, tile: str) -> bool:
+        """A complete prior draft is usable while its generator/input successor is built."""
+        try:
+            m = json.loads(self.manifest(tile).read_text())
+            visual = m["visual"][tile]
+            cells = {c.id for c in C.VisualTile.parse(tile).collision_tiles()}
+            if not m.get("coarse") or m.get("tile") != tile or set(m["collision"]) != cells:
+                return False
+            for entry in [visual, *m["collision"].values()]:
+                if not FILE.fullmatch(entry["url"]):
+                    return False
+                if (self.root / tile / entry["url"]).stat().st_size != entry["bytes"]:
+                    return False
+            return True
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+
     def request(self, tile: str, distance: float) -> dict:
+        """Persist unfinished demand and serve complete old bytes while revalidating them."""
+        with self.lock:
+            self.journal.record(tile, distance)
+            state = self._request(tile, distance)
+            if (
+                state["state"] == "built"
+                and tile not in self.building
+                and tile not in self.upgrade_queue
+            ):
+                self.journal.discard(tile)
+            if state["state"] != "built" and self.cached(tile):
+                self.servable = self.servable | {tile}
+                return {"state": "built", "stale": True, "refresh": state}
+            return state
+
+    def _request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
         with self.lock:
             # A worker may have written its manifest but not committed its completion yet.
@@ -437,7 +476,9 @@ class Builder:
             distance = self.priority.pop(tile)
             if tile in self.building:
                 continue
-            if now - self.requested.get(tile, 0.0) <= STALE_SECONDS:
+            if now - self.requested.get(tile, 0.0) <= STALE_SECONDS or now < self.replay_until.get(
+                tile, 0.0
+            ):
                 return tile, distance
             self.requested.pop(tile, None)
         return None
@@ -513,6 +554,9 @@ class Builder:
                         self.recent = [*self.recent[-(ETA_BUILDS - 1) :], seconds]
                     self.stale.pop(tile, None)
                     self.built_count += 1
+                    if not self.two_pass or m.get("pass_kind") != "first":
+                        self.journal.discard(tile)
+                        self.replay_until.pop(tile, None)
                     self.servable = self.servable | {tile}
                     outcome = "built"
                     if self.two_pass and m.get("pass_kind") == "first":
@@ -542,6 +586,11 @@ class Builder:
                 print(
                     f"coarse {tile}: {outcome} ({'upgrade' if upgrade else 'first' if self.two_pass else 'full'}) in {seconds:.1f} s",
                     flush=True,
+                )
+            if outcome == "FAILED":
+                detail = (proc.stderr or proc.stdout).strip()
+                print(
+                    f"coarse {tile} failure detail: {detail[-4000:]}", file=sys.stderr, flush=True
                 )
             if tile in self.pending:
                 self.on_missing(self.pending[tile][0])
@@ -689,6 +738,15 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     return self._json(404, state)
                 if state["state"] != "built":
                     return self._json(202, state)
+                if state.get("stale"):
+                    return self._json(
+                        200,
+                        {
+                            **json.loads(builder.manifest(tile).read_text()),
+                            "stale": True,
+                            "refresh": state["refresh"],
+                        },
+                    )
             elif tile not in builder.servable and not immutable_payload(name):
                 return self._json(404, {"error": f"{tile} is not built"})
             path = builder.root / tile / name

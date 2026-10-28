@@ -252,12 +252,12 @@ async function runPlay() {
   const spawnId = (() => { const t = collisionTileAt(spawn.x, spawn.z); return `c_${t.i}_${t.j}`; })();
   const tWait = performance.now();
   while (!physics.loaded.has(spawnId) || !physics.loaded.has(carId)) {
-    if (performance.now() - tWait > 300_000) throw new Error(`spawn draft collision ${spawnId} did not load`);
+    if (performance.now() - tWait > 600_000) throw new Error(`World generation timed out after 10 minutes at ${spawnId}: ${coarse.status}`);
     coarse.update(spawn.x, spawn.z);
     streamer.update(spawn.x, spawn.z);
     const progress = coarse.progressAt(spawn.x, spawn.z);
-    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, errors: progress.errors });
-    if (progress.errors.length) throw new Error(progress.errors.join('; '));
+    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total } });
+    loadingScreen.update(false, coarse.status);
     await new Promise(r => setTimeout(r, 20));
   }
   // the worker needs one world step before queries see new colliders

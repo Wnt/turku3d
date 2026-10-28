@@ -281,7 +281,11 @@ def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
     grid_pos = grid_pos.copy()
     osm_decks = bridges.produce(tile, grid_pos, inputs)
     decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
-    return grid_pos, osm_decks, decks
+    roads = bridges.road_heights(inputs.roads, osm_decks)
+    # Samplers are build-local closures. Consume them before caching the resulting mesh/road data.
+    for deck in osm_decks:
+        deck.height_at = None
+    return grid_pos, osm_decks, decks, roads
 
 
 def build(
@@ -325,7 +329,7 @@ def build(
         ],
         lambda: terrain_stage(tile, inputs),
     )
-    grid_pos, osm_decks, decks = cache.run(
+    grid_pos, osm_decks, decks, bridge_roads = cache.run(
         "bridges",
         source_key(
             deck_stage,
@@ -671,7 +675,7 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
-    roads = tunnels.roads(bridges.road_heights(inputs.roads, osm_decks))
+    roads = tunnels.roads(bridge_roads)
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
