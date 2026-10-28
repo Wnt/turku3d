@@ -385,6 +385,38 @@ def test_stair_ground_cut_preserves_vertical_bank_faces():
     np.testing.assert_array_equal(result.material, mesh.material)
 
 
+def test_boundary_cut_preserves_vertical_faces_and_region_precedence_with_holes():
+    from turku3d.coarse.surfaces import split_boundaries
+
+    p = np.array([[0.0, 0, 0], [0, 2, 10], [10, 1, 0], [0, 3, 0]])
+    ix = np.array([[0, 1, 2], [0, 3, 1]], np.uint32)
+    outer = shapely.Polygon(
+        [(-1, -1), (11, -1), (11, 11), (-1, 11)], holes=[[(1, 1), (2, 1), (2, 2), (1, 2)]]
+    )
+    road = shapely.box(3, -1, 5, 11)
+    pos, idx, mat, normals = split_boundaries(
+        p,
+        ix,
+        np.array([mat_id("grass"), mat_id("quay")]),
+        np.ones(2, bool),
+        [(outer, mat_id("gravel")), (road, mat_id("road"))],
+        np.array([mat_id("grass"), mat_id("quay")]),
+    )
+    np.testing.assert_array_equal(pos[idx[mat == mat_id("quay")]], p[ix[1:]])
+    triangles = pos[idx[mat != mat_id("quay")]]
+    polys = shapely.polygons(triangles[:, :, [0, 2]])
+    whole = shapely.Polygon(p[ix[0]][:, [0, 2]])
+    assert abs(shapely.area(polys).sum() - whole.area) < 1e-9
+    for key, expected in (
+        ("road", whole.intersection(road)),
+        ("gravel", whole.intersection(outer).difference(road)),
+        ("grass", whole.difference(outer).difference(road)),
+    ):
+        selected = polys[mat[mat != mat_id("quay")] == mat_id(key)]
+        assert shapely.union_all(selected).symmetric_difference(expected).area < 1e-9
+    assert np.isfinite(pos).all() and np.isfinite(normals).all()
+
+
 def test_ortho_distinguishes_dry_vegetation_gravel_and_paving():
     tile = C.VisualTile(0, 0, 0)
     rgb = np.array([[[155, 156, 90], [140, 125, 100], [170, 172, 171]]], np.uint8)
