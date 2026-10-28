@@ -56,19 +56,21 @@ def content_paths(paths):
     import xml.etree.ElementTree as ET
 
     result = {}
+
     def add(path):
         path = Path(path)
         if path in result:
             return
         result[path] = path
-        if path.suffix == '.vrt' and path.is_file():
+        if path.suffix == ".vrt" and path.is_file():
             try:
-                nodes = ET.fromstring(path.read_bytes()).iter('SourceFilename')
+                nodes = ET.fromstring(path.read_bytes()).iter("SourceFilename")
                 for node in nodes:
                     source = Path(node.text)
-                    add(path.parent / source if node.get('relativeToVRT') == '1' else source)
+                    add(path.parent / source if node.get("relativeToVRT") == "1" else source)
             except ET.ParseError:
                 pass  # Unreadable mosaics fail in the producer, not during HTTP admission.
+
     for path in paths:
         add(path)
     return list(result)
@@ -322,46 +324,54 @@ class Sources:
         return None
 
     # -- whole tile ------------------------------------------------------------------------------
-    def missing(self, tile: C.VisualTile) -> list[Unit]:
+    def missing(self, tile: C.VisualTile, *, first_pass=False) -> list[Unit]:
         """Units the tile still needs, in fetch order. Raises NoCoverage outside the sources."""
         _, lidar = self.lidar_paths(tile)
         out = [Unit("lidar", b) for b in lidar]
-        if self.ortho_source(tile) is None:
+        if not first_pass and self.ortho_source(tile) is None:
             out.append(Unit("ortho", block_of(tile)))
-        if not all(self.wfs_source(name, tile)[0] for name in WFS_LAYERS):
+        layers = WFS_LAYERS[:3] if first_pass else WFS_LAYERS
+        if not all(self.wfs_source(name, tile)[0] for name in layers):
             out.append(Unit("wfs", block_of(tile)))
         return out
 
-    def missing_for_service(self, tile: C.VisualTile) -> list[Unit]:
+    def missing_for_service(self, tile: C.VisualTile, *, first_pass=False) -> list[Unit]:
         """Public clients have no motion-prefetch route: request OSM with the required datasets."""
-        missing = self.missing(tile)
+        missing = self.missing(tile, first_pass=first_pass)
         if self.osm_source(tile) is None:
             missing.append(Unit("osm", block_of(tile)))
         return missing
 
-    def input_key(self, tile: C.VisualTile) -> str | None:
+    def input_key(self, tile: C.VisualTile, *, first_pass=False) -> str | None:
         """Content identity of every raw file the tile's build reads, and whether OSM is
         there; None while a required unit is missing. A draft built from other files is stale."""
         laz, missing = self.lidar_paths(tile)
-        ortho, osm = self.ortho_source(tile), self.osm_source(tile)
-        wfs = [self.wfs_source(name, tile) for name in WFS_LAYERS]
-        registers = [
-            self.wfs_source(name, tile)[1] for name in ("kanta:Rakennus", "GIS:Rakennukset")
+        ortho, osm = (None if first_pass else self.ortho_source(tile)), self.osm_source(tile)
+        wfs = [
+            self.wfs_source(name, tile) for name in (WFS_LAYERS[:3] if first_pass else WFS_LAYERS)
         ]
-        if missing or ortho is None or not all(found for found, _ in wfs):
+        registers = (
+            [self.wfs_source(name, tile)[1] for name in ("kanta:Rakennus", "GIS:Rakennukset")]
+            if not first_pass
+            else []
+        )
+        if missing or (not first_pass and ortho is None) or not all(found for found, _ in wfs):
             return None
         from .bridge_survey import source_paths, spot_sources
 
         laz = [*laz, *source_paths(tile)]
-        chunks = ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")
+        imagery = (
+            [ortho, ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")]
+            if ortho
+            else []
+        )
         h = hashlib.sha256(b"osm" if osm else b"no-osm")
         from .roofs import lidar_paths
 
         paths = [
             *laz,
             *lidar_paths(tile),
-            ortho,
-            chunks,
+            *imagery,
             *(p for _, p in wfs if p),
             *(p for p in registers if p),
             *spot_sources(tile, self),
@@ -372,7 +382,11 @@ class Sources:
         paths = content_paths(paths)
         if not all(p.is_file() for p in paths):
             return None
-        h.update(json.dumps(identities({str(i): p for i, p in enumerate(paths)}), sort_keys=True).encode())
+        h.update(
+            json.dumps(
+                identities({str(i): p for i, p in enumerate(paths)}), sort_keys=True
+            ).encode()
+        )
         return h.hexdigest()[:24]
 
     def unit_present(self, unit: Unit) -> bool:

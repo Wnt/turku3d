@@ -171,3 +171,27 @@ def test_full_admission_evicts_lateral_work_before_rejecting_crossing(tmp_path):
     assert not builder.demand.admit(builder, far)
     assert not builder.demand.admit(builder, "t0_9_9")
     builder.stop()
+
+
+def test_visual_data_wait_does_not_requeue_structural_job(tmp_path):
+    from turku3d import config as C
+    from turku3d.coarse.collision import fragment
+
+    tile = 't0_0_0'
+    directory = tmp_path / tile
+    directory.mkdir()
+    (directory / 'collision.json').write_text(json.dumps(dict(
+        coarse=True, tile=tile, code='test', inputs='structural', pass_kind='first',
+        collision={c.id: {} for c in C.VisualTile.parse(tile).collision_tiles()},
+    )))
+    missing = ['ortho/source']
+    builder = Builder(tmp_path, code='test', workers=0, input_key=lambda _: 'full',
+                      structural_input_key=lambda _: 'structural',
+                      enrichment_inputs=lambda _: missing)
+    builder.pending[tile] = (missing, 0)
+    assert builder.request(tile, 0)['state'] == 'pending-data'
+    assert fragment(builder, tile) and not builder.priority and not builder.upgrade_queue
+    missing.clear()
+    assert builder.request(tile, 0)['state'] == 'queued'
+    assert builder.upgrade_queue == {tile} and not builder.priority
+    builder.stop()

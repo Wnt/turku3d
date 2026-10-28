@@ -217,8 +217,10 @@ def main():
     builder = Builder(
         root,
         workers=settings["workers"],
-        inputs=lambda tile: [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))],
+        inputs=lambda tile: [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile), first_pass=True)],
         input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
+        structural_input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile), first_pass=True),
+        enrichment_inputs=lambda tile: [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))],
         on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
     )
     prefetcher.on_landed = lambda unit: builder.landed()

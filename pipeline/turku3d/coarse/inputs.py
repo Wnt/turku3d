@@ -400,19 +400,19 @@ def _save(path: Path, key: str, value) -> None:
             old.unlink(missing_ok=True)
 
 
-def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
+def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
     from . import bridge_survey
 
     laz, missing = sources.lidar_paths(tile)
-    ortho = sources.ortho_source(tile)
+    ortho = None if first_pass else sources.ortho_source(tile)
     wfs = [sources.wfs_source(name, tile) for name in WFS_LAYERS]
     osm = sources.osm_source(tile)
     return {
         "ground": None if missing else laz,
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
-        if all(found for found, _ in wfs)
+        if all(found for found, _ in wfs[:3])
         else None,
         "roads": [
             osm,
@@ -561,13 +561,13 @@ def gather(
     """The tile's prepared inputs, preparing what is not cached yet. Raises MissingInputs (after
     preparing the datasets that are on disk) while units are missing."""
     sources = sources or Sources()
-    missing = sources.missing(tile)
+    missing = sources.missing(tile, first_pass=first_pass)
     if missing:
         if not first_pass:
             prepare(tile, root, sources)
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance = {}, {}, {}
-    for dataset, paths in _sources(tile, sources).items():
+    for dataset, paths in _sources(tile, sources, first_pass=first_pass).items():
         if first_pass and dataset in {
             "parking",
             "trees",
@@ -641,7 +641,7 @@ def gather(
         values["roads"],
         provenance,
         seconds,
-        sources.input_key(tile) or "",
+        sources.input_key(tile, first_pass=first_pass) or "",
         kerbs=values["kerbs"],
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),

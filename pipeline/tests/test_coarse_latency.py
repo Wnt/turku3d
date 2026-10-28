@@ -220,7 +220,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     lidar = tmp_path / "bridge.laz"
     lidar.touch()
     paths["roads"] = [source, lidar, spot]  # bridge elevations are structural in both passes
-    monkeypatch.setattr(inputs, "_sources", lambda *_: paths)
+    monkeypatch.setattr(inputs, "_sources", lambda *_, **kw: paths)
     building = inputs.Building("solid", shapely.box(0, 0, 10, 10), 0, 10, "facade_plaster")
     called = []
 
@@ -241,7 +241,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         raise AssertionError(f"first pass prepared decorative input {dataset}")
 
     monkeypatch.setattr(inputs, "_prepare_one", prepare)
-    sources = SimpleNamespace(missing=lambda _: [], input_key=lambda _: "raw-key")
+    sources = SimpleNamespace(missing=lambda _, **kw: [], input_key=lambda _, **kw: "raw-key")
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
     assert called == ["ground", "wfs", "roads", "tunnels", "stairs"]
     assert result.parking == ((), ())
@@ -277,7 +277,7 @@ def test_missing_first_pass_inputs_do_not_start_full_preparation(tmp_path, monke
         raise AssertionError("pending first pass started full survey preparation")
 
     monkeypatch.setattr(inputs, "prepare", prepare)
-    sources = SimpleNamespace(missing=lambda _: [SimpleNamespace(key="wfs/source")])
+    sources = SimpleNamespace(missing=lambda _, **kw: [SimpleNamespace(key="wfs/source")])
     with pytest.raises(inputs.MissingInputs) as error:
         inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
     assert error.value.units == ["wfs/source"]
