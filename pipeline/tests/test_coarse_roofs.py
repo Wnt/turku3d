@@ -97,3 +97,41 @@ def test_folded_surveyed_roof_keeps_its_vertex_heights():
     for x, z, height in folded.exterior.coords:
         values = [plane_height(h, [x, z]) for p, h in parts if p.covers(shapely.Point(x, z))]
         assert values and values == pytest.approx([height] * len(values))
+
+
+def test_tagged_roofs_keep_photo_and_missing_pixels_use_stable_material(monkeypatch):
+    from turku3d import config as C
+    from turku3d.coarse import stages
+    from PIL import Image
+    import io
+
+    monkeypatch.setattr(stages, "wall_meshes", lambda *args: [])
+    tile = C.VisualTile(0, 0, 0)
+    b = Building("tagged", shapely.box(10, 10, 20, 20), 0, 10, "facade_plaster")
+    b.attributes = {"monumental": True, "roof_material": "copper"}
+    photo = np.full((64, 64, 3), [165, 130, 110], np.uint8)
+    mesh = stages.building_visual(tile, [(b, extrude(b))], photo, False)[0]
+    assert mesh.extras["material_key"] == "roof_ortho"
+    assert np.asarray(Image.open(io.BytesIO(mesh.image))).mean(axis=(0, 1)) == pytest.approx([165, 130, 110], abs=2)
+    missing = stages.building_visual(tile, [(b, extrude(b))], photo * 0, False)[0]
+    rgb = np.asarray(Image.open(io.BytesIO(missing.image))).mean(axis=(0, 1))
+    assert rgb == pytest.approx(stages.roof_fallback(b), abs=2)
+    assert not np.all(rgb == 64)
+    first = stages.building_visual(tile, [(b, extrude(b))], photo, True)[0]
+    assert np.asarray(Image.open(io.BytesIO(first.image))).mean(axis=(0, 1)) == pytest.approx(rgb)
+
+
+def test_roof_crossing_tile_uses_photo_inside_and_material_outside():
+    from turku3d import config as C
+    from turku3d.coarse.stages import roof_crop
+    from PIL import Image
+    import io
+
+    tile = C.VisualTile(0, 0, 0)
+    roof = np.array([[240, 10, 100], [260, 10, 100], [260, 10, 120]])
+    photo = np.full((250, 250, 3), [190, 160, 130], np.uint8)
+    image, uv = roof_crop(tile, roof, photo, np.array([80, 110, 100], np.uint8))
+    pixels = np.asarray(Image.open(io.BytesIO(image)))
+    assert pixels[5, 2] == pytest.approx([190, 160, 130], abs=3)
+    assert pixels[5, -3] == pytest.approx([80, 110, 100], abs=3)
+    assert uv.min() == 0 and uv.max() == 1

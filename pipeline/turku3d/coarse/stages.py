@@ -18,42 +18,28 @@ def building_visual(tile, shells, ortho, first_pass):
     if not shells:
         return []
     origin = np.asarray(tile.origin)
-    roof_pos, roof_idx = [], []
     meshes = []
-    rc = 0
+    photo = None if first_pass or ortho is None else np.asarray(ortho)
+    image = jpeg(photo) if photo is not None and np.all(valid_roof_pixels(photo)) else None
     for b, (roof, ridx, _, _, _walls, _wuv, _widx) in shells:
-        attrs = getattr(b, "attributes", {})
-        if attrs.get("monumental") or attrs.get("roof_material"):
-            meshes.append(
-                GlbMesh(
-                    f"roof_{b.key}",
-                    roof - origin,
-                    ridx,
-                    uvs=roof[:, [0, 2]],
-                    extras=dict(
-                        layer="buildings",
-                        object_id=f"roof_{b.key}",
-                        material_key="roof_standing_seam_metal",
-                        surface="roof",
-                    ),
-                )
-            )
+        if not len(ridx):
+            continue
+        uv = ortho_uv(tile, roof)
+        # OSM material/heritage tags must never bypass usable roof imagery.
+        if image is not None and np.all((uv >= 0) & (uv <= 1)):
+            roof_image, roof_uv = image, uv
         else:
-            roof_pos.append(roof)
-            roof_idx.append(ridx + rc)
-            rc += len(roof)
-    if roof_pos:
-        roof_pos = np.concatenate(roof_pos)
+            roof_image, roof_uv = roof_crop(tile, roof, photo, roof_fallback(b))
         meshes.append(
             GlbMesh(
-                f"roofs_{tile.id}",
-                roof_pos - origin,
-                np.concatenate(roof_idx),
-                uvs=ortho_uv(tile, roof_pos),
-                image=None if first_pass else jpeg(ortho),
+                f"roof_{b.key}",
+                roof - origin,
+                ridx,
+                uvs=roof_uv,
+                image=roof_image,
                 extras=dict(
                     layer="buildings",
-                    object_id=f"roofs_{tile.id}",
+                    object_id=f"roof_{b.key}",
                     material_key="roof_ortho",
                     surface="roof",
                     texture_uv="normalized",
@@ -65,6 +51,58 @@ def building_visual(tile, shells, ortho, first_pass):
         params = parameters(b.facade_key, b.top - b.base, width, getattr(b, "attributes", {}))
         meshes.extend(wall_meshes(b, walls, wuv, widx, origin, params))
     return meshes
+
+
+def valid_roof_pixels(rgb):
+    """Black nodata and white empty WMS pixels are not roof imagery."""
+    return (rgb.max(axis=-1) > 3) & (rgb.min(axis=-1) < 252)
+
+
+def roof_fallback(building):
+    """Stable material families for roofs without usable own-source imagery."""
+    import hashlib
+
+    seed = int.from_bytes(hashlib.sha256(building.key.encode()).digest()[:4], "big")
+    material = str(getattr(building, "attributes", {}).get("roof_material", "")).lower()
+    families = {
+        "tile": [(144, 76, 55), (158, 88, 62), (125, 67, 52)],
+        "copper": [(72, 111, 97), (83, 122, 109), (103, 95, 75)],
+        "slate": [(82, 88, 94), (95, 100, 105)],
+        "metal": [(114, 121, 124), (138, 143, 143), (91, 104, 100)],
+        "tar_paper": [(73, 76, 78), (89, 92, 94)],
+    }
+    palette = families.get(material, sum(families.values(), []))
+    return np.asarray(palette[seed % len(palette)], np.uint8)
+
+
+def roof_crop(tile, roof, photo, fallback):
+    """Crop in tile pixel coordinates; uncovered roof parts retain their material colour.
+
+    Whole buildings belong to their centroid tile, so LOD2 parts/passages can extend
+    beyond its orthophoto. Pad those pixels instead of stretching the tile edge.
+    """
+    import io
+
+    from PIL import Image
+
+    from .build import ortho_uv
+
+    uv = ortho_uv(tile, roof)
+    size = np.array([photo.shape[1], photo.shape[0]]) if photo is not None else np.array([1, 1])
+    low = np.floor(uv.min(axis=0) * size).astype(int)
+    high = np.maximum(low + 1, np.ceil(uv.max(axis=0) * size).astype(int))
+    width, height = high - low
+    crop = np.broadcast_to(fallback, (height, width, 3)).copy()
+    if photo is not None:
+        start, end = np.maximum(low, 0), np.minimum(high, size)
+        if np.all(end > start):
+            source = photo[start[1]:end[1], start[0]:end[0]]
+            target = crop[start[1]-low[1]:end[1]-low[1], start[0]-low[0]:end[0]-low[0]]
+            good = valid_roof_pixels(source)
+            target[good] = source[good]
+    out = io.BytesIO()
+    Image.fromarray(crop).save(out, format="PNG")
+    return out.getvalue(), (uv * size - low) / (high - low)
 
 
 def props_visual(tile, poles, grid_pos):
