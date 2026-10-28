@@ -25,13 +25,13 @@ def roots(tmp_path, monkeypatch):
     return data, work
 
 
-def test_plan_grows_the_area_by_one_touching_tile_anywhere_the_lidar_covers(monkeypatch):
+def test_plan_adds_connected_or_disconnected_lidar_covered_tile(monkeypatch):
     assert T.plan("t0_2_0", CORE) == [*CORE, "t0_2_0"]
     assert T.plan("t0_-1_1", CORE)[0] == "t0_-1_1"
     with pytest.raises(ValueError, match="already playable"):
         T.plan("t0_1_0", CORE)
-    with pytest.raises(ValueError, match="touch"):
-        T.plan("t0_3_0", CORE)
+    assert T.plan("t0_3_0", CORE)[-1] == "t0_3_0"
+    assert T.plan("t0_-2_2", CORE)[0] == "t0_-2_2"
     assert T.plan("t0_2_2", CORE)[-1] == "t0_2_2"  # corner of t0_1_1
     with pytest.raises(ValueError, match="L0"):
         T.plan("t1_1_0", CORE)

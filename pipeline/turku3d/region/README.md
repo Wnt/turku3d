@@ -124,7 +124,7 @@ travels with the tile tree into the stage cache, the tile store and the release;
 ground, generated-style maps only, validator green) and marks a tile that left the list `listed: false` instead
 of dropping its record. GitHub Pages ships from it (`scripts/dev/pages_region.py`, `publish-pages --plan`).
 
-Nothing good is lost: the playable list only grows (`list-tile` and `add-tile` only add a touching tile;
+Nothing good is lost: the playable list only grows (`list-tile` and `add-tile` only add a lidar-covered tile;
 neither the content loop nor the integrator removes one; a human edits the file to remove one). A live build
 fails, and live stays at the previous release, when a listed tile is not assembled with geometry and textured
 ground (`live_build.inspect`), so every listed tile of a live release is at full build quality. The tile store

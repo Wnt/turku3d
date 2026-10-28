@@ -39,14 +39,6 @@ def plan(tile_id: str, listed: list[str]) -> list[str]:
     if tile.id in listed:
         raise ValueError(f"{tile_id} is already playable")
     current = {C.VisualTile.parse(t) for t in listed}
-    neighbours = {
-        C.VisualTile(0, tile.i + di, tile.j + dj)
-        for di in (-1, 0, 1)
-        for dj in (-1, 0, 1)
-        if di or dj
-    }
-    if not neighbours & current:
-        raise ValueError(f"{tile_id} does not touch a playable tile; grow tile by tile")
     uncovered = uncovered_lidar(tile)
     if uncovered:
         raise ValueError(
