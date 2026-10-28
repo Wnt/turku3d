@@ -104,11 +104,6 @@ def floor_profile(heights, distance):
     return np.minimum(heights, chord)
 
 
-def cut_required(ground, floor, clearance):
-    """Cut only ground that obstructs the clear box; retain walkable overburden."""
-    return (ground > floor - 0.25) & (ground < floor + clearance + 0.35)
-
-
 def grounded_wall(object_id, xz, bottom, top, sample, step, *, thickness=0.3):
     """A straight wall's foundation stays below every terrain plane under its width."""
     from .kerbs import terrain_patches
@@ -270,7 +265,15 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 profiles.append((line, distances, floor, width))
             continue
 
-        def floor_height(query, line=line, distances=distances, floor=floor):
+        portal_offsets = (
+            np.array([surface_sample(*xz[0]) - floor[0], surface_sample(*xz[-1]) - floor[-1]])
+            if surface_sample is not None
+            else np.zeros(2)
+        )
+
+        def floor_height(
+            query, line=line, distances=distances, floor=floor, portal_offsets=portal_offsets
+        ):
             ds = shapely.line_locate_point(line, shapely.points(query))
             h = np.interp(ds, distances, floor)
             if surface_sample is not None:
@@ -278,8 +281,17 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     1 - np.minimum(ds, line.length - ds) / min(2, line.length / 2), 0, 1
                 )
                 near = blend > 0
+                centre = shapely.get_coordinates(shapely.line_interpolate_point(line, ds[near]))
                 ground = np.array([surface_sample(x, z) for x, z in query[near]])
-                h[near] += (ground - h[near]) * blend[near]
+                road_height = np.array([surface_sample(x, z) for x, z in centre])
+                # Banks and overburden beside the road are not portal floor. Retain
+                # ordinary crossfall, but never pull a floor up the enclosing hillside.
+                crossfall = 0.1 * np.linalg.norm(query[near] - centre, axis=1)
+                endpoint = np.where(ds[near] < line.length / 2, 0, 1)
+                correction = portal_offsets[endpoint] + np.clip(
+                    ground - road_height, -crossfall, crossfall
+                )
+                h[near] += correction * blend[near]
             return h
 
         left_floor, right_floor = (floor_height(side) for side in (left, right))
@@ -335,6 +347,25 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 )
         if not road.indices:
             continue
+        # Join the open approach to the portal floor outside the roof and wing walls.
+        # Carve the same apron from terrain; otherwise its old triangles can still
+        # cross the opening even when the tube itself is clear.
+        aprons = []
+        for end, outward in ((0, -direction[0]), (-1, direction[-1])):
+            inner = np.array([left[end], right[end]])
+            outer = inner + outward * 2
+            apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
+            aprons.append(apron)
+            for patch in terrain_patches(
+                np.array(apron.exterior.coords)[:-1], tile.size / CELLS, bounds
+            ):
+                patch = np.clip(patch, clip_low, clip_high)
+                along = np.clip((patch - xz[end]) @ outward / 2, 0, 1)
+                base = floor_height(patch)
+                ground = np.array([(surface_sample or sample)(x, z) for x, z in patch])
+                height = base + (ground - base) * along
+                road.face(np.c_[patch[:, 0], height, patch[:, 1]][::-1], patch[::-1])
+        cut_corridor = shapely.union_all([corridor, *aprons])
         profiles.append((line, distances, floor_height(xz), width))
         meshes.append(
             road.mesh(
@@ -387,15 +418,21 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                         tile.size / CELLS,
                     )
                 )
-        candidates = tree.query(corridor, predicate="intersects")
+        candidates = tree.query(cut_corridor, predicate="intersects")
         for tid in candidates:
             p = grid_pos[grid_idx[tid]]
-            ds = shapely.line_locate_point(line, shapely.points(p[:, [0, 2]]))
-            h = np.interp(ds, distances, floor)
-            if not cut_required(p[:, 1], h, clearance).any():
+            overlap = shapely.Polygon(p[:, [0, 2]]).intersection(cut_corridor)
+            if overlap.area < 1e-10:
+                continue
+            query = shapely.get_coordinates(overlap)
+            coeff = np.linalg.solve(np.c_[p[:, [0, 2]], np.ones(3)], p[:, 1])
+            delta = np.c_[query, np.ones(len(query))] @ coeff - floor_height(query)
+            # A triangle can cross the entire clear box with all three vertices
+            # outside it. Test the height range on the actual corridor intersection.
+            if delta.max() <= -0.25 or delta.min() >= clearance + 0.35:
                 continue
             keep[tid] = False
-            cuts[tid] = cuts[tid].union(corridor) if tid in cuts else corridor
+            cuts[tid] = cuts[tid].union(cut_corridor) if tid in cuts else cut_corridor
     remainder = Faces()
     for tid, cut in cuts.items():
         p = grid_pos[grid_idx[tid]]

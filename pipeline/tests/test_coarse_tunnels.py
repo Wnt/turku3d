@@ -7,7 +7,7 @@ import shapely
 from turku3d import config as C
 from turku3d.coarse.build import extrude
 from turku3d.coarse.inputs import Building
-from turku3d.coarse.tunnels import cut_required, dimensions, floor_profile, produce, selected
+from turku3d.coarse.tunnels import dimensions, floor_profile, produce, selected
 from turku3d.roads import build_graph, encode
 
 
@@ -25,7 +25,6 @@ def test_measured_dip_and_buried_profile():
     d = np.arange(5)
     np.testing.assert_equal(floor_profile(np.array([5, 3, 2, 3, 5]), d), [5, 3, 2, 3, 5])
     np.testing.assert_equal(floor_profile(np.array([5, 9, 10, 9, 6]), d), [5, 5.25, 5.5, 5.75, 6])
-    np.testing.assert_equal(cut_required(np.array([2, 4, 7]), 2, 2.5), [True, True, False])
 
 
 def test_portal_foundation_reaches_terrain_under_full_wall_width():
@@ -47,7 +46,7 @@ def test_portal_floor_meets_actual_ground_across_its_width():
     tags = {"highway": "service", "width": "4", "tunnel": "yes"}
 
     def surface(x, z):
-        return 2 + z * 0.1 + np.maximum(0, z - tile.size / 128 * 5)
+        return 2 + z * 0.02 + np.maximum(0, z - tile.size / 128 * 5) * 0.04
 
     result = produce(
         tile, [("crossfall", line, tags)], pos, idx, [], extrude, lambda x, z: 2.5, surface
@@ -146,7 +145,82 @@ def test_reversing_approach_strip_preserves_both_valid_patches():
     from turku3d.coarse.kerbs import terrain_patches
 
     # Offset approaches can fold at a hairpin; the bowtie has two valid lobes.
-    corners = np.array([[0., 0.], [2., 2.], [0., 2.], [2., 0.]])
+    corners = np.array([[0.0, 0.0], [2.0, 2.0], [0.0, 2.0], [2.0, 0.0]])
     patches = list(terrain_patches(corners, 1, (0, 0, 2, 2)))
     assert patches
     assert sum(shapely.Polygon(p).area for p in patches) == 2
+
+
+def test_portal_rejects_hillside_crossfall_and_carves_open_approach():
+    from turku3d.coarse.build import grid_mesh
+
+    tile = C.VisualTile(0, 0, 0)
+    heights = np.full((129, 129), 2.0)
+    # A hillside next to a low road: the old portal blend lifted the floor 5 m.
+    heights[6:] = 7
+    pos, idx = grid_mesh(tile, heights)
+    line = shapely.LineString([(10, 10), (30, 10)])
+    tags = {"highway": "service", "width": "7", "tunnel": "yes"}
+
+    def surface(x, z):
+        return 2 + max(0, z - 10) * 2
+
+    result = produce(tile, [("bank", line, tags)], pos, idx, [], extrude, lambda x, z: 2, surface)
+    floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
+    portal = floor.positions[np.isclose(floor.positions[:, 0], 10)]
+    assert len(portal) > 2
+    assert portal[:, 1].max() <= 2.35 + 1e-8
+    # The apron meets original terrain two metres before the mouth.
+    outer = floor.positions[np.isclose(floor.positions[:, 0], 8)]
+    assert len(outer) > 2
+    np.testing.assert_allclose(outer[:, 1], [surface(x, z) for x, _, z in outer])
+    apron = shapely.box(8, 6.5, 10, 13.5)
+    cut = shapely.union_all(shapely.polygons(pos[idx[~result.keep]][:, :, [0, 2]]))
+    assert cut.intersection(apron).area > 0
+    # Render and collision consume the very same repaired floor triangles.
+    cp, ci, _ = result.collision(
+        C.CollisionTile(0, 0), np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8)
+    )
+    floor_triangles = floor.positions[floor.indices]
+    np.testing.assert_allclose(cp[ci[: len(floor.indices)]], floor_triangles)
+
+
+def test_triangle_crossing_clearance_without_a_vertex_inside_is_cut():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, -2, 0], [20, 10, 0], [0, 10, 20]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    line = shapely.LineString([(2, 4), (10, 4)])
+    result = produce(
+        tile,
+        [("crossing", line, {"highway": "footway", "tunnel": "yes"})],
+        pos,
+        idx,
+        [],
+        extrude,
+        lambda x, z: 2,
+    )
+    assert not result.keep[0]
+
+
+def test_portal_blend_does_not_follow_overburden_up_inside_the_mouth():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [20, 2, 0], [0, 2, 20], [20, 2, 20]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    line = shapely.LineString([(2, 10), (18, 10)])
+
+    def surface(x, z):
+        return 2 + min(max(x - 2, 0), max(18 - x, 0)) * 4
+
+    result = produce(
+        tile,
+        [("buried", line, {"highway": "footway", "tunnel": "yes"})],
+        pos,
+        idx,
+        [],
+        extrude,
+        surface,
+        surface,
+    )
+    floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
+    inside = floor.positions[(floor.positions[:, 0] >= 2) & (floor.positions[:, 0] <= 18)]
+    np.testing.assert_allclose(inside[:, 1], 2)
