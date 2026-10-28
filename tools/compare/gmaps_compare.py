@@ -102,6 +102,7 @@ def main(argv=None) -> int:
     query.update(cam=pose.cam(), hud="0")
     record = {
         "schema_version": 1,
+        "python": sys.executable,
         "label": args.label,
         "game_pose": asdict(pose),
         "google_pose": asdict(google),

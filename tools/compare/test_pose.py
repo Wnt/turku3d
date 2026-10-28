@@ -7,6 +7,14 @@ from tools.compare.pose import GooglePose, HeightReference, Pose, from_google, t
 
 
 class PoseTests(unittest.TestCase):
+    def test_google_native_url_omits_north_heading(self):
+        p = GooglePose.parse(
+            "https://www.google.com/maps/@60.4478739,22.2930656,353a,35y,64.14t/data=!3m1!1e3?hl=en"
+        )
+        self.assertEqual(p.heading, 0)
+        self.assertEqual(p.tilt, 64.14)
+        self.assertEqual(p.altitude, 353)
+
     def test_roundtrip_all_height_references(self):
         for heights in (
             HeightReference("ellipsoid", 19.2),

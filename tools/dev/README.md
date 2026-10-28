@@ -87,5 +87,6 @@ Build outputs are local; no sync step is needed. `make tile-show` serves the loc
 ## Google aerial comparison
 
 `make gmaps-compare` captures local-only Google/game reference pairs using the QA camera.
-The current implementation rejects the observed headless 2D fallback; pose calibration is
-unverified. See [commands and limitations](../compare/README.md). Never publish its screenshots.
+It opens visible sandbox Chrome and enables Globe/3D after navigation. Six locations were
+captured, but altitude/FOV alignment and overlay removal remain unverified. See
+[commands and limitations](../compare/README.md). Never publish its screenshots.

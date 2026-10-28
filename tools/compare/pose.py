@@ -94,13 +94,18 @@ class GooglePose:
         number = r"(-?\d+(?:\.\d+)?)"
         match = re.search(
             "@"
-            + ",".join(number + suffix for suffix in ("", "", "a", "y", "h", "t"))
+            + ",".join(number + suffix for suffix in ("", "", "a", "y"))
+            + "(?:,"
+            + number
+            + "h)?,"
+            + number
+            + "t"
             + r"/data=!3m1!1e3(?:/|$)",
             unquote(parts.path),
         )
         if not match:
             raise ValueError("expected aerial @lat,lon,alt a,fov y,heading h,tilt t/data=!3m1!1e3")
-        return cls(*(float(v) for v in match.groups()))
+        return cls(*(float(v) if v is not None else 0.0 for v in match.groups()))
 
 
 def to_google(pose: Pose, heights: HeightReference) -> GooglePose:

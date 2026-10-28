@@ -1,11 +1,11 @@
 # Local Google Maps / game comparison
 
-**Experimental: six-site pose validation is blocked.** Headless Chrome currently changes the
-requested aerial URL to flat satellite mode in a fresh session. The command rejects that
-fallback and saves a diagnostic; it does not claim a matching pair. The consumer URL's `a`
-altitude datum and `y` field-of-view interpretation have not been established by landmarks.
-No default geoid correction is invented. Supply a height hypothesis explicitly, and retain
-the `UNVERIFIED` label until calibration succeeds.
+**Experimental: headed 3D capture works; camera alignment remains unverified.** Six requested
+locations produced local Google/game captures. Google changes the requested aerial pose when
+3D is enabled, so the tool reads back its effective URL and renders the game from that pose.
+The consumer URL's `a` altitude datum and `y` field-of-view interpretation have not been
+established by landmarks. Supply a height hypothesis explicitly; every output retains the
+`UNVERIFIED` label. Map labels/road vectors are not yet reliably removed.
 
 ## Commands
 
@@ -36,7 +36,7 @@ make gmaps-compare CAM=23459668,6704254,80,135,-45,35 \
   GMAPS_ARGS='--height-datum ellipsoid --height-offset 19 --pose-only'
 ```
 
-Reproduce the observed Google fallback with the unverified N2000 hypothesis:
+Open visible sandbox Chrome with the unverified N2000 hypothesis:
 
 ```sh
 make gmaps-compare GMAPS_ARGS='--google-url https://www.google.com/maps/@60.4562084,22.2901796,84a,35y,139.27h,69.94t/data=!3m1!1e3 --height-datum n2000 --height-offset 0 --label hameensilta'
@@ -58,18 +58,35 @@ describes an API, not a guarantee about the consumer Maps permalink.
 
 ## Capture and safety contract
 
-Each invocation requests one view, through the host `browser` slot, in a fresh unsigned Chrome
-context under `TURKU3D_BROWSER_DIR`. It chooses **Reject all** when consent is presented,
-disables HTTP caching before navigation, blocks service workers, and closes Chrome afterward.
-There is no crawling, automatic view retry, Map Tiles API, API key, tile-response reader,
-geometry export, or texture export. It requires the sandbox's port range and rejects 5171/5175.
+Each invocation requests one view through the host `browser` slot in **visible headed Chrome**,
+using only `TURKU3D_BROWSER_DIR/gmaps-compare`. This dedicated unsigned profile persists consent
+between invocations; never sign into it. The first run opens google.com, chooses **Reject all**,
+and checks for a persistent SOCS/CONSENT cookie before opening the full aerial URL. Cookie values
+are never recorded. HTTP caching is disabled before navigation and service workers are blocked.
+Chrome closes after the capture. There is no crawling, automatic navigation retry, Map Tiles API,
+API key, tile-response reader, geometry export, or texture export. The tool requires this
+sandbox's port range and rejects 5171/5175.
 
-Successful captures use the existing `qa/render/render.mjs` readiness/pose-echo checks for the
-game. The full Google frame retains its logo and attribution; interactive overlays are hidden.
-A retained aerial URL plus the active `2D` toggle is a necessary check, not proof that all
-photogrammetry has loaded. Inspect the local screenshot before accepting a comparison.
-The tool records the effective URL/pose, Chrome renderer and status in `comparison.json`.
-All captures remain labelled pose-unverified.
+On this Mac, even a Google-produced aerial URL navigates back to flat satellite. The working
+sequence is **Layers → More → Globe view**, then the accessible **Tilt the view** switch
+(`role=switch`, not a button). The code enables these controls on the already loaded page,
+waits for a tilted `a`/`t` URL, and reads it back without navigating again. The verified GPU is
+ANGLE Metal Renderer: Apple M1 Max. Flags include `--use-angle=metal`,
+`--ignore-gpu-blocklist`, `--enable-gpu`, and `--enable-webgl`; no headless flag combination
+was demonstrated to preserve 3D on navigation.
+
+The resulting pose may differ substantially from the request. `comparison.json` preserves
+`requested_game_pose`, `requested_google_pose`, `google_final_url`, the effective `game_pose`
+and `google_pose`, and `google_pose_delta` (heading wrapped to ±180°). `views.jsonl` describes
+the effective game pose. This is a reproducible diagnostic, not a promise to hold the requested
+camera fixed. The game capture uses `qa/render/render.mjs` readiness and pose-echo checks.
+
+The screenshot retains Google's logo and attribution. CSS hides search/sidebar/category UI;
+a reserved sidebar strip and some controls can remain. **This does not remove map-rendered
+POI names or road vectors.** The requested clean-reference workflow additionally needs
+**Layers → More → Labels off**; that setting has not been automated or verified in this slice.
+The JSON explicitly records this limitation. Inspect the local image: a tilted URL and an
+active tilt switch do not prove complete photogrammetry, overlay removal, or camera alignment.
 
 Outputs are unique directories under `$TURKU3D_WORK/qa/gmaps-compare/`. A successful run writes
 `gmaps-compare.png`, `google.png`, `game.png`, QA metadata and `comparison.json`. On flat fallback,
@@ -88,4 +105,4 @@ scripts/dev/codex-task wait-cmd -- scripts/dev/gate --fast --base main
 
 The fast gate runs only synthetic math/safety tests and lint; it never opens Google.
 See [the investigation record](../../docs/reports/gmaps-compare.md) for measured corrections,
-failed headless configurations and outstanding acceptance work.
+the headed workaround and outstanding acceptance work.

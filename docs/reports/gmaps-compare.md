@@ -1,71 +1,111 @@
 # Google aerial comparison investigation — 2026-10-28
 
-Status: BLOCKED; tooling and synthetic tests are implemented, empirical acceptance is incomplete.
+Status: tooling slice complete; empirical pose acceptance and the texture study are incomplete.
+Headed Chrome produced six local 3D/game captures, all labelled **captured-unverified**.
 No Google image, crop, mesh, tile response or texture is included in this report or repository.
+
+## Working browser path
+
+A visible, normal-size Playwright Chrome window used a dedicated sandbox profile throughout
+the attempts. Opening google.com first and choosing **Reject all** set a persistent SOCS cookie.
+No account was used. Both headless and headed navigation still normalized full aerial URLs to
+flat satellite, including a URL Google itself had just produced. Consent persistence alone
+therefore did not solve the failure.
+
+The successful same-page sequence was **Layers → More → Globe view → Tilt the view**.
+The last control has accessibility role **switch**, not button. Reading the new URL without
+renavigating preserves the tilted scene. Six repeated requested views worked with this path.
+Chrome reported WebGL2 on **ANGLE Metal Renderer: Apple M1 Max**. The capture tool now uses
+headed Chrome with `--use-angle=metal`, `--ignore-gpu-blocklist`, `--enable-gpu`, and
+`--enable-webgl`; headless photorealistic capture is not an accepted result.
+
+The CLI saves both requested and effective poses, then uses the effective URL for the game
+camera. Google can omit a zero heading (`0h`); the parser accepts that native form. The game
+must pass the shared QA readiness and camera-echo checks before a pair is written.
+
+CSS UI hiding was checked on the final Joukahaisenkatu view, retaining logo and attribution.
+The six earlier captures still contain UI and map labels. A 72-pixel reserved sidebar strip
+and some controls remain even after CSS hiding. The subsequent request for **Labels off**
+(POI names and road/lane vectors absent) arrived after the browser session closed. The relevant
+manual control is Layers → More → Labels; automation and overlay-free captures remain work.
+No decoded Google mesh is used as a fallback by this tool.
+
+The headed session ran from 07:13:39 to 07:44:42 UTC. Closing its interactive input loop hung;
+only that owned session was interrupted. Its 1,863 seconds were manually debited because the
+scheduler's interrupted command did not record them. Including the earlier roughly five-minute
+headless investigation, usage was **36.05 / 35 browser minutes**. No further browser was opened.
+The owned browser and servers on sandbox ports 5181/5182 were stopped.
 
 ## Pose findings
 
-The example permalink converts horizontally to E **23460939.121921**, N **6705112.305334**.
-The brief's bridge E 23460983, N 6705006 is a landmark, not that camera location; substituting
-it as the camera would shift the camera about **115.00 m**. The grid-bearing correction at
-the permalink location is **+0.6175366°**: heading 139.27° becomes game yaw **139.8875366°**.
-Tilt 69.94° corresponds to game pitch **−20.06°**. These are coordinate/convention calculations,
-not landmark-measured image alignment errors.
+The example permalink's horizontal coordinates transform to E **23460939.121921**,
+N **6705112.305334**. The brief's bridge E 23460983, N 6705006 is **115.00 m** away;
+substituting it for the URL location would change the pose. Grid-bearing correction there is
+**+0.6175366°**: heading 139.27° becomes game yaw **139.8875366°**. Tilt 69.94° maps to pitch
+**−20.06°** under the stated convention. These are coordinate calculations, not measured
+image alignment errors or proof of the consumer URL's camera semantics.
 
-The consumer URL's altitude datum remains unresolved. The code requires a declared height
-hypothesis and offset instead of treating N2000 as ellipsoidal height. The roundtrip tests
-exercise both the geoid addition and ground subtraction signs. They cannot validate which
-one Google uses. Likewise, copying `35y` to vertical fov is an explicitly unverified hypothesis.
-No altitude error, fov error or pixel reprojection error has been measured.
+For the six-site experiment, seeds were 80 m south of each target at H=80 N2000, yaw=0,
+pitch=−45°, fov=35°. Enabling 3D changed the horizontal URL location about **53.6–54.0 m
+farther south**, `a` from 80 to **161–162**, tilt from 45° to **39.51–39.52°**, and heading
+by **+0.608–0.646°** (wrapped). These are observed URL normalization deltas, not fitted pose
+errors. The tool now preserves them instead of silently using the original game pose.
 
-## Headless observation
+The consumer URL's altitude datum remains unresolved. The code requires an explicit hypothesis:
+ellipsoid (add local geoid undulation), height above ground (subtract ground N2000), or N2000
+(zero offset). Synthetic roundtrip tests verify the signs, not which hypothesis Google uses.
+The official FIN2023N2000 grid sampled at lat 60.4478739, lon 22.2930656 gives **19.41436 m**
+undulation. A diagnostic game render with a +19.414 m height shift did not establish a valid fit;
+that offset is not adopted as Google's conversion. Copying `35y` to vertical fov is also unverified.
+The Google viewport inset is another unresolved source of framing differences.
 
-Chrome exposed WebGL 2.0 on **ANGLE Metal Renderer: Apple M1 Max**. Nevertheless, the requested
-Hämeensilta URL repeatedly normalized to `@60.4546407,22.2929172,265m`, a flat satellite view.
-The observed center is 230.671 m from the input URL location; its implied height for the
-requested tilt is 84.231 m. That is a useful diagnostic, not proof of the vertical datum.
+Visible corresponding buildings and roads demonstrate the same neighbourhood, but their screen
+positions do not match sufficiently to accept alignment. No fitted altitude/FOV correction or
+pixel reprojection score is claimed.
 
-Configurations tried: `--use-angle=metal`, `--ignore-gpu-blocklist`, `--enable-webgl`,
-`--enable-gpu`, URL `force=webgl`, a normal Chrome user-agent, and disabling the automation
-Blink feature/default argument. None retained the requested tilted scene on navigation.
-The Layers → More → Globe view UI enabled a 3D control; navigating back to the requested URL
-reset the preference and returned to flat satellite. Subsequent fresh-session Globe toggles
-also failed to expose a clickable tilt control within 10 seconds. Local screenshots were inspected.
-The task consumed its 5 browser-minute allocation; an extension was requested from the orchestrator.
+## Six-site evidence
 
-The CLI detects this failure and exits nonzero before claiming a comparison. A controlled
-Globe initialization / pose-preserving navigation solution is still required. No broad city
-sweep was run to compensate for the failure.
+All files stay under `$TURKU3D_WORK/qa/gmaps-compare/six-views/<label>/`, containing
+`comparison.json`, `google.png`, `game.png`, and `gmaps-compare.png`.
 
-## Acceptance and texture study
+| Label | Target E, N | Google 3D / game QA ready | Pose accepted |
+| --- | --- | --- | --- |
+| Hameensilta | 23460983, 6705006 | Yes / yes | No |
+| Teatterisilta | 23459503.675, 6704105.544 | Yes / yes | No |
+| Myllysilta | 23459146.428, 6703908.499 | Yes / yes | No |
+| Lantinen-Rantakatu-15 | 23459668, 6704254 | Yes / yes | No |
+| Lemminkäisenkatu | 23461522.066, 6703925.729 | Yes / yes | No |
+| Joukahaisenkatu | 23461262.775, 6704354.596 | Yes / yes | No |
 
-| Requested check | Measured result |
-| --- | --- |
-| Hämeensilta aligned pair | Blocked by 2D fallback; no alignment score |
-| Teatterisilta, Myllysilta, Läntinen Rantakatu 15 | Not captured pending working 3D mode |
-| Two Kupittaa streets | Not captured pending working 3D mode |
-| Accepted landmark pairs | **0 / 6** |
-| Truth-labelled walls assessed | **0 / 20** |
-| Wall/roof colour errors and storey accuracy | **Not measured** |
+The game used independent cached draft tiles with published core tiles substituted where
+available, served only in this sandbox. These were not rebuilt after the bridge generator fix
+landed during the session; the images are not evidence of that fix's current output. Office
+and Teatterisilta captures were rerendered after repairing the local published-ground mount;
+the final records report QA ready. Accepted aligned pairs: **0 / 6**.
 
-The brief's data-root paths were absent. The truth owner subsequently supplied the actual
-research root, `/Users/wnt/turku3d/research/facade-cv/`. Its `truth100/agreed.json` is empty;
-`truth100/whole/agreed.json` contains six agreed labels, not 100. The corrected collection
-is still being reconstructed. The current parameter file is
-`textures/turkutex/facade_hybrid_parameters.json`.
+## Texture study
 
-The allowed fallback `labels/*/descriptions.json` contains **425** rows, of which **278** have
-`source=reference`, a visible wall, wall colour and storeys. Counts by tile are 125, 21, 70,
-62 for t0_0_0, t0_0_1, t0_1_0, t0_1_1 respectively. A deterministic selection of the first
-five sorted eligible facade IDs per tile (**20 walls**) is saved locally at
-`$TURKU3D_WORK/qa/gmaps-compare/study-selection.json`. No aerial observations are filled in.
-The fallback labels do not supply roof-colour ground truth for these walls, so that metric
-also needs an independent reference. Input selection is no longer blocked; aerial capture is.
+Truth-labelled walls assessed from aerial imagery: **0 / 20**. Wall/roof colour errors,
+storey accuracy, and improvement over current parameters are **not measured**.
 
-After 3D capture works, record current parameters, judge aerial visibility (including
-occlusion), and report paired colour error/storey accuracy with explicit usable denominators.
-Missing observations must not be counted as zero error. No aerial-derived parameter, texture,
-or geometry is shipped by this work.
+The brief's data-root paths were absent. The truth owner supplied the actual research root,
+`/Users/wnt/turku3d/research/facade-cv/`. At inspection, `truth100/agreed.json` was empty and
+`truth100/whole/agreed.json` held six agreed labels. The collection was still being rebuilt.
+The current parameter file is `textures/turkutex/facade_hybrid_parameters.json`.
 
-The sanity-rule owner will leave the mandatory `make gmaps-compare` hook out until this tool
-produces verified comparisons. Add that one-line hook after rebasing the completed tool slice.
+The allowed fallback `labels/*/descriptions.json` contained **425** rows, of which **278** had
+`source=reference`, a visible wall, wall colour and storeys. Eligible counts were 125, 21, 70,
+62 for t0_0_0, t0_0_1, t0_1_0, t0_1_1 respectively. A deterministic first-five-sorted-per-tile
+selection (**20 walls**) is local at `$TURKU3D_WORK/qa/gmaps-compare/study-selection.json`.
+No aerial observations are filled in. These labels lack roof-colour ground truth.
+
+Remaining work is calibrated, overlay-free reference capture and paired scoring with explicit
+visibility/usable denominators. Missing observations must not count as zero error. Any later
+use of derived parameters remains Jonni's decision; this slice ships no aerial-derived assets.
+
+## Verification and workflow
+
+See [the CLI README](../../tools/compare/README.md) for exact capture and unit-test commands.
+The fast gate only tests pure conversion and safety policy; it never opens Google. The sanity
+rule now mentions `make gmaps-compare` at affected spots, local screenshots only, with an explicit
+calibration-status caveat. It does not turn these unverified pairs into geometric acceptance.
