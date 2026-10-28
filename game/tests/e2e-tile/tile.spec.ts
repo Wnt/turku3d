@@ -192,13 +192,17 @@ test('coarse terrain remains visible outside the four-tile AOI', { tag: ['@pipel
   expect(state.error).toBeFalsy();
   expect(state.info.tiles).toContain('t1_1_1');
   const { w, h, px } = await decodePng(page, await page.screenshot());
+  // The t0_2_2 expansion refines this parent: its unbuilt quadrants are coarse L0 siblings.
+  const coarseTiles = new Set(['t1_1_1', 't0_2_2', 't0_2_3', 't0_3_2', 't0_3_3']
+    .filter(id => manifest.visual[id]?.coarse_dtm));
   const visibleGround = new Set<string>();
   for (let y = Math.floor(h / 2); y < h; y += 8) for (let x = 0; x < w; x += 8) {
     const k = 4 * (y * w + x);
     const id = (px[k] << 16) | (px[k+1] << 8) | px[k+2];
     const item = state.ids[String(id)];
-    if (item?.kind === 'ground' && item.tile === 't1_1_1') visibleGround.add(String(id));
+    if (item?.kind === 'ground' && coarseTiles.has(item.tile)) visibleGround.add(item.tile);
   }
+  console.log(`[${info.project.name}] visible coarse ground: ${[...visibleGround].sort().join(', ')}`);
   expect(visibleGround.size).toBeGreaterThan(0);
   expect(bad).toEqual([]);
 });
