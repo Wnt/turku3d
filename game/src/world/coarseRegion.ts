@@ -74,3 +74,17 @@ export function parentCovered(parent: string, resident: ReadonlySet<string>): bo
   return [0, 1].every(di => [0, 1].every(dj => resident.has(l0(2 * t.i + di, 2 * t.j + dj))));
 }
 
+
+/** Startup needs collision around each selectable start, rather than waiting for whole far-LOD sibling groups. */
+export function startupDraftTiles(points: readonly { x: number; z: number }[], published: ReadonlySet<string>, radius: number): string[] {
+  const wanted = new Set<string>();
+  for (const { x, z } of points) {
+    for (let i = Math.floor((x - radius) / VISUAL_L0); i <= Math.floor((x + radius) / VISUAL_L0); i++) {
+      for (let j = Math.floor((z - radius) / VISUAL_L0); j <= Math.floor((z + radius) / VISUAL_L0); j++) {
+        const id = l0(i, j);
+        if (!published.has(id) && distToL0(id, x, z) <= radius) wanted.add(id);
+      }
+    }
+  }
+  return [...wanted];
+}

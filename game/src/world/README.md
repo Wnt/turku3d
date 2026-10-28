@@ -17,18 +17,18 @@ client entries outside the requested area do not count as work. Verify locally w
 
 `preload.ts` runs after actor and parked-car assets load and before the session exposes `__game.ready` or enables
 the start menu. It pumps the ordinary tile, draft and collision streamers until every required visual model,
-draft in the existing 3×3 window, ground binding and worker-decoded collision cell has arrived. Required failures
+draft intersecting a selectable start’s collision radius, ground binding and worker-decoded collision cell has arrived. Required failures
 are surfaced, rather than treating an idle queue as success. The tileset is indexed before traversal, so neither
 an empty first traversal nor `loadProgress === 1` alone can release the screen.
 
 Textures in PBR slots and TSL graphs use the renderer’s shared upload budget before becoming drawable;
-startup also queues TSL/private maps before `compileAsync`, which sees offscreen meshes too.
+startup also queues TSL/private maps before a real warmup draw with frustum culling disabled.
 The same glTF admission hook paces newly streamed published and draft tile maps during play (render/README.md).
 Published models await `VisualTiles.prepareModel` in the native `processTileModel` hook, before the loader
 publishes its scene or REPLACE refinement hides the old parent. The wrapper preserves original glTF disposal ownership. Draft host `style` and `styled`
 callbacks may return promises and are awaited before insertion; `styled` prepares programs after draft tint/LOD.
 Both include final ground bindings plus prepass, beauty and reflection compilation.
-Six real warmup views per selectable spawn cell exercise shadow/MRT/post-processing and vegetation variants on WebGPU and WebGL2, followed
+Startup skips per-model async shader compilation: the complete scene is prepared once by real pass draws before Ready. Six real warmup views per selectable spawn cell exercise shadow/MRT/post-processing and vegetation variants on WebGPU and WebGL2, followed
 by the restored initial view. During play the same distance-region plugin feeds the library's own priority queues,
 parsers and LRU cache. Used ring content cannot be evicted. Cache admission reserves 256 MiB above current protected
 content: the library's fixed default byte cap could otherwise stop refinement with required tiles still missing.
@@ -92,6 +92,15 @@ scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- 
 ```
 
 ## Collision edge and draft tiles
+
+The worker checks actual loaded collision cells before every runtime fixed substep (`PhysicsWorld.step`,
+`collisionCoverage.ts`). A stationary or moving character without coverage for its swept capsule footprint waits
+with zero vertical velocity; the check applies immediately after flight is toggled off. Flight can cross unbuilt
+areas horizontally or upward, but waits before descending without collision. Every vehicle, including parked cars
+left behind by flight, becomes fixed while its swept chassis footprint lacks collision, then resumes dynamically
+from rest when coverage returns. Collider size includes custom parked-car dimensions. Manifest membership and a
+decoded draft buffer do not count as loaded coverage. The small in-game position hint explains a character hold.
+`fixedStep` is the low-level solver entry for standalone synthetic collider fixtures; both worker clocks use `step`.
 
 Ground is drawn farther than collision reaches: the published far LOD (500 m and 1 km parents) covers the city around
 the playable tiles, and a draft tile can be on screen before its cells stream into the physics worker. Two rules keep

@@ -14,6 +14,7 @@ export async function preloadStarts(world: PlayWorld, feet: { x: number; z: numb
   tiles.retainStarts(starts);
   streamer.retainedStarts = starts;
   if (coarse) coarse.retainedStarts = starts;
+  const releaseDrafts = coarse?.preload(starts, streamer.radius);
   await Promise.all([preloadWorld(world, feet, async () => {
     const views = [];
     for (const game of [null, ...games.filter(g => g !== null)]) views.push(await saves.prepare(game));
@@ -27,5 +28,6 @@ export async function preloadStarts(world: PlayWorld, feet: { x: number; z: numb
     tiles.retainStarts([]);
     streamer.retainedStarts = [];
     if (coarse) coarse.retainedStarts = [];
+    releaseDrafts?.();
   };
 }
