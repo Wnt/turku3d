@@ -3,6 +3,7 @@ import type Node from 'three/src/nodes/core/Node.js';
 import type { PlayWorld } from '../play';
 import { VISUAL_RING_RADIUS } from './residency';
 import { worldLoad } from './loadProgress';
+import { loading, loadBytes } from '../core/loading';
 
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
@@ -51,8 +52,10 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   tiles.setFocus(focus.x, focus.z, Math.max(VISUAL_RING_RADIUS, params.collisionRadius));
   env.follow(new THREE.Vector3(focus.x, camera.position.y, focus.z));
   worldLoad.update({ phase: 'loading' });
+  const downloaded = loading.begin('360° world preload');
   const started = performance.now();
   let stable = 0;
+  let lastCounts = '';
   while (stable < 3) {
     await frame();
     coarse?.update(focus.x, focus.z);
@@ -64,14 +67,18 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     const errors = [...tiles.errors, ...materials?.ground?.errors ?? [], ...collision.errors, ...drafts.errors];
     worldLoad.update({ visual: { loaded: visual.loaded + drafts.loaded, total: visual.total + drafts.total },
       collision: { loaded: collision.loaded, total: collision.total }, textures: { loaded: 0, pending: materials?.ground?.pending ?? 0 }, errors });
+    const counts = `${visual.loaded + drafts.loaded}/${visual.total + drafts.total} models · ${collision.loaded}/${collision.total} collision cells`;
+    if (counts !== lastCounts) { loading.note(`360° preload · ${counts}`); lastCounts = counts; }
     if (errors.length) throw new Error(`world preload: ${errors.join('; ')}`);
     if (performance.now() - started > 300_000) throw new Error(`world preload timed out: ${JSON.stringify(worldLoad.snapshot())}`);
     stable = tiles.settled && !materials?.ground?.pending && drafts.loaded === drafts.total && collision.loaded === collision.total
       ? stable + 1 : 0;
   }
+  downloaded(`${lastCounts} · ${loadBytes(worldLoad.snapshot().bytesLoaded)}`);
   // Upload even offscreen textures and compile all currently visible model materials. The temporary culling
   // override includes meshes behind the camera; it never changes the distance-region request set.
   worldLoad.update({ phase: 'compiling', compile: { done: 0, total: 6 } });
+  const compiled = loading.begin('GPU texture upload and pipeline warmup');
   const textures = modelTextures(scene);
   let uploaded = 0;
   for (const texture of textures) {
@@ -96,6 +103,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
       await drainGpu(renderer);
       worldLoad.update({ compile: { done: i + 1, total: directions.length },
         textures: { loaded: renderer.info.memory.textures, pending: 0 } });
+      loading.note(`GPU warmup ${i + 1}/${directions.length} directions · ${renderer.info.memory.textures} textures resident`);
       await frame();
     }
   } finally {
@@ -106,5 +114,6 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   // Restore the initial view and flush temporal history from the warmup before showing the world.
   for (let i = 0; i < 8; i++) { renderFrame(); await frame(); }
   await drainGpu(renderer);
+  compiled(`${renderer.info.memory.textures} textures · 6/6 directions`);
   worldLoad.update({ phase: 'ready' });
 }
