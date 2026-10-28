@@ -3,7 +3,7 @@
 // their replacement geometry and collision have been validated.
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
-import { draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, startupDraftTiles, wantedTiles } from './coarseRegion';
+import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, startupDraftTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -99,6 +99,13 @@ export class CoarseTiles {
   private client = `draft-${globalThis.crypto.randomUUID()}`;
   private demandBusy = false;
   private demandSequence = 0;
+  private routeHint: readonly { x: number; z: number }[] | null = null;
+
+  /** Optional remaining mission route, engine metres, ordered forward. Clear with null. Stays client-side. */
+  setRouteHint(points: readonly { x: number; z: number }[] | null) {
+    this.routeHint = points?.filter(p => Number.isFinite(p.x) && Number.isFinite(p.z)).map(p => ({ ...p })) ?? null;
+    this.nextCheck = 0;
+  }
   /** Set while the service restarts: no tile or prefetch requests, only status probes. */
   outage: Outage | null = null;
 
@@ -184,8 +191,9 @@ export class CoarseTiles {
     const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
       - arrivalToL0(b, x, z, this.velocity.x, this.velocity.z) || distToL0(a, x, z) - distToL0(b, x, z);
     const wanted = this.wantedStarts(x, z).sort(byArrival);
-    const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z).filter(id => !wanted.includes(id)).sort(byArrival);
-    if (this.remote) void this.sendDemand(draftDemand(wanted, ahead, x, z, this.velocity.x, this.velocity.z));
+    const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
+    const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
+    if (this.remote) void this.sendDemand(draftDemand(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {

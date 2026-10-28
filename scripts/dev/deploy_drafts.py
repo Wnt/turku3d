@@ -73,17 +73,18 @@ def deploy(repo, commit):
         "systemctl --user daemon-reload && "
         f"systemctl --user start {unit}"
     )
-    health = f"""import time,urllib.request,urllib.error
+    health = f"""import time,json,urllib.request,urllib.error
 end=time.monotonic()+5
 while time.monotonic()<end:
  try:
   with urllib.request.urlopen('http://127.0.0.1:{port}/coarse/health',timeout=.5) as r:
-   if r.status==200: break
+   if r.status==200:
+    print(json.load(r)['instance']); break
  except (OSError,urllib.error.URLError): pass
  time.sleep(.1)
 else: raise SystemExit('standby draft producer did not become ready within5s')
 """
-    remote("python3 -c " + shlex.quote(health))
+    instance = remote("python3 -c " + shlex.quote(health))
     pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
     remote(
         f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
@@ -94,13 +95,13 @@ else: raise SystemExit('standby draft producer did not become ready within5s')
         "systemctl --user kill --kill-whom=main --signal=USR1 turku-drafts-proxy"
     )
     # SIGUSR1 reloads Caddy's original config file without closing its listener.
-    # Do not stop the old upstream until the proxy confirms the new demand route.
-    switched = """import time,urllib.request
+    # Do not stop the old upstream until the proxy confirms the standby instance.
+    switched = f"""import time,json,urllib.request
 end=time.monotonic()+5
 while time.monotonic()<end:
  try:
-  with urllib.request.urlopen('http://127.0.0.1:7764/coarse/demand?client=deploy-probe&tiles=',timeout=.5) as r:
-   if r.status==200: break
+  with urllib.request.urlopen('http://127.0.0.1:7764/coarse/health',timeout=.5) as r:
+   if r.status==200 and json.load(r).get('instance') == {instance!r}: break
  except OSError: pass
  time.sleep(.1)
 else: raise SystemExit('proxy did not switch to standby within5s')

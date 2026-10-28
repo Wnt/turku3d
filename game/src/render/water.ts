@@ -51,11 +51,16 @@ export class RiverMaterial {
     const update = reflector.updateBefore.bind(reflector);
     const shadows = new ReflectionShadows();
     let last = -Infinity;
+    const seen = new THREE.Matrix4();
     reflector.updateBefore = frame => {
       if (isPrecompiling(renderer)) return;
       this.reflectionDepth = nextRenderDepth(renderer);
       const now = performance.now();
-      if (!deterministic && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
+      // A moving camera refreshes every frame: an older reflection visibly trails the view. The tier's rate only
+      // throttles a still view, where the reflection changes with the scene alone.
+      const moved = !!frame.camera && !frame.camera.matrixWorld.equals(seen);
+      if (frame.camera) seen.copy(frame.camera.matrixWorld);
+      if (!deterministic && !moved && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
       const previous = renderer.contextNode;
       renderer.contextNode = context;
       shadows.pause(env.csm.lights);
