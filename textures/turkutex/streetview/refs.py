@@ -43,7 +43,7 @@ from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 from .rectify import rectified_points, sample_wall
 
-REFS_VERSION = "9-opening-boundary-screen"
+REFS_VERSION = "10-supported-wall-eaves"
 
 # Reference fallback order when the best-scored full view fails screening.
 SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")
@@ -228,6 +228,31 @@ def base_height(f: Facade, cands: list[PanoMeta]) -> tuple[float, str]:
             np.median(la)
         ), f"median(lookaround elevation - {cands[0].cam_height} m), n={len(la)}"
     return 3.0, "default 3.0 m (no pano elevation)"
+
+
+def supported_wall(f: Facade, base_h: float, measure=None) -> tuple[Facade, dict]:
+    """Trim an overestimated roof/gable height to the LOD2 wall plane beneath it."""
+    from .visibility import wall_visibility
+
+    measure = measure or wall_visibility
+    camera = np.array([*(f.centre + 15 * f.normal), base_h + min(f.height_m / 2, 8)])
+    original = measure(camera, f.corners(base_h))
+    if original.get("state") != "measured" or original["target_support"] >= 0.85:
+        return f, original
+    for fraction in (0.9, 0.8, 0.7, 0.6, 0.5):
+        height = f.height_m * fraction
+        if height < 3:
+            break
+        candidate = Facade(f.id, f.p0, f.p1, height, f.base_h, f.props, f.normal_side)
+        support = measure(camera, candidate.corners(base_h))
+        if (
+            support.get("state") == "measured"
+            and support["target_support"] >= 0.85
+            and support["visible_fraction"] >= 0.9
+            and support["edge_visible_fraction"] >= 0.85
+        ):
+            return candidate, support
+    return f, original
 
 
 def occlusion_fraction(
@@ -586,7 +611,8 @@ def facade_refs(
     errors = []
     cands = candidates(cache, f, P, sources, errors)
     bh, bh_src = base_height(f, cands)
-    evals = [x for m in cands for x in evaluate(cache, f, m, bh, P)]
+    target, wall_support = supported_wall(f, bh)
+    evals = [x for m in cands for x in evaluate(cache, target, m, bh, P)]
     chosen = select(evals, P)
     out = out_root / f.id
     views = []
@@ -657,6 +683,8 @@ def facade_refs(
         "facade": f.to_feature(),
         "base_h": round(bh, 3),
         "base_h_source": bh_src,
+        "effective_height_m": round(target.height_m, 3),
+        "wall_support": wall_support,
         "n_candidates": len(cands),
         "n_valid": len(evals),
         "candidates": sorted(

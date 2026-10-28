@@ -1,6 +1,7 @@
 import numpy as np
 from turkutex.streetview.evidence import problem
-from turkutex.streetview.refs import view_problem
+from turkutex.streetview.facades import Facade
+from turkutex.streetview.refs import supported_wall, view_problem
 from turkutex.streetview.visibility import Scene, blocked_rays
 
 
@@ -73,3 +74,21 @@ def test_concave_source_and_hole_are_not_filled_by_visibility_triangles():
     assert blocked_rays(
         np.array([0.5, -2, 0.5]), np.array([[0.5, 2, 0.5]]), points[indices]
     ).tolist() == [True]
+
+
+def test_supported_wall_trims_a_roof_height_without_changing_its_segment():
+    facade = Facade("w", np.array([0.0, 0.0]), np.array([10.0, 0.0]), 10.0, 2.0)
+
+    def measure(_camera, corners):
+        height = corners[3, 2] - corners[0, 2]
+        return dict(
+            state="measured",
+            target_support=0.6 if height > 7 else 1.0,
+            visible_fraction=1.0,
+            edge_visible_fraction=1.0,
+        )
+
+    target, support = supported_wall(facade, 2.0, measure)
+    assert target.length == facade.length
+    assert target.height_m == 7.0
+    assert support["target_support"] == 1.0
