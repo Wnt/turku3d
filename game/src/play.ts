@@ -1,3 +1,5 @@
+import type { PlayWorld } from './playWorld';
+export type { PlayWorld } from './playWorld';
 import { ParkedVehicles } from './world/parkedVehicles';
 // Play session over main.ts's persistent world: input, audio, UI, actors, missions, saves and frame loop.
 // Localhost hot updates dispose this session and restore it via gameplay/hotState.ts.
@@ -14,7 +16,6 @@ import { Haptics } from './input/haptics';
 import { VoicePlayer } from './audio/voice';
 import { ControlsHelp, controlsHelp } from './ui/controlsHelp';
 import { loading } from './core/loading';
-import type { LoadingScreen } from './ui/loadingScreen';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
@@ -43,19 +44,10 @@ import { applyHot, markResume, takeResume, type HotPlay, type PlaySession } from
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
-import type { PhysicsClient } from './physics/client';
-import type { Manifest } from './world/manifest';
-import { holdCar, holdFoot, type CollisionStreamer } from './world/collisionStreaming';
+import { holdCar, holdFoot } from './world/collisionStreaming';
 import { EdgeMarker } from './world/edgeMarker';
-import type { CoarseTiles } from './world/coarseTiles';
 import { preloadStarts } from './world/preloadStarts';
 import { browserStorage, sessionStore } from './core/storage';
-import type { VisualTiles } from './world/tiles';
-import type { Telemetry } from './telemetry';
-import type { Environment } from './render/environment';
-import type { PerformanceMonitor } from './render/performance';
-import type { MaterialStyler } from './render/materials';
-import type { parseParams } from './core/params';
 import { StreamHint } from './ui/streamHint';
 import { prepareMultiplayer } from './net/preparedStart';
 import type { MultiplayerClient } from './net/client';
@@ -64,41 +56,6 @@ import { VEHICLE_POSE_HEIGHT } from './net/height';
 import { vehicleIdentity } from './net/identity';
 import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
-
-type Pose = V3 & { yaw: number };
-/** The world main.ts creates once per page and keeps across hot swaps of the session. */
-export interface PlayWorld {
-  params: ReturnType<typeof parseParams>;
-  backend: string;
-  renderer: THREE.WebGPURenderer;
-  scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
-  env: Environment;
-  perf: PerformanceMonitor;
-  tiles: VisualTiles;
-  materials: MaterialStyler | null;
-  physics: PhysicsClient;
-  rapier: string;
-  manifest: Manifest;
-  streamer: CollisionStreamer;
-  coarse: CoarseTiles | null;
-  telemetry: Telemetry | null;
-  /** Rendered frames and simulated seconds (tests/e2e/waits.ts). */
-  clock: { frames: number; simSeconds: number };
-  errors: string[];
-  fail: (e: unknown) => void;
-  hudEl: HTMLElement;
-  loadingScreen: LoadingScreen;
-  renderFrame: () => void;
-  /** The shared clock; restoration only affects an unpinned developer clock. */
-  clockTime: () => Date;
-  setClock: (date: Date) => void;
-  /** Ground height under (x, z) from a physics ray. */
-  groundAt: (x: number, z: number) => Promise<number>;
-  /** Where a new game starts, and the start car's parking (both placed in physics by main.ts). */
-  spawn: Pose;
-  car: Pose;
-}
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;

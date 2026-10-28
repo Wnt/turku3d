@@ -50,6 +50,20 @@ class DeliveryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "select affected checks"):
                     delivery.plan(root, root)
 
+    def test_every_selection_runs_repository_policy_with_the_same_parallel_deadline(self):
+        for tests in ([], ["unit --grep affected"]):
+            with (
+                patch.object(delivery, "environment", return_value={}),
+                patch.object(bounded_checks, "commands", return_value={"ok": False}) as run,
+            ):
+                result = delivery.check(Path("repo"), {"tests": tests}, Path("task"))
+            self.assertFalse(result["ok"])
+            self.assertEqual(
+                run.call_args.args[0],
+                ["python3 scripts/dev/repository_policy.py", *tests],
+            )
+            self.assertEqual(run.call_args.kwargs["seconds"], 30)
+
     def test_deploy_failure_keeps_merged_commit_and_never_runs_rollback(self):
         with (
             tempfile.TemporaryDirectory() as temp,

@@ -4,7 +4,7 @@
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
   basePay, LONG_UNLOCK_ROUNDS, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
-  PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline, parSeconds,
+  PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
 import { DIALOGUE, lineText } from '../content/dialogue';
@@ -13,7 +13,11 @@ import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
-import { drawOrder, drawLongOrder } from './orders';
+import { drawOrder } from './orders';
+import type { ShopView } from './shopView';
+export type { ShopView, ShopOptionView } from './shopView';
+import { longOrder, longQuote, orderQuote, metresFromPizzeria, type OrderQuote } from './quotes';
+export type { OrderQuote } from './quotes';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
 import { CARRY_HINT_DELAY, lineSeconds, saidText, type Said } from './speech';
@@ -68,45 +72,6 @@ export interface PaidDropoff {
 
 /** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
 type Checkpoint = 'delivery' | 'purchase';
-
-/** What the pizzeria quotes before an order is accepted. */
-export interface OrderQuote {
-  /** The drop-off address, or both joined with ` + ` for a double order. */
-  address: string;
-  metres: number;
-  par: number;
-  stops: number;
-  pay?: number;
-}
-
-export interface ShopOptionView {
-  id: OptionId;
-  label: string;
-  detail: string | null;
-  /** Euros the player pays (negative: the player is paid), or null when the option has no price. */
-  price: number | null;
-  icon: string | null;
-  enabled: boolean;
-  /** Why the option is greyed out, or null. */
-  reason: string | null;
-  quote: OrderQuote | null;
-}
-
-/** Everything the shop menu shows; texts are exact dialogue line texts. */
-export interface ShopView {
-  id: ShopId;
-  title: string;
-  speaker: string;
-  /** The shopkeeper's latest line in this visit: the greeting, then each reply. */
-  line: string;
-  background: string;
-  money: number;
-  /** Delivery orders left on the courier permit. */
-  permit: number;
-  /** Pizzas handed over so far. */
-  delivered: number;
-  options: ShopOptionView[];
-}
 
 interface Action {
   target: RouteTarget;
@@ -430,34 +395,22 @@ export class MissionSystem implements MissionHudSource {
     this.say({ id, text });
   }
 
-  private longOrder() { return drawLongOrder(this.stops.pool, this.s.longDeliveries, this.s.seed, new Set(this.s.delivered)); }
+  private longOrder() { return longOrder(this.stops.pool, this.s); }
 
-  private longQuote(): OrderQuote | null {
-    const stop = this.longOrder();
-    return stop ? { address: stop.address, metres: stop.car!, par: parSeconds(stop.car!, this.parVehicle(), 'long'),
-      stops: 1, pay: basePay(stop.car!, 'long') } : null;
-  }
+  private longQuote(): OrderQuote | null { return longQuote(this.stops.pool, this.s, this.parVehicle()); }
 
   private quote(): OrderQuote {
     const stops = this.ensureOrder();
     const vehicle = this.parVehicle();
     const key = `${this.s.job}|${this.s.order.join(',')}|${vehicle}`;
     if (this.quoteCache?.key !== key) {
-      const first = this.metresFromPizzeria(stops[0], vehicle);
-      const firstPar = parSeconds(first, vehicle, this.s.job);
-      const leg = stops.length > 1 ? this.streetMetres(stops[0].point, stops[1].point) : 0;
-      const par = stops.length > 1 ? firstPar + parSeconds(leg, vehicle, this.s.job) : firstPar;
-      this.quoteCache = { key, firstPar: stops.length > 1 ? firstPar : 0,
-        quote: { address: stops.map(o => o.address).join(' + '), metres: first + leg, par, stops: stops.length, pay: basePay(first + leg, this.s.job) } };
+      this.quoteCache = { key, ...orderQuote(stops, vehicle, this.s.job, (a, b) => this.streetMetres(a, b)) };
     }
     return this.quoteCache.quote;
   }
 
-  /** Route metres from the pizzeria: the published walking or driving distance of a pool address (every vehicle
-   *  rides the streets), the router's path for a scripted one. */
   private metresFromPizzeria(stop: OrderStop, vehicle: VehicleOwnership): number {
-    if (stop.pool) return vehicle === 'none' && this.s.job !== 'long' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
-    return this.streetMetres(PIZZERIA.point, stop.point);
+    return metresFromPizzeria(stop, vehicle, this.s.job, (a, b) => this.streetMetres(a, b));
   }
 
   /** Street-route metres between two points, or the straight line when either end is off the graph. */

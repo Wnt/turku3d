@@ -2,10 +2,9 @@
 // python3 scripts/dev/host_slots.py browser -- node game/scripts/probe-long-delivery.mjs
 // Seeds a migrated 40-order save; uses real shop UI, physics/input and collision streaming.
 // Auto-steering is diagnostic assistance: report obstacles and cancellations, never call it a clean player drive.
-import fs from 'node:fs';
+import { chromeExecutable, chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 const repo = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 const {chromium}=await import(repo+'/game/node_modules/@playwright/test/index.mjs');
-const {chromeExecutable,chromeArgs,chromeIgnoreDefaultArgs}=await import(repo+'/tools/dev/chrome-args.mjs');
 const {isolateBrowser}=await import(repo+'/tools/dev/environment.mjs');
 isolateBrowser();
 const browser=await chromium.launch({executablePath:chromeExecutable(),headless:true,ignoreDefaultArgs:chromeIgnoreDefaultArgs,args:chromeArgs(['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist'])});
