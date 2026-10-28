@@ -236,9 +236,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return {"bridge_ways": [{"id": "crossing"}]}
         if dataset == "tunnels":
             return [{"id": "passage"}]
-        if dataset == "stairs":
-            return ((), ())
-        if dataset == "parking":
+        if dataset in ("parking", "stairs"):
             return ((), ())
         raise AssertionError(f"first pass prepared decorative input {dataset}")
 
@@ -246,6 +244,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     sources = SimpleNamespace(missing=lambda _: [], input_key=lambda _: "raw-key")
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
     assert called == ["ground", "wfs", "roads", "tunnels", "stairs", "parking"]
+    assert result.stairs == ((), ())
     assert result.parking == ((), ())
     assert result.kerbs is None
     assert result.buildings[0].key == "solid"
