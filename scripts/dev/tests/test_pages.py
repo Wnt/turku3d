@@ -1,4 +1,4 @@
-"""Synthetic GitHub Pages deploys: provenance refusal, orphan force-push, site files, notes, region."""
+"""Synthetic GitHub Pages deploys: provenance refusal, ordered publication, site files, notes, region."""
 
 import hashlib
 import json
@@ -152,22 +152,27 @@ class PagesTests(unittest.TestCase):
             (assembly / f"facades/b/{index}.json").write_text(json.dumps(meta))
         bound = [f"b_{index}" for index in range(len(facades))]
         (assembly / "MANIFEST.json").write_text(json.dumps({"bound": bound}))
-        record = {"commit": commit * 4, "facades_bound": len(bound), **fields}
+        record = {
+            "commit": commit if len(commit) == 40 else commit * 4,
+            "facades_bound": len(bound),
+            **fields,
+        }
         (release / "live-build.json").write_text(json.dumps(record))
         live = self.published / "live"
         live.unlink(missing_ok=True)
         live.symlink_to(release, target_is_directory=True)
         return release
 
-    def test_publish_force_pushes_one_orphan_commit_with_site_files(self):
-        self.release("aaaaaaaaaaaa", [GENERATED, GENERATED])
-        first = pages.publish(self.published)
-        self.release("bbbbbbbbbbbb", [GENERATED])
-        result = pages.publish(self.published)
+    def test_publish_appends_to_remote_head_with_site_files(self):
+        source, commits = self.history(2)
+        self.release(commits[0], [GENERATED, GENERATED])
+        first = pages.publish(self.published, repo=source)
+        self.release(commits[1], [GENERATED])
+        result = pages.publish(self.published, repo=source)
         self.assertEqual(result["url"], "https://owner.github.io/turku-game/")
-        self.assertEqual((result["facades"], result["release"]), (1, "bbbbbbbbbbbb" * 4))
+        self.assertEqual((result["facades"], result["release"]), (1, commits[1]))
         self.assertNotEqual(first["commit"], result["commit"])
-        self.assertEqual(git("rev-list", "--count", "gh-pages", cwd=self.remote), "1")
+        self.assertEqual(git("rev-list", "--count", "gh-pages", cwd=self.remote), "2")
         files = set(git("ls-tree", "-r", "--name-only", "gh-pages", cwd=self.remote).split())
         site = {".nojekyll", "ATTRIBUTION.md", "README.md", "index.html"}
         self.assertEqual({f for f in files if "/" not in f}, site)
@@ -181,8 +186,29 @@ class PagesTests(unittest.TestCase):
         self.assertIn("https://owner.github.io/turku-game/", readme)
         self.assertNotIn("{{", git("show", "gh-pages:index.html", cwd=self.remote))
         message = git("log", "-1", "--format=%s", "gh-pages", cwd=self.remote)
-        self.assertRegex(message, r"^Release bbbbbbbbbbbb \d{4}-\d\d-\d\d \d\d:\d\d UTC$")
+        self.assertRegex(message, rf"^Release {commits[1][:12]} \d{{4}}-\d\d-\d\d \d\d:\d\d UTC$")
         self.assertEqual(self.calls, [("Owner/turku-game", "gh-pages")] * 2)
+
+    def test_stale_release_is_skipped_without_changing_remote_or_state(self):
+        source, commits = self.history(2)
+        old = self.release(commits[0], [GENERATED], data_time=10)
+        self.release(commits[1], [GENERATED], data_time=11)
+        winner = pages.publish(self.published, repo=source)
+        state = (self.published / pages.STATE).read_text()
+        result = pages.publish(self.published, old, repo=source)
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["remote_commit"], winner["commit"])
+        self.assertEqual(git("rev-parse", "gh-pages", cwd=self.remote), winner["commit"])
+        self.assertEqual((self.published / pages.STATE).read_text(), state)
+
+    def test_notes_append_to_current_deployment_and_skip_superseded_one(self):
+        release = self.release("aaaaaaaaaaaa", [GENERATED], data_time=10)
+        deployment = pages.publish(self.published)
+        result = pages.update_notes(self.published, release, deployment)
+        self.assertEqual(git("rev-parse", "gh-pages^", cwd=self.remote), deployment["commit"])
+        self.assertEqual(git("rev-parse", "gh-pages", cwd=self.remote), result["commit"])
+        skipped = pages.update_notes(self.published, release, deployment)
+        self.assertIn("skipped", skipped)
 
     def test_derived_maps_from_generated_styles_are_published(self):
         derived = {"source_mode": "derived", "derived_from": "k1", "style": {"path": "style.json"}}

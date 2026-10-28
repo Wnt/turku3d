@@ -202,20 +202,20 @@ legacy Make fallback.
 
 ### GitHub Pages (`publish-pages`)
 
-https://wnt.github.io/turku-game/ serves main's game with the served tiles. With `$TURKU3D_DATA/publish/pages.json`
-(`{"repo": "Wnt/turku-game", "branch": "gh-pages", "region": {...}}`) the integrator calls `pages.publish` after
-every publication (inert batches only when `docs/published-images.toml` changed): one parentless commit of the
-release's `game/`, its `tiles/` filtered to the `region` (`pages_region.py`: listed tiles near the centre that meet
-the quality thresholds of the release's tile ledger, `turku3d.region quality`) and `pages-site/` is force-pushed
-(one release, about 150 MB) and Pages is enabled once. The commit message is the release notes: the commits since
-the previous Pages release (`publish/pages-last.json`, else the record's `from`), the advisory failures the release
-shipped with and the shipped and excluded tiles with the reasons. The result or `error` goes into the integration
-row as `pages`; a failure never rolls back the local publish. It refuses a release binding a facade map that is not
-generated-style, derived or fast (`pages.generated`). By hand: `scripts/dev/codex-task wait-cmd --
-scripts/dev/publish-pages` (`--from-served`, the default: live as it is when it already is main's game on the served
-tiles, else main's `make game-build` in the `pages-served` sandbox composed with them by `served.compose`;
-`total_seconds` in the output) or `--release DIR`; `--plan` prints the selection and publishes nothing. The game
-build uses a relative base, so it runs under `/turku-game/` without COOP/COEP.
+https://wnt.github.io/turku-game/ serves main's game with the served tiles. The integrator publishes after each
+live release when `$TURKU3D_DATA/publish/pages.json` exists (`{"repo":"Wnt/turku-game","branch":"gh-pages","region":{...}}`).
+It ships `game/`, quality-filtered region `tiles/` (`pages_region.py`) and `pages-site/`; Pages is enabled once.
+Both lanes and advisory notes hold `publish/pages.lock` under the data root through fetching, pushing and state updates.
+Each commit parents the fetched remote head. Metadata records source commit and tile input time; older/unrelated code
+or older/unknown tile inputs after a known time are skipped. A lock/non-fast-forward rejection triggers one refetch,
+ordering check and rebuilt commit. Pushes never force. Advisory notes append only while their deployment is current.
+Integration rows record `pages.status` (published/skipped), `retries`, skip reason or `error`; local publication stands.
+Commit notes list source commits since the remote release (else `from`), advisory failures and shipped/excluded tiles.
+`publish/pages-last.json` records the last push. Only generated-style, derived or fast facades may ship (`pages.generated`).
+By hand: `scripts/dev/codex-task wait-cmd -- scripts/dev/publish-pages` (`--from-served`, the default: live when it
+already is main's game on the served tiles, else main's `make game-build` in `pages-served` composed by `served.compose`).
+Use `--release DIR` for a specific release; `--plan` prints its region selection without publishing.
+Output includes `total_seconds`. The relative-base game runs under `/turku-game/` without COOP/COEP.
 
 ### Long commands (agents)
 
