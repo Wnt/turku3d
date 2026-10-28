@@ -53,3 +53,7 @@ its scheduled IBL maximum was 1.62 ms. Frame p95 and draw counts are recorded in
 well above 100 during these checks, so the paired frame figures are observations rather than an unloaded FPS
 claim. The clock adds no shadow pass; the daylight and fixed-time views used the same draw count. Thirty-two
 focused release/cache/tooling tests passed. Browser use stayed below the 25-minute brief budget.
+
+## Final rebase repair
+
+Main's `f3d8add4` introduced the dispatcher's 30-second repeat delay while leaving two early-reminder assertions and a 607-line module. The release branch preserves the delay, moves the shared speech representation/timing helpers to `missions/speech.ts` (retaining the lineSeconds re-export), and strengthens both assertions: silence after the announcement and at 29.9 seconds, then the address after crossing 30 seconds. All 48 focused mission/order tests pass.

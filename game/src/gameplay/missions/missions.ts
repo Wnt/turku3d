@@ -16,11 +16,10 @@ import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId
 import { drawOrder } from './orders';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
+import { CARRY_HINT_DELAY, lineSeconds, saidText, type Said } from './speech';
 import { applyPoleFine } from '../poles/fine';
 export { missionSummary } from './save';
-
-/** The dispatcher repeats the delivery address this many seconds after the order announcement. */
-const CARRY_HINT_DELAY = 30;
+export { lineSeconds } from './speech';
 
 type BoughtVehicle = Exclude<VehicleOwnership, 'none'>;
 
@@ -126,16 +125,9 @@ const NO_MONEY_LINE: Record<ShopId, string> = {
   market: 'market_no_money', pizzeria: 'pizzeria_no_money', dealer: 'dealer_no_money',
 };
 
-/** Seconds a dialogue line stays on the message line: long enough to read it or hear it spoken. */
-export function lineSeconds(text: string): number {
-  return Math.min(7, Math.max(2.5, 1.2 + text.length * 0.06));
-}
-
 const distance = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.z - b.z);
 
 type TipBand = 'fast' | 'ok' | 'slow';
-interface Said { id: string; text?: string }
-const saidText = (said: Said) => said.text ?? lineText(said.id);
 
 export class MissionSystem implements MissionHudSource {
   private s: MissionSave;

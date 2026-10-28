@@ -10,7 +10,7 @@ import { houseNumber } from '../../src/gameplay/minimap';
 import {
   DOUBLE_EVERY, LADDER_MAX_M, LADDER_START_M, LADDER_STEP_M, drawOrder, isDouble, ladderMetres,
 } from '../../src/gameplay/missions/orders';
-import { MissionSystem, missionSummary, type MissionFrame } from '../../src/gameplay/missions/missions';
+import { MissionSystem, lineSeconds, missionSummary, type MissionFrame } from '../../src/gameplay/missions/missions';
 
 /** 40 addresses east of the pizzeria, 20 m apart along one street: `foot` = x offset, cars drive 10 % farther. */
 const POOL: PoolAddress[] = Array.from({ length: 40 }, (_, i) => {
@@ -180,7 +180,11 @@ describe('pool orders in the mission system', () => {
     g.at(near(PIZZERIA.point), { choose: 'take_order' });
     expect(g.missions.snapshot().dialogue).toEqual(['order_single']);
     expect(g.missions.snapshot().hud.message).toContain('Testikatu 11');
-    for (let t = 0; t < 30; t += 0.5) g.at({ x: 0, z: 0 }, {}, 0.5);
+    g.at({ x: 0, z: 0 }, {}, lineSeconds(g.missions.snapshot().hud.message!));
+    expect(g.missions.snapshot().hud.message).toBeNull();
+    g.at({ x: 0, z: 0 }, {}, 29.9);
+    expect(g.missions.snapshot().hud.message).toBeNull();
+    g.at({ x: 0, z: 0 }, {}, 0.2);
     expect(g.missions.snapshot().hud.message).toContain('Testikatu 11');
     expect(PHRASES.hint_carry.some(p => g.missions.snapshot().hud.message === `${p}Testikatu 11.`)).toBe(true);
   });
