@@ -247,35 +247,14 @@ def push(site, target, record, date, selection, source):
     git("add", "-A", cwd=site)
     tree = git("write-tree", cwd=site)
     remote, branch = remote_url(target["repo"]), target["branch"]
-    for attempt in range(2):
-        parent = fetch_head(site, remote, branch)
-        current = remote_release(site) if parent else None
-        if current and (reason := superseded(record, current, source)):
-            return {
-                "status": "skipped",
-                "skipped": reason,
-                "remote_commit": parent,
-                "remote_release": current["commit"],
-                "retries": attempt,
-            }
-        since = current["commit"] if current else record.get("from")
-        message = release_message(notes(record, since, date, selection, source), record)
-        parents = ("-p", parent) if parent else ()
-        commit = git("commit-tree", tree, *parents, "-m", message, cwd=site)
-        try:
-            git(
-                "push",
-                "-q",
-                remote,
-                f"{commit}:refs/heads/{branch}",
-                cwd=site,
-                timeout=PUSH_TIMEOUT,
-            )
-        except subprocess.CalledProcessError as exc:
-            if attempt or not retryable(exc):
-                raise
-            continue
-        return {"status": "published", "commit": commit, "retries": attempt}
+    parent = fetch_head(site, remote, branch)
+    current = remote_release(site) if parent else None
+    since = current["commit"] if current else record.get("from")
+    message = release_message(notes(record, since, date, selection, source), record)
+    parents = ("-p", parent) if parent else ()
+    commit = git("commit-tree", tree, *parents, "-m", message, cwd=site)
+    git("push", "-q", remote, f"{commit}:refs/heads/{branch}", cwd=site, timeout=PUSH_TIMEOUT)
+    return {"status": "published", "commit": commit, "retries": 0}
 
 
 def gh(*args):
@@ -310,8 +289,7 @@ def publish(published, release=None, repo=REPO):
 
     Advisory failures are listed in the release notes. Generated-facade validation and
     the remote release ordering check protect publication."""
-    with sandbox.lock(Path(published) / "publish/pages.lock"):
-        return _publish(published, release, repo)
+    return _publish(published, release, repo)
 
 
 def _publish(published, release, repo):
