@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { textureUploads } from '../textureUploads';
 import { LoadingKtx } from '../../world/loadingKtx';
 import { loadGroundLibrary, loadGroundTile } from './material';
 
@@ -10,7 +11,7 @@ export class GroundBindings {
   private libraries = new Map<string, ReturnType<typeof loadGroundLibrary>>();
   private tiles = new Map<THREE.Object3D, Awaited<ReturnType<typeof loadGroundTile>> | null>();
   private batches = new Map<THREE.Object3D, { mesh: THREE.Mesh; sources: THREE.Mesh[] }>();
-  constructor(renderer: THREE.WebGPURenderer, private base: string) {
+  constructor(private renderer: THREE.WebGPURenderer, private base: string) {
     this.loader = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
   }
   async apply(model: THREE.Object3D) {
@@ -27,6 +28,8 @@ export class GroundBindings {
         this.libraries.set(libraryURL, library);
       }
       const tile = await loadGroundTile(new URL(binding.spec, this.base).href, this.loader, await library);
+      if (!this.tiles.has(model)) { tile.dispose(); return; }
+      await Promise.all([...Object.values(tile.maps), ...Object.values(await library)].map(map => textureUploads(this.renderer).enqueue(map)));
       if (!this.tiles.has(model)) { tile.dispose(); return; }
       this.tiles.set(model, tile);
       const sources: THREE.Mesh[] = [];

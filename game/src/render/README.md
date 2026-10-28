@@ -78,10 +78,25 @@ Released models get their source materials back. Rationale and the edge marker: 
 
 **SSE is measured in drawing-buffer pixels**, never CSS pixels. `VisualTiles` passes
 `renderer.getDrawingBufferSize()` to the tile renderer after every resize/update. The threshold remains 8 output pixels
-on both backends. Play DPR is `min(devicePixelRatio, 2, sqrt(2560*1440/(CSS width*CSS height)))`, bounding fill rate to
-1440p. For example, a 1280×720 Retina viewport renders at 2560×1440; a 2560×1440 Retina viewport also renders at
-2560×1440. QA always has DPR 1 and exactly the requested viewport dimensions, even above 1440p. Camera projection
-and `__qaProject` remain in CSS pixels. This rule avoids requesting finer LOD without actually rendering more pixels.
+on both backends. Play starts at `min(devicePixelRatio, 2, sqrt(2560*1440/(CSS width*CSS height)))`.
+`AdaptiveResolution` targets 60 Hz from measured frame intervals: a 30-frame window lowers scale by 0.1 when
+median delivery exceeds 19 ms or over 20% of frames miss 20 ms. Changes are at least one second apart.
+Scale bottoms out at 0.5 of the initial pixel ratio (one quarter of its pixels). Eight seconds of healthy
+16.7 ms delivery permits a cautious 0.05 upward probe, up to the initial ceiling. Isolated intervals over
+80 ms and hidden-tab gaps reset the sample window. The selected scale is available at `__game.resolution.scale`.
+Material detail, texture resolution, shadows and the 360° residency ring retain their quality settings.
+QA always has DPR 1 and exactly the requested viewport dimensions, even above 1440p; adaptive resolution is
+play-only. Camera projection and `__qaProject` remain in CSS pixels.
+
+## Streaming GPU uploads
+
+`textureUploads.ts` shares one queue per renderer across published tiles, drafts, actors, ground bindings and
+startup warmup. A glTF `afterRoot` hook queues maps after the loader finalizes colour space and samplers and
+holds model publication until uploads complete. Ground keeps its source material until its replacement maps
+are resident. Shared texture/version pairs upload once. Pending jobs run largest first with a 2 MiB / 2 ms
+budget per animation frame; three.js uploads a texture atomically, so a texture larger than the budget runs
+alone and may exceed it. No map resolution or mip chain is discarded. Startup still warms all six directions.
+The normal/beauty/shadow/reflection passes share one scene-matrix update per rendered frame.
 
 ## Instrumentation
 

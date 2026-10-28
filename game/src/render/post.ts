@@ -13,7 +13,7 @@ export class PostProcessing {
   private pipeline: THREE.RenderPipeline;
   private resources: { dispose(): void }[];
 
-  constructor(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa') {
+  constructor(renderer: THREE.WebGPURenderer, private scene: THREE.Scene, camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa') {
     const q = QUALITY[tier];
     const pre = pass(scene, camera);
     pre.transparent = false;
@@ -51,6 +51,13 @@ export class PostProcessing {
     if (spatial) this.resources.push(spatial);
   }
 
-  render() { this.pipeline.render(); }
+  render() {
+    // Prepass, beauty, cascades and river reflection share world transforms for this frame.
+    // Avoid recursively recomputing every object's matrices in each Renderer.render call.
+    this.scene.updateMatrixWorld();
+    const autoUpdate = this.scene.matrixWorldAutoUpdate;
+    this.scene.matrixWorldAutoUpdate = false;
+    try { this.pipeline.render(); } finally { this.scene.matrixWorldAutoUpdate = autoUpdate; }
+  }
   dispose() { for (const resource of this.resources) resource.dispose(); }
 }

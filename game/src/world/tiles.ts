@@ -6,6 +6,7 @@
 import * as THREE from 'three/webgpu';
 import { TilesRenderer, type Tile } from '3d-tiles-renderer';
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
+import { textureUploads } from '../render/textureUploads';
 import { LoadingKtx } from './loadingKtx';
 import { loading } from '../core/loading';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -87,7 +88,7 @@ export class VisualTiles {
       set.region.retain(this.retainedStarts);
     }
     // The KTX2 loader (its transcoder workers) is shared by a swapped-in release: disposing the old tileset keeps it.
-    renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false }));
+    renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false, plugins: [() => textureUploads(this.renderer).plugin()] }));
     renderer.errorTarget = 8;
     // QA retains the nearest-L0 budget. In play the region plugin owns refinement and masks camera error.
     const viewer = renderer as unknown as { calculateTileViewError: ViewError };

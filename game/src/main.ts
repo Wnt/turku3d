@@ -13,6 +13,7 @@ import { dayCycle } from './core/dayCycle';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
+import { AdaptiveResolution } from './render/adaptiveResolution';
 import { renderPixelRatio } from './render/quality';
 import { VegetationLod } from './world/vegetationLod';
 import { MaterialStyler } from './render/materials';
@@ -97,7 +98,13 @@ let builtTiles: () => Iterable<string> = () => [];
 tiles.events.addEventListener('load-model', ({ scene: model, tile }: { scene: THREE.Object3D; tile: { extras?: { id?: string } } }) =>
   unbuilt?.apply(model, tile?.extras?.id));
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => unbuilt?.release(model));
+const resolution = new AdaptiveResolution();
 const renderFrame = () => {
+  if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
+    const scale = resolution.update(performance.now());
+    const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false) * scale;
+    if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
+  }
   dayClock.update();
   vegetation?.update(camera);
   if (unbuilt && clock.frames % 15 === 0) unbuilt.setBuilt(builtTiles());
@@ -117,7 +124,7 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
-window.__game = { dayClock, backend, params, errors, tiles, clock, unbuilt, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot() };
+window.__game = { dayClock, backend, params, errors, tiles, clock, unbuilt, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot() };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);

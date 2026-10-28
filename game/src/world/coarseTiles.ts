@@ -1,4 +1,5 @@
 import { statusBadges } from '../ui/statusBadges';
+import { textureUploads } from '../render/textureUploads';
 // Coarse (draft) tiles on localhost: when the player comes within one tile of an L0 cell the published tileset lacks,
 // the companion service (tools/dev/coarse-tiles, proxied at /coarse/) builds it in seconds and this module streams it
 // in like a published tile: the GLB goes into the scene, its .col entries into the manifest so CollisionStreamer
@@ -245,7 +246,7 @@ export class CoarseTiles {
 
   private gltfLoader() {
     const ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
-    const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+    const loader = new GLTFLoader().register(() => textureUploads(this.host.renderer).plugin()).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     return async (url: string) => (await loader.loadAsync(url)).scene;
   }
 
