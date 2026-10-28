@@ -21,6 +21,8 @@
       html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
       canvas { display: block; touch-action: none; }
       #hud { position: fixed; left: 8px; top: 8px; color: #e8e8e8; font: 12px/1.45 ui-monospace, Menlo, monospace; background: #000a; padding: 6px 10px; white-space: pre; pointer-events: none; border-radius: 4px; }
+      #hud.player-name { font: 600 16px/1.3 system-ui, sans-serif; padding: 8px 12px; text-shadow: 0 1px 2px #000c; }
+      body:not(.debug-hud) .draft-tile-badge { display: none !important; }
       #mp-scoreboard { position: fixed; right: 10px; top: 10px; z-index: 4; max-width: min(420px, 48vw); padding: 8px 10px; color: #fff; background: #10252de8; border: 1px solid #47636c; border-radius: 8px; font: 12px/1.4 system-ui, sans-serif; pointer-events: none; }
       #mp-scoreboard[hidden], #mp-scoreboard div[hidden] { display: none; }
       #mp-scoreboard div:first-child { color: #ffdb6d; font-weight: 700; }

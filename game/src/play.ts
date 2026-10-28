@@ -142,7 +142,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   if (!hot?.audio) audio.setMusicState('menu');
   const hud = new Hud(hudEl);
   const clockControl = timeControl(world.clockTime(), date => world.setClock(date));
-  if (hot ? !hot.hudVisible : !params.hud) hud.toggle();
+  if (hot ? hot.hudVisible !== hud.visible : !params.hud && hud.visible) hud.toggle();
   clockControl.element.hidden = !hud.visible;
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
@@ -545,7 +545,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const tot = physics.totals();
     const ct = collisionTileAt(feet.x, feet.z);
     hud.set({
-      backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
+      playerName: startScreen.active ? undefined : multiplayer?.state.you?.nick, backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
       visTris: tiles.residentTris, visModels: tiles.residentModels,
       colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
       E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),

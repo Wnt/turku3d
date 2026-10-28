@@ -1,7 +1,9 @@
 // Debug HUD: backend, fps / frame ms, resident visual tris, collision MB, player E/N/H (EPSG:3877 + N2000).
+import { PUBLIC_RELEASE } from '../core/release';
 import type { PerformanceMonitor } from '../render/performance';
 
 interface HudData {
+  playerName?: string;
   backend: string; fps: number; frameMs: number; physMs: number;
   visTris: number; visModels: number;
   colTiles: number; colTris: number; colMB: number; colWasmMB: number;
@@ -12,12 +14,14 @@ interface HudData {
   perf: PerformanceMonitor;
 }
 export class Hud {
-  visible = true;
+  visible: boolean;
   private lastUpdate = -Infinity;
-  constructor(private el: HTMLElement) {}
+  constructor(private el: HTMLElement, visible = !PUBLIC_RELEASE || new URLSearchParams(location.search).has('debug')) { this.visible = visible; this.style(); }
   set(d: HudData) {
     const now = performance.now();
-    if (!this.visible || now - this.lastUpdate < 250) return;
+    if (!this.visible) { this.el.textContent = d.playerName ?? ''; this.el.hidden = !d.playerName; return; }
+    this.el.hidden = false;
+    if (now - this.lastUpdate < 250) return;
     this.lastUpdate = now;
     const perf = d.perf.snapshot();
     this.el.textContent =
@@ -29,5 +33,9 @@ export class Hud {
       `EPSG:3877 E ${d.E.toFixed(2)}  N ${d.N.toFixed(2)}  H ${d.H.toFixed(2)} (N2000)  hdg ${d.heading.toFixed(0)}°\n` +
       `${d.mode}  ${d.speed.toFixed(1)} m/s  ground ${d.ground}  ${d.tile}` + (d.draft ? `\n${d.draft}` : '');
   }
-  toggle() { this.visible = !this.visible; this.el.style.display = this.visible ? '' : 'none'; }
+  toggle() { this.visible = !this.visible; this.lastUpdate = -Infinity; this.style(); }
+  private style() {
+    this.el.classList.toggle('player-name', !this.visible);
+    document.body.classList.toggle('debug-hud', this.visible);
+  }
 }

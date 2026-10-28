@@ -4,7 +4,7 @@ DOM overlays drawn over the WebGPU/WebGL canvas. Styles live in `game/index.html
 
 | File | Role |
 |---|---|
-| `hud.ts` | Debug HUD (H): backend, frame times, resident tiles, collision, player position |
+| `hud.ts` | Debug HUD (F3 or H): backend, frame times, resident tiles, collision, player position |
 | `startScreen.ts` | Controls, controller status and the main menu (Continue / New game / Load game); quitting a game reopens it |
 | `introDialog.ts` | The full-screen opening narration after every New game |
 | `menu.ts` | `MenuList` (the row list every menu uses), `MenuPanel` (a titled menu page), `PauseMenu`, and `SaveMenuFlow` (start, pause, save, load and confirm pages over `core/save.ts`) |
@@ -193,3 +193,5 @@ the highest quality (86 down to 38) that fits 200 KB. To change one picture, edi
 committing. Tests: `cd textures && .venv/bin/python -m pytest -q tests/test_ui_art.py`.
 
 Public release start menus offer only Multiplayer (`core/release.ts`, set by the live build). Local builds retain Continue, New game, Load game and Scoreboard.
+
+Release HUD shows your multiplayer nickname. F3 (or H) toggles diagnostics, including the draft-tile banner; `?debug` starts with diagnostics visible. Local builds default to diagnostics.

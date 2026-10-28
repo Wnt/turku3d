@@ -227,7 +227,7 @@ export class CoarseTiles {
     this.load = host.loadModel ?? this.gltfLoader();
     this.page = host.pageUrl ?? location.href;
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
-    if (parent) this.badge = parent.appendChild(document.createElement('div'));
+    if (parent) this.badge = parent.appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { position: 'fixed', top: '8px', left: '50%', transform: 'translateX(-50%)',
       padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
       font: '12px/1.4 system-ui, sans-serif', pointerEvents: 'none', zIndex: '20', display: 'none' });
