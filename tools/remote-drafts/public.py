@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.coarse.prefetch import Prefetcher
 from turku3d.coarse.demand import MAX_TILES
+from turku3d.coarse.collision import fragment as collision_fragment
 from turku3d.coarse.service import (
     FILE,
     MIME,
@@ -52,7 +53,7 @@ def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
     _, i, j = tile.split("_")
     if not (bounds[0] <= int(i) <= bounds[2] and bounds[1] <= int(j) <= bounds[3]):
         return "invalid", None
-    return ("manifest" if name == "manifest.json" else "asset"), tile
+    return ("manifest" if name == "manifest.json" else "collision" if name == "collision.json" else "asset"), tile
 
 
 def public_handler(builder, prefetcher, settings):
@@ -137,7 +138,7 @@ def public_handler(builder, prefetcher, settings):
             if route == "invalid":
                 return self._json(404, {"error": "route"})
             name = urlparse(self.path).path.removeprefix("/coarse/").split("/", 1)[1]
-            if route == "manifest":
+            if route in ("manifest", "collision"):
                 # Condition uses an RLock; hold admission through Builder.request so racing
                 # requests cannot exceed the cap. Cached/running requests never consume a slot.
                 with builder.lock:
@@ -149,7 +150,7 @@ def public_handler(builder, prefetcher, settings):
                     if (
                         tile not in active
                         and not builder.built(tile)
-                        and len(active) >= settings["queue_max"]
+                        and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
                     ):
                         return self._json(429, {"state": "queue-full"})
                     lease = builder.demand.rank(tile) if hasattr(builder, "demand") else None
@@ -160,6 +161,10 @@ def public_handler(builder, prefetcher, settings):
                                 + (t.origin[2] + t.size / 2 - spawn_z) ** 2) ** 0.5
                     distance = lease[1] if lease is not None else distance + 1e6
                     state = builder.request(tile, distance)
+                if route == "collision":
+                    fragment = collision_fragment(builder, tile)
+                    if fragment is not None:
+                        return self._json(200, fragment)
                 if state["state"] == "failed":
                     return self._json(404, {"state": "failed"})
                 if state["state"] != "built":

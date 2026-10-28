@@ -12,6 +12,7 @@ from types import SimpleNamespace
 spec = importlib.util.spec_from_file_location("public", Path(__file__).with_name("public.py"))
 public = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(public)
+from turku3d.coarse.demand import Demand
 
 
 class PublicTest(unittest.TestCase):
@@ -68,6 +69,7 @@ class PublicTest(unittest.TestCase):
                 priority={"t0_1_1": 0},
                 building={},
                 pending={},
+                demand=Demand(),
                 servable={"t0_0_0"},
                 cached=lambda tile: False,
                 built=lambda tile: tile == "t0_0_0",

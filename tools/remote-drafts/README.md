@@ -111,6 +111,16 @@ they finish at reduced priority. Overdue stale builds are cancelled too. The
 spawn warmer pauses and yields running background jobs whenever player work is
 pending. Legacy clients still work through expiring per-tile requests.
 
+`GET /coarse/<tile>/collision.json?client=<id>` publishes the sixteen structural
+payloads before visual assembly and texture packaging. The game validates and
+installs those cells immediately, then loads the ordinary visual manifest. A
+visual failure does not discard current structural coverage. Collision responses
+use the same producer/input freshness checks as full manifests; old payload URLs
+remain content-addressed. `manifest.json` still describes a completed visual pass.
+New urgent crossings reclaim occupied upgrade slots, retaining completed stage
+caches and the upgrade lease. Admission grows with live clients, bounded at 256
+jobs, so ten independent paths do not compete for a single 24-job window.
+
 Private `work/coarse/.scheduler.json` records the live queue and worker state once
 per second. Structured job completion records in `reports/service.log` contain
 tile, pass, elapsed worker seconds and outcome, including cancellation. Public

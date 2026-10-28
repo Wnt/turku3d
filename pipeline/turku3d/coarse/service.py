@@ -53,6 +53,7 @@ from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
 from .build import code_hash
+from .collision import fragment as collision_fragment
 from .demand import Demand, write_snapshot
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
@@ -63,7 +64,7 @@ from .worker_pool import Workers
 REPO = Path(__file__).resolve().parents[3]
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
 FILE = re.compile(
-    r"^(vis(?:\.[0-9a-f]{64})?\.glb|manifest\.json|roads(?:\.[0-9a-f]{64})?\.json|col/c_-?\d+_-?\d+(?:\.[0-9a-f]{64})?\.col)$"
+    r"^(vis(?:\.[0-9a-f]{64})?\.glb|(?:manifest|collision)\.json|roads(?:\.[0-9a-f]{64})?\.json|col/c_-?\d+_-?\d+(?:\.[0-9a-f]{64})?\.col)$"
 )
 SHARED = re.compile(r"^[0-9a-f]{64}\.(?:ktx2|glb)$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
@@ -651,13 +652,17 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
             if len(parts) != 2 or not TILE.match(parts[0]) or not FILE.match(parts[1]):
                 return self._json(404, {"error": "not found"})
             tile, name = parts
-            if name == "manifest.json":
+            if name in ("manifest.json", "collision.json"):
                 d = parse_qs(url.query).get("d", ["inf"])[0]
                 try:
                     distance = float(d)
                 except ValueError:
                     distance = float("inf")
                 state = builder.request(tile, distance)
+                if name == "collision.json":
+                    fragment = collision_fragment(builder, tile)
+                    if fragment is not None:
+                        return self._json(200, fragment)
                 if state["state"] == "failed":
                     return self._json(404, state)
                 if state["state"] != "built":

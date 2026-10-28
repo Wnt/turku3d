@@ -225,7 +225,7 @@ test('a restarting service pauses the drafts: one console line, only status prob
     const coarse = (await CoarseTiles.start(host))!;
     coarse.update(600, 100, 0); await settle();
     expect(requests).toContain('/coarse/want');
-    expect(requests).toContain('/coarse/t0_2_0/manifest.json');
+    expect(requests).toContain('/coarse/t0_2_0/collision.json');
 
     // A landing restarts the service: the dev server answers 503 for it.
     mode = 'down';
@@ -247,7 +247,7 @@ test('a restarting service pauses the drafts: one console line, only status prob
     expect(info).toHaveBeenCalledTimes(1);
     coarse.update(600, 100, 14_100); await settle(); // the next frame, not the next 1 s check
     expect(requests).toContain('/coarse/want');
-    expect(requests).toContain('/coarse/t0_2_0/manifest.json');
+    expect(requests).toContain('/coarse/t0_2_0/collision.json');
     expect(coarse.status).not.toBe(RESTARTING);
 
     // A still-running older process without /coarse/want: only the prefetch is skipped, drafts keep being asked for.
@@ -255,7 +255,7 @@ test('a restarting service pauses the drafts: one console line, only status prob
     requests.length = 0;
     for (let t = 16_000; t <= 20_000; t += 1000) { coarse.update(600, 100, t); await settle(); }
     expect(coarse.outage).toBeNull();
-    expect(requests.filter(p => p === '/coarse/t0_2_0/manifest.json').length).toBeGreaterThan(1);
+    expect(requests.filter(p => p === '/coarse/t0_2_0/collision.json').length).toBeGreaterThan(1);
     expect(warn).toHaveBeenCalledTimes(1);
   } finally { warn.mockRestore(); info.mockRestore(); }
 
@@ -282,7 +282,7 @@ test('a restarting service pauses the drafts: one console line, only status prob
     slow.update(600, 100, 4000); await settle();
     expect(slow.outage).toBeNull();
     slow.update(600, 100, 4100); await settle();
-    expect(requests).toContain('/coarse/t0_2_0/manifest.json');
+    expect(requests).toContain('/coarse/t0_2_0/collision.json');
   } finally { warn2.mockRestore(); info2.mockRestore(); }
 });
 
@@ -371,7 +371,7 @@ test('Kaskenkatu requests actual southeast crossings before nearer lateral cells
 
 });
 
-test('a full draft upgrades geometry, changed collision and streets only after the replacement is ready', async () => {
+test('collision upgrades immediately while old visuals remain until the replacement is ready', async () => {
   const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
   let phase = 'first', release!: (model: THREE.Object3D) => void;
   const first = new THREE.Group(), full = new THREE.Group(), refreshed: string[] = [];
@@ -400,13 +400,39 @@ test('a full draft upgrades geometry, changed collision and streets only after t
   phase = 'full';
   coarse.update(600, 100, 16_000); await settle();
   expect(first.parent).toBe(scene);
-  expect(manifest.collision.c_8_0.sha256).toBe('first');
+  expect(manifest.collision.c_8_0.sha256).toBe('full');
+  expect(refreshed).toEqual(['c_8_0']);
   release(full); await settle();
   expect(first.parent).toBeNull();
   expect(full.parent).toBe(scene);
   expect(manifest.collision.c_8_0.sha256).toBe('full');
   expect(coarse.roadGraphs()[0].nodes).toEqual([500, 101, 700, 101]);
   expect(refreshed).toEqual(['c_8_0']);
+});
+
+test('a structural fragment installs collision while the visual manifest is still queued', async () => {
+  const id = 't0_2_0';
+  const manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  const collision = Object.fromEntries(cellsOf(id).map(cid => [cid,
+    { url: `col/${cid}.col`, sha256: cid, bytes: 4, tris: 2, h: [0, 1] }]));
+  const loadModel = vi.fn(async () => new THREE.Group());
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest,
+    pageUrl: 'http://127.0.0.1:5171/', renderer: {} as THREE.WebGPURenderer,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2, loadModel,
+    fetch: (async (url: string) => {
+      const name = new URL(url).pathname;
+      const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
+      if (name === `/coarse/${id}/collision.json`) return json(200, { coarse: true, tile: id, collision, pass_kind: 'first' });
+      if (name.endsWith('.col')) return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) } as Response;
+      return json(202, { state: 'building' });
+    }) as typeof globalThis.fetch,
+  });
+  coarse.update(600, 100, 0);
+  for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0));
+  expect(cellsOf(id).every(cid => manifest.collision[cid])).toBe(true);
+  expect(coarse.entries.get(id)?.state).toBe('draft');
+  expect(coarse.drawn()).toEqual([]);
+  expect(loadModel).not.toHaveBeenCalled();
 });
 
 test('failed drafts under a start or retained car stay required and recover on a later request', async () => {

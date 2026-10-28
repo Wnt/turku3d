@@ -344,12 +344,15 @@ export class CoarseTiles {
   }
 
   /** Keep resident collision and geometry until an upgraded draft is fully ready. */
-  private async refreshDraft(id: string, e: Entry, d: number) {
+  private async refreshDraft(id: string, e: Entry, d: number, supplied?: CoarseFragment) {
     e.refreshing = true; e.version = this.version; e.nextPoll = this.clock + 2000;
     try {
-      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
-      if (!res.ok || res.status === 202) return;
-      const fragment = await res.json() as CoarseFragment;
+      let fragment = supplied;
+      if (!fragment) {
+        const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
+        if (!res.ok || res.status === 202) return;
+        fragment = await res.json() as CoarseFragment;
+      }
       if (!fragment.coarse || fragment.tile !== id) throw new DraftRejected(`${id}: invalid draft fragment`);
       const visualChanged = fragment.visual[id]?.sha256 !== e.visualHash;
       const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
@@ -363,12 +366,13 @@ export class CoarseTiles {
         if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
         await this.host.checkCollision(buf);
       }));
+      if (this.entries.get(id) !== e || e.state !== 'draft') return;
+      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
         .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
       if (this.entries.get(id) !== e || e.state !== 'draft') return;
       if (!visualChanged) {
         this.takeVehicles(e, fragment, base);
-        this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
         if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
         return;
       }
@@ -378,7 +382,6 @@ export class CoarseTiles {
       this.host.scene.add(model);
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
       this.takeVehicles(e, fragment, base);
-      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
       this.host.trackModel?.(model, id);
@@ -392,7 +395,10 @@ export class CoarseTiles {
     e.state = 'loading';
     e.version = this.version;
     try {
-      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
+      const query = `?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`;
+      let res = await this.request(`${this.root}${id}/collision.json${query}`);
+      // Older producers remain usable while a source deployment is switching.
+      if (res.status === 404) res = await this.request(`${this.root}${id}/manifest.json${query}`);
       if (res.status === 429) {
         e.state = 'pending'; e.error = 'queue full'; e.readyAt = undefined;
         e.nextPoll = this.clock + 5000; return;
@@ -424,19 +430,10 @@ export class CoarseTiles {
         if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: ${buf.byteLength} bytes, manifest ${entry.bytes}`);
         await this.host.checkCollision(buf).catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
       }));
-      const roads = fragment.roads ? await this.fetch(new URL(fragment.roads.url, base).href, { cache: 'no-store' })
-        .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null)
-        .catch((err: Error) => { console.warn(`[coarse] ${id} streets: ${err.message}`); return null; }) : null;
-      const model = await this.load(new URL(fragment.visual[id].url, base).href);
-      if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
-      if (!await this.prepareModel(id, e, model)) return;
-      this.host.scene.add(model);
-      this.host.trackModel?.(model, id);
-      e.model = model;
-      this.takeVehicles(e, fragment, base);
+      if (this.entries.get(id) !== e) return;
       this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
-      e.state = 'draft'; e.visualHash = fragment.visual[id].sha256; e.nextPoll = this.clock + 2000;
-      if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
+      e.state = 'draft'; e.nextPoll = this.clock + 2000;
+      await this.refreshDraft(id, e, d, fragment.visual?.[id] ? fragment : undefined);
     } catch (err) {
       if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down(); return; }
       const rejected = err instanceof DraftRejected;
@@ -449,7 +446,7 @@ export class CoarseTiles {
 
   /** Draft L0 tiles currently drawn. */
   drawn(): string[] {
-    return [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id);
+    return [...this.entries].filter(([, e]) => e.model).map(([id]) => id);
   }
 
   /** Street graphs of the drafts in the scene, for the map and the router (gameplay/index.ts StreetMap). */

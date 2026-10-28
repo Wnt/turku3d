@@ -367,6 +367,153 @@ def build(
         solid,
         kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
     )
+    kerb_meshes = cache.run(
+        "kerbs",
+        source_key(
+            Path(kerbs.__file__),
+            Path(surfaces.__file__),
+            Path(__file__).with_name("inputs.py"),
+            Path(__file__).with_name("geometry.py"),
+            base / "structures/geometry.py",
+            *common,
+        ),
+        [
+            tile,
+            inputs.kerbs,
+            grid_pos[:, 1],
+            water,
+            [b.footprint for b in blds],
+            inputs.markings,
+            kerb_inputs(tile, ground_sources)
+            if inputs.kerbs is not None and not inputs.kerbs.is_empty
+            else None,
+        ],
+        lambda: kerbs.produce(
+            tile,
+            inputs.kerbs,
+            surface_sample,
+            water,
+            blds,
+            inputs.markings,
+        ),
+    )
+    from .forests import BUSH_CAP, TREE_CAP, produce, trunks
+
+    vegetation_start = time.perf_counter()
+    trees, bushes = (
+        ([], [])
+        if first_pass
+        else cache.run(
+            "vegetation",
+            source_key(
+                Path(__file__).with_name("forests.py"),
+                base / "vegetation/trees.py",
+                draft_trees,
+                grid_height,
+                *common,
+            ),
+            [
+                tile,
+                grid_pos,
+                inputs.water,
+                inputs.buildings,
+                inputs.streets,
+                inputs.roads,
+                inputs.canopy,
+                inputs.forests,
+                inputs.trees,
+                shells,
+            ],
+            lambda: produce(
+                tile,
+                inputs,
+                lambda x, z: grid_height(tile, grid_pos, x, z),
+                draft_trees(tile, grid_pos, inputs.trees, water, shells),
+            ),
+        )
+    )
+    seconds["vegetation_scatter"] = time.perf_counter() - vegetation_start
+
+    def barrier_stage(directory):
+        files = []
+        value = fences.produce(
+            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z)
+        )
+        return value
+
+    barrier_cols, barrier_stats = cache.files(
+        "fences",
+        source_key(
+            barrier_stage,
+            Path(fences.__file__),
+            Path(__file__).with_name("tunnels.py"),
+            grid_height,
+            base / "structures/geometry.py",
+            base / "package/gltf.py",
+            *common,
+        ),
+        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos],
+        stage,
+        barrier_stage,
+    )
+    seconds["fences"] = cache.metrics["fences"]["seconds"]
+    t = time.perf_counter()
+    collision = {}
+    cols = {}
+    for ct, (pos, idx, mat) in collision_tiles(
+        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep, shore=solid
+    ).items():
+        pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
+        pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
+        pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
+        pos, idx, mat = stairs.collision(ct, stair_meshes, pos, idx, mat)
+        primitives = trunks(trees, ct) + barrier_cols[ct]
+        col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
+        col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
+        data = cache.run(
+            "collision_" + ct.id,
+            source_key(
+                *sorted((base / "col").glob("*.py")),
+                *sorted((base / "col").glob("*.mjs")),
+                *common,
+                C.REPO_ROOT / "pipeline/env/package-lock.json",
+            ),
+            col,
+            lambda col=col: write_col(col, encoding="meshopt", optimize=False),
+        )
+        bounds_lo, bounds_hi = col.compute_bbox()
+        lo, hi = bounds_lo[1], bounds_hi[1]
+        cols[ct.id] = data
+        collision[ct.id] = _entry(
+            f"col/{ct.id}.col",
+            data,
+            tris=len(idx),
+            prims=len(primitives),
+            h=[float(lo), float(hi)],
+            flags=col.computed_flags(),
+        )
+    seconds["collision"] = time.perf_counter() - t
+
+    for cid, data in cols.items():
+        url = f"col/{cid}.{hashlib.sha256(data).hexdigest()}.col"
+        _write(out / url, data)
+        collision[cid]["url"] = url
+        _write(out / "col" / f"{cid}.col", data)
+    seconds["collision_ready"] = time.perf_counter() - started
+    _write(
+        out / "collision.json",
+        json.dumps(
+            dict(
+                coarse=True,
+                tile=tile.id,
+                collision=collision,
+                code=producer_code,
+                inputs=inputs.key,
+                pass_kind="first" if first_pass else "full",
+            )
+        ).encode(),
+    )
+    t = time.perf_counter()
     dry_keep = np.ones(len(dry.indices), bool)
     visual_materials = surfaces.slope_fallback(dry.positions, dry.indices, dry.material)
     fallback_materials = surfaces.slope_fallback(
@@ -432,36 +579,6 @@ def build(
     )
     if paint is not None:
         ground_meshes.append(paint)
-    kerb_meshes = cache.run(
-        "kerbs",
-        source_key(
-            Path(kerbs.__file__),
-            Path(surfaces.__file__),
-            Path(__file__).with_name("inputs.py"),
-            Path(__file__).with_name("geometry.py"),
-            base / "structures/geometry.py",
-            *common,
-        ),
-        [
-            tile,
-            inputs.kerbs,
-            grid_pos[:, 1],
-            water,
-            [b.footprint for b in blds],
-            inputs.markings,
-            kerb_inputs(tile, ground_sources)
-            if inputs.kerbs is not None and not inputs.kerbs.is_empty
-            else None,
-        ],
-        lambda: kerbs.produce(
-            tile,
-            inputs.kerbs,
-            surface_sample,
-            water,
-            blds,
-            inputs.markings,
-        ),
-    )
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
     stair_visuals = stairs.visuals(tile, stair_meshes)
     for mesh in stair_visuals:
@@ -486,46 +603,12 @@ def build(
         )
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
+    if (stage / "fences.vis.glb").exists():
+        layer_files.append(stage / "fences.vis.glb")
     bridges.visual(osm_decks, tile, stage, layer_files)
     if tunnels.meshes or tunnels.ceilings:
         write_visual(stage / "tunnels.vis.glb", tunnels.visuals(tile), root_translation=tile.origin)
         layer_files.append(stage / "tunnels.vis.glb")
-    from .forests import BUSH_CAP, TREE_CAP, produce, trunks
-
-    vegetation_start = time.perf_counter()
-    trees, bushes = (
-        ([], [])
-        if first_pass
-        else cache.run(
-            "vegetation",
-            source_key(
-                Path(__file__).with_name("forests.py"),
-                base / "vegetation/trees.py",
-                draft_trees,
-                grid_height,
-                *common,
-            ),
-            [
-                tile,
-                grid_pos,
-                inputs.water,
-                inputs.buildings,
-                inputs.streets,
-                inputs.roads,
-                inputs.canopy,
-                inputs.forests,
-                inputs.trees,
-                shells,
-            ],
-            lambda: produce(
-                tile,
-                inputs,
-                lambda x, z: grid_height(tile, grid_pos, x, z),
-                draft_trees(tile, grid_pos, inputs.trees, water, shells),
-            ),
-        )
-    )
-    seconds["vegetation_scatter"] = time.perf_counter() - vegetation_start
     if trees or bushes:
         from turku3d.vegetation.visual import write_instances
 
@@ -566,31 +649,6 @@ def build(
         write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
         layer_files.append(stage / "buildings.vis.glb")
 
-    def barrier_stage(directory):
-        files = []
-        value = fences.produce(
-            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z)
-        )
-        return value
-
-    barrier_cols, barrier_stats = cache.files(
-        "fences",
-        source_key(
-            barrier_stage,
-            Path(fences.__file__),
-            Path(__file__).with_name("tunnels.py"),
-            grid_height,
-            base / "structures/geometry.py",
-            base / "package/gltf.py",
-            *common,
-        ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos],
-        stage,
-        barrier_stage,
-    )
-    if (stage / "fences.vis.glb").exists():
-        layer_files.append(stage / "fences.vis.glb")
-    seconds["fences"] = cache.metrics["fences"]["seconds"]
     surface_channels = {
         surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))
         for m in ground_meshes
@@ -615,43 +673,6 @@ def build(
         )
 
     t = time.perf_counter()
-    collision = {}
-    cols = {}
-    for ct, (pos, idx, mat) in collision_tiles(
-        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep, shore=solid
-    ).items():
-        pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
-        pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
-        pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
-        pos, idx, mat = stairs.collision(ct, stair_meshes, pos, idx, mat)
-        primitives = trunks(trees, ct) + barrier_cols[ct]
-        col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
-        col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
-        data = cache.run(
-            "collision_" + ct.id,
-            source_key(
-                *sorted((base / "col").glob("*.py")),
-                *sorted((base / "col").glob("*.mjs")),
-                *common,
-                C.REPO_ROOT / "pipeline/env/package-lock.json",
-            ),
-            col,
-            lambda col=col: write_col(col, encoding="meshopt", optimize=False),
-        )
-        bounds_lo, bounds_hi = col.compute_bbox()
-        lo, hi = bounds_lo[1], bounds_hi[1]
-        cols[ct.id] = data
-        collision[ct.id] = _entry(
-            f"col/{ct.id}.col",
-            data,
-            tris=len(idx),
-            prims=len(primitives),
-            h=[float(lo), float(hi)],
-            flags=col.computed_flags(),
-        )
-    seconds["collision"] = time.perf_counter() - t
-
-    t = time.perf_counter()
     cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks)
     vehicle_models = parked.publish_models(cars, out.parent)
     seconds["parked"] = time.perf_counter() - t
@@ -665,11 +686,6 @@ def build(
         roads_url = f"roads.{hashlib.sha256(roads['json']).hexdigest()}.json"
         _write(out / roads_url, roads["json"])
         _write(out / "roads.json", roads["json"])
-    for cid, data in cols.items():
-        url = f"col/{cid}.{hashlib.sha256(data).hexdigest()}.col"
-        _write(out / url, data)
-        collision[cid]["url"] = url
-        _write(out / "col" / f"{cid}.col", data)
     seconds["total"] = time.perf_counter() - started
     manifest = dict(
         format=FORMAT,

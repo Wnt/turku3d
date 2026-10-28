@@ -1,8 +1,8 @@
 """Short anonymous tile leases; clients send ordered tile ids, never motion or identity."""
-import time
 import json
 import os
 import threading
+import time
 
 TTL = 12.0
 MAX_CLIENTS = 128
@@ -64,6 +64,21 @@ class Demand:
                     if builder.run.cancel(tile):
                         builder.cancelled.add(tile)
         self.managed.intersection_update(active | {t for _, ts, _, _ in self.clients.values() for t in ts})
+        # A fresh crossing can use every core immediately, even when previously
+        # visible tiles are still texturing. Completed stages survive cancellation.
+        urgent = sum((rank := self.rank(t)) is not None and rank[0] == 0 for t in builder.priority)
+        free = max(0, builder.workers - len(builder.building)) + len(builder.cancelled)
+        needed = max(0, urgent - free)
+        for tile in sorted(builder.upgrading, key=lambda t: (self.rank(t) or (3, 0), t), reverse=True):
+            if not needed:
+                break
+            if tile in builder.cancelled or not hasattr(builder.run, "cancel"):
+                continue
+            if builder.run.cancel(tile):
+                builder.cancelled.add(tile)
+                if self.rank(tile) is not None:
+                    builder.upgrade_queue.add(tile)
+                needed -= 1
 
 
 def write_snapshot(root, value):
