@@ -682,11 +682,7 @@ Nothing polls. `integrator.ensure` (after each landing, and after each finished 
 `integrator.py run` as a detached child (log `wt/.registry/integration.log`) when no code lane runs and
 main moved past both the live commit and the last integration's `to`, or the full suite is due; and
 `--lane data` (log `integration-data.log`, beside the code lane) when the data root has parts the live release
-lacks and no data run took this (G, data key) (`data_due`). Successful data rows also settle
-their published `to` when they carried a newer code-lane game. The live release records its
-input `data_key` and `tiles_commit`: duplicate runs stop before building even while Pages or
-advisories have not yet written the ledger row, and publication rechecks under `publish.lock`
-(a duplicate there records `result: skipped`). Nothing starts without a published live release. A run that recorded a row calls `ensure` again
+lacks and no data run took this (G, data key) (`data_due`); green rows settle both `from` and published `to`. Live input identity (`data_key`, `tiles_commit`; legacy release name) skips duplicates before building, with a second check under `publish.lock` (`result: skipped`). Nothing starts without a published live release. A run that recorded a row calls `ensure` again
 when it ends, so landings after its join window start the next run at once (a manual run with
 `--sandbox` or another `--main-repo` chains nothing). A data-root change or a due full suite without a
 landing waits for the next landing, finished run or `integrator.py ensure`.
