@@ -56,7 +56,9 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   profile, and meshes are clipped to the tile instead of repeating entire decks. Only transverse interior
   crossings of lower transport ways request headroom; their elevation is interpolated from outside
   the deck footprint so deck samples cannot be mistaken for railway ground. Boat gangways retain their mapped span and endpoint
-  levels; ordinary approaches blend over at most 3 m. Outline branches blend back to measured ground.
+  levels. Ordinary approaches seek a mapped continuation-road join within 30 m and 8% overall
+  grade, independently on each bank; without that evidence they retain the short blend.
+  Lower-route corridors remain unmodified beneath approaches. Outline branches blend back to measured ground.
   Source ship/building footprints cut holes in decks; rails follow the outline with open traffic entrances.
   Mapped branch paths blend toward ground; widened observation bays retain the deck profile.
   Collision clips the detailed railings and deck to each 62.5 m cell instead of repeating a full

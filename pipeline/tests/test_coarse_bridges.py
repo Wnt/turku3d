@@ -297,6 +297,31 @@ def test_height_points_on_water_below_a_bridge_are_not_deck_anchors():
     assert above_ground_anchors(axis, [(30, 0.19), (60, 9.1)], lambda x, z: 0.2) == [(60, 9.1)]
 
 
+def test_approach_join_reaches_mapped_road_level_on_each_bank_independently():
+    from turku3d.coarse.bridges import approach_lengths, extended
+
+    deck = way("deck", [(0, 0), (20, 0)], width=8)
+    deck["approaches"] = [
+        way("left", [(-40, 0), (0, 0)], bridge=False, width=8),
+        way("right", [(20, 0), (60, 0)], bridge=False, width=8),
+    ]
+
+    def ground(x, z):
+        return -1 if -10 <= x < 0 else 1
+
+    distances = approach_lengths(deck, [1, 1], ground, shapely.GeometryCollection())
+    assert distances == (12, 2)
+    line = extended(deck["line"], distances)
+    assert line.coords[0] == (-12, 0)
+    assert line.coords[-1] == (22, 0)
+    # Unmapped land and a barrier cannot become a speculative long approach.
+    deck["approaches"] = []
+    assert approach_lengths(deck, [1, 1], ground, shapely.GeometryCollection()) == (2, 2)
+    deck["approaches"] = [way("left", [(-40, 0), (0, 0)], bridge=False, width=8)]
+    assert approach_lengths(deck, [1, 1], ground, shapely.box(-40, -5, -6, 5)) == (2, 2)
+    assert approach_lengths(deck, [1, 1], lambda x, z: -20, shapely.GeometryCollection()) == (2, 2)
+
+
 def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
     from turku3d.coarse.bridge_details import surfaces
 
