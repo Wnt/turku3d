@@ -1,3 +1,4 @@
+import { loading } from '../core/loading';
 import type { VehicleKind } from '../physics/constants';
 import { multiplayerUrl, scoresUrl } from './config';
 
@@ -55,15 +56,17 @@ export class MultiplayerClient extends EventTarget {
 
   connect() {
     if (this.closed || this.ws || this.retry) return;
+    const done = loading.begin(`Multiplayer connect ${this.url}`);
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.addEventListener('open', () => {
       ws.send(JSON.stringify({ v: 1, type: 'hello', ...(this.token ? { session: this.token } : {}) }));
     });
-    ws.addEventListener('message', event => this.receive(event.data));
+    ws.addEventListener('message', event => { this.receive(event.data); if (this.state.connected) done(`Joined as ${this.state.you?.nick}`); });
     ws.addEventListener('close', () => {
       if (this.ws !== ws) return;
       this.ws = null;
+      done('Disconnected · retrying');
       this.state.connected = false;
       this.changed();
       if (!this.closed) {

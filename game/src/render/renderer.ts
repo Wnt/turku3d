@@ -1,4 +1,5 @@
 // WebGPURenderer with an explicit WebGL2 switch (?backend=webgl). TSL-only code keeps both backends equal.
+import { loading } from '../core/loading';
 import * as THREE from 'three/webgpu';
 import { renderPixelRatio } from './quality';
 
@@ -26,5 +27,9 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   canvasParent.appendChild(renderer.domElement);
   await renderer.init();
   const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+  const device = (renderer.backend as { device?: GPUDevice }).device;
+  const info = device?.adapterInfo;
+  const gl = backend === 'WebGL2' ? renderer.getContext() as WebGL2RenderingContext : null;
+  loading.note(`${backend} adapter: ${info?.description || info?.device || info?.vendor || gl?.getParameter(gl.RENDERER) || 'ready'}`);
   return { renderer, backend };
 }

@@ -23,7 +23,9 @@ ctx.onmessage = (ev: MessageEvent<ToWorker>) => {
 // Messages that arrive while the module (and its wasm, via top-level await) is still evaluating can be
 // dropped by the browser, so the worker announces itself with 'ready' and the client queues until then.
 pw = new PhysicsWorld(RAPIER);
-post({ type: 'ready', rapier: RAPIER.version(), colReader: colReaderName });
+post({ type: 'ready', rapier: RAPIER.version(), colReader: colReaderName,
+  wasmBytes: performance.getEntriesByType('resource').filter(e => e.name.includes('.wasm'))
+    .reduce((sum, e) => sum + (e as PerformanceResourceTiming).decodedBodySize, 0) });
 
 async function handle(msg: ToWorker) {
   if (msg.type === 'init') { pw = new PhysicsWorld(RAPIER); post({ type: 'ready', rapier: RAPIER.version(), colReader: colReaderName }); return; }

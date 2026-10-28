@@ -6,7 +6,8 @@
 import * as THREE from 'three/webgpu';
 import { TilesRenderer, type Tile } from '3d-tiles-renderer';
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { LoadingKtx } from './loadingKtx';
+import { loading } from '../core/loading';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { batchTileShadows } from './shadowBatch';
 import { refinableParents } from './residency';
@@ -41,12 +42,12 @@ export class VisualTiles {
   private triCount = new Map<THREE.Object3D, number>();
   private shadowBatches = new Map<THREE.Object3D, THREE.Mesh>();
   private resolution = new THREE.Vector2();
-  private ktx2: KTX2Loader;
+  private ktx2: LoadingKtx;
   private swapped: (() => void) | null = null;
 
   constructor(url: string, private renderer: THREE.WebGPURenderer, private camera: THREE.PerspectiveCamera,
     private scene: THREE.Scene, private idPass = false) {
-    this.ktx2 = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
+    this.ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
     this.current = this.create(url);
   }
 
@@ -55,6 +56,8 @@ export class VisualTiles {
 
   private create(url: string, unchanged?: ReadonlySet<string>): Tileset {
     const renderer = new TilesRenderer(url);
+    const pending = new Map<Tile, ReturnType<typeof loading.begin>>();
+    renderer.addEventListener('tile-download-start', ({ tile, url }: { tile: Tile; url: string }) => { if (!url.endsWith('.json')) pending.set(tile, loading.begin(`Visual tile ${url.split('/').slice(-2).join('/')}`)); });
     const set: Tileset = { renderer, l0Parents: new Map(), refinable: new Set(), loaded: 0 };
     if (unchanged) {
       set.reuse = new TileReuse(this.current.renderer, renderer, unchanged);
@@ -83,6 +86,7 @@ export class VisualTiles {
     this.renderer.getDrawingBufferSize(this.resolution);
     renderer.setResolution(this.camera, this.resolution.x, this.resolution.y);
     renderer.addEventListener('load-model', (event: ModelEvent) => {
+      pending.get(event.tile as Tile)?.(); pending.delete(event.tile as Tile);
       const model = event.scene;
       if (model.userData.releasePlaceholder) return;
       let tris = 0;
@@ -113,9 +117,10 @@ export class VisualTiles {
       this.residentTris -= this.triCount.get(model) ?? 0; this.residentModels--; this.triCount.delete(model);
       this.events.dispatchEvent({ type: 'dispose-model', scene: model, tile: event.tile });
     });
-    renderer.addEventListener('load-error', ({ error, url: u }: { error: Error; url: string | URL }) => {
+    renderer.addEventListener('load-error', ({ error, url: u, tile }: { error: Error; url: string | URL; tile: Tile }) => {
+      pending.get(tile)?.(`FAILED: ${String(error)}`); pending.delete(tile);
       const msg = `tile load error ${String(u)}: ${error?.message ?? error}`;
-      this.errors.push(msg); console.error(msg);
+      this.errors.push(msg); loading.note(msg); console.error(msg);
     });
     this.scene.add(renderer.group);
     return set;

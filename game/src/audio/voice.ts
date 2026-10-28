@@ -1,3 +1,4 @@
+import { loading } from '../core/loading';
 import type { MissionHudSource } from '../gameplay/contract';
 import { VOICE_CUT_SECONDS } from './mix';
 
@@ -61,15 +62,17 @@ export class VoicePlayer {
   constructor(private readonly output: VoiceOutput,
     private readonly fetcher: typeof fetch = (...args) => fetch(...args),
     private readonly base = `${import.meta.env.BASE_URL}assets/voice/`) {
+    const done = loading.begin('Voices manifest');
     this.ready = this.fetcher(`${base}manifest.json`)
       .then(response => { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); })
       .then((manifest: VoiceManifest) => {
+        done(`${manifest.lines.length} voice clips indexed`);
         this.manifestLines = manifest.lines;
         for (const clip of manifest.lines) this.clips.set(clip.text, clip);
         if (this.shown !== null) this.show(this.shown, true);
         if (!this.playing) this.advance();
       })
-      .catch(error => { this.errors.push(`manifest: ${String(error)}`); });
+      .catch(error => { done(`unavailable: ${String(error)}`); this.errors.push(`manifest: ${String(error)}`); });
     output.onRunning(() => {
       if (this.disposed) return;
       const clip = this.pending;

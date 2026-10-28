@@ -2,6 +2,8 @@
 //   play (default): third-person player + car, physics worker, collision streaming, debug HUD
 //   QA (?cam=E,N,H,yaw,pitch,fov[&roll=R]&time=ISO[&pass=id]): the qa/README.md §2 render contract; exact camera
 //   (vertical fov), no HUD/player/physics; sets window.__qaReady/__qaError/__qaPose/__qaInfo/__qaProject[/__qaIdTable]
+import { loading } from './core/loading';
+import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
 import { enToEngine, collisionTileAt, headingToYaw } from './core/origin';
@@ -47,21 +49,23 @@ try {
   window.__qaError = String((e as Error).message ?? e); // bad cam/time/pass: the QA driver stops waiting
   throw e;
 }
+const loadingScreen = new LoadingScreen(!!params.qa);
 const hudEl = document.getElementById('hud')!;
 const errors: string[] = [];
 const fail = (e: unknown) => {
   const msg = String((e as Error)?.stack ?? e);
   errors.push(msg);
   console.error(msg);
+  loadingScreen.fail(msg);
   hudEl.textContent = `ERROR: ${msg}`;
   window.__qaError = msg;
 };
-addEventListener('error', (e) => errors.push(String(e.message)));
-addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
+addEventListener('error', (e) => { errors.push(String(e.message)); loadingScreen.fail(String(e.message)); });
+addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); loadingScreen.fail(String(e.reason)); });
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
-const { renderer, backend } = await createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
-  { qa: !!params.qa, idPass: !!idPass });
+const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
+  { qa: !!params.qa, idPass: !!idPass }));
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
@@ -224,7 +228,7 @@ async function runPlay() {
   }
   const physics = new PhysicsClient();
   physics.onError = (e) => fail(`physics: ${e}`);
-  const [rapier, manifest] = await Promise.all([physics.ready, loadManifest(params.manifest) as Promise<Manifest>]);
+  const [rapier, manifest] = await Promise.all([physics.ready, loading.track('Tile manifest', loadManifest(params.manifest) as Promise<Manifest>)]);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   telemetry?.setBuiltTiles(Object.keys(manifest.visual));
   // Localhost only: draft tiles from tools/dev/coarse-tiles beyond the published tileset (null elsewhere).
@@ -269,7 +273,7 @@ async function runPlay() {
   }
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, groundAt,
-    clockTime: () => clockTime, setClock: date => window.__render!.setTime(date.toISOString()),
+    loadingScreen, clockTime: () => clockTime, setClock: date => window.__render!.setTime(date.toISOString()),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in
   // place; the world above keeps the player, the vehicles and the loaded tiles. The build badge names main's commit

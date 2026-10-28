@@ -195,3 +195,5 @@ committing. Tests: `cd textures && .venv/bin/python -m pytest -q tests/test_ui_a
 Public release start menus offer only Multiplayer (`core/release.ts`, set by the live build). Local builds retain Continue, New game, Load game and Scoreboard.
 
 Release HUD shows your multiplayer nickname. F3 (or H) toggles diagnostics, including the draft-tile banner; `?debug` starts with diagnostics visible. Local builds default to diagnostics.
+
+`loadingScreen.ts` starts from static HTML before the entry bundle downloads, then shows real task progress, active work and a bounded technical log. It observes Resource Timing bytes/durations and hooks tile downloads, embedded KTX2 transcodes, Rapier readiness/collider construction, audio decoding, voice indexing and multiplayer welcome. While choosing a start option it becomes a small progress dock; after joining it fades when placement and the current visual tiles are ready. Optional audio failures are logged and never block movement. Instrumentation stops after entry.

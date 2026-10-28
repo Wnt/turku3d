@@ -11,6 +11,9 @@ import { deadlineProgress, musicMuffle, musicScene } from './audio/music/playSta
 import { GameplayAudio } from './audio/gameplay';
 import { Haptics } from './input/haptics';
 import { VoicePlayer } from './audio/voice';
+import { controlsHelp } from './ui/controlsHelp';
+import { loading } from './core/loading';
+import type { LoadingScreen } from './ui/loadingScreen';
 import { timeControl } from './render/debug';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
@@ -81,6 +84,7 @@ export interface PlayWorld {
   errors: string[];
   fail: (e: unknown) => void;
   hudEl: HTMLElement;
+  loadingScreen: LoadingScreen;
   renderFrame: () => void;
   /** The sun clock and its setter (`window.__render.setTime`). */
   clockTime: () => Date;
@@ -152,9 +156,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
   orbit.yaw = yaw0;
-  await Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
+  await loading.track('Player and vehicle models', Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
     seated.load(import.meta.env.BASE_URL),
-    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]);
+    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]));
   const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals });
   const scoreboard = new Scoreboard(document.body);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
@@ -319,6 +323,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   else if (resume) saveGame.hooks.play(resume);
   else startScreen.show(saveGame.startFlow.start());
   startScreen.ready();
+  world.loadingScreen.ready();
   let lastDeadlineUpdate = -Infinity;
   let wasCarrying = missions.phase === 'carrying';
   renderer.setAnimationLoop(() => {
@@ -555,13 +560,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden'
       : menuOpen || missions.shop || pauseMenu.open ? 'menu' : paused ? 'paused' : recovery.lost ? 'lost' : mode);
     const help = document.getElementById('help')!;
-    help.textContent = paused ? `${input.prompt('pause')} Resume`
-      : recovery.lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
-      : mode === 'foot' && fly?.active
-      ? `Flying · ${input.prompt('moveY')} move · ${input.prompt('flyUp')} up · ${input.prompt('flyDown')} down · ${input.prompt('sprint')} fast · ${input.prompt('jump')} ${input.prompt('jump')} land · ${input.prompt('pause')} pause`
-      : mode === 'foot'
-      ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter vehicle · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
-      : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`;
+    help.textContent = controlsHelp(input, mode, !!fly?.active, paused, !!recovery.lost);
+    world.loadingScreen.update(!startScreen.active, !paused && !saveGame.loading, tiles.settled && !materials?.ground?.pending, coarse?.status);
     perf.end();
   });
 
