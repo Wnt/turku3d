@@ -1,5 +1,7 @@
 """Draft roof envelopes: keep LOD2 terraces/slopes, refine supported planes with class 6."""
 
+from functools import lru_cache
+
 import numpy as np
 import shapely
 
@@ -123,13 +125,31 @@ def supported_offset(polygon, plane, points, base):
     return offset, evidence
 
 
+@lru_cache(maxsize=4)
+def _class6(path, size, mtime):
+    # Stat identity invalidates changed sources; the shared reader still verifies
+    # content when first opening a source. Keep mmap-backed arrays between tiles.
+    from turku3d.buildings.reconstruct import class6
+
+    return class6([path], C.cache_dir("coarse-roofs"))
+
+
 def refine(buildings, paths, *, points=None):
     from scipy.spatial import cKDTree
 
-    from turku3d.buildings.reconstruct import class6
-
     if points is None:
-        points = class6(paths, C.cache_dir("coarse-roofs"))
+        if not buildings:
+            return
+        bounds = np.array([b.footprint.bounds for b in buildings])
+        lo, hi = bounds[:, :2].min(axis=0), bounds[:, 2:].max(axis=0)
+        selected = []
+        for path in paths:
+            stat = path.stat()
+            cloud = _class6(path, stat.st_size, stat.st_mtime_ns)
+            keep = (cloud[:, 0] >= lo[0]) & (cloud[:, 0] <= hi[0])
+            keep &= (cloud[:, 2] >= lo[1]) & (cloud[:, 2] <= hi[1])
+            selected.append(cloud[keep])
+        points = np.concatenate(selected) if selected else np.empty((0, 3))
     if not len(points):
         return
     tree = cKDTree(points[:, [0, 2]])

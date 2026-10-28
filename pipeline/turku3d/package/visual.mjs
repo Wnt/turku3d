@@ -78,6 +78,9 @@ async function encodeFacade(t, request) {
   }
 }
 async function assembleVisual(request) {
+  const seconds = {};
+  let stageTime = performance.now();
+  const stage = name => { seconds[name] = (performance.now() - stageTime) / 1000; stageTime = performance.now(); };
   const doc = new Document();
   const scene = doc.createScene(request.tile);
   for (const filename of request.inputs) {
@@ -136,15 +139,25 @@ async function assembleVisual(request) {
       }
       const material = prim.getMaterial()?.clone() ?? doc.createMaterial();
       prim.setMaterial(material);
-      bindMaterial(material, prim, e);
+      if (request.firstPass) {
+        // First-pass geometry opens the boundary without waiting for texture codecs.
+        const key = e.material_key ?? '';
+        const color = key.includes('grass') ? [0.23, 0.32, 0.13, 1]
+          : key.includes('road') || key.includes('asphalt') ? [0.20, 0.21, 0.22, 1]
+            : e.layer === 'buildings' ? [0.65, 0.60, 0.53, 1] : [0.45, 0.44, 0.40, 1];
+        material.setBaseColorTexture(null).setNormalTexture(null).setOcclusionTexture(null)
+          .setMetallicRoughnessTexture(null).setBaseColorFactor(color).setMetallicFactor(0).setRoughnessFactor(0.9);
+      } else bindMaterial(material, prim, e);
     }
     if (!mesh.listPrimitives().length) node.setMesh(null);
   }
+  stage('binding');
   fs.mkdirSync(request.textureCache, { recursive:true });
-  if (request.level === 0) {
+  if (request.level === 0 && !request.firstPass) {
     await atlasFacades(doc, request, { sharp, run, KHRTextureBasisu });
     await atlasPropSigns(doc, sharp);
   }
+  stage('facades');
   await batchVisual(doc, scene, request.tile, { dedup, joinPrimitives, transformPrimitive });
   await doc.transform(prune({ keepLeaves: false, keepSolidTextures: true, keepAttributes: true, keepIndices: true }), unpartition());
 
@@ -182,12 +195,14 @@ async function assembleVisual(request) {
     }
     return result;
   }
+  stage('batching');
   const before = snapshot(doc);
   if (!before.length) {
     if (request.level === 0) throw new Error('No L0 visual geometry');
     fs.writeFileSync(request.stats, JSON.stringify({ empty:true }));
     return; // A structures-only tile has no terrain/roof parent content.
   }
+  stage('snapshot');
   // Cache encoded images independently of tiles. Coarse parents reuse the same GPU textures.
   fs.mkdirSync(request.textureCache, { recursive:true });
   for (const t of doc.getRoot().listTextures()) {
@@ -201,7 +216,7 @@ async function assembleVisual(request) {
     // Draft (coarse) tiles take the fastest ETC1S effort: half the encode time at the same size.
     const effort = srgb && request.draftTextures ? ['--clevel','0'] : [];
     const options = ['--t2','--genmipmap','--threads','2','--assign_oetf', srgb ? 'srgb' : 'linear',
-      '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128', ...effort] : ['--uastc_quality','2','--zcmp','18'])];
+      '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128', ...effort] : ['--uastc_quality','2','--zcmp', request.draftTextures ? '6' : '18'])];
     const key = createHash('sha256').update('ktx-4.4.2-v1').update(JSON.stringify(options)).update(t.getImage()).digest('hex');
     const dest = path.join(request.textureCache, key + '.ktx2');
     if (!fs.existsSync(dest)) {
@@ -216,6 +231,7 @@ async function assembleVisual(request) {
     t.setImage(fs.readFileSync(dest)).setMimeType('image/ktx2');
     doc.createExtension(KHRTextureBasisu).setRequired(true);
   }
+  stage('textures');
   const canonicalFacade = new Map();
   let facadeShares = 0;
   for (const t of doc.getRoot().listTextures()) {
@@ -263,7 +279,8 @@ async function assembleVisual(request) {
     bounds.max[i%3] = Math.max(bounds.max[i%3],mesh.v[i]);
   }
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
-  fs.writeFileSync(request.stats, JSON.stringify({ tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
+  stage('packaging');
+  fs.writeFileSync(request.stats, JSON.stringify({ seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
     bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, shared_images:shared,
     textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()), facade_shares:facadeShares }));
 

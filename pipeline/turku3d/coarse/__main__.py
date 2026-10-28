@@ -54,7 +54,12 @@ def worker() -> int:
         job = json.loads(line)
         sources.invalidate()
         try:
-            m = build(job["tile"], Path(job["out"]), sources=sources)
+            m = build(
+                job["tile"],
+                Path(job["out"]),
+                sources=sources,
+                first_pass=job.get("first_pass", False),
+            )
             result = {"code": 0, "stdout": json.dumps({k: m[k] for k in ("tile", "buildings")})}
         except MissingInputs as missing:
             result = {"code": PENDING, "stdout": json.dumps({"pending": missing.units})}
@@ -75,6 +80,11 @@ def main(argv=None) -> int:
     b = sub.add_parser("build", help="build one L0 coarse tile")
     b.add_argument("tile")
     b.add_argument("--out", type=Path)
+    b.add_argument(
+        "--first-pass",
+        action="store_true",
+        help="flat-textured playable draft before survey enrichment",
+    )
     b.add_argument("--fetch", action="store_true", help="fetch missing inputs first")
     f = sub.add_parser("fetch", help="fetch one prefetch unit (<dataset>/<block>)")
     f.add_argument("unit")
@@ -105,7 +115,7 @@ def main(argv=None) -> int:
         for unit in Sources().missing(tile):
             print(json.dumps(fetch_unit(unit.key)), file=sys.stderr)
     try:
-        manifest = build(a.tile, a.out or coarse_root() / a.tile)
+        manifest = build(a.tile, a.out or coarse_root() / a.tile, first_pass=a.first_pass)
     except MissingInputs as missing:
         print(json.dumps({"pending": missing.units}))
         return PENDING

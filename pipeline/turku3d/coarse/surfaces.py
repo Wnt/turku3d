@@ -425,7 +425,7 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
                 )
             )
         triangle = positions[indices[tri_index]]
-        basis = np.c_[triangle[:, [0, 2]], np.ones(3)]
+        inverse_basis = np.linalg.inv(np.c_[triangle[:, [0, 2]], np.ones(3)])
         for geometry, material in pieces:
             for poly in getattr(geometry, "geoms", [geometry]):
                 if poly.geom_type != "Polygon" or poly.area < 1e-7:
@@ -435,7 +435,7 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
                 ix = mapbox_earcut.triangulate_float64(
                     xz, np.cumsum([len(r) for r in rings]).astype(np.uint32)
                 ).reshape(-1, 3)
-                weights = np.c_[xz, np.ones(len(xz))] @ np.linalg.inv(basis)
+                weights = np.c_[xz, np.ones(len(xz))] @ inverse_basis
                 points = np.c_[xz[:, 0], weights @ triangle[:, 1], xz[:, 1]]
                 v = points[ix]
                 flip = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])[:, 1] < 0

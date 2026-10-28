@@ -376,6 +376,8 @@ export class CoarseTiles {
         if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
         await this.host.checkCollision(buf);
       }));
+      const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
+        .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e || e.state !== 'draft') { this.dispose(model); return; }
       if (!await this.prepareModel(id, e, model, true)) return;
@@ -383,6 +385,7 @@ export class CoarseTiles {
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
+      if (roads) { e.roads = roads; this.onMapChange?.(); }
       this.host.trackModel?.(model, id);
     } catch (err) {
       if (err instanceof ServiceDown) this.down();

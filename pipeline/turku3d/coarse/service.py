@@ -59,7 +59,9 @@ from .sources import NoCoverage, Sources, Unit
 
 REPO = Path(__file__).resolve().parents[3]
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
-FILE = re.compile(r"^(vis\.glb|manifest\.json|roads\.json|col/c_-?\d+_-?\d+\.col)$")
+FILE = re.compile(
+    r"^(vis(?:\.[0-9a-f]{64})?\.glb|manifest\.json|roads(?:\.[0-9a-f]{64})?\.json|col/c_-?\d+_-?\d+(?:\.[0-9a-f]{64})?\.col)$"
+)
 SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
 PENDING_EXIT = 3  # python -m turku3d.coarse build: inputs missing, {"pending": [units]} on stdout
@@ -70,7 +72,7 @@ QUEUE_MAX = 12  # queued tiles at most with a known player position; the ring al
 STATUS_ITEMS = 12  # queue entries, failures, waiting tiles and timings /coarse/status lists
 ETA_BUILDS = 8  # recent builds averaged for the queue's time estimates
 STALE_REBUILDS = 3  # a build stale on arrival is redone at most this often in a row
-WORKERS = 4  # parallel builds: a cold tile spends minutes downloading, warm ones take 5-10 s
+WORKERS = 1  # Finish the imminent crossing before spending CPU on neighbours or upgrades.
 MIME = {
     ".json": "application/json",
     ".glb": "model/gltf-binary",
@@ -83,13 +85,11 @@ def rank(tile: str, distance: float, motion) -> tuple[int, float] | None:
     """Build priority of a queued tile for the player's latest position and velocity (``motion``,
     engine x, z, vx, vz): (class, metric), lower first, or None when the player no longer needs it.
 
-    0: the 3x3 ring around the player's tile, nearest footprint first;
-    1: the cone along the heading of a moving player: tile centres ahead, at most 1.5 tiles beside
-       the path and CONE_SECONDS of travel plus one tile along it, by distance along plus beside;
-    2: the other quadrants of the ring's 500 m parents (the game asks for them to swap a published
-       leaf parent whole), nearest first;
-    None: everything else (behind, sideways, far ahead).
-    Without a position report yet every tile ranks by the distance the game reported."""
+    The current tile comes first, then tiles intersected by the swept velocity ray,
+    ordered by entry time. Ring and cone neighbours follow by travel distance and
+    lateral distance. Stationary players retain nearest-first ring ordering.
+    Without a position report, use the distance reported by the game.
+    """
     if motion is None:
         return 0, distance
     x, z, vx, vz = motion
@@ -98,15 +98,31 @@ def rank(tile: str, distance: float, motion) -> tuple[int, float] | None:
     x0, _, z0 = t.origin
     near = math.hypot(max(x0 - x, 0.0, x - x0 - size), max(z0 - z, 0.0, z - z0 - size))
     ci, cj = math.floor(x / size), math.floor(z / size)
-    if abs(t.i - ci) <= 1 and abs(t.j - cj) <= 1:
-        return 0, near
+    ring = abs(t.i - ci) <= 1 and abs(t.j - cj) <= 1
+    if t.i == ci and t.j == cj:
+        return 0, -1.0
     speed = math.hypot(vx, vz)
     if speed >= MIN_SPEED:
+        # Ray/slab intersection uses the footprint, so a diagonal corner and a
+        # tile behind the car cannot outrank the next actual crossing.
+        enter, leave = 0.0, CONE_SECONDS + size / speed
+        for position, velocity, lo in ((x, vx, x0), (z, vz, z0)):
+            if abs(velocity) < 1e-9:
+                if not lo <= position < lo + size:
+                    leave = -1.0
+                    break
+            else:
+                aa, bb = sorted(((lo - position) / velocity, (lo + size - position) / velocity))
+                enter, leave = max(enter, aa), min(leave, bb)
+        if leave > enter:
+            return 0, enter
         dx, dz = x0 + size / 2 - x, z0 + size / 2 - z
         along = (dx * vx + dz * vz) / speed
         lateral = abs(dx * vz - dz * vx) / speed
-        if -size / 2 <= along <= speed * CONE_SECONDS + size and lateral <= 1.5 * size:
-            return 1, max(along, 0.0) + lateral
+        if ring or (-size / 2 <= along <= speed * CONE_SECONDS + size and lateral <= 1.5 * size):
+            return 1, max(along, 0.0) + 2 * lateral + (size if along < 0 else 0)
+    elif ring:
+        return 0, near
     if (ci - 1) // 2 <= t.i // 2 <= (ci + 1) // 2 and (cj - 1) // 2 <= t.j // 2 <= (cj + 1) // 2:
         return 2, near
     return None
@@ -145,17 +161,26 @@ class Workers:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
+            env={
+                **os.environ,
+                "OPENBLAS_NUM_THREADS": "1",
+                "OMP_NUM_THREADS": "1",
+                "VECLIB_MAXIMUM_THREADS": "1",
+                "RAYON_NUM_THREADS": "1",
+            },
         )
         self.local.worker = {"proc": proc, "builds": 0, "started": time.time()}
         with self.lock:
             self.procs.append(proc)
         return proc
 
-    def __call__(self, tile: str, out: Path) -> subprocess.CompletedProcess:
+    def __call__(self, tile: str, out: Path, *, first_pass=False) -> subprocess.CompletedProcess:
         proc = self._worker()
         self.local.worker["builds"] += 1
         try:
-            proc.stdin.write(json.dumps({"tile": tile, "out": str(out)}) + "\n")
+            proc.stdin.write(
+                json.dumps({"tile": tile, "out": str(out), "first_pass": first_pass}) + "\n"
+            )
             proc.stdin.flush()
             line = proc.stdout.readline()
         except OSError:
@@ -210,7 +235,10 @@ class Builder:
         self.on_missing = on_missing or (lambda units: None)
         # Re-hashed per check, so a code edit while the service runs rebuilds each tile once.
         self.code = (lambda: code) if code else code_hash
+        self.two_pass = run is None
         self.run = run or Workers()
+        self.upgrade_queue: set[str] = set()
+        self.upgrading: set[str] = set()
         self.lock = threading.Condition()
         self.priority: dict[str, float] = {}  # queued tile -> distance the game reported
         self.requested: dict[str, float] = {}
@@ -233,6 +261,10 @@ class Builder:
             threading.Thread(target=self._run, name=f"coarse-builder-{k}", daemon=True)
             for k in range(workers)
         ]
+        if self.two_pass and workers:
+            self.threads.append(
+                threading.Thread(target=self._run, args=(True,), name="coarse-upgrade", daemon=True)
+            )
         for thread in self.threads:
             thread.start()
 
@@ -265,8 +297,17 @@ class Builder:
             # A worker may have written its manifest but not committed its completion yet.
             # Publish only after counters, timings and servability are updated under this lock.
             if tile in self.building:
-                return self._building(tile)
+                return {"state": "built"} if tile in self.servable else self._building(tile)
             if self.built(tile):
+                self.requested[tile] = time.time()
+                if self.two_pass and tile not in self.upgrading and self.manifest(tile).exists():
+                    m = json.loads(self.manifest(tile).read_text())
+                    if (
+                        m.get("pass_kind") == "first"
+                        and time.time() - self.failed.get(tile, ("", 0))[1] >= RETRY_SECONDS
+                    ):
+                        self.upgrade_queue.add(tile)
+                        self.lock.notify_all()
                 self.pending.pop(tile, None)
                 self.servable = self.servable | {tile}
                 return {"state": "built"}
@@ -297,7 +338,7 @@ class Builder:
             order = self._prune()
             if tile not in self.priority:
                 return {"state": "deferred"}
-            self.lock.notify()
+            self.lock.notify_all()
             return {"state": "queued", "position": order.index(tile), "eta": self.eta()[tile]}
 
     def steer(self, x: float, z: float, vx: float, vz: float) -> None:
@@ -316,11 +357,20 @@ class Builder:
         keep = [
             t
             for k, ((cls, _), t) in enumerate(ranked)
-            if cls == 0 or self.motion is None or k < QUEUE_MAX
+            if self.motion is None or k < QUEUE_MAX or self._in_ring(t)
         ]
         for tile in set(self.priority) - set(keep):
             del self.priority[tile]
         return keep
+
+    def _in_ring(self, tile: str) -> bool:
+        if self.motion is None:
+            return False
+        t = C.VisualTile.parse(tile)
+        return (
+            abs(t.i - math.floor(self.motion[0] / t.size)) <= 1
+            and abs(t.j - math.floor(self.motion[1] / t.size)) <= 1
+        )
 
     def order(self) -> list[str]:
         """Queued tiles in build order (call with the lock held)."""
@@ -356,23 +406,45 @@ class Builder:
             self.requested.pop(tile, None)
         return None
 
-    def _run(self):
+    def _next_upgrade(self):
+        if self.draining or self.priority:
+            return None
+        for tile in sorted(
+            self.upgrade_queue, key=lambda t: (rank(t, 0, self.motion) or (9, 0), t)
+        ):
+            if tile in self.building:
+                continue
+            self.upgrade_queue.discard(tile)
+            if (
+                rank(tile, 0, self.motion) is not None
+                and time.time() - self.requested.get(tile, 0) < 30
+            ):
+                self.upgrading.add(tile)
+                return tile, 0.0
+        return None
+
+    def _run(self, upgrade=False):
         while True:
             with self.lock:
-                job = self._next()
+                job = self._next_upgrade() if upgrade else self._next()
                 while job is None and not self.stopped:
                     self.lock.wait()
-                    job = self._next()
+                    job = self._next_upgrade() if upgrade else self._next()
                 if self.stopped:
                     return
                 tile, distance = job
                 self.building[tile] = time.time()
             started = time.perf_counter()
             out = self.root / tile
-            proc = self.run(tile, out)
+            proc = (
+                self.run(tile, out, first_pass=not upgrade)
+                if self.two_pass
+                else self.run(tile, out)
+            )
             seconds = time.perf_counter() - started
             with self.lock:
                 del self.building[tile]
+                self.upgrading.discard(tile)
                 self.version += 1
                 outcome = "FAILED"
                 if proc.returncode == PENDING_EXIT:
@@ -391,21 +463,33 @@ class Builder:
                     self.built_count += 1
                     self.servable = self.servable | {tile}
                     outcome = "built"
+                    if self.two_pass and m.get("pass_kind") == "first":
+                        self.upgrade_queue.add(tile)
+                        self.requested[tile] = time.time()
+                        self.lock.notify_all()
                 elif proc.returncode == 0 and self.stale.get(tile, 0) < STALE_REBUILDS:
                     # Raw data landed during the build, so the draft is stale already: again.
                     self.stale[tile] = self.stale.get(tile, 0) + 1
                     self.priority[tile] = distance
                     self._prune()
-                    self.lock.notify()
+                    self.lock.notify_all()
                     outcome = "stale"
                 else:
                     tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [
                         "build failed"
                     ]
                     self.failed[tile] = (tail[0][:500], time.time())
-                if tile not in self.pending and outcome != "stale":
+                if (
+                    tile not in self.pending
+                    and outcome != "stale"
+                    and tile not in self.upgrade_queue
+                ):
                     self.requested.pop(tile, None)
-                print(f"coarse {tile}: {outcome} in {seconds:.1f} s", flush=True)
+                self.lock.notify_all()
+                print(
+                    f"coarse {tile}: {outcome} ({'upgrade' if upgrade else 'first' if self.two_pass else 'full'}) in {seconds:.1f} s",
+                    flush=True,
+                )
             if tile in self.pending:
                 self.on_missing(self.pending[tile][0])
 
@@ -430,6 +514,7 @@ class Builder:
             return {
                 "state": "building" if self.building else "idle",
                 "building": sorted(self.building),
+                "upgrading": sorted(self.upgrading),
                 "queued": len(order),
                 "queue": order[:STATUS_ITEMS],
                 "eta": {tile: eta[tile] for tile in shown},
