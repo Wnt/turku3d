@@ -17,12 +17,14 @@ export interface PoolAddress {
   /** Street-route metres from the pizzeria on foot and by car (null: no drivable route). */
   foot: number;
   car: number | null;
+  /** Curated named landmark; offered only as a long-range job. */
+  landmark?: boolean;
 }
 
-interface AddressJson {
+export interface AddressJson {
   format: string; version: number; frame: string; origin: [number, number];
   addresses: { id: string; address: string; tile: string; point: [number, number]; street: [number, number];
-    foot: number; car: number | null }[];
+    foot: number; car: number | null; landmark?: boolean }[];
 }
 
 /** The pool's origin must be the game's pizzeria, or every distance would be measured from elsewhere. */
@@ -45,7 +47,7 @@ export function parseAddressPool(json: AddressJson, tiles: (tile: string) => boo
   }
   return json.addresses.filter(a => tiles(a.tile)).map(a => ({
     id: a.id, address: a.address, tile: a.tile, point: { x: a.point[0], z: a.point[1] },
-    street: { x: a.street[0], z: a.street[1] }, foot: a.foot, car: a.car,
+    street: { x: a.street[0], z: a.street[1] }, foot: a.foot, car: a.car, ...(a.landmark ? { landmark: true } : {}),
   }));
 }
 

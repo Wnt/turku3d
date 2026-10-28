@@ -1,3 +1,25 @@
+## Long-range delivery jobs
+
+Mission save format 4 tracks `shortDeliveries`, `longDeliveries`, `job` and `longAnnounced` per slot.
+Every ten finished short orders (successful or cancelled, including doubles as one order) complete a
+rented round. Four rounds unlock the pizzeria's long-range option. Renting ahead and picking up an
+order do not advance it. Formats 1–3 migrate historical completed orders as short deliveries.
+The one-time narrator notice is queued after the delivery result and autosaved.
+
+`/coarse/navigation.json` provides the city road graph and voiced address pool independently of draft
+residency. Its disk cache hashes source, OSM input identities and the spoken address inventory.
+Drop-offs are outside mapped buildings beside reachable public driving streets; runtime `DropoffGuard`
+checks actual collision too. Short draws stay within 1.2 km on foot and exclude landmarks. Long draws use the curated
+landmarks in `content/landmarks.json` (OSM feature and entrance identities), require reachable car routes
+and never substitute residential destinations. Nearer central landmarks are deliberately eligible too.
+`audio/voice/long-addresses.json` lists the twelve voiced landmark names; `make voice-build` includes them in the common spoken inventory.
+Long pay is €24 + ceil(€12/km), plus the existing tip. Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
+`play.ts` sends the remaining minimap polyline through `CoarseTiles.setRouteHint`; the streaming
+scheduler owns its bounded 30-second look-ahead and request ordering.
+
+Verify: `npm --prefix game test -- tests/unit/long-deliveries.test.ts tests/unit/missions.test.ts tests/unit/orders.test.ts`
+and `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_navigation.py`.
+
 # Gameplay
 
 `contract.ts` is the shared interface between the mission system and the minimap/router: targets,
@@ -21,7 +43,7 @@ Story, locations, economy and the state machine are specified in
 | `content/addresses.ts` | Loads `manifest.addresses` (the pool published by `pipeline/turku3d/content`: drop-off, street point, route metres), checks its origin is the pizzeria, skips addresses in tiles the manifest lacks |
 | `missions/stops.ts` | `Stops`: an order stop by id (`delivery_<n>` or a pool slug); a scripted delivery takes its address's pool drop-off and keeps its own point as the fallback; `relocate` moves a rejected drop-off to its next candidate |
 | `missions/dropoffs.ts` | Street-level check of a drop-off before its marker is placed (`DropoffGuard`, used by `ZoneMarkers`): a point on a building or more than 2 m off the street height around it is rejected with a console warning and moved by `MissionSystem.relocateDropoff` |
-| `missions/save.ts` | The mission save text (format 3, opaque to `core/save.ts`) and the migrations of formats 1 and 2 |
+| `missions/save.ts` | The mission save text (format 4, opaque to `core/save.ts`) and migrations of formats 1–3 |
 | `missions/orders.ts` | Seeded order draws after the opening: no repeats until the pool is exhausted, distance ladder, short hops, every fifth order a double |
 | `content/dialogue.json` | Static intro, prompts, notices, pay lines and one-time character dialogue |
 | `content/dialogue.ts` | Typed lookup by static line id (`lineText(id)`, `dialogueLine`) |

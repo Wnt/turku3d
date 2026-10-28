@@ -162,7 +162,7 @@ describe('pool orders in the mission system', () => {
     expect(served[DELIVERIES.length + DOUBLE_EVERY - 1]).toHaveLength(2);
     expect(g.missions.pizzas).toBe(pool.length + DELIVERIES.length);
     expect(g.missions.shop).toBeNull();
-    expect(g.saved()).toMatchObject({ version: 3, delivered: pool, order: [] });
+    expect(g.saved()).toMatchObject({ version: 4, delivered: pool, order: [] });
     // The slot label names the last drop-off of the last order, a pool address too.
     const lastStops = served[served.length - 1];
     expect(g.missions.lastAddress).toBe(POOL.find(a => a.id === lastStops[lastStops.length - 1])!.address);
@@ -175,7 +175,7 @@ describe('pool orders in the mission system', () => {
     g.choose(MARKET.point, 'rent_permit');
     g.at(near(PIZZERIA.point), { interact: true });
     const quote = g.missions.shop!.options.find(o => o.id === 'take_order')!.quote!;
-    expect(quote).toEqual({ address: 'Testikatu 11', metres: 280, par: parSeconds(280, 'none'), stops: 1 });
+    expect(quote).toEqual({ address: 'Testikatu 11', metres: 280, par: parSeconds(280, 'none'), stops: 1, pay: BASE_PAY });
     expect(g.missions.shop!.delivered).toBe(DELIVERIES.length);
     g.at(near(PIZZERIA.point), { choose: 'take_order' });
     expect(g.missions.snapshot().dialogue).toEqual(['order_single']);
@@ -211,10 +211,10 @@ describe('pool orders in the mission system', () => {
       + '"warning":false,"vehicle":"none","delivery":5,"elapsed":30.5,"par":240}');
     expect(g.missions).toMatchObject({ phase: 'carrying', money: 64, permit: 7, kidney: true,
       currentStop: { scripted: DELIVERIES[1] } });
-    expect(g.missions.snapshot()).toMatchObject({ version: 3, delivery: 5, pizzas: 5, delivered: [], elapsed: 30.5,
+    expect(g.missions.snapshot()).toMatchObject({ version: 4, delivery: 5, pizzas: 5, delivered: [], elapsed: 30.5,
       lastAddress: DELIVERIES[0].address });
     g.at(near(DELIVERIES[1].point), { interact: true });
-    expect(g.saved()).toMatchObject({ version: 3, delivery: 6, order: [], lastAddress: DELIVERIES[1].address });
+    expect(g.saved()).toMatchObject({ version: 4, delivery: 6, order: [], lastAddress: DELIVERIES[1].address });
     const next = g.deliver();
     expect(next[0]).toMatch(/^testikatu-/);
   });

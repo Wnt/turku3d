@@ -26,6 +26,7 @@ class PublicTest(unittest.TestCase):
         ):
             self.assertFalse(public.allowed_origin(origin))
         bounds = [-2, -2, 2, 2]
+        self.assertEqual(public.public_route("/coarse/navigation.json", bounds), ("navigation", None))
         self.assertEqual(
             public.public_route("/coarse/t0_-2_2/manifest.json", bounds), ("manifest", "t0_-2_2")
         )

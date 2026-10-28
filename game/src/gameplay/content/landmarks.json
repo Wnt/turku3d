@@ -1,0 +1,118 @@
+[
+  {
+    "name": "Kakola Spa",
+    "source": [
+      "node",
+      11257527216
+    ]
+  },
+  {
+    "name": "Turun linna",
+    "source": [
+      "way",
+      466736288
+    ],
+    "entrance": [
+      "node",
+      9107548150
+    ]
+  },
+  {
+    "name": "Turun tuomiokirkko",
+    "source": [
+      "way",
+      437169589
+    ],
+    "entrance": [
+      "node",
+      3687986134
+    ]
+  },
+  {
+    "name": "Vanha rautatieasema, Ratapihankatu 37",
+    "source": [
+      "way",
+      9472738
+    ],
+    "entrance": [
+      "node",
+      669866399
+    ]
+  },
+  {
+    "name": "Kupittaan urheiluhalli",
+    "source": [
+      "way",
+      48381043
+    ],
+    "entrance": [
+      "node",
+      4749496246
+    ]
+  },
+  {
+    "name": "Forum Marinum",
+    "source": [
+      "relation",
+      7626601
+    ],
+    "entrance": [
+      "node",
+      7954121175
+    ]
+  },
+  {
+    "name": "Wäinö Aaltosen museo",
+    "source": [
+      "relation",
+      14702073
+    ],
+    "entrance": [
+      "node",
+      10106889121
+    ]
+  },
+  {
+    "name": "Luostarinmäen käsityöläismuseo",
+    "source": [
+      "way",
+      229578106
+    ],
+    "entrance": [
+      "node",
+      6333183930
+    ]
+  },
+  {
+    "name": "Sibelius-museo",
+    "source": [
+      "way",
+      27312132
+    ],
+    "entrance": [
+      "node",
+      11059717722
+    ]
+  },
+  {
+    "name": "Turun biologinen museo",
+    "source": [
+      "way",
+      88333824
+    ]
+  },
+  {
+    "name": "Aboa Vetus Ars Nova",
+    "source": [
+      "node",
+      7216913870
+    ]
+  },
+  {
+    "name": "Kuralan Kylämäki",
+    "source": [
+      "way",
+      737669487
+    ]
+  }
+]

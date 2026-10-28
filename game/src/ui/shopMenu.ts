@@ -19,8 +19,8 @@ export function formatPrice(price: number | null): string {
 /** The pizzeria's order quote, or the option's static detail line. */
 export function optionDetail(option: ShopOptionView): string | null {
   if (option.quote) {
-    const { address, metres, par } = option.quote;
-    return `${address} · ${Math.round(metres)} m · par ${formatTimer(par)}`;
+    const { address, metres, par, pay } = option.quote;
+    return `${address} · ${Math.round(metres)} m · par ${formatTimer(par)}${pay ? ` · ${pay} € + tip` : ''}`;
   }
   return option.detail;
 }

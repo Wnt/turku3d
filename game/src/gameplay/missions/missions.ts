@@ -3,9 +3,9 @@
 // replay it exactly. Static messages use dialogue ids; rotating announcements carry their selected text.
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
-  BASE_PAY, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
+  basePay, LONG_UNLOCK_ROUNDS, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
   PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline, parSeconds,
-  sellBackPrice, tip, type VehicleOwnership,
+  sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
 import { DIALOGUE, lineText } from '../content/dialogue';
 import { addressSentence, nextPhrase, PHRASES, type PhraseKind } from '../content/announcements';
@@ -13,7 +13,7 @@ import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
-import { drawOrder } from './orders';
+import { drawOrder, drawLongOrder } from './orders';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
 import { CARRY_HINT_DELAY, lineSeconds, saidText, type Said } from './speech';
@@ -63,7 +63,7 @@ interface MissionOptions {
 }
 
 export interface PaidDropoff {
-  orderIndex: number; stopIndex: number; addressId: string; payout: number; tip: number; routeMeters: number;
+  orderIndex: number; stopIndex: number; addressId: string; payout: number; tip: number; routeMeters: number; job: DeliveryJob;
 }
 
 /** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
@@ -76,6 +76,7 @@ export interface OrderQuote {
   metres: number;
   par: number;
   stops: number;
+  pay?: number;
 }
 
 export interface ShopOptionView {
@@ -164,6 +165,7 @@ export class MissionSystem implements MissionHudSource {
       // The saved order's address left the published area: the pizza goes back and its permit delivery returns.
       if (this.s.phase === 'carrying') { this.s.permit += 1; this.s.phase = this.restPhase(); }
       this.s.order = [];
+      this.s.job = 'short';
       this.s.stop = 0;
     }
     this.queue = [];
@@ -181,6 +183,8 @@ export class MissionSystem implements MissionHudSource {
   get money(): number { return this.s.money; }
   /** Euros of `money` the developer tools added (never reported to the multiplayer server). */
   get devMoney(): number { return this.s.devMoney; }
+  get completedRounds(): number { return Math.floor(this.s.shortDeliveries / PERMIT_DELIVERIES); }
+  get longUnlocked(): boolean { return this.completedRounds >= LONG_UNLOCK_ROUNDS; }
   get permit(): number { return this.s.permit; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
   get plates(): boolean { return this.s.plates; }
@@ -246,6 +250,11 @@ export class MissionSystem implements MissionHudSource {
     let bought: BoughtVehicle | null = null;
     const wasOpen = this.open !== null;
     this.advanceDialogue(dt);
+    if (this.longUnlocked && !this.s.longAnnounced && !this.queue.length && !this.open && !frame.interact && !frame.choose) {
+      this.s.longAnnounced = true;
+      this.say('long_unlocked');
+      this.checkpoint = 'delivery';
+    }
     this.energy = Math.max(0, this.energy - dt);
     if ((this.s.phase === 'delivered' || this.s.phase === 'failed') && this.queue.length === 0) {
       this.s.phase = this.restPhase();
@@ -293,11 +302,15 @@ export class MissionSystem implements MissionHudSource {
   /** The current order's stops; draws the next order when none is quoted yet. */
   private ensureOrder(): OrderStop[] {
     if (this.s.order.length === 0) {
-      const n = this.s.delivery - DELIVERIES.length;
-      const draw = n >= 0 ? drawOrder(this.stops.pool, n, this.s.seed, new Set(this.s.delivered), SCRIPTED_IDS,
+      if (this.s.job === 'long') {
+        const next = this.longOrder();
+        if (next) { this.s.order = [next.id]; this.s.stop = 0; return [this.stops.resolve(next.id)!]; }
+      }
+      const n = this.s.shortDeliveries - DELIVERIES.length;
+      const draw = n >= 0 ? drawOrder(this.stops.pool.filter(a => !a.landmark && a.foot <= 1200), n, this.s.seed, new Set(this.s.delivered), SCRIPTED_IDS,
         this.s.delivered.slice(-2)) : null;
       if (draw?.exhausted) this.s.delivered = [];
-      this.s.order = draw ? draw.stops : [DELIVERIES[this.s.delivery % DELIVERIES.length].id];
+      if (!this.s.order.length) this.s.order = draw ? draw.stops : [DELIVERIES[this.s.shortDeliveries % DELIVERIES.length].id];
       this.s.stop = 0;
     }
     return this.s.order.map(id => this.stops.resolve(id)!);
@@ -347,11 +360,15 @@ export class MissionSystem implements MissionHudSource {
       case 'forged_plates': return s.plates ? { price: PLATES_PRICE, reason: 'reason_plates_owned' } : money(PLATES_PRICE);
       case 'sell_kidney': return { price: -KIDNEY_PAYOUT, reason: s.kidney ? 'reason_kidney_sold' : null };
       case 'expiry_warning': return s.warning ? { price: WARNING_PRICE, reason: 'reason_warning_owned' } : money(WARNING_PRICE);
+      case 'take_long_order':
       case 'take_order': {
-        const quote = this.quote();
-        const reason = s.phase === 'carrying' ? 'reason_carrying' : s.permit === 0 ? 'reason_no_permit'
+        const long = id === 'take_long_order';
+        const quote = long ? this.longQuote() : this.quote();
+        const reason = long && !this.longUnlocked ? 'reason_long_locked'
+          : long && !quote ? 'reason_no_long_route' : long && this.parVehicle() === 'none' ? 'reason_long_vehicle'
+          : s.phase === 'carrying' ? 'reason_carrying' : s.permit === 0 ? 'reason_no_permit'
           : !this.mayDeliverWith(this.frame?.vehicleId ?? null) ? 'reason_own_vehicle_only' : null;
-        return { price: null, reason, quote };
+        return { price: null, reason, quote: quote ?? undefined };
       }
       case 'slice': return money(SLICE_PRICE);
       case 'tip_rules': return { price: null, reason: null };
@@ -388,7 +405,10 @@ export class MissionSystem implements MissionHudSource {
       case 'forged_plates': this.s.plates = true; this.reply('market_sold_plates'); break;
       case 'sell_kidney': this.s.kidney = true; this.reply('market_sold_kidney'); break;
       case 'expiry_warning': this.s.warning = true; this.reply('market_sold_warning'); break;
-      case 'take_order': this.pickUp(); this.open = null; break;
+      case 'take_long_order':
+        this.s.job = 'long'; this.s.order = [this.longOrder()!.id]; this.quoteCache = null;
+        this.pickUp(); this.open = null; break;
+      case 'take_order': this.s.job = 'short'; this.pickUp(); this.open = null; break;
       case 'slice': this.energy = SLICE_SECONDS; this.reply('pizzeria_slice'); break;
       case 'tip_rules': this.reply('pizzeria_tip_rules'); break;
       case 'buy_scooter':
@@ -410,17 +430,25 @@ export class MissionSystem implements MissionHudSource {
     this.say({ id, text });
   }
 
+  private longOrder() { return drawLongOrder(this.stops.pool, this.s.longDeliveries, this.s.seed, new Set(this.s.delivered)); }
+
+  private longQuote(): OrderQuote | null {
+    const stop = this.longOrder();
+    return stop ? { address: stop.address, metres: stop.car!, par: parSeconds(stop.car!, this.parVehicle(), 'long'),
+      stops: 1, pay: basePay(stop.car!, 'long') } : null;
+  }
+
   private quote(): OrderQuote {
     const stops = this.ensureOrder();
     const vehicle = this.parVehicle();
-    const key = `${this.s.order.join(',')}|${vehicle}`;
+    const key = `${this.s.job}|${this.s.order.join(',')}|${vehicle}`;
     if (this.quoteCache?.key !== key) {
       const first = this.metresFromPizzeria(stops[0], vehicle);
-      const firstPar = parSeconds(first, vehicle);
+      const firstPar = parSeconds(first, vehicle, this.s.job);
       const leg = stops.length > 1 ? this.streetMetres(stops[0].point, stops[1].point) : 0;
-      const par = stops.length > 1 ? firstPar + parSeconds(leg, vehicle) : firstPar;
+      const par = stops.length > 1 ? firstPar + parSeconds(leg, vehicle, this.s.job) : firstPar;
       this.quoteCache = { key, firstPar: stops.length > 1 ? firstPar : 0,
-        quote: { address: stops.map(o => o.address).join(' + '), metres: first + leg, par, stops: stops.length } };
+        quote: { address: stops.map(o => o.address).join(' + '), metres: first + leg, par, stops: stops.length, pay: basePay(first + leg, this.s.job) } };
     }
     return this.quoteCache.quote;
   }
@@ -428,7 +456,7 @@ export class MissionSystem implements MissionHudSource {
   /** Route metres from the pizzeria: the published walking or driving distance of a pool address (every vehicle
    *  rides the streets), the router's path for a scripted one. */
   private metresFromPizzeria(stop: OrderStop, vehicle: VehicleOwnership): number {
-    if (stop.pool) return vehicle === 'none' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
+    if (stop.pool) return vehicle === 'none' && this.s.job !== 'long' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
     return this.streetMetres(PIZZERIA.point, stop.point);
   }
 
@@ -463,16 +491,17 @@ export class MissionSystem implements MissionHudSource {
     const last = this.s.stop === stops.length - 1;
     const t = tip(this.s.elapsed, last ? this.s.par : this.s.firstPar);
     const bonus = stops.length > 1 && last && t > 0 ? DOUBLE_BONUS : 0;
-    this.s.money += BASE_PAY + t + bonus;
+    const pay = basePay(this.metresFromPizzeria(stop, this.parVehicle()), this.s.job);
+    this.s.money += pay + t + bonus;
     this.options.onPaid?.({ orderIndex: this.s.delivery, stopIndex: this.s.stop,
-      addressId: stop.pool?.id ?? stop.id, payout: BASE_PAY + bonus, tip: t,
+      addressId: stop.pool?.id ?? stop.id, job: this.s.job, payout: pay + bonus, tip: t,
       routeMeters: this.s.stop === 0 ? this.metresFromPizzeria(stop, this.parVehicle())
         : this.streetMetres(stops[this.s.stop - 1].point, stop.point) });
     this.s.pizzas += 1;
     if (!stop.scripted) this.s.delivered.push(stop.id);
     const band: TipBand = t >= 5 ? 'fast' : t >= 1 ? 'ok' : 'slow';
     const customer: Said = { id: `customer_${band}`, text: this.phrase(`customer_${band}`) };
-    const lines: (string | Said)[] = [customer, `paid_tip_${t}`, ...(bonus ? ['paid_double_bonus'] : [])];
+    const lines: (string | Said)[] = [customer, ...(this.s.job === 'long' ? [{ id: 'paid_long', text: `Long delivery: ${pay} € + tip ${t} €` }] : [`paid_tip_${t}`]), ...(bonus ? ['paid_double_bonus'] : [])];
     if (!last) {
       this.s.stop += 1; // the second pizza of a double: the timer keeps running
       this.say(...lines, { id: 'second_address',
@@ -496,6 +525,9 @@ export class MissionSystem implements MissionHudSource {
     this.s.lastAddress = stops[stops.length - 1].address;
     this.s.phase = result;
     this.s.delivery += 1;
+    if (this.s.job === 'short') this.s.shortDeliveries += 1;
+    else this.s.longDeliveries += 1;
+    this.s.job = 'short';
     this.s.order = [];
     this.s.stop = 0;
     this.s.elapsed = this.s.par = this.s.firstPar = 0;

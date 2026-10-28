@@ -38,8 +38,16 @@ const TIP_NONE_FROM = 1.3;
 /** A delivery fails (the customer cancels) after this multiple of the par time. */
 const FAIL_AFTER_PAR = 2;
 
-export function parSeconds(routeMetres: number, vehicle: VehicleOwnership): number {
-  return routeMetres / PAR_SPEED[vehicle] + PAR_HANDLING_SECONDS;
+export type DeliveryJob = 'short' | 'long';
+export const LONG_UNLOCK_ROUNDS = 4;
+export const LONG_MAX_METRES = 7000;
+/** A long run pays 24 euros plus 12 per road kilometre, even when its tip is gone. */
+export const basePay = (metres: number, job: DeliveryJob = 'short') =>
+  job === 'long' ? 24 + Math.ceil(metres * 0.012) : BASE_PAY;
+
+export function parSeconds(routeMetres: number, vehicle: VehicleOwnership, job: DeliveryJob = 'short'): number {
+  const boost = job === 'long' ? (vehicle === 'scooter' ? 1.2 : 1.4) : 1;
+  return routeMetres / (PAR_SPEED[vehicle] * boost) + PAR_HANDLING_SECONDS;
 }
 
 /** Whole-euro tip for a delivery that took `elapsed` seconds against `par` seconds. */

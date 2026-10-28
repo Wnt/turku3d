@@ -449,7 +449,7 @@ describe('mission state machine', () => {
     a.choose(PIZZERIA.point, 'take_order');
     a.wait(far, 10);
     const saved = a.missions.serialize();
-    expect(JSON.parse(saved)).toMatchObject({ version: 3, phase: 'carrying', permit: PERMIT_DELIVERIES - 1, warning: true,
+    expect(JSON.parse(saved)).toMatchObject({ version: 4, phase: 'carrying', permit: PERMIT_DELIVERIES - 1, warning: true,
       money: START_MONEY - PERMIT_PRICE - WARNING_PRICE });
     const b = harness(saved);
     expect(b.missions).toMatchObject({ phase: 'carrying', permit: PERMIT_DELIVERIES - 1 });
@@ -516,7 +516,7 @@ describe('mission state machine', () => {
     const h = harness(JSON.stringify(v2));
     expect(h.missions).toMatchObject({ vehicle: 'scooter', money: 40, permit: 3 });
     const v3 = JSON.parse(h.missions.serialize());
-    expect(v3).toMatchObject({ version: 3, vehicle: 'scooter' });
+    expect(v3).toMatchObject({ version: 4, vehicle: 'scooter' });
     expect(harness(JSON.stringify({ ...v3, vehicle: 'bicycle' })).missions.vehicle).toBe('scooter');
     expect(harness(JSON.stringify({ ...v2, vehicle: 'unicycle' })).missions).toMatchObject({ vehicle: 'none', money: START_MONEY });
   });
@@ -529,7 +529,7 @@ describe('mission state machine', () => {
       plates: false, kidney: false, currentStop: { scripted: DELIVERIES[1] } });
     expect(h.last().timerSeconds).toBe(Math.ceil(2 * 140 - 12.5));
     h.press(near(DELIVERIES[1].point));
-    expect(JSON.parse(h.missions.serialize())).toMatchObject({ version: 3, permit: PERMIT_DELIVERIES, delivery: 6 });
+    expect(JSON.parse(h.missions.serialize())).toMatchObject({ version: 4, permit: PERMIT_DELIVERIES, delivery: 6 });
 
     expect(harness(v1('"phase":"licence_needed","money":120,"licence":false')).missions)
       .toMatchObject({ phase: 'permit_needed', permit: 0, money: 120 });

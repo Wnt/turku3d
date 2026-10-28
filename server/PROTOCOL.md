@@ -96,7 +96,9 @@ The game's formula is `6 + tip + bonus`: integer tip 0–8; bonus 4 only on a se
 drop-off with tip >0. Thus `payout` must be 6, or 10 with tip >0; total maximum 18.
 Distance determines par time (`distance / speed + 20`, speeds foot=1.4,
 scooter=7, car=9, truck=10.5 m/s). Tip rounds a clamped linear fall from 8 at 0.7×par to 0 at
-1.3×par; failure is at 2×par. Distance does not increase base pay. The server checks
+1.3×par; failure is at 2×par. Long jobs add optional `job: "long"`; omitted means `"short"`. Their base payout is
+`24 + ceil(routeMeters * 0.012)` with 60 < routeMeters <= 7000 and no double bonus.
+Long-job par speed is 1.4 times the short speed (1.2 for scooters); the same tip and failure fractions apply. The server checks
 the possible euro envelope; this message cannot prove timing, ownership, route,
 address existence, second-stop status, or that a delivery actually happened.
 

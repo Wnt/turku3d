@@ -72,7 +72,7 @@ def published_addresses():
     """Collect the current build inputs; committed checks never call this reader."""
     data = Path(os.environ.get("TURKU3D_DATA", Path.home() / "turku3d/data"))
     work = Path(os.environ.get("TURKU3D_WORK", data))
-    addresses = dict(SCRIPTED)
+    addresses = {**SCRIPTED, **json.loads((Path(__file__).resolve().parents[3] / 'audio/voice/long-addresses.json').read_text())}
     for root in (data, work):
         tiles = root / "dist/tiles"
         manifest = tiles / "manifest.json"

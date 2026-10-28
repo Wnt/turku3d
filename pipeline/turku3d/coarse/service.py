@@ -606,6 +606,12 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
         def do_GET(self):
             url = urlparse(self.path)
             parts = url.path.removeprefix("/coarse/").split("/", 1)
+            if url.path == "/coarse/navigation.json":
+                from .navigation import navigation
+                try:
+                    return self._send(200, navigation(builder.root), cache="public, max-age=300")
+                except Exception as error:
+                    return self._json(503, {"error": f"navigation: {error}"})
             if url.path == "/coarse/status":
                 status = builder.status() | {"started": started, "modules": loaded_files()}
                 if prefetcher:

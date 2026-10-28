@@ -1,5 +1,5 @@
-// The mission save text (format 3) inside a save slot (core/save.ts keeps it opaque) and the migrations of formats
-// 1 and 2 (docs/design/story.md, "Mission state machine").
+// The mission save text (format 4) inside a save slot (core/save.ts keeps it opaque) and migrations of formats
+// 1–3 (docs/design/story.md, "Mission state machine").
 import type { VehicleOwnership } from '../economy';
 import { PERMIT_DELIVERIES, START_MONEY } from '../economy';
 import { DELIVERIES } from '../content/deliveries';
@@ -14,7 +14,12 @@ export function missionSummary(text: string | null) {
 }
 
 export interface MissionSave {
-  version: 3;
+  version: 4;
+  job: 'short' | 'long';
+  /** Completed short orders, including cancellations; ten finish one rented round. */
+  shortDeliveries: number;
+  longDeliveries: number;
+  longAnnounced: boolean;
   phase: Phase;
   money: number;
   /** Delivery orders left on the rented courier permit; taking an order uses one. */
@@ -84,7 +89,7 @@ const VALID_VEHICLES: readonly VehicleOwnership[] = ['none', 'scooter', 'car', '
 export const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 
 export function freshSave(seed: number): MissionSave {
-  return { version: 3, phase: 'idle', money: START_MONEY, permit: 0, plates: false, kidney: false, warning: false,
+  return { version: 4, job: 'short', shortDeliveries: 0, longDeliveries: 0, longAnnounced: false, phase: 'idle', money: START_MONEY, permit: 0, plates: false, kidney: false, warning: false,
     vehicle: 'none', delivery: 0, pizzas: 0, seed, delivered: [], order: [], lastAddress: null, stop: 0, elapsed: 0,
     par: 0, firstPar: 0, devMoney: 0, phrases: {} };
 }
@@ -118,7 +123,7 @@ function validV2(s: Partial<MissionSaveV2>): MissionSaveV2 | null {
  *  and the address pool starts unused. */
 function migrateV2(s: MissionSaveV2, seed: number): MissionSave {
   const delivery = Math.floor(s.delivery);
-  return { ...s, version: 3, delivery, pizzas: delivery, seed, delivered: [], stop: 0, firstPar: 0, devMoney: 0,
+  return { ...s, version: 4, job: 'short', shortDeliveries: delivery, longDeliveries: 0, longAnnounced: false, delivery, pizzas: delivery, seed, delivered: [], stop: 0, firstPar: 0, devMoney: 0,
     order: s.phase === 'carrying' ? [DELIVERIES[delivery % DELIVERIES.length].id] : [],
     lastAddress: delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null, phrases: {} };
 }
@@ -141,8 +146,12 @@ export function parseSave(raw: string | null, seed: number): MissionSave {
     if (parsed?.vehicle === 'bicycle') parsed.vehicle = 'scooter';
     const v2 = parsed?.version === 1 ? migrateV1(parsed as Partial<MissionSaveV1>)
       : parsed?.version === 2 ? validV2(parsed as Partial<MissionSaveV2>) : null;
-    const save = v2 ? migrateV2(v2, seed) : parsed?.version === 3 ? validV3(parsed as Partial<MissionSave>) : null;
+    const save = v2 ? migrateV2(v2, seed) : (parsed?.version === 3 || parsed?.version === 4) ? validV3(parsed as Partial<MissionSave>) : null;
     if (!save) return freshSave(seed);
+    if (parsed.version !== 4) Object.assign(save, { version: 4, job: 'short', shortDeliveries: save.delivery,
+      longDeliveries: 0, longAnnounced: false });
+    if (!['short', 'long'].includes(save.job) || !num(save.shortDeliveries) || !num(save.longDeliveries)
+      || !bool(save.longAnnounced)) return freshSave(seed);
     // A finished delivery's result line is not replayed after a reload: the next step is the pizzeria.
     if (save.phase === 'delivered' || save.phase === 'failed' || (save.phase === 'carrying' && save.par <= 0)) {
       save.phase = save.permit > 0 ? 'at_pizzeria' : 'permit_needed';

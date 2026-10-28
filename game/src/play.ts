@@ -165,7 +165,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const missions = new MissionSystem({ router, addresses, onPaid: drop => {
     if (!multiplayerPlaying) return;
     multiplayer?.sendDelivery({ orderId: `${multiplayerRunId}:order-${drop.orderIndex}:stop-${drop.stopIndex}`,
-      addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters });
+      addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters, job: drop.job });
   } });
   minimap.setSource(missions);
   voice.attach(missions);
@@ -320,6 +320,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   startScreen.ready(!!multiplayerAt);
   world.loadingScreen.ready(!!multiplayerAt);
   let lastDeadlineUpdate = -Infinity;
+  let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
   renderer.setAnimationLoop(() => {
     clock.frames++;
@@ -523,6 +524,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     streamHint.update(!startScreen.active && (saveGame.loading || (!fly?.active && !streamer.supports(feet.x, feet.z))));
     const streamAt = saveGame.streamPoint(feet);
     if (!startScreen.active && !saveGame.loading) releaseStarts();
+    const routeHint = missions.phase === 'carrying' ? minimap.routes.route : null;
+    if (routeHint !== draftRoute) { coarse?.setRouteHint(routeHint); draftRoute = routeHint; }
     coarse?.update(streamAt.x, streamAt.z);
     parkedVehicles.update(streamAt.x, streamAt.z, drivenId, now);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);

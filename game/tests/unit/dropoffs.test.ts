@@ -143,7 +143,7 @@ describe('drop-off ground check', () => {
       street: { x: 6, z: 6 } };
     const router: Router = { ...straight, route: (_from, to) => [{ x: 7, z: 7 }, to] };
     const { missions, pickUp, dropoff } = game([onRoof], router);
-    missions.restore(JSON.stringify({ ...JSON.parse(missions.serialize()), delivery: DELIVERIES.length }));
+    missions.restore(JSON.stringify({ ...JSON.parse(missions.serialize()), delivery: DELIVERIES.length, shortDeliveries: DELIVERIES.length }));
     const guard = new DropoffGuard(world, (id, p) => missions.relocateDropoff(id, p));
     pickUp();
     const seen: WorldPoint[] = [];
