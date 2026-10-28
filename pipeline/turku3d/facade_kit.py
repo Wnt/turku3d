@@ -68,6 +68,10 @@ def write_description(
     reference_hash: str,
     root: Path | None = None,
     width: float | None = None,
+    *,
+    engine: str = "astra",
+    field_sources: dict | None = None,
+    fields: dict | None = None,
 ):
     problems = renderer().validate(description, description.get("facade_id", ""))
     if problems:
@@ -80,6 +84,9 @@ def write_description(
         source=source,
         reference_hash=reference_hash,
         width_m=width,
+        engine=engine,
+        field_sources=field_sources or {field: engine for field in description},
+        fields=fields or {},
     )
     with tempfile.NamedTemporaryFile(mode="w", dir=dest.parent, delete=False) as f:
         json.dump(row, f, sort_keys=True)
@@ -237,6 +244,7 @@ def candidates(buildings) -> dict:
                         height_m=b.top - b.base,
                         base_h=b.base,
                         normal="left",
+                        register_attributes=b.attributes,
                     ),
                     geometry=dict(
                         type="LineString",

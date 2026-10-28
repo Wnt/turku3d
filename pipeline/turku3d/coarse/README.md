@@ -184,14 +184,32 @@ upper bay repeatedly and the ground-floor row only at the base on both renderer 
 walls without an approved generated, derived or fast map use the same kit. Pure mapping checks:
 `PYTHONPATH=pipeline:textures .venv/bin/python -m pytest pipeline/tests/test_facade_kit.py -q`.
 
-The service also runs one low-priority panorama-description worker, capped at 12 attempts per
-rolling hour and 60% quota (unknown quota pauses it). It ranks built tiles in the player's ring
-and cone using `telemetry/priority.json` when available. Geometry-only candidates and reference
-pixels stay under the sandbox coarse root; validated parameter JSON goes to
-`$TURKU3D_DATA/facade-params/<sha256(building-key)>.json`, using the permanent register id when
-available. `turku3d.facade_kit.write_description()` is the atomic writer. Only affected drafts
-are invalidated; resident models remain visible until the replacement is ready. `/coarse/status`
-includes the worker state under `facades`. Published assembly also reads these parameters.
+The service runs one persistent low-priority facade child using the repository's clean
+`.venv/bin/python` (Torch and the native geo environment load conflicting OpenMP runtimes).
+Run `scripts/dev/wt sync-env` to install the inference dependencies. Existing pinned local
+model caches are prepared as described in [textures/CV.md](../../../textures/CV.md).
+
+Within the player's ring/cone, buildings first receive offline hybrid appearance from one
+screened panorama wall. Only measured `wall_colour`, `trim_colour` and `material` fields are
+accepted; absent or abstaining fields retain the register value. The current hybrid has no
+trim head, so trim explicitly abstains. Storeys, columns and other layout fields stay from the
+register. Local inference has no quota cap or model network calls and keeps its models warm.
+Reference discovery can still use the existing panorama providers. Neither discovery nor
+inference runs inside draft generation, so a draft never waits for these operations.
+
+The same child alternates local jobs with Astra refinement, ranked by existing telemetry
+exposure scores and tile proximity. Only Astra attempts consume the 12/hour budget and pause
+at 60% quota (unknown quota pauses Astra only). Hybrid records stay eligible for Astra;
+Astra records, including legacy records without an engine tag, are never replaced by hybrid.
+Geometry-only candidates and reference pixels stay under the sandbox coarse root. Validated
+parameter JSON goes to `$TURKU3D_DATA/facade-params/<sha256(building-key)>.json`, using the
+permanent register id when available. `turku3d.facade_kit.write_description()` is the atomic
+writer. Rows retain `engine`, `field_sources` (register/hybrid/astra) and raw hybrid `fields`
+(state/value/reason); raw count predictions are evidence only and are never accepted by this
+queue. Existing readers remain compatible. Only affected drafts are invalidated; resident
+models remain visible until the replacement is ready. `/coarse/status` includes engine,
+worker state and last-job seconds under `facades`. Published assembly reads the same parameters.
+
 
 OSM `bridge=*` transport ways now produce separate slabs, parapets (girder sides for rail),
 ballast for rail and 20 m spaced piers outside crossed-way corridors (`bridges.py`). Decks follow

@@ -37,3 +37,51 @@ def test_kit_vertex_styles_batch_together():
         ["node", "--test", str(C.REPO_ROOT / "pipeline/turku3d/package/facade_kit.test.mjs")],
         check=True,
     )
+
+
+def test_appearance_merge_accepts_only_measured_appearance():
+    from turku3d.coarse.facades import appearance_fields
+    from turku3d.facade_kit import renderer
+
+    register = renderer().register_description("b_1", "b", {"levels": 4}, 12, 14)
+    fields = {
+        "wall_colour": dict(state="measured", value="#aabbcc"),
+        "trim_colour": dict(state="abstain", value="#000000"),
+        "material": dict(state="measured", value="brick"),
+        "storeys": dict(state="measured", value=2),
+        "window_columns": dict(state="measured", value=9),
+    }
+    result, sources = appearance_fields(register, fields)
+    assert result == {**register, "wall_colour": "#aabbcc", "material": "brick"}
+    assert sources["wall_colour"] == sources["material"] == "hybrid"
+    assert sources["trim_colour"] == sources["storeys"] == sources["window_columns"] == "register"
+    assert register["material"] != "brick"
+
+
+def test_appearance_merge_missing_or_null_fields_keep_register():
+    from turku3d.coarse.facades import appearance_fields
+
+    register = dict(wall_colour="#ffffff", trim_colour="#eeeeee", material="plaster")
+    result, sources = appearance_fields(register, {"material": dict(state="measured", value=None)})
+    assert result == register
+    assert set(sources.values()) == {"register"}
+
+
+def test_hybrid_record_provenance_invalidation_and_astra_eligibility(tmp_path, monkeypatch):
+    from turku3d import config as C
+    from turku3d.coarse.facades import completed
+    from turku3d.facade_kit import parameter_hash, read_description, renderer, write_description
+
+    monkeypatch.setattr(C, "data_root", lambda: tmp_path)
+    d = renderer().register_description("b_1", "b", {"levels": 4}, 12, 14)
+    before = parameter_hash(["b"])
+    write_description(
+        "b", d, "test", "hash", engine="hybrid", field_sources={"storeys": "register"}
+    )
+    assert parameter_hash(["b"]) != before
+    assert completed("b", "hybrid")
+    assert not completed("b", "astra")
+    assert read_description("b") == d
+    write_description("b", d, "test", "hash")
+    assert completed("b", "astra")
+    assert completed("b", "hybrid")
