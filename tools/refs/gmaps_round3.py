@@ -7,9 +7,8 @@ import json
 import os
 from pathlib import Path
 import sys
-import stat
-import time
 from collections import Counter
+from gmaps_cache import owned_usage, reserve_owned
 
 REPO = Path(__file__).resolve().parents[2]
 TOOLS = Path(os.environ.get('GMAPS_TOOLS', Path.home() / 'turku3d/private/gmaps-extract'))
@@ -33,30 +32,14 @@ def config(row, lane):
                 headless=True, resume=(out / 'capture.json').exists())
 
 
-def owned_usage(root):
-    """Count catalogue hard links once and tolerate atomic temporary-file renames."""
-    seen = set()
-    total = 0
-    for path in Path(root).rglob('*'):
-        try:
-            info = path.stat()
-        except FileNotFoundError:
-            continue
-        key = info.st_dev, info.st_ino
-        if stat.S_ISREG(info.st_mode) and key not in seen:
-            seen.add(key)
-            total += info.st_size
-    return total
-
-
 def score_one(row, product_root=None, frozen_own=None):
     product_root = Path(product_root) if product_root else ROOT
     from detail import metadata, audit
     import mesh
     import loop
-    from storage import ROOT as PRIVATE_ROOT, configured_limit, evict
+    from storage import ROOT as PRIVATE_ROOT, configured_limit
     # The scorer may compact only this sandbox's disposable products.
-    loop.evict = lambda **kwargs: evict(root=product_root, **kwargs)
+    loop.evict = lambda **kwargs: reserve_owned(product_root, **kwargs)
     mesh.evict = loop.evict
     import storage
     storage.usage = lambda root=product_root: owned_usage(root)
