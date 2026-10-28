@@ -29,11 +29,15 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
 - **Water**: cells inside water polygons become the water sensor at the shoreline level over a synthetic bed
   (`ground.water.add_river_bed`), and are drawn as a flat surface at that level (`material_key` water, which the
   game renders as a river) instead of the ortho.
-- **Bridges**: `maanpinta` has no points on a deck, so a street-area bridge (`Silta`) over water would lie at river
-  level between quay-high road ends. `bridge_decks` lifts each deck patch that touches water to the line between
-  its abutments (the 90th percentile of the dry ground 5–25 m beyond each end, inside the deck's corridor), raising
-  the low approach cells in the corridor with it; decks over dry land stay put. A water polygon under a deck never
-  turns it into the sensor. Tuomiokirkkosilta (`t0_2_-1`) now spans the Aura at 6.8–7.0 m instead of 0.2 m.
+- **Bridges** (`bridges.py`): transport ways belonging to one `man_made=bridge` outline share one deck;
+  absent an outline, overlapping parallel ways at the same layer share an envelope. The main carriageway
+  determines the axis even for branched outlines. Full raw ground blocks give neighbouring tiles the same
+  profile, and meshes are clipped to the tile instead of repeating entire decks. Only transverse interior
+  crossings of lower transport ways request headroom; their elevation is interpolated from outside
+  the deck footprint so deck samples cannot be mistaken for railway ground. Boat gangways retain their mapped span and endpoint
+  levels; ordinary approaches blend over at most 3 m. Outline branches blend back to measured ground.
+  Source ship/building footprints cut holes in decks; rails follow the outline with open traffic entrances.
+  Without OSM decks, the existing street-area water-bridge abutment lift remains the fallback.
 - **Buildings**: LOD2 footprints whose centroid is in the tile, extruded to the mean roof height; the collision shell
   goes to the centroid's collision tile.
 
@@ -50,6 +54,9 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   (3 m for an unmeasured point gate). Street-area crossings are clipped with width clearance, except deliberately
   tagged road barriers and bollards on OSM road nodes. Bollard ways place separate posts, 2.5 m apart. The prepared
   `barriers` dataset reuses the existing optional OSM extract; no downloads or runtime game changes.
+  Water and building/ship footprints exclude barriers. Elevated bridge railings are supplied by the deck,
+  not repeated at ground level. A `retaining_wall` without an explicit above-grade height creates no fence;
+  `wall=parapet` defaults to 0.5 m. Bare mapped banks do not create barriers.
   Run `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_fences.py` for synthetic placement
   and road-clipping checks. `manifest.barriers.seconds` records the extra producer seconds on each built tile.
 
@@ -62,6 +69,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   the draft shell below the ceiling and retain the upper building. Walls reuse structures
   `profile_wall` and all faces reuse `Faces`; tube collision reaches every intersecting cell.
   `manifest.tunnels` counts ways; `seconds.tunnels` records producer overhead separately.
+  Visuals and collision are clipped to the same tile bounds. Tight offset corners use individual wall
+  sections in a combined mesh; passage footprint cuts remove sub-0.5 mm slivers before triangulation.
   Optional `roads.json.edgeHeights` stores floor Y per edge vertex, shared with draft bridges.
   Missing remote portal lidar falls back to the local grid; stacked/intersecting tunnels and
   abrupt OSM way splits still need surveyed profiles. Pure synthetic checks:
@@ -211,17 +220,11 @@ models remain visible until the replacement is ready. `/coarse/status` includes 
 worker state and last-job seconds under `facades`. Published assembly reads the same parameters.
 
 
-OSM `bridge=*` transport ways now produce separate slabs, parapets (girder sides for rail),
-ballast for rail and 20 m spaced piers outside crossed-way corridors (`bridges.py`). Decks follow
-lidar abutments, lifted as needed for 4.5 m road / 6 m rail / 2.5 m path clearance below the
-0.4 m slab. Only approach ramps blend into the ground; the ground under the span stays intact.
-This reuses `structures.geometry.profile_wall`, the full bridges producer's box geometry and
-`structures.layer.tile_cells`. The existing 8 MB visual budget still applies. `manifest.seconds.bridges`
-records added geometry time per tile; road preparation is cached with the OSM graph. Without OSM,
-the existing street-area water-bridge lift remains. `roads.json` has optional `edgeHeights`, one
-Y array per edge vertex sequence (including ends), or null for unsurveyed edges. Graph merging and
-the router preserve these deck/approach heights. Verify the pure clearance rules with
-`bash pipeline/env/run.sh pytest -q pipeline/tests/test_coarse.py -k osm_deck_height`.
+Resolved OSM crossings use a 0.4 m slab with 4.5 m road / 6 m rail / 2.5 m path headroom,
+outline rails and supports outside crossed-way corridors. `manifest.seconds.bridges` records
+producer time. `roads.json.edgeHeights` follows the shared deck for parallel carriageways and
+sidewalks while leaving transverse lower ways at their own elevations. The existing 8 MB visual
+budget remains unchanged.
 
 
 Area vegetation (`forests.py`) uses OSM forest/wood, scrub/heath, parks/gardens and tree rows,
@@ -236,3 +239,31 @@ measured/bush counts; `seconds.vegetation_scatter` records added producer time p
 The tree cap was raised after the [Kupittaa render measurements](../../../docs/reports/perf-kupittaa-check.md);
 the bush cap and area densities are unchanged.
 Pure synthetic checks: `bash pipeline/env/run.sh python -m pytest pipeline/tests/test_coarse.py -k forest -q`.
+
+## Real-data generator sanity check
+
+This manual build/render workflow is outside the gate. It covers the six Aura playtest spots in 12 tiles,
+plus Hämeensilta and all eight neighbouring tiles. Outputs, local screenshots and per-type source/output
+counts remain under `$TURKU3D_WORK/reports/bridge-sanity/{before,after}`. The render harness uses the game
+renderer, post-processing, draft materials, shadow batching and vegetation LOD at 1280×720, with a fixed
+camera set. Its isolated-scene counts are comparable before/after, not the playtest's live streaming FPS.
+
+```sh
+source ../sandbox.env
+# Before baseline: a permanent pre-fix main commit, raw inputs read-only.
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.sanity before --baseline-ref 7f0946a9
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.sanity before --baseline-ref 7f0946a9 --region hame
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.sanity after
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.sanity after --region hame
+npm --prefix game run dev -- --host 127.0.0.1
+# In another sandbox-sourced shell; reserve BROWSER_BUDGET_MIN = 40 in the task brief.
+python3 scripts/dev/host_slots.py browser -- node qa/render/bridge-sanity.mjs before aura
+python3 scripts/dev/host_slots.py browser -- node qa/render/bridge-sanity.mjs after aura
+python3 scripts/dev/host_slots.py browser -- node qa/render/bridge-sanity.mjs before hame
+python3 scripts/dev/host_slots.py browser -- node qa/render/bridge-sanity.mjs after hame
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_bridges.py pipeline/tests/test_coarse_fences.py pipeline/tests/test_coarse_tunnels.py
+```
+
+`--counts-only` refreshes source/instance tables without packaging tiles. Historical baseline failures are
+recorded rather than hidden; the render harness excludes those same baseline-missing tiles from both
+spot performance comparisons, while complete after tile-overview renders include them.
