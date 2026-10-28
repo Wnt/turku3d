@@ -130,3 +130,24 @@ def test_gis_fallback_assets_keep_stable_registry_lookup_and_original_binding(
     )
     assert meshes[0].extras["building_id"] == "gis-b"
     assert meshes[0].extras["facade_index"] == 7
+
+
+def test_shared_texture_edits_invalidate_drafts_without_full_tile_release(tmp_path, monkeypatch):
+    from turku3d.facade_assets import material_library
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_FACADE_ASSETS", str(tmp_path / "store"))
+    library = tmp_path / "store/library/plaster"
+    library.mkdir(parents=True)
+    texture = library / "albedo.ktx2"
+    texture.write_bytes(b"first-generated-map")
+    assert material_library() == library.parent
+    before = parameter_hash(["building"])
+    texture.write_bytes(b"new-generated-map")
+    assert parameter_hash(["building"]) != before
+    arrays = tmp_path / "data/textures/library"
+    arrays.mkdir(parents=True)
+    before = parameter_hash(["building"])
+    (arrays / "albedo.array.ktx2").write_bytes(b"own-ground-library")
+    assert parameter_hash(["building"]) != before

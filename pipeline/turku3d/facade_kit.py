@@ -204,8 +204,12 @@ def ensure_kit(root: Path) -> dict:
 
 
 def parameter_hash(keys, root: Path | None = None) -> str:
-    """Only this tile's descriptions invalidate its draft, including a newly created record."""
+    """This tile's descriptions/maps and shared PBR library invalidate its draft."""
     h = hashlib.sha256()
+    if root is None:
+        from turku3d.facade_assets import library_hash
+
+        h.update(library_hash())
     for key in sorted(set(map(str, keys))):
         h.update(key.encode())
         if root is None:

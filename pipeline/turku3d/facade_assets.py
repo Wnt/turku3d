@@ -268,5 +268,39 @@ def main():
     return 0
 
 
+def material_library():
+    """Material inputs survive retirement of full-tile releases."""
+    candidates = (
+        C.work_root() / "textures/assembly/library",
+        root() / "library",
+        C.data_root() / "textures/assembly/library",
+        C.data_root() / "facade-approvals/assembly/library",
+    )
+    return next((p for p in candidates if p.is_dir()), candidates[2])
+
+
+@lru_cache(maxsize=4)
+def _library_digest(signature):
+    digest = hashlib.sha256()
+    for name, _, _ in signature:
+        path = Path(name)
+        digest.update(path.name.encode())
+        with path.open("rb") as stream:
+            digest.update(hashlib.file_digest(stream, "sha256").digest())
+    return digest.digest()
+
+
+def library_hash():
+    files = set(material_library().rglob("*"))
+    files.update((C.data_root() / "textures/library").glob("*.array.ktx2"))
+    files.update((C.work_root() / "textures/library").glob("*.array.ktx2"))
+    signature = tuple(
+        (str(p.resolve()), p.stat().st_size, p.stat().st_mtime_ns)
+        for p in sorted(files)
+        if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
+    )
+    return _library_digest(signature)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
