@@ -21,10 +21,12 @@ def run():
     states = json.loads(coverage.read_text())['quarters'] if coverage.exists() else {
         row['coverage_id']: dict(status='planned', tile=row['tile'], extent_en=row['extent_en'])
         for row in base.PLAN['quarters']}
+    for row in base.PLAN['quarters']:
+        states.setdefault(row['coverage_id'], dict(status='planned', tile=row['tile'], extent_en=row['extent_en']))
     first = base.PLAN['quarters'][0]['coverage_id']
     states[first].update(proof)
     base.atomic_json(ROOT / 'plan.json', base.PLAN)
-    rows = [row for row in base.PLAN['quarters'] if states[row['coverage_id']]['status'] != 'scored']
+    rows = [row for row in base.PLAN['quarters'] if states[row['coverage_id']]['status'] not in ('scored','abstained')]
     capture_rows = [row for row in rows if not (ROOT/'captures'/row['coverage_id']/'capture.json').exists()
         or json.loads((ROOT/'captures'/row['coverage_id']/'capture.json').read_text()).get('inventory_state') != 'eligible']
     invocation = ROOT / 'sweep-invocation.json'
@@ -40,20 +42,20 @@ def run():
         env=env, stdout=log, stderr=subprocess.STDOUT) if capture_rows else None
     jobs = {}
     attempted = {}
-    announced = 0
-    with ProcessPoolExecutor(max_workers=2) as pool:
+    announced = json.loads((ROOT/'milestone.json').read_text()).get('scored',0)//10 if (ROOT/'milestone.json').exists() else 0
+    with ProcessPoolExecutor(max_workers=4) as pool:
         while True:
             for row in rows:
                 key = row['coverage_id']
                 record_path = ROOT / 'captures' / key / 'capture.json'
-                if not record_path.exists() or states[key]['status'] == 'scored':
+                if not record_path.exists() or states[key]['status'] in ('scored','abstained'):
                     continue
                 record = json.loads(record_path.read_text())
                 if key in jobs:
                     continue
                 states[key].update(status=record['inventory_state'], progress=record.get('detail_progress'),
                     stop_reason=record.get('stop_reason'))
-                if record.get('finished') and record['inventory_state'] == 'eligible' and time.time()-attempted.get(key,0) > 15:
+                if len(jobs) < 4 and record.get('finished') and record['inventory_state'] == 'eligible' and time.time()-attempted.get(key,0) > 15:
                     jobs[key] = pool.submit(base.score_one, row, ROOT)
                     attempted[key] = time.time()
                     states[key]['status'] = 'scoring'
@@ -74,9 +76,9 @@ def run():
                 base.atomic_json(ROOT / 'milestone.json', dict(scored=scored, at=time.time()))
                 subprocess.run([str(base.REPO/'scripts/dev/codex-task'), 'msg', 'orchestrator',
                     '--kind', 'note', '--subject', f'{scored} synthetic quarters scored',
-                    f'Confirmed counts by generator theme and immutable score reports: {ROOT / "findings.md"}'])
+                    f'Confirmed theme counts: { {name: counts.get("confirmed", 0) for name, counts in json.loads((ROOT / "findings.json").read_text())["themes"].items()} }. Findings and score reports: {ROOT / "findings.md"}'])
             if (browser is None or browser.poll() is not None) and not jobs:
-                eligible = [key for key,state in states.items() if state['status'] != 'scored'
+                eligible = [key for key,state in states.items() if state['status'] not in ('scored','abstained')
                     and (ROOT/'captures'/key/'capture.json').exists()
                     and json.loads((ROOT/'captures'/key/'capture.json').read_text()).get('inventory_state') == 'eligible']
                 if not eligible:

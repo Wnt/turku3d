@@ -166,3 +166,31 @@ admission/budget accounting. The runner never builds a local world tile. A fresh
 proof must be eligible and scored before the sweep starts. A manual capture
 window remains a fallback if the native synthetic route is blocked; no manual
 window was needed for the successful proof.
+
+The scoring adapter also scopes decoding before unpacking geometry: cached
+metadata AABBs intersect the quarter plus 25 m, conservatively wider than the
+decoder's 20 m clip. The full response catalogue stays intact. A separate decoder
+input view uses hard links and reuses existing products; interruption does not
+replace the original capture inventory. Spatial metadata caches are addressed
+by response hash and parser/radius identity. Disk accounting counts hard-linked
+bodies once and tolerates atomic temporary-file renames.
+
+The selection retained every source mesh in fourteen completed unscoped decodes.
+A representative 7,307-response quarter reduced to 930 decoder inputs while
+preserving all 574 mesh records and producing bit-identical height, RGB, normal
+and LOD rasters. This representative validation took 13.50 s, excluding its
+sandbox-copy setup; no area rebuild or browser was needed.
+
+A complete reference can still lack enough independent open ground for vertical
+calibration. Such a score is explicitly **abstained**, with its reason and own
+snapshot recorded in `score-abstention.json`. It is not counted as measured and
+is not retried indefinitely. Calibration thresholds are unchanged. Transient OCI
+availability failures remain retryable.
+
+For the authorized fast-capture extension, `gmaps_extra_select.py` selects twenty
+more urban quarters within the original requested parent tiles, prioritizing
+bridges, retaining the same OSM exclusions and seeded order. It writes private
+`extra-plan.json` and `expanded-plan.json`. `GMAPS_PLAN` selects an explicit plan
+for the runner; the original forty remain its prefix. Existing eligible captures
+and completed scores are reused. Milestone notices retain their previous count
+across restarts.
