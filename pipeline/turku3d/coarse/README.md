@@ -428,6 +428,9 @@ Cached Kanta/GIS records enrich facade material, construction era and storeys. S
 OSM building outlines add cladding, tagged colour and missing layout; shop POIs/building use add
 shopfronts. Register storeys and validated parameter-store descriptions remain authoritative.
 Missing register fields stay unknown. No reference images or sampled reference colours enter inputs.
+Named OSM yellow remains a paint family and resolves through the existing cladding/era ochre
+palettes; explicit hexadecimal colours keep their values. Non-retail walls retain regular
+register floor spacing; only mapped shops receive the taller ground-floor layout.
 The game preserves authored draft colours; the former 55% saturation and blue multiplier are removed.
 Full ground keeps only a bounded 0.96–1.06 low-frequency luminance multiplier; material albedo
 remains authoritative at distance too.

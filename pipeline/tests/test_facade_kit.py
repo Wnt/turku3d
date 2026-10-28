@@ -7,6 +7,7 @@ def test_parameters_keep_storeys_and_material():
     p = parameters("example", 12.8, 18, {"levels": 4, "material_class": "brick"})
     assert 6 <= p["module"] < 12
     assert p["storey"] == 3.2
+    assert p["ground"] == p["upper"] == p["storey"]
     assert p["bay"] == 3
     assert p == parameters("example", 12.8, 18, {"levels": 4, "material_class": "brick"})
 
@@ -23,6 +24,52 @@ def test_shop_ground_floor_is_taller_without_repeating_upper_floor_at_roof():
     assert p["ground"] == 4
     assert p["upper"] < p["ground"]
     assert abs(p["ground"] + 3 * p["upper"] - 12.8) < 1e-8
+
+
+def test_named_yellow_uses_material_era_palette_while_measured_hex_is_preserved():
+    attrs = {"wall_colour": "#b9b946", "wall_colour_name": "yellow"}
+    historic = parameters(
+        "historic", 9, 18, {**attrs, "material_class": "render", "era": "pre-1850"}
+    )
+    modern = parameters("modern", 9, 18, {**attrs, "material_class": "render", "era": "1960+"})
+    wood = parameters("wood", 6, 12, {**attrs, "material_class": "wood"})
+    brick = parameters("brick", 9, 18, {**attrs, "material_class": "brick"})
+    assert historic["wall"] == "#d8bf7a"
+    assert modern["wall"] == "#d3c58e"
+    assert wood["wall"] == "#d9c48e"
+    assert brick["wall"] == "#c4a777"
+    explicit = parameters("measured", 9, 18, {"wall_colour": "#b9b946", "material_class": "render"})
+    assert explicit["wall"] == "#b9b946"
+
+
+def test_osm_preserves_named_paint_family_without_relabelling_measured_hex(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import shapely
+    from turku3d import config as C
+    from turku3d.coarse.register import read_osm
+
+    path = tmp_path / "osm.parquet"
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {
+                    "tags": json.dumps({"building": "yes", "building:colour": value}),
+                    "geometry_local": shapely.to_wkb(shapely.box(10 + i * 20, 10, 20 + i * 20, 20)),
+                }
+                for i, value in enumerate(("yellow", "#b9b946"))
+            ]
+        ),
+        path,
+    )
+    named, measured = [
+        attrs for _, attrs in read_osm(C.VisualTile.parse("t0_0_0"), path)["buildings"]
+    ]
+    assert named["wall_colour_name"] == "yellow"
+    assert measured["wall_colour"] == "#b9b946"
+    assert "wall_colour_name" not in measured
 
 
 def test_atlas_mask_separates_white_frames_wall_and_unpainted_mortar():

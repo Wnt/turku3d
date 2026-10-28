@@ -119,14 +119,23 @@ def parameters(
     )
     if d["window_columns"] == 0 and d["ground_floor"] == "plain":
         module = 42 + MATERIALS.index(d["material"])
+    storey = max(1.0, height / plan["storeys"])
+    # Only mapped retail use supports stretching the ground floor. Other walls
+    # retain the register's regular floor grid rather than an arbitrary 8% uplift.
+    ground = plan["ground_m"] if d["ground_floor"] == "shops" else storey
+    upper = (
+        (height - ground) / (plan["storeys"] - 1)
+        if d["ground_floor"] == "shops" and plan["storeys"] > 1
+        else storey
+    )
     return dict(
         module=module,
         wall=d["wall_colour"],
         trim=d["trim_colour"],
         bay=3.0 if module >= 42 else plan["bay_m"],
-        storey=max(1.0, height / plan["storeys"]),
-        ground=plan["ground_m"],
-        upper=plan["upper_m"] or plan["ground_m"],
+        storey=storey,
+        ground=ground,
+        upper=upper,
     )
 
 

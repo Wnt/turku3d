@@ -116,6 +116,7 @@ def read_osm(tile, path):
                 # Named OSM colours describe a paint family, not a saturated screen primary.
                 # Explicit hexadecimal measurements retain their original value.
                 if not colour.startswith("#"):
+                    d["wall_colour_name"] = colour.strip().casefold()
                     hue, lightness, saturation = colorsys.rgb_to_hls(*(v / 255 for v in rgb))
                     rgb = tuple(
                         round(v * 255)

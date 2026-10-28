@@ -54,7 +54,7 @@ export function bindFacadeKit(doc, request, material, prim, e, texture) {
   const version = request.facadeKit.version ?? 2;
   if (version >= 3) {
     const floors = Math.max(1, Math.round(height / p.storey));
-    const ground = p.ground ?? (floors === 1 ? height : Math.min(Math.max(p.storey * (p.module < 42 && p.module % 3 === 2 ? 1.25 : 1.08), 2.8), 5, height * .6));
+    const ground = p.ground ?? (floors > 1 && p.module < 42 && p.module % 3 === 2 ? Math.min(Math.max(p.storey * 1.25, 2.8), 5, height * .6) : p.storey);
     const upper = p.upper ?? (floors > 1 ? (height - ground) / (floors - 1) : ground);
     attribute('_KIT_FLOORS', 'VEC3', [ground, upper, Math.floor(width / p.bay / 2)]);
   }
