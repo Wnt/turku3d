@@ -20,7 +20,8 @@ if (label === 'before') {
 let browser;
 try {
 browser = await chromium.launch({ channel: 'chrome', headless: true, args: [`--remote-debugging-port=${port + 8}`, '--enable-unsafe-webgpu', '--use-angle=metal'] });
-const page = await browser.newPage();
+const context = await browser.newContext(label === 'fallback' ? { serviceWorkers: 'block' } : {});
+const page = await context.newPage();
 await page.addInitScript(() => {
  window.keyCosts = [];
  const add = EventTarget.prototype.addEventListener;
@@ -34,7 +35,10 @@ await page.addInitScript(() => {
  };
 });
 page.on('pageerror', e => console.log('PAGE', e.message));
-const recorder = spawn(process.execPath, [`${process.env.HOME}/turku3d/profiling/record.mjs`, `http://127.0.0.1:${port+8}`, `http://127.0.0.1:${port}/?scene=dev&test&quality=low&aa=off`, '65', out], { stdio:'inherit' });
+const gameUrl = label === 'fallback'
+ ? `http://127.0.0.1:${port+4}/turku-game/game/?scene=dev&test&quality=low&aa=off`
+ : `http://127.0.0.1:${port}/?scene=dev&test&quality=low&aa=off`;
+const recorder = spawn(process.execPath, [`${process.env.HOME}/turku3d/profiling/record.mjs`, `http://127.0.0.1:${port+8}`, gameUrl, '65', out], { stdio:'inherit' });
 await page.waitForFunction(() => window.__game?.ready, null, { timeout:180000 });
 await page.getByRole('option', { name:'New game' }).click();
 await page.getByRole('button', { name:'Skip', exact:true }).click();
@@ -45,7 +49,7 @@ await page.evaluate(() => {
  let tick=-1, received=performance.now();
  function sample() { const n=performance.now(), s=p.latest;
  if(s?.tick!==tick){ tick=s?.tick; received=n; }
- window.latency.push({t:n,age:s?.publishedAt ? performance.timeOrigin+n-s.publishedAt : n-received,stepMs:s?.stepMs,tick,transport:p.transport});
+ window.latency.push({t:n,age:s?.publishedAt ? performance.timeOrigin+n-s.publishedAt : n-received,stepMs:s?.stepMs,tick,bytes:p.stateBytes,transport:p.transport});
  const end=performance.now()+22; while(performance.now()<end){ /* Synthetic main-thread load. */ } requestAnimationFrame(sample); }
  requestAnimationFrame(sample);
 });
@@ -55,6 +59,7 @@ const timer=setInterval(() => { void cdp.send('Input.dispatchKeyEvent',{type:'ke
 await page.waitForTimeout(45000); clearInterval(timer);
 await cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'w',code:'KeyW',windowsVirtualKeyCode:87});
 const rows=await page.evaluate(()=>window.latency);
+if (!rows.length || rows.at(-1).tick === rows[0].tick) throw new Error('physics did not advance during the held-key run');
 const keys=await page.evaluate(()=>window.keyCosts);
 fs.writeFileSync(`${out}/key-cost.json`,JSON.stringify(keys));
 console.log('key cost',JSON.stringify({events:keys.length,totalMs:keys.reduce((s,k)=>s+k.ms,0),maxMs:Math.max(...keys.map(k=>k.ms))}));
@@ -66,7 +71,7 @@ const perSecond = Object.values(rows.reduce((groups,r) => {
  return groups;
 },{}));
 fs.writeFileSync(`${out}/state-seconds.json`,JSON.stringify(perSecond,null,2));
-console.log(label,JSON.stringify({frames:rows.length,maxAge:Math.max(...rows.map(r=>r.age)),maxStep:Math.max(...rows.map(r=>r.stepMs??0)),transport:rows.at(-1)?.transport}));
+console.log(label,JSON.stringify({frames:rows.length,maxAge:Math.max(...rows.map(r=>r.age)),maxStep:Math.max(...rows.map(r=>r.stepMs??0)),maxBytes:Math.max(...rows.map(r=>r.bytes??0)),transport:rows.at(-1)?.transport}));
 if (label === 'after') {
  const root=fs.realpathSync(`${process.env.TURKU3D_DATA}/live/tiles`);
  const manifest=JSON.parse(fs.readFileSync(`${root}/manifest.json`));
@@ -97,6 +102,7 @@ if (label === 'after') {
  });
  await page.waitForTimeout(12500);
  const manoeuvre=await page.evaluate(()=>window.manoeuvre.rows);
+ if (!manoeuvre.length || Math.max(...manoeuvre.map(r=>r.speed??0)) < .2) throw new Error('real-tile steered-start car did not accelerate');
  fs.writeFileSync(`${out}/steered-start-real-tiles.json`,JSON.stringify({root,pos,rows:manoeuvre}));
  console.log('steered start',JSON.stringify({samples:manoeuvre.length,maxStep:Math.max(...manoeuvre.map(r=>r.stepMs)),maxSpeed:Math.max(...manoeuvre.map(r=>r.speed??0))}));
 }
@@ -112,6 +118,7 @@ if (label === 'after' && fs.existsSync(`${process.env.TURKU3D_WORK}/build/game/i
   workerReady:await window.__game.physics.ready,
  }));
  result.errors=errors;
+ if (result.transport !== 'shared' || errors.length) throw new Error(`Pages isolation failed: ${JSON.stringify(result)}`);
  fs.writeFileSync(`${out}/pages-isolation.json`,JSON.stringify(result,null,2));
  console.log('Pages isolation',JSON.stringify(result));
  await pages.close();

@@ -43,6 +43,8 @@ export class PhysicsWorld {
 
   // vehicle
   private vehicles = new Map<string, Vehicle>();
+  private vehicleSnapshots = new Map<string, { state: VehicleState; sleeping: boolean }>();
+  private poleSnapshots = new Map<string, { state: PoleState; resting: boolean }>();
   private drivenId: string | null = 'player';
   private nearbyVehicles = new Set<string>();
   private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode'] }>();
@@ -284,7 +286,15 @@ export class PhysicsWorld {
   }
   resetVehicle(pos: V3, yaw: number, id = 'player') { this.vehicles.get(id)?.reset(pos, yaw); }
   vehicleState(): VehicleState | null { return this.vehicles.get(this.drivenId ?? 'player')?.state() ?? null; }
-  vehicleStates(): VehicleState[] { return [...this.vehicles].map(([id, vehicle]) => ({ id, ...vehicle.state() })); }
+  vehicleStates(): VehicleState[] {
+    return [...this.vehicles].map(([id, vehicle]) => {
+      const sleeping = vehicle.body.isSleeping(), old = this.vehicleSnapshots.get(id);
+      if (old && sleeping && old.sleeping) return old.state;
+      const state = { id, ...vehicle.state() };
+      this.vehicleSnapshots.set(id, { state, sleeping });
+      return state;
+    });
+  }
 
   /** Kinematic proxies are driven by interpolated network poses. They collide with the local KCC and vehicles. */
   setRemotes(bodies: RemoteBody[]) {
@@ -317,6 +327,7 @@ export class PhysicsWorld {
 
   setPoles(add: PoleSpec[], remove: string[]) {
     for (const id of remove) {
+      this.poleSnapshots.delete(id);
       const pole = this.poles.get(id);
       if (!pole) continue;
       this.world.removeRigidBody(pole.body);
@@ -363,12 +374,16 @@ export class PhysicsWorld {
     pole.body.applyTorqueImpulse({ x: 0, y: 0, z: 8 }, true);
   }
 
-  poleStates(): PoleState[] {
-    return [...this.poles].map(([id, p]) => {
+  poleStates(brokenOnly = false): PoleState[] {
+    return [...this.poles].filter(([, p]) => !brokenOnly || p.brokenAt !== null).map(([id, p]) => {
+      const resting = p.body.isSleeping() || p.body.bodyType() === this.R.RigidBodyType.Fixed;
+      const old = this.poleSnapshots.get(id);
+      if (brokenOnly && old && resting && old.resting && !p.brokeNow) return old.state;
       const pos = p.body.translation(), rot = p.body.rotation();
       const state = { id, pos: { x: pos.x, y: pos.y, z: pos.z },
         rot: { x: rot.x, y: rot.y, z: rot.z, w: rot.w }, broken: p.brokenAt !== null, brokeNow: p.brokeNow };
       p.brokeNow = false;
+      if (brokenOnly) this.poleSnapshots.set(id, { state, resting });
       return state;
     });
   }

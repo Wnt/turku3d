@@ -15,6 +15,7 @@ export class SharedMailbox<T> {
     this.bytes = new Uint8Array(buffer, 8);
   }
   static create<T>(capacity: number) { return new SharedMailbox<T>(new SharedArrayBuffer(capacity + 8)); }
+  get publishedBytes() { return Atomics.load(this.header, 1); }
   write(value: T) {
     const encoded = this.encoder.encode(JSON.stringify(value));
     if (encoded.length > this.bytes.length) throw new Error(`physics mailbox overflow: ${encoded.length}/${this.bytes.length}`);

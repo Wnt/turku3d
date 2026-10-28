@@ -1,6 +1,8 @@
 // Physics Web Worker: owns the Rapier world. Protocol in ./protocol.ts.
 import * as RAPIER from '@dimforge/rapier3d';
 import { PhysicsWorld } from './world';
+import { ActorUpdates } from './actorExchange';
+import type { VehicleState, PoleState } from './protocol';
 import { DT } from './constants';
 import { colReaderName } from './colTile';
 import { ColFormatError } from '../shared/col/colFormat';
@@ -28,19 +30,24 @@ let stateMailbox: SharedMailbox<PhysicsState> | null = null;
 let input: LiveInput | null = null;
 let jump = 0, stateSeq = 0;
 let statePending = false;
+let revision = 0, acknowledged = 0;
+const vehicles = new ActorUpdates<VehicleState>(), poleUpdates = new ActorUpdates<PoleState>();
 const clock = new PhysicsClock();
 const localBreaks = new Set<string>();
 function snapshot(seq: number, dt: number, character: LiveInput['character'], vehicle: LiveInput['vehicle']) {
   if (!pw) return;
   const t0 = performance.now();
   const substeps = pw.step(dt, character, vehicle);
-  const poles = pw.poleStates();
+  const poles = pw.poleStates(true);
+  revision++;
+  const vehicleDelta = vehicles.sample(pw.vehicleStates(), revision, acknowledged);
   // The renderer may skip snapshots. Keep locally-caused break edges until its stable-ID dedup consumes them.
   for (const p of poles) { if (p.brokeNow) localBreaks.add(p.id); p.brokeNow = localBreaks.has(p.id); }
-  const state: PhysicsState = { type: 'state', seq, substeps, tick: pw.tick, remainder: pw.remainder,
+  const poleDelta = poleUpdates.sample(poles, revision, acknowledged);
+  const state: PhysicsState = { type: 'state', seq, revision, actorsDelta: true, removedVehicles: vehicleDelta.removed, removedPoles: poleDelta.removed, substeps, tick: pw.tick, remainder: pw.remainder,
     previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle,
     stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(),
-    vehicles: pw.vehicleStates(), poles, publishedAt: performance.timeOrigin + performance.now() };
+    vehicles: vehicleDelta.updates, poles: poleDelta.updates, publishedAt: performance.timeOrigin + performance.now() };
   if (stateMailbox) stateMailbox.write(state);
   else if (!statePending) { statePending = true; post(state); }
 }
@@ -50,6 +57,7 @@ function schedule() {
     // Join the same chain as tile decode and actor commands. Only one timer may be queued.
     chain = chain.then(() => {
       input = inputMailbox?.read() ?? input;
+      acknowledged = Math.max(acknowledged, input?.acknowledged ?? 0);
       const now = performance.now();
       nextWake = now + DT * 1000;
       const running = !!input?.running && performance.timeOrigin + now - input.at < 500;
@@ -76,7 +84,7 @@ async function handle(msg: ToWorker) {
   switch (msg.type) {
     case 'exchange': inputMailbox = new SharedMailbox(msg.input); stateMailbox = new SharedMailbox(msg.state); break;
     case 'input': input = msg.input; break;
-    case 'stateAck': statePending = false; break;
+    case 'stateAck': statePending = false; acknowledged = Math.max(acknowledged, msg.revision); break;
     case 'loadTile':
       try { post({ type: 'tileLoaded', stats: await pw.loadTile(msg.id, msg.buffer) }); }
       catch (e) { post({ type: 'tileError', id: msg.id, error: String((e as Error).message ?? e), permanent: e instanceof ColFormatError }); }

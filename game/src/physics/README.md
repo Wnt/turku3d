@@ -44,8 +44,8 @@ worker reads. Each mailbox has two Int32 header words (sequence, byte length), t
 UTF-8 JSON bytes: odd sequence means writing, even means complete. Readers copy only
 the published length and validate the sequence afterwards; on contention they retain
 the previous snapshot until the next frame. Input capacity is 2 KiB and state capacity
-4 MiB; overflow is an explicit physics error, never a truncated actor list. JSON keeps
-the complete existing state schema, including all vehicles, string IDs and poles.
+4 MiB; overflow is an explicit physics error, never a truncated actor list. JSON retains string IDs and the existing pose fields; actor updates use the
+acknowledged delta protocol below. The client reconstructs complete vehicle state.
 `publishedAt` uses `performance.timeOrigin + performance.now()` across contexts;
 interpolation uses publication time rather than delayed message receipt time.
 Locally caused pole breaks remain latched by stable ID in snapshots, preserving the
@@ -88,3 +88,18 @@ worker step duration and measured keyboard callback costs stay under
 `$TURKU3D_WORK/reports/latency/`. The `before` argument temporarily restores the
 reported baseline's transport/input/frame callers during measurement, then restores
 the working files. Run it only while this sandbox has no concurrent edits/checks.
+
+### Actor allocation
+
+The wire `state` contains cumulative actor deltas (`actorsDelta`, `revision`,
+`removedVehicles`, `removedPoles`); `PhysicsClient.latest` reconstructs the complete
+vehicle list and resident broken-pole poses in caches. Standing poles are already
+placed by source geometry and are omitted entirely. Sleeping vehicles and settled
+broken poles reuse their last pose objects in the worker, so they incur neither
+per-step Rapier pose extraction nor serialization/decoding. Moving actors publish
+fresh poses. Final resting poses and removals remain in every snapshot until the
+client acknowledges its consumed revision through shared input (or `stateAck` on
+the fallback). This keeps the exchange correct when the renderer skips snapshots,
+without resending hundreds of stationary actors. `stateBytes` reports shared packet
+size for the manual allocation diagnostic. Initial actor discovery can be a larger
+one-time snapshot; subsequent packets contain only actors that changed.

@@ -1,4 +1,6 @@
 // Main-thread side of the physics worker.
+import { ActorCache } from './actorExchange';
+import type { PoleState, VehicleState } from './protocol';
 import { SharedMailbox } from './exchange';
 import type { LiveInput } from './protocol';
 import { loading, loadBytes } from '../core/loading';
@@ -20,16 +22,20 @@ export class PhysicsClient {
   private stateMailbox = globalThis.crossOriginIsolated ? SharedMailbox.create<StateMsg>(4 * 1024 * 1024) : null;
   private inputMailbox = this.stateMailbox ? SharedMailbox.create<LiveInput>(2048) : null;
   readonly transport = this.stateMailbox ? 'shared' : 'message';
+  get stateBytes() { return this.stateMailbox?.publishedBytes ?? null; }
   readonly characterRender = new CharacterInterpolation();
   readonly vehicleRender = new VehicleInterpolation();
   private state: StateMsg | null = null;
+  private vehicles = new ActorCache<VehicleState>();
+  private poles = new ActorCache<PoleState>();
   get latest(): StateMsg | null {
     const m = this.stateMailbox?.read();
     if (m) this.acceptState(m);
     return this.state;
   }
   private acceptState(m: StateMsg) {
-    this.state = m;
+    this.state = { ...m, vehicles: this.vehicles.apply(m.vehicles, m.removedVehicles, m.actorsDelta ?? false),
+      poles: this.poles.apply(m.poles, m.removedPoles, m.actorsDelta ?? false) };
     const now = performance.now() / 1000;
     const published = m.publishedAt === undefined ? now : (m.publishedAt - performance.timeOrigin) / 1000;
     this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, published);
@@ -56,7 +62,7 @@ export class PhysicsClient {
         case 'ready': ready(`Rapier ${m.rapier} · ${m.wasmBytes ? loadBytes(m.wasmBytes) : 'WASM ready'} · ${m.colReader}`); this.colReader = m.colReader; this.isReady = true; if (this.inputMailbox && this.stateMailbox) this.worker.postMessage({ type: 'exchange', input: this.inputMailbox.buffer, state: this.stateMailbox.buffer }); for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
         case 'state':
           this.acceptState(m);
-          this.send({ type: 'stateAck' });
+          this.send({ type: 'stateAck', revision: m.revision ?? 0 });
           break;
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
         case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
@@ -122,11 +128,11 @@ export class PhysicsClient {
 
   /** Called every render frame, including paused frames. Never waits for a reply. */
   updateInput(character: CharacterInput, vehicle: VehicleInput | null, running: boolean) {
+    void this.latest;
     const input: LiveInput = { character: { ...character, jump: false }, vehicle, running,
-      jump: this.jump += Number(character.jump && running), at: performance.timeOrigin + performance.now() };
+      jump: this.jump += Number(character.jump && running), at: performance.timeOrigin + performance.now(), acknowledged: this.state?.revision ?? 0 };
     if (this.inputMailbox) this.inputMailbox.write(input);
     else this.send({ type: 'input', input });
-    void this.latest;
   }
 
   cameraCast(origin: V3, dir: V3, distance: number): Promise<number> {
