@@ -33,8 +33,13 @@ established buildings only, so GIS gap fillers never move them, and GIS building
 The batch runs and the class-6 points (one array per LAZ tile) are cached by content in
 `$TURKU3D_DATA/cache/buildings`, shared between sandboxes, with locks and atomic publication.
 
-Inputs are immutable `raw/wfs/work-3x3/{kanta_Rakennus,GIS_Rakennukset,bldg_Building_LOD2,GIS_Keskilinjat}.parquet`,
-class-6 points in `raw/laz/pistepilvi`, OSM GeoParquet, and `raw/ortho/ortho2022to/work-3x3`.
+Inputs are immutable WFS and OSM GeoParquet from each listed tile's
+`config.source_area(tile)` (plus `work-3x3` for the core), class-6 points in
+`raw/laz/pistepilvi`, and origin-aligned 2022 true-ortho chunks from those areas.
+Overlapping WFS features are deduplicated by source key and geometry in a sandbox
+cache under `$TURKU3D_WORK/cache/buildings/source-union`; the raw files are not changed.
+For a newly listed tile, run `make tile-add T=t0_i_j` to fetch its source area and
+rebuild the layer before `bash pipeline/env/run.sh python -m turku3d.region list-tile t0_i_j`.
 The WFS cache preserves CityGML polygon rings, holes and semantic surface types.
 The default producer region is `config.PLAYABLE_TILES`, the four complete L0 tiles.
 The inventory keeps the established kantakartta IDs and adds GIS building outlines absent

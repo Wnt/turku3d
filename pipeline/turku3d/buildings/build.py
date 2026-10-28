@@ -13,6 +13,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from shapely.geometry import mapping
 from shapely.ops import unary_union
 
@@ -33,6 +34,27 @@ from .tiles import collision_tiles, ownership_point
 
 def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
+
+
+def source_paths(areas, name):
+    return [C.raw_dir("wfs") / area / (name + ".parquet") for area in areas]
+
+
+def merged_source(paths, output):
+    """Combine complete WFS features from each playable tile's input area."""
+    if len(paths) == 1:
+        return paths[0]
+    frames = [gpd.read_parquet(path) for path in paths]
+    merged = gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs=frames[0].crs)
+    # Areas overlap. One source feature can have several rows (CityGML surfaces),
+    # so retain distinct geometry while removing copies fetched for another area.
+    unique = pd.Series(
+        [hashlib.sha256(geom.wkb).digest() for geom in merged.geometry], index=merged.index
+    )
+    merged = merged.loc[~pd.MultiIndex.from_arrays([merged.feature_key, unique]).duplicated()]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_parquet(output)
+    return output
 
 
 def _publish(
@@ -273,14 +295,29 @@ def main(argv=None):
     started = time.monotonic()
     cache = C.data_root() / "cache/buildings"
     cache.mkdir(parents=True, exist_ok=True)
-    source = C.raw_dir("wfs") / args.source_area
-    paths = {
-        name: source / (name + ".parquet")
-        for name in ["kanta_Rakennus", "GIS_Rakennukset", "bldg_Building_LOD2", "GIS_Keskilinjat"]
-    }
     visual_tiles = [C.VisualTile.parse(tid) for tid in args.tiles]
     if any(tile.level != 0 for tile in visual_tiles):
         raise ValueError("building source tiles must be L0")
+    tile_areas = {tile.id: C.source_area(tile.id) for tile in visual_tiles}
+    areas = list(dict.fromkeys([args.source_area, *tile_areas.values()]))
+    names = ["kanta_Rakennus", "GIS_Rakennukset", "bldg_Building_LOD2", "GIS_Keskilinjat"]
+    raw_paths = {name: source_paths(areas, name) for name in names}
+    source_key = hashlib.sha256(
+        json.dumps(
+            [
+                (str(path), path.stat().st_size, path.stat().st_mtime_ns)
+                for files in raw_paths.values()
+                for path in files
+            ]
+        ).encode()
+    ).hexdigest()
+    union = C.work_root() / "cache/buildings/source-union" / source_key
+    paths = {
+        name: merged_source(files, union / (name + ".parquet"))
+        if not (union / (name + ".parquet")).exists()
+        else union / (name + ".parquet")
+        for name, files in raw_paths.items()
+    }
     region = C.BBoxLocal(
         min(t.bbox.xmin for t in visual_tiles),
         min(t.bbox.zmin for t in visual_tiles),
@@ -295,10 +332,19 @@ def main(argv=None):
     print(f"Footprints: {len(buildings)}", flush=True)
     if not buildings:
         raise ValueError("no AOI buildings")
-    osm_paths = sorted((C.raw_dir("osm") / args.source_area).glob("*.parquet"))
-    if not osm_paths:
-        raise FileNotFoundError("OSM GeoParquet is required")
-    attach_osm(buildings, osm_paths[-1])
+    osm_paths = {}
+    for area in areas:
+        candidates = sorted((C.raw_dir("osm") / area).glob("*.parquet"))
+        if not candidates:
+            raise FileNotFoundError(f"OSM GeoParquet is required for {area}")
+        osm_paths[area] = candidates[-1]
+    buildings_by_area = defaultdict(list)
+    for b in buildings:
+        point = ownership_point(b.footprint, visual_tiles)
+        buildings_by_area[tile_areas[C.VisualTile.at(point.x, point.y).id]].append(b)
+    for area, owned in buildings_by_area.items():
+        if owned:
+            attach_osm(owned, osm_paths[area])
     established = {
         b.id
         for b in read_footprints(paths["kanta_Rakennus"], region)
@@ -323,7 +369,15 @@ def main(argv=None):
     # Only the LAZ tiles under or near some building: an L-shaped tile list's bounding box can
     # reach lidar tiles nobody fetched because nothing there is built.
     laz = sorted({p for b in buildings for p in (*roofer_lidar(b), *evidence_lidar(b))})
-    inputs = {str(p): sha256(p) for p in [*paths.values(), *laz, osm_paths[-1], *ortho]}
+    inputs = {
+        str(p): sha256(p)
+        for p in [
+            *(p for files in raw_paths.values() for p in files),
+            *laz,
+            *osm_paths.values(),
+            *ortho,
+        ]
+    }
     params = {
         "aoi_local": region.as_tuple(),
         "visual_tiles": args.tiles,
