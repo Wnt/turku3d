@@ -33,6 +33,14 @@ def test_small_wall_expansion_fits_photo_for_reversed_uv():
     assert np.allclose([uv["offset"][0], uv["offset"][0] + uv["scale"][0] * rebuilt.length], [1, 0])
 
 
+def test_short_wall_keeps_map_when_footing_extends_but_top_stays_fixed():
+    old = wall("a_0", [0, 0], [4, 0], base=16.6, height=2.65)
+    extended = wall("a_0", [0, 0], [4, 0], base=15.85, height=3.4)
+    assert match_score(old, extended) is not None
+    assert match_score(old, wall("a_0", [0, 0], [4, 0], base=15.85, height=3.5)) is None
+    assert match_score(old, wall("a_0", [0, 0], [4, 0], base=15.75, height=3.5)) is None
+
+
 def test_different_wall_or_building_is_not_reused():
     old = wall("a_0", [0, 0], [20, 0])
     assert match_score(old, wall("b_0", [0, 0], [20, 0], building="b")) is None

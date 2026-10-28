@@ -178,9 +178,12 @@ their roof material. Both surfaces retain the original `outer-lod2-<id>` object 
 At publication, walls sharing vertices with a `GroundSurface` are sampled against
 adjacent published ground triangles, 0.4 m outside the wall and at most 2 m apart.
 A floating footing is extended downward by at most 0.75 m (the facade rebind's
-base-correction range). All shared footing vertices move together, preserving a
+base-correction range). Sampling always includes the wall midpoint. A deeper local
+depression requests the capped extension when the same wall also has terrain within
+0.75 m of its footing; it does not discard the correction. Walls with no nearby
+terrain support remain model-review issues. All shared footing vertices move together, preserving a
 closed collider and the roof heights. Elevated wall surfaces without ground
-contact stay in place. Larger offsets remain model-review issues. The ground
+contact stay in place. The ground
 manifest is recorded as an input so terrain changes invalidate publication; the
 cached reconstruction is retained, and the normal facade refresh rebinds maps
 to the corrected dimensions. Both full and facade-only refresh finish ground

@@ -48,6 +48,34 @@ def test_elevated_wall_without_ground_surface_contact_is_not_fitted():
     assert fitted is elevated and drop == 0
 
 
+@pytest.mark.parametrize("depth", [0.812, 1.015])
+def test_local_depression_requests_capped_extension_with_nearby_ground_support(depth):
+    original = shell(base=0)
+
+    def terrain(point):
+        # The four-metre wall's midpoint is lower than its supported endpoints.
+        return (-depth if np.linalg.norm(point - [2, -0.4]) < 0.01 else 0.0, 1)
+
+    fitted, drop = ground_contact(original, terrain)
+    assert drop == pytest.approx(0.75)
+    assert fitted.positions[:, 1].min() == pytest.approx(-0.75)
+    assert depth - drop < 0.3
+    assert trimesh.Trimesh(fitted.positions, fitted.indices).is_watertight
+    roof = original.positions[:, 1] == 8
+    assert np.array_equal(fitted.positions[roof], original.positions[roof])
+
+
+def test_sampling_includes_midpoint_when_two_metre_spacing_would_skip_it():
+    footprint = box(0, 0, 6, 4)
+    original = make_shell(extrusion(footprint, 0, 8), footprint)
+
+    def terrain(point):
+        return (-0.5 if np.linalg.norm(point - [3, -0.4]) < 0.01 else 0.0, 1)
+
+    _, drop = ground_contact(original, terrain)
+    assert drop == pytest.approx(0.5)
+
+
 @pytest.mark.parametrize("terrain", [None, (-2.0, 1), (1.0, 1)])
 def test_missing_far_below_or_higher_ground_does_not_move_the_shell(terrain):
     original = shell(base=0)
