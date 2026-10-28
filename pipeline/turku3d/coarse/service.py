@@ -52,8 +52,8 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
-from .demand import Demand, write_snapshot
 from .build import code_hash
+from .demand import Demand, write_snapshot
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
 from .sources import NoCoverage, Sources, Unit

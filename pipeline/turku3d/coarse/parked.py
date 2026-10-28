@@ -100,10 +100,6 @@ def place(tile, prepared, heights, water=(), barriers=(), trees=(), poles=(), de
 
     pending_truck = False
     for f in sorted(features, key=lambda f: f.id):
-        parallel = True
-        if f.geometry.geom_type in ("Polygon", "MultiPolygon"):
-            rect = np.asarray(f.geometry.minimum_rotated_rectangle.exterior.coords)
-            parallel = min(np.linalg.norm(np.diff(rect, axis=0), axis=1)) < 7
         for key, x, z, yaw, area in candidates(f):
             rng = random_for(seed, key)
             if rng.random() > 0.8:
@@ -113,38 +109,54 @@ def place(tile, prepared, heights, water=(), barriers=(), trees=(), poles=(), de
             # Only owner-tile candidates draw the rare model; carry it to the next fitting bay.
             if not tile.bbox.contains(x, z):
                 continue
+
+            def fit(width, length, x=x, z=z, yaw=yaw, area=area):
+                shape = footprint(x, z, yaw, width, length)
+                if (
+                    not bounds.covers(shape)
+                    or (area is not None and not area.buffer(-0.2).covers(shape))
+                    or excluded.intersects(shape)
+                    or any(
+                        occupied[i].distance(shape) < 0.55
+                        for i in {i for cell in cells(shape) for i in occupied_grid.get(cell, ())}
+                    )
+                ):
+                    return None
+                ys = [
+                    grid_height(tile, heights, a, b)
+                    for a, b in list(shape.exterior.coords)[:4] + [(x, z)]
+                ]
+                if max(ys) - min(ys) > 0.15:
+                    return None
+                exits = [
+                    footprint(
+                        x + d * np.sin(yaw) * 3,
+                        z + d * np.cos(yaw) * 3,
+                        yaw,
+                        width + 0.6,
+                        length + 6,
+                    )
+                    for d in (-1, 1)
+                ]
+                if all(excluded.intersects(exit) for exit in exits):
+                    return None
+                return shape, ys
+
+            width, height, length = MODELS[name]
+            fitted = fit(width, length)
+            if fitted is None:
+                continue
+            # Draw among viable occupied slots, so rejected buildings/roads do not inflate rarity.
             pending_truck |= truck_slot(tile, key, seed)
-            width, height, length = TRUCK_SIZE if pending_truck else MODELS[name]
-            if pending_truck and not parallel and width > 2.25:
-                continue
-            shape = footprint(x, z, yaw, width, length)
-            if (
-                not bounds.covers(shape)
-                or (area is not None and not area.buffer(-0.2).covers(shape))
-                or excluded.intersects(shape)
-                or any(
-                    occupied[i].distance(shape) < 0.55
-                    for i in {i for cell in cells(shape) for i in occupied_grid.get(cell, ())}
-                )
-            ):
-                continue
-            coords = list(shape.exterior.coords)[:4] + [(x, z)]
-            ys = [grid_height(tile, heights, a, b) for a, b in coords]
-            if max(ys) - min(ys) > 0.15:
-                continue
-            # Enough lateral room and an unobstructed six-metre exit in either direction.
-            exits = [
-                footprint(
-                    x + direction * np.sin(yaw) * 3,
-                    z + direction * np.cos(yaw) * 3,
-                    yaw,
-                    width + 0.6,
-                    length + 6,
-                )
-                for direction in (-1, 1)
-            ]
-            if all(excluded.intersects(exit) for exit in exits):
-                continue
+            is_truck = False
+            if pending_truck:
+                truck_fit = fit(TRUCK_SIZE[0], TRUCK_SIZE[2])
+                if truck_fit is not None:
+                    fitted = truck_fit
+                    width, height, length = TRUCK_SIZE
+                    is_truck = True
+                    pending_truck = False
+            shape, ys = fitted
             accepted.append(
                 dict(
                     object_id=f"draft:{tile.id}:{key}",
@@ -153,7 +165,7 @@ def place(tile, prepared, heights, water=(), barriers=(), trees=(), poles=(), de
                     y=float(max(ys)),
                     z=float(z),
                     yaw=float(yaw),
-                    model="truck" if pending_truck else name,
+                    model="truck" if is_truck else name,
                     color=color,
                     width=width,
                     height=height,
@@ -163,7 +175,6 @@ def place(tile, prepared, heights, water=(), barriers=(), trees=(), poles=(), de
             for cell in cells(shape):
                 occupied_grid.setdefault(cell, []).append(len(occupied))
             occupied.append(shape)
-            pending_truck = False
     tree = shapely.STRtree(occupied)
     for i, car in enumerate(accepted):
         for field, sign in (("clear_front_m", 1), ("clear_rear_m", -1)):
@@ -207,3 +218,35 @@ def publish_models(cars, root):
         _write(root / "shared" / url.split("/")[-1], data)
         entries[f"{name}/{color}"] = _entry(url, data)
     return entries
+
+
+def stage(cache, tile, inputs, grid_pos, trees, poles, decks):
+    from pathlib import Path
+
+    from turku3d.stage_cache import source_key
+
+    from . import surfaces
+    from .inputs import CELLS
+
+    base = Path(__file__).parents[1]
+    return cache.run(
+        "parked",
+        source_key(
+            Path(__file__),
+            base / "parked/placement.py",
+            base / "parked/models.py",
+            Path(surfaces.__file__),
+            Path(C.__file__),
+        ),
+        [tile, inputs.parking, grid_pos[:, 1], inputs.water, inputs.barriers, trees, poles, decks],
+        lambda: place(
+            tile,
+            inputs.parking,
+            grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1),
+            inputs.water,
+            inputs.barriers,
+            trees,
+            poles,
+            decks,
+        ),
+    )

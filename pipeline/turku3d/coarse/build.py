@@ -688,36 +688,7 @@ def build(
     seconds["collision"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    cars = cache.run(
-        "parked",
-        source_key(
-            Path(parked.__file__),
-            base / "parked/placement.py",
-            base / "parked/models.py",
-            Path(surfaces.__file__),
-            *common,
-        ),
-        [
-            tile,
-            inputs.parking,
-            grid_pos[:, 1],
-            inputs.water,
-            inputs.barriers,
-            trees,
-            poles,
-            osm_decks,
-        ],
-        lambda: parked.place(
-            tile,
-            inputs.parking,
-            grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1),
-            inputs.water,
-            inputs.barriers,
-            trees,
-            poles,
-            osm_decks,
-        ),
-    )
+    cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks)
     vehicle_models = parked.publish_models(cars, out.parent)
     seconds["parked"] = time.perf_counter() - t
     roads = tunnels.roads(bridge_roads)
