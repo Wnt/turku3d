@@ -8,6 +8,8 @@ import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
 import { enToEngine, collisionTileAt, headingToYaw } from './core/origin';
 import { createRenderer, defaultBackend } from './render/renderer';
+import { DayClock } from './render/dayClock';
+import { dayCycle } from './core/dayCycle';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
@@ -71,18 +73,16 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
 camera.rotation.order = 'YXZ';
 const env = new Environment(scene, renderer, params.quality);
-env.setTime(params.time);
+env.setTime(params.qa || params.timeGiven ? params.time : dayCycle(Date.now()).lightTime);
 if (!idPass) env.updateIBL();
 const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-/** The sun clock: the ?time= start, the time slider or a loaded game's clock. */
-let clockTime = params.time;
+/** QA stays fixed; play follows the shared UTC cycle unless explicitly set through the developer tools. */
+const dayClock = new DayClock(env, params.qa || params.timeGiven ? params.time : null, !params.qa);
 window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
-  clockTime = date;
-  env.setTime(date);
-  if (!idPass) env.updateIBL();
+  dayClock.set(date);
 } };
 const vegetation = idPass ? null : new VegetationLod(params.quality);
 const tiles = new VisualTiles(params.tileset, renderer, camera, scene, !!idPass);
@@ -96,6 +96,7 @@ tiles.events.addEventListener('load-model', ({ scene: model, tile }: { scene: TH
   unbuilt?.apply(model, tile?.extras?.id));
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => unbuilt?.release(model));
 const renderFrame = () => {
+  dayClock.update();
   vegetation?.update(camera);
   if (unbuilt && clock.frames % 15 === 0) unbuilt.setBuilt(builtTiles());
   if (post) post.render(); else renderer.render(scene, camera);
@@ -114,7 +115,7 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
-window.__game = { backend, params, errors, tiles, clock, unbuilt, three: THREE.REVISION };
+window.__game = { dayClock, backend, params, errors, tiles, clock, unbuilt, three: THREE.REVISION };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
@@ -273,7 +274,7 @@ async function runPlay() {
   }
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, groundAt,
-    loadingScreen, clockTime: () => clockTime, setClock: date => window.__render!.setTime(date.toISOString()),
+    loadingScreen, clockTime: () => dayClock.time, setClock: date => dayClock.restore(date),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in
   // place; the world above keeps the player, the vehicles and the loaded tiles. The build badge names main's commit

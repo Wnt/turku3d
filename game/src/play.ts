@@ -14,7 +14,6 @@ import { VoicePlayer } from './audio/voice';
 import { controlsHelp } from './ui/controlsHelp';
 import { loading } from './core/loading';
 import type { LoadingScreen } from './ui/loadingScreen';
-import { timeControl } from './render/debug';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
@@ -145,9 +144,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const introDialog = new IntroDialog(document.body, voice);
   if (!hot?.audio) audio.setMusicState('menu');
   const hud = new Hud(hudEl);
-  const clockControl = timeControl(world.clockTime(), date => world.setClock(date));
   if (hot ? hot.hudVisible !== hud.visible : !params.hud && hud.visible) hud.toggle();
-  clockControl.element.hidden = !hud.visible;
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
   const seated = new SeatedVehicles(root, physics, groundAt);
@@ -248,13 +245,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       void saveGame.teleport(E, N, headingDeg).then(ground => { if (!ground) fly.set(true); }).catch(fail);
     },
     ask: question => window.prompt(question),
-    setTime: phase => { const time = phaseTime(world.clockTime(), phase); world.setClock(time); clockControl.set(time); },
+    setTime: phase => { const time = phaseTime(world.clockTime(), phase); window.__render!.setTime(time.toISOString()); },
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;
   // Save slots (core/save.ts), the start and pause menus (ui/menu.ts) and loading a game (gameplay/saveGame.ts).
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
-    clockControl, defaultTime: params.time, clock: world.clockTime, setClock: world.setClock,
+    clock: world.clockTime,
     spawn, car: world.car,
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
@@ -283,7 +280,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     } });
   let owned = missions.vehicle;
   if (hot) {
-    const restored = applyHot(hot, { missions, setClock: date => { world.setClock(date); clockControl.set(date); }, camera: orbit });
+    const restored = applyHot(hot, { missions, setClock: date => { world.setClock(date); }, camera: orbit });
     if (restored.drivenId) { enterVehicle(restored.drivenId); snapChase = true; }
     owned = missions.vehicle;
     if (hot.multiplayer) {
@@ -335,7 +332,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     frameEma += (dt * 1000 - frameEma) * 0.05;
 
     input.update(dt);
-    if (input.consume('hud')) { hud.toggle(); clockControl.element.hidden = !hud.visible; }
+    if (input.consume('hud')) hud.toggle();
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.

@@ -40,6 +40,7 @@
       #mp-scoreboard[hidden], #mp-scoreboard div[hidden] { display: none; }
       #mp-scoreboard div:first-child { color: #ffdb6d; font-weight: 700; }
       #mp-crash-flash { position: fixed; inset: 0; z-index: 3; background: #d12b20; opacity: 0; pointer-events: none; }
+      #city-clock { position: fixed; right: 16px; bottom: 44px; color: #e8eee9; font: 600 13px/1.4 system-ui, sans-serif; text-shadow: 0 1px 3px #000; pointer-events: none; }
       #help { position: fixed; right: 8px; bottom: 8px; color: #ddd; font: 11px/1.4 ui-monospace, Menlo, monospace; background: #0008; padding: 4px 8px; white-space: pre; pointer-events: none; border-radius: 4px; }
       #start-screen { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: #06151cc9; color: #edf4f3; font: 15px/1.5 system-ui, sans-serif; overflow: auto; }
       .start-card { width: min(560px, calc(100vw - 64px)); padding: 28px; background: #10252dee; border: 1px solid #47636c; border-radius: 12px; }
@@ -127,7 +128,7 @@
       .touch-button small { font-size: 9px; font-weight: 600; margin-top: 3px; letter-spacing: .02em; }
       .touch-corner .touch-button { width: 56px; height: 56px; font-size: 13px; }
       .touch-button:active { background: #f2a541a0; }
-      body:has(#touch-controls:not([hidden])) :is(#help, #audio-panel, #time-control) { display: none; }
+      body:has(#touch-controls:not([hidden])) :is(#help, #audio-panel) { display: none; }
       #fullscreen-overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #06151ce6; }
       #fullscreen-overlay[hidden] { display: none; }
       #fullscreen-overlay button { padding: 18px 28px; border: 0; border-radius: 10px; background: #a1ebd3; color: #10252d; font: bold 18px system-ui, sans-serif; }

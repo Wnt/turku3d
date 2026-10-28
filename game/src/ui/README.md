@@ -27,7 +27,7 @@ becomes visible again); every rejection is ignored. While the scene runs, `updat
 - Where the browser cannot fullscreen an element (iPhone Safari), the start screen shows "For fullscreen on
   iPhone add the page to the Home Screen." and play continues without the overlay.
 - Keyboard and gamepad players are never blocked or sent to fullscreen.
-- In touch play the help line, the audio panel and the time slider are hidden (CSS in `index.html`) so the
+- In touch play the help line and the audio panel are hidden (CSS in `index.html`) so the
   thumb buttons own the bottom-right corner; the corner minimap shrinks to 45 % of the viewport height, at
   most 240 px, so the HUD stays readable at 844×390.
 - Touch devices without `?backend=` use WebGL2 unless `navigator.gpu.requestAdapter()` returns an adapter
@@ -69,7 +69,7 @@ game runs (never from the start screen).
   and a running order (its timer too) are untouched. Vehicles stay where they are, except the driven one: the own
   car returns to its start parking, any other vehicle to the kerb 5.5 m behind it (`kerbBehind`).
 - **Load / new game** (`gameplay/saveGame.ts` `SaveGameController`): leaves the car, restores the missions (a running order keeps
-  its timer), the clock and the time slider, puts the own car at its saved pose when one is owned (else at
+  its timer), keeps the shared clock, puts the own car at its saved pose when one is owned (else at
   its spawn parking), streams the collision tile under the saved position and snaps the player onto the
   ground with a downward ray from 2 m above the saved height (from the sky when that misses), then waits
   paused until the physics worker reports the character there. Safe reset then restarts its sampling
@@ -111,7 +111,7 @@ pause menu lists **Developer** (before Quit), whose pages (`devMenu.ts`, wired i
   character there and restarts safe reset. A place whose collision tile is not built says "Not built: arrives
   flying": the player arrives at 60 m (N2000) with fly mode on.
 - **Time of day**: dawn, noon, dusk or night (`core/sun.ts` `phaseTime`: the sun at 4° rising, highest, at 4°
-  setting, lowest in the night after) on the game clock's day; the time slider follows.
+  setting, lowest in the night after) on the game clock's day. This explicit developer override pauses the cycle.
 
 Unit tests: `cd game && npx vitest run tests/unit/dev-tools.test.ts tests/unit/recovery.test.ts tests/unit/physics.test.ts`
 (the gate, the fly controller, dev money in the save, the day phases, the pages, the recovery hold, flight
@@ -197,3 +197,5 @@ Public release start menus offer only Multiplayer (`core/release.ts`, set by the
 Release HUD shows your multiplayer nickname. F3 (or H) toggles diagnostics, including the draft-tile banner; `?debug` starts with diagnostics visible. Local builds default to diagnostics.
 
 `loadingScreen.ts` starts from static HTML before the entry bundle downloads, then shows real task progress, active work and a bounded technical log. It observes Resource Timing bytes/durations and hooks tile downloads, embedded KTX2 transcodes, Rapier readiness/collider construction, audio decoding, voice indexing and multiplayer welcome. While choosing a start option it becomes a small progress dock; after joining it fades when placement and the current visual tiles are ready. Optional audio failures are logged and never block movement. Instrumentation stops after entry.
+
+`render/dayClock.ts` shows the Helsinki clock without a slider; `core/dayCycle.ts` determines the synchronized daylight cycle. QA `?time=` remains deterministic.
