@@ -479,7 +479,8 @@ def assemble(
         if name != "roads"
     }
     layer_ids["replaced_buildings"] = replaced
-    available = set(tree.collision)
+    current_cells = {cid for layer in collision.values() for cid in layer}
+    available = set(tree.collision) & current_cells
     published_cells = set()
     for t in requested:
         for c in C.collision_tiles_for_bbox(t.bbox.buffered(C.MESH_MARGIN)):
