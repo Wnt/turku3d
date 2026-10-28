@@ -575,7 +575,13 @@ class IntegratorTests(IntegratorFixture):
             ),
             3,
         )
-        self.assertFalse(integrator.data_due(self.published))
+        # Assembly output can differ from approval inputs even after publication.
+        # A moved game commit must not schedule/build the same data again.
+        with patch.object(integrator, "release_delta", return_value=["facade-approvals"]):
+            self.assertFalse(integrator.data_due(self.published))
+            builds = list(self.builds)
+            self.assertIsNone(self.data())
+            self.assertEqual(self.builds, builds)
 
     def test_data_lane_is_superseded_by_new_tiles_published_meanwhile(self):
         self.approve(3)
