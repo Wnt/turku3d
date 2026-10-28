@@ -166,7 +166,8 @@ def public_handler(builder, prefetcher, settings):
                     {
                         **{
                             k: fragment[k]
-                            for k in ("coarse", "tile", "visual", "collision", "roads", "pass_kind")
+                            for k in ("coarse", "tile", "visual", "collision", "roads", "pass_kind",
+                                      "vehicles", "vehicle_models")
                             if k in fragment
                         },
                         **(
