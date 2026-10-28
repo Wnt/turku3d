@@ -89,7 +89,14 @@ def test_ground_cut_preserves_outside_and_roof_seals_inside():
         C.CollisionTile(0, 0), np.zeros((0, 3)), np.zeros((0, 3), np.uint32), np.zeros(0, np.uint8)
     )[1].size
     # Overburden above the tube remains available to walk on.
-    assert scene(height=10).keep.all()
+    high = scene(height=10)
+    # High overburden stays inside; only the short portal banks are removed.
+    edge = next(m for m in high.meshes if m.object_id.endswith("ground-edge"))
+    assert len(edge.indices) > 0
+    assert edge.positions[:, 1].min() == 10
+    terrain = shapely.union_all(shapely.polygons(edge.positions[edge.indices][:, :, [0, 2]]))
+    assert terrain.covers(shapely.Point(10, 10))
+    assert not terrain.covers(shapely.Point(0.5, 10))
 
 
 def test_building_passage_keeps_upper_shell_and_road_floor_metadata():
@@ -224,3 +231,17 @@ def test_portal_blend_does_not_follow_overburden_up_inside_the_mouth():
     floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
     inside = floor.positions[(floor.positions[:, 0] >= 2) & (floor.positions[:, 0] <= 18)]
     np.testing.assert_allclose(inside[:, 1], 2)
+
+
+def test_portal_has_one_frame_and_full_width_clear_in_render_and_collision():
+    result = scene()
+    frames = [m for m in result.meshes if ":portal:" in m.object_id]
+    assert len(frames) == 2
+    opening = shapely.box(0, 8.001, 20, 11.999)
+    for mesh in [*frames, *[m for m in result.meshes if m.object_id.endswith((":left", ":right"))]]:
+        points = mesh.positions[(mesh.positions[:, 1] > 2.01) & (mesh.positions[:, 1] < 6.49)]
+        assert not shapely.contains_xy(opening, points[:, 0], points[:, 2]).any()
+        for tri in mesh.positions[mesh.indices]:
+            if tri[:, 1].min() >= 6.5:
+                continue
+            assert shapely.Polygon(tri[:, [0, 2]]).intersection(opening).area < 1e-9

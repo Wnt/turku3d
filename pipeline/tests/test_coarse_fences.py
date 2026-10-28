@@ -65,3 +65,31 @@ def test_gate_opening_and_area_outline_and_bollard_posts():
     assert all(s.length == 0.22 for s in posts)
     assert style({"barrier": "fence", "material": "wood"}) == "wood"
     assert style({"barrier": "wall", "material": "brick"}) == "brick"
+
+
+def test_tunnel_mouth_excludes_walls_panels_and_explicit_road_barriers():
+    tile = C.VisualTile(0, 0, 0)
+    tunnel = (
+        "road",
+        shapely.LineString([(20, 20), (80, 20)]),
+        {"highway": "secondary", "tunnel": "yes", "lanes": "3"},
+    )
+    records = [
+        (shapely.LineString([(18, 5), (18, 35)]), {"barrier": "fence"}, True),
+        (
+            shapely.LineString([(20, 5), (20, 35)]),
+            {"barrier": "retaining_wall", "height": "4"},
+            False,
+        ),
+        (shapely.Point(20, 20), {"barrier": "bollard"}, True),
+        (shapely.LineString([(50, 15), (50, 25)]), {"barrier": "fence"}, False),
+    ]
+    batch = place(tile, records, [], lambda x, z: 0, tunnels=[tunnel])
+    assert any(np.isclose(s.x, 50) for s in batch)  # Keep barriers on overburden inland.
+    assert batch  # Preserve barriers outside the tunnel mouth.
+    opening = shapely.box(16, 15, 24, 25)
+    for s in batch:
+        half = np.array([np.cos(s.yaw), -np.sin(s.yaw)]) * s.length / 2
+        axis = shapely.LineString([np.array([s.x, s.z]) - half, np.array([s.x, s.z]) + half])
+        assert not axis.buffer(0.15).intersects(opening)
+    assert len([p for ct in tile.collision_tiles() for p in collision(batch, ct)]) == len(batch)

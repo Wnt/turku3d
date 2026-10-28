@@ -617,12 +617,13 @@ def build(
         source_key(
             barrier_stage,
             Path(fences.__file__),
+            Path(__file__).with_name("tunnels.py"),
             grid_height,
             base / "structures/geometry.py",
             base / "package/gltf.py",
             *common,
         ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, grid_pos],
+        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos],
         stage,
         barrier_stage,
     )
