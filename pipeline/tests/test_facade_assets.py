@@ -87,3 +87,16 @@ def test_export_does_not_copy_unapproved_or_reference_assets(tmp_path):
     index = export(target, source)
     assert index["buildings"] == {}
     assert not list(target.rglob("*.jpg"))
+
+
+def test_survey_offset_preserves_source_clamp_and_outward_side():
+    f = facade()
+    f["metadata"]["uv"] = dict(scale=[-0.1, -1 / 12], offset=[1, 1])
+    result = match_wall(wall() + [-0.1, 0, 0], [f])
+    uv = result[1]
+    transformed = uv * [-0.1, -1 / 12] + [1, 1]
+    assert np.all((transformed >= 0) & (transformed <= 1))
+    f["normal"] = [0, 0, 1]
+    assert match_wall(wall(), [f]) is None
+    f["normal"] = [0, 0, -1]
+    assert match_wall(wall(), [f]) is not None
