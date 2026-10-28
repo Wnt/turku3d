@@ -1,4 +1,4 @@
-// Developer pages of the pause menu (localhost or ?dev=1 only, core/localOnly.ts devToolsEnabled): money, fly mode,
+// Developer pages of the pause menu (localhost, or ?dev=1 anywhere including Pages, core/localOnly.ts devToolsEnabled): money, fly mode,
 // spawning the trophy truck, teleport and the time of day. The pages are MenuPages like the save pages (menu.ts); what a pick does to the
 // running game is in DevHooks (play.ts).
 import { DAY_PHASES, type DayPhase } from '../core/sun';

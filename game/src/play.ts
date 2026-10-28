@@ -163,7 +163,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   }
   let multiplayerRunId = crypto.randomUUID();
   const missions = new MissionSystem({ router, addresses, onPaid: drop => {
-    if (!multiplayerPlaying) return;
+    if (!multiplayerPlaying || devToolsEnabled(location)) return; // developer sessions stay off the scoreboard
     multiplayer?.sendDelivery({ orderId: `${multiplayerRunId}:order-${drop.orderIndex}:stop-${drop.stopIndex}`,
       addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters, job: drop.job });
   } });
@@ -231,7 +231,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     player.root.visible = !!seated.of(drivenId);
     orbit.distance = 8;
   };
-  // Developer tools (localhost or ?dev=1 only): fly mode and the pause menu's Developer page (ui/devMenu.ts).
+  // Developer tools (localhost, or ?dev=1 also on Pages): fly mode and the pause menu's Developer page (ui/devMenu.ts).
   const fly = devToolsEnabled(location) ? new FlyMode() : null;
   const devFlow = fly ? new DevMenuFlow(pauseMenu, {
     money: () => missions.money,

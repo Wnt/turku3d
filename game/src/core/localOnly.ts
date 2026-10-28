@@ -15,5 +15,7 @@ export function localFeature(location: { hostname: string; search: string }, par
   return isLocalHost(host);
 }
 
-/** Developer tools in the pause menu (ui/devMenu.ts): money, fly mode, teleport and the time of day. */
-export const devToolsEnabled = (location: { hostname: string; search: string }) => localFeature(location, 'dev');
+/** Developer tools in the pause menu (ui/devMenu.ts): money, fly mode, teleport and the time of day. Unlike the
+ *  other local features, ?dev=1 also opens them on GitHub Pages; such a session sends no scoreboard deliveries. */
+export const devToolsEnabled = (location: { hostname: string; search: string }) =>
+  new URLSearchParams(location.search).get('dev') === '1' || localFeature(location, 'dev');
