@@ -90,3 +90,23 @@ def test_scheduler_edits_do_not_invalidate_generator_or_prepared_inputs(monkeypa
     read = Path.read_bytes
     monkeypatch.setattr(Path, 'read_bytes', lambda p: read(p) + (b'\n# scheduling edit' if p.name in {'service.py', 'demand.py', 'upgrade_queue.py'} else b''))
     assert (code_hash(), _key([], 'ground'), _key([], 'wfs')) == before
+
+
+def test_overlapping_producer_snapshots_do_not_collide(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+    from threading import Barrier
+    from turku3d.coarse.demand import write_snapshot
+
+    barrier = Barrier(2)
+    replace = Path.replace
+    def synchronized_replace(path, destination):
+        barrier.wait(timeout=2)
+        return replace(path, destination)
+    monkeypatch.setattr(Path, 'replace', synchronized_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = [pool.submit(write_snapshot, tmp_path, {'slot': slot}) for slot in (7765, 7766)]
+        for job in jobs:
+            job.result()
+    assert json.loads((tmp_path / '.scheduler.json').read_text())['slot'] in (7765, 7766)
+    assert not list(tmp_path.glob('*.tmp'))
