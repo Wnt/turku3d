@@ -1,0 +1,11 @@
+[Unit]
+Description=Export existing generated facade assets for draft serving
+
+[Service]
+Type=oneshot
+ExecStart=%h/turku3d-drafts/run.sh python -m turku3d.facade_assets --export /srv/turku3d/data/facade-assets
+ExecStartPre=/usr/bin/mountpoint -q /srv/turku3d
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/turku3d-drafts/reports/facade-assets.log
+StandardError=append:%h/turku3d-drafts/reports/facade-assets.log

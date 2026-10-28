@@ -466,3 +466,20 @@ Synthetic source-selection checks:
 ```sh
 bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_building_source_surfaces.py pipeline/tests/test_coarse_roofs.py
 ```
+
+### Existing stored facades
+
+`turku3d.facade_assets` reads approved per-building facade descriptions and mapped
+walls from the shared asset store, falling back to `textures/assembly` on the Mac.
+`coarse.stored_facades.wall_meshes` preserves the extrusion geometry and projects
+metre UVs from a matching surveyed wall of the same permanent building id. A wall
+must be parallel within about 6 degrees, within 65 cm of its surveyed line and
+covered for at least 80% of its length; otherwise the normal draft kit remains.
+The material packager binds the original stored PBR maps before the generic kit.
+No new reference acquisition or model call is involved.
+
+```sh
+PYTHONPATH=pipeline:textures .venv/bin/python -m pytest -q pipeline/tests/test_facade_assets.py
+# OCI's systemd path watcher runs this after an existing source asset changes:
+python -m turku3d.facade_assets --export /srv/turku3d/data/facade-assets
+```
