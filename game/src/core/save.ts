@@ -1,5 +1,8 @@
+import type { VehicleKind } from '../physics/constants';
+import type { ParkedVehicle } from '../world/manifest';
+
 // Save slots: three named slots and an autosave under one localStorage key. Each slot wraps the mission system's own
-// save text (an opaque string, versioned and migrated by gameplay/missions) with the player's pose, the own car, the
+// save text (an opaque string, versioned and migrated by gameplay/missions) with the player's pose, vehicles, the
 // clock and the numbers the slot list shows. A mission save from before the slots (key turku3d.missions) becomes
 // slot 1 on the first run.
 
@@ -21,6 +24,15 @@ export interface KeyValueStore {
 /** EPSG:3877 E/N, N2000 height and the engine yaw (radians; the camera yaw on foot, the chassis yaw in a car). */
 export interface SavedPose { E: number; N: number; H: number; yaw: number }
 
+/** The last vehicle used, including borrowed/rented/mission vehicles independently of ownership. */
+export interface SavedVehicle extends SavedPose {
+  id: string;
+  kind: VehicleKind;
+  seated: boolean;
+  appearance?: ParkedVehicle;
+  modelAsset?: { url: string; sha256: string; bytes: number };
+}
+
 export interface SaveGame {
   version: 1;
   /** Unix milliseconds. */
@@ -30,8 +42,10 @@ export interface SaveGame {
   mission: string;
   /** Null: the spawn point (a migrated mission save has no position). */
   player: SavedPose | null;
-  /** The player's own car when one is owned, or null (the car then waits at its spawn parking). */
+  /** The owned vehicle, or the start car's parking when no vehicle is owned. */
   vehicle: (SavedPose & { owned: boolean }) | null;
+  /** Absent in older v1 saves, which resume on foot. */
+  lastVehicle?: SavedVehicle | null;
   /** ISO time of the sun clock, or null for the default time. */
   clock: { timeOfDay: string } | null;
   /** `devMoney`: euros of `money` from the developer tools (localhost only); missing in older saves. */
@@ -54,6 +68,19 @@ function validGame(v: unknown): SaveGame | null {
   if (!g || g.version !== 1 || !finite(g.savedAt) || typeof g.label !== 'string' || typeof g.mission !== 'string') return null;
   if (g.player !== null && !pose(g.player)) return null;
   if (g.vehicle !== null && !(pose(g.vehicle) && typeof g.vehicle?.owned === 'boolean')) return null;
+  const last = g.lastVehicle;
+  if (last != null) {
+    if (!pose(last) || typeof last.id !== 'string' || !last.id || !['car', 'scooter', 'truck'].includes(last.kind)
+      || typeof last.seated !== 'boolean') return null;
+    if (last.appearance) {
+      const a = last.appearance;
+      if (a.object_id !== last.id || typeof a.model !== 'string' || typeof a.color !== 'string'
+        || ![a.x, a.y, a.z, a.yaw, a.width, a.height, a.length, a.clear_front_m, a.clear_rear_m].every(finite)
+        || a.width <= 0 || a.height <= 0 || a.length <= 0) return null;
+    }
+    if (last.modelAsset && (typeof last.modelAsset.url !== 'string' || typeof last.modelAsset.sha256 !== 'string'
+      || !finite(last.modelAsset.bytes))) return null;
+  }
   if (g.clock !== null && !(typeof g.clock?.timeOfDay === 'string' && Number.isFinite(Date.parse(g.clock.timeOfDay)))) return null;
   if (!finite(g.stats?.deliveries) || !finite(g.stats?.money)) return null;
   if (g.stats.devMoney !== undefined && !finite(g.stats.devMoney)) return null;

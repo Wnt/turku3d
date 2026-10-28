@@ -95,6 +95,9 @@ export class ParkedCarVisuals {
       if (!source) throw new Error(`Parked car model ${key} has no mesh`);
       const members = cars.filter(c => `${c.model}/${c.color}` === key);
       const mesh = new THREE.InstancedMesh(source.geometry, source.material, members.length);
+      // Saved slot models are preloaded before their physics vehicles exist; keep those instances hidden.
+      const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+      members.forEach((_car, i) => mesh.setMatrixAt(i, hidden));
       mesh.name = `parked/${key}`;
       mesh.castShadow = true; mesh.receiveShadow = true;
       this.scene.add(mesh);

@@ -13,7 +13,8 @@ export function startPoints(spawn: V3, car: V3, games: readonly (SaveGame | null
   const points = [spawn, car, ...multiplayer ? [multiplayer] : []];
   for (const game of games) {
     if (game?.player) points.push(enToEngine(game.player.E, game.player.N, game.player.H));
-    if (game?.vehicle?.owned) points.push(enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H));
+    if (game?.lastVehicle) points.push(enToEngine(game.lastVehicle.E, game.lastVehicle.N, game.lastVehicle.H));
+    if (game?.vehicle) points.push(enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H));
   }
   return [...new Map(points.map(p => [`${p.x},${p.z}`, p])).values()];
 }

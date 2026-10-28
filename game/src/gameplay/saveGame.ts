@@ -2,7 +2,7 @@
 // place a loaded or new game in the world, the autosave triggers and the pause menu's frame handling.
 import * as THREE from 'three/webgpu';
 import { collisionTileAt, enToEngine, engineToEN, headingToYaw, type V3 } from '../core/origin';
-import { Autosave, formatLabel, type SaveGame, type SaveStore } from '../core/save';
+import { Autosave, formatLabel, type SaveGame, type SaveStore, type SavedVehicle } from '../core/save';
 import type { Input } from '../input';
 import type { PhysicsClient } from '../physics/client';
 import type { PauseMenu } from '../ui/menu';
@@ -13,6 +13,8 @@ import type { Manifest } from '../world/manifest';
 import { OWN_VEHICLE_ID, ownedVehicleId, type MissionSystem } from './missions/missions';
 import type { VehicleKind } from '../physics/constants';
 import type { SafeReset } from './safeReset';
+import type { StreetRouter } from './router';
+import { captureVehicle, restoreVehicleSpot, vehicleGround, type VehicleSpot } from './vehicleSave';
 
 type Quat = { x: number; y: number; z: number; w: number };
 const quat = new THREE.Quaternion(), axis = new THREE.Vector3();
@@ -47,6 +49,8 @@ interface SaveGameOptions {
   physics: PhysicsClient; streamer: CollisionStreamer; manifest: Manifest; missions: MissionSystem; recovery: SafeReset;
   saves: SaveStore; startScreen: StartScreen; pauseMenu: PauseMenu;
   clock: () => Date;
+  router: StreetRouter;
+  enterVehicle: (id: string) => void;
   /** Where a new game starts, and the own car's spawn parking. */
   spawn: Pose; car: Pose;
   /** The live player: mode, driven vehicle, feet and camera yaw. */
@@ -83,7 +87,9 @@ export class SaveGameController {
   private readonly pauseFlow: SaveMenuFlow;
   /** Collision streams around this point instead of the feet until the placed character reports it. */
   private focus: { x: number; z: number } | null = null;
-  private prepared = new Map<SaveGame | Pose | null, { playerY: number; carY: number; boughtY: number | null }>();
+  private prepared = new Map<SaveGame | Pose | null, { playerY: number; carY: number; boughtY: number | null; lastSpot: VehicleSpot | null }>();
+  private lastVehicle: SavedVehicle | null = null;
+  private lastUsedId: string | null = null;
   private readonly detach: () => void;
 
   constructor(private readonly o: SaveGameOptions) {
@@ -110,6 +116,15 @@ export class SaveGameController {
   dispose() { this.detach(); }
   pausePage() { return this.pauseFlow.pause(); }
 
+  /** Entering any vehicle remembers it even after leaving it on foot. */
+  usedVehicle(id: string) { this.lastUsedId = id; }
+
+  /** A hot session retains physics; restore its on-foot last-used identity as well. */
+  restoreLastVehicle(saved: SavedVehicle | null | undefined) {
+    this.lastVehicle = saved ?? null;
+    this.lastUsedId = saved?.id ?? null;
+  }
+
   /** The running game as a save slot. */
   capture(): SaveGame {
     const { physics, missions } = this.o;
@@ -121,11 +136,15 @@ export class SaveGameController {
     const ownId = ownedVehicleId(missions.vehicle) ?? OWN_VEHICLE_ID;
     const own = physics.latest?.vehicles.find(v => v.id === ownId);
     const c = own ? engineToEN(own.pos.x, own.pos.y, own.pos.z) : null;
+    const last = driven ?? physics.latest?.vehicles.find(v => v.id === this.lastUsedId);
+    if (last) this.lastVehicle = captureVehicle(last, !!driven, yawOf(last.rot), this.o.manifest, this.lastVehicle);
+    if (this.lastVehicle && !driven) this.lastVehicle = { ...this.lastVehicle, seated: false };
     const clock = this.o.clock();
     return { version: 1, savedAt: Date.now(), label: formatLabel(missions.lastAddress, clock), mission: missions.serialize(),
       // In a car the camera sits behind the chassis: its yaw is the chassis yaw minus a quarter turn.
       player: { E: p.E, N: p.N, H: p.H, yaw: driven ? yawOf(driven.rot) - Math.PI / 2 : view.cameraYaw },
       vehicle: own && c ? { owned: missions.vehicle !== 'none', E: c.E, N: c.N, H: c.H, yaw: yawOf(own.rot) } : null,
+      lastVehicle: this.lastVehicle,
       clock: { timeOfDay: clock.toISOString() }, stats: { deliveries: missions.deliveries, money: missions.money, devMoney: missions.devMoney } };
   }
 
@@ -175,14 +194,15 @@ export class SaveGameController {
 
   /** Resolve ground queries before Ready; menu activation only sends actor placement commands. */
   async prepare(game: SaveGame | null, override?: Pose) {
-    const saved = game?.vehicle?.owned ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
+    const saved = game?.vehicle ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // Mission restore decides the bought vehicle during play; preload both parking interpretations.
     const carY = saved ? await this.snap(saved) : this.o.car.y;
     const at = override ?? (game?.player ? enToEngine(game.player.E, game.player.N, game.player.H) : this.o.spawn);
     const playerY = override || game?.player ? await this.snap(at) : at.y;
     const boughtY = await this.snap(saved ?? kerbBehind(this.o.car));
+    const lastSpot = game?.lastVehicle ? await this.vehicleSpot(game.lastVehicle, at) : null;
     this.focus = null;
-    this.prepared.set(override ?? game, { playerY, carY, boughtY });
+    this.prepared.set(override ?? game, { playerY, carY, boughtY, lastSpot });
     return { x: at.x, y: playerY, z: at.z };
   }
 
@@ -193,7 +213,7 @@ export class SaveGameController {
     this.prepared.clear();
     if (this.o.view().mode === 'car') this.o.leaveCar();
     missions.restore(game?.mission ?? null);
-    const saved = game?.vehicle?.owned ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
+    const saved = game?.vehicle ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
     const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;
     const car = saved && !bought ? saved : this.o.car;
@@ -208,7 +228,38 @@ export class SaveGameController {
     const at = override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
     const y = prepared?.playerY ?? (override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y));
     await this.putCharacter({ x: at.x, y, z: at.z }, at.yaw);
+    this.restoreLastVehicle(game?.lastVehicle);
+    if (game?.lastVehicle) {
+      const last = game.lastVehicle;
+      const spot = prepared?.lastSpot ?? await this.vehicleSpot(last, at);
+      const a = last.appearance;
+      physics.spawnVehicle(spot, spot.yaw, { id: last.id, kind: last.kind,
+        ...(a ? { halfExt: { x: a.length / 2, y: a.height * 0.28, z: a.width / 2 }, parked: true } : {}) });
+      // Synchronize the worker before switching the frame loop and chase camera to this id.
+      const t0 = performance.now();
+      while (!physics.latest?.vehicles.some(v => v.id === last.id && Math.hypot(v.pos.x - spot.x, v.pos.z - spot.z) < 0.5)) {
+        if (performance.now() - t0 > 10000) throw new Error('the restored vehicle did not arrive');
+        physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+        await new Promise(r => setTimeout(r, 20));
+      }
+      if (last.seated) {
+        this.o.placed(spot, spot.yaw - Math.PI / 2);
+        this.o.enterVehicle(last.id);
+        physics.driveVehicle(last.id);
+        physics.setCharacterEnabled(false);
+        this.o.recovery.restart();
+      }
+    }
     missions.begin();
+  }
+
+  private vehicleSpot(saved: SavedVehicle, player: V3) {
+    return restoreVehicleSpot(saved, player, this.o.router.graph, async (at, fallback) => {
+      await this.settle(at.x, at.z);
+      const t = collisionTileAt(at.x, at.z);
+      if (!this.o.physics.loaded.has(`c_${t.i}_${t.j}`)) return null;
+      return vehicleGround(this.o.physics, at, saved, SPAWN_HEIGHT[saved.kind], fallback);
+    }, SPAWN_HEIGHT[saved.kind]);
   }
 
   /**
