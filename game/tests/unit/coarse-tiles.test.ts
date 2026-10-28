@@ -83,7 +83,7 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
       if (tile && cellsOf(tile).some(cid => !checked.has(`/coarse/${tile}/col/${cid}.col`))) shownBeforeCheck.push(tile);
       const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())); return g; },
   };
-  expect(await CoarseTiles.start({ ...host, pageUrl: 'https://wnt.github.io/turku-game/' })).toBeNull();
+  expect(await CoarseTiles.start({ ...host, pageUrl: 'https://example.com/' })).toBeNull();
   const offline = (async () => ({ ok: true, status: 200, json: async () => ({ state: 'offline' }) })) as unknown as typeof globalThis.fetch;
   expect(await CoarseTiles.start({ ...host, fetch: offline })).toBeNull();
   const html = (async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('<!doctype'); } })) as unknown as typeof globalThis.fetch;

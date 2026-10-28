@@ -32,10 +32,10 @@ import { LoadingKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VISUAL_L0 } from '../core/origin';
 import { isLocalHost } from '../core/localOnly';
+import { draftsUrl } from '../net/config';
 import type { Manifest, ManifestEntry } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
-const COARSE_ROOT = '/coarse/';
 const POLL_MS = 1000;
 const MANIFEST_POLL_MS = 60_000;
 /** A failed or rejected draft is asked for again after this (ms); the service retries failed builds after 120 s. */
@@ -125,6 +125,8 @@ export class CoarseTiles {
   private version = -1;
   private building = 0;
   private page: string;
+  private root: string;
+  private remote: boolean;
   /** Set while the service restarts: no tile or prefetch requests, only status probes. */
   outage: Outage | null = null;
 
@@ -132,13 +134,20 @@ export class CoarseTiles {
    *  localhost game service supervises it and it is restarting right now. */
   static async start(host: CoarseHost): Promise<CoarseTiles | null> {
     const page = new URL(host.pageUrl ?? location.href);
-    if (!isLocalHost(page.hostname)) return null;
+    const root = draftsUrl(page);
+    if (!root) return null;
+    const remote = !isLocalHost(page.hostname);
     const slow = Symbol('slow');
     const get = (url: string) => (host.fetch ?? fetch)(new URL(url, page).href, { signal: AbortSignal.timeout(2000) })
       .then(r => r.ok ? r.json() as Promise<Record<string, unknown>> : null)
       .catch((err: Error) => err?.name === 'TimeoutError' ? slow : null);
     // A static host without the service answers with HTML or {"state":"offline"}; only a service keeps it waiting.
-    const status = await get(`${COARSE_ROOT}status`);
+    const status = await get(`${root}${remote ? 'health' : 'status'}`);
+    if (remote) {
+      const coarse = new CoarseTiles(host);
+      if (!status || status === slow || status.state === 'offline') coarse.down();
+      return coarse;
+    }
     if (status === slow) {
       const coarse = new CoarseTiles(host);
       coarse.down();
@@ -160,6 +169,9 @@ export class CoarseTiles {
     this.leaves = leafParents(this.published);
     this.load = host.loadModel ?? this.gltfLoader();
     this.page = host.pageUrl ?? location.href;
+    const page = new URL(this.page);
+    this.root = draftsUrl(page) ?? '/coarse/';
+    this.remote = !isLocalHost(page.hostname);
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
@@ -268,8 +280,9 @@ export class CoarseTiles {
   down() {
     if (this.outage) return;
     this.outage = { nextProbe: this.clock + PROBE_MS, probing: false };
-    console.warn(`[coarse] ${RESTARTING}: drafts paused until it answers again`);
-    this.show(RESTARTING);
+    const message = this.remote ? 'drafts: remote service offline' : RESTARTING;
+    console.warn(`[coarse] ${message}: drafts paused until it answers again`);
+    this.show(message);
   }
 
   /** Any answer from /coarse/status other than the dev server's offline one ends the outage: every tile not drawn is
@@ -278,7 +291,7 @@ export class CoarseTiles {
     const outage = this.outage;
     if (!outage) return;
     outage.probing = true;
-    const status = await this.fetch(new URL(`${COARSE_ROOT}status`, this.page).href,
+    const status = await this.fetch(new URL(`${this.root}${this.remote ? 'health' : 'status'}`, this.page).href,
       { cache: 'no-store', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
       .then(r => r.ok ? r.json() as Promise<{ state?: string }> : null).catch(() => null);
     outage.probing = false;
@@ -320,9 +333,10 @@ export class CoarseTiles {
 
   /** Position and velocity for the service's raw-data prefetch (pipeline/turku3d/coarse/prefetch.py). */
   private async want(x: number, z: number) {
+    if (this.remote) return; // Public clients poll tiles independently; no shared player position.
     const q = [x, z, this.velocity.x, this.velocity.z].map(v => v.toFixed(1));
     try {
-      const res = await this.request(`${COARSE_ROOT}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`);
+      const res = await this.request(`${this.root}want?x=${q[0]}&z=${q[1]}&vx=${q[2]}&vz=${q[3]}`);
       if (res.status === 404) return; // an older service without the prefetch route: drafts work without it
       const { version, queued, building } = await res.json().catch(() => ({})) as { version?: number; queued?: number; building?: string[] };
       if (typeof queued === 'number' && Array.isArray(building)) this.building = queued + building.length;
@@ -339,11 +353,11 @@ export class CoarseTiles {
   private async refreshDraft(id: string, e: Entry, d: number) {
     e.refreshing = true; e.version = this.version; e.nextPoll = this.clock + 15_000;
     try {
-      const res = await this.request(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`);
+      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}`);
       if (!res.ok || res.status === 202) return;
       const fragment = await res.json() as CoarseFragment;
       if (!fragment.coarse || fragment.tile !== id || fragment.visual[id]?.sha256 === e.visualHash) return;
-      const base = new URL(`${COARSE_ROOT}${id}/`, this.page);
+      const base = new URL(`${this.root}${id}/`, this.page);
       const changed = Object.entries(fragment.collision).filter(([cid, entry]) => entry.sha256 !== e.collision.get(cid)?.sha256);
       await Promise.all(changed.map(async ([cid, entry]) => {
         const col = await this.request(new URL(entry.url, base).href);
@@ -370,7 +384,11 @@ export class CoarseTiles {
     e.state = 'loading';
     e.version = this.version;
     try {
-      const res = await this.request(`${COARSE_ROOT}${id}/manifest.json?d=${Math.round(d)}`);
+      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}`);
+      if (res.status === 429) {
+        e.state = 'pending'; e.error = 'queue full'; e.readyAt = undefined;
+        e.nextPoll = this.clock + 5000; return;
+      }
       if (res.status === 202) {
         const body = await res.json().catch(() => ({})) as { state?: string; missing?: string[]; eta?: number };
         e.readyAt = typeof body.eta === 'number' ? this.clock + 1000 * body.eta : undefined;
@@ -386,7 +404,7 @@ export class CoarseTiles {
       if (!load) { e.state = 'built'; e.nextPoll = 0; return; }
       const fragment = await res.json() as CoarseFragment;
       if (!fragment.coarse || fragment.tile !== id) throw new Error(`${id}: not a coarse tile fragment`);
-      const base = new URL(`${COARSE_ROOT}${id}/`, this.page);
+      const base = new URL(`${this.root}${id}/`, this.page);
       // Collision before visibility: every cell of the tile needs a collision entry (a published margin cell may stand
       // in for a cell the draft lacks), and every draft entry must decode in the physics worker. A draft that fails is
       // never drawn; the edge walls (physics/edgeWalls.ts) keep the player out of it and the HUD names the reason.
