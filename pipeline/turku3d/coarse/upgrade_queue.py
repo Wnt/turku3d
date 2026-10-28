@@ -1,5 +1,6 @@
 """Full upgrades use spare workers and remain wanted after the structural first pass is served."""
 
+import json
 import time
 
 from turku3d import config as C
@@ -31,6 +32,13 @@ def next_job(builder, upgrade_only=False):
     if not upgrade_only:
         first = builder._next()
         if first is not None:
+            tile, _ = first
+            # Retain a textured previous generation until its complete successor is ready.
+            if builder.two_pass and builder.cached(tile):
+                manifest = json.loads(builder.manifest(tile).read_text())
+                if manifest.get("pass_kind") == "full":
+                    builder.upgrading.add(tile)
+                    return first, True
             return first, False
     upgrade = next_upgrade(builder) if builder.two_pass or upgrade_only else None
     return (upgrade, True) if upgrade is not None else None

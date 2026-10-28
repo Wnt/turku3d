@@ -177,7 +177,7 @@ Each dataset is reduced once per tile to what the build needs and cached under
 heights over their TIN), `ortho` (512 px RGB), `wfs` (building shells, street polygons with their
 collision material, water polygons), `roads` (`roads.json` of the tile's OSM street graph) and
 `trees` (the tile's OSM `natural=tree` points). The
-key covers `inputs.py`, the dataset’s own producer dependencies and the raw files' path, size and mtime, so new data or relevant code prepares again. A surface edit retains prepared roofs, bridges and ground. Material extraction keys cover only the library/fallback generators, so unrelated geometry edits also retain extracted maps. First-pass WFS/roads use separate caches; full WFS reuses the base shells before survey refinement. Roof refinement crops cached class-6 points to the buildings before constructing its search tree.
+key covers `inputs.py`, the dataset’s own producer dependencies and the raw file content identities, so new data or relevant code prepares again. A surface edit retains prepared roofs, bridges and ground. Material extraction keys cover only the library/fallback generators, so unrelated geometry edits also retain extracted maps. First-pass WFS/roads use separate caches; full WFS reuses the base shells before survey refinement. Roof refinement crops cached class-6 points to the buildings before constructing its search tree.
 The prefetch workers prepare the complete tiles within 1 km of the player in the background
 (`python -m turku3d.coarse prepare <tile> --root <coarse root>`), so a build reads a few small
 pickles instead of decoding LAZ, 5 cm ortho mosaics and whole-area GeoParquet files, and imports
@@ -542,3 +542,31 @@ material library and own ground arrays participate in the memoized content hash,
 so a changed mirrored texture invalidates cached drafts even without a source edit.
 Material lookup uses the sandbox assembly, shared facade store or shared texture
 assembly; it does not require a full-tile `live` release.
+
+
+### Incremental rebuilds and quality retention
+
+Each tile stage caches its own code, config and exact input content in
+`.stages/<tile>/` beside the service output directories. Cached upstream results feed downstream keys:
+unchanged output stops invalidation. Packaging keys emitted meshes, material maps
+and stored facade parameters/assets; mesh encoding also caches individual buffers.
+Service scheduling edits do not change the producer identity. Geometry/material edits
+change the manifest producer hash and request a fresh build.
+
+A complete previous tile stays available during revalidation. A previously full tile
+is rebuilt directly as full, never replaced by an untextured structural pass. New tiles
+serve a structural first pass and remain queued for a full upgrade; every idle worker
+helps, ordered by recent manifest polls then distance from the office. Immutable old
+assets remain addressable for resident clients. Unfinished demand is written atomically
+to `.requests.json` and replayed after a deploy without an age cutoff. Successful full
+builds remove their journal entry; persistent stage caches live outside the source tree.
+
+Reproduce the real-tile cache comparison (build slot required):
+
+```sh
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.cache_benchmark --help
+```
+
+The benchmark compares cold, warm, one-stage-code-changed and clean builds, asserts
+identical payload bytes, and writes per-stage timings. See
+[the measured results](../../../docs/research/incremental-drafts.md).

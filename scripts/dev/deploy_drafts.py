@@ -52,6 +52,13 @@ def deploy(repo, commit):
         capture_output=True,
         text=True,
     )
+    proxy_changed = (
+        remote(
+            f"cmp -s {previous}/tools/remote-drafts/Caddyfile "
+            f"{destination}/tools/remote-drafts/Caddyfile && echo same || echo changed"
+        )
+        != "same"
+    )
     # Validate the proxy config before touching the live source pointer.
     remote(
         f"{HOME}/tools/bin/caddy validate --config {destination}/tools/remote-drafts/Caddyfile "
@@ -71,12 +78,27 @@ def deploy(repo, commit):
         "systemctl --user start turku-drafts && "
         "systemctl --user restart --no-block turku-drafts-prebuild && "
         "systemctl --user start --no-block turku-facade-assets.service && "
-        "systemctl --user restart turku-drafts-proxy && date -u +%Y-%m-%dT%H:%M:%SZ"
+        + ("systemctl --user restart turku-drafts-proxy && " if proxy_changed else "")
+        + "date -u +%Y-%m-%dT%H:%M:%SZ"
     )
+    # systemd Type=simple reports active before Python binds its socket. Returning
+    # only after loopback health avoids a false public smoke failure during startup.
+    health = """import time,urllib.request,urllib.error
+end=time.monotonic()+5
+while time.monotonic()<end:
+ try:
+  with urllib.request.urlopen('http://127.0.0.1:7765/coarse/health',timeout=.5) as r:
+   if r.status==200: break
+ except (OSError,urllib.error.URLError): pass
+ time.sleep(.1)
+else: raise SystemExit('draft producer health did not become ready within5s')
+"""
+    remote("python3 -c " + shlex.quote(health))
     return dict(
         commit=commit,
         seconds=round(time.monotonic() - started, 3),
         restarted_utc=restarted,
+        proxy_restarted=proxy_changed,
         rsync=result.stdout,
     )
 

@@ -175,6 +175,7 @@ def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_
                 "coarse": True,
                 "tile": tile.id,
                 "code": "old",
+                "pass_kind": "full",
                 "visual": {tile.id: {"url": "vis.glb", "bytes": 1}},
                 "collision": collision,
             }
@@ -189,6 +190,62 @@ def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_
     builder.stop()
     restored = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
     assert tile.id in restored.priority
-    assert restored._next() == (tile.id, 12)
+    from turku3d.coarse.upgrade_queue import next_job
+
+    restored.two_pass = True
+    assert next_job(restored) == ((tile.id, 12), True)
+    restored.building[tile.id] = 1
+    for _ in range(3):  # A fresh client re-enters while the replacement is running.
+        assert restored.request(tile.id, 12)["stale"]
+        assert json.loads(restored.manifest(tile.id).read_text())["pass_kind"] == "full"
+    restored.building.clear()
     assert restored.cached(tile.id)
     restored.stop()
+
+
+def test_generator_identity_ignores_service_edits_but_tracks_geometry(monkeypatch):
+    from pathlib import Path
+
+    from turku3d.coarse.packaging import code_hash
+
+    before = code_hash()
+    original = Path.read_bytes
+
+    def service_edit(path):
+        return original(path) + (
+            b"\n# service edit"
+            if path.name
+            in (
+                "service.py",
+                "request_journal.py",
+                "upgrade_queue.py",
+                "prefetch.py",
+                "worker_pool.py",
+            )
+            else b""
+        )
+
+    monkeypatch.setattr(Path, "read_bytes", service_edit)
+    assert code_hash() == before
+
+    def geometry_edit(path):
+        return original(path) + (b"\n# geometry edit" if path.name == "bridges.py" else b"")
+
+    monkeypatch.setattr(Path, "read_bytes", geometry_edit)
+    assert code_hash() != before
+
+
+def test_unfinished_demand_survives_a_long_restart(tmp_path):
+    import json
+    import time
+
+    from turku3d.coarse.request_journal import RequestJournal
+
+    rows = {"t0_0_0": {"at": time.time() - 86400, "distance": 25}}
+    (tmp_path / ".requests.json").write_text(json.dumps(rows))
+    journal = RequestJournal(tmp_path)
+    assert journal.rows == rows
+    journal.record("t0_1_0", 30)
+    assert RequestJournal(tmp_path).rows["t0_0_0"] == rows["t0_0_0"]
+    journal.discard("t0_0_0")
+    assert "t0_0_0" not in RequestJournal(tmp_path).rows
