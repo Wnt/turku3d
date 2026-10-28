@@ -32,7 +32,8 @@ reason. The rules below are the ones that stay hard.
    policy stage and the unit-test stages that stay under 20 s. The Chrome suite and the deep tier (`make gate-deep`:
    pipeline, validator, tooling and other slow test stages) are never required to finish; the integrator runs them
    after publishing and sends you new failures as an advisory warning. Do not add browser specs or slow tests unless
-   your brief asks for them. If you cannot make the fast gate green, finish with `## Result: BLOCKED`, the failing
+   your brief asks for them. Real-data generator sanity screenshots (rule 11) are expected outside the gate.
+   If you cannot make the fast gate green, finish with `## Result: BLOCKED`, the failing
    command and its output. Never weaken a test or a check to pass.
 5. **Fast tests.** `gate --fast` finishes in under 30 s at host load 100; a stage whose full run takes over 20 s gets
    `tier = "deep"` in `scripts/dev/gate.toml`. New tests are small unit tests of pure functions on synthetic
@@ -54,6 +55,11 @@ reason. The rules below are the ones that stay hard.
     so never commit Street View, Look Around, Mapillary or Bing imagery (or crops, previews, contact sheets of it)
     or raw city data; the gate's policy stage enforces this and `docs/published-images.toml` lists the source and
     licence of any marked or large image.
+11. **Sanity-check generated output on real data.** When adding or changing a geometry or placement algorithm
+    (bridges, tunnels, barriers, vegetation, facades or terrain), build the affected real tiles and inspect
+    top-down and oblique headless renders of every instance in at least two tiles, using your sandbox ports.
+    Compare counts and placement against the source (one deck per real bridge, no barrier crossing water),
+    retain the screenshots and fix anomalies before landing. Synthetic unit tests alone are not enough.
 
 ## Isolated work and task tools
 
