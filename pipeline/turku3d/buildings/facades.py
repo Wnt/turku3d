@@ -54,7 +54,7 @@ def placeholder_image(building):
     return out.getvalue()
 
 
-def make_visuals(building, shell, streets, blockers, roof_key, *, placeholder=False):
+def make_visuals(building, shell, streets, blockers, roof_key, *, placeholder=False, roof_rgb=None):
     footprint = building.footprint
     edges = []
     for ring in [
@@ -109,6 +109,11 @@ def make_visuals(building, shell, streets, blockers, roof_key, *, placeholder=Fa
                         "building_id": building.id,
                         "material_key": key,
                         "surface_type": surface.kind,
+                        **(
+                            {"roof_rgb": list(roof_rgb)}
+                            if surface.kind == "RoofSurface" and roof_rgb is not None
+                            else {}
+                        ),
                     },
                 )
             )
@@ -158,7 +163,7 @@ def make_visuals(building, shell, streets, blockers, roof_key, *, placeholder=Fa
     return meshes, features
 
 
-def ortho_roof_key(building, paths):
+def roof_samples(building, paths):
     import rasterio
     from rasterio.features import geometry_mask
     from rasterio.windows import from_bounds
@@ -167,6 +172,9 @@ def ortho_roof_key(building, paths):
     en = transform(
         lambda x, z: (np.asarray(x) + C.ORIGIN_E, C.ORIGIN_N - np.asarray(z)), building.footprint
     )
+    interior = en.buffer(-0.75)
+    if interior.area >= en.area * 0.25:
+        en = interior
     samples = []
     for path in paths:
         with rasterio.open(path) as src:
@@ -197,5 +205,33 @@ def ortho_roof_key(building, paths):
                 samples.extend(rgb.data[:, valid].T.tolist())
     if not samples:
         raise ValueError(f"{building.id}: no valid true-ortho roof pixels")
-    rgb = np.median(samples, axis=0)
-    return roof_material(rgb), {"rgb_median": rgb.tolist(), "pixels": len(samples)}
+    return np.asarray(samples)
+
+
+def ortho_roof_key(building, paths):
+    samples = roof_samples(building, paths)
+    rgb, retained = roof_colour(samples)
+    return roof_material(rgb), {
+        "rgb_median": rgb.tolist(),
+        "pixels": len(samples),
+        "retained_pixels": retained,
+        "edge_inset_m": 0.75
+        if building.footprint.buffer(-0.75).area >= building.footprint.area * 0.25
+        else 0.0,
+    }
+
+
+def roof_colour(samples):
+    """Representative sunlit roof RGB, excluding nodata, vegetation and deep shadows."""
+    samples = np.asarray(samples, dtype=float)
+    r, g, b = samples.T
+    valid = (samples.max(axis=1) > 5) & ~((g > r * 1.2) & (g > b * 1.15))
+    clean = samples[valid]
+    if not len(clean):
+        clean = samples
+    luma = clean @ [0.2126, 0.7152, 0.0722]
+    # Only deep shadows are rejected; dark roofing is retained on uniformly dark roofs.
+    lit = (luma >= np.percentile(luma, 75) * 0.6) & (luma <= np.percentile(luma, 98))
+    if lit.any():
+        clean = clean[lit]
+    return np.median(clean, axis=0), len(clean)

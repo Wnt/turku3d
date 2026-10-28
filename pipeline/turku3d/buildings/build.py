@@ -68,6 +68,7 @@ def _publish(
             [b.footprint for b in buildings],
             key,
             placeholder=record["choice"] == "placeholder",
+            roof_rgb=color["rgb_median"],
         )
         # Whole objects are owned once by the tile containing their representative point.
         # Assembler uses actual mesh bounds for cross-tile culling.

@@ -178,15 +178,61 @@ def bridge_decks(
 
 
 def extrude(b: Building):
+    """Compose closed roof-part solids while retaining the building ownership footprint."""
+    from .roofs import above, plane_height, polygons
+
+    centroid = b.footprint.centroid
+    collision_origin = np.asarray(C.CollisionTile.at(centroid.x, centroid.y).origin)[[0, 2]]
+    parts = []
+    for polygon, plane in b.roof_parts:
+        for piece in polygons(
+            above(polygon.intersection(b.footprint), plane, b.base + 0.01).simplify(
+                0.005, preserve_topology=True
+            )
+        ):
+            part = Building(
+                b.key, shapely.geometry.polygon.orient(piece, 1), b.base, b.top, b.material_key
+            )
+            parts.append(_extrude(part, lambda xz, p=plane: plane_height(p, xz), collision_origin))
+    if not parts:
+        if not b.roof_parts:
+            return _extrude(b, lambda xz: np.full(len(xz), b.top), collision_origin)
+        return tuple(
+            np.empty((0, 2 if k == 5 else 3), dtype=np.uint32 if k in (1, 3, 6) else float)
+            for k in range(7)
+        )
+    result = []
+    for index in range(7):
+        if index in (1, 3, 6):
+            vertex = {1: 0, 3: 2, 6: 4}[index]
+            offsets = np.cumsum([0] + [len(p[vertex]) for p in parts[:-1]])
+            result.append(
+                np.concatenate(
+                    [p[index] + offset for p, offset in zip(parts, offsets, strict=True)]
+                )
+            )
+        else:
+            result.append(np.concatenate([p[index] for p in parts]))
+    return tuple(result)
+
+
+def _extrude(b: Building, height, collision_origin):
     """Closed shell: walls (with metre UVs), roof and floor. Returns parts in world-local metres."""
     rings = [np.asarray(r.coords)[:-1, :2] for r in [b.footprint.exterior, *b.footprint.interiors]]
     flat = np.concatenate(rings)
     ends = np.cumsum([len(r) for r in rings]).astype(np.uint32)
     tri = mapbox_earcut.triangulate_float64(flat, ends).reshape(-1, 3).astype(np.uint32)
-    roof = np.column_stack([flat[:, 0], np.full(len(flat), b.top), flat[:, 1]])
+    roof = np.column_stack([flat[:, 0], height(flat), flat[:, 1]])
     a, bb, cc = roof[tri[:, 0]], roof[tri[:, 1]], roof[tri[:, 2]]
     up = np.cross(bb - a, cc - a)[:, 1] > 0
     roof_idx = np.where(up[:, None], tri, tri[:, [0, 2, 1]])
+    # Polygon differences can leave collinear earcut ears. Test in export precision
+    # before using the triangulation for both roof and floor. These have no usable area.
+    for coords in (flat, flat.astype(np.float32), (flat - collision_origin).astype(np.float32)):
+        projected = coords[roof_idx]
+        ab, ac = projected[:, 1] - projected[:, 0], projected[:, 2] - projected[:, 0]
+        area = np.abs(ab[:, 0] * ac[:, 1] - ab[:, 1] * ac[:, 0]) / 2
+        roof_idx = roof_idx[area >= 2e-6]
     floor = roof.copy()
     floor[:, 1] = b.base
     wall_pos, wall_uv, wall_idx = [], [], []
@@ -197,15 +243,16 @@ def extrude(b: Building):
             if length < 1e-6:
                 continue
             k = len(wall_pos) * 4
+            hp, hq = height(np.array([p, q]))
             wall_pos.append(
                 [
                     [p[0], b.base, p[1]],
                     [q[0], b.base, q[1]],
-                    [q[0], b.top, q[1]],
-                    [p[0], b.top, p[1]],
+                    [q[0], hq, q[1]],
+                    [p[0], hp, p[1]],
                 ]
             )
-            wall_uv.append([[0, b.base], [length, b.base], [length, b.top], [0, b.top]])
+            wall_uv.append([[0, b.base], [length, b.base], [length, hq], [0, hp]])
             # The footprint is oriented counter-clockwise in (x, z), so these face outwards.
             wall_idx += [[k, k + 3, k + 2], [k, k + 2, k + 1]]
     wall_pos = np.asarray(wall_pos, float).reshape(-1, 3)
@@ -635,6 +682,9 @@ def build(
         ),
         buildings=len(blds),
         building_keys=[b.facade_key for b in blds],
+        roof_heights=[
+            dict(building=b.key, parts=len(b.roof_parts), evidence=b.height_evidence) for b in blds
+        ],
         facade_params=facade_params,
         trees=len(trees),
         barriers=barrier_stats,

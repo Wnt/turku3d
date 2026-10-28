@@ -82,7 +82,12 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
     const own = facade(e);
     if (!own && request.facadeKit && bindFacadeKit(doc, request, material, prim, e, texture)) return;
     const selected = own ?? library(key);
-    const { albedo, normal, orm } = selected.maps;
+    let { albedo } = selected.maps;
+    const { normal, orm } = selected.maps;
+    if (e.roof_rgb) {
+      bindRoofColour(doc, material, prim, e.roof_rgb);
+      albedo = undefined;
+    }
     if ((albedo || normal || orm) && !prim.getAttribute('TEXCOORD_0')) throw new Error(`Missing UVs: ${e.object_id}`);
     // The source mesh name and semantic key are per object, not per GPU material.
     // Canonicalize library-backed materials so dedup can batch all walls/roofs
@@ -111,4 +116,17 @@ export function createMaterialBinder(doc, request, { KHRTextureBasisu, KHRTextur
         .createTransform().setScale(selected.scale).setOffset(selected.offset));
     }
   };
+}
+
+// Measured roof colours use vertex colours so roofs with different RGB still share a batch.
+export function bindRoofColour(doc, material, prim, rgb) {
+  if (!Array.isArray(rgb) || rgb.length !== 3 || !rgb.every(v => Number.isFinite(v) && v >= 0 && v <= 255)) {
+    throw new Error('Invalid orthophoto roof RGB');
+  }
+  const linear = rgb.map(v => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
+  const position = prim.getAttribute('POSITION');
+  const colours = new Float32Array(position.getCount() * 3);
+  for (let i = 0; i < position.getCount(); i++) colours.set(linear, i * 3);
+  prim.setAttribute('COLOR_0', doc.createAccessor().setBuffer(position.getBuffer()).setType('VEC3').setArray(colours));
+  material.setBaseColorTexture(null).setBaseColorFactor([1, 1, 1, 1]);
 }

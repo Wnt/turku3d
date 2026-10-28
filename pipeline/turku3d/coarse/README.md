@@ -38,8 +38,17 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   levels; ordinary approaches blend over at most 3 m. Outline branches blend back to measured ground.
   Source ship/building footprints cut holes in decks; rails follow the outline with open traffic entrances.
   Without OSM decks, the existing street-area water-bridge abutment lift remains the fallback.
-- **Buildings**: LOD2 footprints whose centroid is in the tile, extruded to the mean roof height; the collision shell
-  goes to the centroid's collision tile.
+- **Buildings**: LOD2 footprints whose centroid is in the tile, with the upper roof envelope
+  retained as separate sloping/terraced solids. Overlapping lower decks no longer pull down
+  a single mean height. Optional cached `raw/laz/pistepilvi` class-6 points refine each plane:
+  0.75 m interior inset, equal-weight 1 m cell residual medians, at least eight cells and 50%
+  coverage, residual MAD at most 0.35 m. Unsupported faces retain their surveyed LOD2 plane;
+  register floors and OSM levels are facade semantics, not competing height measurements.
+  Classified sources are never fetched by a draft build. Their arrival/change invalidates both
+  prepared WFS data and the service input key. `manifest.roof_heights` records support and
+  offsets per building/roof part. The complete building still belongs to its centroid's collision
+  tile. Passage ceilings clip away lower roof parts before extrusion; collinear partition ears
+  are removed at export precision. Roof boundaries simplify by at most 5 mm before meshing.
 
 - **Trees**: OSM `natural=tree` points on dry ground outside the buildings, drawn with the vegetation layer's
   GPU-instanced prototypes (10 m unless `height` is tagged, conifers by `leaf_type=needleleaved`); each trunk is a
@@ -269,3 +278,21 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_bridges.
 `--counts-only` refreshes source/instance tables without packaging tiles. Historical baseline failures are
 recorded rather than hidden; the render harness excludes those same baseline-missing tiles from both
 spot performance comparisons, while complete after tile-overview renders include them.
+
+## Roof audit (manual, outside the gate)
+
+```sh
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.roof_audit
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.roof_audit --build --tiles t0_-1_1 t0_-2_2 t0_-2_3
+npm --prefix game run dev -- --host 127.0.0.1 --port "$TURKU3D_PORT_BASE" --strictPort
+python3 scripts/dev/host_slots.py browser -- node qa/render/roof-sanity.mjs
+```
+
+The first command evaluates every cached classified-LAZ L0 cell with prepared LOD2, not only
+reported failures. A coordinate hash reserves 20% of roof returns from fitting; before/after
+use identical held-out class-6 points inside footprints, inset 0.75 m and above base + 2 m.
+The old flat mean, LOD2 envelope and lidar-refined envelope are reported separately.
+`WORK/reports/roofs/height-audit.json` retains distributions and per-building evidence;
+explicit `--tiles` writes `height-audit-selected.json`. Build outputs and paired screenshots
+stay in that same sandbox directory. The renderer also expects the office colour audit
+from `turku3d.buildings.roof_audit`. No external map imagery is read.
