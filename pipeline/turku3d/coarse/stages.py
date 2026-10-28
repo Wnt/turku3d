@@ -91,3 +91,18 @@ def kerb_inputs(tile, sources):
                 continue
             paths.update({p.name: p for p in found})
     return identities(paths)
+
+
+def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
+    from . import bridges
+    from .build import bridge_decks
+
+    grid_pos = grid_pos.copy()
+    osm_decks = bridges.produce(tile, grid_pos, inputs)
+    decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
+    roads = bridges.road_heights(inputs.roads, osm_decks)
+    # Samplers are build-local closures. Consume them before caching the resulting mesh/road data.
+    for deck in osm_decks:
+        deck.height_at = None
+    return grid_pos, osm_decks, decks, roads
+

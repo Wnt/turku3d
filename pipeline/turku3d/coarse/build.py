@@ -39,7 +39,7 @@ from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .sources import Sources
-from .stages import building_visual, kerb_inputs, props_visual
+from .stages import building_visual, deck_stage, kerb_inputs, props_visual
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
@@ -277,17 +277,6 @@ def terrain_stage(tile, inputs):
     if wet.any():
         materials[wet] = mat_id("water")
     return grid_pos, grid_idx, materials, wet, level
-
-
-def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
-    grid_pos = grid_pos.copy()
-    osm_decks = bridges.produce(tile, grid_pos, inputs)
-    decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
-    roads = bridges.road_heights(inputs.roads, osm_decks)
-    # Samplers are build-local closures. Consume them before caching the resulting mesh/road data.
-    for deck in osm_decks:
-        deck.height_at = None
-    return grid_pos, osm_decks, decks, roads
 
 
 def build(
