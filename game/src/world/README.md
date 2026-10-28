@@ -24,8 +24,8 @@ an empty first traversal nor `loadProgress === 1` alone can release the screen.
 Textures in PBR slots and TSL graphs use the renderer’s shared upload budget before becoming drawable;
 startup also queues TSL/private maps before `compileAsync`, which sees offscreen meshes too.
 The same glTF admission hook paces newly streamed published and draft tile maps during play (render/README.md).
-Published models await `VisualTiles.prepareModel` inside the library’s parse promise, after raw resource
-ownership is recorded and before REPLACE refinement can hide the old parent. Draft host `style` and `styled`
+Published models await `VisualTiles.prepareModel` in the native `processTileModel` hook, before the loader
+publishes its scene or REPLACE refinement hides the old parent. The wrapper preserves original glTF disposal ownership. Draft host `style` and `styled`
 callbacks may return promises and are awaited before insertion; `styled` prepares programs after draft tint/LOD.
 Both include final ground bindings plus prepass, beauty and reflection compilation.
 Six real warmup views per selectable spawn cell exercise shadow/MRT/post-processing and vegetation variants on WebGPU and WebGL2, followed

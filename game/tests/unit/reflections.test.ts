@@ -54,3 +54,12 @@ test('river reuse preserves explicit and automatic CSM update requests', () => {
   reuse.restore([a, b]);
   expect([a.shadow.autoUpdate, a.shadow.needsUpdate, b.shadow.autoUpdate, b.shadow.needsUpdate]).toEqual([true, true, false, false]);
 });
+
+
+test('reflection restore leaves newly initialized cascades at their own defaults', () => {
+  const lights: THREE.DirectionalLight[] = [], reuse = new ReflectionShadows();
+  reuse.pause(lights);
+  const light = new THREE.DirectionalLight(); lights.push(light);
+  reuse.restore(lights);
+  expect(light.shadow.autoUpdate).toBe(true); expect(light.shadow.needsUpdate).toBe(false);
+});
