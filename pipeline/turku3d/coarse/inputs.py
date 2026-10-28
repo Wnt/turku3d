@@ -510,6 +510,7 @@ def gather(
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance = {}, {}, {}
     for dataset, paths in _sources(tile, sources).items():
+        full_paths = paths
         if first_pass and paths and dataset in ("wfs", "roads"):
             paths = paths[:3] if dataset == "wfs" else paths[:1]
         if paths is None:  # only the optional roads and trees: no OSM clip yet
@@ -520,7 +521,12 @@ def gather(
             dataset + "-first" if first_pass and dataset in ("wfs", "roads") else dataset
         )
         path, key = _entry(root, tile, cache_dataset, paths)
-        value = _load(path, key)
+        value = _ABSENT
+        if first_pass and dataset in ("wfs", "roads"):
+            full_path, full_key = _entry(root, tile, dataset, full_paths)
+            value = _load(full_path, full_key)
+        if value is _ABSENT:
+            value = _load(path, key)
         if value is _ABSENT:
             if dataset == "wfs" and not first_pass:
                 base_path, base_key = _entry(root, tile, "wfs-first", paths[:3])
