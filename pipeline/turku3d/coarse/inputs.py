@@ -36,7 +36,7 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
 # not decode classified roof/bridge lidar again for every surrounding tile.
 DEPENDENCIES = {
-    "wfs": ("roofs.py",),
+    "wfs": ("roofs.py", "../buildings/source_surfaces.py"),
     "roads": ("bridges.py", "bridge_survey.py"),
     "barriers": ("fences.py",),
     "forests": ("forests.py",),
@@ -184,18 +184,19 @@ def _frame(path: Path | None, bbox: C.BBoxLocal, kinds=("Polygon", "MultiPolygon
 
 
 def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
-    """LOD2 footprints owned by centroid, with their upper roof envelope retained."""
+    """Complete surveyed solid footprints owned by centroid, retaining the roof envelope."""
     import geopandas as gpd
 
-    frame = gpd.read_parquet(path)
-    if "surface_type" not in frame.columns:  # a page set without any building
-        return []
-    frame = frame[frame.geom_type == "Polygon"]
+    from turku3d.buildings.source_surfaces import classify_surfaces
+
+    frame = classify_surfaces(gpd.read_parquet(path))
     frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
     bbox = tile.bbox.buffered(100.0)
     window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
     local = frame.geometry_local.apply(shapely.force_2d)
-    frame, local = frame[local.intersects(window)], local[local.intersects(window)]
+    keys = frame.loc[local.intersects(window), "feature_key"].unique()
+    frame = frame[frame.feature_key.isin(keys)]
+    local = local.loc[frame.index]
     out = []
     for key, group in frame.groupby("feature_key", sort=True):
         ground = group.surface_type == "GroundSurface"
@@ -203,58 +204,63 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
         polys = [g for g in getattr(footprint, "geoms", [footprint]) if g.geom_type == "Polygon"]
         if not polys:
             continue
-        footprint = max(polys, key=lambda p: p.area)
-        if footprint.area < 4.0:
-            continue
-        c = footprint.centroid
-        if not tile.bbox.contains(c.x, c.y):
-            continue
-        heights = np.concatenate(
-            [np.asarray(g.exterior.coords)[:, 2] for g in group.geometry[ground]]
-        )
-        base = float(heights.min())
-        roof_surfaces = group[~ground]
-        if len(roof_surfaces):
-            areas = roof_surfaces.geometry.area.to_numpy()
-            means = np.array(
-                [np.asarray(g.exterior.coords)[:, 2].mean() for g in roof_surfaces.geometry]
+        for part_index, footprint in enumerate(sorted(polys, key=lambda p: (-p.area, p.wkb))):
+            if footprint.area < 0.01:
+                continue
+            c = footprint.centroid
+            if not tile.bbox.contains(c.x, c.y):
+                continue
+            grounds = group[ground & local.loc[group.index].intersects(footprint)]
+            heights = np.concatenate(
+                [np.asarray(g.exterior.coords)[:, 2] for g in grounds.geometry]
             )
-            top = float((means * areas).sum() / max(areas.sum(), 1e-9))
-        else:
-            top = base + float(group.measuredHeight.astype(float).iloc[0])
-        if not np.isfinite(top) or top < base + 2.0:
-            top = base + 3.0
-        building = Building(
-            key, shapely.geometry.polygon.orient(footprint, 1.0), base, top, "facade_plaster"
-        )
+            base = float(heights.min())
+            roof_surfaces = group[~ground & local.loc[group.index].intersects(footprint)]
+            if len(roof_surfaces):
+                areas = roof_surfaces.geometry.area.to_numpy()
+                means = np.array(
+                    [np.asarray(g.exterior.coords)[:, 2].mean() for g in roof_surfaces.geometry]
+                )
+                top = float((means * areas).sum() / max(areas.sum(), 1e-9))
+            else:
+                top = base + float(group.measuredHeight.astype(float).iloc[0])
+            if not np.isfinite(top) or top < base + 2.0:
+                top = base + 3.0
+            building = Building(
+                key if part_index == 0 else f"{key}-part{part_index}",
+                shapely.geometry.polygon.orient(footprint, 1.0),
+                base,
+                top,
+                "facade_plaster",
+            )
 
-        building.roof_parts = roofs.envelope(footprint, roof_surfaces.geometry_local, top)
+            building.roof_parts = roofs.envelope(footprint, roof_surfaces.geometry_local, top)
 
-        def value(*columns, group=group):
-            for column in columns:
-                if column in group.columns:
-                    v = str(group[column].iloc[0])
-                    if v not in ("", "0", "None", "nan", "<NA>"):
-                        return v
-            return ""
+            def value(*columns, group=group):
+                for column in columns:
+                    if column in group.columns:
+                        v = str(group[column].iloc[0])
+                        if v not in ("", "0", "None", "nan", "<NA>"):
+                            return v
+                return ""
 
-        building.facade_key = value("pysyvarakennustunnus") or str(key)
-        levels = value("kerrosluku", "storeysAboveGround")
-        year = value("yearOfConstruction", "valmistunut")[:4]
-        year = int(year) if year.isdigit() else None
-        building.attributes = dict(
-            levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
-            era="unknown"
-            if year is None
-            else "pre-1850"
-            if year < 1850
-            else "1850-1919"
-            if year < 1920
-            else "1920-1959"
-            if year < 1960
-            else "1960+",
-        )
-        out.append(building)
+            building.facade_key = value("pysyvarakennustunnus") or str(key)
+            levels = value("kerrosluku", "storeysAboveGround")
+            year = value("yearOfConstruction", "valmistunut")[:4]
+            year = int(year) if year.isdigit() else None
+            building.attributes = dict(
+                levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
+                era="unknown"
+                if year is None
+                else "pre-1850"
+                if year < 1850
+                else "1850-1919"
+                if year < 1920
+                else "1920-1959"
+                if year < 1960
+                else "1960+",
+            )
+            out.append(building)
     return out
 
 

@@ -9,14 +9,11 @@ from turku3d import config as C
 
 from .inputs import local_polygon
 from .shells import Surface
+from .source_surfaces import classify_surfaces
 
 
 def read(path, buildings):
-    df = gpd.read_parquet(path)
-    df = df[
-        (df.geom_type == "Polygon")
-        & df.surface_type.isin(["RoofSurface", "WallSurface", "GroundSurface"])
-    ]
+    df = classify_surfaces(gpd.read_parquet(path))
     candidates = []
     for key, group in df.groupby("feature_key", sort=True):
         grounds = group[group.surface_type == "GroundSurface"]

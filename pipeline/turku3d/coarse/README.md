@@ -450,3 +450,19 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_latency.
 ```
 
 Full upgrade workers use `nice -n 10`; first-pass workers retain normal priority. Queue ETAs use first-pass times and their dedicated worker, independently of survey upgrades. Producer fixes invalidate failed-build backoff immediately.
+
+### Building presence and footprint selection
+
+The building source reader retains explicit CityGML surface roles and also reads complete
+unlabelled `lod1Solid` shells from the same city layer. It classifies their surveyed bottom,
+vertical sides and upper faces geometrically; terrain intersection curves and incomplete
+solids cannot create buildings. The full buildings reader uses the same classification.
+Disconnected ground components retain their own complete outlines and centroid tile ownership,
+including surveyed components smaller than 4 m². Individual faces are never clipped by the
+input search window. Facade enrichment and surveyed height refinement still run normally.
+
+Synthetic source-selection checks:
+
+```sh
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_building_source_surfaces.py pipeline/tests/test_coarse_roofs.py
+```
