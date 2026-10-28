@@ -39,9 +39,12 @@ export function checkChromeLaunches(name, source) {
     function check(object, node) {
       const property = argsIn(object);
       const expression = property && (ts.isShorthandPropertyAssignment(property) ? property.name : property.initializer);
-      if (!safe(expression)) {
+      const ignored = object && ts.isObjectLiteralExpression(object)
+        ? object.properties.find(p => p.name?.getText(tree) === 'ignoreDefaultArgs')?.initializer?.getText(tree)
+        : undefined;
+      if (!safe(expression) || ignored !== 'chromeIgnoreDefaultArgs') {
         const line = tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1;
-        errors.push(`${name}:${line}: Chrome launch args must use chromeArgs() from tools/dev/chrome-args.mjs`);
+        errors.push(`${name}:${line}: Chrome launch must use chromeArgs() and chromeIgnoreDefaultArgs from tools/dev/chrome-args.mjs`);
       }
     }
     function visit(node) {
@@ -50,11 +53,15 @@ export function checkChromeLaunches(name, source) {
         && /playwright|puppeteer|chromium/.test(snippet)) {
         check(node.arguments[node.expression.name.text === 'launchPersistentContext' ? 1 : 0], node);
       }
+      if (ts.isCallExpression(node) && /^(?:spawn|execFile|execFileSync)$/.test(node.expression.getText(tree))
+        && node.arguments[0] && ts.isStringLiteral(node.arguments[0])
+        && /(?:Google Chrome|chromium|chrome)(?:$|\/)/i.test(node.arguments[0].text)
+        && !safe(node.arguments[1])) errors.push(`${name}: native Chrome launch args must use chromeArgs()`);
       if (ts.isPropertyAssignment(node) && node.name.getText(tree) === 'launchOptions') check(node.initializer, node);
       ts.forEachChild(node, visit);
     }
     visit(tree);
-    if (/playwright.*config\.[cm]?ts$/.test(name) && !snippet.includes('launchOptions')) {
+    if (/playwright.*config\.[cm]?[jt]s$/.test(name) && !snippet.includes('launchOptions')) {
       errors.push(`${name}: Playwright config must declare launchOptions with chromeArgs()`);
     }
   }

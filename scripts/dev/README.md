@@ -3,6 +3,31 @@
 Python 3.10+, Git, `lsof`, Node and the authenticated Codex CLI are required. No services, API keys or Python
 packages are needed for these commands. Policy: [AGENTS.md](../../AGENTS.md).
 
+## Chrome launch arguments
+
+Every Playwright config and Chrome launcher uses `chromeArgs([...])` from
+`tools/dev/chrome-args.mjs`. It merges existing `--disable-features` lists into one
+switch and disables `MacAppCodeSignClone`, preventing macOS from copying Chrome's
+app bundle at launch. Playwright launch options also set `ignoreDefaultArgs: chromeIgnoreDefaultArgs`
+from that module: this removes Playwright's original feature switch while preserving all its
+features in the merged argument and avoiding duplicate feature switches.
+The synthetic test checks the versioned defaults against installed Playwright; update them
+when upgrading Playwright. Python preview scripts import the same module in their embedded
+Node script; the localhost service, integrator and gate delegate to the protected configs.
+Do not append another `--disable-features` switch after the helper.
+
+```bash
+node tools/dev/check-chrome-launches.mjs        # also runs in every fast gate
+node --test tools/dev/chrome-args.test.mjs       # synthetic merger and policy checks
+python3 scripts/dev/host_slots.py browser -- node tools/dev/verify-chrome-clone.mjs
+```
+
+The macOS probe runs the music-lab Playwright spec and a native Chrome CDP launch,
+checking the CDP command line and sampling the system clone directory every 50 ms,
+including while Chrome is running. It writes `reports/chrome-clone/verification.json`
+under `$TURKU3D_WORK`. Run during a quiet launch window: unrelated unprotected Chrome
+launches share that directory and fail the probe. Existing clones are only listed.
+
 ## Worktrees
 
 Run from any checkout (the commands resolve their own repository):

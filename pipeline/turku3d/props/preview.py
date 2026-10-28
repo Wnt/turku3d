@@ -100,8 +100,8 @@ def main():
     thread.start()
     script = r"""
 const {chromium}=require(process.argv[1]);
-(async()=>{const {chromeArgs}=await import(process.argv[5]);
-const context=await chromium.launchPersistentContext(process.argv[2],{channel:'chrome',headless:true,viewport:{width:1600,height:1000},args:chromeArgs(['--use-angle=metal','--ignore-gpu-blocklist'])});
+(async()=>{const {chromeArgs,chromeIgnoreDefaultArgs}=await import(process.argv[5]);
+const context=await chromium.launchPersistentContext(process.argv[2],{ignoreDefaultArgs:chromeIgnoreDefaultArgs,channel:'chrome',headless:true,viewport:{width:1600,height:1000},args:chromeArgs(['--use-angle=metal','--ignore-gpu-blocklist'])});
 try {
  const results=[];
  for(const mode of ['aoi','catalog','detail','street','sign']){

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chromeArgs } from '../../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 // Manual real-data generator inspection, deliberately outside the test gate.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -66,7 +66,7 @@ try {
   fs.writeFileSync(sceneFile, source, { flag: 'wx' });
   fs.writeFileSync(pageFile, '<link rel="icon" href="data:,"><script type="module" src="/__bridge-sanity.js"></script>', { flag: 'wx' });
   fs.symlinkSync(root, link);
-  browser = await chromium.launch({ channel: 'chrome', headless: true, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling']) });
+  browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling']) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));

@@ -24,15 +24,6 @@ const out = path.join(reportsRoot, 'chrome-clone');
 fs.mkdirSync(out, { recursive: true });
 isolateBrowser();
 try {
-  const playwright = spawn(path.resolve('tools/music-lab/node_modules/.bin/playwright'),
-    ['test', '-c', 'playwright.config.ts', 'tests/music.spec.ts', '--workers=1'],
-    { cwd: path.resolve('tools/music-lab'), env: { ...process.env, DEBUG: 'pw:browser' }, stdio: 'inherit' });
-  const [code] = await once(playwright, 'exit');
-  sample();
-  report.phases.push({ name: 'playwright music.spec.ts', exitCode: code, newClones: [...appeared] });
-  assert.equal(code, 0, 'Playwright spec failed');
-  assert.equal(appeared.size, 0, 'Playwright launch created a clone');
-
   const args = chromeArgs(['--headless=new', '--enable-automation', '--no-first-run', '--no-default-browser-check',
     `--user-data-dir=${path.join(process.env.TURKU3D_BROWSER_DIR, 'clone-cdp')}`,
     `--remote-debugging-port=${port(3)}`, '--remote-debugging-address=127.0.0.1', 'about:blank']);
@@ -50,7 +41,7 @@ try {
     browser = await chromium.connectOverCDP(endpoint);
     const cdp = await browser.newBrowserCDPSession();
     const command = await cdp.send('Browser.getBrowserCommandLine');
-    assert(command.arguments.includes('--disable-features=MacAppCodeSignClone'));
+    assert(command.arguments.some(arg => arg.startsWith('--disable-features=') && arg.split('=')[1].split(',').includes('MacAppCodeSignClone')));
     sample();
     report.phases.push({ name: 'native Chrome CDP', version: browser.version(), args, newClones: [...appeared] });
     await cdp.send('Browser.close');
@@ -61,6 +52,15 @@ try {
   }
   sample();
   assert.equal(appeared.size, 0, 'CDP launch created a clone');
+  const playwright = spawn(path.resolve('tools/music-lab/node_modules/.bin/playwright'),
+    ['test', '-c', 'playwright.config.ts', 'tests/music.spec.ts', '--workers=1'],
+    { cwd: path.resolve('tools/music-lab'), env: { ...process.env, DEBUG: 'pw:browser' }, stdio: 'inherit' });
+  const [code] = await once(playwright, 'exit');
+  sample();
+  report.phases.push({ name: 'playwright music.spec.ts', exitCode: code, newClones: [...appeared] });
+  assert.equal(code, 0, 'Playwright spec failed');
+  assert.equal(appeared.size, 0, 'Playwright launch created a clone');
+
   console.log(JSON.stringify(report, null, 2));
 } finally {
   clearInterval(timer);

@@ -1,4 +1,4 @@
-import { chromeArgs } from '../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../tools/dev/chrome-args.mjs';
 import { jobs } from '../tools/dev/environment.mjs';
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
@@ -23,7 +23,7 @@ export default defineConfig({
     channel: 'chrome',
     headless: process.env.HEADED ? false : true,
     viewport: { width: 960, height: 540 },
-    launchOptions: { args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
+    launchOptions: { ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
   },
   projects: [
     { name: 'webgpu', use: { backendParam: 'webgpu',

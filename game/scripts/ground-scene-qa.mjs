@@ -1,4 +1,4 @@
-import { chromeArgs } from '../../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 // Before/after uses identical assembled geometry. Baseline removes only the declared ground binding.
 import { chromium } from '@playwright/test';
 import fs from 'node:fs/promises';
@@ -39,7 +39,7 @@ if (process.argv[3]) {
 }
 for (const backend of (process.argv[4] ?? 'webgpu,webgl').split(',')) {
   const context = await chromium.launchPersistentContext(path.join(browserRoot, 'ground-scene', backend), {
-    channel: 'chrome', headless: true, viewport: { width: 1280, height: 960 }, deviceScaleFactor: 1,
+    ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true, viewport: { width: 1280, height: 960 }, deviceScaleFactor: 1,
     args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
   });
   try {
