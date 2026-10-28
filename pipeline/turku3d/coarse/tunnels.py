@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -220,7 +221,7 @@ class Tunnels:
 
 def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sample=None):
     """Produce sealed tubes, exact ground remainders and passage openings in draft buildings."""
-    from .inputs import CELLS, Building
+    from .inputs import CELLS
     from .kerbs import terrain_patches
 
     keep = np.ones(len(grid_idx), bool)
@@ -415,17 +416,14 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             ):
                 for poly in shapely.get_parts(footprint):
                     if poly.geom_type == "Polygon" and poly.area > 0.01 and base < b.top:
-                        part = Building(
-                            b.key,
-                            shapely.geometry.polygon.orient(passage_footprint(poly), 1),
-                            base,
-                            b.top,
-                            b.material_key,
-                        )
-                        part.facade_key = b.facade_key
+                        part = copy.copy(b)
+                        part.footprint = shapely.geometry.polygon.orient(passage_footprint(poly), 1)
+                        part.base = base
                         part.attributes = b.attributes.copy()
-                        part.roof_parts = b.roof_parts
-                        part.height_evidence = b.height_evidence
+                        centre = b.footprint.centroid
+                        part._collision_owner = getattr(
+                            b, "_collision_owner", C.CollisionTile.at(centre.x, centre.y)
+                        )
                         shell = extrude(part)
                         if len(shell[0]):
                             updated.append((part, shell))

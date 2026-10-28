@@ -163,7 +163,7 @@ def ortho_uv(tile: C.VisualTile, positions: np.ndarray) -> np.ndarray:
 
 
 def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None):
-    """Split the ground grid along the 62.5 m grid; each building goes to its centroid's tile."""
+    """Split ground along the 62.5 m grid; carved building parts retain the original owner."""
     per = CELLS // C.COLLISION_PER_VISUAL
     out = {}
     for ct in tile.collision_tiles():
@@ -180,7 +180,7 @@ def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells, ground_k
         count = len(mesh.positions)
         for b, (roof, roof_idx, floor, floor_idx, walls, _, wall_idx) in shells:
             c = b.footprint.centroid
-            if C.CollisionTile.at(c.x, c.y) != ct:
+            if getattr(b, "_collision_owner", C.CollisionTile.at(c.x, c.y)) != ct:
                 continue
             for pos, idx, mid in (
                 (roof, roof_idx, mat_id("roof")),

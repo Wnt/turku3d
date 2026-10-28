@@ -114,3 +114,29 @@ def test_building_passage_keeps_upper_shell_and_road_floor_metadata():
     encoded = json.loads(roads["json"])
     assert encoded["edgeHeights"] == [[2] * 11]
     assert len(encoded["edges"][0]) // 2 == len(encoded["edgeHeights"][0])
+
+
+def test_passage_parts_keep_collision_when_their_centroid_moves_outside_visual_tile(monkeypatch):
+    from turku3d.coarse import build
+
+    monkeypatch.setattr(build, "CELLS", 4)
+    tile = C.VisualTile(0, 0, 0)
+    pos, idx = build.grid_mesh(tile, np.zeros((5, 5)))
+    building = Building("boundary", shapely.box(-10, 10, 30, 20), 0, 10, "facade_plaster")
+    building.facade_asset_description = {"source": "stored per-building appearance"}
+    way = (
+        "passage",
+        shapely.LineString([(0, 0), (0, 40)]),
+        {"highway": "service", "width": "4", "tunnel": "building_passage"},
+    )
+    result = produce(
+        tile, [way], pos, idx, [(building, extrude(building))], extrude, lambda x, z: 0
+    )
+    assert any(b.footprint.centroid.x < 0 for b, _ in result.shells)
+    assert all(
+        b.facade_asset_description == building.facade_asset_description for b, _ in result.shells
+    )
+    cells = build.collision_tiles(
+        tile, pos, idx, np.full(len(idx), 1, np.uint8), 0, result.shells, result.keep
+    )
+    assert cells[C.CollisionTile(0, 0)][0][:, 0].min() == -10

@@ -110,6 +110,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   asphalt/paving semantics. Only its building shell is carved: the visible ceiling reuses that
   shell's existing downward collision floor. It adds no slab, freestanding tube, portal wings or
   light strips, so sloping entrances and steps remain continuous with the surrounding ground.
+  Carved parts retain the original building's collision owner and appearance metadata, including
+  stored per-building facade descriptions, even when a part's centroid crosses a tile boundary.
   Visuals and collision are clipped to the same tile bounds. Tight offset corners use individual wall
   sections in a combined mesh; passage footprint cuts remove sub-0.5 mm slivers before triangulation.
   Optional `roads.json.edgeHeights` stores floor Y per edge vertex, shared with draft bridges.
