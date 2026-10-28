@@ -95,7 +95,12 @@ def osm_surfaces(tile, path):
             continue
         if tags.get("building") or tags.get("layer", "0") not in ("0", ""):
             continue
-        key = "quay" if tags.get("man_made") == "quay" else SURFACES.get(tags.get("surface"))
+        retaining = (
+            tags.get("man_made") in ("quay", "wall", "embankment")
+            or tags.get("barrier") in ("retaining_wall", "wall", "city_wall")
+            or tags.get("embankment") == "yes"
+        )
+        key = "quay" if retaining else SURFACES.get(tags.get("surface"))
         highway = tags.get("highway")
         if not key and (
             tags.get("landuse") in ("grass", "meadow", "forest")

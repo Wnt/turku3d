@@ -157,16 +157,18 @@ def test_coarse_tile_is_a_published_tile(tmp_path, inputs):
     materials = np.concatenate([c.materials for c in cols.values()])
     for name in ("road", "grass", "water", "roof", "building", "paving_slab"):
         assert (materials == mat_id(name)).any(), name
-    # Every grid cell is two ground triangles; the building lives only in its centroid's tile.
-    ground = sum(
-        int(
-            np.isin(
-                c.materials, [mat_id(n) for n in ("road", "grass", "water", "paving_slab")]
-            ).sum()
+    # Exact shoreline cuts change triangle counts. Ground plus the water sensor
+    # must still cover the whole tile once; synthetic bed and building shells do not.
+    area = 0.0
+    for col in cols.values():
+        triangles = col.world_positions()[col.indices]
+        keep = ~np.isin(col.materials, [mat_id("roof"), mat_id("building")])
+        bed = (col.materials == mat_id("soil")) & np.all(
+            np.isclose(triangles[:, :, 1], m["water_level"] - 3, atol=1e-3), axis=1
         )
-        for c in cols.values()
-    )
-    assert ground == 2 * CELLS * CELLS
+        t = triangles[keep & ~bed]
+        area += np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])[:, 1].sum() / 2
+    assert area == pytest.approx(TILE.size**2, abs=0.01)
     owner = C.CollisionTile.at(TILE.origin[0] + 110, TILE.origin[2] + 105).id
     assert [cid for cid, c in cols.items() if (c.materials == mat_id("roof")).any()] == [owner]
     roof = cols[owner]
