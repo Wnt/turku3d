@@ -547,7 +547,7 @@ assembly; it does not require a full-tile `live` release.
 ### Incremental rebuilds and quality retention
 
 Each tile stage caches its own code, config and exact input content in
-`$TURKU3D_WORK/cache/coarse-stages`. Cached upstream results feed downstream keys:
+`.stages/<tile>/` beside the service output directories. Cached upstream results feed downstream keys:
 unchanged output stops invalidation. Packaging keys emitted meshes, material maps
 and stored facade parameters/assets; mesh encoding also caches individual buffers.
 Service scheduling edits do not change the producer identity. Geometry/material edits
