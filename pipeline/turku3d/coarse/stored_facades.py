@@ -93,6 +93,26 @@ def wall_meshes(b, walls, wuv, widx, origin, params):
         vertices = walls[start : start + 4]
         match = match_wall(vertices, stored)
         if match is None:
+            if params.get("plinth"):
+                cap = min(b.base + 0.8, min(vertices[2:, 1]))
+                lower = vertices.copy()
+                lower[2:, 1] = cap
+                meshes.append(
+                    GlbMesh(
+                        f"plinth_{b.key}_{start}",
+                        lower - origin,
+                        np.array([[0, 3, 2], [0, 2, 1]], np.uint32),
+                        uvs=wuv[start : start + 4],
+                        extras=dict(
+                            layer="buildings",
+                            object_id=f"plinth_{b.key}_{start}",
+                            material_key="plinth_granite",
+                            surface="wall",
+                        ),
+                    )
+                )
+                vertices = vertices.copy()
+                vertices[:2, 1] = cap
             if params["module"] >= 42:
                 fallback[True].append((vertices, wuv[start : start + 4]))
             else:
@@ -134,10 +154,9 @@ def wall_meshes(b, walls, wuv, widx, origin, params):
             GlbMesh(
                 f"walls_{b.key}{suffix}",
                 np.concatenate([p for p, _ in parts]) - origin,
-                np.concatenate([
-                    np.array([[0, 3, 2], [0, 2, 1]], np.uint32) + 4 * i
-                    for i in range(len(parts))
-                ]),
+                np.concatenate(
+                    [np.array([[0, 3, 2], [0, 2, 1]], np.uint32) + 4 * i for i in range(len(parts))]
+                ),
                 uvs=np.concatenate([uv for _, uv in parts]),
                 color=(1, 1, 1, 1),
                 extras=dict(

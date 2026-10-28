@@ -43,6 +43,7 @@ DEPENDENCIES = {
     "barriers": ("fences.py",),
     "forests": ("forests.py",),
     "tunnels": ("tunnels.py",),
+    "stairs": ("stairs.py",),
     "surfaces": ("surfaces.py",),
     "markings": ("surfaces.py",),
     "kerbs": ("kerbs.py",),
@@ -89,6 +90,7 @@ class Inputs:
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
     register: dict = field(default_factory=dict)
     tunnels: list = ()  # OSM full tunnel ways, with tags
+    stairs: tuple = ((), ())
     parking: tuple = ((), ())
     poles: list = ()  # sign and bus-stop props with full-tile source identities
 
@@ -408,6 +410,7 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
         "tunnels": [osm] if osm else None,
+        "stairs": [osm] if osm else None,
         "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm]
         if all(found for found, _ in wfs)
         else None,
@@ -452,6 +455,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .surfaces import osm_surfaces
 
         return osm_surfaces(tile, paths[0])
+    if dataset == "stairs":
+        from .stairs import prepare as prepare_stairs
+
+        return prepare_stairs(tile, paths[0])
     if dataset == "tunnels":
         from .tunnels import prepare as prepare_tunnels
 
@@ -627,6 +634,7 @@ def gather(
         canopy=ground.get("canopy", np.empty((0, 3))),
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),
+        stairs=values["stairs"] or ((), ()),
         poles=values["poles"] or (),
         parking=values["parking"] or ((), ()),
     )

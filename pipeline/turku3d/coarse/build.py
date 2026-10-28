@@ -7,7 +7,7 @@ Water polygons become a sensor over a synthetic bed and a separate visible water
 OSM bridges become separate drivable slabs with clear underpasses and ground-blended approaches;
 without OSM, street-area water bridges retain the abutment lift (``bridge_decks``).
 OSM ``natural=tree`` points become GPU-instanced vegetation (10 m unless tagged) with trunk colliders. The
-tile has mapped kerbs/paint but no surveyed curb profiles, stairs, unique facade maps or LOD parents: the full pipeline
+tile has mapped kerbs, paint and stepped OSM flights but no surveyed curb profiles or LOD parents: the full pipeline
 replaces it when the tile is published.
 """
 
@@ -39,7 +39,7 @@ from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .sources import Sources
-from .stages import building_visual, kerb_inputs, props_visual
+from .stages import building_visual, deck_stage, kerb_inputs, props_visual
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
@@ -279,17 +279,6 @@ def terrain_stage(tile, inputs):
     return grid_pos, grid_idx, materials, wet, level
 
 
-def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
-    grid_pos = grid_pos.copy()
-    osm_decks = bridges.produce(tile, grid_pos, inputs)
-    decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
-    roads = bridges.road_heights(inputs.roads, osm_decks)
-    # Samplers are build-local closures. Consume them before caching the resulting mesh/road data.
-    for deck in osm_decks:
-        deck.height_at = None
-    return grid_pos, osm_decks, decks, roads
-
-
 def build(
     tile_id: str,
     out: Path,
@@ -424,6 +413,18 @@ def build(
     dry, river, bank, solid = banks.stage(
         cache, tile, grid_pos, grid_idx, inputs, tunnels.keep, level, bool(osm_decks)
     )
+    from . import stairs
+
+    stair_meshes, dry, solid = stairs.stage(
+        cache,
+        tile,
+        inputs.stairs,
+        grid_pos,
+        surface_sample,
+        dry,
+        solid,
+        kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
+    )
     dry_keep = np.ones(len(dry.indices), bool)
     visual_materials = surfaces.slope_fallback(dry.positions, dry.indices, dry.material)
     fallback_materials = surfaces.slope_fallback(
@@ -520,6 +521,10 @@ def build(
         ),
     )
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
+    stair_visuals = stairs.visuals(tile, stair_meshes)
+    for mesh in stair_visuals:
+        mesh.extras["kind"] = "stairs"
+    ground_meshes.extend(stair_visuals)
     ground_meshes.extend(
         surfaces.visuals(
             tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)
@@ -676,6 +681,7 @@ def build(
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
+        pos, idx, mat = stairs.collision(ct, stair_meshes, pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
@@ -753,6 +759,7 @@ def build(
             else None
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
+        stairs=dict(flights=len(stair_meshes), triangles=sum(len(m.indices) for m in stair_meshes)),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         ground_surfaces={
             surfaces.KEYS[c]: int(

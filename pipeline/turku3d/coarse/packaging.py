@@ -31,6 +31,7 @@ PRODUCERS = (
     "bridge_details",
     "bridge_survey",
     "kerbs",
+    "stairs",
     "tunnels",
     "forests",
     "fences",

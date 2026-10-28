@@ -318,3 +318,64 @@ def test_kerb_collision_keeps_world_coordinates_until_col_encoding():
     assert np.allclose(col.world_positions(), p)
     assert col.world_positions()[:, 0].min() >= 260
     assert col.world_positions()[:, 2].min() > 269
+
+
+def test_stair_treads_replace_ground_and_share_collision_faces():
+    from turku3d.coarse import stairs
+    from turku3d.coarse.build import grid_mesh
+    from turku3d.ground.mesh import Mesh
+
+    tile = C.VisualTile(0, 0, 0)
+    line = shapely.LineString([(10, 20), (16, 20)])
+    meshes, openings = stairs.produce(
+        tile,
+        ([("flight", line, {"width": "8", "step_count": "10"})], []),
+        lambda x, z: (x - 10) / 6 * 1.6,
+    )
+    mesh = meshes[0]
+    triangles = mesh.positions[mesh.indices]
+    normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    treads = triangles[normal[:, 1] > 1e-8]
+    np.testing.assert_allclose(np.unique(np.round(treads[:, :, 1], 8)), np.arange(1, 11) * 0.16)
+    assert mesh.positions[:, 2].min() == 16
+    assert mesh.positions[:, 2].max() == 24
+    assert abs(normal[normal[:, 1] > 0, 1].sum() / 2 - 48) < 1e-8
+    # Ground triangles crossing the corridor with vertices outside must be split exactly.
+    pos, ix = grid_mesh(tile, np.zeros((129, 129)))
+    ground = stairs.cut_ground(Mesh(pos, ix, np.full(len(ix), mat_id("grass"), np.uint8)), openings)
+    polys = shapely.polygons(ground.positions[ground.indices][:, :, [0, 2]])
+    assert shapely.area(shapely.intersection(polys, openings[0])).sum() < 1e-8
+    ct = C.CollisionTile.at(12, 20)
+    p, idx, mat = stairs.collision(
+        ct, meshes, np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8)
+    )
+    np.testing.assert_array_equal(p[idx], triangles)
+    assert np.all(mat == mat_id("curb"))
+
+
+def test_monumental_fallback_preserves_explicit_material_and_stored_description(monkeypatch):
+    from turku3d import facade_kit
+
+    fr = facade_kit.renderer()
+    attrs = {"monumental": True}
+    d = fr.register_description("m", "m", attrs, 40, 15)
+    assert d["material"] == "stone"
+    assert d["storeys"] == 3
+    assert d["window_columns"] == 9
+    brick = fr.register_description("m", "m", {**attrs, "material_class": "brick"}, 40, 15)
+    assert brick["material"] == "brick"
+    monkeypatch.setattr(facade_kit, "read_description", lambda *a, **kw: brick)
+    params = facade_kit.parameters("m", 15, 40, attrs)
+    assert params["module"] // 6 == facade_kit.MATERIALS.index("brick")
+    assert not params["plinth"]
+
+
+def test_stair_ground_cut_preserves_vertical_bank_faces():
+    from turku3d.coarse.stairs import cut_ground
+    from turku3d.ground.mesh import Mesh
+
+    p = np.array([[0.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 4.0]])
+    mesh = Mesh(p, np.array([[0, 1, 2]], np.uint32), np.array([mat_id("quay")], np.uint8))
+    result = cut_ground(mesh, [shapely.box(-1, 1, 1, 3)])
+    np.testing.assert_array_equal(result.positions[result.indices], p[mesh.indices])
+    np.testing.assert_array_equal(result.material, mesh.material)

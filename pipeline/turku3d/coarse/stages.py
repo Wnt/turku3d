@@ -19,28 +19,47 @@ def building_visual(tile, shells, ortho, first_pass):
         return []
     origin = np.asarray(tile.origin)
     roof_pos, roof_idx = [], []
+    meshes = []
     rc = 0
-    for _, (roof, ridx, _, _, _walls, _wuv, _widx) in shells:
-        roof_pos.append(roof)
-        roof_idx.append(ridx + rc)
-        rc += len(roof)
-    roof_pos = np.concatenate(roof_pos)
-    meshes = [
-        GlbMesh(
-            f"roofs_{tile.id}",
-            roof_pos - origin,
-            np.concatenate(roof_idx),
-            uvs=ortho_uv(tile, roof_pos),
-            image=None if first_pass else jpeg(ortho),
-            extras=dict(
-                layer="buildings",
-                object_id=f"roofs_{tile.id}",
-                material_key="roof_ortho",
-                surface="roof",
-                texture_uv="normalized",
-            ),
-        ),
-    ]
+    for b, (roof, ridx, _, _, _walls, _wuv, _widx) in shells:
+        attrs = getattr(b, "attributes", {})
+        if attrs.get("monumental") or attrs.get("roof_material"):
+            meshes.append(
+                GlbMesh(
+                    f"roof_{b.key}",
+                    roof - origin,
+                    ridx,
+                    uvs=roof[:, [0, 2]],
+                    extras=dict(
+                        layer="buildings",
+                        object_id=f"roof_{b.key}",
+                        material_key="roof_standing_seam_metal",
+                        surface="roof",
+                    ),
+                )
+            )
+        else:
+            roof_pos.append(roof)
+            roof_idx.append(ridx + rc)
+            rc += len(roof)
+    if roof_pos:
+        roof_pos = np.concatenate(roof_pos)
+        meshes.append(
+            GlbMesh(
+                f"roofs_{tile.id}",
+                roof_pos - origin,
+                np.concatenate(roof_idx),
+                uvs=ortho_uv(tile, roof_pos),
+                image=None if first_pass else jpeg(ortho),
+                extras=dict(
+                    layer="buildings",
+                    object_id=f"roofs_{tile.id}",
+                    material_key="roof_ortho",
+                    surface="roof",
+                    texture_uv="normalized",
+                ),
+            )
+        )
     for b, (_, _, _, _, walls, wuv, widx) in shells:
         width = max(float(wuv[:, 0].max()), 1.0)
         params = parameters(b.facade_key, b.top - b.base, width, getattr(b, "attributes", {}))
@@ -72,3 +91,18 @@ def kerb_inputs(tile, sources):
                 continue
             paths.update({p.name: p for p in found})
     return identities(paths)
+
+
+def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
+    from . import bridges
+    from .build import bridge_decks
+
+    grid_pos = grid_pos.copy()
+    osm_decks = bridges.produce(tile, grid_pos, inputs)
+    decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
+    roads = bridges.road_heights(inputs.roads, osm_decks)
+    # Samplers are build-local closures. Consume them before caching the resulting mesh/road data.
+    for deck in osm_decks:
+        deck.height_at = None
+    return grid_pos, osm_decks, decks, roads
+
