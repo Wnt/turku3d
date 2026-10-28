@@ -34,6 +34,8 @@ test('policy checks each launch, shared args, configs and embedded previews', ()
   assert.equal(checkChromeLaunches('a.mjs', prelude + safe.replace('executablePath:chromeExecutable()', 'executablePath: "/tmp/chrome"')).length, 1);
   assert.deepEqual(checkChromeLaunches('native.mjs', prelude + 'const args=chromeArgs(); spawn(chromeExecutable(), args);'), []);
   assert.equal(checkChromeLaunches('native.mjs', prelude + 'const args=chromeArgs(); spawn("/tmp/chrome", args);').length, 1);
+  assert.deepEqual(checkChromeLaunches('playwright.render-dev.config.ts', "import base from './playwright.render.config'; defineConfig({...base, webServer:{}});"), []);
+  assert.equal(checkChromeLaunches('playwright.render-dev.config.ts', 'defineConfig({...unknown});').length, 1);
   assert.equal(checkChromeLaunches('a.sh', 'chrome --remote-debugging-port=9222').length, 1);
   assert.equal(checkChromeLaunches('a.sh', 'chrome --remote-debugging-port=9222 --disable-features=MacAppCodeSignClone').length, 1);
   assert.equal(checkChromeLaunches('native.mjs', 'spawn("/tmp/chrome", []);').length, 1);

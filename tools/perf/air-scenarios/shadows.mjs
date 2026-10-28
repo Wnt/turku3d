@@ -1,13 +1,13 @@
 // Manual real-tile inspection. Run through host_slots.py browser; screenshots and audit stay in the sandbox.
 import { chromium } from '../../../game/node_modules/playwright-core/index.mjs';
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../../dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../dev/chrome-args.mjs';
 import { isolateBrowser, workRoot } from '../../dev/environment.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 isolateBrowser();
 const [base = 'http://localhost:5244/', output = path.join(workRoot, 'reports/air-render/shadow-sanity')] = process.argv.slice(2);
 fs.mkdirSync(output, { recursive: true });
-const browser = await chromium.launch({ channel: 'chrome', headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs,
+const browser = await chromium.launch({ executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs,
   args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 const results = [], errors = [];
 try {

@@ -15,7 +15,12 @@ export function checkChromeLaunches(name, source) {
     const bindings = new Map();
     let helper = false;
     let resolver = false;
+    const configImports = new Set();
+    let inheritsConfig = false;
     function collect(node) {
+      if (ts.isImportDeclaration(node) && /^\.\/playwright\..*config(?:\.[cm]?[jt]s)?$/.test(node.moduleSpecifier.text) && node.importClause?.name) {
+        configImports.add(node.importClause.name.text);
+      }
       if (ts.isImportDeclaration(node) && /(?:^|\/)chrome-args\.mjs$/.test(node.moduleSpecifier.text)) {
         resolver = node.importClause?.namedBindings?.elements?.some(e => e.name.text === 'chromeExecutable' && !e.propertyName) ?? false;
         helper = node.importClause?.namedBindings?.elements?.some(e => e.name.text === 'chromeArgs' && !e.propertyName) ?? false;
@@ -57,6 +62,9 @@ export function checkChromeLaunches(name, source) {
       }
     }
     function visit(node) {
+      if (ts.isCallExpression(node) && node.expression.getText(tree) === 'defineConfig'
+        && node.arguments.some(arg => ts.isObjectLiteralExpression(arg)
+          && arg.properties.some(p => ts.isSpreadAssignment(p) && configImports.has(p.expression.getText(tree))))) inheritsConfig = true;
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
         && ['launch', 'launchPersistentContext', 'launchServer'].includes(node.expression.name.text)
         && /playwright|puppeteer|chromium/.test(snippet)) {
@@ -71,7 +79,7 @@ export function checkChromeLaunches(name, source) {
       ts.forEachChild(node, visit);
     }
     visit(tree);
-    if (/playwright.*config\.[cm]?[jt]s$/.test(name) && !snippet.includes('launchOptions')) {
+    if (/playwright.*config\.[cm]?[jt]s$/.test(name) && !snippet.includes('launchOptions') && !inheritsConfig) {
       errors.push(`${name}: Playwright config must declare launchOptions with chromeArgs()`);
     }
   }
@@ -95,7 +103,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const name of new Set(files)) {
     if (!/\.(?:[cm]?[jt]s|py|sh)$/.test(name) || /(?:check-chrome-launches|chrome-args)\.(?:test\.)?mjs$/.test(name)) continue;
     const source = fs.readFileSync(name, 'utf8');
-    if (/launch|launchOptions|remote-debugging|Google Chrome\.app/.test(source)) errors.push(...checkChromeLaunches(name, source));
+    if (/playwright.*config\.[cm]?[jt]s$/.test(name) || /launch|launchOptions|remote-debugging|Google Chrome\.app/.test(source)) errors.push(...checkChromeLaunches(name, source));
   }
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; }
   else console.log('Chrome launch policy: all launch sites use the automation browser resolver and clone-safe arguments');
