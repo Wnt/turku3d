@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh the runtime facade store when existing source assets change
+
+[Path]
+PathChanged=/srv/turku3d/data/textures/assembly/MANIFEST.json
+PathChanged=/srv/turku3d/data/facade-approvals/assembly/MANIFEST.json
+PathChanged=/srv/turku3d/data/facade-params
+Unit=turku-facade-assets.service
+
+[Install]
+WantedBy=default.target

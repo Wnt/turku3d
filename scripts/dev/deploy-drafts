@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Deploy the OCI generator, or enqueue background prewarming after smoke checks."""
+
+from deploy_drafts import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

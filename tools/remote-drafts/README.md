@@ -190,3 +190,42 @@ ssh oci-drafts 'systemctl --user stop turku-drafts-prebuild turku-drafts-proxy t
 For a pipeline-only rollback, stop producer/prebuild, swap back the retained
 source directory, update `SOURCE_COMMIT` and restart them. The tunnel and
 multiplayer can continue running throughout.
+
+## Existing facade assets
+
+Drafts retain existing generated facade maps by permanent building id. The public
+runtime store at `https://turku.lab.madekivi.fi/facades/index.json` contains only
+validated generated maps, their wall geometry, descriptions and the material
+library. Reference imagery, model job records and private paths stay outside that
+route. New AI facade generation remains paused; serving and warming drafts never
+starts description or image-generation jobs.
+
+The orchestrator mirrors existing `facade-params/`, `facade-approvals/` and
+`textures/` into `/srv/turku3d/data`. The `turku-facade-assets.path` unit watches
+those stores and exports changed runtime files only. It retries while a source
+mirror is incomplete. Localhost reads the same approved texture assembly directly;
+a sandbox's own parameter record overrides a shared record. Draft invalidation
+hashes only the facade records of the buildings in that tile. Matched surveyed
+walls retain the original albedo, normal, ORM and metre UV transforms; unmatched
+walls retain the draft facade kit.
+
+```sh
+# Refresh the OCI runtime export from the already mirrored data (no data upload):
+scripts/dev/publish-facades
+# Incremental generator source upload, restart and metrics (no warming wait):
+scripts/dev/deploy-drafts --commit HEAD
+# After curl smoke checks, enqueue nearest-first warming asynchronously:
+scripts/dev/deploy-drafts --prewarm
+curl --max-time 1 -fsSI -H 'Origin: https://wnt.github.io' \
+  https://turku.lab.madekivi.fi/facades/index.json
+# On OCI:
+systemctl --user status turku-facade-assets.path turku-facade-assets.service
+cat ~/turku3d-drafts/reports/facade-assets.log
+```
+
+`deploy-drafts` archives the specified commit, rsyncs only changed source files
+using the previous source as a hard-link basis, validates Caddy, then switches the
+source pointer and restarts the draft producer/proxy. Multiplayer and its tunnel
+keep running. Native dependency changes still require the ARM64 bootstrap before
+this source-only deployment. `--prewarm` starts the supervised ring warmer and
+returns immediately; cached manifests are checked against the current generator.

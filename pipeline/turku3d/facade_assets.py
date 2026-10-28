@@ -221,3 +221,34 @@ def export(target, source=None, parameter_roots=()):
     result = dict(format="turku3d-facade-assets", version=1, buildings=index)
     _write(target / "index.json", result)
     return result
+
+
+def main():
+    import argparse
+    import time
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--export", type=Path, required=True)
+    parser.add_argument("--source", type=Path)
+    args = parser.parse_args()
+    started = time.monotonic()
+    before = {p: p.stat().st_mtime_ns for p in args.export.rglob("*") if p.is_file()}
+    result = export(args.export, args.source, [C.data_root() / "facade-params"])
+    changed = [
+        p for p in args.export.rglob("*") if p.is_file() and before.get(p) != p.stat().st_mtime_ns
+    ]
+    print(
+        json.dumps(
+            dict(
+                buildings=len(result["buildings"]),
+                changed_files=len(changed),
+                changed_bytes=sum(p.stat().st_size for p in changed),
+                seconds=round(time.monotonic() - started, 3),
+            )
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
