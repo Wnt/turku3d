@@ -53,6 +53,10 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   the deck footprint so deck samples cannot be mistaken for railway ground. Boat gangways retain their mapped span and endpoint
   levels; ordinary approaches blend over at most 3 m. Outline branches blend back to measured ground.
   Source ship/building footprints cut holes in decks; rails follow the outline with open traffic entrances.
+  Mapped branch paths blend toward ground; widened observation bays retain the deck profile.
+  Collision clips the detailed railings and deck to each 62.5 m cell instead of repeating a full
+  visual tile's structure in every cell. Cuts retain shared boundary vertices and discard only
+  boundary ears that collapse below the COL minimum area at cell-local float32 precision.
   Without OSM decks, the existing street-area water-bridge abutment lift remains the fallback.
 - **Buildings**: LOD2 footprints whose centroid is in the tile, with the upper roof envelope
   retained as separate sloping/terraced solids. Overlapping lower decks no longer pull down
@@ -386,7 +390,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_bridges.
 
 Output: `$TURKU3D_WORK/reports/bridge-quality/{before,after}/{inventory.json,render.json}`
 and local PNGs. Targeted `--tiles` reruns retain the other inventory entries, and failed tile
-builds give a nonzero exit status. For an isolated supplementary WFS index, append
+builds give a nonzero exit status. Render after first: street/bank/deck cameras sit 1.7 m above
+the actual supporting mesh, and before reuses those exact camera positions. For an isolated supplementary WFS index, append
 `--wfs-cache "$TURKU3D_WORK/cache/bridge-wfs"`; it uses the same summaries and source checks,
 with shared inputs linked read-only and newly downloaded layers kept in the sandbox.
 Private reference pairs/scores require the comparison tool's own coverage and

@@ -26,9 +26,17 @@ for (const [tile, records] of Object.entries(inventory)) {
     if (!r.name) continue;
     const a=r.axis?.[0] ?? [r.extent[0],r.extent[1]], b=r.axis?.at(-1) ?? [r.extent[2],r.extent[3]];
     const len=Math.hypot(b[0]-a[0],b[1]-a[1]), dx=(b[0]-a[0])/len, dz=(b[1]-a[1])/len;
-    views.push({name:`${label}-street`, tile,target,position:[a[0]-dx*7,h+1.7,a[1]-dz*7]});
-    views.push({name:`${label}-bank`, tile,target,position:[a[0]-dz*20,h+0.5,a[1]+dx*20]});
-    views.push({name:`${label}-deck`, tile,target:[b[0],h+1.3,b[1]],position:[x-dx*len*.25-dz*r.width*.25,h+1.7,z-dz*len*.25+dx*r.width*.25]});
+    views.push({name:`${label}-street`, tile,target,grounding:'ground',position:[a[0]-dx*7,h+1.7,a[1]-dz*7]});
+    views.push({name:`${label}-bank`, tile,target,grounding:'ground',position:[a[0]-dz*20,h+0.5,a[1]+dx*20]});
+    views.push({name:`${label}-deck`, tile,target:[b[0],h+1.3,b[1]],grounding:'bridges',position:[x-dx*len*.25-dz*r.width*.25,h+1.7,z-dz*len*.25+dx*r.width*.25]});
+  }
+}
+if (phase === 'before') {
+  const fixed = JSON.parse(fs.readFileSync(path.join(workRoot, 'reports/bridge-quality/after/render.json'))).results;
+  for (const view of views) {
+    const pose = fixed.find(row => row.name === view.name);
+    if (!pose) throw new Error(`Render after first: missing fixed camera ${view.name}`);
+    view.position = pose.position;
   }
 }
 const sceneFile='game/__bridge-quality.js', pageFile='game/__bridge-quality.html', link='game/public/__bridge-quality';
@@ -50,19 +58,29 @@ const env=new Environment(scene,renderer,'medium');env.setTime(new Date('2026-10
 const post=new PostProcessing(renderer,scene,camera,'medium');
 const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).setKTX2Loader(new KTX2Loader().setTranscoderPath('/basis/').detectSupport(renderer));
 const lod=new VegetationLod('medium'), models=[];
+const surfaces={ground:[],bridges:[]};
 for(const tile of ${JSON.stringify(tiles)}){
  const model=(await loader.loadAsync('/__bridge-quality/'+tile+'/vis.glb')).scene;
  model.name=tile;model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
  tintDraft(model,renderer);batchTileShadows(model);lod.add(model);scene.add(model);models.push(model);
+ model.traverse(o=>{if(!o.isMesh)return;for(let p=o;p;p=p.parent){if(surfaces[p.userData.layer]){surfaces[p.userData.layer].push(o);break;}}});
 }
+scene.updateMatrixWorld(true);
 const perf=new PerformanceMonitor(renderer,'webgpu');
 window.probe={async view(v){
- camera.position.set(...v.position);camera.lookAt(new THREE.Vector3(...v.target));camera.updateMatrixWorld();
+ camera.position.set(...v.position);
+ if(${phase === 'after'}&&v.grounding){
+  const ray=new THREE.Raycaster(new THREE.Vector3(camera.position.x,1000,camera.position.z),new THREE.Vector3(0,-1,0));
+  const hit=ray.intersectObjects(surfaces[v.grounding],false)[0];
+  if(!hit)throw new Error('Missing camera support: '+v.name);
+  camera.position.y=hit.point.y+1.7;
+ }
+ camera.lookAt(new THREE.Vector3(...v.target));camera.updateMatrixWorld();
  env.follow(camera.position);env.updateIBL();
  for(const model of models){const [,i,j]=model.name.split('_').map(Number);model.visible=Math.hypot(i*250+125-v.target[0],j*250+125-v.target[2])<450;}
  for(let i=0;i<24;i++){lod.update(camera);post.render();await new Promise(requestAnimationFrame);}
  perf.reset();for(let i=0;i<30;i++){perf.begin();lod.update(camera);post.render();perf.end();await new Promise(requestAnimationFrame);}
- await perf.completed();await perf.flush();return perf.snapshot();
+ await perf.completed();await perf.flush();return {...perf.snapshot(),eye:camera.position.toArray()};
 }};window.ready=true;`;
 let browser;
 try {
@@ -78,9 +96,9 @@ try {
   const results=[];
   for(const view of views){
     if(!tiles.includes(view.tile))continue;
-    const stats=await page.evaluate(v=>window.probe.view(v),view);
+    const {eye,...stats}=await page.evaluate(v=>window.probe.view(v),view);
     await page.screenshot({path:path.join(root,view.name+'.png')});
-    results.push({...view,stats});
+    results.push({...view,position:eye,stats});
     fs.writeFileSync(path.join(root,'render.json'),JSON.stringify({phase,tiles,errors,results},null,2));
     console.log(view.name,stats.drawCalls,stats.triangles);
   }

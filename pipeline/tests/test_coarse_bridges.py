@@ -246,3 +246,40 @@ def test_lidar_piers_require_vertical_returns_and_ignore_bank_walls():
     assert pier_stations(axis, 6, points, np.full(len(points), 10), [0, 60], [5, 5]) == [12, 48]
     points[:, 1] = 2
     assert pier_stations(axis, 6, points, np.full(len(points), 10), [0, 60], [5, 5]) == []
+
+
+def test_central_bridge_bays_stay_level_while_mapped_branches_can_descend():
+    from turku3d.coarse.bridges import approach_branches
+
+    deck = way("deck", [(0, 0), (60, 0)], width=6)
+    deck["member_ways"] = [deck.copy()]
+    assert approach_branches(deck).is_empty
+    ramp = way("ramp", [(20, 0), (20, 30)], width=3)
+    deck["member_ways"].append(ramp)
+    branches = approach_branches(deck)
+    assert branches.covers(shapely.Point(20, 20))
+    assert not branches.covers(shapely.Point(40, 5))
+
+
+def test_detailed_bridge_collision_is_clipped_instead_of_repeated_in_every_cell():
+    from types import SimpleNamespace
+
+    from turku3d.coarse.bridges import collision
+
+    tile = C.VisualTile(0, 0, 0)
+    rail = profile_wall("rail", [[10, 10], [130, 10]], [4, 5], [5.2, 6.2], thickness=0.1)
+    empty = np.empty((0, 3))
+    left, right = [], []
+    for ct, boundary in [(C.CollisionTile(0, 0), left), (C.CollisionTile(1, 0), right)]:
+        p, idx, _ = collision(
+            [SimpleNamespace(meshes=[rail])],
+            tile,
+            ct,
+            empty,
+            empty.astype(np.uint32),
+            np.empty(0, np.uint8),
+        )
+        assert p[:, 0].min() >= ct.bbox.xmin and p[:, 0].max() <= ct.bbox.xmax
+        assert len(idx)
+        boundary.extend(map(tuple, p[p[:, 0] == 62.5]))
+    assert set(left) == set(right)

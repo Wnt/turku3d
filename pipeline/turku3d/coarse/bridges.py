@@ -376,6 +376,18 @@ class Deck:
     height_at: object = None
 
 
+def approach_branches(way):
+    """Only mapped paths leaving the main axis are ramps; widened bays remain level."""
+    axis = way["line"]
+    branches = []
+    for member in way.get("member_ways", []):
+        line = member["line"]
+        along = shapely.line_locate_point(axis, shapely.points(np.asarray(line.coords)))
+        if np.abs(np.diff(along)).sum() < line.length * 0.85:
+            branches.append(line.buffer(member["width"] / 2 + 1, cap_style="square"))
+    return shapely.union_all(branches)
+
+
 def produce(tile, grid_pos, inputs):
     """Build separate decks; only the landward ramps alter the ground grid."""
     ways = inputs.roads.get("bridge_ways", []) if inputs.roads else []
@@ -490,12 +502,15 @@ def produce(tile, grid_pos, inputs):
             )
         footprint_poly = footprint_poly.difference(obstacles.buffer(0.15))
 
-        def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width):
+        ramps = approach_branches(way)
+
+        def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps):
             points = shapely.points(xz)
             base = np.interp(shapely.line_locate_point(line, points), ss, hh)
             # Outline branches are mapped approach ramps. Join the deck to measured ground
             # across the branch instead of extending the main span's elevation to its tip.
             blend = np.clip((shapely.distance(axis, points) - width / 2) / 10, 0, 1)
+            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
             return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend
 
         meshes = slab(
@@ -589,10 +604,27 @@ def collision(decks, tile, ct, pos, idx, mat):
         for mesh in deck.meshes:
             if not mesh.metadata.get("collision", True) or ct not in tile_cells(mesh, tile):
                 continue
-            positions.append(mesh.positions)
-            indices.append(mesh.indices + count)
-            materials.append(np.full(len(mesh.indices), mat_id(mesh.material), np.uint8))
-            count += len(mesh.positions)
+            clipped = clip_mesh(mesh, ct.bbox)
+            if clipped is None:
+                continue
+            # Tiny boundary ears can collapse at the final cell-local precision.
+            # Use the same area calculation as the COL validator before exporting.
+            local = (clipped.positions - ct.origin).astype(np.float32).astype(np.float64)
+            triangles = local[clipped.indices]
+            area = (
+                np.linalg.norm(
+                    np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]),
+                    axis=1,
+                )
+                / 2
+            )
+            idx = clipped.indices[area >= 1e-6]
+            if not len(idx):
+                continue
+            positions.append(clipped.positions)
+            indices.append(idx + count)
+            materials.append(np.full(len(idx), mat_id(mesh.material), np.uint8))
+            count += len(clipped.positions)
     return np.concatenate(positions), np.concatenate(indices), np.concatenate(materials)
 
 
