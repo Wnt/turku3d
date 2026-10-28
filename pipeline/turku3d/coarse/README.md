@@ -94,7 +94,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   Run `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_fences.py` for synthetic placement
   and road-clipping checks. `manifest.barriers.seconds` records the extra producer seconds on each built tile.
 
-- **Tunnels** (`tunnels.py`): OSM road/path/rail `tunnel=yes|building_passage|culvert`, plus
+- **Tunnels** (`tunnels.py`): OSM road/path/rail `tunnel=yes|culvert`, plus
   `covered=yes` with negative `layer`, become box sections with portal wings, solid walls,
   roof, emissive light strips and a road/path floor. Width/maxheight override class defaults
   (7 m / 4.5 m for roads, 3 m / 2.5 m for paths). Full-block lidar samples keep a measured dip;
@@ -103,11 +103,13 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   the draft shell below the ceiling and retain the upper building. Walls reuse structures
   `profile_wall` and all faces reuse `Faces`; tube collision reaches every intersecting cell.
   `manifest.tunnels` counts ways; `seconds.tunnels` records producer overhead separately.
-  Portal centres and both floor edges meet the actual owning terrain triangles; cross-slope
-  blends into the measured interior over 2 m. Walls, roof and building passage openings follow
-  that floor, and road graph heights retain its centre profile.
-  Building passages use their carved building shell as enclosure, with no additional freestanding
-  tube, portal wings or light strips; these belong only to genuine tunnels.
+  Portal floors split along every terrain triangle across their full width and blend into the
+  measured interior over 2 m. Foundations extend below the lowest terrain plane across each
+  wall's width, and road graph heights retain the floor's centre profile.
+  `tunnel=building_passage` keeps the original ground triangles and relief, with mapped ground-level
+  asphalt/paving semantics. Only its building shell is carved: the visible ceiling reuses that
+  shell's existing downward collision floor. It adds no slab, freestanding tube, portal wings or
+  light strips, so sloping entrances and steps remain continuous with the surrounding ground.
   Visuals and collision are clipped to the same tile bounds. Tight offset corners use individual wall
   sections in a combined mesh; passage footprint cuts remove sub-0.5 mm slivers before triangulation.
   Optional `roads.json.edgeHeights` stores floor Y per edge vertex, shared with draft bridges.

@@ -517,7 +517,7 @@ def build(
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
     bridges.visual(osm_decks, tile, stage, layer_files)
-    if tunnels.meshes:
+    if tunnels.meshes or tunnels.ceilings:
         write_visual(stage / "tunnels.vis.glb", tunnels.visuals(tile), root_translation=tile.origin)
         layer_files.append(stage / "tunnels.vis.glb")
     from .forests import BUSH_CAP, TREE_CAP, produce

@@ -28,6 +28,17 @@ def test_measured_dip_and_buried_profile():
     np.testing.assert_equal(cut_required(np.array([2, 4, 7]), 2, 2.5), [True, True, False])
 
 
+def test_portal_foundation_reaches_terrain_under_full_wall_width():
+    from turku3d.coarse.tunnels import grounded_wall
+
+    def ground(x, z):
+        return abs(z - 1) * 4
+
+    mesh = grounded_wall("wing", [[0.2, 1], [1.8, 1]], [2, 2], [5, 5], ground, 1)
+    assert mesh.positions[:, 1].min() <= -0.2
+    assert mesh.positions[:, 1].max() == 5
+
+
 def test_portal_floor_meets_actual_ground_across_its_width():
     tile = C.VisualTile(0, 0, 0)
     pos = np.array([[0, 2, 0], [20, 2, 0], [0, 4, 20], [20, 4, 20]], float)
@@ -36,7 +47,7 @@ def test_portal_floor_meets_actual_ground_across_its_width():
     tags = {"highway": "service", "width": "4", "tunnel": "yes"}
 
     def surface(x, z):
-        return 2 + z * 0.1
+        return 2 + z * 0.1 + np.maximum(0, z - tile.size / 128 * 5)
 
     result = produce(
         tile, [("crossfall", line, tags)], pos, idx, [], extrude, lambda x, z: 2.5, surface
@@ -45,6 +56,12 @@ def test_portal_floor_meets_actual_ground_across_its_width():
     portal = road.positions[np.isin(road.positions[:, 0], [0, 20])]
     assert len(portal) >= 4
     np.testing.assert_allclose(portal[:, 1], surface(portal[:, 0], portal[:, 2]))
+    edge = np.unique(portal[np.isclose(portal[:, 0], 0)], axis=0)
+    edge = edge[np.argsort(edge[:, 2])]
+    assert len(edge) > 2
+    for a, b in zip(edge[:-1], edge[1:], strict=True):
+        middle = (a + b) / 2
+        np.testing.assert_allclose(middle[1], surface(middle[0], middle[2]))
     # The measured interior dip remains; only the portal's short join changes.
     middle = road.positions[np.isclose(road.positions[:, 0], 10)]
     np.testing.assert_allclose(middle[:, 1], 2.5)
@@ -79,6 +96,8 @@ def test_ground_cut_preserves_outside_and_roof_seals_inside():
 def test_building_passage_keeps_upper_shell_and_road_floor_metadata():
     result = scene(passage=True)
     assert len(result.shells) == 3
+    assert result.keep.all()
+    assert not result.meshes
     assert not any(
         m.object_id.endswith(":roof") or ":portal:" in m.object_id for m in result.meshes
     )

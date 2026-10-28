@@ -88,7 +88,10 @@ def osm_surfaces(tile, path):
     window = shapely.box(*tile.bbox.as_tuple())
     for row in pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist():
         tags = json.loads(row["tags"]) if row["tags"] else {}
-        if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") != "no":
+        if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") not in (
+            "no",
+            "building_passage",
+        ):
             continue
         if tags.get("building") or tags.get("layer", "0") not in ("0", ""):
             continue
