@@ -433,25 +433,22 @@ def refresh(work, target=None):
             }
             return result
         if target == "facades":
-            result = {"buildings": timed("buildings", buildings, layers)}
+            result = {"ground": timed("ground", ground, layers)}
+            result["buildings"] = timed("buildings", buildings, layers)
             result["facades"] = timed("facades", facades, layers, textures)
             return result
         result = {}
         # Ground and buildings may share a linked layers ancestor. Detach it once
-        # before either producer starts, but leave a fully cached tree linked.
+        # before refreshing them, but leave a fully cached tree linked.
         if layers.is_symlink() and (
             not manifest_current(layers / "ground/MANIFEST.json", ground_code_hash())
             or not manifest_current(layers / "buildings/MANIFEST.json", buildings_code_hash())
         ):
             local_directory(layers, work)
         workers = max(1, int(os.environ.get("TURKU3D_JOBS", "3")))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, workers)) as pool:
-            futures = {
-                "ground": pool.submit(timed, "ground", ground, layers),
-                "buildings": pool.submit(timed, "buildings", buildings, layers),
-            }
-            for name, future in futures.items():
-                result[name] = future.result()
+        # Building publication fits its footing to the finished ground mesh.
+        result["ground"] = timed("ground", ground, layers)
+        result["buildings"] = timed("buildings", buildings, layers)
         result["structures"] = timed("structures", structures, layers)
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, workers)) as pool:
             futures = {
