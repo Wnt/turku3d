@@ -110,6 +110,14 @@ class HostSlotsTest(unittest.TestCase):
         browser = {"kind": "browser", "state": "waiting", "since": 4}
         self.assertTrue(host_slots.admissible(entries, browser))
 
+    def test_checks_queue_fifo_independently_of_bulk_builds(self):
+        old_build = {"kind": "build", "state": "waiting", "since": 0}
+        older = {"kind": "build", "purpose": "check", "state": "waiting", "since": 1}
+        newer = {**older, "since": 2}
+        self.assertTrue(host_slots.admissible([old_build, older, newer], older))
+        self.assertFalse(host_slots.admissible([old_build, older, newer], newer))
+        self.assertTrue(host_slots.admissible([old_build, newer], newer))
+
     def test_short_checks_are_readable_by_preexisting_schedulers(self):
         child = self.start("check")
         self.until(lambda: self.kinds(child) == [("check", "running")])

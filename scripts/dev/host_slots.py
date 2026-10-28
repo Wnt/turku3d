@@ -73,8 +73,8 @@ def admissible(entries, entry):
     """Admit within dedicated lane budgets; agent builds queue FIFO."""
     if not fits(entries, lane(entry)):
         return False
-    if lane(entry) == "build" and any(
-        lane(e) == "build" and e["state"] == "waiting" and e["since"] < entry["since"]
+    if lane(entry) in ("build", "check", "browser") and any(
+        lane(e) == lane(entry) and e["state"] == "waiting" and e["since"] < entry["since"]
         for e in entries
     ):
         return False

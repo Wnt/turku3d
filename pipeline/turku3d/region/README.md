@@ -133,3 +133,14 @@ keeps its newest 30 entries plus the newest entry that carries each listed tile 
 `list-tile` can be rerun for an already listed tile to retry fast-map publication. Fast publish
 adds missing walls from that tile to the shared approval inventory under the export lock,
 retaining existing geometry and bindings and updating the inventory hash.
+
+## Focused verification and slot lifetime
+
+`make tile-add T=...` reserves build capacity only for refresh, procedural facade
+rendering and assembly. Input downloads and remote facade descriptions hold no CPU
+slot. Existing products are reused by per-tile input hashes.
+For a repair inside the built area, use `make tile-reuse`, then
+`make refresh REFRESH_TARGET=<layer>` and `make tile T=<changed tile> AREA=playable-tiles`.
+The latter checks format and seams without a browser. `make tile-e2e` and the complete
+`make tile-validate` remain explicit investigations; normal completion uses focused
+behavior evidence under AGENTS.md rule 11.

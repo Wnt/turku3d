@@ -114,6 +114,11 @@ def seed(work: Path, data: Path) -> list[str]:
     return seeded
 
 
+def compute_command(command):
+    """Reserve host CPU for one local stage, never downloads or remote vision waits."""
+    return [sys.executable, str(C.REPO_ROOT / "scripts/dev/host_slots.py"), "build", "--", *command]
+
+
 def stream(command: list[str], log) -> list[str]:
     """Run a pipeline command, echoing and keeping its output lines; raise on failure."""
     lines = []
@@ -176,7 +181,9 @@ def add_tile(tile_id: str) -> dict:
     seeded = stage("seed", seed, work, data)
     C.write_playable_tiles(work / C.PLAYABLE_TILES_FILE, tiles)
     with (report_dir / f"{tile_id}.log").open("w") as log:
-        lines = stage("refresh", stream, [sys.executable, "-m", "turku3d.refresh"], log)
+        lines = stage(
+            "refresh", stream, compute_command([sys.executable, "-m", "turku3d.refresh"]), log
+        )
         layers = {
             m[1]: {"status": m[2], "seconds": float(m[3])}
             for m in map(REFRESH_LINE.match, lines)
@@ -184,7 +191,7 @@ def add_tile(tile_id: str) -> dict:
         }
         fast = stage("facades-fast", fast_facades, tile_id, work, log)
         command = [sys.executable, "-m", "turku3d.package.assemble", "--area", "playable-tiles"]
-        out = stage("assemble", stream, [*command, "--tile", *tiles], log)
+        out = stage("assemble", stream, compute_command([*command, "--tile", *tiles]), log)
         offered = [tile_id, *edge_neighbours(tile_id, tiles)]
         store = [sys.executable, str(C.REPO_ROOT / "scripts/dev/tile_store.py"), "put-tiles"]
         store += ["--repo", str(C.REPO_ROOT), "--tiles-dir", str(work / "dist/tiles")]
@@ -218,7 +225,8 @@ def fast_run(tile_id: str, work: Path) -> tuple[Path, list[str]]:
 
 def facade_fast(step: str, args: list[str], log) -> dict:
     python = C.REPO_ROOT / "textures/.venv/bin/python"
-    lines = stream([str(python), "-m", "turkutex.facade_fast", step, *args], log)
+    command = [str(python), "-m", "turkutex.facade_fast", step, *args]
+    lines = stream(compute_command(command) if step == "render" else command, log)
     for line in reversed(lines):
         try:
             result = json.loads(line)

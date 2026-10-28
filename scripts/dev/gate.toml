@@ -301,7 +301,7 @@ configs = [".shellcheckrc", "scripts/dev/gate.toml"]
 triggers = ["*.sh", ".shellcheckrc", ".githooks/*"]
 sources = ["*.sh", ".githooks/*"]
 
-# browser = true: the stage starts Chrome, so `gate --fast` leaves it to the integrator.
+# browser = true: the stage starts Chrome, so `gate --fast` skips this explicit investigation.
 [[stages]]
 name = "qa-render-tests"
 kind = "command"

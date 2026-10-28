@@ -1,5 +1,5 @@
 """Browser spec selection from gate.toml's game-e2e map, a per-spec pass cache and the
-full-suite schedule.
+explicit full-suite plans.
 
 `select(paths, landing_class)` picks the Playwright spec files a change can affect: a
 changed spec selects itself, a changed test helper, sibling data file read by name or

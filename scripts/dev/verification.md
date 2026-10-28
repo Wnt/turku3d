@@ -89,3 +89,23 @@ depends on main's merge count. Live build stages keep APFS-cloned verified artif
 `$TURKU3D_DATA/cache/tool-stages/live`; keys include declared source paths, input manifests
 and the preceding stage key.
 
+
+## Focused tile iteration
+
+```sh
+source ../sandbox.env
+make tile-reuse                         # only missing products; keeps local work
+make refresh REFRESH_TARGET=roads       # only this stage, reusing built prerequisites
+make tile T=t0_0_0 AREA=playable-tiles   # assembly + format/seams, no Chrome
+make tile-show                         # bundle is reused when intact
+```
+
+Single-stage refresh accepts ground, buildings, structures, bridges, roads, landmarks,
+buildings_outer, props, vegetation, traffic_static and bridge-textures. Existing
+`ground-textures` and `facades` targets keep their prerequisite ordering. Single-stage
+calls deliberately use existing prerequisites; if those inputs changed too, refresh
+them first or omit REFRESH_TARGET for the complete dependency chain. The producers'
+per-tile keys and assembler caches already rebuild only stale tiles. `tile-reuse`
+freezes one release's tile list when cloning its tiles, so a new shared tile-list entry
+does not unexpectedly turn a focused check into an area expansion. Existing local
+products/lists are preserved. Add new coverage with `make tile-add T=...` explicitly.

@@ -1,5 +1,7 @@
 """Shared caches and the up-to-date rebase rule, on tiny synthetic inputs."""
 
+import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -10,6 +12,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import game_build  # noqa: E402
 import live_cache  # noqa: E402
+import reuse_tiles  # noqa: E402
 import sandbox  # noqa: E402
 from gate_cache import cache_root, stage_key  # noqa: E402
 
@@ -153,6 +156,31 @@ class CacheTests(unittest.TestCase):
             self.assertNotEqual(first, game_build.outputs(work, False))
             index.unlink()
             self.assertIsNone(game_build.outputs(work, False))
+
+    def test_tile_reuse_preserves_local_work_and_freezes_the_cloned_list(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work, data = root / "work", root / "data"
+            release = data / "releases/one"
+            for name in ("layers", "textures", "tiles"):
+                (release / name).mkdir(parents=True)
+                (release / name / "asset").write_text("published")
+            (data / "live").symlink_to(release)
+            (release / "live-build.json").write_text(
+                json.dumps({"tiles": list(reuse_tiles.C.CORE_TILES)})
+            )
+            local = work / "build/layers/asset"
+            local.parent.mkdir(parents=True)
+            local.write_text("local")
+            with patch.dict(os.environ, {"TURKU3D_WORK": str(work)}):
+                result = reuse_tiles.reuse(work, data)
+                self.assertEqual(result["copied"], ["textures", "dist/tiles"])
+                self.assertEqual(local.read_text(), "local")
+                self.assertEqual(
+                    reuse_tiles.C.read_playable_tiles(work / reuse_tiles.C.PLAYABLE_TILES_FILE),
+                    list(reuse_tiles.C.CORE_TILES),
+                )
+                self.assertEqual(reuse_tiles.reuse(work, data)["copied"], [])
 
 
 if __name__ == "__main__":

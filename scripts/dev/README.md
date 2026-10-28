@@ -179,8 +179,8 @@ pushed to origin's `main`. Local `main` is never pushed. The row records `push` 
 
 Live and Pages publish as soon as the build passes: code/full batches run `game-build` with the served tiles;
 data batches run refresh, tile-build and format/seam validation, carrying the live game. Only after live and Pages
-are published do selected or scheduled full Chrome, collision/walk checks, car reports, facade ground audits and
-(code lane) the deep gate run in that build's checkout. Results update the exact release record, ledger advisory
+are published do cheap collision/walk checks, car reports and facade ground audits run in that build's
+checkout. Chrome and the deep gate run only with explicit `integrator.py run --full`. Results update the exact release record, ledger advisory
 list, inbox warnings and Pages commit notes (a notes-only update protected against newer deployments).
 A newer landing cancels advisory command groups and records `advisory_interrupted`; interrupted full Chrome runs
 are not marked complete. `advisory_chrome.py` owns Playwright and its dist server in one timed group; stale server
@@ -195,8 +195,8 @@ ground audit, tile-validate's `buildings`/`curbs`, the facade baseline
 (`facade-baseline`: fewer `facades_bound` than the published release with no `Facade regression reason:` line in
 a batch landing's ledger row) and Chrome. Each failure is appended to `report["advisory"]` (`stage`, `detail`,
 `log`, Chrome `specs`, tile-validate `checks`), publication stands, and a failed advisory stage is not cached.
-`stages_for(kind, checks=False)` runs the build stages only (base check and bisection builds). Every 2 h with a
-landing since the last full run (or `integrator.py run --full`) all specs run on both projects on live
+`stages_for(kind, checks=False)` runs the build stages only (base check and bisection builds).
+Explicit `integrator.py run --full` runs all tile specs on both projects on live
 (`full_suite: true`, `integration_chrome.py`), as information. Stage times and output are in `live-build.log`.
 Each gate and live-build command runs in its own process group, which is terminated on exit.
 Failures name the failing stage or test and include the host load and log path. For a Playwright
@@ -418,8 +418,8 @@ and the unit-test stages whose full run stays under 20 s; target under 30 s at h
 stage that starts Playwright or Chrome is not marked) and the deep tier: stages with `tier = "deep"`
 (`pipeline-tests`, `textures-tests`, `gate-tests`, `tooling-tests`, `integrator-tests`,
 `watch-tests`, `knip`, `validator-tests`, `dependency-imports`). `--deep` runs only deep stages;
-the integrator runs `gate --deep --all` (cached per stage input hash) after it publishes a code
-batch; red stages are advisory (`deep-gate` with the failing stage names in the ledger row, warned
+explicit `integrator.py run --full` runs `gate --deep --all` (cached per stage input hash)
+after publication; red stages are advisory (`deep-gate` with the failing stage names in the ledger row, warned
 to the batch's authors when new). A stage whose full run exceeds 20 s moves to the deep tier.
 `full_triggers` are only the gate's own `gate.toml`, `gate_lib.py`, `gate_fixtures.py` and
 `gate_cache.py`; they widen the selection to every stage of the chosen tier.

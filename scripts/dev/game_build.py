@@ -26,6 +26,9 @@ def outputs(work, public):
 
 
 def build(repo, work, env):
+    for name in ("game", "check-game"):
+        if not (work / "build" / name).resolve().is_relative_to(work.resolve()):
+            raise ValueError("game build output must stay inside the sandbox")
     directory = work / "cache/game-build"
     directory.mkdir(parents=True, exist_ok=True)
     stamp = directory / "stamp.json"
