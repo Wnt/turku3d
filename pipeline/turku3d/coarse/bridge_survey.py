@@ -42,6 +42,7 @@ def spot_heights(paths):
         try:
             height = float(row["korkeus"])
             uncertainty = float(row["sijaintiepavarmuus"])
+            # Feature creation is only a freshness filter, not a survey date.
             year = int(str(row["alkuPvm"])[:4])
         except (KeyError, TypeError, ValueError):
             continue
@@ -55,7 +56,7 @@ def spot_heights(paths):
 
 
 def height_anchors(way, spots):
-    """Use contemporary deck-interior spots, excluding lower routes and parapets."""
+    """Use deck-interior catalogue heights, excluding lower routes and parapets."""
     if way.get("landing"):
         return []
     axis = way["line"]
@@ -75,7 +76,7 @@ def height_anchors(way, spots):
             and not lower.covers(point)
         ):
             anchors.append((station, height))
-    # Multiple survey points at one station must agree before defining a profile.
+    # Multiple catalogue points at one station must agree before defining a profile.
     groups = {}
     for station, height in anchors:
         groups.setdefault(round(station), []).append((station, height))

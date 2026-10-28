@@ -338,7 +338,8 @@ sidewalks while leaving transverse lower ways at their own elevations. The exist
 budget remains unchanged.
 
 When the full lidar cannot supply a profile, optional cached `kanta:Korkeuspiste` N2000 heights
-can anchor the deck interior. Points must postdate the construction year when mapped,
+can anchor the deck interior. The catalogue creation year must not precede the mapped construction year; this is a
+freshness filter, not an independently verified survey date. Points must
 lie away from edges/ends and mapped lower routes, and have position uncertainty at
 most 20 cm. Conflicting heights at one station and profiles steeper than 15% are rejected.
 Points within 50 cm of the raw terrain/water height are excluded: map positions alone do not
@@ -475,13 +476,16 @@ calibration checks and remain outside this repository. No reference values feed 
 For a current-generator baseline, pass `before --baseline-ref HEAD` explicitly; the default
 baseline is the historical pre-quality producer. Audit the initial structural pass separately
 with `--first-pass --out "$TURKU3D_WORK/reports/bridge-first/before"`. Use a separate output
-parent for a cold initial-pass audit: prepared full-pass roads in the same parent are reused
-by the runtime and include optional bridge survey profiles. Full-pass and initial-pass output
+parent to audit cold preparation. Initial and full passes use identical bridge survey inputs
+and share the prepared road cache, so a mixed-pass crossing retains one deck profile.
+Optional full-resolution roof refinement still waits for the full pass. Full-pass and initial-pass output
 must not overwrite each other. Pass that audit parent as the renderer's optional third argument,
 for example `node qa/render/bridge-quality.mjs after "$TURKU3D_WORK/reports/bridge-first"`.
 For a standalone current-build inspection, use
 `node qa/render/bridge-quality.mjs current "$TURKU3D_WORK/reports/bridge-quality/before"`;
 it reads that build's inventory and grounds cameras without requiring an after build.
+The renderer serves the immutable audit files on sandbox port base +3 while running;
+the game development server uses port base +0. HTTP or page errors stop the render immediately.
 
 ## Latency diagnostics
 

@@ -564,22 +564,18 @@ def gather(
             seconds[dataset] = 0.0
             continue
         full_paths = paths
-        if first_pass and paths and dataset in ("wfs", "roads"):
-            paths = (
-                paths[:3]
-                if dataset == "wfs"
-                else [paths[0], *[p for p in paths[1:] if p.suffix == ".parquet"]]
-            )
+        if first_pass and paths and dataset == "wfs":
+            paths = paths[:3]
+        # Bridge geometry is structural: neighboring initial/full drafts must use
+        # the same optional survey inputs and the same prepared road cache.
         if paths is None:  # only the optional roads and trees: no OSM clip yet
             values[dataset] = None
             continue
         t = time.perf_counter()
-        cache_dataset = (
-            dataset + "-first" if first_pass and dataset in ("wfs", "roads") else dataset
-        )
+        cache_dataset = dataset + "-first" if first_pass and dataset == "wfs" else dataset
         path, key = _entry(root, tile, cache_dataset, paths)
         value = _ABSENT
-        if first_pass and dataset in ("wfs", "roads"):
+        if first_pass and dataset == "wfs":
             full_path, full_key = _entry(root, tile, dataset, full_paths)
             value = _load(full_path, full_key)
         if value is _ABSENT:

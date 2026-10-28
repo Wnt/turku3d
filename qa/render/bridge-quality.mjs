@@ -3,8 +3,10 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
+import http from 'node:http';
 import { isolateBrowser, port, workRoot } from '../../tools/dev/environment.mjs';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
+import { resolveUnder, serveFile } from '../../tools/dev/http.mjs';
 
 isolateBrowser();
 const phase = process.argv[2];
@@ -42,7 +44,8 @@ if (phase === 'before') {
     view.position = pose.position;
   }
 }
-const sceneFile='game/__bridge-quality.js', pageFile='game/__bridge-quality.html', link='game/public/__bridge-quality';
+const sceneFile='game/__bridge-quality.js', pageFile='game/__bridge-quality.html';
+const assetBase=`http://127.0.0.1:${port(3)}`;
 const source=`import * as THREE from 'three/webgpu';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -63,7 +66,7 @@ const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).setKTX2Loader(ne
 const lod=new VegetationLod('medium'), models=[];
 const surfaces={ground:[],bridges:[]};
 for(const tile of ${JSON.stringify(tiles)}){
- const model=(await loader.loadAsync('/__bridge-quality/'+tile+'/vis.glb')).scene;
+ const model=(await loader.loadAsync(${JSON.stringify(assetBase)}+'/'+tile+'/vis.glb')).scene;
  model.name=tile;model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
  tintDraft(model,renderer);batchTileShadows(model);lod.add(model);scene.add(model);models.push(model);
  model.traverse(o=>{if(!o.isMesh)return;for(let p=o;p;p=p.parent){if(surfaces[p.userData.layer]){surfaces[p.userData.layer].push(o);break;}}});
@@ -93,17 +96,30 @@ window.probe={async view(v){
  perf.reset();for(let i=0;i<30;i++){perf.begin();lod.update(camera);post.render();perf.end();await new Promise(requestAnimationFrame);}
  await perf.completed();await perf.flush();return {...perf.snapshot(),eye:camera.position.toArray()};
 }};window.ready=true;`;
-let browser;
+let browser, assets;
 try {
+  assets=http.createServer((req,res)=>{
+    const file=resolveUnder(root,req.url);
+    if(!file){res.writeHead(403);res.end();return;}
+    serveFile(req,res,file,{compress:false}).catch(error=>{
+      if(!res.headersSent)res.writeHead(500);
+      res.end(error.message);
+    });
+  });
+  await new Promise((resolve,reject)=>{assets.once('error',reject);assets.listen(port(3),'127.0.0.1',resolve);});
   fs.writeFileSync(sceneFile,source,{flag:'wx'});
   fs.writeFileSync(pageFile,'<link rel="icon" href="data:,"><script type="module" src="/__bridge-quality.js"></script>',{flag:'wx'});
-  fs.symlinkSync(root,link);
   browser=await chromium.launch({ignoreDefaultArgs:chromeIgnoreDefaultArgs,executablePath: chromeExecutable(),headless:true,args:chromeArgs(['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist','--disable-background-timer-throttling'])});
   const page=await browser.newPage({viewport:{width:1280,height:720}}),errors=[];
-  page.on('pageerror',e=>errors.push(e.message));
-  page.on('response',r=>{if(r.status()>=400)errors.push(`${r.status()} ${r.url()}`);});
-  await page.goto(`http://127.0.0.1:${port()}/__bridge-quality.html`);
-  await page.waitForFunction(()=>window.ready,{}, {timeout:180000});
+  let rejectPage;
+  const failed=new Promise((_resolve,reject)=>{rejectPage=reject;});
+  failed.catch(()=>{});
+  page.on('pageerror',e=>{errors.push(e.message);rejectPage(e);});
+  page.on('response',r=>{if(r.status()>=400){const message=`${r.status()} ${r.url()}`;errors.push(message);rejectPage(new Error(message));}});
+  await Promise.race([page.goto(`http://127.0.0.1:${port()}/__bridge-quality.html`),failed]);
+  await Promise.race([page.waitForFunction(()=>window.ready,{}, {timeout:180000}),failed]).catch(error=>{
+    throw new Error(`${error.message}\nPage errors: ${JSON.stringify(errors)}`);
+  });
   const results=[];
   for(const view of views){
     if(!tiles.includes(view.tile))continue;
@@ -116,5 +132,6 @@ try {
   if(errors.length)throw new Error(JSON.stringify(errors));
 }finally{
   await browser?.close();
-  for(const file of [sceneFile,pageFile,link])if(fs.existsSync(file))fs.unlinkSync(file);
+  if(assets){assets.closeAllConnections();await new Promise(resolve=>assets.close(resolve));}
+  for(const file of [sceneFile,pageFile])if(fs.existsSync(file))fs.unlinkSync(file);
 }
