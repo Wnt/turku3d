@@ -24,3 +24,84 @@ The headless run writes `pole-qa-full.json`, `pole-qa-draft.json` and pole place
 in the sandbox reports. Render top-down and oblique local QA views for both tiles with
 `bash pipeline/env/run.sh python game/scripts/pole-placement-qa.py`; PNGs are kept under
 `$TURKU3D_WORK/qa/poles/`.
+
+## Live clock and frame transport
+
+Gameplay calls `PhysicsClient.updateInput(character, vehicle, running)` every frame,
+including paused frames. The worker owns a 60 Hz wall clock and feeds the existing
+fixed-step accumulator (at most five substeps). Delayed timers discard excess debt;
+resuming after pause starts a fresh clock. Inputs expire after 500 ms without a
+render-frame heartbeat, so suspended tabs cannot keep driving. Explicit `step(dt, …)`
+remains an ordered command for initial query barriers, save/load placement and tools;
+it never waits for a state reply. The deterministic fixed-step simulation is unchanged; actor publication caches
+affect state extraction only. Timer ticks join the same promise chain as tile decode, actor commands,
+remote proxies and pole updates, with at most one timer queued.
+
+When `crossOriginIsolated`, two single-writer SharedArrayBuffer mailboxes carry input
+and state. The frame loop writes input and reads `latest` directly; no main-thread
+message task is involved in state delivery. A jump counter preserves pulses across
+worker reads. Each mailbox has three Int32 header words (sequence, byte length, try-lock), then
+UTF-8 JSON bytes: odd sequence means writing, even means complete. Readers and writers attempt the lock once and never spin or wait. Copying bytes
+under that lock is data-race-free; readers decode after releasing it. On contention,
+the writer skips publication or the reader retains its previous snapshot until the
+next frame. Unacknowledged actor updates and jump counters survive skipped writes.
+Input capacity is 2 KiB and state capacity 4 MiB; overflow is an explicit physics error, never a truncated actor list.
+JSON retains string IDs and the existing pose fields; actor updates use the
+acknowledged delta protocol below. The client reconstructs complete vehicle state.
+`publishedAt` uses `performance.timeOrigin + performance.now()` across contexts;
+interpolation uses publication time rather than delayed message receipt time.
+Locally caused pole breaks remain latched by stable ID in snapshots, preserving the
+existing one-fine/one-sync dedup even when the renderer skips a snapshot.
+
+Without isolation, input messages still feed the independent worker clock. At most
+one state message awaits acknowledgement, preventing stale reply queues. Delivery
+can still be delayed by browser task priorities on this fallback, but simulation
+continues; neither stepping nor elapsed time depends on acknowledgement.
+
+Local Vite and dist servers send COOP `same-origin` and COEP `require-corp` directly.
+Static hosts (Pages) bootstrap through `core/isolation.ts` and `public/isolation.js`:
+the worker adds these headers to same-origin responses, claims the game subpath and
+reloads once. It stores no assets and preserves normal HTTP freshness. Registration
+failure or a four-second control timeout starts the fallback. A controlled browser
+that still cannot isolate also starts the fallback without a reload loop. Registration
+uses document-relative URLs/scope, preserving `/turku-game/game/`, query parameters
+and manifest `start_url: ./`, including standalone home-screen launches.
+
+Runtime resource audit: the bundled modules/WASM, models, audio, Basis decoder and
+UI images are same-origin; fonts are system fonts. Pages tiles are same-origin
+siblings under `../tiles/` (outside the worker's scope but allowed by COEP). Optional
+external tiles already use CORS fetches; their server must allow the game origin.
+Multiplayer uses WebSocket (not an embedded resource); its HTTP score fetches use
+CORS. No credentialless rewriting, cross-origin asset proxy or new endpoint is used.
+[COEP requirements](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy).
+
+Verify pure transport, clock, input and existing physics fixtures from a sourced sandbox:
+
+```sh
+npm --prefix game test -- --run tests/unit/physicsExchange.test.ts tests/unit/physicsClient.test.ts tests/unit/input.test.ts tests/unit/vehicle.test.ts tests/unit/polePhysics.test.ts
+scripts/dev/codex-task wait-cmd -- scripts/dev/gate --fast --base main
+```
+
+Manual held-key/load diagnostic (not a gate or browser spec): start sandbox Vite,
+then `scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- node game/scripts/latency-probe.mjs after`.
+It invokes `~/turku3d/profiling/record.mjs` against sandbox CDP port +8, dispatches
+30 autorepeat keydowns/s and burns 22 ms per animation frame. Per-frame state age,
+worker step duration and measured keyboard callback costs stay under
+`$TURKU3D_WORK/reports/latency/`. The `before` argument temporarily restores the
+reported baseline's transport/input/frame callers during measurement, then restores
+the working files. Run it only while this sandbox has no concurrent edits/checks.
+
+### Actor allocation
+
+The wire `state` contains cumulative actor deltas (`actorsDelta`, `revision`,
+`removedVehicles`, `removedPoles`); `PhysicsClient.latest` reconstructs the complete
+vehicle list and resident broken-pole poses in caches. Standing poles are already
+placed by source geometry and are omitted entirely. Sleeping vehicles and settled
+broken poles reuse their last pose objects in the worker, so they incur neither
+per-step Rapier pose extraction nor serialization/decoding. Moving actors publish
+fresh poses. Final resting poses and removals remain in every snapshot until the
+client acknowledges its consumed revision through shared input (or `stateAck` on
+the fallback). This keeps the exchange correct when the renderer skips snapshots,
+without resending hundreds of stationary actors. `stateBytes` reports shared packet
+size for the manual allocation diagnostic. Initial actor discovery can be a larger
+one-time snapshot; subsequent packets contain only actors that changed.

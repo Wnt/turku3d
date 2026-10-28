@@ -79,3 +79,19 @@ test('gameplay cannot read browser input outside src/input', () => {
     .filter(f => /getGamepads|KeyboardEvent|MouseEvent|GamepadEvent|addEventListener\(['"](?:keydown|keyup|mousemove|pointermove|gamepadconnected|gamepaddisconnected)/.test(fs.readFileSync(path.join(root, f), 'utf8')));
   expect(offenders).toEqual([]);
 });
+
+test('keyboard autorepeat does not activate audio or recreate input edges', () => {
+  const events = new EventTarget(), activate = vi.fn();
+  vi.stubGlobal('addEventListener', events.addEventListener.bind(events));
+  vi.stubGlobal('navigator', { getGamepads: () => [] });
+  const input = new Input(new EventTarget() as HTMLElement, activate);
+  const down = (repeat: boolean) => {
+    const e = new Event('keydown'); Object.assign(e, { code: 'KeyF', repeat }); events.dispatchEvent(e);
+  };
+  down(false); input.update(1 / 60); expect(input.consume('interact')).toBe(true);
+  for (let i = 0; i < 30; i++) down(true);
+  input.update(1 / 60);
+  expect(input.consume('interact')).toBe(false);
+  expect(activate).toHaveBeenCalledTimes(1);
+  input.dispose();
+});

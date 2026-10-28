@@ -2,6 +2,8 @@
 
 /** Fixed physics substep (60 Hz). `__game.clock.simSeconds` counts these steps. */
 export const DT = 1 / 60;
+/** Hard bound for both wall-clock catch-up and the fixed-step accumulator. */
+export const MAX_SUBSTEPS = 5;
 
 export const CHARACTER = {
   radius: 0.3,

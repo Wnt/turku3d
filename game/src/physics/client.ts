@@ -1,4 +1,8 @@
 // Main-thread side of the physics worker.
+import { ActorCache } from './actorExchange';
+import type { PoleState, VehicleState } from './protocol';
+import { SharedMailbox } from './exchange';
+import type { LiveInput } from './protocol';
 import { loading, loadBytes } from '../core/loading';
 import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
@@ -11,13 +15,32 @@ export class PhysicsClient {
   private nextId = 1;
   private pending = new Map<number, (m: FromWorker) => void>();
   private tileWaiters = new Map<string, { resolve: (s: TileStats) => void; reject: (e: Error) => void }>();
-  private inFlight = false;
+
   private seq = 0;
-  private pendingDt = 0;
-  private jumpPending = false;
+
+  private jump = 0;
+  private stateMailbox = globalThis.crossOriginIsolated ? SharedMailbox.create<StateMsg>(4 * 1024 * 1024) : null;
+  private inputMailbox = this.stateMailbox ? SharedMailbox.create<LiveInput>(2048) : null;
+  readonly transport = this.stateMailbox ? 'shared' : 'message';
+  get stateBytes() { return this.stateMailbox?.publishedBytes ?? null; }
   readonly characterRender = new CharacterInterpolation();
   readonly vehicleRender = new VehicleInterpolation();
-  latest: StateMsg | null = null;
+  private state: StateMsg | null = null;
+  private vehicles = new ActorCache<VehicleState>();
+  private poles = new ActorCache<PoleState>();
+  get latest(): StateMsg | null {
+    const m = this.stateMailbox?.read();
+    if (m) this.acceptState(m);
+    return this.state;
+  }
+  private acceptState(m: StateMsg) {
+    this.state = { ...m, vehicles: this.vehicles.apply(m.vehicles, m.removedVehicles, m.actorsDelta ?? false),
+      poles: this.poles.apply(m.poles, m.removedPoles, m.actorsDelta ?? false) };
+    const now = performance.now() / 1000;
+    const published = m.publishedAt === undefined ? now : (m.publishedAt - performance.timeOrigin) / 1000;
+    this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, published);
+    this.vehicleRender.push(m.vehicle, m.previousVehicle, m.tick, m.remainder, published);
+  }
   readonly loaded = new Map<string, TileStats>();
   /** The newest explicit placement of the character (`actor` 'character') or a vehicle (its id): a teleport, a reset
    *  or a loaded game. `seq` counts them; safe reset (gameplay/safeReset.ts) restarts sampling after a teleport. */
@@ -36,25 +59,22 @@ export class PhysicsClient {
     this.worker.onmessage = (ev: MessageEvent<FromWorker>) => {
       const m = ev.data;
       switch (m.type) {
-        case 'ready': ready(`Rapier ${m.rapier} · ${m.wasmBytes ? loadBytes(m.wasmBytes) : 'WASM ready'} · ${m.colReader}`); this.colReader = m.colReader; this.isReady = true; for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
+        case 'ready': ready(`Rapier ${m.rapier} · ${m.wasmBytes ? loadBytes(m.wasmBytes) : 'WASM ready'} · ${m.colReader}`); this.colReader = m.colReader; this.isReady = true; if (this.inputMailbox && this.stateMailbox) this.worker.postMessage({ type: 'exchange', input: this.inputMailbox.buffer, state: this.stateMailbox.buffer }); for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
         case 'state':
-          this.latest = m; this.inFlight = false;
-          this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, performance.now() / 1000);
-          this.vehicleRender.push(m.vehicle, m.previousVehicle, m.tick, m.remainder, performance.now() / 1000);
+          this.acceptState(m);
+          this.send({ type: 'stateAck', revision: m.revision ?? 0 });
           break;
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
         case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
         case 'cameraCastResult': case 'raycastResult': case 'statsResult': case 'checkResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
         case 'stepError':
-          if (m.seq === this.seq) { this.inFlight = false; this.pendingDt = 0; }
           this.onError(`step ${m.seq}: ${m.error}`);
           break;
         case 'error': this.onError(m.error); break;
       }
     };
     this.worker.onerror = (e) => {
-      this.inFlight = false;
       const error = new Error(e.message || 'worker failed to load');
       for (const waiter of this.tileWaiters.values()) waiter.reject(error);
       this.tileWaiters.clear();
@@ -101,15 +121,18 @@ export class PhysicsClient {
   breakPole(id: string) { this.send({ type: 'breakPole', id }); }
   private placed(actor: string, pos: V3) { this.placement = { seq: this.placement.seq + 1, actor, pos: { ...pos } }; }
 
-  /** Queues dt; sends one step at a time (single in flight) so the worker never falls behind. */
+  /** Explicit stepping for placement/query barriers and deterministic tools, independent of live clocking. */
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null) {
-    this.pendingDt += dt;
-    this.jumpPending ||= character.jump;
-    if (this.inFlight) return;
-    this.inFlight = true;
-    this.send({ type: 'step', seq: ++this.seq, dt: this.pendingDt, character: { ...character, jump: this.jumpPending }, vehicle });
-    this.pendingDt = 0;
-    this.jumpPending = false;
+    this.send({ type: 'step', seq: ++this.seq, dt, character, vehicle });
+  }
+
+  /** Called every render frame, including paused frames. Never waits for a reply. */
+  updateInput(character: CharacterInput, vehicle: VehicleInput | null, running: boolean) {
+    void this.latest;
+    const input: LiveInput = { character: { ...character, jump: false }, vehicle, running,
+      jump: this.jump += Number(character.jump && running), at: performance.timeOrigin + performance.now(), acknowledged: this.state?.revision ?? 0 };
+    if (this.inputMailbox) this.inputMailbox.write(input);
+    else this.send({ type: 'input', input });
   }
 
   cameraCast(origin: V3, dir: V3, distance: number): Promise<number> {

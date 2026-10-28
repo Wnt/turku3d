@@ -43,3 +43,17 @@ test('walking into a pole remains blocked and never breaks it', () => {
   expect(pw.step(DT, idle, null)).toBe(1);
   pw.world.free();
 });
+
+test('live actor snapshots omit standing poles and reuse sleeping vehicle poses', () => {
+  const pw = world();
+  expect(pw.poleStates(true)).toEqual([]);
+  expect(pw.poleStates()).toHaveLength(1);
+  pw.vehicle!.body.sleep();
+  const parked = pw.vehicleStates()[0];
+  expect(pw.vehicleStates()[0]).toBe(parked);
+  pw.resetVehicle({ x: 1, y: 1, z: 1 }, 0);
+  expect(pw.vehicleStates()[0]).not.toBe(parked);
+  pw.breakPole('sign', true);
+  expect(pw.poleStates(true)[0]).toMatchObject({ id: 'sign', broken: true, brokeNow: true });
+  pw.world.free();
+});

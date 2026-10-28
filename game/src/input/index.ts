@@ -39,7 +39,8 @@ export class Input {
     if ((navigator.maxTouchPoints ?? 0) > 0) this.enableTouch();
     addEventListener('keydown', e => {
       if (['AltLeft', 'AltRight', 'Space'].includes(e.code)) e.preventDefault();
-      if (!e.repeat) { this.tapped.add(e.code); this.activate(); }
+      if (e.repeat) return;
+      this.tapped.add(e.code); this.activate();
       this.keys.add(e.code); this.source = 'keyboard';
     }, options);
     addEventListener('keyup', e => this.keys.delete(e.code), options);
