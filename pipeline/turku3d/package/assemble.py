@@ -39,6 +39,7 @@ from turku3d.package.gltf import GlbMesh, build_glb
 from turku3d.package.manifest import DistTree, _atomic_write, git_sha, verify_tree
 from turku3d.package.seams import edge_equal, verify_tile_seams
 from turku3d.package.spawn import derive_spawn, osm_sources
+from turku3d.package.structures import cell_hash, collision_faces
 from turku3d.roads import publish as publish_roads
 
 BRIDGE = Path(__file__).with_name("visual.mjs")
@@ -347,6 +348,12 @@ def assemble(
     if any(t.level != 0 for t in requested):
         raise ValueError("request L0 tiles; 500 m and 1 km parents are built automatically")
     manifests, collision = load_layers(root)
+    structure_keys = {}
+    if "structures" in collision:
+        collision["structures"] = collision_faces(
+            collision["structures"], collision.get("ground", {})
+        )
+        structure_keys = {cid: cell_hash(layer) for cid, layer in collision["structures"].items()}
     if checked:
         require_layers(manifests, tile_ids)
     visuals, owners = {}, {}
@@ -558,7 +565,9 @@ def assemble(
         # Retained cells must be checked too: a refresh can change a neighbour's
         # layer bytes even when its visual tile was not requested in this build.
         for c in collision_cells(published_cells, available, collision):
-            key = collision_cache_key(c.id, manifests, code, layer_ids)
+            key = collision_cache_key(
+                c.id, manifests, code, {**layer_ids, "structures_cell": structure_keys.get(c.id)}
+            )
             keys[f"collision:{c.id}"] = key
             if cache.get(f"collision:{c.id}") == key and c.id in tree.collision and tree_valid:
                 continue
