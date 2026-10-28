@@ -237,8 +237,13 @@ register. Local inference has no quota cap or model network calls and keeps its 
 Reference discovery can still use the existing panorama providers. Neither discovery nor
 inference runs inside draft generation, so a draft never waits for these operations.
 
-The same child alternates local jobs with Astra refinement, ranked by existing telemetry
-exposure scores and tile proximity. Only Astra attempts consume the 12/hour budget and pause
+The same child alternates local jobs with Astra refinement. Astra prioritizes the highest
+viewing-exposure score across eligible ring/cone buildings and selects the highest-scoring
+usable wall within that building. Unseen walls fall back to the widest usable wall. The
+background lane refreshes the last 24 hours of current/previous-day session observations at
+most once a minute; an existing `telemetry/priority.json` is the fallback when no recent
+samples exist. Exposure accumulates screen share and proximity through the existing wall
+weight function. Only Astra attempts consume the 12/hour budget and pause
 at 60% quota (unknown quota pauses Astra only). Hybrid records stay eligible for Astra;
 Astra records, including legacy records without an engine tag, are never replaced by hybrid.
 Geometry-only candidates and reference pixels stay under the sandbox coarse root. Validated
@@ -248,7 +253,12 @@ writer. Rows retain `engine`, `field_sources` (register/hybrid/astra) and raw hy
 (state/value/reason); raw count predictions are evidence only and are never accepted by this
 queue. Existing readers remain compatible. Only affected drafts are invalidated; resident
 models remain visible until the replacement is ready. `/coarse/status` includes engine,
-worker state and last-job seconds under `facades`. Published assembly reads the same parameters.
+worker state, last-job seconds and rolling measurements under `facades`. Local completions
+and actual Astra invocation attempts are appended to `<coarse root>/.facade-progress.jsonl`.
+`hybrid_buildings_per_minute` includes observed idle time, reference acquisition and model
+startup; `actual_calls_last_hour` excludes cache hits and quota pauses. Interrupted jobs with
+unknown call outcomes are counted separately as `unknown_call_jobs`. The existing 12/hour
+admission budget remains a ceiling, not a measured call rate. Published assembly reads the same parameters.
 
 
 Resolved OSM crossings use `bridge_details.py` for type-dependent deck bodies, edge beams,

@@ -51,7 +51,7 @@ def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     import numpy as np
     from PIL import Image
 
-    from .streetview.refs import screen_pixels, screen_problem, source_rank
+    from .streetview.refs import source_rank, view_problem
 
     if not reference_matches(facade, root):
         return [], "no current reference set"
@@ -62,12 +62,18 @@ def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     valid, problems = [], []
     for v in full:
         with Image.open(d / v["files"]["rectified"]) as image:
-            problem = screen_problem(screen_pixels(np.asarray(image.convert("RGB"))))
+            problem = view_problem(v, np.asarray(image.convert("RGB")))
         if problem:
             problems.append(f"{v['source']} {v['view_id']}: {problem}")
         else:
             valid.append(v)
-    valid.sort(key=lambda v: (source_rank(v["source"]), -(v.get("score") or 0)))
+    valid.sort(
+        key=lambda v: (
+            v.get("semantic", {}).get("occlusion_share", 0),
+            source_rank(v["source"]),
+            -(v.get("score") or 0),
+        )
+    )
     if not valid:
         return [], "no valid full-wall view: " + "; ".join(problems)
     return valid, None

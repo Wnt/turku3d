@@ -75,6 +75,16 @@ def inventory(args):
             if not len(bottom) or not len(upper) or np.ptp(np.quantile(upper, [0.1, 0.9])) > 2:
                 continue
             base, top = float(np.median(bottom)), float(np.median(upper))
+            from .streetview.height import ground_height
+
+            centre = (ring[a] + ring[b]) / 2
+            delta = ring[b] - ring[a]
+            outward = np.array([delta[1], -delta[0]]) / np.linalg.norm(delta)
+            terrain = ground_height(*(centre + outward * 0.75))
+            # Some raw GroundSurface polygons use an unmeasured zero datum. Keep
+            # the supported absolute eaves height; never add the terrain offset to it.
+            if terrain is not None and terrain - base > 1.0:
+                base = terrain
             if top - base < 3:
                 continue
             fid = bid + "_" + hashlib.sha256((key + ":" + str(index)).encode()).hexdigest()[:10]
@@ -197,6 +207,7 @@ def screen(args, errors=None):
                 crop=str(crop),
                 context=str(context),
                 crop_sha256=ff.sha(crop),
+                context_sha256=ff.sha(context),
                 view_id=view["view_id"],
                 source=view["source"],
             )
@@ -329,11 +340,12 @@ def label(args):
                 timeout=360,
                 model="gpt-6-astra",
                 effort="low" if args.reviewer == "low" else "high",
-                prompt_version="hybrid-truth-v2-" + args.reviewer,
+                prompt_version="hybrid-truth-v3-" + args.reviewer,
                 meta=dict(
                     kind="fast_describe" if args.reviewer == "low" else "facade_truth",
                     ids=[r["facade_id"] for r in batch],
                     crop_hashes={r["facade_id"]: r["crop_sha256"] for r in batch},
+                    context_hashes={r["facade_id"]: r.get("context_sha256") for r in batch},
                 ),
             )
         )
@@ -342,7 +354,7 @@ def label(args):
     code = Runner(
         args.root / args.reviewer,
         parallel=3,
-        max_pct=min(80, args.max_pct),
+        max_pct=args.max_pct,
         retries=0,
         cache_dir=args.root / "call-cache",
     ).run(load_jobs(path))
@@ -364,6 +376,8 @@ def read_labels(root: Path, reviewer: str) -> dict:
             if (
                 fid in rows
                 and record["meta"].get("crop_hashes", {}).get(fid) == rows[fid]["crop_sha256"]
+                and record["meta"].get("context_hashes", {}).get(fid)
+                == rows[fid].get("context_sha256")
             ):
                 result[fid] = wall
     return result
@@ -399,10 +413,11 @@ def main():
     parser.add_argument("--labels", type=Path)
     parser.add_argument("--limit", type=int, default=240)
     parser.add_argument("--reviewer", choices=["a", "b", "low"])
-    parser.add_argument("--max-pct", type=float, default=80)
+    parser.add_argument("--max-pct", type=float, default=100)
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--label-limit", type=int, default=1000)
     args = parser.parse_args()
+    args.root = args.root.resolve()
     globals()[args.command](args)
 
 

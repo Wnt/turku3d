@@ -95,3 +95,49 @@ def test_mapped_blank_sheds_and_shopfronts_select_distinct_modules():
     assert blank["module"] == 45
     assert blank["wall"] == "#89765a"
     assert shop["module"] % 3 == 2
+
+
+def test_astra_selects_most_seen_usable_wall_then_widest_unseen():
+    from turku3d.coarse.facades import preferred_job
+
+    jobs = [{"meta": {"facade_id": fid}} for fid in ("b_1", "b_2")]
+    widths = {"b_1": 20, "b_2": 10}
+    priority = {
+        "buildings": [
+            {
+                "building_id": "b",
+                "walls": [
+                    {"facade_id": "b_2", "score": 4},
+                    {"facade_id": "b_missing", "score": 9},
+                ],
+            }
+        ]
+    }
+    assert preferred_job(jobs, widths, priority, "b") is jobs[1]
+    assert preferred_job(jobs, widths, {}, "b") is jobs[0]
+
+
+def test_queue_rate_includes_idle_time_and_counts_only_actual_calls():
+    from turku3d.coarse.facades import queue_metrics
+
+    events = [
+        dict(
+            started_at=0, finished_at=10, state="upgraded", building="a", engine="hybrid", calls=0
+        ),
+        dict(started_at=20, finished_at=30, state="quota-paused", building="a", engine="astra"),
+        dict(
+            started_at=40, finished_at=50, state="upgraded", building="b", engine="hybrid", calls=0
+        ),
+        dict(
+            started_at=60,
+            finished_at=70,
+            state="description-failed",
+            building="b",
+            engine="astra",
+            calls=1,
+        ),
+    ]
+    result = queue_metrics(events, 120)
+    assert result["hybrid_buildings_per_minute"] == 1
+    assert result["actual_calls_last_hour"] == 1
+    assert queue_metrics(events, 4000)["hybrid_buildings"] == 0

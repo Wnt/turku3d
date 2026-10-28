@@ -72,14 +72,24 @@ textures/.venv/bin/python -m turkutex.facade_generated_qa --facades "$FACADES" -
   --output "$RUN/acceptance.json" --min-ppm 16
 ```
 
-Every rendered view is screened: more than 20% pure black (a Look Around crop
-outside panorama coverage) or a contrast-normalised Laplacian variance below 0.065
-at 512 px (motion blur) makes it invalid. When no rendered full view is valid,
-`refs` renders up to four more full views per source in the order Look Around →
-Google Street View → Mapillary and stops at the first valid one (`fallback` in
-`refs.json`). Generate jobs use the valid full views in that source order, best
-score first within a source; a wall with no valid view in any source gets no job,
-and `building_jobs.screened_full_views` returns the reason.
+Every rendered view is screened. Reference version 7 casts rays across the whole wall,
+including its edges, through the cached LOD2 wall/roof triangles (including wings of the same
+building). It requires 90% clear samples, 85% clear edge samples and 85% support on the target
+wall surface. View angles above 60 degrees and Google depth occlusion above 20% are rejected.
+The direct wall-plane sampler uses only the wall's supplied extent; it does not enlarge the
+crop or synthesise hidden areas. Local pinned ADE20K segmentation and Grounding DINO foreground boxes reject a coverage
+proxy above 20%, less than 65% facade support or a strong multiple-surface boundary. The
+box union is conservative foreground support, not a pixel-accurate occluder mask.
+These are conservative evidence checks, not proof of identity or calibrated probabilities.
+More than 20% pure black or normalized sharpness below 0.065 also rejects a crop. With no valid
+full-wall view with at most 5% foreground coverage, `refs` tries up to four more full views
+per source in Look Around → Google → Mapillary order. Accepted views are ordered by foreground
+coverage, then source preference and geometric score. All rejected images, scores and fallback attempts remain local. Description and
+generation use the same acceptance function. Geometry, nearby terrain and LOD2 file changes
+invalidate the reference cache; regenerate legacy records to apply the new checks.
+The semantic screen uses the existing `cv-models` extra and pinned ADE20K and Grounding DINO caches described in
+[CV.md](CV.md). No inference call accesses a paid service.
+
 Before `generate`, the `refgrid` stage (same arguments as `visualqa`, reviewer route
 `reference_grid`, gpt-6-astra/low) reads each wall's valid references into
 `facade_reference_grid.schema.json`: whether they show the outlined wall at all, and its

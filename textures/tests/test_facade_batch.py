@@ -449,7 +449,9 @@ def test_refs_resume_when_only_binding_metadata_changes(tmp_path, monkeypatch):
     sources = ("google",)
     import hashlib
 
-    # Full-feature legacy key, including the terrain slot (unused for Google-only crops).
+    from turkutex.streetview.visibility import fingerprint
+
+    # Full-feature key, including terrain and the current LOD2 fingerprint.
     key = hashlib.sha256(
         json.dumps(
             [module.REFS_VERSION, f.to_feature(), params.__dict__, sources, None], sort_keys=True
@@ -461,7 +463,13 @@ def test_refs_resume_when_only_binding_metadata_changes(tmp_path, monkeypatch):
     (path / "image.jpg").write_bytes(b"image")
     (path / "refs.json").write_text(
         json.dumps(
-            {"key": key, "facade": f.to_feature(), "params": params.__dict__, "views": ["view"]}
+            {
+                "key": key,
+                "facade": f.to_feature(),
+                "params": params.__dict__,
+                "views": ["view"],
+                "lod2_fingerprint": fingerprint(),
+            }
         )
     )
     f.props["facade_index"] = 5

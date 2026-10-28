@@ -14,6 +14,8 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 from turku3d import config as C
@@ -34,6 +36,86 @@ def appearance_fields(register: dict, fields: dict) -> tuple[dict, dict]:
             result[field] = row["value"]
             sources[field] = "hybrid"
     return result, sources
+
+
+@lru_cache(maxsize=1)
+def recent_priority(directory: Path, minute: int) -> dict:
+    """Refresh current play observations on the background lane, at most once a minute."""
+    from turku3d.telemetry.priority import prioritize
+
+    now = minute * 60
+    today = datetime.fromtimestamp(now)
+    paths = [
+        directory / (today - timedelta(days=d)).strftime("session-%Y%m%d.jsonl") for d in (1, 0)
+    ]
+    samples, names = [], []
+    for path in paths:
+        try:
+            with path.open() as stream:
+                for line in stream:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue  # an append may leave an incomplete trailing line
+                    if (
+                        isinstance(row, dict)
+                        and isinstance(row.get("t"), (int, float))
+                        and row["t"] >= now - 86400
+                    ):
+                        samples.append(row)
+            names.append(path.name)
+        except OSError:
+            continue
+    return prioritize(names, samples, {}, str(now))
+
+
+def telemetry_priority() -> dict:
+    directory = C.work_root() / "telemetry"
+    fresh = recent_priority(directory, int(time.time() // 60))
+    if fresh["sample_count"]:
+        return fresh
+    try:
+        return json.loads((directory / "priority.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def preferred_job(
+    jobs: list[dict], widths: dict[str, float], priority: dict, building: str
+) -> dict:
+    """Spend a call on the most-seen usable wall, with width as the unseen-wall fallback."""
+    rows = next(
+        (
+            r.get("walls", [])
+            for r in priority.get("buildings", [])
+            if r.get("building_id") == building
+        ),
+        [],
+    )
+    scores = {r["facade_id"]: float(r.get("score", 0)) for r in rows}
+    return min(
+        jobs,
+        key=lambda job: (
+            -scores.get(job["meta"]["facade_id"], 0),
+            -widths.get(job["meta"]["facade_id"], 0),
+            job["meta"]["facade_id"],
+        ),
+    )
+
+
+def queue_metrics(events: list[dict], now: float) -> dict:
+    recent = [r for r in events if r["finished_at"] > now - 3600]
+    elapsed = now - max(now - 3600, min((r["started_at"] for r in recent), default=now))
+    completed = {
+        r["building"] for r in recent if r["state"] == "upgraded" and r["engine"] == "hybrid"
+    }
+    return dict(
+        observation_seconds=round(elapsed, 3),
+        hybrid_buildings=len(completed),
+        hybrid_buildings_per_minute=60 * len(completed) / elapsed if elapsed > 0 else 0,
+        actual_calls_last_hour=sum(r.get("calls") or 0 for r in recent),
+        unknown_call_jobs=sum(r.get("calls", 0) is None for r in recent),
+    )
 
 
 def completed(building: str, engine: str) -> bool:
@@ -72,8 +154,7 @@ def upgrade(inventory: Path, building: str, root: Path, engine: str = "astra") -
     jobs, _ = ff.describe_jobs(facades, refs, run)
     if not jobs:
         return dict(state="no-reference")
-    # Screen all candidates, call for only the first usable wall. Other walls adopt its style.
-    job = jobs[0]
+    job = preferred_job(jobs, {f.id: f.length for f in facades}, telemetry_priority(), building)
     if engine == "hybrid":
         import numpy as np
         from PIL import Image
@@ -109,21 +190,30 @@ def upgrade(inventory: Path, building: str, root: Path, engine: str = "astra") -
             field_sources=sources,
             fields=fields,
         )
-        return dict(state="upgraded", building=building, engine=engine)
+        return dict(state="upgraded", building=building, engine=engine, calls=0, facade_id=wall.id)
     job_path = run / "jobs.jsonl"
     job_path.write_text(json.dumps(job) + "\n")
+    attempts = run / "describe/attempts.jsonl"
+    offset = attempts.stat().st_size if attempts.exists() else 0
     result = Runner(
         run / "describe", parallel=1, retries=0, max_pct=60, cache_dir=ff.call_cache()
     ).run(load_jobs(job_path))
+    calls = 0
+    if attempts.exists():
+        with attempts.open("rb") as stream:
+            stream.seek(offset)
+            calls = sum(bool(line.strip()) for line in stream)
     records = latest(run / "describe/out.jsonl")
     record = records.get(job["id"], {})
     d = record.get("answer", {})
     if result or not record.get("ok") or not d.get("wall_visible"):
-        return dict(state="description-failed")
+        return dict(state="description-failed", calls=calls)
     reference = job["meta"]["reference"]
     wall = next(f for f in facades if f.id == d["facade_id"])
     write_description(building, d, reference["source"], reference["crop_sha256"], width=wall.length)
-    return dict(state="upgraded", building=building)
+    return dict(
+        state="upgraded", building=building, calls=calls, facade_id=job["meta"]["facade_id"]
+    )
 
 
 class DescribeQueue:
@@ -140,6 +230,8 @@ class DescribeQueue:
         self.prefer_astra = False
         self.child_log = None
         self.budget = root / ".facade-describe-budget.json"
+        self.events = []
+        self.progress = root / ".facade-progress.jsonl"
         self.thread = threading.Thread(target=self._run, name="facade-describe", daemon=True)
         self.thread.start()
 
@@ -175,11 +267,9 @@ class DescribeQueue:
             motion = self.builder.motion
             tiles = list(self.builder.servable)
         # Existing telemetry priorities are cheap to consume; no session scan in a service request.
-        try:
-            priority = json.loads((C.data_root() / "telemetry/priority.json").read_text())
-            scores = {r["building_id"]: float(r["score"]) for r in priority.get("buildings", [])}
-        except (OSError, ValueError, KeyError, TypeError):
-            scores = {}
+        scores = {
+            r["building_id"]: float(r["score"]) for r in telemetry_priority().get("buildings", [])
+        }
         choices = []
         for tile in tiles:
             ranked = rank(tile, 0, motion)
@@ -196,7 +286,12 @@ class DescribeQueue:
                     key, engine
                 ):
                     continue
-                choices.append((ranked[0], -scores.get(key, 0), ranked[1], key, tile, inventory))
+                order = (
+                    (-scores.get(key, 0), ranked[0])
+                    if engine == "astra"
+                    else (ranked[0], -scores.get(key, 0))
+                )
+                choices.append((*order, ranked[1], key, tile, inventory))
         return min(choices) if choices else None
 
     def _describe(self, inventory, key, engine):
@@ -251,8 +346,10 @@ class DescribeQueue:
             _, _, _, key, tile, inventory = candidate
             self.retried[key, engine] = time.time()
             self._status(state="describing", building=key, engine=engine)
+            started = time.time()
             try:
                 result = self._describe(inventory, key, engine)
+                self._record(started, key, engine, result)
                 self._status(**result)
                 if result["state"] == "upgraded":
                     with self.builder.lock:
@@ -262,7 +359,20 @@ class DescribeQueue:
                     self.next_astra = time.time() + 300
             except (OSError, ValueError, TimeoutError) as exc:
                 self.stop_child()
-                self._status(state="failed", error=str(exc)[-500:])
+                result = dict(state="failed", error=str(exc)[-500:], calls=None)
+                self._record(started, key, engine, result)
+                self._status(**result)
+
+    def _record(self, started, building, engine, result):
+        event = dict(
+            result, started_at=started, finished_at=time.time(), building=building, engine=engine
+        )
+        self.events = [r for r in self.events if r["finished_at"] > event["finished_at"] - 3600]
+        self.events.append(event)
+        self.progress.parent.mkdir(parents=True, exist_ok=True)
+        with self.progress.open("a") as stream:
+            stream.write(json.dumps(event) + "\n")
+        self._status(**queue_metrics(self.events, event["finished_at"]))
 
     def stop_child(self):
         with self.lock:

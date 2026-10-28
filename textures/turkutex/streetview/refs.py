@@ -9,7 +9,8 @@ For each facade:
  3. score = cos(theta)^0.8 * exp(-((d - d_opt)/d_sigma)^2) * (1 - 0.8 occ) * res_factor (+ recency tie-break);
     greedy pick with diversity (signed angle differs by >= min_sep_deg, or spot >= 6 m apart).
  4. render: pinhole crop aimed at the facade centre (mid-height), FOV fitted to the 4 corners.
-    Each rectified view is screened (black fraction, sharpness); with no valid full view, more
+    LOD2 rays check the full extent and target support. Rectified views are screened for
+    semantic occluders, off-wall pixels, black fraction and sharpness; with no valid full view, more
     full views are rendered in SOURCE_ORDER until one passes.
     Outputs per view: <view>.jpg (plain crop), <view>_outline.jpg (target facade outlined in red),
     <view>_mask.png (255 facade visible, 128 facade but occluded by depth proxy, 0 not facade),
@@ -42,7 +43,7 @@ from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 from .rectify import rectified_points, sample_wall
 
-REFS_VERSION = "5-n2000-camera-height"
+REFS_VERSION = "7-wall-occluders-ground"
 
 # Reference fallback order when the best-scored full view fails screening.
 SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")
@@ -85,6 +86,18 @@ def screen_problem(screen: dict) -> str | None:
     return None
 
 
+def view_problem(view: dict, pixels: np.ndarray | None = None) -> str | None:
+    """Shared acceptance for generation, description and fallback selection."""
+    from .evidence import problem
+
+    pixel_problem = screen_problem(screen_pixels(pixels) if pixels is not None else view["screen"])
+    if pixel_problem:
+        return pixel_problem
+    if "semantic" in view:
+        return problem(view["semantic"])
+    return None  # Legacy records keep their recorded screen until refs regenerates them.
+
+
 def source_rank(source: str) -> int:
     return SOURCE_ORDER.index(source) if source in SOURCE_ORDER else len(SOURCE_ORDER)
 
@@ -94,7 +107,7 @@ class SelectParams:
     radius: float = 45.0
     max_dist: float = 40.0
     min_front: float = 1.5
-    max_angle: float = 72.0
+    max_angle: float = 60.0
     d_opt: float = 14.0
     d_sigma: float = 14.0
     max_views: int = 4
@@ -103,7 +116,7 @@ class SelectParams:
     long_side: int = 1536
     zoom: int = 5
     la_zoom: int = 0
-    max_occluded: float = 0.5  # reject views whose facade is mostly behind a nearer depth plane
+    max_occluded: float = 0.2  # reject views with over 20% behind a nearer depth plane
     fallback_per_source: int = 4  # extra full views rendered per source when none passes screening
 
 
@@ -285,6 +298,15 @@ def evaluate(
             continue
         if cam.hfov_deg > P.max_hfov:
             continue
+        from .visibility import wall_visibility
+
+        visibility = wall_visibility(pos, corners)
+        if visibility.get("state") == "measured" and (
+            visibility["visible_fraction"] < 0.9
+            or visibility["edge_visible_fraction"] < 0.85
+            or visibility["target_support"] < 0.85
+        ):
+            continue
         occ = occlusion_fraction(cache, m, cam, corners)
         if occ is not None and occ > P.max_occluded:
             continue
@@ -307,6 +329,7 @@ def evaluate(
                 "meta": m,
                 "cam": cam,
                 "camera_height_source": elevation_source,
+                "lod2_visibility": visibility,
                 "corners": corners,
                 "part": part,
                 "source_visible_fraction": visible_fraction,
@@ -414,7 +437,12 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
             width=max(3, cam.width // 300),
         )
     ol.save(out_dir / f"{view_id}_outline.jpg", quality=90)
+    from .evidence import measure
+
+    semantic = measure(rectified.astype(np.uint8))
     rec = {
+        "semantic": semantic,
+        "lod2_visibility": e.get("lod2_visibility"),
         "view_id": view_id,
         "source": m.source,
         "pano_id": m.id,
@@ -499,7 +527,14 @@ def facade_refs(
     from .height import ground_fingerprint
 
     P = scaled_params(f, P)
-    terrain = ground_fingerprint(*f.centre, P.radius) if "lookaround" in sources else None
+    from .visibility import fingerprint
+
+    terrain = (
+        ground_fingerprint(*f.centre, P.radius)
+        if set(sources) & {"lookaround", "mapillary"}
+        else None
+    )
+    scene = fingerprint()
 
     def geometry(feature):
         p = feature["properties"]
@@ -507,7 +542,8 @@ def facade_refs(
 
     key = hashlib.sha256(
         json.dumps(
-            [REFS_VERSION, geometry(f.to_feature()), P.__dict__, sources, terrain], sort_keys=True
+            [REFS_VERSION, geometry(f.to_feature()), P.__dict__, sources, terrain, scene],
+            sort_keys=True,
         ).encode()
     ).hexdigest()
     summary_path = out_root / f.id / "refs.json"
@@ -526,6 +562,7 @@ def facade_refs(
             (old.get("key") == key or (old.get("key") == old_key and same_geometry))
             and isinstance(old.get("views"), list)
             and not old.get("source_errors")
+            and old.get("lod2_fingerprint") == scene
         ):
             records = [summary_path.parent / f"{v}.json" for v in old["views"]]
             if all(
@@ -565,7 +602,12 @@ def facade_refs(
         if len(views) == P.max_views or (len(views) == len(chosen) and not errors):
             break
     fallback = {"needed": False, "tried": [], "found": None}
-    if not any(v["part"] == "full" and screen_problem(v["screen"]) is None for v in views):
+    if not any(
+        v["part"] == "full"
+        and view_problem(v) is None
+        and v.get("semantic", {}).get("occlusion_share", 0) <= 0.05
+        for v in views
+    ):
         fallback["needed"] = True
         rendered = {(v["source"], v["pano_id"], v["part"]) for v in views}
         pending = [
@@ -593,11 +635,15 @@ def facade_refs(
                 continue
             views.append(view)
             fallback["tried"].append(view["view_id"])
-            if screen_problem(view["screen"]) is None:
+            if (
+                view_problem(view) is None
+                and view.get("semantic", {}).get("occlusion_share", 0) <= 0.05
+            ):
                 fallback["found"] = view["view_id"]
                 break
     summary = {
         "key": key,
+        "lod2_fingerprint": scene,
         "facade": f.to_feature(),
         "base_h": round(bh, 3),
         "base_h_source": bh_src,
