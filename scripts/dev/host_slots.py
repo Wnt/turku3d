@@ -66,8 +66,13 @@ def fits(entries, kind):
 
 
 def admissible(entries, entry):
-    """Admit within budget; later admissions never starve a waiting integration."""
+    """Admit within budget; builds queue FIFO and retain integration headroom."""
     if not fits(entries, lane(entry)):
+        return False
+    if lane(entry) == "build" and any(
+        lane(e) == "build" and e["state"] == "waiting" and e["since"] < entry["since"]
+        for e in entries
+    ):
         return False
     older = any(
         lane(e) == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]

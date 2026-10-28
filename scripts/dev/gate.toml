@@ -440,3 +440,9 @@ name = "disk-retention-tests"
 kind = "command"
 triggers = ["scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/live_retention.py", "scripts/dev/integrator.py", "scripts/dev/sandbox.py", "scripts/dev/task_runner.py", "scripts/dev/tests/test_disk_retention.py"]
 commands = [["{python}", "scripts/dev/tests/run.py", "test_disk_retention.py"]]
+
+[[stages]]
+name = "draft-reference-score-unit"
+kind = "command"
+triggers = ["scripts/dev/integration_reference.py", "scripts/dev/integration_advisory.py", "scripts/dev/draft_reference_score.py", "scripts/dev/tests/test_draft_reference_score.py", "mk/draft-reference.mk"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_draft_reference_score.py"]]

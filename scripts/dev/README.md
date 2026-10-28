@@ -789,3 +789,8 @@ Set `TURKU3D_JOBS=3` to bound tooling tests to three workers; the shared resourc
 controls the default and all worker pools.
 
 For tile-only publication, see [localhost commands](../../tools/dev/localhost/README.md). Cache and release cleanup: [disk retention](DISK_RETENTION.md).
+
+Waiting build jobs are admitted FIFO; existing resource limits and integration headroom apply.
+Restart an already waiting scheduler after updating its code to use the new admission rule.
+
+Private paired draft measurements: [draft-reference.md](draft-reference.md).
