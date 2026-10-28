@@ -11,9 +11,8 @@ switch and disables `MacAppCodeSignClone`, preventing macOS from copying Chrome'
 app bundle at launch. Playwright launch options also set `ignoreDefaultArgs: chromeIgnoreDefaultArgs`
 from that module: this removes Playwright's original feature switch while preserving all its
 features in the merged argument and avoiding duplicate feature switches.
-The synthetic test checks the versioned defaults against installed Playwright; update them
-when upgrading Playwright. Python preview scripts import the same module in their embedded
-Node script; the localhost service, integrator and gate delegate to the protected configs.
+Tests check defaults against installed Playwright; update them on upgrades. Python previews
+import the same module; localhost, the integrator and gate delegate to protected configs.
 Do not append another `--disable-features` switch after the helper.
 
 ```bash
@@ -25,8 +24,7 @@ python3 scripts/dev/host_slots.py browser -- node tools/dev/verify-chrome-clone.
 The macOS probe runs the music-lab Playwright spec and a native Chrome CDP launch,
 checking the CDP command line and sampling the system clone directory every 50 ms,
 including while Chrome is running. It writes `reports/chrome-clone/verification.json`
-under `$TURKU3D_WORK`. Run during a quiet launch window: unrelated unprotected Chrome
-launches share that directory and fail the probe. Existing clones are only listed.
+under `$TURKU3D_WORK`. Unrelated unprotected Chrome launches share that directory and fail the probe. Existing clones are only listed.
 
 ## Worktrees
 
