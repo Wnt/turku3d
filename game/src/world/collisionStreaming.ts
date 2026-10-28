@@ -161,6 +161,13 @@ export class CollisionStreamer {
     return this.near(x, z, r).map((t) => t.id).filter((id) => !this.physics.loaded.has(id) && !this.failed.has(id));
   }
 
+  /** Counts worker-decoded cells, not completed HTTP requests. Failed required cells prevent startup. */
+  progressAt(x: number, z: number) {
+    const wanted = this.near(x, z, this.radius).map(t => t.id);
+    return { loaded: wanted.filter(id => this.physics.loaded.has(id)).length, total: wanted.length,
+      errors: wanted.filter(id => this.failed.has(id)).map(id => `collision ${id} failed`) };
+  }
+
   /** The true edges of the loaded collision as [i, j, side] (side: +x, -x, +z, -z): sides of a loaded tile whose
    *  neighbour has no collision in any source. The worker closes exactly these with edge walls. */
   trueEdges(): [number, number, number][] {

@@ -1,14 +1,52 @@
 # game/src/world
 
 Streaming of the published tiles (`docs/specs/tiles.md`): `manifest.ts` loads and checks `manifest.json`, `tiles.ts`
-streams the visual tileset with 3DTilesRendererJS, `residency.ts` caps refined L0 tiles at nine (nearest 500 m
-parents first), `collisionStreaming.ts` keeps the `.col` tiles within the collision radius in the physics worker,
+streams the visual tileset with 3DTilesRendererJS. Play uses `loadRegion.ts`: a 250 m full-detail ring around the
+player (or the collision radius when larger), independent of camera orientation. Every intersecting L0 tile and
+its REPLACE siblings load; a parent stays refined for another 125 m before eviction. Far L1 ground within 2 km
+also loads in every direction. Mesh frustum culling still limits actual rendering. QA retains the nine-L0
+camera/SSE budget in `residency.ts`. `collisionStreaming.ts` keeps `.col` tiles within the collision radius in the physics worker,
 `shadowBatch.ts` merges non-vegetation shadow casters on layer 1, enabled only on sun shadow cameras
 (including the cloned CSM cascades). Colour, normal and reflection cameras retain layer 0, so the
 shadow proxies never submit duplicate geometry to those passes. `coarseTiles.ts` streams localhost draft tiles for cells the
 tileset lacks (`tools/dev/coarse-tiles`).
 The draft badge's building count comes from `/coarse/want` (`queued` plus the running `building` ids), so retained
 client entries outside the requested area do not count as work. Verify locally with `scripts/dev/gate --fast --base main`.
+
+## Startup preload and progress
+
+`preload.ts` runs after actor and parked-car assets load and before the session exposes `__game.ready` or enables
+the start menu. It pumps the ordinary tile, draft and collision streamers until every required visual model,
+draft in the existing 3×3 window, ground binding and worker-decoded collision cell has arrived. Required failures
+are surfaced, rather than treating an idle queue as success. The tileset is indexed before traversal, so neither
+an empty first traversal nor `loadProgress === 1` alone can release the screen.
+
+Textures in PBR slots and TSL graphs are uploaded with `initTexture`; `compileAsync` sees offscreen meshes too.
+Six real warmup views exercise shadow/MRT/post-processing and vegetation variants on WebGPU and WebGL2, followed
+by the restored initial view. During play the same distance-region plugin feeds the library's own priority queues,
+parsers and LRU cache. Used ring content cannot be evicted. Cache admission reserves 256 MiB above current protected
+content: the library's fixed default byte cap could otherwise stop refinement with required tiles still missing.
+Unused content still evicts and the allowance shrinks as the player leaves an area.
+
+The loading UI can poll `worldLoad.snapshot()` (`loadProgress.ts`) or `window.__game.loadProgress()`. Snapshots contain
+`phase` (`loading`, `compiling`, `ready`, `error`), `elapsedMs`, `bytesLoaded`, `visual: {loaded,total}`,
+`textures: {loaded,pending}`, `collision: {loaded,total}`, `compile: {done,total}` and `errors`. Counts represent
+required models/cells and actual upload/warmup work. Bytes are completed encoded HTTP response bodies, not an
+estimated total or partial in-flight transfer count. Compile progress counts six rendered directions.
+
+Manual cold-cache proof (outside the gate; uses fresh sandbox Chrome, 10 Mbps/40 ms networking and 4× CPU throttle):
+
+```sh
+source ../sandbox.env
+# Serve a sandbox copy of a fixed real tile release beside a production game build.
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- npm --prefix game run build
+node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build/game" --port "$((TURKU3D_PORT_BASE + 1))" \
+  --mount "/tiles=$TURKU3D_WORK/dist/tiles"
+# In another shell with the same sandbox environment:
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
+  node game/scripts/preload-probe.mjs after webgpu
+# Repeat with webgl. Reports/screenshots: $TURKU3D_WORK/reports/preload/<label>-<backend>/.
+```
 
 ## Collision edge and draft tiles
 

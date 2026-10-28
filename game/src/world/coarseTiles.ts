@@ -298,6 +298,14 @@ export class CoarseTiles {
       .filter(Boolean).join(' · '));
   }
 
+  /** Startup waits for the same 360° window that play keeps resident, including REPLACE siblings. */
+  progressAt(x: number, z: number) {
+    const wanted = wantedTiles(x, z, this.published, this.leaves);
+    const ready = wanted.filter(id => ['draft', 'published'].includes(this.entries.get(id)?.state ?? ''));
+    const errors = wanted.flatMap(id => this.entries.get(id)?.state === 'failed' ? [`draft ${id}: ${this.entries.get(id)!.error}`] : []);
+    return { loaded: ready.length, total: wanted.length, errors };
+  }
+
   private show(status: string) {
     this.status = status;
     if (this.badge) { this.badge.textContent = status; this.badge.style.display = status ? '' : 'none'; }
