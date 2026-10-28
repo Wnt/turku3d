@@ -1,0 +1,20 @@
+[Unit]
+Description=Turku3D public draft tile producer
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/turku3d-drafts/repo/tools/remote-drafts/run.sh python tools/remote-drafts/public.py
+WorkingDirectory=%h/turku3d-drafts/repo
+Restart=on-failure
+RestartSec=3
+Nice=10
+KillMode=control-group
+TimeoutStopSec=30
+NoNewPrivileges=true
+UMask=0027
+StandardOutput=append:%h/turku3d-drafts/reports/service.log
+StandardError=append:%h/turku3d-drafts/reports/service.log
+
+[Install]
+WantedBy=default.target

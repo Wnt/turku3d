@@ -1,0 +1,15 @@
+[Unit]
+Description=Turku3D multiplayer and draft reverse proxy
+After=turku-drafts.service turku-mp-server.service
+
+[Service]
+ExecStart=%h/turku3d-drafts/tools/bin/caddy run --config %h/turku3d-drafts/repo/tools/remote-drafts/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+UMask=0027
+StandardOutput=append:%h/turku3d-drafts/reports/proxy.log
+StandardError=append:%h/turku3d-drafts/reports/proxy.log
+
+[Install]
+WantedBy=default.target
