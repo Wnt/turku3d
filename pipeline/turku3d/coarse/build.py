@@ -46,7 +46,6 @@ VERSION = 1
 WIRE_CAP = 8_000_000
 
 
-
 def solid_triangles(pos, idx, mat):
     """Drop the slivers and duplicates that successive bank, tunnel and kerb cuts can leave (measured on the stored
     tile-local float32 positions); the .col format rejects both, which would fail the whole tile upgrade."""
@@ -60,6 +59,7 @@ def solid_triangles(pos, idx, mat):
     unique[first] = True
     keep &= unique
     return idx[keep], mat[keep]
+
 
 def grid_mesh(tile: C.VisualTile, heights: np.ndarray):
     n = CELLS + 1
@@ -241,20 +241,6 @@ def draft_trees(tile, grid_pos, trees, water, shells):
         tree.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
         tree.variant = VARIANTS[3] if conifer else variant("", height)
         result.append(tree)
-    return result
-
-
-def trunks(trees, ct):
-    """Trunk cylinders of the trees standing in collision tile ct (tile-local centres)."""
-    from turku3d.col.format import Primitive
-
-    result = []
-    for t in trees:
-        if C.CollisionTile.at(t.x, t.z) != ct:
-            continue
-        height = min(t.height * 0.55, 8.0)
-        centre = (t.x - ct.origin[0], t.y + height / 2, t.z - ct.origin[2])
-        result.append(Primitive.cylinder(mat_id("tree_trunk"), centre, height / 2, t.trunk_radius))
     return result
 
 
@@ -557,7 +543,7 @@ def build(
     if tunnels.meshes or tunnels.ceilings:
         write_visual(stage / "tunnels.vis.glb", tunnels.visuals(tile), root_translation=tile.origin)
         layer_files.append(stage / "tunnels.vis.glb")
-    from .forests import BUSH_CAP, TREE_CAP, produce
+    from .forests import BUSH_CAP, TREE_CAP, produce, trunks
 
     vegetation_start = time.perf_counter()
     trees, bushes = (

@@ -233,3 +233,19 @@ def produce(tile, inputs, height_at, mapped):
                     )
                 )
     return deduplicate(trees, SPACING), bushes
+
+
+def trunks(trees, ct):
+    """Trunk cylinders of the trees standing in collision tile ct (tile-local centres)."""
+    from turku3d import config as C
+    from turku3d.col.format import Primitive
+    from turku3d.col.materials import mat_id
+
+    result = []
+    for t in trees:
+        if C.CollisionTile.at(t.x, t.z) != ct:
+            continue
+        height = min(t.height * 0.55, 8.0)
+        centre = (t.x - ct.origin[0], t.y + height / 2, t.z - ct.origin[2])
+        result.append(Primitive.cylinder(mat_id("tree_trunk"), centre, height / 2, t.trunk_radius))
+    return result
