@@ -23,7 +23,7 @@ import { textureUploads } from '../render/textureUploads';
 // The /coarse/want answer carries the service's build counter: when it moves, the waiting tiles are polled at once, so a finished
 // draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
 // Pages uses the public health probe and tile routes, without sending player motion or requesting service internals.
-import { aheadTiles, cellsOf, distToL0, leafParents, parentCovered, startupDraftTiles, wantedTiles } from './coarseRegion';
+import { arrivalToL0, aheadTiles, cellsOf, distToL0, leafParents, parentCovered, startupDraftTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -233,8 +233,10 @@ export class CoarseTiles {
     }
     void this.want(x, z);
     for (const p of this.retainedStarts) void this.want(p.x, p.z);
-    const wanted = this.wantedStarts(x, z);
-    const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id));
+    const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
+      - arrivalToL0(b, x, z, this.velocity.x, this.velocity.z) || distToL0(a, x, z) - distToL0(b, x, z);
+    const wanted = this.wantedStarts(x, z).sort(byArrival);
+    const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id)).sort(byArrival);
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {

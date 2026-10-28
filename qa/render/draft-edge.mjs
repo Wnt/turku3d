@@ -41,7 +41,7 @@ const fetcher=async (url,options)=>{
 };
 const coarse=new CoarseTiles({scene,renderer,manifest,manifestUrl:'/__draft-published/manifest.json',tiles:new THREE.EventDispatcher(),
  checkCollision:b=>physics.checkTile(b),refreshCollision:ids=>streamer.refresh(ids),unloadCollision:id=>physics.unloadTile(id),fetch:fetcher});
-const start={x:349,z:284},velocity={x:8.6,z:12.3};
+const start={x:349,z:284},velocity={x:8.34,z:12.47};
 streamer.update(start.x,start.z,true);
 window.probe={physics,streamer,coarse,rows,events,errors,start,velocity,begin(){
  started=performance.now();coarse.velocity={...velocity};
@@ -64,7 +64,7 @@ window.probe={physics,streamer,coarse,rows,events,errors,start,velocity,begin(){
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${port()}/__draft-edge.html`);
   await page.waitForFunction(() => window.ready, null, { timeout:120000 });
-  await page.waitForFunction(() => window.probe.physics.loaded.has('c_7_7'), null, { timeout:30000 });
+  await page.waitForFunction(() => { window.probe.streamer.update(349,284); return window.probe.physics.loaded.has('c_7_7'); }, null, { timeout:30000 });
   await page.evaluate(() => window.probe.begin());
   await page.waitForFunction(() => window.probe.rows.t0_1_2?.open !== undefined && window.probe.rows.t0_2_2?.open !== undefined, null, { timeout:90000 });
   await page.screenshot({ path:path.join(out, 'kaskenkatu-edge-open.png') });
@@ -79,5 +79,6 @@ window.probe={physics,streamer,coarse,rows,events,errors,start,velocity,begin(){
   console.log(JSON.stringify(result.rows));
 } finally {
   await browser?.close();
-  for (const p of [sceneFile,pageFile,published]) fs.rmSync(p,{force:true});
+  for (const p of [sceneFile,pageFile]) fs.rmSync(p,{force:true});
+  if (fs.existsSync(published)) fs.unlinkSync(published);
 }

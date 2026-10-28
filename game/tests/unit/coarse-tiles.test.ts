@@ -2,6 +2,7 @@
 import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { CoarseTiles, RESTARTING, aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
+import { arrivalToL0 } from '../../src/world/coarseRegion';
 import { isLocalHost } from '../../src/core/localOnly';
 import { draftsUrl } from '../../src/net/config';
 import type { Manifest } from '../../src/world/manifest';
@@ -415,4 +416,15 @@ test('Pages retries offline and queue-full states, then draws remote drafts afte
   expect(loads).toBeGreaterThan(0);
   expect(requests.some(url => /\/coarse\/(status|want)/.test(url))).toBe(false);
   expect(requests.filter(url => url.includes('/coarse/')).every(url => url.startsWith('https://turku.lab.madekivi.fi/'))).toBe(true);
+});
+
+test('Kaskenkatu requests actual southeast crossings before nearer lateral cells', () => {
+  const arrival = (id: string) => arrivalToL0(id, 349, 284, 8.34, 12.47);
+  expect(arrival('t0_1_2')).toBeCloseTo(216 / 12.47);
+  expect(arrival('t0_2_2')).toBeCloseTo(151 / 8.34);
+  expect(arrival('t0_2_1')).toBe(Infinity);
+  expect(arrival('t0_1_2')).toBeLessThan(arrival('t0_2_2'));
+  expect(arrivalToL0('t0_2_0', 490, 125, -27, 0)).toBe(Infinity);
+  expect(arrivalToL0('t0_2_0', 490, 125, 27, 0)).toBeCloseTo(10 / 27);
+
 });

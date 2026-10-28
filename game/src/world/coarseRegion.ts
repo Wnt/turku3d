@@ -10,6 +10,22 @@ export function distToL0(id: string, x: number, z: number): number {
   const x0 = t.i * VISUAL_L0, z0 = t.j * VISUAL_L0;
   return Math.hypot(Math.max(x0 - x, 0, x - (x0 + VISUAL_L0)), Math.max(z0 - z, 0, z - (z0 + VISUAL_L0)));
 }
+/** Entry time (s) along the player's velocity ray; Infinity for cells off the path. */
+export function arrivalToL0(id: string, x: number, z: number, vx: number, vz: number): number {
+  const tile = parse(id);
+  if (!tile || Math.hypot(vx, vz) < 1) return Infinity;
+  let enter = 0, leave = Infinity;
+  for (const [position, velocity, lo] of [[x, vx, tile.i * VISUAL_L0], [z, vz, tile.j * VISUAL_L0]]) {
+    if (Math.abs(velocity) < 1e-9) {
+      if (position < lo || position >= lo + VISUAL_L0) return Infinity;
+    } else {
+      const a = (lo - position) / velocity, b = (lo + VISUAL_L0 - position) / velocity;
+      enter = Math.max(enter, Math.min(a, b)); leave = Math.min(leave, Math.max(a, b));
+    }
+  }
+  return leave > enter ? enter : Infinity;
+}
+
 function parse(id: string): { level: number; i: number; j: number } | null {
   const m = /^t(\d+)_(-?\d+)_(-?\d+)$/.exec(id);
   return m ? { level: +m[1], i: +m[2], j: +m[3] } : null;
