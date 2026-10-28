@@ -54,3 +54,15 @@ test('legacy yaw converts to the chassis frame and model switches do not blend v
   buffer.push({ ...pose(2, 10), mode: 'car', vehicle: 'player' }, 1100);
   expect(buffer.sample(1150)!.E).toBe(10);
 });
+
+test('parked +Z and starter +X forward axes agree for arbitrary heading, pitch and roll', async () => {
+  const { Quaternion, Euler, Vector3 } = await import('three');
+  const { vehicleRotation } = await import('../../src/net/orientation');
+  for (const heading of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+    const rot = new Quaternion().setFromEuler(new Euler(0.2, heading, -0.3));
+    const starter = new Vector3(1, 0, 0).applyQuaternion(vehicleRotation({ yaw: 0, rot }, false));
+    const parked = new Vector3(0, 0, 1).applyQuaternion(vehicleRotation({ yaw: 0, rot }, true));
+    expect(starter.distanceTo(parked)).toBeLessThan(1e-7);
+    expect(starter.distanceTo(new Vector3(1, 0, 0).applyQuaternion(rot))).toBeLessThan(1e-7);
+  }
+});

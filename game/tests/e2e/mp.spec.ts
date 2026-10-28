@@ -216,7 +216,9 @@ test('remote car follows chassis and wheels while driving, turning, reversing an
   const observer = await context.newPage();
   try {
     for (const p of [page, observer]) {
-      await routeCoarse(p, { t0_0_0: { cells: cells(0, 0), roads: { nodes: 2, edges: 1, json: {
+      await routeCoarse(p, {
+        ...Object.fromEntries([-1, 0, 1].flatMap(i => [-1, 0, 1].map(j => [`t0_${i}_${j}`, { cells: cells(i, j) }]))),
+        t0_0_0: { cells: cells(0, 0), roads: { nodes: 2, edges: 1, json: {
         format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', area: 'orientation',
         bbox: [0, 0, 250, 250], nodes: [140, 245, 220, 245], edges: [[0, 1, 19, 80]],
       } } } });
