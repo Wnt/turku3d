@@ -158,3 +158,16 @@ def test_queued_polling_does_not_repeat_source_admission(tmp_path):
     assert calls == ["t0_0_0"]
     assert builder.priority["t0_0_0"] == 5
     builder.stop()
+
+
+def test_full_admission_evicts_lateral_work_before_rejecting_crossing(tmp_path):
+    builder = Builder(tmp_path, code="test", workers=0)
+    near, far, lateral = "t0_1_0", "t0_2_0", "t0_0_1"
+    builder.demand.update("driver-a", [near, far, lateral], [near, far], [lateral])
+    builder.request(lateral, 2)
+    assert builder.demand.admit(builder, near)
+    assert lateral not in builder.priority and lateral not in builder.journal.rows
+    builder.request(near, 0)
+    assert not builder.demand.admit(builder, far)
+    assert not builder.demand.admit(builder, "t0_9_9")
+    builder.stop()

@@ -7,7 +7,7 @@ import numpy as np
 import shapely
 from PIL import Image
 
-from turku3d.bridges.build import _box
+from turku3d.bridges.build import _box, _boxes
 from turku3d.structures.geometry import Faces, profile_wall
 
 PATHS = {"footway", "cycleway", "path", "steps", "pedestrian", "bridleway"}
@@ -160,13 +160,17 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
             for spacing, half in ((1.8, 0.045), (0.18, 0.014)):
                 _, posts = samples(part, spacing)
                 yy = height_at(posts)
-                for p, y in zip(posts, yy, strict=True):
-                    meshes.append(
-                        appearance(
-                            _box(key, (p[0], y + 0.68, p[1]), (half, 0.54, half), "railing"),
-                            spec["rail_surface"],
-                        )
+                meshes.append(
+                    appearance(
+                        _boxes(
+                            key,
+                            np.c_[posts[:, 0], yy + 0.68, posts[:, 1]],
+                            (half, 0.54, half),
+                            "railing",
+                        ),
+                        spec["rail_surface"],
                     )
+                )
     axis, width = way["line"], way["width"]
     a, b = np.asarray(axis.coords[0]), np.asarray(axis.coords[-1])
     direction = (b - a) / np.linalg.norm(b - a)
