@@ -133,111 +133,48 @@ The quota guard reuses `textures/turkutex/codex/usage.py` (`codex app-server` JS
 It refuses when any usage window reaches 100%, or usage is unknown. `run/resume --force` bypasses a known 100%
 reading only. Tests use a fake `codex` on PATH and synthetic repositories; no real calls occur in `tooling-test`.
 
-### Landing (`codex-task finish`, `codex-task land`, `landing.land`)
+### Merge into main and deploy (`codex-task finish`)
 
-Workers land their own green slices. `finish <task> --result <file>` (external workers) validates the
-exact `## Result: DONE` line, records the result (`last.md`, `state: done`, `finished`) and lands; a Codex
-runner whose turn ends with a DONE result runs `codex-task land <task>` (main's current lander, log
-`tasks/<task>/land.log`); `land` is the same operation for the orchestrator and is a no-op for a result
-already landed. Landings are serialised with `wt/.registry/land.lock` (a second finish waits seconds; the
-row records `lock_wait_seconds`). The lander needs a clean worker and main worktree on `wt/<task>`, then
-runs `git rebase main` in the sandbox. A conflict aborts the rebase and exits non-zero listing the
-conflicting files; nothing else changes (no inbox message, no state change): the worker rebases,
-resolves, reruns the gate and finishes again. It then runs `scripts/dev/gate --fast --base <main>` in the
-sandbox environment (output in `gate.log`); red exits non-zero naming the failing stage, host load and
-log, main unchanged. Then `git merge --ff-only` in the main checkout (a compare-and-swap `git update-ref`
-when main has no checkout). If main moved during the gate it rebases and gates again, at most three
-times. Open requests and warnings in the task inbox are listed in the output and do not hold the
-landing. After the merge the lander sends a `landed` message (below), starts the integrator when none
-runs (`integrator.ensure`) and removes the sandbox; `--keep-sandbox` keeps it for a task that continues
-in a next slice (an external worker becomes `state: external` again). No host slot, live build or
-receipt.
+Use `codex-task agents` for the single active-agent/branch register. Commit often;
+git contains the details. Give a short high-level heads-up for a shared format,
+data structure or code another active agent is changing. There is no overlap planner.
 
-**Broadcast.** Every landing sends a `landed` inbox message to every other task that is running or an
-active external worker (`state: external`), never to finished ones: commit, task, subject, class,
-changed paths (20 shown), the `interface` messages the task posted on the board since its previous
-landing (ids in `refs` after the commit) and the `--note` line. An integrator revert sends one too.
-`landed` messages need no ack and hold nothing; `inbox --unread` lists one until the task's checkout
-contains its commit, and `status`/`ls` show `behind main by N landings since your last rebase`
-(landed.jsonl rows on main that HEAD lacks).
+```sh
+source ../sandbox.env
+scripts/dev/codex-task agents
+scripts/dev/codex-task checks --last 10
+scripts/dev/codex-task finish NAME --result "$TURKU3D_WORK/reports/result.md" \
+  --keep-sandbox \
+  --test 'python3 scripts/dev/tests/run.py test_delivery.py test_pages.py' \
+  --async-test 'python3 scripts/dev/tests/run.py test_tooling.py test_caches.py' \
+  --async-reason 'Delivery changed; these broader cases were not covered recently'
+```
 
-The whole landing has a hard budget of 180 s (`landing.BUDGET_SECONDS`) from taking `land.lock`; the gate's process group is terminated at the
-deadline. Over budget the landing raises `merge_slow`, records `merge_slow` (seconds, step) in `meta.json`, and leaves
-main unchanged. Each landing appends one row per task to `wt/.registry/landed.jsonl`: `name`, `before`, `commit` (the
-new main head), `source`, `time`, `merge_wall_seconds`, `merge_slow`, `fast_gate_seconds`, `fast_gate_stages`,
-`first_done_time` (the first `finish`, kept in `meta.first_finished` and never overwritten), `done_time` and
-`facade_regression_reason` (from the result's `Facade regression reason:` line; the integrator reads it from here),
-`lock_wait_seconds`, `browser_minutes`, the landing class fields (`class`, `paths` capped at 40, `changed_paths`,
-`data_delta`, `tiles`, `data_parts`; see "Landing classes" below). The sandbox removal reports the bytes freed;
-a retained sandbox prints the reason; remove it later with `scripts/dev/wt rm <name>` or `scripts/dev/wt
-prune-landed`. Then `push_public` publishes to `origin` (github.com/Wnt/turku3d) best-effort within 60 s: main's tree
-becomes one commit on `refs/public/main`, which began as a squashed import (`docs/HISTORY.md`), and that line is
-pushed to origin's `main`. Local `main` is never pushed. The row records `push` (`commit`, `seconds`) or `push:
-{error}`.
+These are examples for delivery changes; pick affected commands and grep filters for
+your change. All `--test` commands share a hard 30-second wall deadline, in parallel.
+Use `--no-tests-reason TEXT` when there are no affected quick tests. `--heads-up TEXT`
+sends the shared-interface note before rebase. The quick suite stays tiny; new tests
+need a strong reason.
 
-### Live build (`live_build.build`; tile selection in `live_layers.py`)
+Finish rebases, runs the selected checks, merges into main, announces the merge,
+then packages/uploads the game to Pages immediately. No test or tile build runs in
+deployment, and there is no deploy lock, queue, batch, bisection or rollback. Public
+source publication follows Pages rather than delaying it. A git push race is reported
+without an automatic publication retry. Pages already has its hosting configuration.
 
-Live and Pages publish as soon as the build passes: code/full batches run `game-build` with the served tiles;
-data batches run refresh, tile-build and format/seam validation, carrying the live game. Only after live and Pages
-are published do cheap collision/walk checks, car reports and facade ground audits run in that build's
-checkout. Chrome and the deep gate run only with explicit `integrator.py run --full`. Results update the exact release record, ledger advisory
-list, inbox warnings and Pages commit notes (a notes-only update protected against newer deployments).
-A newer landing cancels advisory command groups and records `advisory_interrupted`; interrupted full Chrome runs
-are not marked complete. `advisory_chrome.py` owns Playwright and its dist server in one timed group; stale server
-cleanup requires matching PID, birth identity and group in `$TURKU3D_WORK/cache/advisory-chrome-server.json`; `wall_seconds` includes advisory time.
+After deployment, curl smoke probes have a five-second total wall budget, no browser.
+One agent-owned selective async run starts from frozen deployed source; it has ten
+minutes including bulk-slot waits. `checks` shows recent commands and outcomes so the
+agent can avoid repeating other agents' evidence. A failing run permits one forward
+fix through `finish --fix-for JOB`; later failures go to the orchestrator. Results
+live under the task's `checks/` directory and survive sandbox removal.
 
-**Build stages and advisory stages** (user decision 2026-10-27 21:00). Only `live_build.BUILD_STAGES`
-(refresh, tile-build, tile-validate, game-build) and the manifest check (geometry, ground textures and < 8 MB
-on the wire for every listed tile, a spawn) raise `StageFailed`: the batch cannot be built. Of tile-validate's
-checks only `format` and `seams` block (`BLOCKING_CHECKS`; read from `reports/validate-aoi.json`). Everything else
-is advisory: the car report (failing cars are an accepted known red, validator errors are advisory), the facade
-ground audit, tile-validate's `buildings`/`curbs`, the facade baseline
-(`facade-baseline`: fewer `facades_bound` than the published release with no `Facade regression reason:` line in
-a batch landing's ledger row) and Chrome. Each failure is appended to `report["advisory"]` (`stage`, `detail`,
-`log`, Chrome `specs`, tile-validate `checks`), publication stands, and a failed advisory stage is not cached.
-`stages_for(kind, checks=False)` runs the build stages only (base check and bisection builds).
-Explicit `integrator.py run --full` runs all tile specs on both projects on live
-(`full_suite: true`, `integration_chrome.py`), as information. Stage times and output are in `live-build.log`.
-Each gate and live-build command runs in its own process group, which is terminated on exit.
-Failures name the failing stage or test and include the host load and log path. For a Playwright
-suite the detail is the first failing test and its first error, so a test timeout reads as
-`Test timeout of ... exceeded` rather than the secondary `Target page ... has been closed`.
-Each Chrome stage also records `browser_load` in `live-build.json` and the log: the 1/5/15-minute
-host load at its start and end, the median and maximum per-test frame p95, and every load retry.
-A failed Chrome stage prints the same summary, so a failure under load is distinguishable from a
-regression at a glance. Browser specs wait on game time and retry once only above host load 40
-(see `game/README.md`, "Character locomotion and verification").
-For the first landing, the baseline comes from the legacy `deploy-once.log` assembler result (164 on
-2026-10-26); later landings read the previous release's `live-build.json`.
-
-Publication APFS-copies the built game, tiles, layers and textures into
-`$TURKU3D_DATA/live-releases/<commit>`; one atomic `$TURKU3D_DATA/live` symlink
-swap publishes the release. Stable `$TURKU3D_DATA/build/game` and `dist/tiles` paths resolve through
-that link, so static servers on them need no restart (:5171 runs main hot: `tools/dev/localhost/README.md`).
-Preparation dereferences sandbox links and rejects any link left inside a release. Publication checks
-all four stable paths after the swap and restores the previous `live` link if a path does not resolve
-to its directory in the prepared release.
-`~/turku3d/logs/live-version.txt` records the published commit; `$TURKU3D_DATA/tile-quality.json` its tiles. Do not run `deploy-once.sh`
-or `autodeploy.sh` on main; `make refresh` refuses the published data root. Run refresh in a sandbox.
-Do not update main outside the lander while landing. A missing gate fails closed; there is no
-legacy Make fallback.
-
-### GitHub Pages (`publish-pages`)
-
-https://wnt.github.io/turku-game/ serves main's game with the served tiles. The integrator publishes after each
-live release when `$TURKU3D_DATA/publish/pages.json` exists (`{"repo":"Wnt/turku-game","branch":"gh-pages","region":{...}}`).
-It ships `game/`, quality-filtered region `tiles/` (`pages_region.py`) and `pages-site/`; Pages is enabled once.
-Both lanes and advisory notes hold `publish/pages.lock` under the data root through fetching, pushing and state updates.
-Each commit parents the fetched remote head. Metadata records source commit and tile input time; older/unrelated code
-or older/unknown tile inputs after a known time are skipped. A lock/non-fast-forward rejection triggers one refetch,
-ordering check and rebuilt commit. Pushes never force. Advisory notes append only while their deployment is current.
-Integration rows record `pages.status` (published/skipped), `retries`, skip reason or `error`; local publication stands.
-Commit notes list source commits since the remote release (else `from`), advisory failures and shipped/excluded tiles.
-`publish/pages-last.json` records the last push. Only generated-style, derived or fast facades may ship (`pages.generated`).
-By hand: `scripts/dev/codex-task wait-cmd -- scripts/dev/publish-pages` (`--from-served`, the default: live when it
-already is main's game on the served tiles, else main's `make game-build` in `pages-served` composed by `served.compose`).
-Use `--release DIR` for a specific release; `--plan` prints its region selection without publishing.
-Output includes `total_seconds`. The relative-base game runs under `/turku-game/` without COOP/COEP.
+The register is `wt/.registry/agents.json`, refreshed by `codex-task agents` and lifecycle
+changes. Merge events retain the historical `landed.jsonl` filename for current
+clients; deployments and test outcomes are in `deployments.jsonl` and `checks.jsonl`.
+There is no integrator process or verified-only release selection. The game world is
+generated on demand; facade assets and generator source are published independently
+of the game bundle. Details: [AGENTS.md](../../AGENTS.md), [verification.md](verification.md).
 
 ### Long commands (agents)
 
@@ -344,12 +281,10 @@ make game-e2e
 
 `tooling-test` runs up to TURKU3D_JOBS independent synthetic-repository tests at a time and covers concurrent port claims, adoption, shell-safe environment generation, fake run/resume,
 quota refusal/override, process-group stop, removal and orientation from both checkouts.
-`scripts/dev/tests/test_lander.py` (in `tooling-tests`) covers the lander on synthetic repositories:
-a branch lands after main moved in under 5 s without importing the live builder; slices with
-`--keep-sandbox` keep `first_done_time`; open requests are reported, not held; DONE/dirty/red-gate/
-missing-gate refusals, main moving during the gate, data-delta attribution and the `merge_slow` budget.
-`test_finish.py` covers the conflict stop, the `landed` broadcast as a second task receives it, the
-Codex turn-end landing and two concurrent finishes serialised on `land.lock`.
+`test_delivery.py` and `test_pages.py` cover the new boundaries: hard deadlines,
+explicit selection, merge safety, game-only packaging, a real bare-remote upload
+and push-race failure without retry or rollback. The old batch/verified-release/
+rollback test suites were deleted with the retired implementation.
 Coordination coverage includes two sandbox environments exchanging requests and acknowledgements,
 board announcements, concurrent CLI readers/writers, append-only/idempotent acknowledgements,
 unread counts and run/resume prompts.
@@ -412,15 +347,13 @@ scripts/dev/gate --deep --base main      # the deep tier for your changes (= mak
 scripts/dev/gate --json                  # JSON report, including command output and durations
 ```
 
-`--fast` (workers before `finish`, the lander after rebasing) runs lint and format, type checks, policy
+`--fast` (an optional manually selected check) runs lint and format, type checks, policy
 and the unit-test stages whose full run stays under 20 s; target under 30 s at host load 100, about
 2 s when cached. It skips browser stages (`kind = "e2e"`, `browser = true`; a gate test fails if a
 stage that starts Playwright or Chrome is not marked) and the deep tier: stages with `tier = "deep"`
-(`pipeline-tests`, `textures-tests`, `gate-tests`, `tooling-tests`, `integrator-tests`,
+(`pipeline-tests`, `textures-tests`, `gate-tests`, `tooling-tests`,
 `watch-tests`, `knip`, `validator-tests`, `dependency-imports`). `--deep` runs only deep stages;
-explicit `integrator.py run --full` runs `gate --deep --all` (cached per stage input hash)
-after publication; red stages are advisory (`deep-gate` with the failing stage names in the ledger row, warned
-to the batch's authors when new). A stage whose full run exceeds 20 s moves to the deep tier.
+selected async commands may include relevant deep cases; failures are forward only. A stage whose full run exceeds 20 s moves to the deep tier.
 `full_triggers` are only the gate's own `gate.toml`, `gate_lib.py`, `gate_fixtures.py` and
 `gate_cache.py`; they widen the selection to every stage of the chosen tier.
 
@@ -527,7 +460,7 @@ Use `SERIAL = True` to isolate shared API mocks (e.g. stop signals). File patter
 
 ```sh
 .venv/bin/python scripts/dev/tests/run.py test_tooling.py test_environment.py
-.venv/bin/python -m unittest scripts/dev/tests/test_integrator.py scripts/dev/tests/test_advisory.py
+python3 -m unittest scripts/dev/tests/test_delivery.py scripts/dev/tests/test_pages.py
 ```
 
 ## Gate speed and reproducible routing probes
@@ -571,107 +504,15 @@ See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limit
 
 See [verification.md](verification.md) for focused checks, host slots, budgets,
 environment sync and stage caches. Normal integration runs no Chrome or deep gate;
-`integrator.py run --full` is an explicit investigation.
+`finish --async-test COMMAND` selects a bounded investigation.
 
-### Landing and integration
+### Direct delivery receipts
 
-Main only requires the fast gate; the live build and Chrome run once per batch after the merge. Public builds (`VITE_PUBLIC_RELEASE=1 make game-build`) freeze `build/game` for live/Pages and `build/check-game` for existing solo Chrome assertions (`E2E_GAME_DIST`); both travel through the release/cache.
-Live and Pages point to a release built from exactly the commit it names; its advisory results ride along.
-
-```
-worker: commit → gate --fast → codex-task finish (no precheck, no polling, no daemon)
-lander (in finish, serial under land.lock, seconds, no host slot): validate → rebase (conflict →
-        stop) → gate --fast → git merge --ff-only → landed.jsonl row → `landed` message → ensure
-integrator code lane (asynchronous, one run at a time, `integration` host reservation):
-        batch = landings from the published commit G up to main M
-        class by paths (landing_class.classify): inert → live_build.repoint(M), no build, no slot
-        else → live_build.build(M, code): game-build + served tiles; joins only while free
-        builds: publish(M) under publish.lock, recomposed on a data-lane release published meanwhile
-               → Pages → cheap data audits (Chrome/deep only with explicit --full; cancelled for newer landings) → new advisory failures: warning to the batch's authors
-        build red: base check: live_build.build(G, build stages)
-               G red:   data-red, revert nothing, warning to all, live stays at G until main moves
-               G green: bisect G..M (build stages) → revert the culprit landing as one
-                        commit through land.lock + gate --fast → request to its author
-                        → live stays at G; the next run integrates the rest plus the revert
-data lane: build(main, data) on a changed data root → <G>-<key12>, live game;
-        `refresh-stale` (`make tiles-refresh-stale`, sentinel, load < 40): build(main) → <G>-<key12>-<main12>
-```
-
-```sh
-python3 scripts/dev/integrator.py status  # running integration and last ledger row
-python3 scripts/dev/integrator.py ensure  # start the lanes that have work (a landing does this)
-# One integration by hand (add --lane data for the data lane), e.g. against a copy of the published root:
-python3 scripts/dev/integrator.py run --published /path/to/data-copy --main-repo /path/to/clone --sandbox integration-measure
-```
-
-Nothing polls. `integrator.ensure` (after each landing, and after each finished run) starts
-`integrator.py run` as a detached child (log `wt/.registry/integration.log`) when no code lane runs and
-main moved past both the live commit and the last integration's `to`, ; and
-`--lane data` (log `integration-data.log`, beside the code lane) when the data root has parts the live release
-lacks and no data run took this (G, data key) (`data_due`); green rows settle both `from` and published `to`. Live input identity (`data_key`, `tiles_commit`; legacy release name) skips duplicates before building, with a second check under `publish.lock` (`result: skipped`). Nothing starts without a published live release. A run that recorded a row calls `ensure` again
-when it ends, so landings after its join window start the next run at once (a manual run with
-`--sandbox` or another `--main-repo` chains nothing). A data-root change without a
-landing waits for the next landing, finished run or `integrator.py ensure`.
-
-**Landing classes** (`landing_class.py`): `classify(repo, base, head, data_delta)` sorts `git diff --name-only` and
-the data-root delta; a path outside both allowlists makes it `code`. `inert`: `docs/*`, `*.md`, `LICENSE`. `data`:
-`game/public/assets/{voice,content}/*` or a changed `data_parts` part (JSON of `facade-approvals/assembly` and
-`build/layers`, the tile list), compared with the last ledger row's (else the live release's). `tiles`: none (inert),
-all listed (code, approvals or layers), else the newly listed. `here` shows the class.
-
-`integrator.run_once(published, main_repo)` reads G from `published/live/live-build.json`, M from main, and
-classifies G..M by paths (`batch_class`). `inert` takes no slot: `live_build.repoint` APFS-clones
-the live release to `live-releases/<M>` (record `commit` M, `verified_commit`, `repointed_from`), swaps the link
-(Pages only when `docs/published-images.toml` changed) and records `result: green`, `skipped: true`. Other classes
-run `live_build.build(M, "code")` (`full` only for an explicit `--full` run) in the `integration` sandbox and slot; the data
-lane's car report runs only when `layers/traffic_static` changed (else `carried_from`). **Join** only while free:
-the build re-reads main once, before its first stage that is not a cache hit; a newer head (at most `JOIN_LIMIT` =
-3) is checked out, reclassified and built instead (`batch_joined`), repeating only cached stages, each at most once. After a stage has run for real the batch is frozen; later landings wait for the next run. A batch that
-builds publishes under
-`wt/.registry/publish.lock`; if the data lane published meanwhile (live parts changed), M is recomposed on that
-release (`rebuilt_on`; game-build is a cache hit), at most once; live changing again records `failed` for the next
-run. The data lane (`run_data`) builds with main's tile code (`tiles_commit`), so data rebuilds include landed pipeline
-fixes even when the live tiles were built by older code. A code-only landing still carries served tiles.
-The data lane publishes `<G>-<data key 12>` (record `commit` G); if a code release moved live meanwhile on the same tiles it ships that release's game, else it records `superseded`. After
-publishing, both lanes deploy Pages and send the advisory failures
-that the replaced release did not have (`failing` labels: `chrome <project:spec>`, `tile-validate <check>`, a stage)
-to the authors of the batch's landings as one `warning` (the orchestrator for the data lane and in-place full runs;
-`warned` in the row); known failures stay in the row, the release record (`advisory`, `from`) and the notes.
-
-A head that does not build is never blamed on a commit before the base check: the integrator
-builds G's build stages against the current data root (mostly cache hits). G built when it was
-published, so a red G means the data root changed under it. The run is then `data-red`: it
-records G's failing stage (`failure`), the head's failure (`head_failure`), `data_cause` (`approval-root-changed` when the SHA-256 of
-`facade-approvals/assembly/MANIFEST.json` differs from the published release's
-`textures/assembly/MANIFEST.json`, else `data-root`) and both hashes (`approval_manifest`). It
-reverts nothing, posts a `warning` to the board and keeps live at G until main moves (`settled`).
-
-Only a green G bisects the landed heads in G..M (≤ ⌈log₂ n⌉ further build-stage builds) and reverts the
-culprit landing `parent..culprit` on current main as one commit under `wt/.registry/land.lock`
-after `gate --fast` in the integration sandbox. A run makes at most one revert; a second culprit
-is only blamed by a later run, which first builds the reverted main and checks the base again.
-The revert message names the integration row id and the failing stage and lists every reverted
-commit. It appends a `revert-<sha8>` row to `landed.jsonl` (`integration`, `reverts`,
-`reverted`) and posts a `request` with the row id, stage and log to the culprit's task. A revert
-conflict, an empty revert or a red revert gate is reported in the same request; main stays.
-
-Each run appends one row to `wt/.registry/integrations.jsonl`: `id` (`<to sha12>.<n>`), `published`,
-`from`, `to`, the class fields (`class`, `paths`, `changed_paths`, `data_delta`, `tiles`),
-`full_suite`, `chrome_plan`, `chrome`, `advisory`, `warned`, `pages`, `batch_joined`, `joins`, `restarts` (per stage), `stage_seconds` (per stage,
-summed over all builds of the run), `rebuilt_on`, `tiles_from`, `lane` (`data`; with `data_key`, `tiles_commit`, `refresh_stale`), `skipped` (inert), `result` (`green`,
-`red`, `data-red`, `failed`, `superseded`), `seconds`, `cache_hits`, `facades_bound`, `builds`,
-`wall_seconds`, `culprit`, `culprit_task`, `failure`, `head_failure`, `data_cause`, `approval_manifest`,
-`revert`. `integration.json`/`integration-data.json` name each lane's running integration and log.
-
-Deleted on 2026-10-27 (a branch waited a median 80 min; `~/turku3d/logs/merge-latency-study/report.md`):
-precheck receipts, the live build inside `land`, queue rechecks, speculative prefixes, queue budgets, Codex
-resume, the queue sweep and the warm browser service; later that day the polling merge-queue daemon
-(`queue run|status`, `merge-queue.json`, held/returned states, `land --batch`, the landing message
-guard). Main may be red for one integration; live never is.
-
-Functional browser checks wait for movement, input, grounding, camera or physics state;
-button edges wait for rendered frames. Wall-clock streaming, orientation, docs-gate and QA
-response budgets are explicit perf tests outside the functional gate.
+`codex-task finish` records selected command results, merge time, package/upload
+metrics, five-second smoke and the async job path. It accepts a running agent's own
+slice and keeps that checkout active. A DONE turn-end compatibility call uses the
+recorded selection; a new change requires a new explicit selection. Rebase conflicts
+and quick-test failures leave main unchanged; failures after merge are forward only.
 
 ## Codex token ledger
 
@@ -729,3 +570,7 @@ Waiting build jobs are admitted FIFO; existing resource limits and integration h
 Restart an already waiting scheduler after updating its code to use the new admission rule.
 
 Private paired draft measurements: [draft-reference.md](draft-reference.md).
+
+Concurrent `wait-cmd` calls use distinct timestamp/PID log files under the task's
+`wait-cmd/` directory. `wait-cmd-latest.log` is an atomic latest pointer; the old
+fixed `wait-cmd.log` is not reused, so older running clients cannot truncate a new log.

@@ -124,7 +124,7 @@ class StopTests(unittest.TestCase):
             printed = done.stdout.splitlines()
             self.assertEqual(printed[:2], ["line 3", "line 4"])
             self.assertRegex(printed[2], r"^wait-cmd: exit 3 after [0-9.]+s; full log: ")
-            log = (tasks / "demo/wait-cmd.log").read_text()
+            log = (tasks / "demo/wait-cmd-latest.log").read_text()
             self.assertEqual(log.splitlines(), [f"line {i}" for i in range(5)])
             # Without a task the log goes to the sandbox work dir; a timeout ends the group.
             (tasks / "demo/meta.json").unlink()
@@ -137,7 +137,7 @@ class StopTests(unittest.TestCase):
             self.assertEqual(done.returncode, 124)
             # The sleeper would take 30 s: ending well before that proves the timeout ended it.
             self.assertLess(runner.time.monotonic() - start, 25)
-            self.assertIn("SLOW", (Path(directory) / "work/wait-cmd.log").read_text())
+            self.assertIn("SLOW", (Path(directory) / "work/wait-cmd-latest.log").read_text())
             done = subprocess.run([*cli, "--"], env=env, capture_output=True, text=True)
             self.assertEqual(done.returncode, 1)
             self.assertIn("needs a command", done.stderr)

@@ -214,37 +214,16 @@ Pipeline principles:
 - Each step is resumable per tile.
 - `make tile T=...` rebuilds one tile end to end.
 
-Gates (Jonni, 2026-10-27: iteration speed beats coverage; he plays the game and reports what to fix): the fast gate
-(`scripts/dev/gate --fast`, run by every worker and by `finish`) is lint and format, type checks, the policy stage
-and only those unit-test stages whose full run stays under 20 s, so it finishes in under 30 s at host load 100 and
-never starts a browser. Stages over that budget carry `tier = "deep"` in `scripts/dev/gate.toml`; explicit investigations run
-the deep tier (`gate --deep --all`, cached per stage input hash) only on explicit request, and
-`make gate-deep` runs it by hand. Deep and Chrome results are advisory. New tests are small unit tests of pure
-functions; browser specs only when a brief asks for them; time budgets only in by-hand perf targets.
-
-Landing and integration: each agent lands its own green slice with `codex-task finish` (rebase, fast gate,
-fast-forward; conflicts are the agent's to resolve) and every landing sends a `landed` message to the other
-running agents, who rebase at their next natural point; unlanded branches are never shared, so an interface
-change lands first as its own compatible slice. The landing starts the integrator (nothing polls). **Live and
-Pages publish what localhost serves** (user decision 2026-10-27 22:55): a code batch never rebuilds tiles. The
-code lane classifies a batch by its paths (`scripts/dev/landing_class.py`): `inert` (docs, prose) re-points `live`
-to the new commit with the published content; any other batch builds only main's game bundle (about 1–2 min) and
-publishes it with the served tile set (the tile store entry for main's tile key, else the live release's tiles;
-`scripts/dev/served.py`) to `live` and GitHub Pages. Only a game-build failure bisects and reverts the culprit
-landing. The data lane owns every change of the data root (facade approvals, the playable tile list, layers): it
-rebuilds the affected tiles with main's tile code, so data rebuilds include landed pipeline fixes. A code-only
-landing still carries served tiles. The data lane runs tile-validate (format and seams block), the car report,
-the facade ground audit, without automatic Chrome; it ships the live game bundle. The release record names each tile's builder
-(`tiles_from`, `tile_commits`) and the tiles built with older tile code than the release commit's (`stale_by_code`);
-`make tiles-refresh-stale` rebuilds those with main's code when the host is idle (the sentinel's heartbeat, load
-< 40). Advisory findings (car report, facade ground audit, tile-validate's walk checks, the facade baseline,
-explicit Chrome and deep-gate investigations) are recorded in the ledger row and the release, shown on the localhost badge, listed in the Pages release
-notes and sent to the batch's authors as an inbox warning when new; they never block, bisect or revert. Landings
-join a running code batch only while that is free (before its first stage that is not a cache hit, at most 3
-heads); publication is serialised: a code release is recomposed on tiles the data lane published meanwhile, and a
-data release ships the newer game of a code release published meanwhile on the same tiles. Chrome and the deep tier run only on explicit request (`integrator.py run --full`),
-with one scheduled GPU worker per Chrome invocation. Details and ledger fields:
-`scripts/dev/README.md`, "Landing", "Landing and integration" and "Host slots".
+Delivery flow (Jonni, 2026-10-28): agents commit often and use the one active-agent
+register (`codex-task agents`) to see branch names. Finish sends a high-level shared-change
+heads-up when needed, rebases, runs agent-selected affected tests under a hard 30-second
+wall deadline and merges into main. It immediately packages/uploads the game to Pages,
+without a deploy lock, queue, verified-only release, integration batch or rollback path.
+Five-second curl smoke follows; one agent-owned selective async test run has a hard
+ten-minute budget and permits at most one forward fix. See AGENTS.md and scripts/dev/README.md.
+The world is generated on demand by the latest coarse generator; Pages contains only the
+game. AI facade descriptions, facade-kit results and the texture library remain available
+to the generated world. Full-tile build stages and data integration batches are retired.
 
 ---
 

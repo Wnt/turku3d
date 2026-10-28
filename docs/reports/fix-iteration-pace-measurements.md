@@ -1,6 +1,7 @@
 # Delivery and quick-suite measurements (2026-10-28)
 
-All structural changes remain unlanded under the orchestrator hold while Jonni defines the target flow.
+At this measurement snapshot, structural changes were held while Jonni defined the target flow.
+The hold was later lifted; the current direct delivery flow is documented in AGENTS.md.
 This report reads existing ledgers and task logs. It does not deploy or mutate shared work.
 
 Reproduce: `python3 scripts/dev/iteration_metrics.py --days 3`.

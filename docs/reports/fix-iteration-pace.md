@@ -1,5 +1,10 @@
 # Iteration pace (2026-10-28)
 
+The early slices below record the initial investigation. Jonni subsequently chose direct
+agent merge/deploy, with 30-second selected checks, five-second curl smoke and a
+selective ten-minute async run. That flow supersedes integration reservations and
+full-tile iteration; see [AGENTS.md](../../AGENTS.md).
+
 Read-only baseline: `python3 scripts/dev/iteration_metrics.py --days 3`.
 The captured [baseline](fix-iteration-pace-before.json) includes delivery latency,
 every inventoried Chrome spec, deep stage, advisory and observed slot wait.

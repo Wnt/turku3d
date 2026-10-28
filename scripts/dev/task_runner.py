@@ -203,6 +203,9 @@ def launch(
         meta.update(pid=proc.pid, identity=identity(proc.pid), state="running")
         (path / "pid").write_text(str(proc.pid) + "\n")
         s.write_json(path / "meta.json", meta)
+    import active_agents
+
+    active_agents.refresh()
     print(f"{name}: running pid={proc.pid}; logs: {path}")
 
 
@@ -325,19 +328,22 @@ def worker(name):
             meta.setdefault("first_finished", meta["finished"])
         meta["last_commit"] = s.git("log", "-1", "--format=%h %s", cwd=meta["repo"])
         s.write_json(path / "meta.json", meta)
+    import active_agents
+
+    active_agents.refresh()
     if meta["state"] == "done" and landing.result_done(path):
         land_at_turn_end(name, path)
 
 
-# Covers the wait for land.lock behind other landings; the lander's own budget is 180 s.
-LAND_TIMEOUT_SECONDS = 600
+# Compatibility runner envelope covers package/upload; selected checks have their own hard deadlines.
+LAND_TIMEOUT_SECONDS = 1800
 
 
 def land_at_turn_end(name, path):
-    """Land a DONE turn through main's current lander (`codex-task land`), log in land.log.
+    """Compatibility call for DONE turns; explicit finish uses the same direct delivery.
 
-    The runner leaves the sandbox first so the landing can remove it. A conflict or a red
-    gate leaves the task done and unlanded; the orchestrator resumes it to fix that.
+    The recorded selection must cover the current change. Conflicts or failed selected
+    checks leave main unchanged; upload/async failures are forward only.
     """
     os.chdir(path)
     result = s.run_group(
@@ -570,6 +576,30 @@ def main():
             "--keep-sandbox", action="store_true", help="keep the sandbox for a next slice"
         )
         p.add_argument("--note", help="one free-text line for the other agents' landed message")
+    p = subs.add_parser("agents", help="refresh the one active-agent/branch register")
+    p.add_argument("--json", action="store_true")
+    p = subs.add_parser("checks", help="recent agent-owned selective async runs")
+    p.add_argument("--last", type=int, default=10)
+    for command in ("finish", "land"):
+        p = subs.choices[command]
+        p.add_argument(
+            "--test",
+            action="append",
+            dest="tests",
+            help="affected command; all selections share 30s",
+        )
+        p.add_argument(
+            "--async-test",
+            action="append",
+            dest="async_tests",
+            help="selective bigger command; total wall limit 10min",
+        )
+        p.add_argument("--no-tests-reason", help="why this change has no affected quick tests")
+        p.add_argument(
+            "--heads-up", help="short high-level shared-interface heads-up before rebase"
+        )
+        p.add_argument("--async-reason", help="selection rationale after checking recent runs")
+        p.add_argument("--fix-for", help="failed async job receiving its one forward fix")
     a = ap.parse_args()
     if coord.dispatch(a):
         return
@@ -590,7 +620,18 @@ def main():
     elif a.cmd == "adopt":
         external_worker.adopt(a.name, a.brief)
     elif a.cmd == "finish":
-        external_worker.finish(a.name, a.result, a.keep_sandbox, a.note)
+        external_worker.finish(
+            a.name,
+            a.result,
+            a.keep_sandbox,
+            a.note,
+            tests=a.tests,
+            async_tests=a.async_tests,
+            no_tests_reason=a.no_tests_reason,
+            heads_up=a.heads_up,
+            async_reason=a.async_reason,
+            fix_for=a.fix_for,
+        )
     elif a.cmd == "wait-cmd":
         # A cancelled tool call must still tear down the command's process group.
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
@@ -599,7 +640,35 @@ def main():
         status(a.name)
     elif a.cmd == "stop":
         stop(a.name)
+    elif a.cmd == "agents":
+        import active_agents
+
+        rows = active_agents.refresh()
+        print(
+            json.dumps(rows, indent=2)
+            if a.json
+            else "\n".join(f"{row['name']}  {row['branch']}  {row['state']}" for row in rows)
+        )
+    elif a.cmd == "checks":
+        import post_deploy
+
+        latest = {row["job"]: row for row in post_deploy.history()}
+        for row in sorted(latest.values(), key=lambda r: r["time"])[-a.last :]:
+            print(json.dumps(row))
     elif a.cmd == "land":
+        if a.tests is not None or a.no_tests_reason:
+            import delivery
+
+            delivery.plan(
+                task(a.name),
+                s.sandbox(a.name) / "repo",
+                tests=a.tests,
+                async_tests=a.async_tests,
+                no_tests_reason=a.no_tests_reason,
+                heads_up=a.heads_up,
+                async_reason=a.async_reason,
+                fix_for=a.fix_for,
+            )
         landing.land(a.name, a.keep_sandbox, a.note)
     elif a.cmd == "_worker":
         worker(a.name)

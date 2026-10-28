@@ -55,7 +55,8 @@ def integration_jobs(kind="build", lane="integration"):
 
 def lane(entry):
     """The slot class of an entry: its integration lane, else its kind."""
-    return entry.get("purpose", entry.get("lane", entry["kind"]))
+    kind = entry.get("purpose", entry.get("lane", entry["kind"]))
+    return kind if kind in COST else "build"
 
 
 def fits(entries, kind):

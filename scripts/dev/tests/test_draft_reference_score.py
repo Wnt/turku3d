@@ -8,12 +8,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import draft_reference_score as score  # noqa: E402
-import integration_reference as reference  # noqa: E402
 
 SERIAL = True
 
@@ -177,71 +175,3 @@ class ScoreTests(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
             self.assertEqual([row["tile"] for row in report["rows"]], ["a"])
             self.assertIn("neighbor |", (directory / "table.md").read_text())
-
-
-class PrivateAdvisoryTests(unittest.TestCase):
-    def test_noncoarse_and_absent_private_install_do_not_spawn(self):
-        run = SimpleNamespace(id="batch", main_repo=Path("/synthetic"))
-        with (
-            tempfile.TemporaryDirectory() as temp,
-            patch.object(reference.score, "private_tool", return_value=None),
-            patch.object(reference.subprocess, "Popen") as spawn,
-        ):
-            reference.queue(run, {"from": "a", "to": "b"}, Path(temp), {})
-            spawn.assert_not_called()
-            self.assertEqual(list(Path(temp).iterdir()), [])
-        with patch.object(reference.s, "git", return_value=""):
-            self.assertFalse(reference.changed(Path("/synthetic"), "a", "b"))
-
-    def test_queue_has_only_private_inbox_recipients_and_atomic_requests(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            directory = root / "local"
-            directory.mkdir()
-            request = {"batch": "abc.1", "recipients": ["author", "orchestrator"]}
-            reference.enqueue(request, directory, {"synthetic": 1}, root / "queue")
-            jobs = list((root / "queue/pending").glob("*.json"))
-            self.assertEqual(len(jobs), len(score.TILES))
-            self.assertEqual(len(list((root / "queue/pending").iterdir())), len(jobs))
-            for path in jobs:
-                job = json.loads(path.read_text())
-                self.assertEqual(job["command"], "diff")
-                self.assertEqual(job["notify_recipients"], ["author", "orchestrator"])
-                self.assertNotIn("all", job["notify_recipients"])
-                self.assertTrue(Path(job["before"]).is_absolute())
-
-    def test_enqueue_hook_never_changes_public_row_or_uses_inherited_slot(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            run = SimpleNamespace(id="abc.1", main_repo=root)
-            row = {"from": "aaa", "to": "bbb", "advisory": []}
-
-            def snapshot(version, destination, repo):
-                destination.mkdir()
-
-            with (
-                patch.object(reference.score, "private_tool", return_value="fake"),
-                patch.object(reference, "changed", return_value=True),
-                patch.object(reference.score, "snapshot", side_effect=snapshot),
-                patch.object(reference.advisory, "recipients", return_value=["author"]),
-                patch.object(reference.subprocess, "Popen") as spawn,
-            ):
-                reference.queue(run, row, root, {"TURKU3D_INTEGRATION_OWNER": "old"})
-                self.assertEqual(row, {"from": "aaa", "to": "bbb", "advisory": []})
-                self.assertNotIn("TURKU3D_INTEGRATION_OWNER", spawn.call_args.kwargs["env"])
-                self.assertTrue(spawn.call_args.kwargs["start_new_session"])
-                reference.queue(run, row, root, {})
-                self.assertEqual(spawn.call_count, 1)
-                request = json.loads(
-                    (root / "reports/draft-reference-advisory/abc.1/request.json").read_text()
-                )
-                self.assertEqual(request["recipients"], ["author", "orchestrator"])
-
-    def test_private_warning_never_uses_public_send_or_board(self):
-        with (
-            patch.object(reference.coord, "post") as post,
-            patch.object(reference.coord, "send") as send,
-        ):
-            reference.private_notice(["orchestrator"], "synthetic", "private")
-            send.assert_not_called()
-            self.assertEqual(post.call_args.args[1:3], ("orchestrator", "warning"))

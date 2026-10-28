@@ -16,31 +16,13 @@ import { CoarseService } from './coarse.mjs';
 import { LocalhostGame } from './service.mjs';
 
 // a <- b <- c <- d (linear history)
-const order = ['a', 'b', 'c', 'd'];
-const isAncestor = (x, y) => order.indexOf(x) <= order.indexOf(y);
 
-test('verdict: live, green, tests red, skipped, red with and without the culprit, data-red, running', () => {
-  assert.equal(verdict({ head: 'b', live: 'c', rows: [], running: null, isAncestor }).state, 'verified');
-  assert.equal(verdict({ head: 'c', live: 'a', rows: [], running: null, isAncestor }).state, 'unverified');
-  assert.deepEqual(verdict({ head: 'c', live: 'a', rows: [], running: { to: 'd', stage: 'chrome' }, isAncestor }),
-    { state: 'unverified', detail: 'verifying: chrome' });
-  const green = { id: 'd.1', from: 'a', to: 'd', result: 'green' };
-  assert.equal(verdict({ head: 'c', live: 'a', rows: [green], running: null, isAncestor }).state, 'verified');
-  assert.equal(verdict({ head: 'c', live: 'a', rows: [{ ...green, result: 'skipped' }], running: null, isAncestor }).detail, 'no live change');
-  const red = { id: 'd.1', from: 'a', to: 'd', result: 'red', culprit: 'c', culprit_task: 'stairs', failure: { stage: 'chrome' } };
-  assert.deepEqual(verdict({ head: 'd', live: 'a', rows: [red], running: null, isAncestor }),
-    { state: 'failed', stage: 'chrome', detail: 'culprit c (stairs)' });
-  assert.equal(verdict({ head: 'b', live: 'a', rows: [red], running: null, isAncestor }).state, 'unverified');
-  const dataRed = { from: 'a', to: 'd', result: 'data-red', failure: { stage: 'tile-build' }, data_cause: 'data-root' };
-  assert.equal(verdict({ head: 'd', live: 'a', rows: [dataRed], running: null, isAncestor }).stage, 'tile-build (data root)');
-  // The newest row covering head decides: a red batch later rebuilt green.
-  assert.equal(verdict({ head: 'd', live: 'a', rows: [red, green], running: null, isAncestor }).state, 'verified');
-  // Published with failing advisory checks: tests red, also once the commit is live.
-  const advisory = { ...green, advisory: [{ stage: 'chrome', specs: ['webgpu:a.spec.ts'] }, { stage: 'chrome' }, { stage: 'facade-ground-audit' }] };
-  for (const live of ['a', 'd']) {
-    assert.deepEqual(verdict({ head: 'c', live, rows: [advisory], running: null, isAncestor }),
-      { state: 'tests-red', stage: 'chrome, facade-ground-audit', detail: 'integration d.1' });
-  }
+test('verdict: publication is independent of exact-commit async evidence', () => {
+  assert.equal(verdict({ head: 'b', rows: [] }).state, 'unverified');
+  assert.equal(verdict({ head: 'b', rows: [{commit: 'a', state: 'passed'}] }).state, 'unverified');
+  assert.equal(verdict({ head: 'b', rows: [{commit: 'b', state: 'running'}] }).state, 'unverified');
+  assert.equal(verdict({ head: 'b', rows: [{commit: 'b', state: 'passed'}] }).state, 'verified');
+  assert.equal(verdict({ head: 'b', rows: [{commit: 'b', state: 'passed'}, {commit: 'b', state: 'failed', job: 'one'}] }).state, 'tests-red');
 });
 
 test('affected tiles: the union of the landings\' tiles, or every listed tile when one is unknown', () => {
@@ -137,8 +119,8 @@ test('the service follows the branch: checkout, ledger time, verdict in state.js
   service.current = first;
   const second = commit('b.txt', 'two');
   fs.writeFileSync(path.join(registry, 'landed.jsonl'), JSON.stringify({ name: 'b', commit: second, time: 123 }) + '\n');
-  fs.writeFileSync(path.join(registry, 'integrations.jsonl'),
-    JSON.stringify({ id: 'x.1', from: first, to: second, result: 'red', culprit: second, failure: { stage: 'chrome' } }) + '\n');
+  fs.writeFileSync(path.join(registry, 'checks.jsonl'),
+    JSON.stringify({ commit: second, state: 'failed', job: 'one' }) + '\n');
   await service.tick();
   await service.selecting;
   await service.writing;
@@ -146,7 +128,7 @@ test('the service follows the branch: checkout, ledger time, verdict in state.js
   assert.ok(fs.existsSync(path.join(worktree, 'b.txt')));
   const state = JSON.parse(fs.readFileSync(path.join(service.o.stateDir, 'state.json'), 'utf8'));
   assert.equal(state.commit, second);
-  assert.deepEqual(state.verification, { state: 'failed', stage: 'chrome', detail: `culprit ${second.slice(0, 7)}` });
+  assert.deepEqual(state.verification, { state: 'tests-red', stage: 'post-deploy', detail: 'one' });
   const checkout = fs.readFileSync(service.events, 'utf8').split('\n').filter(Boolean).map(JSON.parse).find(r => r.type === 'checkout');
   assert.deepEqual([checkout.commit, checkout.landed, checkout.task], [second, 123, 'b']);
   service.stop();

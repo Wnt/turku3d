@@ -148,7 +148,7 @@ class CacheTests(unittest.TestCase):
             index = output / "index.html"
             index.write_text("good")
             first = game_build.outputs(work, False)
-            self.assertIsNone(game_build.outputs(work, True))
+            self.assertEqual(first, game_build.outputs(work, True))
             index.write_text("bad")
             self.assertNotEqual(first, game_build.outputs(work, False))
             index.write_text("good")

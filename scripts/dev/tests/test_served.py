@@ -7,10 +7,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import pages  # noqa: E402
 import served  # noqa: E402
 import tile_store  # noqa: E402
 
@@ -94,45 +92,6 @@ class ServedTests(unittest.TestCase):
         record = {"commit": "c", "verified_commit": "v", "tiles_from": {"commit": "b"}}
         self.assertEqual(served.builder(record), "b")
         self.assertEqual(served.builder({"commit": "c", "verified_commit": "v"}), "v")
-
-    def test_compose_writes_a_publishable_release_of_the_game_and_served_tiles(self):
-        head = self.commit("game/main.ts", "x\n")
-        game = self.data.parent / "game"
-        game.mkdir()
-        (game / "index.html").write_text("<html>")
-        shipped = served.tiles(self.repo, head, self.data)
-        release = served.compose(
-            self.data.parent / "release", game, shipped, self.data, self.repo, head
-        )
-        record = json.loads((release / "live-build.json").read_text())
-        self.assertEqual((record["commit"], record["tiles"]), (head, CORE))
-        self.assertEqual(record["tiles_from"]["release"], self.base)
-        self.assertEqual((release / "game/index.html").read_text(), "<html>")
-        self.assertTrue((release / "tiles/manifest.json").is_file())
-        self.assertTrue((release / "layers").is_dir())
-        self.assertEqual(
-            json.loads((release / "textures/assembly/MANIFEST.json").read_text())["bound"], ["b_1"]
-        )
-        with patch.object(pages, "generated", return_value=True):
-            (release / "textures/assembly/facades/b").mkdir(parents=True)
-            (release / "textures/assembly/facades/b/1.json").write_text("{}")
-            self.assertEqual(pages.check_facades(release), 1)
-
-    def test_publish_pages_defaults_to_the_served_release(self):
-        with (
-            patch.object(served, "release", return_value=Path("/composed")) as compose,
-            patch.object(pages, "publish", return_value={"url": "u"}) as publish,
-            patch("builtins.print"),
-        ):
-            pages.main(["--published", str(self.data), "--main-repo", str(self.repo)])
-            pages.main(["--published", str(self.data), "--release", "/chosen"])
-        compose.assert_called_once_with(self.data.resolve(), self.repo)
-        self.assertEqual(
-            [call.args[1] for call in publish.call_args_list], [Path("/composed"), Path("/chosen")]
-        )
-
-    def test_live_is_published_as_it_is_when_it_already_is_mains_game(self):
-        self.assertEqual(served.release(self.data, self.repo), (self.data / "live").resolve())
 
 
 if __name__ == "__main__":

@@ -124,8 +124,7 @@ def refusal(account):
     return (
         f"browser budget spent ({account['used_minutes']:.1f} of {account['budget_minutes']:g} "
         "browser-minutes): no further Chrome runs for this task. Finish with what you have and "
-        "state it in the result; the integrator's selected run and the scheduled full suite "
-        "verify the rest."
+        "state it in the result and select relevant checks for the bounded agent-owned async run."
     )
 
 

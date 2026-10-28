@@ -13,7 +13,7 @@ import sandbox as s
 def outputs(work, public):
     """Hash every output byte; missing, corrupted and extra files invalidate the stamp."""
     result = {}
-    for name in ("game", "check-game") if public else ("game",):
+    for name in ("game",):
         root = work / "build" / name
         if not (root / "index.html").is_file():
             return None
@@ -25,7 +25,7 @@ def outputs(work, public):
     return result
 
 
-def build(repo, work, env):
+def build(repo, work, env, reservation=None):
     for name in ("game", "check-game"):
         if not (work / "build" / name).resolve().is_relative_to(work.resolve()):
             raise ValueError("game build output must stay inside the sandbox")
@@ -41,7 +41,7 @@ def build(repo, work, env):
             print("game-build: cached PASS (input and output hashes match)", flush=True)
             return
         stamp.unlink(missing_ok=True)
-        with host_slots.slot("check") as inherited:
+        with reservation() if reservation else host_slots.slot("check") as inherited:
             jobs = host_slots.integration_jobs(lane=inherited) if inherited else 1
             subprocess.run(
                 ["node", "scripts/build.mjs"],
