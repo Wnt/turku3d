@@ -113,6 +113,7 @@ class Evidence:
         wall = np.isin(labels, [0, 1, 25])
         facade = wall | np.isin(labels, [8, 14])
         excluded = np.isin(labels, [2, 4, 6, 9, 11, 12, 17, 20, 21, 80, 83, 90, 102, 116, 127])
+        foreground = np.isin(labels, [4, 12, 17, 20, 80, 83, 90, 102, 116, 127])
         # Semantic classes cannot prove that a building is the intended building. Explicit
         # reference audits, when supplied, override these conservative pixel checks.
         return dict(
@@ -120,6 +121,7 @@ class Evidence:
             wall_share=float(wall.mean()),
             interior_share=float(np.isin(labels, [3, 5]).mean()),
             occlusion_share=float(excluded.mean()),
+            foreground_share=float(foreground.mean()),
             multiple_surfaces=surface_discontinuity(rgb, wall),
         )
 

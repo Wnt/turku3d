@@ -9,7 +9,7 @@ import numpy as np
 _LOCK = Lock()
 _MODEL = None
 _DETECTOR = None
-VERSION = "ade20k-dino-foreground-openings-v3"
+VERSION = "ade20k-dino-explicit-foreground-v4"
 
 
 def box_coverage(shape: tuple, boxes: list) -> float:
@@ -100,15 +100,17 @@ def measure(rgb: np.ndarray) -> dict:
                 )
             ],
         )
+        foreground = evidence.get("foreground_share", evidence["occlusion_share"])
         return dict(
             evidence,
             state="measured",
             version=VERSION,
-            semantic_occlusion_share=evidence["occlusion_share"],
+            semantic_occlusion_share=foreground,
+            off_wall_share=evidence["occlusion_share"],
             detector_box_share=detected,
             detections=detections,
             clipped_opening=clipped_opening(rgb.shape, detections),
-            occlusion_share=max(evidence["occlusion_share"], detected),
+            occlusion_share=max(foreground, detected),
         )
 
 
@@ -119,8 +121,8 @@ def problem(evidence: dict) -> str | None:
         return "interior floor/ceiling in an exterior wall reference"
     if evidence["occlusion_share"] > 0.2:
         return f"foreground/off-wall coverage proxy {evidence['occlusion_share']:.0%} > 20%"
-    if evidence["facade_share"] < 0.65:
-        return f"facade support {evidence['facade_share']:.0%} < 65%"
+    if evidence["facade_share"] < 0.55:
+        return f"facade support {evidence['facade_share']:.0%} < 55%"
     if evidence.get("multiple_surfaces"):
         return "multiple facade surfaces"
     if evidence.get("clipped_opening"):
