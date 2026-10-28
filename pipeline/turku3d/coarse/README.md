@@ -335,6 +335,21 @@ producer time. `roads.json.edgeHeights` follows the shared deck for parallel car
 sidewalks while leaving transverse lower ways at their own elevations. The existing 8 MB visual
 budget remains unchanged.
 
+When the full lidar cannot supply a profile, optional cached `kanta:Korkeuspiste` N2000 heights
+can anchor the deck interior. Points must postdate the construction year when mapped,
+lie away from edges/ends and mapped lower routes, and have position uncertainty at
+most 20 cm. Conflicting heights at one station and profiles steeper than 15% are rejected.
+Points within 50 cm of the raw terrain/water height are excluded: map positions alone do not
+distinguish water below a bridge from its deck.
+Ground approaches stay fixed. These sparse anchors do not certify the whole deck; the audit
+reports their stations and source separately from held-out lidar errors. The small spot-height
+files also participate in the initial structural pass and both prepared/served cache identities.
+Nearby source areas are read together so adjacent tiles use the same bridge anchors.
+Generation never fetches them; the WFS prefetcher attempts this optional layer after required
+layers, including enrichment of cached blocks whose structural inputs are already ready.
+Missing spot heights do not block a build. The input owner can also populate a tile's source with
+`bash pipeline/env/run.sh python -m turku3d.fetch wfs --area tile-t0_3_-5 --layers kanta:Korkeuspiste`.
+
 
 Area vegetation (`forests.py`) uses OSM forest/wood, scrub/heath, parks/gardens and tree rows,
 with seeded Poisson-disc fallback (5 m trunk spacing; 180/ha woodland, 40/ha park).

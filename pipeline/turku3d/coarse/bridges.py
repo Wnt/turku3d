@@ -165,7 +165,7 @@ def passes_under(bridge, way):
     return False
 
 
-def prepare(tile, osm, survey_paths=()):
+def prepare(tile, osm, survey_paths=(), spot_paths=()):
     """Resolve physical crossings with full source ways before selecting this tile."""
     import pyarrow.parquet as pq
 
@@ -212,6 +212,9 @@ def prepare(tile, osm, survey_paths=()):
                 width=way_width(tags),
             )
         )
+    from .bridge_survey import height_anchors, spot_heights
+
+    spots = spot_heights(spot_paths)
     bridges = merge_crossings([w for w in ways if w["bridge"]], list(outlines.values()))
     obstacle = shapely.union_all(obstacles)
     pier = shapely.union_all(piers)
@@ -234,6 +237,8 @@ def prepare(tile, osm, survey_paths=()):
             .covers(shapely.Point(p))
         ]
         b["survey"] = survey(b, survey_paths)
+        if "heights" not in b["survey"]:
+            b["survey"]["height_anchors"] = height_anchors(b, spots)
         result.append(b)
     return result
 
@@ -419,6 +424,13 @@ def produce(tile, grid_pos, inputs):
         axis, width = way["line"], way["width"]
         spec = details.style(way)
         s, xz = samples(axis)
+        survey = way.get("survey", {})
+        anchors = survey.get("height_anchors", [])
+        if anchors:
+            from .bridge_survey import above_ground_anchors
+
+            anchors = above_ground_anchors(axis, anchors, full_ground)
+            survey["height_anchors"] = anchors
         delta = np.diff(xz, axis=0)
         normals = np.c_[-delta[:, 1], delta[:, 0]] / np.linalg.norm(delta, axis=1)[:, None]
         normals = np.vstack([normals, normals[-1]])
@@ -476,13 +488,26 @@ def produce(tile, grid_pos, inputs):
             if landing
             else deck_profile(s, terrain, ends, requirements, spec["thickness"])
         )
-        survey = way.get("survey", {})
         if "heights" in survey:
             heights = np.interp(s, survey["stations"], survey["heights"])
+        elif anchors:
+            from .bridge_survey import anchored_profile
+
+            measured_s = np.unique(np.r_[s, [a[0] for a in anchors]])
+            measured = anchored_profile(measured_s, np.interp(measured_s, s, heights), anchors)
+            if measured is not None:
+                s, heights = measured_s, measured
+                survey["profile_source"] = "city spot-height anchors with ground approaches"
+            else:
+                anchors = []
+        # Preserve measured crown stations in the slab's piecewise-linear surface.
         # A small blend joins the mapped span; a clearance error must never create a viaduct.
         ramp = min(3.0, axis.length * 0.1) if not landing else 0.0
         line = extended(axis, ramp) if ramp else axis
         ss, xx = samples(line, 2)
+        if anchors:
+            ss = np.unique(np.r_[ss, ramp + s])
+            xx = np.asarray([line.interpolate(float(t)).coords[0] for t in ss])
         hh = np.interp(
             ss,
             np.r_[0, ramp + s, line.length],

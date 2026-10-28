@@ -263,6 +263,40 @@ def test_slab_ignores_line_remainders_from_outline_clipping():
     assert top.positions[:, 0].min() == 0
 
 
+def test_spot_anchors_exclude_old_points_lower_routes_and_parapets():
+    from turku3d.coarse.bridge_survey import height_anchors
+
+    deck = way("new", [(0, 0), (100, 0)], width=8)
+    deck["tags"]["construction_year"] = "2024"
+    deck["under"] = [way("lower", [(30, -20), (30, 20)], layer=0, bridge=False)]
+    points = [
+        (shapely.Point(50, 0), 9, 2025),
+        (shapely.Point(60, 0), 8, 2021),
+        (shapely.Point(30, 0), 3, 2025),
+        (shapely.Point(70, 3.8), 10, 2025),
+        (shapely.Point(5, 0), 7, 2025),
+    ]
+    assert height_anchors(deck, points) == [(50, 9)]
+    assert height_anchors(deck, [*points, (shapely.Point(50, 0), 12, 2025)]) == []
+
+
+def test_spot_profile_preserves_approaches_and_rejects_impossible_grades():
+    from turku3d.coarse.bridge_survey import anchored_profile
+
+    stations = np.array([0, 25, 50, 75, 100])
+    profile = anchored_profile(stations, np.array([8, 8, 8, 8, 8]), [(50, 9)])
+    assert np.allclose(profile, [8, 8.5, 9, 8.5, 8])
+    assert anchored_profile(stations, np.full(5, 8), [(50, 30)]) is None
+    assert anchored_profile(stations, np.full(5, 8), []) is None
+
+
+def test_height_points_on_water_below_a_bridge_are_not_deck_anchors():
+    from turku3d.coarse.bridge_survey import above_ground_anchors
+
+    axis = shapely.LineString([(0, 0), (100, 0)])
+    assert above_ground_anchors(axis, [(30, 0.19), (60, 9.1)], lambda x, z: 0.2) == [(60, 9.1)]
+
+
 def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
     from turku3d.coarse.bridge_details import surfaces
 

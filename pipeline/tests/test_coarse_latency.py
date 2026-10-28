@@ -197,7 +197,9 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     )
     paths = {d: [source] for d in datasets}
     paths["wfs"] = [source, None, None, source]  # optional roof survey must wait
-    paths["roads"] = [source, source]  # optional bridge survey must wait
+    spot = tmp_path / "spot.parquet"
+    spot.touch()
+    paths["roads"] = [source, source, spot]  # heavy lidar waits; small height anchors do not
     monkeypatch.setattr(inputs, "_sources", lambda *_: paths)
     building = inputs.Building("solid", shapely.box(0, 0, 10, 10), 0, 10, "facade_plaster")
     called = []
@@ -210,7 +212,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             assert len(sources) == 3
             return {"buildings": [building], "streets": [], "water": []}
         if dataset == "roads":
-            assert len(sources) == 1
+            assert sources == [source, spot]
             return {"bridge_ways": [{"id": "crossing"}]}
         if dataset == "tunnels":
             return [{"id": "passage"}]

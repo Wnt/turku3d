@@ -287,7 +287,7 @@ def prepare_wfs(
 # -- roads ----------------------------------------------------------------------------------------
 
 
-def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=()) -> dict:
+def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=()) -> dict:
     """``roads.json`` bytes of the tile's street graph with its node and edge counts."""
     from turku3d.roads import build_graph, encode, osm_ways
 
@@ -300,7 +300,7 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=()) -> dict:
         "json": encode(graph),
         "nodes": len(graph["nodes"]) // 2,
         "edges": len(graph["edges"]),
-        "bridge_ways": prepare_bridges(tile, osm, survey_paths),
+        "bridge_ways": prepare_bridges(tile, osm, survey_paths, spot_paths),
     }
 
 
@@ -392,7 +392,13 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs)
         else None,
-        "roads": [osm, *bridge_survey.source_paths(tile)] if osm else None,
+        "roads": [
+            osm,
+            *bridge_survey.source_paths(tile),
+            *bridge_survey.spot_sources(tile, sources),
+        ]
+        if osm
+        else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
@@ -449,7 +455,12 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
     if dataset == "ortho":
         return read_ortho(paths[0], tile)
     if dataset == "roads":
-        return prepare_roads(tile, paths[0], paths[1:])
+        return prepare_roads(
+            tile,
+            paths[0],
+            [p for p in paths[1:] if p.suffix == ".laz"],
+            [p for p in paths[1:] if p.suffix == ".parquet"],
+        )
     if dataset == "barriers":
         from .fences import prepare as prepare_barriers
 
@@ -552,7 +563,11 @@ def gather(
             continue
         full_paths = paths
         if first_pass and paths and dataset in ("wfs", "roads"):
-            paths = paths[:3] if dataset == "wfs" else paths[:1]
+            paths = (
+                paths[:3]
+                if dataset == "wfs"
+                else [paths[0], *[p for p in paths[1:] if p.suffix == ".parquet"]]
+            )
         if paths is None:  # only the optional roads and trees: no OSM clip yet
             values[dataset] = None
             continue

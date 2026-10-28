@@ -96,6 +96,9 @@ def put_wfs(block: C.LazTile):
         slug = name.replace(":", "_")
         (adir / f"{slug}.parquet").write_bytes(b"pq" * 40)
         (adir / f"{slug}.summary.json").write_text(json.dumps({"status": "ok", "bbox_en": bbox}))
+    (adir / "kanta_Korkeuspiste.summary.json").write_text(
+        json.dumps({"status": "empty", "bbox_en": bbox})
+    )
 
 
 def put_osm(block: C.LazTile):
@@ -175,6 +178,23 @@ def test_sources_list_missing_units_and_see_them_land(raw):
     assert sources.wfs_source("bldg:Building_LOD2", tile)[1].name == "bldg_Building_LOD2.parquet"
     with pytest.raises(NoCoverage):
         sources.missing(C.VisualTile(0, 40, 40))  # outside the lidar index
+
+
+def test_optional_bridge_spots_are_prefetched_without_blocking_structural_builds(raw):
+    tile = C.VisualTile(0, 0, 0)
+    put_lidar(BLOCK)
+    put_ortho(BLOCK)
+    put_wfs(BLOCK)
+    summary = C.raw_dir("wfs") / f"coarse-{BLOCK.name}" / "kanta_Korkeuspiste.summary.json"
+    saved = summary.read_bytes()
+    summary.unlink()
+    sources = Sources()
+    sources._listed = {BLOCK.name}
+    assert sources.missing(tile) == []
+    assert not sources.unit_present(Unit("wfs", BLOCK))
+    summary.write_bytes(saved)
+    sources.invalidate()
+    assert sources.unit_present(Unit("wfs", BLOCK))
 
 
 def test_ortho_without_imagery_is_present_but_no_coverage(raw):
