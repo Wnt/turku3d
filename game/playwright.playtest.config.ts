@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
-import { isolateBrowser } from '../tools/dev/environment.mjs';
+import { isolateBrowser, jobs } from '../tools/dev/environment.mjs';
 import { settings } from '../tools/dev/play.mjs';
 
 const s = settings();
@@ -13,9 +13,9 @@ const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 export default defineConfig({
   testDir: 'tests',
   testMatch: ['e2e-playtest/**/*.spec.ts', 'e2e/gamepad.spec.ts', 'e2e/start.spec.ts', 'e2e/audio.spec.ts'],
-  // Each backend gets its own worker; serial routes within it avoid two large AOI scenes competing for one GPU.
+  // Keep routes serial within each backend and respect the host slot worker budget.
   fullyParallel: false,
-  workers: 2,
+  workers: Math.min(2, jobs),
   retries: 0,
   timeout: 120_000,
   expect: { timeout: 8_000 },

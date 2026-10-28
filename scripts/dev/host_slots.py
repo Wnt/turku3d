@@ -24,22 +24,22 @@ INTEGRATIONS = ("integration", "integration-data")
 
 # Host budget in CPU job units and browser (GPU) workers. One integration reserves a
 # fixed share; build and browser admissions continue within what remains.
-BUDGET = {"jobs": 10, "gpu": 6}
+BUDGET = {"jobs": 10, "gpu": 3}
 COST = {
     "build": {"jobs": 2},
     "browser": {"gpu": 1},
-    # Chrome suites share one GPU. On the M1 Max the 20-test real-tile suite passed in
-    # 1.9 min with four workers; ten workers timed out on 9 tests.
-    "integration": {"jobs": 6, "gpu": 4},
+    # Leave GPU headroom for the desktop: at most two integration workers plus
+    # one already-running agent browser. Prefer longer suites to concurrent renderers.
+    "integration": {"jobs": 6, "gpu": 2},
     "integration-data": {"jobs": 4},
 }
-# Above this 1-minute load average the integrator's Chrome stage halves its workers:
+# At or above this 1-minute load average the integrator's Chrome stage halves its workers:
 # the same 32 tests took 251 s at load 50 and 1086 s at load 150-250 with four.
 BROWSER_LOAD = 60
 
 
 def browser_workers(load=None):
-    """Chrome workers of the integrator: 4 under BROWSER_LOAD, else 2."""
+    """Chrome workers of the integrator: 2 under BROWSER_LOAD, else 1."""
     load = os.getloadavg()[0] if load is None else load
     return COST["integration"]["gpu"] if load < BROWSER_LOAD else COST["integration"]["gpu"] // 2
 

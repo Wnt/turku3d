@@ -164,8 +164,24 @@ class HostSlotsTest(unittest.TestCase):
         return result.stdout.strip()
 
     def test_integrator_chrome_workers_follow_the_load(self):
-        self.assertEqual((host_slots.browser_workers(59.9), host_slots.browser_workers(60)), (4, 2))
+        self.assertEqual((host_slots.browser_workers(59.9), host_slots.browser_workers(60)), (2, 1))
         self.assertEqual(host_slots.integration_jobs(lane="integration-data"), 4)
+
+    def test_gpu_reservations_and_chrome_queue_policy(self):
+        code = {"kind": "integration", "state": "running", "since": 0}
+        data = {**code, "lane": "integration-data"}
+        browser = {"kind": "browser", "state": "waiting", "since": 1}
+        self.assertEqual(host_slots.BUDGET["gpu"], 3)
+        self.assertEqual(host_slots.COST["integration"]["gpu"], 2)
+        # Spare GPU capacity is usable outside Chrome, even with both CPU lanes held.
+        self.assertTrue(host_slots.admissible([code, data], browser))
+        self.assertTrue(host_slots.fits([{**browser, "state": "running"}], "integration"))
+        # The phase rule queues Chrome even though the GPU resource budget still fits.
+        chrome = {**code, "phase": "chrome"}
+        self.assertTrue(host_slots.fits([chrome], "browser"))
+        self.assertFalse(host_slots.admissible([chrome], browser))
+        # The data lane neither reserves GPU capacity nor blocks agent Chrome.
+        self.assertTrue(host_slots.admissible([{**data, "phase": "chrome"}], browser))
 
     def test_agents_chrome_queues_while_the_integrator_runs_chrome(self):
         # The integration child marks its Chrome phase for 1.5 s, then works without it.
