@@ -96,3 +96,19 @@ describe('draft tiles join the map', () => {
     expect(r.distance(path)).toBeCloseTo(600, 0);
   });
 });
+
+
+test('seam endpoints join across rounding bins without joining separate nearby streets', () => {
+  const part = (nodes: number[], edges: number[][]): RoadGraphJson => ({
+    format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [0, 0, 500, 500], nodes, edges,
+  });
+  const graph = mergeRoadGraphs([
+    part([100, 50, 250, 50.049], [[0, 1, STREET, 150]]),
+    part([250, 50.051, 400, 50, 250, 50.4, 400, 50.4], [[0, 1, STREET, 150], [2, 3, STREET, 150]]),
+  ]);
+  expect(graph.nodes.length / 2).toBe(5);
+  const router = new StreetRouter(graph);
+  const route = router.route({ x: 100, z: 50 }, { x: 400, z: 50 });
+  expect(route).not.toBeNull();
+  expect(router.distance(route!)).toBeCloseTo(300, 1);
+});
