@@ -1,0 +1,656 @@
+{
+  "window_days": 3,
+  "integrations": 143,
+  "landings": 238,
+  "landing_to_pages": {
+    "n": 20,
+    "median_s": 118.59,
+    "max_s": 1006.273
+  },
+  "code_landings_without_observed_publication": 110,
+  "build_stages": {
+    "chrome": {
+      "n": 1,
+      "median_s": 1284.059,
+      "max_s": 1284.059
+    },
+    "game-build": {
+      "n": 70,
+      "median_s": 2.971,
+      "max_s": 29.624
+    },
+    "refresh": {
+      "n": 42,
+      "median_s": 70.471,
+      "max_s": 2118.664
+    },
+    "tile-build": {
+      "n": 38,
+      "median_s": 129.293,
+      "max_s": 1649.913
+    },
+    "tile-validate": {
+      "n": 35,
+      "median_s": 2.855,
+      "max_s": 32.32
+    }
+  },
+  "slot_waits": {
+    "browser": {
+      "n": 499,
+      "median_s": 0.037,
+      "max_s": 2325.12
+    },
+    "build": {
+      "n": 622,
+      "median_s": 0.017,
+      "max_s": 3453.233
+    },
+    "integration": {
+      "n": 100,
+      "median_s": 0.008,
+      "max_s": 941.104
+    },
+    "integration-data": {
+      "n": 80,
+      "median_s": 0.006,
+      "max_s": 3519.459
+    },
+    "land": {
+      "n": 11,
+      "median_s": 160.431,
+      "max_s": 687.593
+    }
+  },
+  "current_waiters": [
+    {
+      "sandbox": "ref-draft-wall-textures",
+      "kind": "build",
+      "seconds": 807.555
+    },
+    {
+      "sandbox": "ref-draft-ground-textures",
+      "kind": "build",
+      "seconds": 742.65
+    },
+    {
+      "sandbox": "main",
+      "kind": "build",
+      "seconds": 702.813
+    },
+    {
+      "sandbox": "ref-draft-ground-textures",
+      "kind": "build",
+      "seconds": 634.161
+    },
+    {
+      "sandbox": "ref-draft-wall-textures",
+      "kind": "build",
+      "seconds": 562.191
+    },
+    {
+      "sandbox": "ref-draft-ground-textures",
+      "kind": "build",
+      "seconds": 449.728
+    },
+    {
+      "sandbox": "ref-draft-ground",
+      "kind": "build",
+      "seconds": 383.501
+    },
+    {
+      "sandbox": "ref-draft-ground-textures",
+      "kind": "build",
+      "seconds": 341.157
+    },
+    {
+      "sandbox": "content-tile-t0_3_-3-1028-1952",
+      "kind": "build",
+      "seconds": 311.788
+    },
+    {
+      "sandbox": "ref-draft-buildings",
+      "kind": "build",
+      "seconds": 153.024
+    }
+  ],
+  "chrome_specs": {
+    "webgl:game/tests/e2e-hotswap/hotswap.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e-hotswap/telemetry.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e-playtest/aoi.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e-tile/area.spec.ts": {
+      "runs": 4,
+      "failures": 3,
+      "cached": 1,
+      "latest_test_seconds": 470.4
+    },
+    "webgl:game/tests/e2e-tile/bridge.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 410.8
+    },
+    "webgl:game/tests/e2e-tile/deliveries.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 3.1
+    },
+    "webgl:game/tests/e2e-tile/integration.spec.ts": {
+      "runs": 4,
+      "failures": 3,
+      "cached": 1,
+      "latest_test_seconds": 687.1
+    },
+    "webgl:game/tests/e2e-tile/minimap.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 198.4
+    },
+    "webgl:game/tests/e2e-tile/missions.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 0.7
+    },
+    "webgl:game/tests/e2e-tile/north-tile.spec.ts": {
+      "runs": 4,
+      "failures": 2,
+      "cached": 0,
+      "latest_test_seconds": 257.2
+    },
+    "webgl:game/tests/e2e-tile/parked.spec.ts": {
+      "runs": 4,
+      "failures": 2,
+      "cached": 1,
+      "latest_test_seconds": 1920.1
+    },
+    "webgl:game/tests/e2e-tile/shops.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 222.7
+    },
+    "webgl:game/tests/e2e-tile/tile.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 589.1
+    },
+    "webgl:game/tests/e2e/audio.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/car-ghost.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/character-look.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/character.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/coarse-drafts.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/dev-tools.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/edge-walls.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/gamepad.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/intro-dialog.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/motion.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/mp.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/music.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/parked-vehicle.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/render-controls.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/render-materials.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/safe-reset.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/save-menu.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/scooter.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/smoke.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/start.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/touch.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/truck.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/vehicle.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgl:game/tests/e2e/voice.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e-hotswap/hotswap.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e-hotswap/telemetry.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e-playtest/aoi.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e-tile/area.spec.ts": {
+      "runs": 4,
+      "failures": 3,
+      "cached": 1,
+      "latest_test_seconds": 188.4
+    },
+    "webgpu:game/tests/e2e-tile/bridge.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 106.0
+    },
+    "webgpu:game/tests/e2e-tile/deliveries.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 46.5
+    },
+    "webgpu:game/tests/e2e-tile/integration.spec.ts": {
+      "runs": 4,
+      "failures": 3,
+      "cached": 1,
+      "latest_test_seconds": 167.2
+    },
+    "webgpu:game/tests/e2e-tile/minimap.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 38.3
+    },
+    "webgpu:game/tests/e2e-tile/missions.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 230.8
+    },
+    "webgpu:game/tests/e2e-tile/north-tile.spec.ts": {
+      "runs": 7,
+      "failures": 2,
+      "cached": 0,
+      "latest_test_seconds": 160.8
+    },
+    "webgpu:game/tests/e2e-tile/parked.spec.ts": {
+      "runs": 5,
+      "failures": 2,
+      "cached": 0,
+      "latest_test_seconds": 1440.7
+    },
+    "webgpu:game/tests/e2e-tile/shops.spec.ts": {
+      "runs": 4,
+      "failures": 1,
+      "cached": 1,
+      "latest_test_seconds": 63.1
+    },
+    "webgpu:game/tests/e2e-tile/tile.spec.ts": {
+      "runs": 8,
+      "failures": 3,
+      "cached": 1,
+      "latest_test_seconds": 293.4
+    },
+    "webgpu:game/tests/e2e/audio.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e/car-ghost.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 6.4
+    },
+    "webgpu:game/tests/e2e/character-look.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 3.0
+    },
+    "webgpu:game/tests/e2e/character.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 5.5
+    },
+    "webgpu:game/tests/e2e/coarse-drafts.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 28.4
+    },
+    "webgpu:game/tests/e2e/dev-tools.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e/edge-walls.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e/gamepad.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 35.3
+    },
+    "webgpu:game/tests/e2e/intro-dialog.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 14.0
+    },
+    "webgpu:game/tests/e2e/motion.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 69.8
+    },
+    "webgpu:game/tests/e2e/mp.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 182.4
+    },
+    "webgpu:game/tests/e2e/music.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 11.9
+    },
+    "webgpu:game/tests/e2e/parked-vehicle.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 8.3
+    },
+    "webgpu:game/tests/e2e/render-controls.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e/render-materials.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e/safe-reset.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 66.5
+    },
+    "webgpu:game/tests/e2e/save-menu.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 33.7
+    },
+    "webgpu:game/tests/e2e/scooter.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 26.8
+    },
+    "webgpu:game/tests/e2e/smoke.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 15.7
+    },
+    "webgpu:game/tests/e2e/start.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 12.7
+    },
+    "webgpu:game/tests/e2e/touch.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 7.7
+    },
+    "webgpu:game/tests/e2e/truck.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0
+    },
+    "webgpu:game/tests/e2e/vehicle.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 6.6
+    },
+    "webgpu:game/tests/e2e/voice.spec.ts": {
+      "runs": 0,
+      "failures": 0,
+      "cached": 0,
+      "latest_test_seconds": 20.4
+    }
+  },
+  "deep_stages": {
+    "dependency-imports": {
+      "n": 34,
+      "median_s": 49.949,
+      "max_s": 148.522,
+      "failures": 0
+    },
+    "env-sync": {
+      "n": 34,
+      "median_s": 0.005,
+      "max_s": 0.028,
+      "failures": 0
+    },
+    "gate-tests": {
+      "n": 34,
+      "median_s": 16.884,
+      "max_s": 50.479,
+      "failures": 1
+    },
+    "integrator-tests": {
+      "n": 34,
+      "median_s": 68.556,
+      "max_s": 242.531,
+      "failures": 2
+    },
+    "knip": {
+      "n": 34,
+      "median_s": 11.919,
+      "max_s": 47.066,
+      "failures": 10
+    },
+    "pipeline-tests": {
+      "n": 34,
+      "median_s": 80.333,
+      "max_s": 283.457,
+      "failures": 7
+    },
+    "textures-tests": {
+      "n": 34,
+      "median_s": 10.194,
+      "max_s": 58.754,
+      "failures": 2
+    },
+    "tooling-tests": {
+      "n": 34,
+      "median_s": 76.984,
+      "max_s": 205.094,
+      "failures": 5
+    },
+    "validator-tests": {
+      "n": 34,
+      "median_s": 0.0,
+      "max_s": 184.574,
+      "failures": 0
+    },
+    "watch-tests": {
+      "n": 34,
+      "median_s": 0.0,
+      "max_s": 15.293,
+      "failures": 0
+    }
+  },
+  "advisories": {
+    "car-report": {
+      "n": 9,
+      "median_s": 10.162,
+      "max_s": 117.864,
+      "failures": 0
+    },
+    "chrome": {
+      "n": 31,
+      "median_s": 0.236,
+      "max_s": 3062.648,
+      "failures": 5
+    },
+    "collision-checks": {
+      "n": 28,
+      "median_s": 8.191,
+      "max_s": 87.811,
+      "failures": 5
+    },
+    "facade-ground-audit": {
+      "n": 28,
+      "median_s": 1.349,
+      "max_s": 31.849,
+      "failures": 10
+    }
+  },
+  "task_commands_observing_slot_waits": {
+    "ref-draft-ground-textures": 9,
+    "fix-draft-bridge-quality": 14,
+    "fix-t033-facade-ground": 2,
+    "fix-queue-sweep-6c2febf6": 1,
+    "fix-breakable-poles": 3,
+    "cvr-references-truth": 30,
+    "tool-landmark-meshes": 1,
+    "content-facades-1027-1836": 1,
+    "fix-queue-sweep-f78efa82": 2,
+    "ref-score-tool": 15,
+    "ref-draft-bridges": 55,
+    "content-tile-t0_-1_1-1028-0938": 1,
+    "fix-preload-tiles": 2,
+    "media-pipeline-video": 9,
+    "fix-test-chrome-separate": 15,
+    "perf-air-render": 35,
+    "perf-kupittaa-check": 4,
+    "content-tile-t0_2_3-1028-1241": 3,
+    "ref-draft-ground": 16,
+    "gmaps-validation-loop": 22,
+    "mp-client": 1,
+    "fix-physics-latency": 18,
+    "tool-gmaps-compare": 2,
+    "content-tile-t0_2_-1-1028-1636": 1,
+    "tool-gmaps-extract": 4,
+    "fix-start-loading": 5,
+    "fix-draft-bridges-sanity": 1,
+    "fix-draft-textures": 41,
+    "fix-fly-fallthrough": 3,
+    "ref-draft-wall-textures": 1,
+    "ref-draft-buildings": 5,
+    "fix-draft-speed": 6
+  },
+  "limitations": [
+    "Publication time reconstructed as ledger time - wall_seconds + publish_seconds; only commits in each published from..to batch count.",
+    "Chrome runtime is the latest recorded test seconds, including retries, not suite wall time.",
+    "Failure counts are observed executions, including repeats of known failures; missing/interrupted results are unknown.",
+    "state.json is a current snapshot; no historical state archive exists.",
+    "Raw Codex events have no timestamps; they cannot establish command wall times."
+  ]
+}

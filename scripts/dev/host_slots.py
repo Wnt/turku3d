@@ -22,16 +22,17 @@ LIMITS = {"build": 3, "browser": 3, "integration": 1, "integration-data": 1}
 # lane counts it as an integration instead of failing on an unknown kind.
 INTEGRATIONS = ("integration", "integration-data")
 
-# Host budget in CPU job units and browser (GPU) workers. One integration reserves a
-# fixed share; build and browser admissions continue within what remains.
+# Dedicated CPU shares: three two-job agent builds, two jobs for publishing and two
+# for data integration fit simultaneously on the measured ten-core host. Publishing
+# never queues behind agent work; Chrome has its independent GPU budget.
 BUDGET = {"jobs": 10, "gpu": 5}
 COST = {
     "build": {"jobs": 2},
     "browser": {"gpu": 1},
     # The integrator's Chrome takes at most two of the five GPU workers; agents' Chrome shares
     # the rest, also while the integrator's Chrome stage runs. Jonni plays on another machine.
-    "integration": {"jobs": 6, "gpu": 2},
-    "integration-data": {"jobs": 4},
+    "integration": {"jobs": 2, "gpu": 2},
+    "integration-data": {"jobs": 2},
 }
 # At or above this 1-minute load average the integrator's Chrome stage halves its workers:
 # the same 32 tests took 251 s at load 50 and 1086 s at load 150-250 with four.
@@ -66,7 +67,7 @@ def fits(entries, kind):
 
 
 def admissible(entries, entry):
-    """Admit within budget; builds queue FIFO and retain integration headroom."""
+    """Admit within dedicated lane budgets; agent builds queue FIFO."""
     if not fits(entries, lane(entry)):
         return False
     if lane(entry) == "build" and any(
@@ -74,35 +75,7 @@ def admissible(entries, entry):
         for e in entries
     ):
         return False
-    older = any(
-        lane(e) == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]
-        for e in entries
-    )
-    if not older:
-        return True
-    # The queued code integration replaces the current one; it cannot run beside
-    # it. Reserve against that future state rather than counting both at once.
-    future = [e for e in entries if not (lane(e) == "integration" and e["state"] == "running")]
-    # Another lane may already make the replacement wait for CPU capacity. A
-    # browser consumes no jobs, so it must not be held by that existing deficit.
-    # Preserve (or improve) the replacement's headroom in every resource.
-    running = [e for e in future if e["state"] == "running"]
-    return lane(entry) != "integration" and all(
-        max(
-            0,
-            sum(COST[lane(e)].get(resource, 0) for e in running)
-            + COST[lane(entry)].get(resource, 0)
-            + COST["integration"].get(resource, 0)
-            - budget,
-        )
-        <= max(
-            0,
-            sum(COST[lane(e)].get(resource, 0) for e in running)
-            + COST["integration"].get(resource, 0)
-            - budget,
-        )
-        for resource, budget in BUDGET.items()
-    )
+    return True
 
 
 def root():

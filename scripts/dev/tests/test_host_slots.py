@@ -66,79 +66,44 @@ class HostSlotsTest(unittest.TestCase):
     def kinds(self, child):
         return [(host_slots.lane(e), e["state"]) for e in self.snapshot() if e["pid"] == child.pid]
 
-    def test_integration_reservation_leaves_build_budget(self):
-        integration = self.start("integration")
-        self.until(lambda: self.kinds(integration) == [("integration", "running")])
+    def test_publishing_and_data_never_wait_behind_three_agent_builds(self):
         builds = [self.start("build") for _ in range(3)]
-        self.until(lambda: len(self.snapshot()) == 4)
-        # 6 integration jobs + 2 builds of 2 jobs fill the 10-job budget; the third waits.
         self.until(lambda: sum(e["state"] == "running" for e in self.snapshot()) == 3)
+        code, data = self.start("integration"), self.start("integration-data")
+        self.until(lambda: self.kinds(code) == [("integration", "running")])
+        self.until(lambda: self.kinds(data) == [("integration-data", "running")])
+        self.assertEqual(len(self.snapshot()), 5)
         browser = self.start("browser")
         self.until(lambda: self.kinds(browser) == [("browser", "running")])
-        waiting = [c for c in builds if self.kinds(c) == [("build", "waiting")]]
-        self.assertEqual(len(waiting), 1)
-        os.killpg(integration.pid, signal.SIGTERM)
-        integration.wait(timeout=3)
-        self.until(lambda: self.kinds(waiting[0]) == [("build", "running")])
-
-    def test_waiting_integration_is_not_starved(self):
-        builds = [self.start("build") for _ in range(3)]
-        self.until(lambda: sum(e["state"] == "running" for e in self.snapshot()) == 3)
-        integration = self.start("integration")
-        self.until(lambda: self.kinds(integration) == [("integration", "waiting")])
+        extra = self.start("build")
+        self.until(lambda: self.kinds(extra) == [("build", "waiting")])
         os.killpg(builds[0].pid, signal.SIGTERM)
         builds[0].wait(timeout=3)
-        extra = self.start("build")
-        self.until(lambda: self.kinds(integration) == [("integration", "running")])
-        self.until(lambda: self.kinds(extra) == [("build", "waiting")])
-        os.killpg(integration.pid, signal.SIGTERM)
-        integration.wait(timeout=3)
         self.until(lambda: self.kinds(extra) == [("build", "running")])
 
-    def test_queued_integration_replacement_does_not_double_reserve_jobs(self):
-        running = {"kind": "integration", "state": "running", "since": 1, "phase": "chrome"}
-        queued = {"kind": "integration", "state": "waiting", "since": 2}
-        build = {"kind": "build", "state": "waiting", "since": 3}
-        entries = [running, queued, {**build, "state": "running", "since": 0}]
-        self.assertTrue(host_slots.admissible(entries, build))
-        # The current and replacement integrations both retain their six jobs.
-        full = [*entries, {**build, "state": "running", "since": 0.5}]
-        self.assertFalse(host_slots.admissible(full, build))
-        # Browser admission uses GPU capacity and can share the integrator's Chrome stage.
-        self.assertTrue(host_slots.admissible(entries, {**build, "kind": "browser"}))
-        # Without a running integration, three builds would still starve the queued one.
-        self.assertFalse(host_slots.admissible(full[1:], build))
-
-    def test_queued_integration_existing_cpu_deficit_does_not_block_browser(self):
-        data = {"kind": "integration", "lane": "integration-data", "state": "running", "since": 1}
-        build = {"kind": "build", "state": "running", "since": 2}
-        queued = {"kind": "integration", "state": "waiting", "since": 3}
-        browser = {"kind": "browser", "state": "waiting", "since": 4}
-        entries = [data, build, {**build, "since": 2.5}, queued, browser]
-        # The code integration already needs four jobs to clear. Chrome does not
-        # consume those jobs, whereas one more build increases the deficit.
-        self.assertTrue(host_slots.admissible(entries, browser))
-        self.assertFalse(host_slots.admissible(entries, {**build, "state": "waiting", "since": 4}))
+    def test_all_lane_combinations_fit_the_ten_core_budget(self):
+        # Exhaust the actual supported counts, including legacy entries with no lane.
+        running = [{"kind": "build", "state": "running", "since": i} for i in range(3)]
+        code = {"kind": "integration", "state": "waiting", "since": 4}
+        data = {**code, "lane": "integration-data"}
+        self.assertTrue(host_slots.admissible(running, code))
+        self.assertTrue(host_slots.admissible(running, data))
+        running += [{**code, "state": "running"}]
+        self.assertTrue(host_slots.admissible(running, data))
+        self.assertFalse(host_slots.admissible(running, code))
+        self.assertEqual(sum(host_slots.COST[host_slots.lane(e)]["jobs"] for e in running), 8)
 
     def test_build_waiters_are_fifo_when_only_one_fits(self):
         integration = {"kind": "integration", "state": "running", "since": 0}
-        running = {"kind": "build", "state": "running", "since": 1}
+        running = [{"kind": "build", "state": "running", "since": i} for i in (0.5, 1)]
         older = {"kind": "build", "state": "waiting", "since": 2}
         newer = {"kind": "build", "state": "waiting", "since": 3}
-        entries = [integration, running, older, newer]
+        entries = [integration, *running, older, newer]
         self.assertTrue(host_slots.admissible(entries, older))
         self.assertFalse(host_slots.admissible(entries, newer))
-        self.assertTrue(host_slots.admissible([integration, running, newer], newer))
-        # Waiting CPU builds do not hold the independent browser resource.
+        self.assertTrue(host_slots.admissible([integration, *running, newer], newer))
         browser = {"kind": "browser", "state": "waiting", "since": 4}
         self.assertTrue(host_slots.admissible(entries, browser))
-
-    def test_fifo_keeps_integration_headroom(self):
-        running = [{"kind": "build", "state": "running", "since": i} for i in (0, 1)]
-        integration = {"kind": "integration", "state": "waiting", "since": 2}
-        oldest = {"kind": "build", "state": "waiting", "since": 3}
-        self.assertFalse(host_slots.admissible([*running, integration, oldest], oldest))
-        self.assertTrue(host_slots.admissible([*running, integration, oldest], integration))
 
     def test_dead_owner_reclaimed_and_browser_cap(self):
         # At most LIMITS["browser"] (3) agent Chrome suites per host; the fourth waits.
@@ -212,7 +177,7 @@ class HostSlotsTest(unittest.TestCase):
 
     def test_integrator_chrome_workers_follow_the_load(self):
         self.assertEqual((host_slots.browser_workers(59.9), host_slots.browser_workers(60)), (2, 1))
-        self.assertEqual(host_slots.integration_jobs(lane="integration-data"), 4)
+        self.assertEqual(host_slots.integration_jobs(lane="integration-data"), 2)
 
     def test_gpu_reservations_and_chrome_queue_policy(self):
         code = {"kind": "integration", "state": "running", "since": 0}
@@ -294,10 +259,10 @@ class HostSlotsTest(unittest.TestCase):
                 ("integration", "integration-data"),
             },
         )
-        # 6 + 4 jobs fill the budget: a build waits, a second data lane waits for its slot.
+        # Integration lanes leave capacity for builds; only another data integration waits.
         build = self.start("build")
         again = self.start("integration-data")
-        self.until(lambda: self.kinds(build) == [("build", "waiting")])
+        self.until(lambda: self.kinds(build) == [("build", "running")])
         self.until(lambda: self.kinds(again) == [("integration-data", "waiting")])
         os.killpg(data.pid, signal.SIGTERM)
         data.wait(timeout=3)
@@ -337,7 +302,7 @@ class HostSlotsTest(unittest.TestCase):
             timeout=10,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "4")
+        self.assertEqual(result.stdout.strip(), "2")
 
     def test_admissions_log_waits_and_stats_report_median_and_p90(self):
         first = self.start("integration")

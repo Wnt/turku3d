@@ -576,20 +576,16 @@ Playwright suites, playtest, the gate's e2e stage and the integrator's live buil
 `scripts/dev/host_slots.py`. The shared state is `~/turku3d/host-slots/` (override with
 `TURKU3D_SLOT_DIR` only for synthetic tests).
 
-Admission is budgeted, not exclusive. The host has 10 CPU job units and 5 browser (GPU)
-workers (`BUDGET`). A `build` costs 2 job units (at most three at once, each with
-`TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (at most three agent suites at once, `TURKU3D_JOBS` = 1), the
-single `integration` reservation (the integrator's code lane) 6 job units plus 2 browser
-workers, and the single `integration-data` reservation (its data lane, no Chrome; stored as kind
-`integration` with `lane`, so older tooling counts it) 4 job units (`COST`). Builds and browser suites keep being admitted beside a running integration within the
-remaining capacity. A waiting `integration` is not starved: later admissions are taken only if
-it still fits after them, so at most the builds already running finish first. A queued code integration
-replaces the running one in reservation checks; later tasks enter only if they do not increase its
-CPU/GPU deficit, so Chrome may enter during an existing CPU shortfall. Current limits still apply.
-Integration-owned children (`TURKU3D_INTEGRATION_OWNER`) use their lane's `TURKU3D_JOBS` budget: 6 (code) or 4 (data) for builds; they are not admissions.
-Refresh divides its job budget between independent steps and passes it to Roofer.
+Admission uses dedicated CPU shares on the ten-core host: at most three agent `build`
+commands (two jobs each), one `integration` (two jobs) and one `integration-data`
+(two jobs). Both integration lanes fit beside all agent builds, so publication never
+waits for an agent's tile build. GPU capacity remains five workers: three single-worker
+agent suites and two integrator workers. Builds queue FIFO within their own lane.
+Integration reservations cover `Run.build` only; checkout/dependency sync, release
+preparation, Pages upload and diagnostics hold no CPU reservation. Nested build commands
+inherit their lane's two-job budget through `TURKU3D_INTEGRATION_OWNER`.
 Dead owner PIDs are removed on the next admission or status read. Waiting appears
-in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
+in `codex-task ls` and `watch`, and commands print when a slot is acquired.
 
 Browser share: Chrome gets 2 workers below load 60 (`BROWSER_LOAD`), else 1 (`browser_workers`). The 20-test real-tile suite took 1.9 min with 4 workers: estimate 3.8 min with 2 or 7.6 min with 1,
 before load overhead, within `advisory_chrome.TIMEOUT` (2 h per invocation). Playwright's 120 s limit is per test.
