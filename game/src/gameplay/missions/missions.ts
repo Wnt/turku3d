@@ -19,6 +19,9 @@ import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
 import { applyPoleFine } from '../poles/fine';
 export { missionSummary } from './save';
 
+/** The dispatcher repeats the delivery address this many seconds after the order announcement. */
+const CARRY_HINT_DELAY = 30;
+
 type BoughtVehicle = Exclude<VehicleOwnership, 'none'>;
 
 /** Horizontal distance (m) within which the interaction button acts on a target. */
@@ -137,6 +140,8 @@ const saidText = (said: Said) => said.text ?? lineText(said.id);
 export class MissionSystem implements MissionHudSource {
   private s: MissionSave;
   private queue: (Said & { left: number })[] = [];
+  /** Seconds since the last queued line finished; the carry hint repeats the address only after CARRY_HINT_DELAY. */
+  private quiet = 0;
   private lastResult: 'delivered' | 'failed' | null = null;
   private frame: MissionFrame | null = null;
   private listeners = new Set<HudStateListener>();
@@ -522,6 +527,7 @@ export class MissionSystem implements MissionHudSource {
   /** Replaces whatever is being said with these lines, shown one after another. */
   private say(...lines: (string | Said)[]) {
     this.hintCache = null;
+    this.quiet = 0;
     this.queue = lines.map(line => {
       const said: Said = typeof line === 'string' ? { id: line } : line;
       if (!said.text && said.id in PHRASES) said.text = this.phrase(said.id as PhraseKind);
@@ -538,6 +544,7 @@ export class MissionSystem implements MissionHudSource {
       left -= used;
       if (head.left <= 0) this.queue.shift();
     }
+    if (!this.queue.length) this.quiet += left;
   }
 
   private message(): Said | null {
@@ -548,7 +555,7 @@ export class MissionSystem implements MissionHudSource {
     switch (this.s.phase) {
       case 'idle': return null;
       case 'permit_needed': return this.hint(`permit:${this.s.delivery}:${this.s.permit}`, 'hint_permit');
-      case 'carrying': return this.hint(`carry:${this.s.delivery}:${this.s.stop}`, 'hint_carry', this.currentStop.address);
+      case 'carrying': return this.quiet < CARRY_HINT_DELAY ? null : this.hint(`carry:${this.s.delivery}:${this.s.stop}`, 'hint_carry', this.currentStop.address);
       default: return this.hint(`pizzeria:${this.s.delivery}`, 'hint_pizzeria');
     }
   }
