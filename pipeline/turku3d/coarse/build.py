@@ -387,7 +387,14 @@ def build(
             Path(__file__).with_name("extrusion.py"),
             Path(__file__).with_name("roofs.py"),
         ),
-        [tile, inputs.tunnels, grid_pos, grid_idx, shells],
+        [
+            tile,
+            inputs.tunnels,
+            grid_pos,
+            grid_idx,
+            shells,
+            kerb_inputs(tile, ground_sources) if inputs.tunnels else None,
+        ],
         lambda: produce_tunnels(
             tile,
             inputs.tunnels,
