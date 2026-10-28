@@ -13,13 +13,16 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import task_runner
+import task_view
 import watch_events as events
 import watch_ui
 from watch_model import Monitor, Tail
 
+SERIAL = True
 DEV = Path(__file__).resolve().parents[1]
 
 
@@ -330,10 +333,147 @@ class Following(Fixture):
         git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "work")
         self.task(repo=str(repo))
         self.task("beta", repo=str(self.root / "missing"))
-        mon = self.monitor()
+        mon = self.monitor(tasks=["alpha", "beta"])
         mon.poll()
         self.assertEqual(mon.by_name["alpha"].ahead, "1")
         self.assertEqual(mon.by_name["beta"].ahead, "?")
+
+
+class BoundedSnapshots(Fixture):
+    def test_initial_tail_is_bounded_and_continues_with_partial_records(self):
+        path = self.root / "large.log"
+        path.write_bytes(b"old record\n" * 100 + b"recent\npart")
+        tail = Tail(path, limit=32)
+        self.assertIn("recent", tail.read())
+        self.assertTrue(tail.skipped)
+        self.assertEqual(tail.offset, path.stat().st_size)
+        with path.open("ab") as stream:
+            stream.write(b"ial\n")
+        self.assertEqual(tail.read(), ["partial"])
+
+    def test_monitor_never_calls_scheduler_lock_and_properties_do_no_io(self):
+        path = self.task(state="running", pid=123, identity="born", repo="/unused")
+        append(path / "events.jsonl", message("initial"))
+        processes = [{123: "born"}]
+        with (
+            patch.object(task_view, "process_snapshot", return_value=processes),
+            patch.object(task_view, "waiting_slots", return_value={"alpha": "build"}),
+            patch("host_slots.snapshot", side_effect=AssertionError("scheduler lock")),
+        ):
+            mon = self.monitor()
+            mon.poll()
+            self.assertIn("waiting for build slot", mon.by_name["alpha"].title())
+            append(path / "events.jsonl", message("new event"))
+            self.assertIn("new event", [line.text for line in mon.poll()])
+            mon.title()
+        with patch.object(task_view, "waiting_slots", side_effect=AssertionError("display I/O")):
+            self.assertIn("waiting for build slot", mon.by_name["alpha"].title())
+
+    def test_slot_snapshot_is_read_only_and_ignores_stale_processes(self):
+        slots = self.root / "slots"
+        slots.mkdir()
+        state = slots / "state.json"
+        state.write_text(
+            json.dumps(
+                {
+                    "entries": [
+                        {
+                            "pid": 1,
+                            "identity": "born",
+                            "sandbox": "alpha",
+                            "kind": "build",
+                            "state": "waiting",
+                        },
+                        {
+                            "pid": 2,
+                            "identity": "old",
+                            "sandbox": "beta",
+                            "kind": "build",
+                            "state": "waiting",
+                        },
+                    ]
+                }
+            )
+        )
+        before = (state.read_bytes(), state.stat().st_mtime_ns)
+        with patch("host_slots.root", return_value=slots):
+            self.assertEqual(task_view.waiting_slots([{1: "born", 2: "new"}]), {"alpha": "build"})
+        self.assertEqual((state.read_bytes(), state.stat().st_mtime_ns), before)
+        self.assertEqual([p.name for p in slots.iterdir()], ["state.json"])
+
+    def test_compact_list_limits_history_and_never_calls_detailed_status(self):
+        for n in range(15):
+            self.task(f"done-{n:02}", finished=200 + n)
+        running = self.task("z-running", state="running", pid=1, identity="born", finished=None)
+        self.task("stale", state="running", pid=2, identity="old", finished=None)
+        append(running / "events.jsonl", message("hi"))
+
+        def listing(**kwargs):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                task_runner.list_tasks(**kwargs)
+            return output.getvalue()
+
+        with (
+            patch.object(task_runner.s, "tasks_root", return_value=self.tasks),
+            patch.object(task_view, "process_snapshot", return_value=[{1: "born", 2: "new"}]),
+            patch.object(task_view, "waiting_slots", return_value={}),
+            patch.object(task_runner, "status", side_effect=AssertionError("detailed status")),
+            patch.object(task_runner, "read_events", side_effect=AssertionError("full scan")),
+            patch.object(task_runner.s, "git", side_effect=AssertionError("per-task git")),
+        ):
+            output = listing()
+            self.assertTrue(output.startswith("z-running: running"))
+            self.assertIn("6 more stopped/inbox tasks omitted", output)
+            self.assertIn("done-14: done", output)
+            self.assertNotIn("done-00:", output)
+            self.assertEqual(len(listing(running_only=True).splitlines()), 1)
+            output = listing(all_tasks=True)
+            self.assertIn("done-00: done", output)
+            self.assertIn("stale: interrupted", output)
+            self.assertEqual(len(output.splitlines()), 17)
+
+    def test_batch_liveness_supports_legacy_locale_and_rejects_zombies(self):
+        calls = []
+
+        def run(*args, **kwargs):
+            calls.append(args)
+            born = "born canonical" if kwargs["env"]["LC_ALL"] == "C" else "born legacy"
+            # ps prints five start-time fields; retain the same shape here.
+            return SimpleNamespace(stdout=f"123 S {born} Oct 25 2026\n124 Z {born} Oct 25 2026\n")
+
+        with (
+            patch.dict(os.environ, {"LANG": "fi_FI.UTF-8", "LC_TIME": "fi_FI.UTF-8"}),
+            patch.object(task_view.s, "run", side_effect=run),
+        ):
+            snapshot = task_view.process_snapshot()
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(
+            task_view.is_live({"pid": 123, "identity": "born legacy Oct 25 2026"}, snapshot)
+        )
+        self.assertFalse(
+            task_view.is_live({"pid": 124, "identity": "born legacy Oct 25 2026"}, snapshot)
+        )
+        self.assertFalse(task_view.is_live({"pid": 123, "identity": "reused"}, snapshot))
+
+    def test_omitted_archives_mark_token_total_incomplete(self):
+        path = self.task()
+        for n in range(3):
+            append(path / f"events-{n}.jsonl", usage())
+        mon = self.monitor()
+        mon.poll()
+        self.assertTrue(mon.by_name["alpha"].tokens_unknown)
+        self.assertEqual(len(mon.event_keys), 2)
+
+    def test_once_defaults_to_recent_history(self):
+        path = self.task()
+        append(path / "events.jsonl", *(message(f"history {n}") for n in range(20)))
+        mon = self.monitor()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            watch_ui.run_plain(mon, 1, True)
+        self.assertNotIn("history 0\n", output.getvalue())
+        self.assertIn("history 19", output.getvalue())
 
 
 class Navigation(Fixture):
@@ -446,7 +586,7 @@ class Identity(unittest.TestCase):
 
 
 class Plain(Fixture):
-    def test_once_replays_all_and_leaves_every_file_unchanged(self):
+    def test_once_replay_override_leaves_every_file_unchanged(self):
         path = self.task()
         append(path / "events.jsonl", *(message(f"history {n}") for n in range(12)))
         append(self.board, note(to="all"))
@@ -467,7 +607,7 @@ class Plain(Fixture):
 
         before = snapshot()
         result = subprocess.run(
-            [str(DEV / "watch"), "--plain", "--once"],
+            [str(DEV / "watch"), "--plain", "--once", "--replay", "12"],
             env=env,
             text=True,
             capture_output=True,

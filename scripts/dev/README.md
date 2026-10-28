@@ -72,7 +72,9 @@ Names are lowercase letters, digits, hyphens and underscores; `main` is reserved
 
 ```bash
 scripts/dev/codex-task run stairs --brief docs/briefs/W1-02-structures.md --from main --effort high
-scripts/dev/codex-task ls
+scripts/dev/codex-task ls                    # running first, then ten recent stopped tasks
+scripts/dev/codex-task ls --running          # live tasks only (PID/start identity checked)
+scripts/dev/codex-task ls --all              # every task, still compact
 scripts/dev/codex-task status stairs
 scripts/dev/codex-task log stairs 30
 scripts/dev/codex-task result stairs
@@ -92,12 +94,18 @@ below 30 GiB free on the sandbox filesystem. Check with
 `scripts/dev/wt du`, then remove safe candidates with `scripts/dev/wt prune-landed`.
 CLI behavior is checked against the installed CLI and [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
+`ls` reads metadata and at most the last 256 KiB of the current event log for each displayed task;
+it does not invoke detailed `status`, Git, quota readers or scheduler locks per task. It lists all
+live tasks first, then ten recent stopped/inbox tasks, with an omitted count. `--all` lists every
+task; `--running` shows only live starting/running attempts. Both use the same compact rows.
+Use `status <task>` for commit, unread inbox and browser-budget details.
+
 `resume --reason` names why a stopped task continues: `unblock`, `review`, `main-moved` (after
 `landed` messages), `quota`, `follow-up` (default) or `other`. It appends
 `{"type": "task.resumed", "reason", "gap_seconds", "time"}` to `events.jsonl`, where the gap counts from the
 last `turn.completed`; the worker stamps `time` on each `turn.completed` and `turn.failed`, and
-older unstamped logs fall back to the runner exit time. `ls`, `status` and `board` show
-`idle N min` since the last turn ended for tasks that are not running; `board` lists only
+older unstamped logs fall back to the runner exit time. `ls` and `status` show `idle N min` since the recorded worker finish for stopped tasks.
+`board` derives idle time from the last turn end and lists only
 unlanded tasks whose sandbox still exists. This attributes the 27.2 h between turns measured in
 `docs/reports/dev-overhead-study.md` §1.3.
 
@@ -246,47 +254,15 @@ tokens spent on polling.
 scripts/dev/watch                         # curses channels for all tasks
 scripts/dev/watch w1-01-ground tool-watch # restrict task/inbox channels
 scripts/dev/watch --plain                 # stream human sentences; also automatic for pipes
-scripts/dev/watch --plain --once          # replay all available history and exit
+scripts/dev/watch --plain --once          # replay recent task/coordination events and exit
 scripts/dev/watch --plain --once --replay 10 # limit startup sentences per file
 python3 scripts/dev/tests/test_watch.py   # fast synthetic fixtures, no terminal/model calls
 ```
 
-Channel 0 aggregates every displayed event. Each task has a channel, with separate `inbox:<name>`,
-`board` and `landings` channels. New tasks and `events-*.jsonl` resume logs are discovered live.
-Commands, exit results, edits, messages, gate summaries and runner output become short sentences.
-The live view starts with eight sentences per file; `--replay N` overrides this. `--once` defaults to
-all history. Codex events without timestamps show read time, so replay timestamps are approximate;
-coordination and landing records retain their recorded timestamps.
-
-Keys: **left/right** cycle channels, **0–9** jump, **PgUp/PgDn** scroll, **End** follows again,
-**l** toggles the selected task's `last.md`, and **q** quits. Stars indicate unseen monitor output,
-independently of persisted inbox acknowledgements. The selected channel remains visible in the bar
-when there are more channels than fit the terminal. `last.md` refreshes when its contents change.
-
-The task status line shows state, elapsed time for the current attempt, commits ahead of local `main`,
-unread inbox messages, and reported tokens. A live attempt **over 30 minutes** displays `OVER 30m`
-with a highlighted status bar; the aggregate bar also highlights overdue tasks. Completed elapsed time
-stops at `finished`. Liveness uses the runner's PID plus process start time, including compatibility
-with existing localized macOS timestamps. New identities use the C locale. Git counts refresh every
-five seconds; missing repositories show `+?`. Poll interval defaults to one second (`--interval N`).
-
-Tokens sum input plus output from every completed turn in all event files, including history hidden
-by `--replay`. Cached input and reasoning output are subsets and are not added twice. If available,
-the W2 ledger (`~/turku3d/ledger/codex-calls.jsonl`, override `TURKU3D_CODEX_LEDGER`) supplies task-job
-totals deduplicated by `call_id` and excluding voided calls; event totals remain authoritative while
-the ledger is behind.
-The source is shown explicitly. Missing usage is marked `+ unknown`; an unfinished first turn can
-show zero reported tokens. This is usage reported so far, not an estimate of an in-flight turn.
-Board unread counts belong to `TURKU3D_SANDBOX` (or `orchestrator` outside a sandbox).
-
-The monitor is strictly read-only: no locks, acknowledgements, state changes, Python bytecode files,
-agent input or signals. Files are followed by byte offset; partial UTF-8/JSON lines wait for a newline,
-and truncation/replacement resets the affected reader. Renamed event archives preserve their offsets.
-It uses stdlib Python and the shared `sandbox.py`, `task_runner.py` and coordination helpers, without
-calling quota APIs. Storage overrides are `TURKU3D_TASKS_ROOT` (or `--root`), `TURKU3D_COORD_ROOT`,
-and `TURKU3D_WT_ROOT`; overriding `--root` alone changes only the task source.
-Implementation and tests adapt the read-only gta6 watcher reference, dropping dispatch/Linear and
-Claude-specific concepts. The registered `watch-tests` gate stage exercises the terminal-free Monitor.
+The monitor replays recent events and exits with `--once`. Default startup is eight sentences
+per file from bounded tails; live mode follows new tasks and appended events every second.
+It reads scheduler state without locks or writes. See [monitor details](watch.md) for navigation,
+read-only guarantees, token/unread count limits and storage overrides.
 
 ### Coordination (agents and orchestrator)
 

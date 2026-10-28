@@ -148,9 +148,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("tasks", nargs="*", help="only these task names")
     parser.add_argument("--plain", action="store_true", help="stream events to stdout")
-    parser.add_argument("--once", action="store_true", help="replay existing history and exit")
+    parser.add_argument("--once", action="store_true", help="replay recent history and exit")
     parser.add_argument(
-        "--replay", type=int, help="startup sentences per file (live default 8; once all)"
+        "--replay", type=int, help="startup sentences per file (default 8; bounded recent tail)"
     )
     parser.add_argument("--root", type=Path, default=s.tasks_root(), help="task directory root")
     parser.add_argument("--interval", type=float, default=1.0, help="poll seconds (default 1)")
@@ -162,7 +162,7 @@ def main(argv=None):
     if not args.root.is_dir():
         print(f"watch: no task root at {args.root}", file=sys.stderr)
         return 2
-    replay = args.replay if args.replay is not None else (None if args.once else 8)
+    replay = args.replay if args.replay is not None else 8
     monitor = Monitor(args.root, args.tasks, replay)
     try:
         if args.plain or args.once or not (sys.stdout.isatty() and sys.stdin.isatty()):

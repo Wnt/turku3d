@@ -226,7 +226,7 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_served.py", "test_int
 name = "watch-tests"
 tier = "deep"
 kind = "command"
-triggers = ["scripts/dev/watch", "scripts/dev/watch_*.py", "scripts/dev/tests/test_watch.py", "scripts/dev/task_runner.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py"]
+triggers = ["scripts/dev/watch", "scripts/dev/watch_*.py", "scripts/dev/task_view.py", "scripts/dev/tests/test_watch.py", "scripts/dev/task_runner.py", "scripts/dev/sandbox.py", "scripts/dev/coordination.py"]
 commands = [["{python}", "scripts/dev/tests/test_watch.py"]]
 
 [[stages]]

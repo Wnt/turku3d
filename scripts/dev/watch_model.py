@@ -13,9 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import coordination as coord
-import host_slots
 import sandbox as s
-import task_runner
+import task_view
 from watch_events import (
     Line,
     format_gate,
@@ -36,13 +35,15 @@ LANDINGS = 50
 class Tail:
     """Follow complete UTF-8 lines by byte offset; retain torn trailing bytes."""
 
-    def __init__(self, path):
+    def __init__(self, path, limit=None):
         self.path = Path(path)
         self.offset = 0
         self.buf = b""
         self.identity = None
         self.generation = 0
         self.primed = False
+        self.limit = limit
+        self.skipped = False
 
     def read(self):
         try:
@@ -53,8 +54,14 @@ class Tail:
                     self.offset, self.buf = 0, b""
                     self.generation += 1
                 self.identity = identity
+                if not self.primed and self.limit is not None and stat.st_size > self.limit:
+                    self.offset = stat.st_size - self.limit
+                    stream.seek(self.offset)
+                    stream.readline()  # discard the partial first record
+                    self.offset = stream.tell()
+                    self.skipped = True
                 stream.seek(self.offset)
-                data = self.buf + stream.read()
+                data = self.buf + stream.read(self.limit or -1)
                 self.offset = stream.tell()
         except OSError:
             return []
@@ -83,6 +90,7 @@ class Channel:
     lines: deque = field(default_factory=lambda: deque(maxlen=SCROLLBACK))
     state: dict = field(default_factory=dict)
     live: bool = False
+    waiting: str | None = None
     unseen: bool = False
     scroll: int = 0
     unread: int = 0
@@ -90,6 +98,7 @@ class Channel:
     tokens: int = 0
     token_source: str = "events"
     tokens_unknown: bool = False
+    history_skipped: bool = False
     show_last: bool = False
     last: list = field(default_factory=list)
     last_stamp: tuple | None = None
@@ -97,12 +106,7 @@ class Channel:
 
     @property
     def phase(self):
-        if self.state.get("landed"):
-            return "landed"
-        state = self.state.get("state", "inbox only")
-        if kind := host_slots.waiting(self.name):
-            return f"waiting for {kind} slot"
-        return "interrupted" if state in ("starting", "running") and not self.live else state
+        return task_view.phase(self.state, self.live, self.waiting)
 
     def seconds(self, now=None):
         started = self.state.get("started")
@@ -191,7 +195,7 @@ class Monitor:
             return None, [], False
         if tail is None or tail.identity not in (None, identity):
             tail = next((t for t in self.tails.values() if t.identity == identity), None)
-            tail = tail or Tail(path)
+            tail = tail or Tail(path, task_view.TAIL_BYTES if self.replay is not None else None)
             tail.path = path
             self.tails[path] = tail
         first = not tail.primed
@@ -203,9 +207,12 @@ class Monitor:
             state = s.read_json(channel.path / "meta.json", {})
             if isinstance(state, dict):
                 channel.state = state
-        channel.live = bool(channel.state.get("identity")) and task_runner.running(channel.state)
+        channel.live = bool(channel.state.get("identity")) and task_view.is_live(
+            channel.state, self.processes
+        )
+        channel.waiting = self.waiting.get(channel.name)
         now = time.monotonic()
-        if now - channel.git_checked >= 5:
+        if (channel.live or channel.name in self.wanted) and now - channel.git_checked >= 5:
             channel.git_checked = now
             channel.ahead = "?"
             repo = channel.state.get("repo")
@@ -235,7 +242,7 @@ class Monitor:
         lines = []
         if kind == "events":
             self.event_keys.add(key)
-            self.file_tokens.setdefault(key, [channel.name, 0, False])
+            self.file_tokens.setdefault(key, [channel.name, 0, tail.skipped])
         if kind == "messages":
             rows = self.messages.setdefault(path, {})
             if tail.generation != rows.get("generation"):
@@ -277,21 +284,30 @@ class Monitor:
     def poll(self):
         produced = []
         self.event_keys.clear()
-        paths = sorted(
-            {
-                p.parent
-                for pattern in ("*/meta.json", "*/inbox.jsonl")
-                for p in self.root.glob(pattern)
-            }
+        self.processes = task_view.process_snapshot()
+        self.waiting = task_view.waiting_slots(self.processes)
+        rows = task_view.task_rows(self.root)
+        rows.sort(
+            key=lambda row: (
+                not (
+                    row[1].get("state") in task_view.ACTIVE
+                    and task_view.is_live(row[1], self.processes)
+                )
+            )
         )
-        for path in paths:
+        for path, _ in rows:
             if self.wanted and path.name not in self.wanted:
                 continue
             channel = self.join(path.name, path)
             notice = self.refresh(channel)
             if notice:
                 produced.append(self.emit(channel, notice))
-            for event in sorted(path.glob("events*.jsonl")):
+            events = sorted(path.glob("events*.jsonl"))
+            channel.history_skipped = self.replay is not None and len(events) > 2
+            if self.replay is not None:
+                # Older archives stay on disk; a resume's newest log is followed live.
+                events = sorted(events, key=task_view.modified)[-2:]
+            for event in events:
                 produced += self.poll_file(channel, event, "events")
             for filename, kind in (("gate.log", "gate"), ("runner.log", "runner")):
                 produced += self.poll_file(channel, path / filename, kind)
@@ -343,8 +359,11 @@ class Monitor:
             ledger = sum(token_count(row.get("tokens")) for row in rows)
             channel.tokens = max(events, ledger)
             channel.token_source = "ledger" if rows and ledger >= events else "events"
-            channel.tokens_unknown = any(count[2] for count in counts) or any(
-                not row.get("usage_known") for row in rows
+            channel.tokens_unknown = (
+                channel.history_skipped
+                or bool(tail and tail.skipped)
+                or any(count[2] for count in counts)
+                or any(not row.get("usage_known") for row in rows)
             )
 
     def switch(self, index):
@@ -430,6 +449,10 @@ class Monitor:
             f"[{i}:{c.name}{'*' if c.unseen else ''}]" for i, c in enumerate(self.channels)
         )
 
+    @staticmethod
+    def read_landing_tail(path):
+        return Tail(path, task_view.TAIL_BYTES).read()[-LANDINGS:]
+
     def title(self):
         channel = self.channels[self.active]
         if self.active:
@@ -440,7 +463,7 @@ class Monitor:
         rows = []
         ledger = s.root() / ".registry/landed.jsonl"
         with contextlib.suppress(OSError):
-            for line in ledger.read_text().splitlines()[-LANDINGS:]:
+            for line in self.read_landing_tail(ledger):
                 with contextlib.suppress(ValueError):
                     rows.append(json.loads(line))
         latencies = sorted(

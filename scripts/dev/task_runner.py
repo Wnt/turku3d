@@ -16,9 +16,9 @@ from pathlib import Path
 import browser_budget
 import coordination as coord
 import external_worker
-import host_slots
 import landing
 import sandbox as s
+import task_view
 
 
 def task(name):
@@ -343,12 +343,10 @@ def land_at_turn_end(name, path):
 def status(name):
     path = task(name)
     meta = s.read_json(path / "meta.json")
-    state = meta["state"]
-    if state in ("starting", "running") and not running(meta):
-        state = "interrupted"
-    if kind := host_slots.waiting(name):
-        state = f"waiting for {kind} slot"
-    last = deque(read_events(path), maxlen=1)
+    processes = task_view.process_snapshot()
+    live = meta.get("state") in task_view.ACTIVE and task_view.is_live(meta, processes)
+    state = task_view.phase(meta, live, task_view.waiting_slots(processes).get(name))
+    last = task_view.last_event(path)
     elapsed = (meta.get("finished") or time.time()) - meta.get("started", meta["created"])
     present = Path(meta["repo"]).exists()
     commit = (
@@ -357,10 +355,11 @@ def status(name):
         else meta.get("last_commit", "?")
     )
     behind = landing.behind(name) if present else 0
-    idle = coord.idle_minutes(path, meta)
+    ended = meta.get("finished")
+    idle = int((time.time() - ended) // 60) if ended and not live else None
     account = browser_budget.read(name)
     print(
-        f"{name}: {state}, {elapsed:.1f}s, last event={last[-1].get('type') if last else 'none'}, "
+        f"{name}: {state}, {elapsed:.1f}s, last event={last.get('type', 'none')}, "
         f"commit={commit}, {unread_status(name, state)}"
         + (f", {s.cache_warning(Path(meta['repo']).parent)}" if present else "")
         + (f", idle {idle} min" if idle is not None else "")
@@ -380,17 +379,37 @@ def unread_status(name, state):
     return f"unread={count}{flag}"
 
 
-def list_tasks():
-    paths = {
-        p.parent
-        for pattern in ("*/meta.json", "*/inbox.jsonl")
-        for p in s.tasks_root().glob(pattern)
-    }
-    for path in sorted(paths):
-        if (path / "meta.json").exists():
-            status(path.name)
+def list_tasks(*, all_tasks=False, running_only=False):
+    processes = task_view.process_snapshot()
+    waiting = task_view.waiting_slots(processes)
+    active, stopped = [], []
+    for path, meta in task_view.task_rows(s.tasks_root()):
+        live = meta.get("state") in task_view.ACTIVE and task_view.is_live(meta, processes)
+        row = (path, meta, live)
+        (active if live else stopped).append(row)
+    stopped.sort(
+        key=lambda row: (
+            row[1].get("finished") or row[1].get("started") or row[1].get("created") or 0
+        ),
+        reverse=True,
+    )
+    selected = active + ([] if running_only else stopped if all_tasks else stopped[:10])
+    for path, meta, live in selected:
+        state = task_view.phase(meta, live, waiting.get(path.name))
+        event = task_view.last_event(path).get("type", "none")
+        started = meta.get("started") or meta.get("created")
+        elapsed = f", {(meta.get('finished') or time.time()) - started:.1f}s" if started else ""
+        idle = meta.get("finished")
+        suffix = f", idle {int((time.time() - idle) // 60)} min" if idle and not live else ""
+        if not meta:
+            print(f"{path.name}: inbox only, {unread_status(path.name, state)}")
         else:
-            print(f"{path.name}: inbox only, {unread_status(path.name, 'inbox only')}")
+            print(f"{path.name}: {state}{elapsed}, last event={event}{suffix}")
+    omitted = len(stopped) - (
+        0 if running_only else len(stopped) if all_tasks else min(10, len(stopped))
+    )
+    if omitted and not running_only:
+        print(f"{omitted} more stopped/inbox tasks omitted; use ls --all to show every task")
 
 
 def group_members(pgid):
@@ -509,7 +528,10 @@ def main():
     p.add_argument("--model")
     p.add_argument("--route", choices=("task", "task_rebase", "light"))
     p.add_argument("--force", action="store_true")
-    subs.add_parser("ls")
+    p = subs.add_parser("ls", help="compact task list, running first and ten recent stopped tasks")
+    listing = p.add_mutually_exclusive_group()
+    listing.add_argument("--all", action="store_true", help="include every stopped task")
+    listing.add_argument("--running", action="store_true", help="show only live tasks")
     p = subs.add_parser("adopt", help="register an existing sandbox as an externally worked task")
     p.add_argument("name")
     p.add_argument("--brief", required=True)
@@ -554,7 +576,7 @@ def main():
             route_name=a.route,
         )
     elif a.cmd == "ls":
-        list_tasks()
+        list_tasks(all_tasks=a.all, running_only=a.running)
     elif a.cmd == "adopt":
         external_worker.adopt(a.name, a.brief)
     elif a.cmd == "finish":
