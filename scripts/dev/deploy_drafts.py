@@ -58,7 +58,7 @@ def deploy(repo, commit):
         "--adapter caddyfile >/dev/null"
     )
     pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
-    remote(
+    restarted = remote(
         f"systemctl --user stop turku-drafts-prebuild turku-drafts && "
         f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
         f"mv {HOME}/repo {HOME}/repo-initial-{uuid.uuid4().hex}; fi && "
@@ -73,7 +73,12 @@ def deploy(repo, commit):
         "systemctl --user start --no-block turku-facade-assets.service && "
         "systemctl --user restart turku-drafts-proxy && date -u +%Y-%m-%dT%H:%M:%SZ"
     )
-    return dict(commit=commit, seconds=round(time.monotonic() - started, 3), rsync=result.stdout)
+    return dict(
+        commit=commit,
+        seconds=round(time.monotonic() - started, 3),
+        restarted_utc=restarted,
+        rsync=result.stdout,
+    )
 
 
 def prewarm():
