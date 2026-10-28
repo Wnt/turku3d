@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { MusicSystem, TRACKS, hurry } from '../../src/audio/music';
+import { MusicSystem, ROTATE_BARS, TRACKS, hurry } from '../../src/audio/music';
 class Param {
   value = 0; events: { type: string; value: number; time: number; constant?: number }[] = [];
   setTargetAtTime(value: number, time: number, constant: number) { this.value = value; this.events.push({ type: 'target', value, time, constant }); }
@@ -40,5 +40,14 @@ test('suspend and stale clock never schedule notes in the past', () => {
   const starts = ctx.nodes.slice(existing).flatMap(n => n.starts);
   expect(starts.length).toBeGreaterThan(0);
   expect(starts.every(t => t >= 20)).toBe(true);
+  music.dispose();
+});
+test('free play moves on to the next track after ROTATE_BARS and after a delivery; a mission keeps its track', () => {
+  const { ctx, music } = setup(); music.setState('mission'); advance(ctx, music, 4);
+  const first = music.snapshot().track.id;
+  advance(ctx, music, ROTATE_BARS * 4 * 60 / 84 + 4); expect(music.snapshot().track.id).toBe(first);
+  music.deliver(); advance(ctx, music, 4); const second = music.snapshot().track.id;
+  expect(second).not.toBe(first); expect(music.snapshot().state).toBe('explore');
+  advance(ctx, music, ROTATE_BARS * 4 * 60 / 84 + 4); expect(music.snapshot().track.id).not.toBe(second);
   music.dispose();
 });
