@@ -34,7 +34,7 @@ from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 
-from . import bridges, fences, kerbs, parked, surfaces
+from . import banks, bridges, fences, kerbs, parked, surfaces
 from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
@@ -161,7 +161,9 @@ def ortho_uv(tile: C.VisualTile, positions: np.ndarray) -> np.ndarray:
     )
 
 
-def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None):
+def collision_tiles(
+    tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None, shore=None
+):
     """Split ground along the 62.5 m grid; carved building parts retain the original owner."""
     per = CELLS // C.COLLISION_PER_VISUAL
     out = {}
@@ -174,7 +176,16 @@ def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells, ground_k
         if ground_keep is not None:
             tris = tris[ground_keep[tris]]
         mesh = Mesh(grid_pos, grid_idx[tris], materials[tris]).compact()
-        mesh = add_river_bed(mesh, level)
+        if shore is None:
+            mesh = add_river_bed(mesh, level)
+        else:
+            centres = shore.positions[shore.indices].mean(axis=1)
+            owners = np.floor(centres[:, [0, 2]] / C.COLLISION_TILE_SIZE).astype(int)
+            mesh = Mesh(
+                shore.positions,
+                shore.indices[(owners[:, 0] == ct.i) & (owners[:, 1] == ct.j)],
+                shore.material[(owners[:, 0] == ct.i) & (owners[:, 1] == ct.j)],
+            ).compact()
         positions, indices, material = [mesh.positions], [mesh.indices], [mesh.material]
         count = len(mesh.positions)
         for b, (roof, roof_idx, floor, floor_idx, walls, _, wall_idx) in shells:
@@ -264,10 +275,6 @@ def terrain_stage(tile, inputs):
     level = water_level(inputs.points, water)
     if wet.any():
         materials[wet] = mat_id("water")
-        wet_vertices = np.unique(grid_idx[wet])
-        dry_vertices = np.unique(grid_idx[~wet])
-        inner = np.setdiff1d(wet_vertices, dry_vertices)
-        grid_pos[inner, 1] = np.minimum(grid_pos[inner, 1], level)
     return grid_pos, grid_idx, materials, wet, level
 
 
@@ -413,25 +420,30 @@ def build(
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
-    centroids = grid_pos[grid_idx].mean(axis=1)
-    visual_materials = surfaces.slope_fallback(grid_pos, grid_idx, materials)
+    dry, river, bank, solid = banks.stage(
+        cache, tile, grid_pos, grid_idx, inputs, tunnels.keep, level, bool(osm_decks)
+    )
+    dry_keep = np.ones(len(dry.indices), bool)
+    visual_materials = surfaces.slope_fallback(dry.positions, dry.indices, dry.material)
     fallback_materials = surfaces.slope_fallback(
-        grid_pos, grid_idx, surfaces.classify(centroids, inputs.ortho, tile, [])
+        dry.positions,
+        dry.indices,
+        surfaces.classify(dry.positions[dry.indices].mean(axis=1), inputs.ortho, tile, []),
     )
     t_surface = time.perf_counter()
     if first_pass:
         surface_pos, surface_idx, surface_ids = (
-            grid_pos,
-            grid_idx[~wet & tunnels.keep],
-            visual_materials[~wet & tunnels.keep],
+            dry.positions,
+            dry.indices,
+            visual_materials,
         )
         surface_normals = None
     else:
         surface_args = (
-            grid_pos,
-            grid_idx,
+            dry.positions,
+            dry.indices,
             visual_materials,
-            ~wet & tunnels.keep,
+            dry_keep,
             [*inputs.surfaces, *inputs.streets],
             fallback_materials,
         )
@@ -507,17 +519,18 @@ def build(
         ),
     )
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
-    if wet.any():
-        # A visible water surface at the level; the game draws material_key water as a river.
-        ids, inverse = np.unique(grid_idx[wet], return_inverse=True)
-        surface = grid_pos[ids].copy()
-        surface[:, 1] = level
+    ground_meshes.extend(
+        surfaces.visuals(
+            tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)
+        )
+    )
+    if len(river.indices):
         ground_meshes.append(
             GlbMesh(
                 f"water_{tile.id}",
-                surface - origin,
-                inverse.reshape(-1, 3).astype(np.uint32),
-                uvs=surface[:, [0, 2]] * [1, -1],
+                river.positions - origin,
+                river.indices,
+                uvs=river.positions[:, [0, 2]] * [1, -1],
                 extras=dict(
                     layer="ground", object_id=f"water_{tile.id}", material_key="water", sensor=True
                 ),
@@ -657,7 +670,7 @@ def build(
     collision = {}
     cols = {}
     for ct, (pos, idx, mat) in collision_tiles(
-        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep
+        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep, shore=solid
     ).items():
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
