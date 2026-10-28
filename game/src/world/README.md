@@ -21,9 +21,15 @@ draft in the existing 3×3 window, ground binding and worker-decoded collision c
 are surfaced, rather than treating an idle queue as success. The tileset is indexed before traversal, so neither
 an empty first traversal nor `loadProgress === 1` alone can release the screen.
 
-Textures in PBR slots and TSL graphs are uploaded with `initTexture`; `compileAsync` sees offscreen meshes too.
-Six real warmup views per selectable spawn cell exercise shadow/MRT/post-processing and vegetation variants on
-WebGPU and WebGL2, followed by the restored initial view. During play the same distance-region plugin feeds the library's own priority queues,
+Textures in PBR slots and TSL graphs use the renderer’s shared upload budget before becoming drawable;
+startup also queues TSL/private maps before `compileAsync`, which sees offscreen meshes too.
+The same glTF admission hook paces newly streamed published and draft tile maps during play (render/README.md).
+Published models await `VisualTiles.prepareModel` in the native `processTileModel` hook, before the loader
+publishes its scene or REPLACE refinement hides the old parent. The wrapper preserves original glTF disposal ownership. Draft host `style` and `styled`
+callbacks may return promises and are awaited before insertion; `styled` prepares programs after draft tint/LOD.
+Both include final ground bindings plus prepass, beauty and reflection compilation.
+Six real warmup views per selectable spawn cell exercise shadow/MRT/post-processing and vegetation variants on WebGPU and WebGL2, followed
+by the restored initial view. During play the same distance-region plugin feeds the library's own priority queues,
 parsers and LRU cache. Used ring content cannot be evicted. Cache admission reserves 256 MiB above current protected
 content: the library's fixed default byte cap could otherwise stop refinement with required tiles still missing.
 Unused content still evicts and the allowance shrinks as the player leaves an area.

@@ -6,10 +6,13 @@
 import * as THREE from 'three/webgpu';
 import { TilesRenderer, type Tile } from '3d-tiles-renderer';
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/plugins';
+import { textureUploads } from '../render/textureUploads';
 import { LoadingKtx } from './loadingKtx';
 import { loading } from '../core/loading';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { batchTileShadows } from './shadowBatch';
+import { disposeShadowBatch } from './shadowChunks';
+import { prepareTiles } from './tilePreparation';
 import { refinableParents } from './residency';
 import { TileReuse } from './tileReuse';
 import { PlayerLoadRegion } from './loadRegion';
@@ -53,6 +56,9 @@ export class VisualTiles {
   errors: string[] = [];
   private current: Tileset;
   private next: Tileset | null = null;
+  /** Runs inside the tile parse promise, after raw resource ownership is recorded and before LOD replacement. */
+  prepareModel?: (model: THREE.Object3D, tile: Tile, signal: AbortSignal) => Promise<void>;
+  private configured = new WeakMap<THREE.Object3D, number>();
   private triCount = new Map<THREE.Object3D, number>();
   private shadowBatches = new Map<THREE.Object3D, THREE.Mesh>();
   private resolution = new THREE.Vector2();
@@ -65,6 +71,25 @@ export class VisualTiles {
     private scene: THREE.Scene, private idPass = false) {
     this.ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
     this.current = this.create(url);
+  }
+
+  private configure(model: THREE.Object3D): number {
+    const previous = this.configured.get(model);
+    if (previous !== undefined) return previous;
+    let tris = 0;
+    model.traverse(object => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      const geometry = mesh.geometry;
+      tris += (geometry.index ? geometry.index.count : geometry.attributes.position.count) / 3;
+    });
+    if (!this.idPass) {
+      const shadow = batchTileShadows(model);
+      if (shadow) this.shadowBatches.set(model, shadow);
+    }
+    this.configured.set(model, tris);
+    return tris;
   }
 
   /** The current tileset renderer. */
@@ -87,7 +112,15 @@ export class VisualTiles {
       set.region.retain(this.retainedStarts);
     }
     // The KTX2 loader (its transcoder workers) is shared by a swapped-in release: disposing the old tileset keeps it.
-    renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false }));
+    renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false, plugins: [() => textureUploads(this.renderer).plugin()] }));
+    prepareTiles(renderer as unknown as Parameters<typeof prepareTiles>[0], async (model, tile, signal) => {
+      this.configure(model);
+      await this.prepareModel?.(model, tile, signal);
+    }, (model, tile) => {
+      const shadow = this.shadowBatches.get(model);
+      if (shadow) { disposeShadowBatch(shadow); this.shadowBatches.delete(model); }
+      this.events.dispatchEvent({ type: 'dispose-model', scene: model, tile });
+    });
     renderer.errorTarget = 8;
     // QA retains the nearest-L0 budget. In play the region plugin owns refinement and masks camera error.
     const viewer = renderer as unknown as { calculateTileViewError: ViewError };
@@ -112,18 +145,10 @@ export class VisualTiles {
       pending.get(event.tile as Tile)?.(); pending.delete(event.tile as Tile);
       const model = event.scene;
       if (model.userData.releasePlaceholder) return;
-      let tris = 0;
-      model.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (!m.isMesh) return;
-        m.castShadow = true; m.receiveShadow = true;
-        const g = m.geometry;
-        tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
-      });
-      if (!this.idPass) {
-        const shadow = batchTileShadows(model);
-        if (shadow) this.shadowBatches.set(model, shadow);
-      }
+      // Native parse finishes its tile-culling override after processTileModel. Restore per-mesh culling,
+      // including the spatial shadow chunks, before publication.
+      model.traverse(object => { if ((object as THREE.Mesh).isMesh) object.frustumCulled = true; });
+      const tris = this.configure(model);
       this.triCount.set(model, tris);
       this.residentTris += tris; this.residentModels++; this.loadedModels++; set.loaded++;
       this.trackModel(model, String(event.tile.extras?.id ?? ''));
@@ -134,12 +159,14 @@ export class VisualTiles {
       if (model.userData.releasePlaceholder) return;
       const shadow = this.shadowBatches.get(model);
       if (shadow) {
-        shadow.removeFromParent(); shadow.geometry.dispose();
-        (shadow.material as THREE.Material).dispose();
+        disposeShadowBatch(shadow);
         this.shadowBatches.delete(model);
       }
-      this.residentTris -= this.triCount.get(model) ?? 0; this.residentModels--; this.triCount.delete(model);
-      this.untrackModel(model, String(event.tile.extras?.id ?? ''));
+      if (this.triCount.has(model)) {
+        this.residentTris -= this.triCount.get(model)!; this.residentModels--; this.triCount.delete(model);
+        this.untrackModel(model, String(event.tile.extras?.id ?? ''));
+      }
+      this.configured.delete(model);
       this.events.dispatchEvent({ type: 'dispose-model', scene: model, tile: event.tile });
     });
     renderer.addEventListener('load-error', ({ error, url: u, tile }: { error: Error; url: string | URL; tile: Tile }) => {

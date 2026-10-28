@@ -35,6 +35,7 @@
     "tests/e2e",
     "tests/e2e-tile",
     "playwright.render.config.ts",
+    "playwright.render-dev.config.ts",
     "tests/render",
 "vite.ground.config.ts",
     "tests/e2e-playtest",

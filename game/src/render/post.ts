@@ -1,21 +1,31 @@
+import { compileModel } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { pass, mrt, sample, screenUV, normalView, velocity, packNormalToRGB, unpackRGBToNormal,
-  builtinAOContext, mix, vec3, vec4, dot, renderOutput } from 'three/tsl';
+  builtinAOContext, context, mix, vec3, vec4, dot, renderOutput } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { QUALITY, type QualityTier } from './quality';
 
+// r186 exposes this public method; the corresponding DefinitelyTyped declaration omits it.
+const flowContext = (node: THREE.WebGPURenderer['contextNode']) =>
+  (node as unknown as { getFlowContextData(): Record<string, unknown> }).getFlowContextData();
+
 export type Antialiasing = 'off' | 'taa' | 'fxaa';
 
 export class PostProcessing {
   private pipeline: THREE.RenderPipeline;
+  private pre: ReturnType<typeof pass>;
+  private beauty: ReturnType<typeof pass>;
+  private beautyContext: THREE.WebGPURenderer['contextNode'];
+  private baseContext: THREE.WebGPURenderer['contextNode'];
   private resources: { dispose(): void }[];
 
-  constructor(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa') {
+  constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa') {
     const q = QUALITY[tier];
-    const pre = pass(scene, camera);
+    const pre = this.pre = pass(scene, camera);
+    this.baseContext = renderer.contextNode;
     pre.transparent = false;
     pre.setMRT(mrt({ output: packNormalToRGB(normalView), velocity }));
     pre.getTexture('output').type = THREE.UnsignedByteType;
@@ -30,9 +40,16 @@ export class PostProcessing {
     ambient.radius.value = 0.6;
     ambient.thickness.value = 0.2;
     ambient.useTemporalFiltering = aa === 'taa';
-    const beauty = pass(scene, camera);
+    const beauty = this.beauty = pass(scene, camera);
     // Apply light GTAO to indirect light only: facade albedo already contains some occlusion.
-    beauty.contextNode = builtinAOContext(mix(1, ambient.getTextureNode().sample(screenUV).r, q.aoStrength));
+    this.beautyContext = context({ ...flowContext(renderer.contextNode),
+      ...flowContext(builtinAOContext(mix(1, ambient.getTextureNode().sample(screenUV).r, q.aoStrength))) });
+    const updateBeauty = beauty.updateBefore.bind(beauty);
+    beauty.updateBefore = frame => {
+      const previous = renderer.contextNode;
+      renderer.contextNode = this.beautyContext;
+      try { updateBeauty(frame); } finally { renderer.contextNode = previous; }
+    };
     const temporal = aa === 'taa' ? traa(beauty, depth, pre.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
     const color = temporal ?? beauty;
@@ -51,6 +68,18 @@ export class PostProcessing {
     if (spatial) this.resources.push(spatial);
   }
 
-  render() { this.pipeline.render(); }
+  async prepare(model: THREE.Object3D) {
+    await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true);
+    await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext);
+  }
+
+  render() {
+    // Prepass, beauty, cascades and river reflection share world transforms for this frame.
+    // Avoid recursively recomputing every object's matrices in each Renderer.render call.
+    this.scene.updateMatrixWorld();
+    const autoUpdate = this.scene.matrixWorldAutoUpdate;
+    this.scene.matrixWorldAutoUpdate = false;
+    try { this.pipeline.render(); } finally { this.scene.matrixWorldAutoUpdate = autoUpdate; }
+  }
   dispose() { for (const resource of this.resources) resource.dispose(); }
 }

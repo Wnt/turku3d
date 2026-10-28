@@ -1,4 +1,5 @@
 import { statusBadges } from '../ui/statusBadges';
+import { textureUploads } from '../render/textureUploads';
 // Coarse (draft) tiles on localhost: when the player comes within one tile of an L0 cell the published tileset lacks,
 // the companion service (tools/dev/coarse-tiles, proxied at /coarse/) builds it in seconds and this module streams it
 // in like a published tile: the GLB goes into the scene, its .col entries into the manifest so CollisionStreamer
@@ -22,12 +23,14 @@ import { statusBadges } from '../ui/statusBadges';
 // The /coarse/want answer carries the service's build counter: when it moves, the waiting tiles are polled at once, so a finished
 // draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
 // Never active off localhost (GitHub Pages) or when the service is not running.
+import { aheadTiles, cellsOf, distToL0, leafParents, parentCovered, wantedTiles } from './coarseRegion';
+export { aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { LoadingKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
+import { VISUAL_L0 } from '../core/origin';
 import { isLocalHost } from '../core/localOnly';
 import type { Manifest, ManifestEntry } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
@@ -37,8 +40,8 @@ const POLL_MS = 1000;
 const MANIFEST_POLL_MS = 60_000;
 /** A failed or rejected draft is asked for again after this (ms); the service retries failed builds after 120 s. */
 const RETRY_MS = 120_000;
-/** Prefetch horizon (s of travel at the current speed) and the speed above which a jump is a teleport (m/s). */
-const PREFETCH_SECONDS = 30, MAX_SPEED = 100;
+/** Speed above which a jump is a teleport (m/s). */
+const MAX_SPEED = 100;
 /** Drafts farther than this (m, to the tile footprint) are unloaded. */
 const KEEP_M = 2 * VISUAL_L0;
 /** While the service restarts, /coarse/status is probed this often (ms). */
@@ -46,56 +49,6 @@ const PROBE_MS = 2000;
 /** A probe the busy service has not answered within this (ms) counts as no answer. */
 const PROBE_TIMEOUT_MS = 10_000;
 export const RESTARTING = 'drafts: service restarting';
-
-const l0 = (i: number, j: number) => `t0_${i}_${j}`;
-/** Distance (m) from (x,z) to the footprint of L0 tile `id`. */
-function distToL0(id: string, x: number, z: number): number {
-  const t = parse(id);
-  if (!t) return Infinity;
-  const x0 = t.i * VISUAL_L0, z0 = t.j * VISUAL_L0;
-  return Math.hypot(Math.max(x0 - x, 0, x - (x0 + VISUAL_L0)), Math.max(z0 - z, 0, z - (z0 + VISUAL_L0)));
-}
-function parse(id: string): { level: number; i: number; j: number } | null {
-  const m = /^t(\d+)_(-?\d+)_(-?\d+)$/.exec(id);
-  return m ? { level: +m[1], i: +m[2], j: +m[3] } : null;
-}
-
-/** Published 500 m tiles that have no published L0 child: the tileset shows them as leaves. */
-export function leafParents(published: Iterable<string>): Set<string> {
-  const ids = new Set(published), out = new Set<string>();
-  for (const id of ids) {
-    const t = parse(id);
-    if (t?.level !== 1) continue;
-    const children = [0, 1].flatMap(di => [0, 1].map(dj => l0(2 * t.i + di, 2 * t.j + dj)));
-    if (!children.some(c => ids.has(c))) out.add(id);
-  }
-  return out;
-}
-
-/** Unpublished L0 ids wanted at (x,z), nearest first: the 3x3 window around the player's cell, widened to all four
- *  quadrants of a published leaf parent so that parent can be swapped out whole. */
-export function wantedTiles(x: number, z: number, published: ReadonlySet<string>, leaves: ReadonlySet<string>): string[] {
-  const ci = Math.floor(x / VISUAL_L0), cj = Math.floor(z / VISUAL_L0);
-  const want = new Set<string>();
-  for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
-    if (published.has(l0(i, j))) continue;
-    want.add(l0(i, j));
-    const parent = `t1_${Math.floor(i / 2)}_${Math.floor(j / 2)}`;
-    if (!leaves.has(parent)) continue;
-    const pi = Math.floor(i / 2), pj = Math.floor(j / 2);
-    for (const di of [0, 1]) for (const dj of [0, 1]) want.add(l0(2 * pi + di, 2 * pj + dj));
-  }
-  return [...want].map(id => ({ id, d: distToL0(id, x, z) })).sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1))
-    .map(t => t.id);
-}
-
-/** The 16 collision cells (62.5 m) of L0 tile `id`. */
-export function cellsOf(id: string): string[] {
-  const t = parse(id);
-  if (!t || t.level !== 0) return [];
-  const per = VISUAL_L0 / COLLISION_TILE;
-  return Array.from({ length: per * per }, (_, k) => `c_${t.i * per + (k % per)}_${t.j * per + Math.floor(k / per)}`);
-}
 
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
 class DraftRejected extends Error {}
@@ -105,28 +58,6 @@ const gatewayDown = (status: number) => status === 502 || status === 503 || stat
 
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean }
-
-/** Unpublished L0 ids to build ahead of a player moving at (vx, vz) m/s: every cell within the next
- *  PREFETCH_SECONDS of travel along the heading plus a one-tile ring, nearest first. Empty below walking speed. */
-export function aheadTiles(x: number, z: number, vx: number, vz: number, published: ReadonlySet<string>): string[] {
-  const speed = Math.hypot(vx, vz);
-  if (speed < 1) return [];
-  const reach = speed * PREFETCH_SECONDS, steps = Math.ceil(reach / (VISUAL_L0 / 2));
-  const want = new Set<string>();
-  for (let k = 0; k <= steps; k++) {
-    const px = x + vx / speed * reach * k / steps, pz = z + vz / speed * reach * k / steps;
-    const ci = Math.floor(px / VISUAL_L0), cj = Math.floor(pz / VISUAL_L0);
-    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) if (!published.has(l0(i, j))) want.add(l0(i, j));
-  }
-  return [...want].map(id => ({ id, d: distToL0(id, x, z) })).sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1)).map(t => t.id);
-}
-
-/** A published leaf parent is hidden while every one of its quadrants is resident as a draft or swapped tile. */
-export function parentCovered(parent: string, resident: ReadonlySet<string>): boolean {
-  const t = parse(parent);
-  if (t?.level !== 1) return false;
-  return [0, 1].every(di => [0, 1].every(dj => resident.has(l0(2 * t.i + di, 2 * t.j + dj))));
-}
 
 interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
@@ -160,10 +91,10 @@ export interface CoarseHost {
   /** Decodes a draft .col in the physics worker (PhysicsClient.checkTile); rejects when the worker cannot use it. */
   checkCollision: (buffer: ArrayBuffer) => Promise<unknown>;
   /** After material styling and draft tint: register derived runtime geometry here. */
-  styled?: (model: THREE.Object3D) => void;
+  styled?: (model: THREE.Object3D) => void | Promise<void>;
   trackModel?: (model: THREE.Object3D, id: string) => void;
   untrackModel?: (model: THREE.Object3D, id: string) => void;
-  style?: (model: THREE.Object3D) => void;
+  style?: (model: THREE.Object3D) => void | Promise<void>;
   unstyle?: (model: THREE.Object3D) => void;
   fetch?: typeof fetch;
   loadModel?: (url: string) => Promise<THREE.Object3D>;
@@ -245,7 +176,7 @@ export class CoarseTiles {
 
   private gltfLoader() {
     const ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
-    const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+    const loader = new GLTFLoader().register(() => textureUploads(this.host.renderer).plugin()).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     return async (url: string) => (await loader.loadAsync(url)).scene;
   }
 
@@ -253,6 +184,21 @@ export class CoarseTiles {
   private wantedStarts(x: number, z: number) {
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.published, this.leaves)))];
   }
+  private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, draft: boolean) {
+    const state = entry.state;
+    let ready = false;
+    try {
+      await this.host.style?.(model);
+      if (this.entries.get(id) !== entry || entry.state !== state) return false;
+      if (draft) tintDraft(model, this.host.renderer);
+      await this.host.styled?.(model);
+      ready = this.entries.get(id) === entry && entry.state === state;
+      return ready;
+    } finally {
+      if (!ready) { this.host.unstyle?.(model); this.dispose(model); }
+    }
+  }
+
   /** Call every frame with the player position; work is throttled to once per second (`now` in ms). */
   update(x: number, z: number, now = performance.now()) {
     this.clock = now;
@@ -408,8 +354,7 @@ export class CoarseTiles {
       }));
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e || e.state !== 'draft') { this.dispose(model); return; }
-      this.host.style?.(model); tintDraft(model, this.host.renderer);
-      this.host.styled?.(model);
+      if (!await this.prepareModel(id, e, model, true)) return;
       this.host.scene.add(model);
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
@@ -460,9 +405,7 @@ export class CoarseTiles {
         .catch((err: Error) => { console.warn(`[coarse] ${id} streets: ${err.message}`); return null; }) : null;
       const model = await this.load(new URL(fragment.visual[id].url, base).href);
       if (this.entries.get(id) !== e) { this.dispose(model); return; } // dropped while loading
-      this.host.style?.(model);
-      tintDraft(model, this.host.renderer);
-      this.host.styled?.(model);
+      if (!await this.prepareModel(id, e, model, true)) return;
       this.host.scene.add(model);
       this.host.trackModel?.(model, id);
       e.model = model;
@@ -521,8 +464,7 @@ export class CoarseTiles {
         if (!visual || e.state === 'published') continue;
         const model = await this.load(new URL(visual.url, base).href);
         this.drop(e);
-        this.host.style?.(model);
-        this.host.styled?.(model);
+        if (!await this.prepareModel(id, e, model, false)) continue;
         this.host.scene.add(model);
         this.host.trackModel?.(model, id);
         e.model = model;

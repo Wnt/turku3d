@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import type Node from 'three/src/nodes/core/Node.js';
+import { modelTextures, textureUploads } from '../render/textureUploads';
 import type { PlayWorld } from '../play';
 import { VISUAL_RING_RADIUS } from './residency';
 import { worldLoad } from './loadProgress';
@@ -26,25 +26,6 @@ async function drainGpu(renderer: THREE.WebGPURenderer) {
       await frame();
     }
   } finally { gl.deleteSync(fence); }
-}
-
-/** Include TSL texture nodes as well as ordinary PBR map slots. Ground's array textures live in node graphs. */
-function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
-  const textures = new Set<THREE.Texture>();
-  scene.traverse(object => {
-    const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-      for (const value of Object.values(material)) {
-        if (value?.isTexture) textures.add(value);
-        else if (value?.isNode) (value as Node).traverse(node => {
-          const map = (node as Node & { value?: THREE.Texture }).value;
-          if (map?.isTexture) textures.add(map);
-        });
-      }
-    }
-  });
-  return textures;
 }
 
 /** The session has loaded actors/parked cars but has not enabled input or installed its animation loop yet. */
@@ -84,17 +65,17 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   const compiled = loading.begin('GPU texture upload and pipeline warmup');
   const textures = modelTextures(scene);
   let uploaded = 0;
-  for (const texture of textures) {
-    renderer.initTexture(texture);
+  await Promise.all([...textures].map(async texture => {
+    await textureUploads(renderer).enqueue(texture);
     worldLoad.update({ textures: { loaded: ++uploaded, pending: textures.size - uploaded } });
-    if (uploaded % 32 === 0) await frame();
-  }
+  }));
   const culled = new Map<THREE.Object3D, boolean>();
   scene.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
   const rotation = camera.quaternion.clone(), position = camera.position.clone();
   const offset = position.clone().sub(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
   try {
     await renderer.compileAsync(scene, camera);
+    await materials?.prepare(scene, scene, camera);
     for (const [object, value] of culled) object.frustumCulled = value;
     culled.clear();
     // Real draws warm the MRT, shadow, GTAO and temporal variants that compileAsync's default target cannot

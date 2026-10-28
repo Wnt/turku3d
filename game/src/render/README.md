@@ -39,7 +39,7 @@ These are permanent user quality settings (`?quality=low|medium|high`, default *
 | GTAO resolution / samples / blend | ½ / 4 / 0.22 | ½ / 8 / 0.28 | ¾ / 16 / 0.30 |
 | TRAA subpixel correction | off | on | on |
 | Bloom resolution / strength | ¼ / 0.035 | ¼ / 0.045 | ½ / 0.050 |
-| River reflection resolution | ¼ | ½ | ¾ |
+| River reflection resolution / updates per second | ¼ / 20 | ½ / 30 | ¾ / 60 |
 | Surface detail strength | 0.035 | 0.055 | 0.070 |
 | Grading saturation | 0.98 | 0.97 | 0.97 |
 
@@ -64,6 +64,17 @@ Only the replacement materials and their private resources are disposed on tile 
 `water`/`river` keys select a planar river material. A plane derived from the mesh's local vertex/normal follows its
 world transform. A non-recursive planar reflection, Fresnel response, sun highlight and two scrolling normal-map bands
 provide the surface. The small periodic normal map is generated locally; there is no asset fetch. QA freezes waves.
+Reflections render static terrain, buildings, structures and the sky on a dedicated layer, excluding actors,
+vegetation and small props. They use the default lighting context rather than sampling the main camera's GTAO.
+`MaterialStyler.prepare` serializes `compileAsync` work in each river's actual target and virtual-camera context;
+new published/draft models remain uncommitted to the scene until their final ground bindings, uploads and programs
+are ready. Published parse promises retain the existing REPLACE parent during preparation. Prepass, beauty and
+reflection use one-draw `compileAsync` calls with stable matching contexts; renderer state is restored before yielding.
+Startup prepares the complete 360° ring after the main compile. QA updates reflections every rendered frame.
+`GameRenderer` separates opaque/cutout shadow overrides and keeps their depth context stable across colour and
+reflection passes: alternating the shared override's alpha-test state otherwise invalidates all caster keys per draw.
+Normal source-material and dynamic shader invalidation checks remain active.
+
 Water geometry must be planar and have upward normals; vertical quay faces use their stone material instead.
 The fixture tests render all material paths, water and the ID pass on both backends at all three tiers.
 
@@ -78,10 +89,26 @@ Released models get their source materials back. Rationale and the edge marker: 
 
 **SSE is measured in drawing-buffer pixels**, never CSS pixels. `VisualTiles` passes
 `renderer.getDrawingBufferSize()` to the tile renderer after every resize/update. The threshold remains 8 output pixels
-on both backends. Play DPR is `min(devicePixelRatio, 2, sqrt(2560*1440/(CSS width*CSS height)))`, bounding fill rate to
-1440p. For example, a 1280×720 Retina viewport renders at 2560×1440; a 2560×1440 Retina viewport also renders at
-2560×1440. QA always has DPR 1 and exactly the requested viewport dimensions, even above 1440p. Camera projection
-and `__qaProject` remain in CSS pixels. This rule avoids requesting finer LOD without actually rendering more pixels.
+on both backends. Play starts at `min(devicePixelRatio, 2, sqrt(2560*1440/(CSS width*CSS height)))`.
+`AdaptiveResolution` targets 60 Hz from measured frame intervals: a 30-frame window lowers scale by 0.1 when
+median delivery exceeds 19 ms or over 20% of frames miss 20 ms. Changes are at least one second apart.
+Scale bottoms out at 0.5 of the initial pixel ratio (one quarter of its pixels). Eight seconds of healthy
+16.7 ms delivery permits a cautious 0.05 upward probe, up to the initial ceiling. Isolated intervals over
+80 ms and hidden-tab gaps reset the sample window. The selected scale is available at `__game.resolution.scale`.
+Material detail, texture resolution, shadows and the 360° residency ring retain their quality settings.
+QA always has DPR 1 and exactly the requested viewport dimensions, even above 1440p; adaptive resolution is
+play-only. Camera projection and `__qaProject` remain in CSS pixels.
+
+## Streaming GPU uploads
+
+`textureUploads.ts` shares one queue per renderer across published tiles, drafts, actors, ground bindings and
+startup warmup. A glTF `afterRoot` hook queues maps after the loader finalizes colour space and samplers and
+holds model publication until uploads complete. Ground keeps its source material until its replacement maps
+are resident. Shared texture/version pairs upload once. Pending jobs run largest first with a 2 MiB / 2 ms
+budget per animation frame; three.js uploads a texture atomically, so a texture larger than the budget runs
+alone and may exceed it. Shared ground-library sampler settings only invalidate arrays when they actually change; loading another tile
+does not mark the same resident arrays for upload again. No map resolution or mip chain is discarded. Startup still warms all six directions.
+The normal/beauty/shadow/reflection passes share one scene-matrix update per rendered frame.
 
 ## Instrumentation
 
@@ -98,8 +125,9 @@ and `__qaProject` remain in CSS pixels. This rule avoids requesting finer LOD wi
 - `gpuStatus` says `timestamp-query`, `unsupported` or the timing error; `gpuSkipped` counts unavailable/disjoint slots.
 - `drawCalls` and `triangles` count **all** passes, including shadows, prepass, reflections and fullscreen quads.
   Tile meshes use their own bounds for frustum culling. Their non-ground geometry is
-  merged into one shadow caster per loaded tile; ground does not cast shadows.
-  Colour meshes and ID-pass object ranges remain separate. The shadow mesh is built
+  merged into 62.5 m shadow chunks per loaded tile; ground does not cast shadows.
+  Each chunk retains whole source triangles, compact buffers and complete triangle bounds for cascade culling.
+  Colour meshes and ID-pass object ranges remain separate. Shadow geometry is built
   at load time and disposed with its tile.
   They are captured inside the animation callback before three.js resets its counters. Resident triangles remain a
   separate streaming statistic. The HUD updates four times per second to keep percentile sorting out of the hot loop.
@@ -180,3 +208,11 @@ material styler counts tile references and transfers the target when its origina
 unloads, then disposes it after the last user. This prevents each tile from rendering the
 same river reflection and shadow cascades again. Assembler material batches retain source
 object index ranges; the ID pass restores those ranges for per-facade QA colors.
+
+Air reproduction and validation use the capture-only [renderer scenario](../../../tools/perf/air-scenarios/renderer.md).
+
+
+`make render-perf-dev` runs the same four acceptance specs and unchanged backend budgets against Vite dev,
+using the normal browser slot. It matches dev-served Air captures without requesting a production build slot.
+`make render-perf` remains the production-build command. Both write per-commit measurements under
+`$TURKU3D_WORK/reports/perf/`.

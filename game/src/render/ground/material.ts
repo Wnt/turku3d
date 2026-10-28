@@ -87,8 +87,12 @@ function stochastic(map: THREE.Texture, lattice: ReturnType<typeof stencil>, lay
 export function createGroundMaterial(spec: GroundTileSpec, maps: GroundTileTextures, library: GroundLibrary) {
   validateGroundSpec(spec);
   for (const map of Object.values(library)) {
+    const minFilter = map.mipmaps.length > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+    if (map.wrapS === THREE.RepeatWrapping && map.wrapT === THREE.RepeatWrapping
+      && map.minFilter === minFilter && map.magFilter === THREE.LinearFilter && map.anisotropy === 4) continue;
+    // The library is shared: unchanged samplers must not re-upload all arrays for every new ground tile.
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.minFilter = map.mipmaps.length > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+    map.minFilter = minFilter;
     map.magFilter = THREE.LinearFilter;
     map.anisotropy = 4;
     map.needsUpdate = true;
