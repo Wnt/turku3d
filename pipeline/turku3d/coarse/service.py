@@ -148,6 +148,8 @@ class Builder:
         inputs=None,
         on_missing=None,
         input_key=None,
+        structural_input_key=None,
+        enrichment_inputs=None,
     ):
         """``inputs(tile)`` lists the unit keys a tile still needs (raises NoCoverage outside the
         sources); ``on_missing(units)`` hands them to the prefetcher. Without ``inputs`` every
@@ -156,8 +158,10 @@ class Builder:
         ``run(tile, out)`` builds one tile and returns a CompletedProcess-like result (exit code 0,
         PENDING_EXIT or another failure, stdout, stderr); default: persistent ``Workers``."""
         self.input_key = input_key or (lambda tile: None)
+        self.structural_input_key = structural_input_key
         self.root = root
         self.inputs = inputs or (lambda tile: [])
+        self.enrichment_inputs = enrichment_inputs or self.inputs
         self.on_missing = on_missing or (lambda units: None)
         # Re-hashed per check, so a code edit while the service runs rebuilds each tile once.
         self.code = (lambda: code) if code else current_code
@@ -244,7 +248,8 @@ class Builder:
         if "building_keys" in m and m.get("facade_params") != parameter_hash(m["building_keys"]):
             return False
         try:
-            now = self.input_key(tile)
+            key = (self.structural_input_key or self.input_key) if m.get("pass_kind") == "first" else self.input_key
+            now = key(tile)
         except NoCoverage:
             return True
         return now is None or m.get("inputs") == now
@@ -299,6 +304,9 @@ class Builder:
             # A structural job releases its worker before any visual packaging.
             # Visual polling must enqueue enrichment, never repeat the first pass.
             if self.two_pass and collision_current(self, tile) is not None:
+                if tile in self.pending and (missing := self.enrichment_inputs(tile)):
+                    self.pending[tile] = (missing, distance)
+                    return {"state": "pending-data", "missing": missing}
                 self.upgrade_queue.add(tile)
                 self.upgrade_requested[tile] = time.time()
                 self.pending.pop(tile, None)
@@ -727,13 +735,15 @@ def serve(
         prefetcher = Prefetcher(sources, root=root)
 
         def inputs(tile: str) -> list[str]:
-            return [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))]
+            return [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile), first_pass=True)]
 
         builder = Builder(
             root,
             inputs=inputs,
             on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
             input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
+            structural_input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile), first_pass=True),
+            enrichment_inputs=lambda tile: [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))],
         )
         prefetcher.on_landed = lambda unit: builder.landed()
     server = Server((host, port), handler(builder, prefetcher))

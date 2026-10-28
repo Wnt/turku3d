@@ -793,3 +793,4 @@ def test_drive_replicates_the_hooks_window_and_ahead_cells_and_summarises():
     s = D.summary(tiles, 27.0, 2700.0, prefetch)
     assert (s["tiles"], s["built"], s["under_10_s"], s["max_s"]) == (3, 2, 2, 1.5)
     assert s["mb_per_km"] == 2.0 and s["units"] == {"lidar": 2, "wfs": 1}
+

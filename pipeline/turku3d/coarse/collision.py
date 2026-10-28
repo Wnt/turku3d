@@ -20,7 +20,12 @@ def current(builder, tile):
             code = code or builder.code()
             if value.get("code") != code:
                 continue
-            key = builder.input_key(tile)
+            key_for = (
+                (getattr(builder, "structural_input_key", None) or builder.input_key)
+                if value.get("pass_kind") == "first"
+                else builder.input_key
+            )
+            key = key_for(tile)
             if key is not None and value.get("inputs") != key:
                 continue
             cells = {c.id for c in C.VisualTile.parse(tile).collision_tiles()}
