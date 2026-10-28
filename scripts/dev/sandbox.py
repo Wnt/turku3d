@@ -529,6 +529,9 @@ def remove(name, force=False):
             raise ValueError(f"live processes in {name}: {live}; stop them before removal")
         records = registry()
         size = disk_bytes(home)
+        cache = home / "work/cache"
+        cached = disk_bytes(cache) if cache.is_dir() else 0
+        print(f"{name}: removing sandbox cache {format_bytes(cached)} ({cached} bytes)")
         git("worktree", "remove", *(["--force"] if force else []), str(repo))
         git("branch", "-D", f"wt/{name}")
         shutil.rmtree(home)
@@ -541,6 +544,15 @@ def disk_bytes(path):
     """Allocated bytes, with hard links counted once within this directory."""
     result = run("du", "-sk", str(path))
     return int(result.stdout.split()[0]) * 1024
+
+
+def cache_warning(home, limit=5 * 1024**3):
+    """Allocated sandbox-cache size, with a warning once it reaches 5 GiB."""
+    cache = home / "work/cache"
+    size = disk_bytes(cache) if cache.is_dir() else 0
+    return f"cache {format_bytes(size)}" + (
+        "; WARNING: sandbox cache >= 5 GiB" if size >= limit else ""
+    )
 
 
 def format_bytes(size):
@@ -581,12 +593,9 @@ def sandbox_rows(measure=True):
 
 def du():
     for name, size, status in sandbox_rows():
-        cache = root() / name / "work/cache"
-        cache_size = disk_bytes(cache) if cache.exists() else 0
-        warning = " BUG: sandbox cache > 5 GiB" if cache_size > 5 * 1024**3 else ""
         print(
             f"{name:24} {format_bytes(size) if size is not None else '-':>12} "
-            f"{status} cache={format_bytes(cache_size)}{warning}"
+            f"{status} {cache_warning(root() / name)}"
         )
     shared = (
         Path(os.environ.get("TURKU3D_DATA", str(Path.home() / "turku3d/data")))

@@ -5,7 +5,7 @@ from PIL import Image
 from turkutex.streetview.panos import PanoCache
 
 
-def test_workers_share_exact_read_only_decoded_pixels(tmp_path, monkeypatch):
+def test_workers_decode_exact_read_only_pixels_without_disk_growth(tmp_path, monkeypatch):
     source = tmp_path / "source.jpg"
     rng = np.random.default_rng(41)
     Image.fromarray(rng.integers(0, 256, (64, 128, 3), dtype=np.uint8)).save(source)
@@ -22,11 +22,11 @@ def test_workers_share_exact_read_only_decoded_pixels(tmp_path, monkeypatch):
     cache = PanoCache(tmp_path / "cache")
     with cf.ThreadPoolExecutor(4) as workers:
         images = list(workers.map(cache.decoded_image, [source] * 8))
-    assert len(calls) == 1
+    assert len(calls) == 8
     for image in images:
         np.testing.assert_array_equal(image, expected)
-        assert isinstance(image, np.memmap) and not image.flags.writeable
-    assert len(list((tmp_path / "cache/decoded").glob("*.npy"))) == 1
+        assert image.dtype == np.uint8 and not image.flags.writeable
+    assert not (tmp_path / "cache/decoded").exists()
     assert not list((tmp_path / "cache/decoded").glob("*.tmp"))
 
 
@@ -41,7 +41,7 @@ def test_decoded_cache_invalidates_changed_source(tmp_path):
     np.testing.assert_array_equal(second[0, 0], [0, 0, 255])
 
 
-def test_default_decoded_cache_is_shared_and_content_addressed(tmp_path, monkeypatch):
+def test_default_decode_does_not_create_shared_or_sandbox_arrays(tmp_path, monkeypatch):
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "shared"))
     source = tmp_path / "source.jpg"
     Image.new("RGB", (32, 16), "blue").save(source)
@@ -52,4 +52,4 @@ def test_default_decoded_cache_is_shared_and_content_addressed(tmp_path, monkeyp
         image = PanoCache().decoded_image(image_path)
         assert image.shape == (16, 32, 3)
         assert not (tmp_path / name / "cache/streetlevel-decoded").exists()
-    assert len(list((tmp_path / "shared/cache/streetlevel/decoded").glob("*.npy"))) == 1
+    assert not (tmp_path / "shared/cache/streetlevel/decoded").exists()

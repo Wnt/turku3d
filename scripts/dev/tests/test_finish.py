@@ -26,6 +26,18 @@ class FinishTests(Fixture):
     def as_task(self, name):
         return {**self.env, "TURKU3D_SANDBOX": name}
 
+    def test_finish_removes_cache_unless_sandbox_is_kept(self):
+        repo = self.adopt("cached")
+        cache = repo.parent / "work/cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "payload").write_bytes(b"synthetic cached bytes")
+        self.finish("cached", "--keep-sandbox")
+        self.assertTrue((cache / "payload").is_file())
+        output = self.finish("cached").stdout
+        self.assertIn("removing sandbox cache", output)
+        self.assertFalse(cache.exists())
+        self.assertFalse(repo.parent.exists())
+
     def test_conflict_stops_with_the_files_and_changes_nothing(self):
         repo = self.adopt()
         self.commit(repo, "shared.md")

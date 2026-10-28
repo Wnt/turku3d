@@ -32,11 +32,12 @@ than the native geo environment; local pinned model preparation is in [CV.md](CV
 
 `streetlevel==0.12.13` is installed with `--no-deps` plus `requirements-streetlevel.txt`; unsupported
 `pyexiv2` is stubbed only in the Street View adapter. DeepBump uses ONNX, not torch.
-Decoded panorama pixels are reused through read-only memory maps in
-`$TURKU3D_DATA/cache/streetlevel/decoded`; the shared compressed panorama cache
-remains the source of truth.
-The decoded files are keyed by compressed image SHA-256, so repeated facade runs in separate
-sandboxes map the same panorama without another 384 MiB array per 16K image.
+Panorama pixels are decoded on demand from the shared compressed sources. No decoded `.npy`
+files are written: these uint8 arrays used nine times the disk space of the compressed images.
+The shared cache evicts legacy `decoded/` arrays first when enforcing its 60 GiB limit.
+Explicit caches under a sandbox's work root default to 5 GiB and use the same active-reader
+safe eviction; `TURKU3D_STREETLEVEL_CACHE_GB` overrides either limit.
+Readers pin only the keys they consume; eviction can reclaim other keys during facade work.
 
 ## AOI workflow
 

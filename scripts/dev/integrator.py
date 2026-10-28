@@ -464,6 +464,7 @@ def integrate(run, base, start, end):
             detail = f"live changed again during the rebuild (now {live.name}); next run publishes"
             return record(run, {**row, "result": "failed", "failure": {"detail": detail}})
         run.previous, run.live_parts = live, landing_class.release_parts(live)
+        status(run.lane, previous_release=str(live))
         row["rebuilt_on"] = live.name
         report, failure = run.build(start, end)
         if report is None:
@@ -537,7 +538,7 @@ def run_once(published, main_repo=s.REPO, name=NAME, full=False):
     landing = batch_class(published, start, end, main_repo)
     landing = {**landing, "class": "code"} if full else landing
     run = Run(published, main_repo, name, end, landing, full=full)
-    begin(NAME, start, end, landing)
+    begin(NAME, start, end, landing, previous_release=str(run.previous))
     base = {"from": start, "to": end, **landing, "full_suite": full}
     if landing["class"] == "inert":
         return repoint(run, base, start, end)
@@ -585,7 +586,7 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
     run = Run(published, main_repo, name, start, landing, lane=DATA_NAME)
     run.chrome = chrome.data_plan(published, main_repo)
     key = data_key(published)
-    begin(DATA_NAME, start, start, landing, data_key=key)
+    begin(DATA_NAME, start, start, landing, data_key=key, previous_release=str(run.previous))
     base = {"lane": "data", "from": start, "to": start, "data_key": key, **landing}
     if refresh_stale:
         base["refresh_stale"] = stale
