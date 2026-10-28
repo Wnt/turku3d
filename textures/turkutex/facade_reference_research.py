@@ -90,7 +90,7 @@ def run(args):
                 args.output / "refs",
                 tuple(args.sources.split(",")),
                 3,
-                1,
+                args.max_views,
             )
         )
         fast.write_json(args.output / "errors.json", errors)
@@ -135,6 +135,7 @@ def main():
     parser.add_argument("--labels", type=Path)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--sources", default="lookaround,google,mapillary")
+    parser.add_argument("--max-views", type=int, default=2)
     args = parser.parse_args()
     for name in ("inventory", "before", "output", "labels"):
         if getattr(args, name) is not None:

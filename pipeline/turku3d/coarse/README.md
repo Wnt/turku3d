@@ -224,7 +224,7 @@ upper bay repeatedly and the ground-floor row only at the base on both renderer 
 walls without an approved generated, derived or fast map use the same kit. Pure mapping checks:
 `PYTHONPATH=pipeline:textures .venv/bin/python -m pytest pipeline/tests/test_facade_kit.py -q`.
 
-The service runs one persistent low-priority facade child using the repository's clean
+The service keeps one low-priority hybrid child warm using the repository's clean
 `.venv/bin/python` (Torch and the native geo environment load conflicting OpenMP runtimes).
 Run `scripts/dev/wt sync-env` to install the inference dependencies. Existing pinned local
 model caches are prepared as described in [textures/CV.md](../../../textures/CV.md).
@@ -237,7 +237,9 @@ register. Local inference has no quota cap or model network calls and keeps its 
 Reference discovery can still use the existing panorama providers. Neither discovery nor
 inference runs inside draft generation, so a draft never waits for these operations.
 
-The same child alternates local jobs with Astra refinement. Astra prioritizes the highest
+The queue alternates local jobs with Astra refinement in a fresh process so the Codex CLI
+does not inherit the Torch-loaded worker. It checks weekly usage before admitting each call.
+Astra prioritizes the highest
 viewing-exposure score across eligible ring/cone buildings and selects the highest-scoring
 usable wall within that building. Unseen walls fall back to the widest usable wall. The
 background lane refreshes the last 24 hours of current/previous-day session observations at
@@ -247,7 +249,7 @@ weight function. Only Astra attempts consume the 12/hour budget and pause
 at 60% quota (unknown quota pauses Astra only). Hybrid records stay eligible for Astra;
 Astra records, including legacy records without an engine tag, are never replaced by hybrid.
 Geometry-only candidates and reference pixels stay under the sandbox coarse root. Validated
-parameter JSON goes to `$TURKU3D_DATA/facade-params/<sha256(building-key)>.json`, using the
+parameter JSON goes to `$TURKU3D_WORK/facade-params/<sha256(building-key)>.json`, using the
 permanent register id when available. `turku3d.facade_kit.write_description()` is the atomic
 writer. Rows retain `engine`, `field_sources` (register/hybrid/astra) and raw hybrid `fields`
 (state/value/reason); raw count predictions are evidence only and are never accepted by this
@@ -259,6 +261,18 @@ and actual Astra invocation attempts are appended to `<coarse root>/.facade-prog
 startup; `actual_calls_last_hour` excludes cache hits and quota pauses. Interrupted jobs with
 unknown call outcomes are counted separately as `unknown_call_jobs`. The existing 12/hour
 admission budget remains a ceiling, not a measured call rate. Published assembly reads the same parameters.
+
+Measure the real local lane without building tiles with:
+
+```sh
+PYTHONPATH=pipeline:textures .venv/bin/python -m turkutex.facade_queue_benchmark \
+  --inventory "$FACADES" --refs "$REFS" \
+  --output "$TURKU3D_WORK/reports/queue-benchmark" --buildings 3 --astra-calls 1
+```
+
+The benchmark writes only inside its output directory;
+`aggregate.json` reports observed buildings per minute, completed Astra calls in the trailing
+hour, successful Astra upgrades and the configured hourly admission cap.
 
 
 Resolved OSM crossings use `bridge_details.py` for type-dependent deck bodies, edge beams,
