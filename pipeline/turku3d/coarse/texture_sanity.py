@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=("before", "after"))
     parser.add_argument("--baseline-ref")
+    parser.add_argument("--tiles", nargs="+", default=TILES)
     args = parser.parse_args()
     root = C.work_root() / "reports/texture-sanity" / args.phase
     root.mkdir(parents=True, exist_ok=True)
@@ -34,14 +35,15 @@ def main():
         turku3d.coarse.__path__ = [str(target)]
     from turku3d.coarse.build import build
 
-    summary = {}
-    for name in TILES:
+    summary_path = root / "build-summary.json"
+    summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
+    for name in args.tiles:
         manifest = build(name, root / name)
         summary[name] = {k: manifest[k] for k in ("visual", "seconds", "buildings")}
-        for key in ("ground_surfaces", "marking_triangles"):
+        for key in ("ground_surfaces", "marking_triangles", "kerb_triangles"):
             if key in manifest:
                 summary[name][key] = manifest[key]
-        (root / "build-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        summary_path.write_text(json.dumps(summary, indent=2) + "\n")
         print(name, manifest["visual"][name]["brotli_bytes"], flush=True)
 
 

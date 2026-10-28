@@ -32,6 +32,7 @@ BINDINGS = {
     "bridge_deck": 1,
     "crossing": 1,
     "sidewalk": 4,
+    "cobblestone": 3,
     "paving_slab": 4,
     "grass": 5,
     "gravel": 6,
@@ -72,7 +73,7 @@ def osm_surfaces(tile, path):
             continue
         if tags.get("building") or tags.get("layer", "0") not in ("0", ""):
             continue
-        key = SURFACES.get(tags.get("surface"))
+        key = "quay" if tags.get("man_made") == "quay" else SURFACES.get(tags.get("surface"))
         highway = tags.get("highway")
         if not key and (
             tags.get("landuse") in ("grass", "meadow", "forest")
@@ -92,6 +93,14 @@ def osm_surfaces(tile, path):
         geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
         if not geom.intersects(window):
             continue
+        if (
+            geom.geom_type == "LineString"
+            and geom.is_ring
+            and (not highway or tags.get("area") == "yes")
+        ):
+            geom = shapely.make_valid(shapely.Polygon(geom))
+        if geom.geom_type in ("LineString", "MultiLineString") and key == "quay":
+            geom = geom.buffer(0.45, cap_style="flat")
         if geom.geom_type in ("LineString", "MultiLineString") and highway:
             default = (
                 2.5
@@ -247,7 +256,7 @@ def library(root: Path, base: Path, channels):
                             "--layer",
                             str(channel),
                             "--level",
-                            "1",
+                            "1" if slot == "albedo" else "2",
                             str(source / f"{slot}.array.ktx2"),
                             str(output),
                         ],
@@ -300,6 +309,8 @@ def mapped_paint(tile, path):
         if tags.get("crossing:markings") == "no" or tags.get("crossing") == "unmarked":
             continue
         if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") != "no":
+            continue
+        if tags.get("layer", "0") not in ("0", ""):
             continue
         geom = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
         if geom.geom_type != "LineString" or not geom.intersects(window):

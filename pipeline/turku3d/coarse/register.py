@@ -1,5 +1,6 @@
 """Optional cached register enrichment, indexed once per prepared tile input."""
 
+import colorsys
 import re
 
 MATERIALS = {
@@ -109,8 +110,19 @@ def read_osm(tile, path):
         )
         d["material_class"] = classes.get(tags.get("building:material"))
         try:
-            rgb = ImageColor.getrgb(tags.get("building:colour", ""))
+            colour = tags.get("building:colour", "")
+            rgb = ImageColor.getrgb(colour)
             if len(rgb) == 3:
+                # Named OSM colours describe a paint family, not a saturated screen primary.
+                # Explicit hexadecimal measurements retain their original value.
+                if not colour.startswith("#"):
+                    hue, lightness, saturation = colorsys.rgb_to_hls(*(v / 255 for v in rgb))
+                    rgb = tuple(
+                        round(v * 255)
+                        for v in colorsys.hls_to_rgb(
+                            hue, min(0.85, max(0.25, lightness)), min(0.45, saturation)
+                        )
+                    )
                 d["wall_colour"] = "#{:02x}{:02x}{:02x}".format(*rgb)
         except ValueError:
             pass

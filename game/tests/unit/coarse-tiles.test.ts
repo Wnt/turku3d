@@ -120,7 +120,9 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
   const draft = coarse.entries.get('t0_2_0')!.model!;
   expect(draft.parent).toBe(scene);
   const material = (draft.children[0] as THREE.Mesh).material as THREE.MeshStandardNodeMaterial;
-  expect(material.colorNode).toBeTruthy();
+  // Draft status no longer injects a desaturation or blue-cast colour node.
+  expect(material.colorNode).toBeNull();
+  expect(material.color.getHex()).toBe(0xffffff);
   expect(material.polygonOffset).toBe(true);
   // All four quadrants of t1_1_0 are drafts now (the fake builds every tile), so the published leaf is hidden.
   expect(parent.visible).toBe(false);

@@ -46,6 +46,18 @@ def test_metric_uvs_do_not_restart_on_tile_edges():
     assert np.array_equal(a.uvs, b.uvs)
 
 
+def test_mapped_setts_keep_their_stone_material():
+    p = np.array([[0.0, 0, 0], [0, 0, 10], [10, 0, 0]])
+    mesh = visuals(
+        C.VisualTile(0, 0, 0),
+        p,
+        np.array([[0, 1, 2]], np.uint32),
+        np.array([mat_id("cobblestone")]),
+        np.array([True]),
+    )[0]
+    assert mesh.extras["material_key"] == "draft_cobblestone"
+
+
 def test_register_missing_fields_do_not_invent_recent_construction():
     assert attributes({}) == dict(material_class=None, levels=None, era="unknown")
     assert attributes(
@@ -139,3 +151,15 @@ def test_mapped_kerbs_leave_water_buildings_and_paint_clear():
     assert not shapely.contains_xy(water[0], centers[:, 0], centers[:, 2]).any()
     assert not shapely.contains_xy(building.footprint, centers[:, 0], centers[:, 2]).any()
     assert np.isclose(mesh.positions[:, 1].max(), 2.12)
+
+
+def test_kerb_width_and_profile_continue_across_visual_tile_edge():
+    from turku3d.coarse.kerbs import produce
+
+    line = shapely.LineString([(240, 30), (260, 43)])
+    edges = []
+    for i in (0, 1):
+        mesh = produce(C.VisualTile(0, i, 0), line, lambda x, z: x * 0.02 + z * 0.03, [], [], [])[0]
+        edges.append(np.unique(mesh.positions[mesh.positions[:, 0] == 250], axis=0))
+    assert np.array_equal(*edges)
+    assert np.ptp(edges[0][:, 2]) > 0.18

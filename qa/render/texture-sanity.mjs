@@ -13,7 +13,7 @@ const full = process.argv.includes('--full');
 if (!['before', 'after'].includes(phase)) throw new Error('usage: node qa/render/texture-sanity.mjs before|after');
 const root = path.join(workRoot, 'reports/texture-sanity', phase);
 const region = full ? 'full' : 'textures';
-const tiles = full ? ['t0_0_0', 't0_0_1'] : fs.readdirSync(root).filter(t => /^t0_/.test(t) && fs.existsSync(path.join(root, t, 'manifest.json')));
+const tiles = full ? ['t0_0_0', 't0_0_1', 't0_1_0'] : fs.readdirSync(root).filter(t => /^t0_/.test(t) && fs.existsSync(path.join(root, t, 'manifest.json')));
 const sceneFile = 'game/__texture-sanity.js', pageFile = 'game/__texture-sanity.html';
 const link = 'game/public/__texture-sanity';
 const views = JSON.parse(fs.readFileSync(path.join(workRoot, 'reports/texture-sanity/views.json'), 'utf8')).filter(v => tiles.includes(v.tile));
@@ -67,7 +67,11 @@ try {
     fs.writeFileSync(materialSnapshot, execFileSync('git', ['show', `${baseline}:game/src/render/ground/material.ts`]));
     fs.writeFileSync(bindingSnapshot, fs.readFileSync('game/src/render/ground/binding.ts', 'utf8').replace("from './material'", "from './__texture-before-material'"));
   }
-  if (full) fs.symlinkSync(fs.realpathSync(path.join(process.env.TURKU3D_DATA, 'live/tiles')), fullLink);
+  if (full) {
+    const frozen = path.join(workRoot, 'reports/texture-sanity/full-source.json');
+    if (!fs.existsSync(frozen)) fs.writeFileSync(frozen, JSON.stringify({ root: fs.realpathSync(path.join(process.env.TURKU3D_DATA, 'live/tiles')) }));
+    fs.symlinkSync(JSON.parse(fs.readFileSync(frozen, 'utf8')).root, fullLink);
+  }
   fs.writeFileSync(sceneFile, source, { flag: 'wx' });
   fs.writeFileSync(pageFile, '<link rel="icon" href="data:,"><script type="module" src="/__texture-sanity.js"></script>', { flag: 'wx' });
   fs.symlinkSync(root, link);

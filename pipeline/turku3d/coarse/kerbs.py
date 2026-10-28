@@ -22,6 +22,12 @@ def prepare(tile, path):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("barrier") != "kerb":
             continue
+        if (
+            tags.get("bridge", "no") != "no"
+            or tags.get("tunnel", "no") != "no"
+            or tags.get("layer", "0") not in ("0", "")
+        ):
+            continue
         geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
         if not geom.intersects(window):
             continue
@@ -33,10 +39,45 @@ def prepare(tile, path):
         if geom.geom_type in ("LineString", "MultiLineString"):
             lines.append(geom)
     # OSM closed ways also occur as area records: union prevents duplicate stones/colliders.
-    linework = shapely.union_all(lines).intersection(window)
+    linework = shapely.union_all(lines)
     if lowered:
         linework = linework.difference(shapely.union_all(lowered))
     return linework
+
+
+def height_sampler(tile, heights, root, sources):
+    """Use the owning tile's measured grid on both sides of a visual-tile seam."""
+    from turku3d import config as C
+
+    from .inputs import _ABSENT, CELLS, _entry, _load, _prepare_one, _save
+
+    grids = {tile.id: heights}
+
+    def sample(x, z):
+        owner = C.VisualTile.at(x, z)
+        if owner.id not in grids:
+            paths, missing = sources.lidar_paths(owner)
+            if missing:
+                raise ValueError(f"Kerb seam needs ground inputs for {owner.id}")
+            path, key = _entry(root, owner, "ground", paths)
+            data = _load(path, key)
+            if data is _ABSENT:
+                data = _prepare_one(owner, "ground", paths)
+                _save(path, key, data)
+            grids[owner.id] = data["heights"]
+        grid = grids[owner.id]
+        u, v = (
+            (x - owner.origin[0]) / owner.size * CELLS,
+            (z - owner.origin[2]) / owner.size * CELLS,
+        )
+        i, j = min(int(u), CELLS - 1), min(int(v), CELLS - 1)
+        fu, fv = u - i, v - j
+        return float(
+            (grid[j, i] * (1 - fu) + grid[j, i + 1] * fu) * (1 - fv)
+            + (grid[j + 1, i] * (1 - fu) + grid[j + 1, i + 1] * fu) * fv
+        )
+
+    return sample
 
 
 def produce(tile, linework, height_at, water, buildings, markings):
@@ -45,7 +86,8 @@ def produce(tile, linework, height_at, water, buildings, markings):
     blocked = shapely.union_all(
         [*water, *(b.footprint for b in buildings), *(p.buffer(0.3) for p in markings)]
     )
-    clipped = linework.difference(blocked).intersection(shapely.box(*tile.bbox.as_tuple()))
+    clipped = linework.difference(blocked)
+    window = shapely.box(*tile.bbox.buffered(0.2).as_tuple())
     faces = Faces()
     for line in getattr(clipped, "geoms", [clipped]):
         if line.geom_type != "LineString":
@@ -63,6 +105,8 @@ def produce(tile, linework, height_at, water, buildings, markings):
                 strict=True,
             ):
                 p, q = a + direction * low, a + direction * high
+                if not shapely.LineString([p, q]).intersects(window):
+                    continue
                 hp, hq = height_at(*p), height_at(*q)
                 # Mapped kerb semantics, with an explicitly unmeasured 12 cm raised profile.
                 corners = np.array(

@@ -1,15 +1,14 @@
 """Coarse 250 m tile in the published tile format, built in seconds from the fast sources.
 
-Ground is a regular TIN with 250/128 m (~2 m) spacing interpolated from the city's ``maanpinta``
-ground key points and textured with one true-ortho image. Buildings are CityGML LOD2 footprints
-extruded to their mean roof height, walls with the library render material and roofs with the
-same ortho. Street-area polygons only set collision material classes; water polygons become the
-water sensor over a synthetic bed and a visible water surface (``material_key`` water) at the level.
+Ground is a regular TIN with 250/128 m (~2 m) spacing interpolated from city ground key points.
+Own-source surface polygons select repeating PBR materials; exact visual boundary cuts preserve
+that terrain plane. Orthophoto supplies fallback vegetation classification and roof imagery only.
+Water polygons become a sensor over a synthetic bed and a separate visible water surface.
 OSM bridges become separate drivable slabs with clear underpasses and ground-blended approaches;
 without OSM, street-area water bridges retain the abutment lift (``bridge_decks``).
 OSM ``natural=tree`` points become GPU-instanced
 vegetation prototypes (unmeasured, 10 m unless tagged) with trunk cylinders in the collision. The
-tile has no curbs, stairs, most structures, unique facade maps or LOD parents: the full pipeline
+tile has mapped kerbs/paint but no surveyed curb profiles, stairs, unique facade maps or LOD parents: the full pipeline
 replaces it when the tile is published.
 """
 
@@ -41,6 +40,7 @@ from turku3d.package.gltf import GlbMesh
 
 from . import bridges, fences, kerbs, surfaces
 from .inputs import CELLS, Building, Inputs, gather
+from .sources import Sources
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
@@ -492,7 +492,12 @@ def build(
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
     surface_pos, surface_idx, surface_ids, surface_normals = surfaces.split_boundaries(
-        grid_pos, grid_idx, materials, ~wet & tunnels.keep, [*inputs.surfaces, *inputs.streets]
+        grid_pos,
+        grid_idx,
+        materials,
+        ~wet & tunnels.keep,
+        [*inputs.surfaces, *inputs.streets],
+        surfaces.classify(centroids, inputs.ortho, tile, []),
     )
     ground_meshes = surfaces.visuals(
         tile,
@@ -515,7 +520,7 @@ def build(
     kerb_meshes = kerbs.produce(
         tile,
         inputs.kerbs,
-        lambda x, z: grid_height(tile, grid_pos, x, z),
+        kerbs.height_sampler(tile, inputs.heights, out.parent, sources or Sources()),
         water,
         blds,
         inputs.markings,
