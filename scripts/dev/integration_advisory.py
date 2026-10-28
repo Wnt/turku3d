@@ -5,6 +5,7 @@ import subprocess
 
 import advisory
 import integration_chrome as chrome
+import integration_reference
 import pages
 import sandbox as s
 
@@ -23,6 +24,9 @@ def finish(run, row, report, work, release, known, *, environment, registry, rec
         return s.git("rev-parse", "main", cwd=run.main_repo) != head or (
             run.lane == "integration" and head != run.end
         )
+
+    # Private reference jobs have their own local queue and inbox-only reporting.
+    integration_reference.queue(run, row, work, env)
 
     log = registry() / f"integration-{run.id}-advisory.log"
     completed = False

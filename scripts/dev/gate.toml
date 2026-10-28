@@ -444,5 +444,5 @@ commands = [["{python}", "scripts/dev/tests/run.py", "test_disk_retention.py"]]
 [[stages]]
 name = "draft-reference-score-unit"
 kind = "command"
-triggers = ["scripts/dev/draft_reference_score.py", "scripts/dev/tests/test_draft_reference_score.py", "mk/draft-reference.mk"]
+triggers = ["scripts/dev/integration_reference.py", "scripts/dev/integration_advisory.py", "scripts/dev/draft_reference_score.py", "scripts/dev/tests/test_draft_reference_score.py", "mk/draft-reference.mk"]
 commands = [["{python}", "scripts/dev/tests/run.py", "test_draft_reference_score.py"]]

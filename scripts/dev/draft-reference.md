@@ -22,3 +22,28 @@ These outputs must never be copied to the repository, release records or Pages. 
 select a local executable; the default is `~/turku3d/private/gmaps-extract/gmaps`. Without that
 optional private installation the command prints a clear skip, builds nothing and exits 0.
 A failed private measurement is retained as unscored and exits 2; it never implies clean geometry.
+
+
+### Integrator private advisory
+
+After a published batch changes `pipeline/turku3d/coarse/`, `integration_reference.py`
+freezes both refs and starts a detached, serialized build job in the integration sandbox.
+It releases any inherited integrator reservation and uses normal host build slots. Builds
+and logs stay under `$TURKU3D_WORK/reports/draft-reference-advisory/<batch>/`.
+It writes atomic version-1 `diff` jobs to the standing private watcher's
+`~/turku3d/private/gmaps-data/requests/pending/` (`GMAPS_REQUESTS` overrides that root).
+The watcher owns paired scoring, terminal results and private inbox regression notifications
+to the batch authors and orchestrator. No second scoring daemon or reference capture starts.
+Without the private executable the hook does nothing.
+
+Metrics are ranked by street-level priority: ground/wall textures, bridges, ground,
+wall/object geometry, then roof and aggregate height metrics marked informational. The latter
+are retained in results but do not trigger regression notifications. Noise defaults to the
+score rounding unit. Missing evidence abstains. Queue results live in the watcher's
+`requests/results/`, with terminal requests under `done/` or `failed/`. Keep immutable build
+roots until their jobs reach a terminal state; they are never copied into a release.
+
+Private diagnostics use an inbox-only path, entirely separate from the normal advisory
+collection, integration ledger, release metadata and Pages notes. A build/setup failure
+notifies the orchestrator privately and never changes publication status. `queued.json`
+records request IDs and before/after draft build seconds for local audit.

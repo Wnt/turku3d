@@ -18,6 +18,33 @@ from pathlib import Path
 
 TILES = ("t0_1_0", "t0_2_-1", "t0_-1_1", "t0_-2_2", "t0_3_-5")
 REPO = Path(__file__).resolve().parents[2]
+# Street-visible texture and bridge errors come first. Roof/height scores are information.
+METRIC_ORDER = (
+    "ground_colour_dE76",
+    "facade_colour_dE76",
+    "bridge_deck_existence",
+    "bridge_height_mae_m",
+    "duplicated_structures",
+    "missing_structures",
+    "ground_height_rmse_m",
+    "road_deck_existence",
+    "road_height_mae_m",
+    "footprint_iou",
+    "masked_dsm_rmse_m",
+    "roof_height_mae_m",
+    "roof_form_agreement",
+    "roof_colour_dE76",
+)
+INFORMATIONAL = {
+    "masked_dsm_rmse_m",
+    "roof_height_mae_m",
+    "roof_form_agreement",
+    "roof_colour_dE76",
+}
+
+
+def metric_priority(name):
+    return METRIC_ORDER.index(name) if name in METRIC_ORDER else len(METRIC_ORDER)
 
 
 def private_tool():
@@ -32,6 +59,9 @@ def git(repo, *args):
 def snapshot(version, target, repo=REPO):
     """A ref or a dirty worktree, captured once; builders never read a moving checkout."""
     source = repo if version == "worktree" else Path(version).expanduser()
+    if (source / ".draft-source.json").is_file():
+        shutil.copytree(source, target, symlinks=True)
+        return json.loads((target / ".draft-source.json").read_text())
     if source.is_dir():
         source = source.resolve()
         head = git(source, "rev-parse", "HEAD").decode().strip()
@@ -60,6 +90,7 @@ def snapshot(version, target, repo=REPO):
         if not dest.exists() and dependencies.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.symlink_to(dependencies.resolve(), target_is_directory=True)
+    (target / ".draft-source.json").write_text(json.dumps(identity) + "\n")
     return identity
 
 
@@ -107,7 +138,8 @@ def build_version(side, version, directory, tiles, repo=REPO):
 def metric_rows(tile, result, noise=0.00001):
     """Only paired, finite observations with matched support can establish a verdict."""
     rows = []
-    for name, metric in result["metrics"].items():
+    for name in sorted(result["metrics"], key=metric_priority):
+        metric = result["metrics"][name]
         before, after = metric["before"], metric["after"]
         a, b = before["value"], after["value"]
         delta = metric.get("delta")
@@ -133,6 +165,7 @@ def metric_rows(tile, result, noise=0.00001):
                 "after": b,
                 "delta": delta if comparable else None,
                 "verdict": verdict,
+                "informational": name in INFORMATIONAL,
             }
         )
     return rows
@@ -145,6 +178,8 @@ def table(rows):
     ]
     for row in rows:
         values = [row[k] for k in ("tile", "metric", "before", "after", "delta", "verdict")]
+        if row.get("informational"):
+            values[-1] = f"informational: {values[-1]}"
         lines.append(
             " | ".join(
                 "null" if v is None else f"{v:.5f}" if isinstance(v, float) else str(v)
@@ -154,18 +189,22 @@ def table(rows):
     return "\n".join(lines)
 
 
+def build_pair(before, after, directory, tiles=TILES, repo=REPO):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {
+            side: pool.submit(build_version, side, version, directory, tiles, repo)
+            for side, version in (("before", before), ("after", after))
+        }
+        return {side: future.result() for side, future in futures.items()}
+
+
 def compare(before, after, directory, tiles=TILES, noise=0.00001, repo=REPO):
     tool = private_tool()
     if not tool:
         print("Private gmaps tool unavailable; nothing scored (optional local installation).")
         return None
     directory.mkdir(parents=True, exist_ok=False)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {
-            side: pool.submit(build_version, side, version, directory, tiles, repo)
-            for side, version in (("before", before), ("after", after))
-        }
-        builds = {side: future.result() for side, future in futures.items()}
+    builds = build_pair(before, after, directory, tiles, repo)
     rows, errors = [], []
     for tile in tiles:
         command = [
@@ -196,12 +235,15 @@ def compare(before, after, directory, tiles=TILES, noise=0.00001, repo=REPO):
         rows.extend(metric_rows(tile, json.loads(proc.stdout), noise))
     report = {"builds": builds, "rows": rows, "unscored": errors, "noise": noise}
     (directory / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
-    output = [
-        table(rows),
-        "",
-        "tile | draft seconds before | after | delta",
-        "--- | ---: | ---: | ---:",
-    ]
+    output = []
+    for tile in tiles:
+        output.extend([f"{tile}:", table([row for row in rows if row["tile"] == tile]), ""])
+    output.extend(
+        [
+            "tile | draft seconds before | after | delta",
+            "--- | ---: | ---: | ---:",
+        ]
+    )
     for tile in tiles:
         a, b = (builds[side]["seconds"][tile] for side in ("before", "after"))
         output.append(f"{tile} | {a:.3f} | {b:.3f} | {b - a:+.3f}")
