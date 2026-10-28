@@ -65,6 +65,7 @@ class PublicTest(unittest.TestCase):
                 building={},
                 pending={},
                 servable={"t0_0_0"},
+                cached=lambda tile: False,
                 built=lambda tile: tile == "t0_0_0",
                 manifest=lambda tile: root / tile / "manifest.json",
                 request=lambda tile, distance: requests.append(tile) or {"state": "built"},

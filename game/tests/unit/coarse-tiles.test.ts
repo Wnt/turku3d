@@ -90,9 +90,9 @@ test('streams only drafts, validates all collision before visibility and unloads
   };
   expect(await CoarseTiles.start({ ...host, pageUrl: 'https://example.com/' })).toBeNull();
   const offline = (async () => ({ ok: true, status: 200, json: async () => ({ state: 'offline' }) })) as unknown as typeof globalThis.fetch;
-  expect(await CoarseTiles.start({ ...host, fetch: offline })).toBeNull();
+  expect((await CoarseTiles.start({ ...host, fetch: offline }))?.outage).not.toBeNull();
   const html = (async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('<!doctype'); } })) as unknown as typeof globalThis.fetch;
-  expect(await CoarseTiles.start({ ...host, fetch: html })).toBeNull();
+  expect((await CoarseTiles.start({ ...host, fetch: html }))?.outage).not.toBeNull();
   const coarse = (await CoarseTiles.start(host))!;
   let mapChanges = 0;
   coarse.onMapChange = () => mapChanges++;
@@ -261,7 +261,7 @@ test('a restarting service pauses the drafts: one console line, only status prob
   expect(paused.outage).not.toBeNull();
   const unsupervised = (async (url: string) => ({ ok: true, status: 200,
     json: async () => new URL(url).pathname === '/__localhost/status' ? { service: true, coarse: { commit: null, state: 'off' } } : { state: 'offline' } })) as unknown as typeof globalThis.fetch;
-  expect(await CoarseTiles.start({ ...host, fetch: unsupervised })).toBeNull();
+  expect((await CoarseTiles.start({ ...host, fetch: unsupervised }))?.outage).not.toBeNull();
 
   // A page loaded while the service is too busy to answer /coarse/status in 2 s starts paused, not without drafts,
   // and resumes as soon as a probe gets through.

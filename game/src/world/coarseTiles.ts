@@ -17,8 +17,8 @@ import type { Manifest, ManifestEntry } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
 const POLL_MS = 1000;
-/** A failed or rejected draft is asked for again after this (ms); the service retries failed builds after 120 s. */
-const RETRY_MS = 120_000;
+/** Retry transient failures promptly; the service owns its build-failure backoff. */
+const RETRY_MS = 5000;
 /** Speed above which a jump is a teleport (m/s). */
 const MAX_SPEED = 100;
 /** Drafts farther than this (m, to the tile footprint) are unloaded. */
@@ -112,23 +112,8 @@ export class CoarseTiles {
       .catch((err: Error) => err?.name === 'TimeoutError' ? slow : null);
     // A static host without the service answers with HTML or {"state":"offline"}; only a service keeps it waiting.
     const status = await get(`${root}${remote ? 'health' : 'status'}`);
-    if (remote) {
-      const coarse = new CoarseTiles(host);
-      if (!status || status === slow || status.state === 'offline') coarse.down();
-      return coarse;
-    }
-    if (status === slow) {
-      const coarse = new CoarseTiles(host);
-      coarse.down();
-      return coarse;
-    }
-    if (!status) return null;
-    if (status.state !== 'offline') return new CoarseTiles(host);
-    const local = await get('/__localhost/status');
-    const supervised = local && local !== slow ? (local as { coarse?: { state?: string } }).coarse?.state : undefined;
-    if (!supervised || supervised === 'off') return null;
     const coarse = new CoarseTiles(host);
-    coarse.down();
+    if (!status || status === slow || status.state === 'offline') coarse.down();
     return coarse;
   }
 
@@ -224,7 +209,7 @@ export class CoarseTiles {
     const soonest = wanted.map(id => this.entries.get(id)).filter(e => e?.state === 'pending' && !e.error)
       .map(inSeconds).filter((v): v is number => v !== null).sort((a, b) => a - b)[0];
     const head = at?.state === 'draft' ? `draft tile ${here}`
-      : at ? `draft tile ${here}${at.state === 'failed' ? ` unavailable: ${at.error}` : waiting}` : '';
+      : at ? `draft tile ${here}${at.state === 'failed' ? ` retrying: ${at.error}` : waiting}` : '';
     const next = soonest !== undefined && at?.state === 'draft' ? `next tile in ${soonest} s` : '';
     this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '', queueFull ? 'remote queue full; retrying' : '', next]
       .filter(Boolean).join(' · '));
@@ -344,6 +329,7 @@ export class CoarseTiles {
       }));
       const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
         .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
+      if (this.entries.get(id) !== e || e.state !== 'draft') return;
       if (!visualChanged) {
         this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
         if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }

@@ -5,9 +5,12 @@ import hashlib
 import json
 import shutil
 import time
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import patch
 
 from turku3d import config as C
+from turku3d.stage_cache import StageCache
 
 from .build import build
 
@@ -34,12 +37,30 @@ def main():
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     report, hashes = {}, []
-    for label, root in (("cold", "cached"), ("warm", "cached"), ("clean", "clean")):
+    original_run = StageCache.run
+
+    def changed_stage(cache, name, code, inputs, operation):
+        # Simulate a source-only edit in this one stage. Equal output must stop propagation.
+        return original_run(
+            cache, name, code + "-benchmark-edit" if name == "markings" else code, inputs, operation
+        )
+
+    for label, root in (
+        ("cold", "cached"),
+        ("warm", "cached"),
+        ("one_stage_changed", "cached"),
+        ("clean", "clean"),
+    ):
         directory = args.out / root / args.tile
-        if label != "warm" and directory.parent.exists():
+        if label in ("cold", "clean") and directory.parent.exists():
             shutil.rmtree(directory.parent)
         started = time.perf_counter()
-        manifest = build(args.tile, directory)
+        with (
+            patch.object(StageCache, "run", changed_stage)
+            if label == "one_stage_changed"
+            else nullcontext()
+        ):
+            manifest = build(args.tile, directory)
         report[label] = dict(
             wall_seconds=round(time.perf_counter() - started, 3),
             seconds=manifest["seconds"],
@@ -48,7 +69,12 @@ def main():
         hashes.append(payloads(manifest, directory))
         (args.out / "timings.json").write_text(json.dumps(report, indent=2) + "\n")
         print(label, report[label], flush=True)
-    assert hashes[0] == hashes[1] == hashes[2], "cached and clean payloads differ"
+    assert hashes[0] == hashes[1] == hashes[2] == hashes[3], "cached and clean payloads differ"
+    misses = [
+        name for name, stage in report["one_stage_changed"]["stages"].items() if not stage["cached"]
+    ]
+    assert misses == ["markings"], f"unexpected stage invalidation: {misses}"
+    report["changed_stage"] = "markings source identity (injected no-op edit)"
     report["byte_identical"] = True
     report["payloads"] = len(hashes[0])
     (args.out / "timings.json").write_text(json.dumps(report, indent=2) + "\n")

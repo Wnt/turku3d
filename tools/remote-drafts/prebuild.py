@@ -23,7 +23,16 @@ def ring(tiles):
                 for a in (0, 1):
                     for b in (0, 1):
                         result.add(f"t0_{2 * (x // 2) + a}_{2 * (z // 2) + b}")
-    return sorted(result, key=lambda t: sum(int(n) ** 2 for n in t.split("_")[1:]))
+    # Spawn collision crosses the office tile's south/east neighbours. Warm by
+    # distance to that point, rather than integer tile indices around the origin.
+    x, z = C.OFFICE_E - C.ORIGIN_E, C.ORIGIN_N - C.OFFICE_N
+
+    def distance(name):
+        tile = C.VisualTile.parse(name)
+        b = tile.bbox
+        return max(b.xmin - x, 0, x - b.xmax) ** 2 + max(b.zmin - z, 0, z - b.zmax) ** 2
+
+    return sorted(result, key=lambda name: (distance(name), name))
 
 
 def main():
@@ -40,7 +49,7 @@ def main():
                 with urlopen(
                     f"http://127.0.0.1:{settings['port']}/coarse/{name}/manifest.json", timeout=30
                 ) as reply:
-                    if reply.status == 200:
+                    if reply.status == 200 and not json.load(reply).get("stale", False):
                         return {
                             "tile": name,
                             "code": 0,
@@ -61,7 +70,7 @@ def main():
             "error": error,
         }
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=settings["workers"]) as pool:
         jobs = [pool.submit(build, name) for name in names]
         for job in concurrent.futures.as_completed(jobs):
             row = job.result()

@@ -90,3 +90,105 @@ def test_new_generator_is_not_served_from_old_manifest_during_rebuild(tmp_path):
     path.write_text(json.dumps({"code": "new"}))
     assert builder.request("t0_0_0", 0)["state"] == "built"
     builder.stop()
+
+
+def test_artifact_stage_restores_outputs_without_rerunning(tmp_path):
+    cache = StageCache(tmp_path / "cache")
+    calls = []
+
+    def operation(directory):
+        calls.append(1)
+        (directory / "layer.glb").write_bytes(b"geometry")
+        return [2, 3]
+
+    first, second = tmp_path / "first", tmp_path / "second"
+    assert cache.files("layer", "v1", [], first, operation) == [2, 3]
+    first.joinpath("layer.glb").write_bytes(b"bad")
+    assert cache.files("layer", "v1", [], second, operation) == [2, 3]
+    assert second.joinpath("layer.glb").read_bytes() == b"geometry"
+    assert calls == [1]
+
+
+def test_old_payloads_remain_addressable_while_generator_rebuilds():
+    from turku3d.coarse.service import immutable_payload
+
+    digest = "a" * 64
+    assert immutable_payload(f"vis.{digest}.glb")
+    assert immutable_payload(f"roads.{digest}.json")
+    assert immutable_payload(f"col/c_1_-1.{digest}.col")
+    assert not immutable_payload("manifest.json")
+    assert not immutable_payload("vis.glb")
+    assert not immutable_payload(f"../vis.{digest}.glb")
+
+
+def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d import config as C
+    from turku3d.coarse import build as generator
+    from turku3d.coarse.bridges import Deck
+
+    def sampler(points):
+        return np.full(len(points), 7.25)
+
+    deck = Deck({}, None, np.array([0, 1]), np.array([7, 8]), [], sampler)
+    monkeypatch.setattr(generator.bridges, "produce", lambda *_: [deck])
+
+    def roads(_roads, decks):
+        return {"json": str(decks[0].height_at(np.zeros((1, 2)))[0]).encode()}
+
+    monkeypatch.setattr(generator.bridges, "road_heights", roads)
+    grid = np.zeros((3, 3))
+    cache = StageCache(tmp_path)
+    args = (
+        C.VisualTile(0, 1, 0),
+        grid,
+        np.array([[0, 1, 2]]),
+        np.array([1]),
+        np.array([False]),
+        SimpleNamespace(roads={}),
+    )
+    result = cache.run("bridges", "v1", [], lambda: generator.deck_stage(*args))
+    assert result[3] == {"json": b"7.25"}
+    assert result[1][0].height_at is None
+    assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
+
+
+def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_path):
+    import json
+
+    from turku3d import config as C
+    from turku3d.coarse.service import Builder
+
+    tile = C.VisualTile(0, 1, 0)
+    directory = tmp_path / tile.id
+    (directory / "col").mkdir(parents=True)
+    (directory / "vis.glb").write_bytes(b"v")
+    collision = {}
+    for cell in tile.collision_tiles():
+        url = f"col/{cell.id}.col"
+        (directory / url).write_bytes(b"c")
+        collision[cell.id] = {"url": url, "bytes": 1}
+    (directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "coarse": True,
+                "tile": tile.id,
+                "code": "old",
+                "visual": {tile.id: {"url": "vis.glb", "bytes": 1}},
+                "collision": collision,
+            }
+        )
+    )
+    builder = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
+    state = builder.request(tile.id, 12)
+    assert state["state"] == "built" and state["stale"]
+    assert state["refresh"]["state"] == "queued"
+    assert tile.id in builder.servable and tile.id in builder.priority
+    assert builder.journal.path.is_file()
+    builder.stop()
+    restored = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
+    assert tile.id in restored.priority
+    assert restored._next() == (tile.id, 12)
+    assert restored.cached(tile.id)
+    restored.stop()

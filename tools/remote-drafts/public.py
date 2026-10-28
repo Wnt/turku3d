@@ -11,7 +11,16 @@ from urllib.parse import urlparse
 
 from turku3d import config as C
 from turku3d.coarse.prefetch import Prefetcher
-from turku3d.coarse.service import FILE, MIME, SHARED, TILE, Builder, Server, handler
+from turku3d.coarse.service import (
+    FILE,
+    MIME,
+    SHARED,
+    TILE,
+    Builder,
+    Server,
+    handler,
+    immutable_payload,
+)
 from turku3d.coarse.sources import Sources, Unit
 
 
@@ -108,11 +117,18 @@ def public_handler(builder, prefetcher, settings):
                     if (
                         tile not in active
                         and not builder.built(tile)
+                        and not builder.cached(tile)
                         and len(active) >= settings["queue_max"]
                     ):
                         return self._json(429, {"state": "queue-full"})
                     # Ignore client priority: one public player must not steer every player's queue.
-                    state = builder.request(tile, 0.0)
+                    t = C.VisualTile.parse(tile)
+                    spawn_x, _, spawn_z = C.en_to_local(C.OFFICE_E, C.OFFICE_N, 0)
+                    distance = (
+                        (t.origin[0] + t.size / 2 - spawn_x) ** 2
+                        + (t.origin[2] + t.size / 2 - spawn_z) ** 2
+                    ) ** 0.5
+                    state = builder.request(tile, distance)
                 if state["state"] == "failed":
                     return self._json(404, {"state": "failed"})
                 if state["state"] != "built":
@@ -121,12 +137,26 @@ def public_handler(builder, prefetcher, settings):
                 return self._json(
                     200,
                     {
-                        k: fragment[k]
-                        for k in ("coarse", "tile", "visual", "collision", "roads")
-                        if k in fragment
+                        **{
+                            k: fragment[k]
+                            for k in ("coarse", "tile", "visual", "collision", "roads")
+                            if k in fragment
+                        },
+                        **(
+                            {
+                                "stale": True,
+                                "refresh": {
+                                    k: state["refresh"][k]
+                                    for k in ("state", "eta")
+                                    if k in state["refresh"]
+                                },
+                            }
+                            if state.get("stale")
+                            else {}
+                        ),
                     },
                 )
-            if tile is not None and tile not in builder.servable:
+            if tile is not None and tile not in builder.servable and not immutable_payload(name):
                 return self._json(404, {"error": "unbuilt"})
             path = builder.root / (tile or "shared") / name
             if not path.is_file():

@@ -18,8 +18,6 @@ import hashlib
 import io
 import json
 import shutil
-import subprocess
-import threading
 import time
 from pathlib import Path
 
@@ -30,9 +28,7 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
-from turku3d.facade_assets import stored_request
-from turku3d.facade_kit import candidates, ensure_kit, parameter_hash, parameters
-from turku3d.facade_kit import code_hash as kit_hash
+from turku3d.facade_kit import candidates, parameter_hash
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
@@ -42,45 +38,13 @@ from turku3d.stage_cache import StageCache, source_key
 from . import bridges, fences, kerbs, surfaces
 from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
-from .packaging import package_visual
+from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .sources import Sources
-from .stored_facades import wall_meshes
+from .stages import building_visual, kerb_inputs, props_visual
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
-BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
 WIRE_CAP = 8_000_000
-
-
-def code_hash() -> str:
-    """Producer identity: the coarse sources plus the shared visual packager they call."""
-    h = hashlib.sha256(kit_hash().encode())
-    props = Path(__file__).parents[1] / "props"
-    for p in sorted(
-        [
-            *Path(__file__).parent.glob("*.py"),
-            Path(__file__).parents[1] / "stage_cache.py",
-            *BRIDGE.parent.glob("*.mjs"),
-            Path(__file__).parents[1] / "buildings/source_surfaces.py",
-            props / "__init__.py",
-            props / "models.py",
-            props / "orientation.py",
-            Path(C.__file__),
-            Path(__file__).parents[1] / "layers.py",
-            Path(__file__).parents[1] / "facade_assets.py",
-            Path(__file__).parents[1] / "package/gltf.py",
-            Path(__file__).parents[1] / "ground/water.py",
-            *sorted((Path(__file__).parents[1] / "col").glob("*.py")),
-            *sorted((Path(__file__).parents[1] / "col").glob("*.mjs")),
-            Path(__file__).parents[1] / "col/materials_v1.json",
-            *sorted((Path(__file__).parents[1] / "vegetation").glob("*.py")),
-            *sorted((Path(__file__).parents[1] / "structures").glob("*.py")),
-            C.REPO_ROOT / "pipeline/env/package-lock.json",
-        ]
-    ):
-        h.update(p.name.encode())
-        h.update(p.read_bytes())
-    return h.hexdigest()[:16]
 
 
 def grid_mesh(tile: C.VisualTile, heights: np.ndarray):
@@ -281,80 +245,6 @@ def default_library() -> Path:
     return library if library.exists() else C.data_root() / "live/textures/assembly/library"
 
 
-class Packager:
-    """One persistent ``node visual.mjs --serve`` per process: a build worker packages every tile
-    without starting node and loading glTF-Transform again (about 0.3 s CPU, seconds of wall time
-    on a loaded host). A packager that died is started again on the next tile."""
-
-    def __init__(self):
-        self.proc: subprocess.Popen | None = None
-        self.lock = threading.Lock()
-
-    def package(self, requests: Path) -> None:
-        with self.lock:
-            if self.proc is None or self.proc.poll() is not None:
-                self.proc = subprocess.Popen(
-                    ["node", str(BRIDGE), "--serve"],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    text=True,
-                )
-            self.proc.stdin.write(f"{requests}\n")
-            self.proc.stdin.flush()
-            answer = self.proc.stdout.readline().strip()
-        if answer != "ok":
-            message = answer.removeprefix("error ")
-            if answer.startswith("error "):
-                message = json.loads(message)
-            raise RuntimeError(f"visual packaging failed\n{message or 'the packager exited'}")
-
-
-PACKAGER = Packager()
-
-
-def _package_visual(
-    tile: C.VisualTile,
-    layer_files: list[Path],
-    stage: Path,
-    work: Path,
-    library: Path,
-    *,
-    first_pass: bool = False,
-    building_keys=(),
-) -> tuple[bytes, dict]:
-    request = dict(
-        tile=tile.id,
-        level=0,
-        inputs=[str(p) for p in layer_files],
-        output=str(stage / "out" / "tile.glb"),
-        stats=str(stage / "out" / "stats.json"),
-        library=str(library),
-        facades=str(stage / "no-facades"),
-        facadeBindings=[],
-        facadeDensity={},
-        groundBinding=None,
-        textureCache=str(work / ".texture-cache"),
-        coarseTerrain=False,
-        draftTextures=True,
-        facadeKit=None if first_pass else ensure_kit(work / "shared"),
-        firstPass=first_pass,
-    )
-    request.update(stored_request(building_keys))
-    (stage / "out").mkdir(parents=True, exist_ok=True)
-    req = stage / "requests.json"
-    req.write_text(json.dumps([request]))
-    PACKAGER.package(req)
-    stats = json.loads((stage / "out" / "stats.json").read_text())
-    shared = stage / "shared"
-    if shared.exists():
-        (work / "shared").mkdir(parents=True, exist_ok=True)
-        for asset in shared.iterdir():
-            dest = work / "shared" / asset.name
-            if not dest.exists():
-                shutil.copyfile(asset, dest)
-    return (stage / "out" / "tile.glb").read_bytes(), stats
-
-
 def _entry(url: str, data: bytes, **extra) -> dict:
     return dict(url=url, sha256=hashlib.sha256(data).hexdigest(), bytes=len(data), **extra)
 
@@ -384,10 +274,18 @@ def terrain_stage(tile, inputs):
         dry_vertices = np.unique(grid_idx[~wet])
         inner = np.setdiff1d(wet_vertices, dry_vertices)
         grid_pos[inner, 1] = np.minimum(grid_pos[inner, 1], level)
-    # OSM decks are separate solids: lifting the span's ground blocks underpasses.
+    return grid_pos, grid_idx, materials, wet, level
+
+
+def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
+    grid_pos = grid_pos.copy()
     osm_decks = bridges.produce(tile, grid_pos, inputs)
     decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
-    return grid_pos, grid_idx, materials, wet, level, osm_decks, decks
+    roads = bridges.road_heights(inputs.roads, osm_decks)
+    # Samplers are build-local closures. Consume them before caching the resulting mesh/road data.
+    for deck in osm_decks:
+        deck.height_at = None
+    return grid_pos, osm_decks, decks, roads
 
 
 def build(
@@ -416,16 +314,27 @@ def build(
     base = Path(__file__).parents[1]
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
-    grid_pos, grid_idx, materials, wet, level, osm_decks, decks = cache.run(
+    grid_pos, grid_idx, materials, wet, level = cache.run(
         "terrain",
+        source_key(terrain_stage, grid_mesh, water_mask, water_level, surfaces.classify, *common),
+        [
+            tile,
+            inputs.heights,
+            inputs.points,
+            inputs.ortho,
+            inputs.streets,
+            inputs.surfaces,
+            inputs.water,
+            bool(inputs.roads and inputs.roads.get("bridge_ways")),
+        ],
+        lambda: terrain_stage(tile, inputs),
+    )
+    grid_pos, osm_decks, decks, bridge_roads = cache.run(
+        "bridges",
         source_key(
-            terrain_stage,
-            grid_mesh,
-            water_mask,
-            water_level,
+            deck_stage,
             bridge_decks,
             *common,
-            Path(surfaces.__file__),
             Path(bridges.__file__),
             Path(__file__).with_name("tunnels.py"),
             Path(__file__).with_name("bridge_details.py"),
@@ -435,16 +344,15 @@ def build(
         ),
         [
             tile,
-            inputs.heights,
+            grid_pos,
+            grid_idx,
+            materials,
+            wet,
             inputs.points,
-            inputs.ortho,
-            inputs.streets,
-            inputs.surfaces,
-            inputs.water,
             inputs.roads,
-            inputs.buildings,
+            [b.footprint for b in inputs.buildings],
         ],
-        lambda: terrain_stage(tile, inputs),
+        lambda: deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs),
     )
     water = inputs.water
     seconds["ground"] = time.perf_counter() - t
@@ -490,7 +398,6 @@ def build(
     seconds["tunnels"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    image = None if first_pass else jpeg(inputs.ortho)
     origin = np.asarray(tile.origin)
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
@@ -519,12 +426,12 @@ def build(
         )
         surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
             "surface_boundaries",
-            source_key(Path(surfaces.__file__), *common),
+            source_key(surfaces.split_boundaries, base / "package/gltf.py", *common),
             surface_args,
             lambda: surfaces.split_boundaries(*surface_args),
         )
     seconds["surface_boundaries"] = time.perf_counter() - t_surface
-    ground_meshes = surfaces.visuals(
+    visual_args = (
         tile,
         surface_pos,
         surface_idx,
@@ -532,27 +439,60 @@ def build(
         np.ones(len(surface_idx), bool),
         surface_normals,
     )
+    ground_meshes = cache.run(
+        "ground_visual",
+        source_key(surfaces.visuals, base / "package/gltf.py", *common),
+        [visual_args, surfaces.KEYS, surfaces.BINDINGS],
+        lambda: surfaces.visuals(*visual_args),
+    )
+    paint_args = (
+        tile,
+        surface_pos,
+        surface_idx,
+        surface_ids,
+        np.ones(len(surface_idx), bool),
+        inputs.markings,
+    )
     paint = (
         None
         if first_pass
-        else surfaces.paint_visual(
-            tile,
-            surface_pos,
-            surface_idx,
-            surface_ids,
-            np.ones(len(surface_idx), bool),
-            inputs.markings,
+        else cache.run(
+            "markings",
+            source_key(surfaces.paint_visual, base / "package/gltf.py", *common),
+            paint_args,
+            lambda: surfaces.paint_visual(*paint_args),
         )
     )
     if paint is not None:
         ground_meshes.append(paint)
-    kerb_meshes = kerbs.produce(
-        tile,
-        inputs.kerbs,
-        kerbs.height_sampler(tile, inputs.heights, out.parent, sources or Sources()),
-        water,
-        blds,
-        inputs.markings,
+    kerb_sources = sources or Sources()
+    kerb_meshes = cache.run(
+        "kerbs",
+        source_key(
+            Path(kerbs.__file__),
+            Path(__file__).with_name("geometry.py"),
+            base / "structures/geometry.py",
+            *common,
+        ),
+        [
+            tile,
+            inputs.kerbs,
+            inputs.heights,
+            water,
+            [b.footprint for b in blds],
+            inputs.markings,
+            kerb_inputs(tile, kerb_sources)
+            if inputs.kerbs is not None and not inputs.kerbs.is_empty
+            else None,
+        ],
+        lambda: kerbs.produce(
+            tile,
+            inputs.kerbs,
+            kerbs.height_sampler(tile, inputs.heights, out.parent, kerb_sources),
+            water,
+            blds,
+            inputs.markings,
+        ),
     )
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
     if wet.any():
@@ -583,11 +523,33 @@ def build(
     trees, bushes = (
         ([], [])
         if first_pass
-        else produce(
-            tile,
-            inputs,
-            lambda x, z: grid_height(tile, grid_pos, x, z),
-            draft_trees(tile, grid_pos, inputs.trees, water, shells),
+        else cache.run(
+            "vegetation",
+            source_key(
+                Path(__file__).with_name("forests.py"),
+                base / "vegetation/trees.py",
+                draft_trees,
+                grid_height,
+                *common,
+            ),
+            [
+                tile,
+                grid_pos,
+                inputs.water,
+                inputs.buildings,
+                inputs.streets,
+                inputs.roads,
+                inputs.canopy,
+                inputs.forests,
+                inputs.trees,
+                shells,
+            ],
+            lambda: produce(
+                tile,
+                inputs,
+                lambda x, z: grid_height(tile, grid_pos, x, z),
+                draft_trees(tile, grid_pos, inputs.trees, water, shells),
+            ),
         )
     )
     seconds["vegetation_scatter"] = time.perf_counter() - vegetation_start
@@ -598,49 +560,62 @@ def build(
         layer_files.append(stage / "vegetation.vis.glb")
     poles = list(inputs.poles)
     if poles:
-        from turku3d.props import visual_bytes
-
-        for pole in poles:
-            pole.y = grid_height(tile, grid_pos, pole.x, pole.z)
-        _write(stage / "props.vis.glb", visual_bytes(poles, tile))
-        layer_files.append(stage / "props.vis.glb")
-    if shells:
-        roof_pos, roof_idx = [], []
-        rc = 0
-        for _, (roof, ridx, _, _, _walls, _wuv, _widx) in shells:
-            roof_pos.append(roof)
-            roof_idx.append(ridx + rc)
-            rc += len(roof)
-        roof_pos = np.concatenate(roof_pos)
-        meshes = [
-            GlbMesh(
-                f"roofs_{tile.id}",
-                roof_pos - origin,
-                np.concatenate(roof_idx),
-                uvs=ortho_uv(tile, roof_pos),
-                image=None if first_pass else image,
-                extras=dict(
-                    layer="buildings",
-                    object_id=f"roofs_{tile.id}",
-                    material_key="roof_ortho",
-                    surface="roof",
-                    texture_uv="normalized",
-                ),
+        data = cache.run(
+            "props",
+            source_key(
+                props_visual,
+                grid_height,
+                base / "props/__init__.py",
+                base / "props/models.py",
+                base / "package/gltf.py",
+                *common,
             ),
-        ]
-        for b, (_, _, _, _, walls, wuv, widx) in shells:
-            width = max(float(wuv[:, 0].max()), 1.0)
-            params = parameters(b.facade_key, b.top - b.base, width, getattr(b, "attributes", {}))
-            meshes.extend(wall_meshes(b, walls, wuv, widx, origin, params))
-        write_visual(stage / "buildings.vis.glb", meshes, root_translation=tile.origin)
-        layer_files.append(stage / "buildings.vis.glb")
-    barrier_cols, barrier_stats = fences.produce(
-        tile,
-        inputs,
-        stage,
-        layer_files,
-        lambda x, z: grid_height(tile, grid_pos, x, z),
+            [tile, poles, grid_pos],
+            lambda: props_visual(tile, poles, grid_pos),
+        )
+        _write(stage / "props.vis.glb", data)
+        layer_files.append(stage / "props.vis.glb")
+    building_meshes = cache.run(
+        "building_visual",
+        source_key(
+            building_visual,
+            Path(__file__).with_name("stored_facades.py"),
+            base / "facade_assets.py",
+            base / "facade_kit.py",
+            jpeg,
+            ortho_uv,
+            *common,
+        ),
+        [tile, shells, inputs.ortho if not first_pass else None, first_pass, facade_params],
+        lambda: building_visual(tile, shells, inputs.ortho, first_pass),
     )
+    if building_meshes:
+        write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
+        layer_files.append(stage / "buildings.vis.glb")
+
+    def barrier_stage(directory):
+        files = []
+        value = fences.produce(
+            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z)
+        )
+        return value
+
+    barrier_cols, barrier_stats = cache.files(
+        "fences",
+        source_key(
+            barrier_stage,
+            Path(fences.__file__),
+            grid_height,
+            base / "structures/geometry.py",
+            base / "package/gltf.py",
+            *common,
+        ),
+        [tile, inputs.barriers, inputs.streets, inputs.water, grid_pos],
+        stage,
+        barrier_stage,
+    )
+    if (stage / "fences.vis.glb").exists():
+        layer_files.append(stage / "fences.vis.glb")
     seconds["fences"] = barrier_stats["seconds"]
     surface_channels = {
         surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))
@@ -700,7 +675,7 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
-    roads = tunnels.roads(bridges.road_heights(inputs.roads, osm_decks))
+    roads = tunnels.roads(bridge_roads)
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
