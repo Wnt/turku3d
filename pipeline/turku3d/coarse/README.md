@@ -230,7 +230,7 @@ Run `scripts/dev/wt sync-env` to install the inference dependencies. Existing pi
 model caches are prepared as described in [textures/CV.md](../../../textures/CV.md).
 
 Within the player's ring/cone, buildings first receive offline hybrid appearance from one
-screened panorama wall. Only measured `wall_colour`, `trim_colour` and `material` fields are
+screened panorama wall. Only measured `wall_colour` and `material` fields are
 accepted; absent or abstaining fields retain the register value. The current hybrid has no
 trim head, so trim explicitly abstains. Storeys, columns and other layout fields stay from the
 register. Local inference has no quota cap or model network calls and keeps its models warm.

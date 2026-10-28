@@ -23,7 +23,7 @@ from turku3d import config as C
 from turku3d.facade_kit import read_description, renderer, store_path, write_description
 
 CALLS_PER_HOUR = 12
-APPEARANCE_FIELDS = ("wall_colour", "trim_colour", "material")
+APPEARANCE_FIELDS = ("wall_colour", "material")
 _model = None
 
 

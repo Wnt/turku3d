@@ -52,7 +52,7 @@ def test_appearance_merge_accepts_only_measured_appearance():
     register = renderer().register_description("b_1", "b", {"levels": 4}, 12, 14)
     fields = {
         "wall_colour": dict(state="measured", value="#aabbcc"),
-        "trim_colour": dict(state="abstain", value="#000000"),
+        "trim_colour": dict(state="measured", value="#000000"),
         "material": dict(state="measured", value="brick"),
         "storeys": dict(state="measured", value=2),
         "window_columns": dict(state="measured", value=9),
