@@ -151,3 +151,8 @@ its culprit in the commit, data-red or an infrastructure failure (`status.mjs`).
 
 State lives in `--state-dir` (default `$TURKU3D_WORK/localhost-game`): `state.json`, `events.jsonl`, `vite.log`, `coarse.log`,
 `service.pid` (a second instance on the same state directory refuses to start).
+
+Texture-only builders can preserve the served global road graph and address pool while
+publishing their tile-owned geometry, collision, ground and facade maps:
+`python3 scripts/dev/tile_store.py put-tiles --tiles-dir "$TURKU3D_WORK/dist/tiles" --tile-only --tiles t0_0_0 t0_0_1 t0_1_0 t0_1_1`.
+The default includes world metadata for region builders.

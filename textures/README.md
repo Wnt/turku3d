@@ -159,7 +159,7 @@ A="$TURKU3D_DATA/facade-approvals/assembly"; R="$TURKU3D_WORK/textures/fast/t0_0
 COMMON=(--run "$R" --inventory "$A/APPROVED_INVENTORY.geojson")
 $PY -m turkutex.facade_fast plan "${COMMON[@]}" --assembly "$A" --tiles t0_0_0   # or --walls ID,ID
 $PY -m turkutex.facade_fast refs "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/fast-refs"
-$PY -m turkutex.facade_fast describe "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/fast-refs" -j 8
+$PY -m turkutex.facade_fast describe "${COMMON[@]}" --refs "$TURKU3D_WORK/textures/fast-refs" -j 16
 $PY -m turkutex.facade_fast render "${COMMON[@]}" --staging "$R/staging" --wfs "$TURKU3D_DATA/raw/wfs/work-3x3"
 $PY -m turkutex.facade_fast contact "${COMMON[@]}" --staging "$R/staging" --assembly "$A" --output SHEET.jpg
 $PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --assembly "$A"
@@ -178,9 +178,27 @@ $PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --asse
   in any sandbox makes no new call; the runner stops below `--max-pct` (default 90).
 - **Maps** are 16 px/m (the top of the packager's density ladder) with `min_pixels_per_metre` 0,
   so the packager scales them down before any generated or derived map. Rendering is keyed by
-  the description and code; an unchanged wall is not re-encoded.
+  the description, code and encoding settings; an unchanged wall is not re-encoded. Fast maps
+  use ETC1S for all three channels (linear normal/ORM, sRGB albedo), trading fine normal detail
+  for cheaper encoding. Description calls default to 16 concurrent requests; rendering stays at 8.
 - **Publish** binds under the export lock and skips every wall that has a generated or derived
   map by then; a later generated (rollout) or derived map replaces a fast one.
+
+To promote existing sandbox maps after `make refresh`, package into a fresh output so regenerated
+collision cells are not mixed with cached, unrequested neighbours:
+
+```sh
+FACADE_OUT=$(mktemp -d "$TURKU3D_WORK/dist/facade-pass.XXXXXX")
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.package.assemble \
+  --area playable-tiles --tile t0_0_0 t0_0_1 t0_1_0 t0_1_1 --out "$FACADE_OUT"
+```
+
+Check each core visual entry's `wire_bytes` in `$FACADE_OUT/manifest.json` against 8,000,000.
+Run `publish` above for each tile with the data-root assembly and the unchanged inventory used
+by its plan; publication validates against the target's approval inventory and preserves better
+maps under the export lock. Stream the built tiles without another build, preserving the
+served global road graph and address pool:
+`python3 scripts/dev/tile_store.py put-tiles --repo "$PWD" --tiles-dir "$FACADE_OUT" --tile-only --tiles t0_0_0 t0_0_1 t0_1_0 t0_1_1`.
 
 The sidecar has the derived sidecar's fields with `source_mode: fast`, `references: []` and
 `fast_description` (`version`, `code`, `source`, `description`, `layout` as drawn, and for a

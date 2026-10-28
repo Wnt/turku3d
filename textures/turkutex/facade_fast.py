@@ -38,7 +38,7 @@ CROP_SIDE = 768  # long side of the crop the vision call sees
 # Panorama resolution for the fast pass: Google zoom 3 and Look Around zoom 2 are about 4k px
 # equirects, plenty for a 768 px crop, and decode about 16 times faster than the rollout's.
 GOOGLE_ZOOM, LOOKAROUND_ZOOM = 3, 2
-ENCODINGS = {"albedo": ("etc1s", False), "orm": ("etc1s", True), "normal": ("uastc-normal", True)}
+ENCODINGS = {"albedo": ("etc1s", False), "orm": ("etc1s", True), "normal": ("etc1s", True)}
 MAP_KINDS = ("albedo", "normal", "orm")
 PROMPT_VERSION = "facade-fast-describe-v1"
 
@@ -358,7 +358,11 @@ def descriptions(run: Path, facades, attributes: dict) -> dict[str, dict]:
 
 def code_hash() -> str:
     return hashlib.sha256(
-        (inspect.getsource(fr) + inspect.getsource(stage_wall)).encode()
+        (
+            inspect.getsource(fr)
+            + inspect.getsource(stage_wall)
+            + json.dumps(ENCODINGS, sort_keys=True)
+        ).encode()
     ).hexdigest()
 
 
@@ -622,7 +626,7 @@ def main(argv=None) -> int:
             p.add_argument("--ref-workers", type=int, default=8)
             p.add_argument("--max-views", type=int, default=2)
         if name == "describe":
-            p.add_argument("-j", type=int, default=8)
+            p.add_argument("-j", type=int, default=16)
             p.add_argument("--max-pct", type=float, default=90)
             p.add_argument(
                 "--engine",

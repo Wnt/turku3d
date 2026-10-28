@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const PAGE = 2048;
 const GUTTER = 4;
@@ -33,9 +33,10 @@ async function extract(texture, target, cache, run, sharp) {
     .update(JSON.stringify(target)).digest('hex');
   const output = path.join(cache, `${key}.png`);
   if (!fs.existsSync(output)) {
-    const input = path.join(cache, `${key}.${process.pid}.ktx2`);
-    const temp = path.join(cache, `${key}.${process.pid}.png`);
-    const resized = path.join(cache, `${key}.${process.pid}.resized.png`);
+    const temporary = path.join(cache, `${key}.${process.pid}.${randomUUID()}`);
+    const input = `${temporary}.ktx2`;
+    const temp = `${temporary}.png`;
+    const resized = `${temporary}.resized.png`;
     fs.writeFileSync(input, bytes);
     try {
       run('ktx', ['extract', '--transcode', 'rgb8', input, temp]);

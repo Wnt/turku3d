@@ -796,3 +796,5 @@ alternate TOML file. Explicit route changes reset inherited model/effort to that
 configuration. Environment model/effort overrides also apply to texture and QA runners.
 Set `TURKU3D_JOBS=3` to bound tooling tests to three workers; the shared resource helper
 controls the default and all worker pools.
+
+For tile-only publication, see [localhost commands](../../tools/dev/localhost/README.md).

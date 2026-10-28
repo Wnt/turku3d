@@ -368,6 +368,11 @@ def main(argv=None):
                 "--tiles", nargs="*", help="L0 tiles to offer (default: the builder's list)"
             )
             p.add_argument("--source", default="tile-build")
+            p.add_argument(
+                "--tile-only",
+                action="store_true",
+                help="preserve served global roads and addresses",
+            )
             p.add_argument("--work", type=Path, default=os.environ.get("TURKU3D_WORK"))
         if name == "compose":
             p.add_argument("--base-dir", type=Path, required=True)
@@ -399,6 +404,7 @@ def main(argv=None):
             task=os.environ.get("TURKU3D_SANDBOX"),
             listed=listed,
             repo=args.repo,
+            tile_only=args.tile_only,
         )
         for path in entries:
             print(
