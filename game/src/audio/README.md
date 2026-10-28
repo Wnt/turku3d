@@ -89,6 +89,6 @@ The start screen, pause and save/load pages request `menu`; free play requests `
 requests `mission` until hand-over. Delivery progress is elapsed time divided by par time, updated once a
 second. The intro and shop dialogue fully muffle music; driving applies a 0.6 muffle without reducing the
 vehicle engine bus. The engine and its track clock survive a Vite play-session swap. N and the localhost
-Developer page select the next track. `music/params.json` holds the tuned defaults and accepts the lab's
+Developer page select the next track; free play also moves on every 64 bars and after each delivery. `music/params.json` holds the tuned defaults and accepts the lab's
 Copy as JSON object. `window.__game.audio.snapshot().music` exposes the requested scene, progress, muffle
 and the engine's playing snapshot for diagnostics. See [`music/README.md`](music/README.md).

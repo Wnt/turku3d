@@ -8,6 +8,8 @@ export interface MusicParameters {
   layerGains: Record<Stem, number>;
 }
 export const DEFAULT_PARAMETERS: MusicParameters = tunedParameters;
+/** Free-play bars per track before moving on (about 2 to 3 minutes at the tracks' tempos). */
+export const ROTATE_BARS = 64;
 const clamp = (n: number, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(n) ? n : min));
 export function hurry(progress: number, start: number, lift: number) {
   const x = clamp((clamp(progress) - clamp(start, 0, 0.95)) / (1 - clamp(start, 0, 0.95)));
@@ -23,6 +25,7 @@ export class MusicSystem {
   private context: AudioContext;
   private interval: ReturnType<typeof setInterval> | null = null;
   private beat = 0;
+  private trackSince = 0;
   private beatTime = 0;
   private state: MusicState = 'explore';
   private track = 0;
@@ -68,7 +71,11 @@ export class MusicSystem {
     this.pending = { atBeat, state, track, fromState: this.state, fromTrack: this.track };
   }
   setDeadline(progress: number) { this.deadline = clamp(progress); }
-  deliver() { this.chime(this.context.currentTime + 0.02, TRACKS[this.track], true); this.setDeadline(0); this.setState('explore'); }
+  /** A finished delivery resolves the cadence and moves free play on to the next track. */
+  deliver() {
+    this.chime(this.context.currentTime + 0.02, TRACKS[this.track], true); this.setDeadline(0);
+    this.request('explore', (this.track + 1) % TRACKS.length);
+  }
   setMuffled(amount: number) { this.activeMuffle = clamp(amount); this.applyMuffle(); }
   setVolume(value: number) { this.parameters.volume = clamp(value); this.applyMuffle(); }
   setParameters(patch: Partial<MusicParameters>) {
@@ -93,9 +100,12 @@ export class MusicSystem {
     while (this.beatTime < now + 0.12) {
       const old = this.pending;
       if (old && this.beat >= old.atBeat) {
+        if (old.track !== old.fromTrack) this.trackSince = old.atBeat;
         this.state = old.state; this.track = old.track; this.pending = null; this.fading = old;
         if (old.state === 'mission' && old.fromState !== 'mission') this.chime(this.beatTime, TRACKS[this.track], false);
       }
+      // Free play moves on to the next track every ROTATE_BARS; a mission keeps its track until hand-over.
+      if (this.state === 'explore' && !this.pending && this.beat - this.trackSince >= ROTATE_BARS * 4) this.nextTrack();
       const track = TRACKS[this.track];
       this.activeLayers = [];
       const curve = hurry(this.deadline, (track.liftStart ?? DEFAULT_PARAMETERS.hurryStart) + this.parameters.hurryStart - DEFAULT_PARAMETERS.hurryStart, (track.tempoLift ?? DEFAULT_PARAMETERS.tempoLift) * this.parameters.tempoLift / DEFAULT_PARAMETERS.tempoLift);

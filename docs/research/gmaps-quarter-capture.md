@@ -27,6 +27,13 @@ independently proves whether the intended extent loaded. Leaving the normal 3D
 map for a photo overlay fails that view. Bounded local pan retries retain partial
 data without accepting it as a qualified reference.
 
+A later native context-menu probe showed that the URL position and the visible
+map point differ in tilted views. Synchronizing the URL prevents accumulated
+camera drift but does not prove that the intended surface is centred. Further
+capture expansion needs a controlled visible-point targeting check. The private
+browser diagnosis retains the traces and an unpromoted prototype; it makes no
+speed-improvement claim from that interrupted comparison.
+
 Headed and headless initial captures of the same close 3D scene were visually
 compared before choosing headless mode. Per-view timings, native positions,
 loading queues, per-extent sessions and host browser accounting remain private.
@@ -78,7 +85,8 @@ Evidence root: `~/turku3d/private/gmaps-data/round2/`:
 From a sourced project sandbox, the focused regression checks are:
 
 ```sh
-bash pipeline/env/run.sh python -m pytest -q -c /dev/null -p no:cacheprovider \
+bash pipeline/env/run.sh python \
+  /Users/wnt/turku3d/private/gmaps-extract/run_tests.py \
   /Users/wnt/turku3d/private/gmaps-extract/test_extent.py
 ```
 
@@ -86,3 +94,8 @@ The broader private suite is `test_private.py test_loop.py test_extent.py` in th
 same directory. It covers extent isolation, own-cache separation and independent
 orthophoto cropping alongside existing decoder, completeness and scoring cases.
 No provider imagery or raw reference data is part of this document or the game.
+
+The private test runner creates its own QA parent directories before selecting a
+pytest temporary directory. This also works in a fresh frozen post-deploy
+workspace; an absent QA directory must not turn unrelated fixture setup into a
+false regression.
