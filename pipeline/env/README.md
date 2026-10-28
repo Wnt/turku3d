@@ -26,3 +26,11 @@ Everything installs under `~/turku3d/`, without sudo or shell profile edits:
 worker's editable install. `make pipeline-bootstrap-update` re-solves `environment.yml`; review
 and copy `~/turku3d/envs/pipeline.lock.txt` to the committed lock after a deliberate update.
 The bootstrap is idempotent. Node 24 and the macOS command-line tools must already be installed.
+
+## Linux ARM64 draft host
+
+`linux-aarch64.lock.txt` records Jonni's verified OCI conda environment. Bootstrap
+it with `bash tools/remote-drafts/bootstrap-arm64.sh` from a deployed repository;
+it adds the pinned Triangle source build, Node and KTX ARM64 tools. It uses only
+`~/turku3d-drafts/` and never sources the Mac or legacy Linux environment.
+See [draft operations](../../tools/remote-drafts/README.md).

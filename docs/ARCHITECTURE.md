@@ -83,7 +83,7 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   swapped out. Drafts include mapped kerbs, bridges, tunnels, barriers, traffic poles and vegetation, with
   source-driven facade-kit parameters. They skip surveyed curb profiles, stairs, parked cars and unique facade
   maps; drafts stay out of the static Pages release and the data root's published layers.
-  Pages streams them at runtime from the bounded public service on osgallery-dev
+  Pages streams them at runtime from the bounded public service on OCI
   (`VITE_DRAFT_URL`, default `https://turku.lab.madekivi.fi/coarse/`); localhost retains
   its same-origin companion. Collision passes `checkTile` before drawing in both.
   Operations and source provenance: `tools/remote-drafts/README.md`.

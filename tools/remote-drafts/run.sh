@@ -12,7 +12,21 @@ export PYTHONNOUSERSITE=1
 export PYTHONPATH="$DRAFT_HOME/repo/pipeline"
 export TURKU3D_GLTF_TOOLS="$DRAFT_HOME/tools/npm"
 export TURKU3D_MESHOPT_DIR="$TURKU3D_GLTF_TOOLS/node_modules/meshoptimizer"
-export PATH="$DRAFT_HOME/envs/pipeline/bin:$DRAFT_HOME/tools/KTX-Software-4.4.2-Linux-x86_64/bin:$DRAFT_HOME/tools/npm/node_modules/.bin:$PATH"
+case "$(uname -m)" in
+aarch64 | arm64)
+  tool_arch=arm64
+  node_arch=arm64
+  ;;
+x86_64)
+  tool_arch=x86_64
+  node_arch=x64
+  ;;
+*)
+  echo 'Unsupported deployment architecture' >&2
+  exit 1
+  ;;
+esac
+export PATH="$DRAFT_HOME/envs/pipeline/bin:$DRAFT_HOME/tools/node-v24.18.0-linux-$node_arch/bin:$DRAFT_HOME/tools/KTX-Software-4.4.2-Linux-$tool_arch/bin:$DRAFT_HOME/tools/npm/node_modules/.bin:$PATH"
 export PROJ_DATA="$DRAFT_HOME/envs/pipeline/share/proj"
 export GDAL_DATA="$DRAFT_HOME/envs/pipeline/share/gdal"
 # Four processes must not each start a machine-sized native thread pool.

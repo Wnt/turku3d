@@ -53,49 +53,31 @@ Optional duration is 1–300 seconds. The probe sends hello using the allowed Pa
 Origin, prints a welcome summary without its session token and disconnects. Each
 probe occupies one nickname in that hour and leaves a zero-score entry.
 
-## Deploy on osgallery-dev
+## Deploy on Linux (OCI or osgallery-dev)
 
-Prerequisites: `/usr/bin/node` 24, npm, Python 3, gh authenticated with access to
-`Wnt/forwarder` CI artifacts, `ssh lab` able to read the shared forwarder token,
-and working systemd user services with linger. No new keys or paid services.
-
-```sh
-server/deploy/osgallery-dev/install.sh
-systemctl --user status turku-mp-server.service turku-forwarder-agent.service
-journalctl --user -u turku-mp-server -n 100 --no-pager
-journalctl --user -u turku-forwarder-agent -n 100 --no-pager
-curl -fsS https://turku.lab.madekivi.fi/healthz
-node server/tools/probe.mjs
-```
-
-On hosts where the user cannot read the journal, use the existing sudo access:
+The public service runs on OCI as `ubuntu`, with the existing outbound tunnel
+and loopback-only proxy. The shared installer is `server/deploy/install.sh`;
+`--drafts` also installs the draft proxy, producer and supervised ring prebuild.
+It requires Node 24, existing source snapshots, the native forwarder binary at
+`~/turku3d-mp/bin/forwarder-agent`, and the existing token at
+`~/.config/turku3d/forwarder.env` (0600). It installs without starting a tunnel,
+so migration cannot accidentally run two agents with the same tunnel identity.
 
 ```sh
-sudo journalctl _SYSTEMD_USER_UNIT=turku-forwarder-agent.service _UID="$(id -u)" -n 50 --no-pager
+server/deploy/install.sh --drafts
+systemctl --user enable --now turku-mp-server turku-drafts turku-drafts-proxy
+node server/tools/probe-presence.mjs ws://127.0.0.1:7764/
+# Stop the previous host's forwarder before enabling this one:
+systemctl --user enable --now turku-forwarder-agent
+node server/tools/probe-presence.mjs
 ```
 
-The idempotent installer downloads the latest successful `Wnt/forwarder` main CI
-artifact into `~/turku3d-mp/bin/`, reads `FORWARDER_AGENT_TOKEN` from
-`/etc/forwarder-agent/agent.env` via `ssh lab`, and copies only that assignment into
-`~/.config/turku3d/forwarder.env` (0600), installs/enables/restarts both user units,
-and checks public health and hello. It stops if SSH or the token is unavailable;
-it never substitutes credentials or prints the token. The agent reads it via
-`EnvironmentFile` and dials `tunnel.lab.madekivi.fi` with
-`--tunnel turku:http:turku.lab.madekivi.fi:7700`. Only the tunnel is public.
+The presence probe holds two Pages-Origin WebSockets simultaneously and checks
+that the second sees both players. It never prints session tokens. Like the
+single-client probe, it reserves nicknames until the next hour.
 
-Override the existing token source with `TOKEN_SOURCE_HOST` and `TOKEN_SOURCE_FILE`
-when needed (defaults: `lab` and `/etc/forwarder-agent/agent.env`):
-
-```sh
-TOKEN_SOURCE_HOST=lab TOKEN_SOURCE_FILE=/etc/forwarder-agent/agent.env \
-  server/deploy/osgallery-dev/install.sh
-```
-
-The units run this branch's checkout at `~/turku3d-mp/repo`. Do not switch that
-checkout's branch while serving it. After updating committed code, reinstall or
-run `systemctl --user restart turku-mp-server.service`; a restart clears the
-unfinished hour. To stop this deployment:
-
-```sh
-systemctl --user disable --now turku-forwarder-agent.service turku-mp-server.service
-```
+See [remote draft operations](../tools/remote-drafts/README.md) for the ARM64
+bootstrap, logs, source updates, data paths, cache warmup, cutover and rollback.
+Completed hourly data lives in `server/data`; unfinished-hour scores and sessions
+reset on restart. The osgallery-dev files and disabled units are retained through
+2026-11-04 for rollback.
