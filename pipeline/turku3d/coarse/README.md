@@ -616,3 +616,8 @@ Focused checks:
 bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_parked.py
 npm --prefix game test -- tests/unit/parked-streaming.test.ts tests/unit/coarse-tiles.test.ts tests/unit/vehicle-fleet.test.ts tests/unit/vehicleSave.test.ts
 ```
+
+The broader original parked-layer integration also runs the Node/Rapier validator.
+Prepare its locked dependencies with `npm ci --prefix tools/validator --no-audit --no-fund`
+before selecting `pipeline/tests/test_parked.py` for a frozen post-deploy run. The snapshot
+copies those dependencies; it does not install missing packages during verification.
