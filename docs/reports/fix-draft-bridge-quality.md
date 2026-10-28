@@ -1,8 +1,8 @@
 # Draft bridge appearance and profile audit
 
-Implementation, real-data builds and paired game-renderer inspection are complete. Private
-reference score/diff remains unavailable until the independent capture passes its highest-detail
-gate; the existing captures must not be treated as measured reference truth.
+Implementation, real-data builds and paired game-renderer inspection are complete. The private
+Auransilta capture passed its highest-detail gate; its first bridge score was withheld after the
+reference owner found insufficient local support for the one scored patch.
 
 OSM crossing outlines and membership remain authoritative for one deck per crossing. Optional
 classified city lidar supplies robust longitudinal deck profiles and positive support evidence.
@@ -122,11 +122,23 @@ The audit exposed a host scheduler error: a running code integration and its que
 were counted simultaneously, preventing later builds even when CPU capacity was free. The
 replacement-reservation check now removes only the current code reservation when checking the
 future state. Current CPU/GPU limits and integration priority remain enforced. The later main
-admission change allows three agent Chrome suites beside integration.
+admission change allows three agent Chrome suites beside integration. A follow-up correction
+compares each resource's queued-integration deficit before and after an admission: an existing
+CPU shortfall from data/build work no longer blocks a browser that consumes only free GPU capacity.
+Build work that worsens that shortfall still waits.
 
-The private comparison tool's highest-detail completeness check has not passed for any affected
-tile. In particular, the latest Aura capture is incomplete, and the northern railway tile has no
-capture. No reference score or diff is accepted. Own camera pose lists are ready for the offline
-`render`/`pair` tool; any partial reference images remain private and cannot supply numerical
-claims. The separate gmaps-validation-loop owner has been asked for completion status and
-railway capture coverage.
+The private comparison tool rendered 24 offline reference views at our own-source camera poses:
+street, bank and deck for Myllysilta, Martinsilta, Teatterisilta, Auransilta, Kirjastosilta,
+Betanianpolku, Hämeensilta and Hämeenramppi. The matching before/after game views remain in the
+sandbox; all reference images remain in the private store. The Auransilta/Kirjastosilta tile
+passed 1,980/1,980 terminal-node completeness and tile calibration. Several low views still
+contain provider holes or occlusion, so visible detail cannot be assumed everywhere. The other
+four captured tiles are incomplete and their offline views are qualitative only. There is no
+capture for Tuomiokirkkosilta or the two northern railway crossings yet.
+
+An initial strict diff of the immutable Auransilta tile pair finished, but the private reference
+owner identified a bridge metric eligibility bug: its lone bridge patch lacked the independent
+masked support required for a confirmed height claim. **No bridge reference height score is
+accepted or reported.** The owner is fixing eligibility and rerunning the pair. This does not
+alter the independent held-out city-lidar residuals above, and no private reference values enter
+the bridge producer. Reference images and detailed reports remain private.
