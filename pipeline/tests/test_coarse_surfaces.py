@@ -335,11 +335,12 @@ def test_stair_treads_replace_ground_and_share_collision_faces():
     mesh = meshes[0]
     triangles = mesh.positions[mesh.indices]
     normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
-    treads = triangles[normal[:, 1] > 1e-8]
+    flight = (triangles[:, :, 0].min(axis=1) >= 10) & (triangles[:, :, 0].max(axis=1) <= 16)
+    treads = triangles[(normal[:, 1] > 1e-8) & flight]
     np.testing.assert_allclose(np.unique(np.round(treads[:, :, 1], 8)), np.arange(1, 11) * 0.16)
     assert mesh.positions[:, 2].min() == 16
     assert mesh.positions[:, 2].max() == 24
-    assert abs(normal[normal[:, 1] > 0, 1].sum() / 2 - 48) < 1e-8
+    assert abs(normal[(normal[:, 1] > 0) & flight, 1].sum() / 2 - 48) < 1e-8
     # Ground triangles crossing the corridor with vertices outside must be split exactly.
     pos, ix = grid_mesh(tile, np.zeros((129, 129)))
     ground = stairs.cut_ground(Mesh(pos, ix, np.full(len(ix), mat_id("grass"), np.uint8)), openings)
@@ -414,3 +415,22 @@ def test_park_and_field_keep_grass_but_explicit_yard_keeps_paving(tmp_path):
     assert classify(
         points, rgb, C.VisualTile(0, 0, 0), [], osm_surfaces(C.VisualTile(0, 0, 0), path)
     ).tolist() == [mat_id(k) for k in ("paving_slab", "grass", "grass")]
+
+
+def test_bent_stair_and_landings_cover_the_entire_terrain_cut():
+    from turku3d.coarse import stairs
+
+    line = shapely.LineString([(10, 20), (13, 21), (16, 20)])
+    meshes, openings = stairs.produce(
+        C.VisualTile(0, 0, 0),
+        ([("bend", line, {"width": "2.4", "step_count": "10"})], []),
+        lambda x, z: 0.3 * x + 0.1 * z,
+    )
+    tris = meshes[0].positions[meshes[0].indices]
+    normal = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
+    top = shapely.union_all(shapely.polygons(tris[normal[:, 1] > 1e-8][:, :, [0, 2]]))
+    assert openings[0].difference(top).area < 1e-8
+    # Landing outer edges coincide with the surrounding terrain, including crossfall.
+    vertices = meshes[0].positions
+    for point in vertices[(vertices[:, 0] < 9.5) | (vertices[:, 0] > 16.5)]:
+        assert np.isfinite(point).all()

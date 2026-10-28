@@ -91,14 +91,19 @@ def prepare(tile, path):
     )
     window = shapely.box(*tile.bbox.as_tuple()).buffer(100)
     out = []
-    for k, row in enumerate(table.to_pylist()):
+    from .underpasses import quay_passages
+
+    rows = table.to_pylist()
+    passages = quay_passages(rows)
+    passage_ids = {key for key, _, _ in passages}
+    for k, row in enumerate(rows):
         tags = json.loads(row["tags"]) if row["tags"] else {}
-        if not selected(tags):
+        if not selected(tags) or str(row.get("osm_id", k)) in passage_ids:
             continue
         line = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
         if line.geom_type == "LineString" and line.length > 0.5:
             out.append((str(row.get("osm_id", k)), line, tags))
-    return [way for way in merge_parallel(out) if way[1].intersects(window)]
+    return [way for way in merge_parallel([*out, *passages]) if way[1].intersects(window)]
 
 
 def merge_parallel(ways):
@@ -240,16 +245,28 @@ class Tunnels:
     ceilings: list = field(default_factory=list)  # collision already belongs to the building shell
 
     def visuals(self, tile):
+        from .bridge_details import texture
+
         return [
             GlbMesh(
                 m.object_id,
                 m.positions - tile.origin,
                 m.indices,
                 uvs=m.uvs,
-                color=(1, 0.92, 0.65, 1) if m.metadata.get("lamp") else (0.22, 0.23, 0.24, 1),
+                color=(1, 0.92, 0.65, 1)
+                if m.metadata.get("lamp")
+                else (1, 1, 1, 1)
+                if m.metadata.get("vault")
+                else (0.22, 0.23, 0.24, 1),
+                image=texture("stone") if m.metadata.get("vault") else None,
+                repeat=True,
                 emissive=(1, 0.85, 0.5) if m.metadata.get("lamp") else (0, 0, 0),
                 extras=dict(
-                    layer="structures", object_id=m.object_id, material_key="tunnel_concrete"
+                    layer="structures",
+                    object_id=m.object_id,
+                    material_key="draft_bridge_stone"
+                    if m.metadata.get("vault")
+                    else "tunnel_concrete",
                 ),
             )
             for m in [*self.meshes, *self.ceilings]
@@ -323,12 +340,16 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
     for key, line, tags in merge_parallel(ways):
         passage = tags.get("tunnel") == "building_passage"
         width, clearance = dimensions(tags)
+        vaulted = tags.get("vault") == "barrel"
+        spring = clearance - width / 2 if vaulted else clearance
         distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length / 2)) + 1))
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         terrain = np.array([sample(x, z) for x, z in xz])
         if passage and surface_sample is not None:
             terrain = np.array([surface_sample(x, z) for x, z in xz])
         floor = terrain if passage else floor_profile(terrain, distances)
+        if vaulted:
+            floor = np.interp(distances, [0, line.length], [terrain[0], terrain[-1]])
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
         # Mitered offset sections meet at bends without cracks.
         direction = np.diff(xz, axis=0)
@@ -407,22 +428,49 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 patch = np.clip(patch, clip_low, clip_high)
                 p = np.c_[patch[:, 0], floor_height(patch), patch[:, 1]]
                 road.face(p[::-1], patch[::-1])
-            tube.face(
-                [
-                    point(left, i, clearance),
-                    point(right, i, clearance),
-                    point(right, j, clearance),
-                    point(left, j, clearance),
-                ]
-            )
-            tube.face(
-                [
-                    point(left, i, clearance + 0.3),
-                    point(left, j, clearance + 0.3),
-                    point(right, j, clearance + 0.3),
-                    point(right, i, clearance + 0.3),
-                ]
-            )
+            if vaulted:
+                # Semicircular intrados, parallel outer shell and annular portal faces.
+                def arch(
+                    k,
+                    angle,
+                    outer=0,
+                    width=width,
+                    xz=xz,
+                    offset=offset,
+                    left_floor=left_floor,
+                    right_floor=right_floor,
+                    spring=spring,
+                ):
+                    across = np.cos(angle) * (width / 2 + outer)
+                    q = xz[k] + offset[k] * across
+                    h = (left_floor[k] + right_floor[k]) / 2 + spring
+                    return [q[0], h + np.sin(angle) * (width / 2 + outer), q[1]]
+
+                angles = np.linspace(0, np.pi, 17)
+                for a, b in zip(angles[:-1], angles[1:], strict=True):
+                    tube.face([arch(i, a), arch(i, b), arch(j, b), arch(j, a)])
+                    tube.face([arch(i, a, 0.3), arch(j, a, 0.3), arch(j, b, 0.3), arch(i, b, 0.3)])
+                    if i == 0:
+                        tube.face([arch(i, a), arch(i, a, 0.3), arch(i, b, 0.3), arch(i, b)])
+                    if j == len(xz) - 1:
+                        tube.face([arch(j, a), arch(j, b), arch(j, b, 0.3), arch(j, a, 0.3)])
+            else:
+                tube.face(
+                    [
+                        point(left, i, clearance),
+                        point(right, i, clearance),
+                        point(right, j, clearance),
+                        point(left, j, clearance),
+                    ]
+                )
+                tube.face(
+                    [
+                        point(left, i, clearance + 0.3),
+                        point(left, j, clearance + 0.3),
+                        point(right, j, clearance + 0.3),
+                        point(right, i, clearance + 0.3),
+                    ]
+                )
             # Bright strips are ordinary geometry, keeping the draft free of dynamic point lights.
             if i % 6 == 0:
                 c = (xz[i] + xz[j]) / 2
@@ -494,7 +542,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     f"tunnel:{key}:{name}",
                     side[i : i + 2] + (1 if name == "left" else -1) * offset[i : i + 2] * 0.2,
                     side_floor[i : i + 2] - 0.2,
-                    side_floor[i : i + 2] + clearance + 0.3,
+                    side_floor[i : i + 2] + spring + 0.3,
                     surface_sample or sample,
                     tile.size / CELLS,
                     thickness=0.4,
@@ -503,7 +551,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     wall.face(section.positions[tri], section.uvs[tri])
             if wall.indices:
                 meshes.append(wall.mesh(f"tunnel:{key}:{name}", "wall"))
-        for end in (0, -1):
+        for end in () if vaulted else (0, -1):
             # A single U-shaped frame owns the mouth. Its jambs and thickness
             # stay outside the clear carriageway, including at skewed portals.
             frame = Faces()
@@ -531,6 +579,10 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             for tri in header.indices:
                 frame.face(header.positions[tri], header.uvs[tri])
             meshes.append(frame.mesh(f"tunnel:{key}:portal:{end}", "wall"))
+        if vaulted:
+            for mesh in meshes:
+                if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.metadata.get("lamp"):
+                    mesh.metadata["vault"] = True
         candidates = tree.query(cut_corridor, predicate="intersects")
         for tid in candidates:
             p = grid_pos[grid_idx[tid]]

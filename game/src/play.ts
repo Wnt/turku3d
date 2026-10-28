@@ -379,7 +379,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (carIn && vs) carIn = holdCar(carIn, vs.forwardSpeed, streamer.speedLimit(feet.x, feet.z, vel.x, vel.z)); // unloaded collision ahead
     else if (!fly?.active) charIn = holdFoot(charIn, streamer.speedLimit(feet.x, feet.z, charIn.vx, charIn.vz));
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
-      position: { x: feet.x, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
+      position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
     });
     const carrying = missions.phase === 'carrying';

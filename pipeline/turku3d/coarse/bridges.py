@@ -213,7 +213,9 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
             )
         )
     from .bridge_survey import height_anchors, spot_heights
+    from .underpasses import quay_passages
 
+    passages = quay_passages(table.to_pylist())
     spots = spot_heights(spot_paths)
     bridges = merge_crossings([w for w in ways if w["bridge"]], list(outlines.values()))
     road_tree = shapely.STRtree([w["line"] for w in ways])
@@ -226,6 +228,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
         b["landing"] = (b["line"].length < 25 and b["line"].distance(pier) < 2) or (
             b["line"].length < 8 and b["tags"].get("highway") in PATHS
         )
+        b["quay_passages"] = [p for p in passages if p[1].distance(b["line"]) < b["width"]]
         b["obstacles"] = obstacle
         b["under"] = (
             []
@@ -521,7 +524,11 @@ def produce(tile, grid_pos, inputs):
                 *[b.footprint for b in inputs.buildings],
             ]
         )
-        requirements, blocked = [], []
+        requirements = []
+        blocked = [
+            line.buffer(float(tags["width"]) / 2 + 0.4)
+            for _, line, tags in way.get("quay_passages", [])
+        ]
         for under in way["under"]:
             intersection = axis.intersection(under["line"])
             if not intersection.is_empty and axis.boundary.buffer(0.2).covers(intersection):

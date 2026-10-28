@@ -47,5 +47,8 @@ export const ZONE_LABELS: Record<TargetKind, string> = {
 
 /** Height (engine metres) from which a downward ray finds a zone's ground. The black market sits on the
  *  lower quay under the Auransilta deck, so its ray starts below the deck. */
-export const ZONE_RAY_TOP: Partial<Record<string, number>> = { [MARKET.id]: 4 };
+export const ZONE_RAY_TOP: Partial<Record<string, number>> = { [MARKET.id]: 2 };
 export const DEFAULT_ZONE_RAY_TOP = 40;
+
+/** Compact indoor marker fits beneath the quay passage vault. */
+export const ZONE_STYLE: Partial<Record<string, 'stall'>> = { [MARKET.id]: 'stall' };

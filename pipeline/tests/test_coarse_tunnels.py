@@ -299,3 +299,54 @@ def test_covered_road_also_lifts_building_and_keeps_crossing_tunnel_separate():
     )
     raised = [b for b, _ in result.shells if b.footprint.contains(shapely.Point(10, 10))]
     assert len(raised) == 1 and raised[0].base >= 6.5
+
+
+def test_quay_discovery_uses_walkways_without_place_or_way_ids():
+    from turku3d.coarse.underpasses import quay_passages
+
+    def row(key, geom, **tags):
+        return dict(osm_id=key, geometry_local=geom.wkb, tags=json.dumps(tags))
+
+    rows = [
+        row(1, shapely.box(20, 10, 30, 60), man_made="bridge", material="stone"),
+        row(2, shapely.LineString([(10, 12), (20, 12)]), highway="footway"),
+        row(3, shapely.LineString([(30, 12), (40, 12)]), highway="footway"),
+        row(4, shapely.LineString([(20, 58), (30, 58)]), highway="footway", tunnel="yes"),
+    ]
+    result = quay_passages(rows)
+    assert len(result) == 2
+    assert any(key == "4" for key, _, _ in result)
+    assert all(tags["vault"] == "barrel" for _, _, tags in result)
+    rows[2]["tags"] = json.dumps(dict(highway="footway", footway="sidewalk"))
+    assert len(quay_passages(rows)) == 1
+
+
+def test_barrel_vault_has_clear_centre_stone_shell_and_unbroken_floor():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [20, 2, 0], [0, 2, 20], [20, 2, 20]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    line = shapely.LineString([(2, 10), (18, 10)])
+    result = produce(
+        tile,
+        [
+            (
+                "vault",
+                line,
+                {"highway": "footway", "vault": "barrel", "width": "2.4", "maxheight": "2.7"},
+            )
+        ],
+        pos,
+        idx,
+        [],
+        extrude,
+        lambda x, z: 2,
+    )
+    roof = next(m for m in result.meshes if m.object_id.endswith(":roof"))
+    assert roof.metadata["vault"]
+    np.testing.assert_allclose(roof.positions[:, 1].max(), 5)
+    centre = roof.positions[np.isclose(roof.positions[:, 2], 10)]
+    assert centre[:, 1].min() >= 4.7 - 1e-8
+    floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
+    polys = shapely.union_all(shapely.polygons(floor.positions[floor.indices][:, :, [0, 2]]))
+    assert line.buffer(1.2, cap_style="flat").difference(polys).area < 1e-8
+    assert not any(":portal:" in m.object_id for m in result.meshes)

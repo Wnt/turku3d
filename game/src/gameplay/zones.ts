@@ -5,7 +5,7 @@ import { float, uniform, uv } from 'three/tsl';
 import type { MissionHudSource, RouteTarget, WorldPoint } from './contract';
 import { KIND_COLOURS } from './minimap';
 import { lineText } from './content/dialogue';
-import { DEFAULT_ZONE_RAY_TOP, ZONE_LABELS, ZONE_RAY_TOP } from './content/shops';
+import { DEFAULT_ZONE_RAY_TOP, ZONE_LABELS, ZONE_RAY_TOP, ZONE_STYLE } from './content/shops';
 
 /** Drawn radius: the 3 m interaction radius plus a visible margin. */
 export const ZONE_RADIUS = 3.5;
@@ -44,6 +44,8 @@ export function zoneStrength(metres: number, t: number): number {
 }
 
 const ringGeometry = new THREE.RingGeometry(ZONE_RADIUS - RING_WIDTH, ZONE_RADIUS, 72).rotateX(-Math.PI / 2);
+const stallRingGeometry = new THREE.RingGeometry(0.68, 0.85, 48).rotateX(-Math.PI / 2);
+const stallSignGeometry = new THREE.BoxGeometry(0.7, 0.32, 0.06).translate(0, 1.25, 0);
 const discGeometry = new THREE.CircleGeometry(ZONE_RADIUS - RING_WIDTH, 48).rotateX(-Math.PI / 2);
 const wallGeometry = new THREE.CylinderGeometry(ZONE_RADIUS, ZONE_RADIUS, WALL_HEIGHT, 72, 1, true)
   .translate(0, WALL_HEIGHT / 2, 0);
@@ -93,7 +95,7 @@ export class ZoneMarkers {
       zone.opacity = this.hidden ? 0 : zoneStrength(metres, this.time);
       zone.strength.value = zone.opacity;
       zone.group.visible = zone.opacity > 0;
-      const p = this.projected.set(zone.target.point.x, zone.y + LABEL_HEIGHT, zone.target.point.z).project(camera);
+      const p = this.projected.set(zone.target.point.x, zone.y + (ZONE_STYLE[zone.target.id] === 'stall' ? 1.45 : LABEL_HEIGHT), zone.target.point.z).project(camera);
       zone.labelShown = !this.hidden && metres <= LABEL_RANGE && p.z > -1 && p.z < 1 && Math.abs(p.x) < 1.1 && Math.abs(p.y) < 1.1;
       zone.label.style.display = zone.labelShown ? '' : 'none';
       if (zone.labelShown) {
@@ -125,7 +127,10 @@ export class ZoneMarkers {
     const group = new THREE.Group();
     group.name = `zone:${target.id}`;
     group.visible = false;
-    group.add(new THREE.Mesh(ringGeometry, glowMaterial(colour, strength.mul(0.95))),
+    if (ZONE_STYLE[target.id] === 'stall') {
+      group.add(new THREE.Mesh(stallRingGeometry, glowMaterial(colour, strength)),
+        new THREE.Mesh(stallSignGeometry, glowMaterial(colour, strength.mul(0.6))));
+    } else group.add(new THREE.Mesh(ringGeometry, glowMaterial(colour, strength.mul(0.95))),
       new THREE.Mesh(discGeometry, glowMaterial(colour, strength.mul(0.16))),
       new THREE.Mesh(wallGeometry, glowMaterial(colour, strength.mul(fadeUp).mul(0.5))));
     for (const mesh of group.children) mesh.renderOrder = 10;

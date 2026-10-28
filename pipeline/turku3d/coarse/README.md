@@ -661,3 +661,29 @@ The broader original parked-layer integration also runs the Node/Rapier validato
 Prepare its locked dependencies with `npm ci --prefix tools/validator --no-audit --no-fund`
 before selecting `pipeline/tests/test_parked.py` for a frozen post-deploy run. The snapshot
 copies those dependencies; it does not install missing packages during verification.
+
+
+### Quay underpasses and stair joins
+
+Normal draft preparation discovers transverse lower walks through masonry bridge abutments
+(`underpasses.py`). Explicit OSM tunnels win; complete transverse paths or aligned quay path
+ends at opposite bridge edges provide a fallback. Sidewalk/crossing/step ways do not infer
+passages. This uses full ways before tile clipping, and feeds both tunnel terrain cuts and
+bridge support exclusions. No tile build override or hand-built geometry is required.
+Existing photo-backed bridge material profiles identify masonry when OSM omits it.
+
+Auransilta currently resolves the east mapped walk and the west quay gap. Both get stone
+barrel vaults, approximately 2.4 m clear width, 2.7 m crown height, 1.5 m spring height and
+0.3 m shell thickness; lengths follow OSM (east 12.63 m, west 17.02 m). These dimensions
+are estimates, not surveyed clearances. Portal floors blend into the measured quay surface.
+The generator adds warm emissive ceiling strips for gameplay visibility.
+
+Reference: [MKFI, 9 July 2011, public domain](https://commons.wikimedia.org/wiki/File:Auransilta_Turku.JPG),
+5184 × 3456 px, shows both round-headed openings, grey masonry, low paved quay landings,
+and dark interiors. The photograph does not resolve interior lighting or exact dimensions.
+Photos remain local; no reference pixels are shipped. The permit seller is inside the west
+passage with a compact luminous floor ring and low sign; its dialogue/options are unchanged.
+
+Stairs preserve mapped bends with shared mitered edges, so terrain cuts cannot expose gaps
+between independent rectangular treads. One-metre landing aprons blend the full stair width
+into ground; visible and collision faces share the same geometry.
