@@ -15,7 +15,10 @@ def test_selection_and_clearance():
     assert selected({"highway": "footway", "tunnel": "building_passage"})
     assert selected({"railway": "rail", "tunnel": "yes"})
     assert selected({"highway": "residential", "covered": "yes", "layer": "-1"})
-    assert not selected({"highway": "residential", "covered": "yes", "layer": "0"})
+    assert selected({"highway": "residential", "covered": "yes", "layer": "0"})
+    assert selected({"highway": "trunk", "layer": "-1"})
+    assert not selected({"highway": "residential", "covered": "yes", "layer": "1"})
+    assert dimensions({"highway": "trunk", "lanes": "3"}) == (11.5, 4.5)
     assert not selected({"waterway": "stream", "tunnel": "culvert"})
     assert dimensions({"highway": "footway"}) == (3, 2.5)
     assert dimensions({"highway": "residential", "width": "8 m"}) == (8, 4.5)
@@ -245,3 +248,54 @@ def test_portal_has_one_frame_and_full_width_clear_in_render_and_collision():
             if tri[:, 1].min() >= 6.5:
                 continue
             assert shapely.Polygon(tri[:, [0, 2]]).intersection(opening).area < 1e-9
+
+
+def test_parallel_hospital_tunnels_share_opening_and_cut_building_shell():
+    # Four mapped ways: two main carriageways plus a parallel ramp/lane.
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [60, 2, 0], [0, 2, 60], [60, 2, 60]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    ways = [
+        (
+            str(i),
+            shapely.LineString([(5, z), (30, z + i * 0.3), (55, z + i * 0.6)]),
+            {"highway": "trunk", "lanes": str(lanes), "layer": "-1", "tunnel": "yes"},
+        )
+        for i, (z, lanes) in enumerate([(15, 1), (22, 2), (34, 2), (41, 1)])
+    ]
+    building = Building("hospital", shapely.box(10, 5, 50, 51), 2, 24, "facade_plaster")
+    result = produce(tile, ways, pos, idx, [(building, extrude(building))], extrude, lambda x, z: 2)
+    assert len(result.profiles) == 1
+    assert len([m for m in result.meshes if ":portal:" in m.object_id]) == 2
+    corridor = shapely.box(10.01, 12.76, 49.99, 43.24)
+    for b, shell in result.shells:
+        if b.base == 2:
+            assert b.footprint.intersection(corridor).area < 1e-8
+        # Building visual walls and collision share these vertices and indices.
+        for tri in shell[4][shell[6]]:
+            if tri[:, 1].min() < 6.5:
+                assert shapely.Polygon(tri[:, [0, 2]]).intersection(corridor).area < 1e-8
+    assert result.ceilings
+    for mesh in result.meshes:
+        if ":portal:" in mesh.object_id or mesh.object_id.endswith((":left", ":right")):
+            for tri in mesh.positions[mesh.indices]:
+                if tri[:, 1].min() < 6.5:
+                    assert shapely.Polygon(tri[:, [0, 2]]).intersection(corridor).area < 1e-8
+
+
+def test_covered_road_also_lifts_building_and_keeps_crossing_tunnel_separate():
+    from turku3d.coarse.tunnels import merge_parallel
+
+    tags = {"highway": "service", "covered": "yes", "width": "4"}
+    way = ("covered", shapely.LineString([(0, 10), (20, 10)]), tags)
+    crossing = ("crossing", shapely.LineString([(10, 0), (10, 20)]), tags)
+    assert len(merge_parallel([way, crossing])) == 2
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [20, 2, 0], [0, 2, 20], [20, 2, 20]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    building = Building("covered", shapely.box(5, 5, 15, 15), 2, 14, "facade_plaster")
+    result = produce(
+        tile, [way], pos, idx, [(building, extrude(building))], extrude, lambda x, z: 2
+    )
+    raised = [b for b, _ in result.shells if b.footprint.contains(shapely.Point(10, 10))]
+    assert len(raised) == 1 and raised[0].base >= 6.5

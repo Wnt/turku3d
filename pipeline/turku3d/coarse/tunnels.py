@@ -51,14 +51,18 @@ def ground_sampler(fallback):
 def dimensions(tags):
     """Clear box dimensions in metres, with conservative road/path defaults."""
     path = tags.get("highway") in {"footway", "path", "cycleway", "pedestrian", "steps"}
-    width, height = (3.0, 2.5) if path else (7.0, 4.5)
+    try:
+        lanes = float(tags.get("lanes", 2))
+    except (TypeError, ValueError):
+        lanes = 2
+    width, height = (3.0, 2.5) if path else (max(4.0, lanes * 3.5 + 1.0), 4.5)
     for key, default in (("width", width), ("maxheight", height)):
         try:
             value = float(str(tags.get(key, default)).removesuffix(" m"))
         except ValueError:
             value = default
         if key == "width":
-            width = float(np.clip(value, 1.5, 24))
+            width = float(np.clip(value, 1.5, 96))
         else:
             height = float(np.clip(value, 2, 8))
     return width, height
@@ -70,7 +74,9 @@ def selected(tags):
     if tags.get("tunnel") in {"yes", "building_passage", "culvert"}:
         return True
     try:
-        return tags.get("covered") == "yes" and float(tags.get("layer", 0)) < 0
+        return float(tags.get("layer", 0)) < 0 or (
+            tags.get("covered") == "yes" and float(tags.get("layer", 0)) <= 0
+        )
     except ValueError:
         return False
 
@@ -83,15 +89,100 @@ def prepare(tile, path):
     table = pq.read_table(
         path, columns=[c for c in ("osm_id", "tags", "geometry_local") if c in names]
     )
-    window = shapely.box(*tile.bbox.as_tuple()).buffer(25)
+    window = shapely.box(*tile.bbox.as_tuple()).buffer(100)
     out = []
     for k, row in enumerate(table.to_pylist()):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if not selected(tags):
             continue
         line = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
-        if line.geom_type == "LineString" and line.length > 0.5 and line.intersects(window):
+        if line.geom_type == "LineString" and line.length > 0.5:
             out.append((str(row.get("osm_id", k)), line, tags))
+    return [way for way in merge_parallel(out) if way[1].intersects(window)]
+
+
+def merge_parallel(ways):
+    """Give adjacent parallel carriageways one clear box, including the space between lanes.
+
+    Group complete OSM ways before tile filtering so neighbouring tiles use identical portals.
+    Curved tunnels remain separate unless their full geometry fits the same near-straight axis.
+    """
+    groups = []
+    for way in sorted(ways, key=lambda w: w[0]):
+        key, line, tags = way
+        width, clearance = dimensions(tags)
+        coords = shapely.get_coordinates(line)
+        axis = coords[-1] - coords[0]
+        length = np.linalg.norm(axis)
+        if length < 0.5:
+            groups.append([way])
+            continue
+        axis /= length
+        normal = np.array([-axis[1], axis[0]])
+        motor = bool(tags.get("highway")) and tags["highway"] not in {
+            "footway",
+            "path",
+            "cycleway",
+            "pedestrian",
+            "steps",
+        }
+        matches = []
+        if motor and np.ptp(coords @ normal) < 2:
+            for i, group in enumerate(groups):
+                other = group[0]
+                ot = other[2]
+                oc = shapely.get_coordinates(other[1])
+                oa = oc[-1] - oc[0]
+                if np.linalg.norm(oa) < 0.5:
+                    continue
+                oa /= np.linalg.norm(oa)
+                if (
+                    ot.get("highway")
+                    and ot["highway"] not in {"footway", "path", "cycleway", "pedestrian", "steps"}
+                    and ot.get("layer", "0") == tags.get("layer", "0")
+                    and (ot.get("tunnel") == "building_passage")
+                    == (tags.get("tunnel") == "building_passage")
+                    and abs(oa @ axis) > 0.98
+                    and abs(dimensions(ot)[1] - clearance) < 0.5
+                    and np.ptp(oc @ np.array([-oa[1], oa[0]])) < 2
+                ):
+                    a, b = coords @ axis, oc @ axis
+                    overlap = min(a.max(), b.max()) - max(a.min(), b.min())
+                    if overlap < 0.5 * min(np.ptp(a), np.ptp(b)):
+                        continue
+                    if any(
+                        line.distance(w[1]) <= (width + dimensions(w[2])[0]) / 2 + 6 for w in group
+                    ):
+                        matches.append(i)
+        merged = [way]
+        for i in reversed(matches):
+            merged.extend(groups.pop(i))
+        groups.append(merged)
+    out = []
+    for group in groups:
+        if len(group) == 1:
+            out.extend(group)
+            continue
+        group.sort(key=lambda w: w[0])
+        reference = max(group, key=lambda w: w[1].length)[1]
+        origin = np.array(reference.coords[0])
+        axis = np.array(reference.coords[-1]) - origin
+        axis /= np.linalg.norm(axis)
+        normal = np.array([-axis[1], axis[0]])
+        footprints = [
+            w[1].buffer(dimensions(w[2])[0] / 2, cap_style="flat", join_style="mitre")
+            for w in group
+        ]
+        points = shapely.get_coordinates(shapely.union_all(footprints)) - origin
+        along, across = points @ axis, points @ normal
+        centre = origin + normal * (across.min() + across.max()) / 2
+        line = shapely.LineString([centre + axis * along.min(), centre + axis * along.max()])
+        tags = dict(
+            group[0][2],
+            width=str(across.max() - across.min()),
+            maxheight=str(max(dimensions(w[2])[1] for w in group)),
+        )
+        out.append(("+".join(w[0] for w in group), line, tags))
     return out
 
 
@@ -229,7 +320,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
     bounds = tile.bbox.as_tuple()
     clip_low, clip_high = np.array(bounds[:2]), np.array(bounds[2:])
     tree = shapely.STRtree(shapely.polygons(grid_pos[grid_idx][:, :, [0, 2]]))
-    for key, line, tags in ways:
+    for key, line, tags in merge_parallel(ways):
         passage = tags.get("tunnel") == "building_passage"
         width, clearance = dimensions(tags)
         distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length / 2)) + 1))
@@ -265,6 +356,9 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 profiles.append((line, distances, floor, width))
             continue
 
+        # OSM also maps roads below buildings as tunnel=yes or covered/layer ways.
+        # The tube and the building shell must leave the same full-width corridor clear.
+        passages.append((corridor, float(np.max(floor) + clearance + 0.35)))
         portal_offsets = (
             np.array([surface_sample(*xz[0]) - floor[0], surface_sample(*xz[-1]) - floor[-1]])
             if surface_sample is not None
