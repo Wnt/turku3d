@@ -1,13 +1,19 @@
-# Remote draft benchmark
+# Remote draft serving
 
-The Phase 1 benchmark on osgallery-dev failed the outer-tile limit on 2026-10-28.
-No public draft service, proxy, forwarder change, or Pages endpoint was deployed.
-The multiplayer WebSocket probe from the Pages origin passed before benchmarking.
+Pages requests drafts from `https://turku.lab.madekivi.fi/coarse/`. The tunnel
+passes through Caddy on loopback 7764: `/coarse/*` goes to the bounded draft
+service on 7765, and other requests, including multiplayer WebSockets, go to
+the existing server on 7700. Both servers remain private loopback listeners.
 
-Everything created on the host is under `~/turku3d-drafts/`. The existing
-`~/turku3d/` and `~/turku3d-mp/` installations remain unchanged. No services were
-started; the benchmark exits after its eight builds. Keep the environment and
-inputs for a follow-up after `fix-draft-speed` lands.
+The initial pipeline stays pinned to `38e57aff`. The orchestrator explicitly
+accepted the Phase 1 measurements in substance on 2026-10-28 and authorized
+Phase 2, including the recorded 41.897 s outer-tile exception. Keep that
+measurement when comparing a later pipeline; it was not a strict timing pass.
+
+All draft data, tools, pipeline sources, cache and logs live under
+`~/turku3d-drafts/`. User systemd units and a forwarder drop-in are the only
+configuration outside that directory. The forwarder credential stays in its
+existing EnvironmentFile and is never read, copied, printed or committed.
 
 ## Source and measurements
 
@@ -38,8 +44,8 @@ an isolated CPU comparison.
 The failing outer tile spent 32.187 s in WFS preparation (including lidar roof
 refinement) and 4.138 s in visual packaging. It needs at least 11.897 s removed
 from its single-build wall time. The speed-fix owner has the measurements.
-Rerun after that fix with completed transfers and retain both reports; deployment
-requires a passing benchmark first.
+Rerun after that fix with completed transfers and retain both reports; the
+initial serving deployment uses the explicit acceptance exception above.
 
 The machine-readable stage timings are in [baseline-38e57aff.json](baseline-38e57aff.json).
 The original logs, JSON, generated tiles, conda package URLs and pip inventory
@@ -130,6 +136,135 @@ repo/tools/remote-drafts/run.sh python scripts/dev/host_slots.py build \
 Inspect `reports/<run>/benchmark.json` and `single-*.log` / `parallel-*.log`.
 Benchmark cache clearing means deleting only the chosen run directory after
 preserving its JSON/logs, while no benchmark is using it. There is no public
-status, restart, drain or cache-clear endpoint. Supervised serving, public queue
-and CORS controls, ETags, reverse proxying, Pages client configuration and the
-published-browser proof remain follow-up work after the timing gate passes.
+status, restart, drain or cache-clear endpoint. `/coarse/health` returns only
+`{"state":"online"}`; tile manifests omit pipeline timings and input internals.
+
+
+## Install and start serving
+
+Run from the reviewed agent checkout. Copy only the serving directory over the
+pinned pipeline tree; copying the whole checkout would change the producer.
+
+```sh
+cd ~/turku3d-drafts/agent-repo
+rsync -a tools/remote-drafts/ ~/turku3d-drafts/repo/tools/remote-drafts/
+mkdir -p ~/.config/systemd/user ~/turku3d-drafts/reports
+cp tools/remote-drafts/turku-drafts*.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now turku-drafts.service turku-drafts-proxy.service
+node server/tools/probe.mjs
+node server/tools/probe.mjs ws://127.0.0.1:7764/
+```
+
+Only after both probes pass, switch the existing forwarder through a drop-in:
+
+```sh
+mkdir -p ~/.config/systemd/user/turku-forwarder-agent.service.d
+cp tools/remote-drafts/forwarder-proxy.conf \
+  ~/.config/systemd/user/turku-forwarder-agent.service.d/remote-drafts.conf
+systemctl --user daemon-reload
+systemctl --user restart turku-forwarder-agent.service
+node server/tools/probe.mjs
+curl -f -H 'Origin: https://wnt.github.io' https://turku.lab.madekivi.fi/coarse/health
+```
+
+A failed post-switch WebSocket probe requires immediate rollback:
+
+```sh
+rm ~/.config/systemd/user/turku-forwarder-agent.service.d/remote-drafts.conf
+systemctl --user daemon-reload
+systemctl --user restart turku-forwarder-agent.service
+node server/tools/probe.mjs
+```
+
+To stop drafts, roll back the tunnel first, then run
+`systemctl --user stop turku-drafts-proxy.service turku-drafts.service`.
+`systemctl --user is-enabled turku-drafts.service turku-drafts-proxy.service`
+checks startup persistence; `loginctl show-user "$USER" -p Linger` checks that
+user services survive logout. Proxy and producer run with no new privileges.
+
+## Prebuild and cache
+
+`config.json` limits tile indices inclusively, workers (4) and total admitted
+running/queued/pending builds (24). Admission is atomic. Cached tiles bypass the
+cap. Invalid tile IDs and private management routes return 404, full queues 429
+with Retry-After, and pipeline failures a generic unavailable response. Only
+Pages and HTTP localhost origins get CORS. No client motion is accepted or logged.
+Request logs contain only route class and response code; Caddy access logs are off.
+Successful responses have ETags and require revalidation, so producer updates do
+not leave stale browser assets. There is no public cache-clear endpoint.
+
+The persistent cache is `~/turku3d-drafts/work/coarse/`. Prebuild uses the same
+HTTP admission queue and four polling jobs; it never writes tiles concurrently
+with the producer. It warms the listed playable tiles plus a 3x3 ring, expanded
+to whole replacement-parent siblings. The initial list contains 84 tiles.
+
+```sh
+systemd-run --user --unit=turku-drafts-prebuild --property=Nice=15 \
+  --property=StandardOutput=append:$HOME/turku3d-drafts/reports/prebuild.log \
+  --property=StandardError=append:$HOME/turku3d-drafts/reports/prebuild.log \
+  "$HOME/turku3d-drafts/repo/tools/remote-drafts/run.sh" \
+  python tools/remote-drafts/prebuild.py "$HOME/turku3d-drafts/work/prebuild-tiles.json"
+tail -f ~/turku3d-drafts/reports/prebuild.log
+cat ~/turku3d-drafts/work/prebuild.json
+```
+
+Use `systemctl --user stop turku-drafts-prebuild` before replacing its list.
+`prebuild-tiles.json` uses the repository playable-list shape `{"tiles":[...]}`;
+sync the published playable list when expanding the Pages region. The bounds
+also permit uncached travel farther out; those tiles build on demand.
+
+To clear cached tiles, stop prebuild and the producer, preserve any evidence,
+then remove only the desired `work/coarse/t0_i_j` directories. Restart the
+producer and prebuild. Stop writers first for whole-cache clearing too; leave
+`data/raw/` untouched. Prepared input caches are separate under `work/cache/`.
+
+## Update the pipeline
+
+Coordinate with the Mac orchestrator and `fix-draft-speed`; use its landed main
+commit after benchmarking. Build a fresh source tree rather than overlaying
+pipeline files. Preserve the serving scripts and independent environment:
+
+```sh
+cd ~/turku3d-drafts/agent-repo
+SOURCE_COMMIT=<reviewed-commit>
+mkdir ../repo-next
+git archive "$SOURCE_COMMIT" | tar -x -C ../repo-next
+rsync -a tools/remote-drafts/ ../repo-next/tools/remote-drafts/
+systemctl --user stop turku-drafts-prebuild turku-drafts.service
+mv ../repo ../repo-previous
+mv ../repo-next ../repo
+printf '%s\n' "$SOURCE_COMMIT" > ../SOURCE_COMMIT
+systemctl --user start turku-drafts.service
+```
+
+Rebuild the dedicated environment first if that commit changes environment
+files. Re-run the cold benchmark in a new report directory through host_slots,
+then restart prebuild. Old tiles become stale automatically through producer
+and input hashes; shared textures use content hashes. Rollback is the same
+stop/swap/start using `repo-previous`; keep the previous tree until verification.
+Caddy and multiplayer can stay running while the draft producer restarts.
+
+## Client and verification
+
+`game/src/net/config.ts` resolves `VITE_DRAFT_URL` at build time (HTTPS only),
+defaulting to the public route for `wnt.github.io`. Localhost always uses
+same-origin `/coarse/`. Other hosts have no draft service. No feature flag or
+public player-position endpoint is used. The badge shows building, remote queue
+full (retrying) and remote offline states. All 16 collision cells must be present
+and pass the existing physics `checkTile` before a draft is drawn.
+
+```sh
+npm --prefix game test -- --run tests/unit/coarse-tiles.test.ts
+npm --prefix game run typecheck
+PYTHONPATH=pipeline .venv/bin/python -m unittest discover -s tools/remote-drafts -p test_public.py
+scripts/dev/gate --fast --base main
+node server/tools/probe.mjs
+journalctl --user -u turku-drafts.service -u turku-drafts-proxy.service -n 30
+tail -f ~/turku3d-drafts/reports/service.log
+```
+
+Service stdout/stderr append to `reports/service.log`; proxy diagnostics append
+to `reports/proxy.log`. Rotate them during a maintenance stop (or use logrotate
+copytruncate). Do not enable request-header logging. Browser evidence and exact
+published-URL checks are recorded in `docs/reports/remote-draft-host.md`.

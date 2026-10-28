@@ -1,7 +1,7 @@
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
-// Coarse (draft) tiles on localhost: when the player comes within one tile of an L0 cell the published tileset lacks,
-// the companion service (tools/dev/coarse-tiles, proxied at /coarse/) builds it in seconds and this module streams it
+// Coarse (draft) tiles: when the player comes within one tile of an L0 cell the published tileset lacks,
+// the local companion or Pages' remote service builds it and this module streams it
 // in like a published tile: the GLB goes into the scene, its .col entries into the manifest so CollisionStreamer
 // loads them with the normal residency rules. Collision comes first: a draft is drawn only when all 16 of its cells
 // have collision and the physics worker has decoded each of its .col files; one that fails is never drawn (the
@@ -22,7 +22,7 @@ import { textureUploads } from '../render/textureUploads';
 // starts paused the same way. A 404 from /coarse/want (an older service without the route) only skips the prefetch.
 // The /coarse/want answer carries the service's build counter: when it moves, the waiting tiles are polled at once, so a finished
 // draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
-// Never active off localhost (GitHub Pages) or when the service is not running.
+// Pages uses the public health probe and tile routes, without sending player motion or requesting service internals.
 import { aheadTiles, cellsOf, distToL0, leafParents, parentCovered, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
@@ -221,7 +221,7 @@ export class CoarseTiles {
     this.track(x, z, now);
     if (this.outage) {
       if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
-      this.show(RESTARTING);
+      this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);
       return;
     }
     void this.want(x, z);
@@ -247,7 +247,8 @@ export class CoarseTiles {
       this.entries.delete(id);
     }
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
-    const building = this.building;
+    const building = this.remote ? [...this.entries.values()].filter(e => e.state === 'pending' || e.state === 'loading').length : this.building;
+    const queueFull = this.remote && [...this.entries.values()].some(e => e.error === 'queue full');
     const loaded = [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort();
     const at = this.entries.get(here);
     const inSeconds = (e?: Entry) => e?.readyAt === undefined ? null : Math.max(0, Math.ceil((e.readyAt - now) / 1000));
@@ -259,7 +260,7 @@ export class CoarseTiles {
       : at?.state === 'published' ? `published tile ${here} streamed in place of its draft (reload for LOD)`
         : at ? `draft tile ${here}${at.state === 'failed' ? ` unavailable: ${at.error}` : waiting}` : '';
     const next = soonest !== undefined && at?.state === 'draft' ? `next tile in ${soonest} s` : '';
-    this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '', next]
+    this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '', queueFull ? 'remote queue full; retrying' : '', next]
       .filter(Boolean).join(' · '));
   }
 
@@ -309,7 +310,7 @@ export class CoarseTiles {
   /** A /coarse/* request; ServiceDown when the service did not answer. */
   private async request(url: string): Promise<Response> {
     let res: Response;
-    try { res = await this.fetch(new URL(url, this.page).href, { cache: 'no-store' }); }
+    try { res = await this.fetch(new URL(url, this.page).href, { cache: 'no-cache', signal: AbortSignal.timeout(30_000) }); }
     catch { throw new ServiceDown(); }
     if (gatewayDown(res.status)) throw new ServiceDown();
     return res;
