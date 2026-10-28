@@ -95,7 +95,7 @@ def prepare(tile, path):
         out = []
         quay = passages(path)
         passage_ids = {key for key, _, _ in quay}
-        for k, row in rows(path):
+        for k, row in rows(path, columns=("osm_id", "tags", "geometry_local")):
             tags = json.loads(row["tags"]) if row["tags"] else {}
             if not selected(tags) or str(row.get("osm_id", k)) in passage_ids:
                 continue

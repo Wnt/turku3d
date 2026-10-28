@@ -59,6 +59,7 @@ def worker() -> int:
                 Path(job["out"]),
                 sources=sources,
                 first_pass=job.get("first_pass", False),
+                collision_only=job.get("first_pass", False),
             )
             result = {"code": 0, "stdout": json.dumps({k: m[k] for k in ("tile", "buildings")})}
         except MissingInputs as missing:

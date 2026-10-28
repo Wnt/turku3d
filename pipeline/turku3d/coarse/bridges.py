@@ -171,7 +171,9 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
 
     window = shapely.box(*tile.bbox.buffered(500).as_tuple())
     ways, outlines, obstacles, piers, lamps = [], {}, [], [], []
-    for row_index, row in rows(osm, tile.bbox.buffered(500)):
+    for row_index, row in rows(
+        osm, tile.bbox.buffered(500), columns=("osm_id", "tags", "geometry_local")
+    ):
         tags = json.loads(row["tags"] or "{}")
         if not (
             tags.get("highway")

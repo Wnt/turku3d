@@ -3,7 +3,7 @@
 import geopandas as gpd
 import shapely
 from turku3d import config as C
-from turku3d.spatial import frame
+from turku3d.spatial import frame, rows
 
 
 def test_area_selection_keeps_complete_buildings_and_refreshes_changed_source(tmp_path):
@@ -23,6 +23,10 @@ def test_area_selection_keeps_complete_buildings_and_refreshes_changed_source(tm
     data.loc[0, "feature_key"] = "new"
     data.to_parquet(path)
     assert frame(path, box).feature_key.tolist() == ["new"]
+    selected = list(rows(path, box, columns=("feature_key", "geometry_local", "absent")))
+    assert selected[0][0] == 0
+    assert set(selected[0][1]) == {"feature_key", "geometry_local"}
+    assert selected[0][1]["geometry_local"].equals(shapes[0])
 
 
 def test_stair_input_reads_only_nearby_complete_ways(tmp_path):

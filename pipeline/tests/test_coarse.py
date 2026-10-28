@@ -146,7 +146,10 @@ def inputs(tmp_path):
     )
 
 
-def test_collision_publishes_even_when_visual_packaging_fails(tmp_path, inputs, monkeypatch):
+@pytest.mark.parametrize("collision_only", [False, True])
+def test_collision_publishes_even_when_visual_packaging_fails(
+    tmp_path, inputs, monkeypatch, collision_only
+):
     import importlib
     from turku3d.coarse.collision import fragment
 
@@ -162,10 +165,20 @@ def test_collision_publishes_even_when_visual_packaging_fails(tmp_path, inputs, 
         raise RuntimeError("visual failure")
 
     monkeypatch.setattr(module, "package_visual", fail_visual)
-    with pytest.raises(RuntimeError, match="visual failure"):
-        build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library", first_pass=True)
+    if collision_only:
+        m = build(TILE.id, out, inputs=inputs, first_pass=True, collision_only=True)
+        assert len(m["collision"]) == 16
+        assert m["seconds"]["total"] == m["seconds"]["collision_ready"]
+        assert not (out / "manifest.json").exists()
+        assert not list((out / ".stage").glob("*.glb"))
+    else:
+        with pytest.raises(RuntimeError, match="visual failure"):
+            build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library", first_pass=True)
     builder = Builder(out.parent, code=module.code_hash(), workers=0)
     assert fragment(builder, TILE.id)["collision"]
+    assert builder.request(TILE.id, 0)["state"] == "queued"
+    assert TILE.id not in builder.priority
+    assert TILE.id in builder.upgrade_queue
     builder.input_key = lambda _: "new-source"
     assert fragment(builder, TILE.id) is None
     builder.stop()
@@ -346,6 +359,57 @@ def test_builder_waits_for_completion_before_publishing_manifest(tmp_path):
         assert tile in status["timings"]
     finally:
         finish.set()
+        builder.stop()
+        for thread in builder.threads:
+            thread.join(5)
+
+
+def test_structural_job_completes_then_visual_job_uses_spare_worker(tmp_path, monkeypatch):
+    from turku3d.coarse import service
+    from turku3d.coarse.collision import fragment
+
+    upgrading, release = threading.Event(), threading.Event()
+    calls = []
+
+    class Runner:
+        def close(self):
+            pass
+
+        def __call__(self, tile, out, *, first_pass):
+            calls.append(first_pass)
+            out.mkdir(exist_ok=True)
+            record = dict(
+                coarse=True,
+                tile=tile,
+                code="test",
+                pass_kind="first",
+                collision={c.id: {} for c in C.VisualTile.parse(tile).collision_tiles()},
+            )
+            if first_pass:
+                (out / "collision.json").write_text(json.dumps(record))
+            else:
+                upgrading.set()
+                assert release.wait(5)
+                record["pass_kind"] = "full"
+                (out / "manifest.json").write_text(json.dumps(record))
+            return subprocess.CompletedProcess([], 0)
+
+    monkeypatch.setattr(service, "Workers", Runner)
+    builder = Builder(tmp_path, code="test", workers=1)
+    tile = "t0_4_4"
+    try:
+        builder.request(tile, 0)
+        assert upgrading.wait(5)
+        assert fragment(builder, tile) is not None
+        assert builder.built_count == 1 and builder.failure_count == 0
+        assert builder.request(tile, 0)["state"] == "building"
+        assert tile not in builder.servable
+        release.set()
+        _wait(lambda: builder.built_count == 2)
+        assert calls == [True, False]
+        assert builder.request(tile, 0) == {"state": "built"}
+    finally:
+        release.set()
         builder.stop()
         for thread in builder.threads:
             thread.join(5)

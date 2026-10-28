@@ -132,3 +132,18 @@ def test_new_crossings_preempt_visual_upgrades_and_keep_their_demand(tmp_path):
     b.demand.prune(b)
     assert len(cancelled) == 2  # pending cancellation already releases its slot
     b.stop()
+
+
+def test_request_hash_cache_observes_producer_file_edits(tmp_path, monkeypatch):
+    from turku3d.coarse import packaging
+
+    path = tmp_path / "producer.py"
+    path.write_text("first")
+    calls = []
+    monkeypatch.setattr(packaging, "producer_paths", lambda: [path])
+    monkeypatch.setattr(packaging, "code_hash", lambda: calls.append(1) or path.read_text())
+    assert packaging.current_code() == packaging.current_code() == "first"
+    assert len(calls) == 1
+    path.write_text("second")
+    assert packaging.current_code() == "second"
+    assert len(calls) == 2

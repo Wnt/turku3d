@@ -54,7 +54,9 @@ def frame(path, bbox=None, *, whole_features=False):
     return data.iloc[ids].copy()
 
 
-def rows(path, bbox=None):
+def rows(path, bbox=None, *, columns=None):
     """Original row identities alongside records, including already decoded geometry."""
     selected = frame(path, bbox)
+    if columns is not None:
+        selected = selected[[name for name in columns if name in selected]]
     return zip(selected.index, selected.to_dict("records"), strict=True)
