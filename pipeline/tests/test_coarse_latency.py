@@ -123,3 +123,26 @@ def test_queue_holds_the_ring_and_the_nearest_cone_tiles_up_to_its_cap(tmp_path)
     assert order[:5] == [
         f"t0_{i}_0" for i in range(1, 6)
     ]  # imminent crossings before lateral tiles
+
+
+def test_roof_crop_preserves_supported_planes_and_evidence(tmp_path, monkeypatch):
+    import copy
+
+    import numpy as np
+    import shapely
+    from turku3d.coarse import roofs
+    from turku3d.coarse.inputs import Building
+
+    x, z = np.meshgrid(np.arange(-10, 20, 0.25), np.arange(-10, 20, 0.25))
+    cloud = np.c_[x.ravel(), np.full(x.size, 5.2), z.ravel()]
+    original = [Building("roof", shapely.box(0, 0, 10, 10), 0, 5, "facade_plaster")]
+    original[0].roof_parts = [(original[0].footprint, np.array([0.0, 0.0, 5.0]))]
+    cropped = copy.deepcopy(original)
+    source = tmp_path / "survey.laz"
+    source.touch()
+    monkeypatch.setattr(roofs, "_class6", lambda *_: cloud)
+    roofs.refine(original, [], points=cloud)
+    roofs.refine(cropped, [source])
+    assert original[0].height_evidence == cropped[0].height_evidence
+    assert original[0].height_evidence[0]["source"] == "class6_plane_offset"
+    assert np.array_equal(original[0].roof_parts[0][1], cropped[0].roof_parts[0][1])

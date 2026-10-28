@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import subprocess
 import tempfile
@@ -231,7 +232,7 @@ def library(root: Path, base: Path, channels):
         ),
         None,
     )
-    identity = [str(base.resolve()), Path(__file__).read_bytes()]
+    identity = [str(base.resolve()), KEYS, inspect.getsource(library), inspect.getsource(fallback)]
     if source:
         identity.extend(
             f"{p}:{p.stat().st_size}:{p.stat().st_mtime_ns}"
