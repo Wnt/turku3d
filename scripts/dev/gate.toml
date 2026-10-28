@@ -59,8 +59,8 @@ sources = ["tools/validator/*.py", "tools/compare/*.py", "tools/remote-drafts/*.
 [[stages]]
 name = "coarse-latency-unit"
 kind = "command"
-triggers = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse_latency.py"]
-commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_latency.py"]]
+triggers = ["pipeline/turku3d/coarse/*", "pipeline/turku3d/ground/materials.py", "pipeline/tests/test_coarse_latency.py", "pipeline/tests/test_coarse_surfaces.py"]
+commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_latency.py", "pipeline/tests/test_coarse_surfaces.py"]]
 
 [[stages]]
 name = "coarse-ground-unit"

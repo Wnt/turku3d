@@ -39,6 +39,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   Draft ground no longer displays aerial shadows, roofs, cars or blue-white patches as albedo.
   Object support heights use the actual grid triangle, including its diagonal, rather than a
   bilinear patch. The same sampler places vegetation, poles and barriers on visual/collision ground.
+  Asphalt removes the generated warm colour cast in linear light, preserving grain luminance;
+  stone, paving and vegetation retain their authored colour.
 - **Paint and kerbs**: explicit OSM crossing/lane/stop lines are draped on dry road triangles,
   clipped to their exact boundaries and offset 8 mm. Point-only crossings remain unresolved.
   Mapped kerb linework (deduplicated against polygon outlines) becomes an 18 cm wide strip with
@@ -456,6 +458,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_surfaces
 `views.json` is a local array of `{name,tile,position:[x,y,z],target:[x,y,z],fov,width,height}`
 (world-local engine metres, vertical FOV); top/oblique views instead use `{name,tile,target,radius,top}`.
 The renderer retains screenshots and frame/GPU/draw measurements under each phase directory.
+Append `--root /absolute/build/tree` to render another immutable draft tree with the same views;
+the tree contains the tile directories and their `shared/` resources.
 `--full` loads the three published office tiles with their ground bindings and water shader.
 Private reference comparisons and their calibration caveats are described in the task report;
 all reference renders and pairs stay outside the repository.
