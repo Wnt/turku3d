@@ -1,302 +1,192 @@
 # Remote draft serving
 
-Pages requests drafts from `https://turku.lab.madekivi.fi/coarse/`. The tunnel
-passes through Caddy on loopback 7764: `/coarse/*` goes to the bounded draft
-service on 7765, and other requests, including multiplayer WebSockets, go to
-the existing server on 7700. Both servers remain private loopback listeners.
+The public draft and multiplayer services run as user `ubuntu` on `oci-drafts`
+(`82.70.50.61`, Ubuntu 24.04 ARM64). Pages keeps the same URLs:
+`https://turku.lab.madekivi.fi/coarse/` and `wss://turku.lab.madekivi.fi/`.
+The outbound forwarder connects to `tunnel.lab.madekivi.fi`; no DNS change,
+public application listener or new inbound firewall rule is needed.
+Caddy binds `127.0.0.1:7764`, sends `/coarse/*` to `127.0.0.1:7765`, and everything
+else, including WebSockets, to multiplayer on `127.0.0.1:7700`.
 
-The initial pipeline stays pinned to `38e57aff`. The orchestrator explicitly
-accepted the Phase 1 measurements in substance on 2026-10-28 and authorized
-Phase 2, including the recorded 41.897 s outer-tile exception. Keep that
-measurement when comparing a later pipeline; it was not a strict timing pass.
+The deployed pipeline is current published main `0c43828`, with structural first
+passes, forward scheduling and prepared-input caching. The source snapshot also
+includes the migration installer; `SOURCE_COMMIT` records its full commit. The old osgallery-dev
+`38e57aff` deployment is retained for rollback through **2026-11-04**. Its files
+and data must remain intact until then. Its four service units are disabled.
+Historical measurements remain in [baseline-38e57aff.json](baseline-38e57aff.json)
+and [the original host report](../../docs/reports/remote-draft-host.md).
+The migration evidence is in [the OCI report](../../docs/reports/move-to-oci.md).
 
-All draft data, tools, pipeline sources, cache and logs live under
-`~/turku3d-drafts/`. User systemd units and a forwarder drop-in are the only
-configuration outside that directory. The forwarder credential stays in its
-existing EnvironmentFile and is never read, copied, printed or committed.
+## Host layout and bootstrap
 
-## Source and measurements
+`~/turku3d-drafts/` contains `repo/`, `envs/`, `tools/`, `reports/`, `run.sh`, and
+`SOURCE_COMMIT`. `data` and `work` are symlinks into the existing 150 GB XFS volume
+at `/srv/turku3d/{data,work}`. Do not replace these symlinks or build on the boot
+disk. Jonni's `HOST-SETUP.json`, `data-volume.json`, `bootstrap-arm64.sh`,
+`prepare-and-benchmark.sh` and baseline reports remain on the host.
+The user service checks for the mounted data/work paths before starting; linger
+is enabled. No cloud resources were created by the migration.
 
-The source archive is commit `38e57affa9496d2bd51ab8472e80e662773828bb`, the newest
-service commit in the localhost restart events before `f3c1b5fd` and `10434366`.
-Mapping successive `coarse-tiles:` log entries to `coarse`/`starting` events ties
-the preceding `b0a6d655` service to `t0_0_2` 40.2 s, `t0_1_2` 41.2 s,
-`t0_0_3` 44.6 s and `t0_1_3` 45.8 s. The selected version changes fallback roof
-extrusion relative to that predecessor.
-
-| Tile | Single build | Four simultaneous builds | Single limit |
-| --- | ---: | ---: | ---: |
-| `t0_1_2` | 77.789 s | 36.916 s | 90 s |
-| `t0_0_3` | 50.088 s | 52.937 s | 90 s |
-| `t0_7_7` | **41.897 s** | 36.054 s | **30 s: FAIL** |
-| `t0_8_7` | 21.043 s | 39.017 s | 30 s |
-
-All eight builds exited successfully. The parallel batch took 52.944 s. Each mode
-used a separate, initially empty output/input-cache root. Each build started a
-fresh Python process, so these are request-to-build CLI timings, including imports;
-they do not measure browser drawing. The first tile in each mode also paid for a
-shared facade atlas. OS file caches were not flushed. Initial measurements
-overlapped the remaining bulk raw-input transfer; the required benchmark inputs
-were already present. Host load was 11.98/7.98/6.77 at the start and
-10.84/10.40/8.09 at the end. Treat this as a conservative cold-input result, not
-an isolated CPU comparison.
-
-The failing outer tile spent 32.187 s in WFS preparation (including lidar roof
-refinement) and 4.138 s in visual packaging. It needs at least 11.897 s removed
-from its single-build wall time. The speed-fix owner has the measurements.
-Rerun after that fix with completed transfers and retain both reports; the
-initial serving deployment uses the explicit acceptance exception above.
-
-The machine-readable stage timings are in [baseline-38e57aff.json](baseline-38e57aff.json).
-The original logs, JSON, generated tiles, conda package URLs and pip inventory
-remain under `~/turku3d-drafts/reports/` on the host. Small logs and the JSON are
-also retained in `$TURKU3D_WORK/reports/remote-drafts/` on the Mac.
-
-## Recreate the dedicated environment
-
-Prerequisites on the host: Linux x86-64, Node 24, npm, curl, tar, rsync and
-micromamba. The measured host used micromamba 2.9.0. Run the following from the
-Mac sandbox after choosing `SOURCE_COMMIT`. Always transfer an explicit input
-allowlist; never transfer the entire raw or data root.
+The reusable ARM64 bootstrap uses the explicit repository conda environment,
+Node 24.18.0, KTX 4.4.2 ARM64, and Triangle's pinned upstream source commit:
 
 ```sh
-SOURCE_COMMIT=38e57affa9496d2bd51ab8472e80e662773828bb
-git archive "$SOURCE_COMMIT" -o "$TURKU3D_WORK/reports/remote-drafts/source.tar"
-ssh osgallery-dev 'mkdir -p ~/turku3d-drafts/{repo,data/raw,tools/bin,envs,work,reports}'
-rsync -a "$TURKU3D_WORK/reports/remote-drafts/source.tar" osgallery-dev:turku3d-drafts/source.tar
-ssh osgallery-dev 'tar -xf ~/turku3d-drafts/source.tar -C ~/turku3d-drafts/repo'
-rsync -a tools/remote-drafts/ osgallery-dev:turku3d-drafts/repo/tools/remote-drafts/
-rsync -az "$TURKU3D_DATA/raw/ortho" "$TURKU3D_DATA/raw/laz" \
-  "$TURKU3D_DATA/raw/wfs" "$TURKU3D_DATA/raw/osm" osgallery-dev:turku3d-drafts/data/raw/
-ssh osgallery-dev 'mkdir -p ~/turku3d-drafts/work/textures/assembly'
-rsync -a "$TURKU3D_DATA/live/textures/assembly/library" \
-  osgallery-dev:turku3d-drafts/work/textures/assembly/
+# On OCI, after extracting the chosen source into ~/turku3d-drafts/repo:
+bash ~/turku3d-drafts/repo/tools/remote-drafts/bootstrap-arm64.sh
+~/turku3d-drafts/run.sh python -c 'import pdal, rasterio, triangle, jsonschema'
+df -h / /srv/turku3d
 ```
 
-No street imagery, private directory, credentials, browser profiles, or model
-weights are required. The archived repository supplies the small manifests,
-facade renderer, schemas and prior parameters. The assembled material library
-contains generated reusable materials. Raw input directories include their
-registration metadata and relative-path VRTs.
+`pipeline/env/linux-aarch64.lock.txt` is Jonni's verified explicit environment.
+`run.sh` selects the deployment's native tools, limits BLAS threads and disables
+Python user-site imports. Never source osgallery-dev's legacy `pipeline.env`.
+Only approved city lidar, city WFS, city ortho and OSM inputs were transferred;
+no street imagery, private tree or Google-derived data is needed or copied.
 
-The measured conda package URLs are pinned in [linux-64.lock.txt](linux-64.lock.txt).
-For an exact conda replay, use that file instead of `environment.yml`, then
-install `triangle==20250106` with `run.sh python -m pip install triangle==20250106`
-and the `jsonschema` dependency below. The YAML command re-solves the repository's
-platform-independent dependency requirements for Linux.
+Multiplayer has a separate source snapshot at `~/turku3d-mp/repo/server/`, runtime
+data in `server/data/`, and an architecture-neutral binary name
+`~/turku3d-mp/bin/forwarder-agent`. The forwarder was compiled from Wnt/forwarder
+with its pinned Go compiler and vendored dependencies because CI artifacts were
+unavailable and its artifact matrix lacked Linux ARM64. Source and build logs
+remain under the draft tools/reports directories. Caddy is the checksum-verified
+2.11.7 ARM64 release. Neither application needs root.
 
-Run on the host, using an already installed micromamba executable to create the
-dedicated environment (the measured setup copied only the micromamba executable
-into this prefix):
+## Install, start, stop and logs
+
+The shared installer supports both Linux architectures. Before running it,
+provide the source snapshots, native tools, forwarder binary and the existing
+credential at `~/.config/turku3d/forwarder.env` (0600). Transfer that credential
+only directly host-to-host to the same path, never through a repository or a
+report. The installer does not acquire credentials or start a public tunnel.
 
 ```sh
-cd ~/turku3d-drafts
-PYTHONNOUSERSITE=1 tools/bin/micromamba create -y -r "$PWD/mamba" \
-  -p "$PWD/envs/pipeline" -f repo/pipeline/env/environment.yml
-mkdir -p tools/npm
-cp repo/pipeline/env/package*.json tools/npm/
-(cd tools/npm && npm ci)
-curl -fL --retry 2 -o tools/ktx.tar.bz2 \
-  https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.2/KTX-Software-4.4.2-Linux-x86_64.tar.bz2
-tar -xf tools/ktx.tar.bz2 -C tools
-repo/tools/remote-drafts/run.sh python -m pip install 'jsonschema>=4.23'
-repo/tools/remote-drafts/run.sh toktx --version
+~/turku3d-drafts/run.sh bash ~/turku3d-mp/repo/server/deploy/install.sh --drafts
+systemctl --user enable --now turku-mp-server turku-drafts turku-drafts-proxy
+~/turku3d-drafts/run.sh node ~/turku3d-mp/repo/server/tools/probe-presence.mjs ws://127.0.0.1:7764/
+curl -f -H 'Origin: https://wnt.github.io' http://127.0.0.1:7764/coarse/health
+# Only after the old host's forwarder has stopped:
+systemctl --user enable --now turku-forwarder-agent
+systemctl --user enable --now turku-drafts-prebuild
+systemctl --user status turku-mp-server turku-drafts turku-drafts-proxy turku-forwarder-agent
+loginctl show-user ubuntu -p Linger
 ```
 
-`jsonschema` is the lightweight facade-renderer dependency from
-`textures/pyproject.toml`; installing the full texture research environment is
-unnecessary. `run.sh` selects only this deployment's data, work directories,
-native environment and npm packages. It disables Python user-site imports and
-limits native BLAS threads to one per process. It never sources the legacy
-host's `pipeline.env`.
-
-## Repeat or update
-
-Wait for rsync to finish before repeating the benchmark. Updating the source
-means extracting a new archive into a **new empty source directory**, installing
-its environment files if changed, then switching `repo` only while no benchmark
-is running. Do not extract over old pipeline files: removed modules would survive.
-The deployment's `SOURCE_COMMIT` should identify the selected archive. The initial
-benchmark used the full SHA supplied explicitly to the command below.
-
-The output root must not already exist; this prevents accidentally measuring
-prepared-cache hits. Run through the host slot scheduler, with a unique report
-directory, and retain the complete output. Exit 2 means a timing gate or build
-failed. Both near-centre single builds must be at most 90 s and both outer single
-builds at most 30 s. All four parallel builds must succeed.
+Stop the tunnel first when taking the whole stack offline:
 
 ```sh
-cd ~/turku3d-drafts
-repo/tools/remote-drafts/run.sh python scripts/dev/host_slots.py build \
-  python tools/remote-drafts/benchmark.py \
-  --commit 38e57affa9496d2bd51ab8472e80e662773828bb \
-  --root "$PWD/reports/repeat-38e57aff-$(date +%s)"
+systemctl --user stop turku-forwarder-agent
+systemctl --user stop turku-drafts-prebuild turku-drafts-proxy turku-drafts turku-mp-server
+journalctl --user -u turku-mp-server -u turku-forwarder-agent -n 50 --no-pager
+tail -n 50 ~/turku3d-drafts/reports/{service,proxy,prebuild}.log
 ```
 
-Inspect `reports/<run>/benchmark.json` and `single-*.log` / `parallel-*.log`.
-Benchmark cache clearing means deleting only the chosen run directory after
-preserving its JSON/logs, while no benchmark is using it. There is no public
-status, restart, drain or cache-clear endpoint. `/coarse/health` returns only
-`{"state":"online"}`; tile manifests omit pipeline timings and input internals.
-
-
-## Install and start serving
-
-Run from the reviewed agent checkout. Copy only the serving directory over the
-pinned pipeline tree; copying the whole checkout would change the producer.
-
-```sh
-cd ~/turku3d-drafts/agent-repo
-rsync -a tools/remote-drafts/ ~/turku3d-drafts/repo/tools/remote-drafts/
-mkdir -p ~/.config/systemd/user ~/turku3d-drafts/reports
-cp tools/remote-drafts/turku-drafts*.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now turku-drafts.service turku-drafts-proxy.service
-node server/tools/probe.mjs
-node server/tools/probe.mjs ws://127.0.0.1:7764/
-```
-
-Only after both probes pass, switch the existing forwarder through a drop-in:
-
-```sh
-mkdir -p ~/.config/systemd/user/turku-forwarder-agent.service.d
-cp tools/remote-drafts/forwarder-proxy.conf \
-  ~/.config/systemd/user/turku-forwarder-agent.service.d/remote-drafts.conf
-systemctl --user daemon-reload
-systemctl --user restart turku-forwarder-agent.service
-node server/tools/probe.mjs
-curl -f -H 'Origin: https://wnt.github.io' https://turku.lab.madekivi.fi/coarse/health
-```
-
-A failed post-switch WebSocket probe requires immediate rollback:
-
-```sh
-rm ~/.config/systemd/user/turku-forwarder-agent.service.d/remote-drafts.conf
-systemctl --user daemon-reload
-systemctl --user restart turku-forwarder-agent.service
-node server/tools/probe.mjs
-```
-
-To stop drafts, roll back the tunnel first, then run
-`systemctl --user stop turku-drafts-proxy.service turku-drafts.service`.
-`systemctl --user is-enabled turku-drafts.service turku-drafts-proxy.service`
-checks startup persistence; `loginctl show-user "$USER" -p Linger` checks that
-user services survive logout. Proxy and producer run with no new privileges.
+Producer, proxy and prebuild logs append to those files; rotate during a stop or
+with logrotate copytruncate. Do not enable request-header or token logging.
+Completed hourly scores persist; current-hour scores, sessions and broken poles
+are in memory and reset on multiplayer restart. Schedule routine multiplayer
+updates at an hour boundary when possible. Draft-only updates do not restart it.
 
 ## Prebuild and cache
 
-`config.json` limits tile indices inclusively, workers (4) and total admitted
-running/queued/pending builds (24). Admission is atomic. Cached tiles bypass the
-cap. Invalid tile IDs and private management routes return 404, full queues 429
-with Retry-After, and pipeline failures a generic unavailable response. Only
-Pages and HTTP localhost origins get CORS. No client motion is accepted or logged.
-Request logs contain only route class and response code; Caddy access logs are off.
-Successful responses have ETags and require revalidation, so producer updates do
-not leave stale browser assets. There is no public cache-clear endpoint.
-
-The persistent cache is `~/turku3d-drafts/work/coarse/`. Prebuild uses the same
-HTTP admission queue and four polling jobs; it never writes tiles concurrently
-with the producer. It warms the listed playable tiles plus a 3x3 ring, expanded
-to whole replacement-parent siblings. The initial handover list produced 84 tiles. The current Pages manifest has
-16 full L0 tiles whose replacement-expanded ring contains 76; both warmups
-completed without failures after the source backport.
+Refresh the list from the actual Pages manifest, then warm through the bounded
+HTTP queue. The supervised oneshot takes the host build slot and starts on boot.
+It warms playable tiles and the replacement-parent-expanded 3x3 ring; the
+migration manifest contains 92 ring tiles. Structural passes are immediately
+servable; the producer upgrades their appearance in the background.
 
 ```sh
-systemd-run --user --unit=turku-drafts-prebuild --property=Nice=15 \
-  --property=StandardOutput=append:$HOME/turku3d-drafts/reports/prebuild.log \
-  --property=StandardError=append:$HOME/turku3d-drafts/reports/prebuild.log \
-  "$HOME/turku3d-drafts/repo/tools/remote-drafts/run.sh" \
-  python tools/remote-drafts/prebuild.py "$HOME/turku3d-drafts/work/prebuild-tiles.json"
+~/turku3d-drafts/run.sh python - <<'PY'
+import json
+import urllib.request
+from pathlib import Path
+m = json.load(urllib.request.urlopen('https://wnt.github.io/turku-game/tiles/manifest.json'))
+p = Path.home() / 'turku3d-drafts/work/prebuild-tiles.json'
+p.write_text(json.dumps({'tiles': sorted(t for t in m['visual'] if t.startswith('t0_'))}, indent=2) + '\n')
+PY
+systemctl --user restart --no-block turku-drafts-prebuild
 tail -f ~/turku3d-drafts/reports/prebuild.log
 cat ~/turku3d-drafts/work/prebuild.json
 ```
 
-Use `systemctl --user stop turku-drafts-prebuild` before replacing its list.
-After a failed transient run, `systemctl --user reset-failed turku-drafts-prebuild`
-releases its unit name before the next `systemd-run`.
-`prebuild-tiles.json` uses the repository playable-list shape `{"tiles":[...]}`.
-Refresh it from the actual published manifest before each warmup:
+The persistent serving cache is `work/coarse/`; prepared caches are under
+`work/cache/` and the coarse output root. To clear a tile, stop prebuild and
+producer, preserve needed evidence, remove only the chosen
+`~/turku3d-drafts/work/coarse/t0_i_j` directory, then restart producer and prebuild.
+Stop writers for whole-cache clearing too. Never delete `data/raw/` or the
+symlink targets themselves. There is no public management or cache-clear route.
+
+`config.json` sets inclusive index bounds, four foreground workers and a cap of
+24 admitted running/queued/pending requests. Cached requests bypass the cap;
+full queues return 429 with Retry-After. Public manifests omit timings and
+filesystem details; CORS permits Pages and HTTP localhost. Request logs include
+only route class and status. ETags and revalidation prevent stale browser assets.
+
+## Update to a new commit
+
+Archive the orchestrator's chosen main commit into a **fresh** empty source
+directory; never overlay pipeline files. Transfer the archive with `git archive`
+over SSH from a checkout with that commit. Rebuild the native environment first
+if its manifests changed. Preserve data, tools, reports and the volume symlinks.
 
 ```sh
-python3 - <<'PYCODE'
-import json
-import urllib.request
-from pathlib import Path
-manifest = json.load(urllib.request.urlopen('https://wnt.github.io/turku-game/tiles/manifest.json'))
-path = Path.home() / 'turku3d-drafts/work/prebuild-tiles.json'
-path.write_text(json.dumps({'tiles': sorted(t for t in manifest['visual'] if t.startswith('t0_'))}, indent=2) + '\n')
-PYCODE
+# On the source checkout (reviewed commit, not a remote branch name):
+git archive <commit> | ssh oci-drafts 'mkdir ~/turku3d-drafts/repo-next; tar -x -C ~/turku3d-drafts/repo-next'
+# On OCI, with no other deployment update in progress:
+systemctl --user stop turku-drafts-prebuild turku-drafts
+mv ~/turku3d-drafts/repo ~/turku3d-drafts/repo-previous
+mv ~/turku3d-drafts/repo-next ~/turku3d-drafts/repo
+printf '%s\n' '<full-commit>' > ~/turku3d-drafts/SOURCE_COMMIT
+systemctl --user start turku-drafts
+systemctl --user restart --no-block turku-drafts-prebuild
 ```
 
-Sync the list again when expanding the Pages region. The bounds
-also permit uncached travel farther out; those tiles build on demand.
+Use a unique backup directory if `repo-previous` already exists. Keep the old
+source until verification. Code and input hashes invalidate stale tiles
+automatically; omit the old roof-ring patch on main. Update the multiplayer
+source separately while it is stopped, preserving `server/data`, run `npm ci
+--prefix ~/turku3d-mp/repo/server --ignore-scripts --omit=dev`, and restart it.
+Reinstall shared units if they changed; installation itself does not restart them.
 
-To clear cached tiles, stop prebuild and the producer, preserve any evidence,
-then remove only the desired `work/coarse/t0_i_j` directories. Restart the
-producer and prebuild. Stop writers first for whole-cache clearing too; leave
-`data/raw/` untouched. Prepared input caches are separate under `work/cache/`.
+## Benchmark and public verification
 
-## Update the pipeline
-
-Coordinate with the Mac orchestrator and `fix-draft-speed`; use its landed main
-commit after benchmarking. Build a fresh source tree rather than overlaying
-pipeline files. Preserve the serving scripts and independent environment:
+Use a new benchmark directory each time. The full-build benchmark uses isolated
+output roots, fresh Python processes and unflushed OS caches, matching Jonni's
+method. The HTTP probe measures manifest availability and downloads the visual
+and all 16 collision payloads with the Pages Origin; it does not measure browser
+physics installation or render time. Choose an absent tile for a cold request.
 
 ```sh
-cd ~/turku3d-drafts/agent-repo
-SOURCE_COMMIT=<reviewed-commit>
-mkdir ../repo-next
-git archive "$SOURCE_COMMIT" | tar -x -C ../repo-next
-rsync -a tools/remote-drafts/ ../repo-next/tools/remote-drafts/
-systemctl --user stop turku-drafts-prebuild turku-drafts.service
-mv ../repo ../repo-previous
-mv ../repo-next ../repo
-printf '%s\n' "$SOURCE_COMMIT" > ../SOURCE_COMMIT
-systemctl --user start turku-drafts.service
+~/turku3d-drafts/run.sh python scripts/dev/host_slots.py build \
+  python tools/remote-drafts/benchmark.py --commit "$(cat ~/turku3d-drafts/SOURCE_COMMIT)" \
+  --root "$HOME/turku3d-drafts/reports/repeat-$(date +%s)"
+~/turku3d-drafts/run.sh node ~/turku3d-mp/repo/server/tools/probe-presence.mjs
+~/turku3d-drafts/run.sh python tools/remote-drafts/probe.py t0_1_2
+curl -f -H 'Origin: https://wnt.github.io' https://turku.lab.madekivi.fi/coarse/health
+sudo ss -ltnp
 ```
 
-The initial `38e57aff` producer additionally carries the already-landed roof-ring
-weld from `9ad546a`, which fixes six degenerate-wall failures in the 84-tile ring.
-Apply its retained patch only to that original source before startup:
+## Host cutover and rollback
+
+`cutover.sh <destination> <uncached-tile>` runs on the source host after local
+checks and ring warmup. It stops the source tunnel and multiplayer (freezing
+writes), stops destination multiplayer, rsyncs `server/data` last, then starts
+destination multiplayer and its tunnel. It verifies health, two-client presence,
+a cached tile and an uncached build with the Pages Origin. Any failure stops the
+destination tunnel and restores source services automatically. Success disables
+the source's four units. Exactly one tunnel agent runs at a time.
+
+To roll back after a completed migration, run from osgallery-dev. The source
+uses its retained amd64 units and original forwarder drop-in:
 
 ```sh
-patch -p1 -d ~/turku3d-drafts/repo < tools/remote-drafts/roof-ring.patch
+ssh oci-drafts 'systemctl --user disable --now turku-forwarder-agent; systemctl --user stop turku-mp-server'
+rsync -a oci-drafts:turku3d-mp/repo/server/data/ ~/turku3d-mp/repo/server/data/
+systemctl --user enable --now turku-mp-server turku-drafts turku-drafts-proxy turku-forwarder-agent
+node ~/turku3d-mp/repo/server/tools/probe.mjs
+curl -f -H 'Origin: https://wnt.github.io' https://turku.lab.madekivi.fi/coarse/health
+ssh oci-drafts 'systemctl --user stop turku-drafts-prebuild turku-drafts-proxy turku-drafts'
 ```
 
-`~/turku3d-drafts/DEPLOYMENT.json` records base commit, backport function and
-source checksum. A main commit containing `9ad546a` already includes the fix;
-replace the complete source tree and omit the patch on that update. This is a
-source backport, with the ordinary encoder and browser validation unchanged.
-
-Rebuild the dedicated environment first if that commit changes environment
-files. Re-run the cold benchmark in a new report directory through host_slots,
-then restart prebuild. Old tiles become stale automatically through producer
-and input hashes; shared textures use content hashes. Rollback is the same
-stop/swap/start using `repo-previous`; keep the previous tree until verification.
-Caddy and multiplayer can stay running while the draft producer restarts.
-
-## Client and verification
-
-`game/src/net/config.ts` resolves `VITE_DRAFT_URL` at build time (HTTPS only),
-defaulting to the public route for `wnt.github.io`. Localhost always uses
-same-origin `/coarse/`. Other hosts have no draft service. No feature flag or
-public player-position endpoint is used. The badge shows building, remote queue
-full (retrying) and remote offline states. All 16 collision cells must be present
-and pass the existing physics `checkTile` before a draft is drawn. Public startup
-requires the start tile when it is a draft, while speculative remote neighbours
-do not block entry into published terrain during an outage.
-
-```sh
-npm --prefix game test -- --run tests/unit/coarse-tiles.test.ts
-npm --prefix game run typecheck
-PYTHONPATH=pipeline .venv/bin/python -m unittest discover -s tools/remote-drafts -p test_public.py
-scripts/dev/gate --fast --base main
-node server/tools/probe.mjs
-journalctl --user -u turku-drafts.service -u turku-drafts-proxy.service -n 30
-tail -f ~/turku3d-drafts/reports/service.log
-```
-
-Service stdout/stderr append to `reports/service.log`; proxy diagnostics append
-to `reports/proxy.log`. Rotate them during a maintenance stop (or use logrotate
-copytruncate). Do not enable request-header logging. Browser evidence and exact
-published-URL checks are recorded in `docs/reports/remote-draft-host.md`.
+For a pipeline-only rollback, stop producer/prebuild, swap back the retained
+source directory, update `SOURCE_COMMIT` and restart them. The tunnel and
+multiplayer can continue running throughout.
