@@ -9,6 +9,9 @@ MATERIALS = {
     "betoni": "concrete",
     "metallilevy": "metal",
     "rappaus": "render",
+    "luonnonkivi": "stone",
+    "graniitti": "stone",
+    "kivi": "stone",
 }
 
 
@@ -84,6 +87,9 @@ def read_osm(tile, path):
         "metal": "metal",
         "metal_plates": "metal",
         "stone": "stone",
+        "granite": "stone",
+        "sandstone": "stone",
+        "limestone": "stone",
         "glass": "glass",
         "tiles": "concrete",
     }
@@ -109,6 +115,14 @@ def read_osm(tile, path):
             )
         )
         d["material_class"] = classes.get(tags.get("building:material"))
+        d["monumental"] = bool(
+            tags.get("historic") not in (None, "no")
+            or tags.get("heritage") not in (None, "no")
+            or tags.get("building")
+            in ("museum", "church", "cathedral", "castle", "public", "civic")
+        )
+        if tags.get("roof:material"):
+            d["roof_material"] = tags["roof:material"]
         try:
             colour = tags.get("building:colour", "")
             rgb = ImageColor.getrgb(colour)

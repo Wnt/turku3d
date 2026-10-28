@@ -136,6 +136,9 @@ def parameters(
         storey=storey,
         ground=ground,
         upper=upper,
+        plinth=bool(
+            (attributes or {}).get("monumental") and not description and not read_description(key)
+        ),
     )
 
 

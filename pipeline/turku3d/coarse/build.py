@@ -424,6 +424,30 @@ def build(
     dry, river, bank, solid = banks.stage(
         cache, tile, grid_pos, grid_idx, inputs, tunnels.keep, level, bool(osm_decks)
     )
+    from . import stairs
+
+    stair_meshes, stair_openings = cache.run(
+        "stairs",
+        source_key(
+            Path(stairs.__file__),
+            Path(kerbs.__file__),
+            Path(__file__).with_name("geometry.py"),
+            *common,
+        ),
+        [
+            tile,
+            inputs.stairs,
+            grid_pos,
+            kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
+        ],
+        lambda: stairs.produce(tile, inputs.stairs, surface_sample),
+    )
+    dry, solid = cache.run(
+        "stair_ground",
+        source_key(stairs.cut_ground, surfaces.split_boundaries, *common),
+        [dry, solid, stair_openings],
+        lambda: (stairs.cut_ground(dry, stair_openings), stairs.cut_ground(solid, stair_openings)),
+    )
     dry_keep = np.ones(len(dry.indices), bool)
     visual_materials = surfaces.slope_fallback(dry.positions, dry.indices, dry.material)
     fallback_materials = surfaces.slope_fallback(
@@ -520,6 +544,10 @@ def build(
         ),
     )
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
+    stair_visuals = stairs.visuals(tile, stair_meshes)
+    for mesh in stair_visuals:
+        mesh.extras["kind"] = "stairs"
+    ground_meshes.extend(stair_visuals)
     ground_meshes.extend(
         surfaces.visuals(
             tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)
@@ -676,6 +704,7 @@ def build(
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
+        pos, idx, mat = stairs.collision(ct, stair_meshes, pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
@@ -753,6 +782,7 @@ def build(
             else None
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
+        stairs=dict(flights=len(stair_meshes), triangles=sum(len(m.indices) for m in stair_meshes)),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         ground_surfaces={
             surfaces.KEYS[c]: int(

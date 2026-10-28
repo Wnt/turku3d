@@ -122,6 +122,7 @@ def layout(description: dict, width_m: float, height_m: float) -> dict:
 # Register palettes (sRGB hex): Turku's common cladding colours per material class and era.
 # A wall without a usable photo takes one by a stable hash of its building ID.
 PALETTES = {
+    ("stone", "old"): ["#898278", "#9b9184", "#827d78", "#a59788"],
     ("wood", "old"): ["#c9a35a", "#8b3a2b", "#d9c48e", "#a9b49a", "#d8cdb4", "#b98a4a"],
     ("render", "old"): ["#d9c7a3", "#d8bf7a", "#c99a86", "#b9b4aa", "#c2a365", "#cdb9a0"],
     ("render", "1920-1959"): ["#bdb7ab", "#cbbd9f", "#d3c58e", "#c4b6a2"],
@@ -151,14 +152,18 @@ def register_description(
 ) -> dict:
     """A description from the building register (facade material class, era, storeys): the
     fallback for a wall with no usable reference anywhere in its building. No model call."""
-    cls = attributes.get("material_class") or "render"
+    monumental = attributes.get("monumental") and attributes.get("era") not in (
+        "1920-1959",
+        "1960+",
+    )
+    cls = attributes.get("material_class") or ("stone" if monumental else "render")
     era = attributes.get("era") or "unknown"
-    old = era in ("pre-1850", "1850-1919")
+    old = monumental or era in ("pre-1850", "1850-1919")
     key = (
         (cls, "any")
         if cls in ("brick", "concrete", "metal")
         else (cls, "old")
-        if cls == "wood" or old
+        if cls in ("wood", "stone") or old
         else (cls, era)
         if (cls, era) in PALETTES
         else ("render", "1960+")
@@ -186,7 +191,9 @@ def register_description(
     elif HEX.match(str(attributes.get("wall_colour", ""))):
         colour = attributes["wall_colour"]
     levels = attributes.get("levels") or max(1, round(height_m / DEFAULT_STOREY_M))
-    bay = 2.6 if old or cls == "wood" else 3.0
+    if monumental and not attributes.get("levels"):
+        levels = max(1, round(height_m / 4.8))
+    bay = 4.5 if monumental else 2.6 if old or cls == "wood" else 3.0
     return {
         "facade_id": facade_id,
         "wall_visible": False,

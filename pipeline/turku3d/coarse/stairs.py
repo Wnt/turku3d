@@ -1,0 +1,132 @@
+"""Mapped stair flights: measured landings, real treads and exact terrain openings."""
+
+import json
+
+import numpy as np
+import shapely
+
+from turku3d.ground.mesh import Mesh
+from turku3d.structures.geometry import Faces
+
+from .geometry import clip_mesh
+from .kerbs import collision as collision, visuals as visuals
+from .surfaces import split_boundaries
+
+
+def prepare(tile, path):
+    import pyarrow.parquet as pq
+
+    rows, areas, seen = [], [], set()
+    window = shapely.box(*tile.bbox.buffered(50).as_tuple())
+    for row in pq.read_table(path, columns=["osm_id", "tags", "geometry_local"]).to_pylist():
+        tags = json.loads(row["tags"] or "{}")
+        if tags.get("highway") != "steps" and tags.get("area:highway") != "steps":
+            continue
+        geom = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
+        if not geom.intersects(window):
+            continue
+        if tags.get("area:highway") == "steps" or tags.get("area") == "yes":
+            if geom.geom_type == "LineString" and geom.is_ring:
+                geom = shapely.Polygon(geom)
+            if geom.geom_type in ("Polygon", "MultiPolygon"):
+                areas.append(geom)
+        elif geom.geom_type == "LineString" and row["osm_id"] not in seen:
+            rows.append((str(row["osm_id"]), geom, tags))
+            seen.add(row["osm_id"])
+    return rows, areas
+
+
+def number(value, default):
+    try:
+        n = float(str(value).removesuffix(" m"))
+        return n if np.isfinite(n) else default
+    except (ValueError, TypeError):
+        return default
+
+
+def produce(tile, prepared, sample):
+    meshes, openings = [], []
+    rows, areas = prepared or ((), ())
+    for key, line, tags in rows:
+        if line.length < 0.2 or tags.get("step_count") == "0":
+            continue
+        width = np.clip(number(tags.get("width"), 2.5), 0.5, 30)
+        # An area:highway outline supplies the full mapped width when the way lacks it.
+        area = next((a for a in areas if a.covers(line.interpolate(0.5, normalized=True))), None)
+        if area is not None and "width" not in tags:
+            width = np.clip(area.area / line.length, 0.5, 30)
+        a, b = np.asarray(line.coords)[[0, -1], :2]
+        bottom, top = sample(*a), sample(*b)
+        if top < bottom:
+            line = shapely.LineString(list(line.coords)[::-1])
+            bottom, top = top, bottom
+        rise = top - bottom
+        if rise < 0.06:
+            # Incline can recover a flight whose sparse terrain samples are level.
+            incline = str(tags.get("incline", ""))
+            if incline.endswith("%"):
+                rise = line.length * abs(number(incline[:-1], 0)) / 100
+                top = bottom + rise
+            if rise < 0.06:
+                continue
+        count = round(number(tags.get("step_count"), max(1, round(rise / 0.16))))
+        # Keep collision risers walkable even when mapped counts disagree with terrain.
+        count = max(count, int(np.ceil(rise / 0.30)), 1)
+        count = min(count, 2000)
+        faces = Faces()
+        corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
+        for i in range(count):
+            p, q = [
+                np.asarray(line.interpolate(t).coords[0])[:2]
+                for t in (line.length * i / count, line.length * (i + 1) / count)
+            ]
+            direction = q - p
+            length = np.linalg.norm(direction)
+            if length < 1e-8:
+                continue
+            offset = np.array([-direction[1], direction[0]]) / length * width / 2
+            low, high = bottom + rise * i / count, bottom + rise * (i + 1) / count
+            corners = [p + offset, q + offset, q - offset, p - offset]
+            tread = np.array([[x, high, z] for x, z in corners])
+            faces.face(tread, tread[:, [0, 2]])
+            riser = np.array(
+                [
+                    [(p - offset)[0], low, (p - offset)[1]],
+                    [(p + offset)[0], low, (p + offset)[1]],
+                    [(p + offset)[0], high, (p + offset)[1]],
+                    [(p - offset)[0], high, (p - offset)[1]],
+                ]
+            )
+            faces.face(riser)
+            for u, v in ((corners[0], corners[1]), (corners[2], corners[3])):
+                faces.face(
+                    [
+                        [u[0], min(sample(*u), low) - 0.05, u[1]],
+                        [v[0], min(sample(*v), low) - 0.05, v[1]],
+                        [v[0], high, v[1]],
+                        [u[0], high, u[1]],
+                    ]
+                )
+        if faces.indices:
+            mesh = clip_mesh(faces.mesh(f"stairs:{key}", "curb"), tile.bbox)
+            if mesh is not None:
+                meshes.append(mesh)
+                openings.append(corridor)
+    return meshes, openings
+
+
+def cut_ground(mesh, openings):
+    if not openings or not len(mesh.indices):
+        return mesh
+    opening = shapely.union_all(openings)
+    centres = mesh.positions[mesh.indices].mean(axis=1)
+    material = mesh.material.copy()
+    material[shapely.contains_xy(opening, centres[:, 0], centres[:, 2])] = 255
+    p, ix, ids, _ = split_boundaries(
+        mesh.positions,
+        mesh.indices,
+        material,
+        np.ones(len(mesh.indices), bool),
+        [(opening, 255)],
+    )
+    return Mesh(p, ix[ids != 255], ids[ids != 255]).compact()
