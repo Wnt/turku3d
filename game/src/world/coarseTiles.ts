@@ -112,23 +112,8 @@ export class CoarseTiles {
       .catch((err: Error) => err?.name === 'TimeoutError' ? slow : null);
     // A static host without the service answers with HTML or {"state":"offline"}; only a service keeps it waiting.
     const status = await get(`${root}${remote ? 'health' : 'status'}`);
-    if (remote) {
-      const coarse = new CoarseTiles(host);
-      if (!status || status === slow || status.state === 'offline') coarse.down();
-      return coarse;
-    }
-    if (status === slow) {
-      const coarse = new CoarseTiles(host);
-      coarse.down();
-      return coarse;
-    }
-    if (!status) return null;
-    if (status.state !== 'offline') return new CoarseTiles(host);
-    const local = await get('/__localhost/status');
-    const supervised = local && local !== slow ? (local as { coarse?: { state?: string } }).coarse?.state : undefined;
-    if (!supervised || supervised === 'off') return null;
     const coarse = new CoarseTiles(host);
-    coarse.down();
+    if (!status || status === slow || status.state === 'offline') coarse.down();
     return coarse;
   }
 

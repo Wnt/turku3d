@@ -90,9 +90,9 @@ test('streams only drafts, validates all collision before visibility and unloads
   };
   expect(await CoarseTiles.start({ ...host, pageUrl: 'https://example.com/' })).toBeNull();
   const offline = (async () => ({ ok: true, status: 200, json: async () => ({ state: 'offline' }) })) as unknown as typeof globalThis.fetch;
-  expect(await CoarseTiles.start({ ...host, fetch: offline })).toBeNull();
+  expect((await CoarseTiles.start({ ...host, fetch: offline }))?.outage).not.toBeNull();
   const html = (async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('<!doctype'); } })) as unknown as typeof globalThis.fetch;
-  expect(await CoarseTiles.start({ ...host, fetch: html })).toBeNull();
+  expect((await CoarseTiles.start({ ...host, fetch: html }))?.outage).not.toBeNull();
   const coarse = (await CoarseTiles.start(host))!;
   let mapChanges = 0;
   coarse.onMapChange = () => mapChanges++;

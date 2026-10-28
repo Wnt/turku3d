@@ -587,7 +587,10 @@ class Builder:
             waiting = [
                 (tile, distance)
                 for tile, (_, distance) in self.pending.items()
-                if time.time() - self.requested.get(tile, 0.0) <= STALE_SECONDS
+                if (
+                    time.time() - self.requested.get(tile, 0.0) <= STALE_SECONDS
+                    or time.time() < self.replay_until.get(tile, 0.0)
+                )
             ]
         for tile, distance in waiting:
             self.request(tile, distance)
