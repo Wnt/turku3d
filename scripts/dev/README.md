@@ -595,6 +595,8 @@ remaining capacity. A waiting `integration` is not starved: later admissions are
 it still fits after them, so at most the builds already running finish first. The integration
 replacement check removes the current code integration's reservation before reserving its
 queued successor; the two cannot run together. Current CPU/GPU limits still apply first.
+If another lane has already exhausted the queued integration's CPU headroom, a browser may
+still enter when it uses only available GPU capacity and does not increase that CPU deficit.
 The integration and every build or browser command nested in it (`TURKU3D_INTEGRATION_OWNER`) use its lane's
 budget: `TURKU3D_JOBS` = 6 (code) or 4 (data) for builds. Nested commands are not admissions.
 Refresh divides its job budget between independent steps and passes it to Roofer.

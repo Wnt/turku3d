@@ -109,6 +109,17 @@ class HostSlotsTest(unittest.TestCase):
         # Without a running integration, three builds would still starve the queued one.
         self.assertFalse(host_slots.admissible(full[1:], build))
 
+    def test_queued_integration_existing_cpu_deficit_does_not_block_browser(self):
+        data = {"kind": "integration", "lane": "integration-data", "state": "running", "since": 1}
+        build = {"kind": "build", "state": "running", "since": 2}
+        queued = {"kind": "integration", "state": "waiting", "since": 3}
+        browser = {"kind": "browser", "state": "waiting", "since": 4}
+        entries = [data, build, {**build, "since": 2.5}, queued, browser]
+        # The code integration already needs four jobs to clear. Chrome does not
+        # consume those jobs, whereas one more build increases the deficit.
+        self.assertTrue(host_slots.admissible(entries, browser))
+        self.assertFalse(host_slots.admissible(entries, {**build, "state": "waiting", "since": 4}))
+
     def test_dead_owner_reclaimed_and_browser_cap(self):
         # At most LIMITS["browser"] (3) agent Chrome suites per host; the fourth waits.
         browsers = [self.start("browser") for _ in range(4)]

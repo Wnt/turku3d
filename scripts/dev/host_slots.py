@@ -78,9 +78,25 @@ def admissible(entries, entry):
     # The queued code integration replaces the current one; it cannot run beside
     # it. Reserve against that future state rather than counting both at once.
     future = [e for e in entries if not (lane(e) == "integration" and e["state"] == "running")]
-    # Admit only what still leaves room for the waiting integration.
-    return lane(entry) != "integration" and fits(
-        [*future, {**entry, "state": "running"}], "integration"
+    # Another lane may already make the replacement wait for CPU capacity. A
+    # browser consumes no jobs, so it must not be held by that existing deficit.
+    # Preserve (or improve) the replacement's headroom in every resource.
+    running = [e for e in future if e["state"] == "running"]
+    return lane(entry) != "integration" and all(
+        max(
+            0,
+            sum(COST[lane(e)].get(resource, 0) for e in running)
+            + COST[lane(entry)].get(resource, 0)
+            + COST["integration"].get(resource, 0)
+            - budget,
+        )
+        <= max(
+            0,
+            sum(COST[lane(e)].get(resource, 0) for e in running)
+            + COST["integration"].get(resource, 0)
+            - budget,
+        )
+        for resource, budget in BUDGET.items()
     )
 
 
