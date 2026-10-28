@@ -166,3 +166,17 @@ test('gameplay: the scooter has no doors and revs its own engine loop higher tha
   const [scooterRpm, carRpm] = [engines[0], events.filter(e => e.type === 'car').at(-1)].map(e => e?.type === 'car' ? e.rpm : 0);
   expect(scooterRpm).toBeGreaterThan(carRpm);
 });
+
+test('preload decodes while suspended; the start gesture only resumes and reuses buffers', async () => {
+  const ctx = new FakeContext();
+  let fetched = 0;
+  const audio = new GameAudio(() => ctx as unknown as AudioContext, (...args) => { fetched++; return fetcher(...args); });
+  await audio.preload();
+  expect(ctx.state).toBe('suspended');
+  expect(audio.snapshot().loaded).toBe(SOUNDS.length);
+  const before = fetched;
+  await audio.unlock();
+  expect(ctx.state).toBe('running');
+  expect(fetched).toBe(before);
+  audio.dispose();
+});

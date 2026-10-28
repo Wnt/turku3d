@@ -83,6 +83,7 @@ export class SaveGameController {
   private readonly pauseFlow: SaveMenuFlow;
   /** Collision streams around this point instead of the feet until the placed character reports it. */
   private focus: { x: number; z: number } | null = null;
+  private prepared = new Map<SaveGame | Pose | null, { playerY: number; carY: number; boughtY: number | null }>();
   private readonly detach: () => void;
 
   constructor(private readonly o: SaveGameOptions) {
@@ -172,25 +173,40 @@ export class SaveGameController {
     finally { this.loading = false; this.o.setPaused(false); }
   }
 
+  /** Resolve ground queries before Ready; menu activation only sends actor placement commands. */
+  async prepare(game: SaveGame | null, override?: Pose) {
+    const saved = game?.vehicle?.owned ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
+    // Mission restore decides the bought vehicle during play; preload both parking interpretations.
+    const carY = saved ? await this.snap(saved) : this.o.car.y;
+    const at = override ?? (game?.player ? enToEngine(game.player.E, game.player.N, game.player.H) : this.o.spawn);
+    const playerY = override || game?.player ? await this.snap(at) : at.y;
+    const boughtY = await this.snap(saved ?? kerbBehind(this.o.car));
+    this.focus = null;
+    this.prepared.set(override ?? game, { playerY, carY, boughtY });
+    return { x: at.x, y: playerY, z: at.z };
+  }
+
   /** Puts the world in the state of `game` (null: a new game): missions, clock, the own car, then the player. */
   private async place(game: SaveGame | null, override?: Pose) {
     const { physics, missions, spawn } = this.o;
+    const prepared = this.prepared.get(override ?? game);
+    this.prepared.clear();
     if (this.o.view().mode === 'car') this.o.leaveCar();
     missions.restore(game?.mission ?? null);
     const saved = game?.vehicle?.owned ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
     const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;
     const car = saved && !bought ? saved : this.o.car;
-    const carY = saved && !bought ? await this.snap(car) : (await this.settle(car.x, car.z), car.y);
+    const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : prepared ? car.y : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
     if (bought) {
       // The saved vehicle, or (a save from before the scooter) at the kerb behind the start car.
       const at = saved ?? kerbBehind(car);
-      const y = await this.snap(at);
+      const y = prepared?.boughtY ?? await this.snap(at);
       physics.spawnVehicle({ x: at.x, y: y + SPAWN_HEIGHT[bought], z: at.z }, at.yaw, { id: ownedVehicleId(bought)!, kind: bought });
     }
     const at = override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
-    const y = override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y);
+    const y = prepared?.playerY ?? (override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y));
     await this.putCharacter({ x: at.x, y, z: at.z }, at.yaw);
     missions.begin();
   }

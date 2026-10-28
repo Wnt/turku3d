@@ -28,7 +28,7 @@ import { RecoveryHud } from './ui/recovery';
 import { PauseMenu } from './ui/menu';
 import { DevMenuFlow } from './ui/devMenu';
 import { FlyMode } from './gameplay/flyMode';
-import { SaveStore } from './core/save';
+import { SaveStore, SLOT_IDS } from './core/save';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
 import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
@@ -46,7 +46,7 @@ import type { Manifest } from './world/manifest';
 import { holdCar, holdFoot, type CollisionStreamer } from './world/collisionStreaming';
 import { EdgeMarker } from './world/edgeMarker';
 import type { CoarseTiles } from './world/coarseTiles';
-import { preloadWorld } from './world/preload';
+import { preloadStarts } from './world/preloadStarts';
 import { VISUAL_RING_RADIUS } from './world/residency';
 import { browserStorage, sessionStore } from './core/storage';
 import type { VisualTiles } from './world/tiles';
@@ -55,7 +55,9 @@ import type { Environment } from './render/environment';
 import type { PerformanceMonitor } from './render/performance';
 import type { MaterialStyler } from './render/materials';
 import type { parseParams } from './core/params';
-import { MultiplayerClient } from './net/client';
+import { StreamHint } from './ui/streamHint';
+import { prepareMultiplayer } from './net/preparedStart';
+import type { MultiplayerClient } from './net/client';
 import { RemotePlayers } from './net/remotes';
 import { VEHICLE_POSE_HEIGHT } from './net/height';
 import { vehicleIdentity } from './net/identity';
@@ -63,7 +65,6 @@ import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
 
 type Pose = V3 & { yaw: number };
-
 /** The world main.ts creates once per page and keeps across hot swaps of the session. */
 export interface PlayWorld {
   params: ReturnType<typeof parseParams>;
@@ -120,6 +121,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   root.add(edgeMarker.group);
   const listeners = new AbortController();
   const audio = hot?.audio ?? new GameAudio();
+  const audioPreload = audio.preload();
   const input = new Input(renderer.domElement, () => { void audio.unlock(); });
   const haptics = new Haptics(r => void input.rumble(r.duration, r.strong, r.weak));
   const audioGameplay = new GameplayAudio(event => {
@@ -128,6 +130,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   });
   audio.mount(document.body);
   const voice = new VoicePlayer(audio.voiceOutput());
+  const voicePreload = audioPreload.then(() => voice.preload());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true, signal: listeners.signal });
   const saves = new SaveStore(browserStorage(), missionSummary);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
@@ -135,7 +138,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const fullscreen = new FullscreenPolicy();
   const startScreen = new StartScreen(input, {
     hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
-    onClose: () => fullscreen.enterScene(input.source === 'touch') });
+    onClose: () => { world.loadingScreen.enter(); fullscreen.enterScene(input.source === 'touch'); } });
   const introDialog = new IntroDialog(document.body, voice);
   if (!hot?.audio) audio.setMusicState('menu');
   const hud = new Hud(hudEl);
@@ -179,6 +182,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   zones.setSource(missions);
   const shopMenu = new ShopMenu(document.body);
   const pauseMenu = new PauseMenu(document.body, input);
+  const streamHint = new StreamHint(document.body);
   const crashFlash = document.createElement('div');
   crashFlash.id = 'mp-crash-flash';
   document.body.append(crashFlash);
@@ -252,28 +256,27 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
-    onQuit: () => { multiplayer?.disconnect(); multiplayer = null; multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
+    onQuit: () => { multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
       minimap.setRemotes([]); scoreboard.setClient(null); },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
     audio: () => showAudioPage(pauseMenu, audio, () => saveGame.pausePage()),
     multiplayer: () => {
-      multiplayer?.disconnect();
+      startScreen.close();
       multiplayerRunId = crypto.randomUUID();
-      const client = new MultiplayerClient();
-      poles.setClient(client);
-      multiplayer = client;
-      scoreboard.setClient(client);
-      client.addEventListener('welcome', () => {
-        if (multiplayer !== client || multiplayerPlaying) return;
-        const self = client.state.players.find(p => p.id === client.state.you?.id);
-        const at = self?.pose ?? client.state.you!.spawn;
-        multiplayerPlaying = true;
-        void saveGame.playAt({ x: at.E, y: self?.pose?.H ?? 0, z: -at.N, yaw: at.yaw }).catch(fail);
-      });
-      client.connect();
+      poles.setClient(client); scoreboard.setClient(client);
+      void preparedMultiplayer.then(at => {
+        if (at) { multiplayerPlaying = true; return saveGame.playAt(at); }
+        startScreen.reopen(saveGame.startFlow.start());
+        startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
+      }).catch(fail);
     } });
+  // Joining before Ready resolves both the server-assigned spawn and a retained session's actual pose.
+  const { client, ready: preparedMultiplayer } = prepareMultiplayer();
+  multiplayer = client;
+  poles.setClient(client);
+  scoreboard.setClient(client);
   let owned = missions.vehicle;
   if (hot) {
     const restored = applyHot(hot, { missions, setClock: date => { world.setClock(date); }, camera: orbit });
@@ -281,10 +284,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     owned = missions.vehicle;
     if (hot.multiplayer) {
       multiplayerPlaying = true;
-      multiplayer = new MultiplayerClient();
-      poles.setClient(multiplayer);
-      scoreboard.setClient(multiplayer);
-      multiplayer.connect();
     }
   }
   // A landing that cannot swap reloads the page (Vite full reload or a restarted dev server): autosave and resume.
@@ -310,15 +309,16 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         remotes: remotePlayers.markers(), remoteVisuals: remotePlayers.visualBounds(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
-  await preloadWorld(world, feet);
+  const multiplayerAt = await preparedMultiplayer;
+  const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerAt, saveGame, [audioPreload, voicePreload]);
   Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.close();
   else if (resume) saveGame.hooks.play(resume);
   else startScreen.show(saveGame.startFlow.start());
-  startScreen.ready();
-  world.loadingScreen.ready();
+  startScreen.ready(!!multiplayerAt);
+  world.loadingScreen.ready(!!multiplayerAt);
   let lastDeadlineUpdate = -Infinity;
   let wasCarrying = missions.phase === 'carrying';
   renderer.setAnimationLoop(() => {
@@ -520,7 +520,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     haptics.update({ now, active: !paused && !startScreen.active && !menuOpen,
       vehicle: mode === 'car' ? st?.vehicles.find(v => v.id === drivenId) ?? null : null, vehicleId: mode === 'car' ? drivenId : null,
       input: carIn, character: mode === 'foot' ? { grounded, vy: vel.y } : null });
+    streamHint.update(!startScreen.active && saveGame.loading);
     const streamAt = saveGame.streamPoint(feet);
+    if (!startScreen.active && !saveGame.loading) releaseStarts();
     coarse?.update(streamAt.x, streamAt.z);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
@@ -559,7 +561,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const help = document.getElementById('help')!;
     help.hidden = startScreen.active || helpLearning.hidden(mode, !!fly?.active);
     help.textContent = controlsHelp(input, mode, !!fly?.active, paused, !!recovery.lost);
-    world.loadingScreen.update(!startScreen.active, !paused && !saveGame.loading, tiles.loadedModels > 0, coarse?.status);
+    world.loadingScreen.update(!startScreen.active, coarse?.status);
     perf.end();
   });
 

@@ -21,6 +21,9 @@ export class PlayerLoadRegion {
   private z = NaN;
   private plannedRadius = NaN;
   radius = VISUAL_RING_RADIUS;
+  private retained: readonly { x: number; z: number }[] = [];
+
+  retain(points: readonly { x: number; z: number }[]) { this.retained = points; this.plan(); }
 
   init(renderer: TilesRenderer) {
     this.renderer = renderer;
@@ -62,12 +65,13 @@ export class PlayerLoadRegion {
 
   private plan() {
     if (!this.root || !Number.isFinite(this.x)) return;
-    this.selected = ringParents(this.parents, this.x, this.z, this.selected, this.radius);
+    const points = [{ x: this.x, z: this.z }, ...this.retained];
+    this.selected = new Set(points.flatMap(p => [...ringParents(this.parents, p.x, p.z, this.selected, this.radius)]));
     this.path.clear(); this.refine.clear(); this.required.clear();
     const visit = (tile: Tile, sibling = false): boolean => {
       const id = tile.extras?.id as string | undefined;
       const children = tile.children ?? [];
-      const d = id ? distToVisualTile(id, this.x, this.z) : 0;
+      const d = id ? Math.min(...points.map(p => distToVisualTile(id, p.x, p.z))) : 0;
       if (!sibling && d > (id?.startsWith('t0_') ? this.radius : HORIZON)) return false;
       this.path.add(tile);
       const split = !tile.content || !id || !id.startsWith('t1_') || this.selected.has(id);

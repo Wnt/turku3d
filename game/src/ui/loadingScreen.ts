@@ -13,6 +13,7 @@ export class LoadingScreen {
   private finished = false;
   private menuReady = false;
   private draft = '';
+  private readyMessage = 'Ready · choose Multiplayer to enter the city';
   private failure: string | null = null;
 
   constructor(qa: boolean) {
@@ -36,27 +37,33 @@ export class LoadingScreen {
   }
 
   /** Ready for menu input: keep the technical log in a compact dock while choosing Multiplayer. */
-  ready() { this.menuReady = true; this.element.classList.add('menu-ready'); }
-
-  update(playing: boolean, canMove: boolean, visualsReady: boolean, draft?: string) {
-    if (this.finished || this.failure) return;
-    if (draft && draft !== this.draft) { this.draft = draft; loading.note(draft); }
-    if (this.menuReady) this.element.classList.toggle('menu-ready', !playing);
-    if (playing && canMove && visualsReady) {
-      this.finished = true;
-      loading.note('City ready · movement enabled');
-      this.draw();
-      this.element.classList.add('leaving');
-      setTimeout(() => { this.element.hidden = true; }, 500);
-      this.observer?.disconnect();
-      loading.stop();
-    }
+  ready(multiplayerReady = true) {
+    this.menuReady = true;
+    if (!multiplayerReady) this.readyMessage = 'World ready · Multiplayer unavailable';
+    this.element.classList.add('menu-ready');
+    this.draw();
   }
 
-  fail(error: string) { this.failure = error; this.draw(); this.element.classList.remove('menu-ready'); }
+  /** The full-screen loader belongs only to startup, never to play or subsequent streaming. */
+  enter() {
+    if (this.finished) return;
+    this.finished = true;
+    this.element.hidden = true;
+    loading.note('City entered');
+    this.observer?.disconnect();
+    loading.stop();
+  }
+
+  update(playing: boolean, draft?: string) {
+    if (playing) this.enter();
+    if (this.finished || this.failure) return;
+    if (draft && draft !== this.draft) { this.draft = draft; loading.note(draft); }
+  }
+
+  fail(error: string) { if (this.finished) return; this.failure = error; this.draw(); this.element.classList.remove('menu-ready'); }
 
   private draw() {
-    this.active.textContent = this.failure ? `Loading failed · ${this.failure}` : loading.active.join(' · ') || (this.menuReady ? 'Ready · choose Multiplayer to enter the city' : 'Preparing the city');
+    this.active.textContent = this.failure ? `Loading failed · ${this.failure}` : loading.active.join(' · ') || (this.menuReady ? this.readyMessage : 'Preparing the city');
     this.progress.max = Math.max(1, loading.total);
     this.progress.value = loading.completed;
     this.count.textContent = `${loading.completed} / ${loading.total} tasks complete · more discovered as tiles stream`;

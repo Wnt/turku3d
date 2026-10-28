@@ -54,3 +54,15 @@ test('cache admission always has headroom above resident ring bytes, then shrink
   region.move(5000, 5000);
   expect(renderer.lruCache.maxBytesSize).toBeLessThan(bytes);
 });
+
+test('retains a distant menu candidate through focus changes, then releases its visual region', () => {
+  const { region, far } = fixture();
+  const target = { inView: false, error: 0, distance: 0 };
+  region.retain([{ x: 1500, z: 100 }]);
+  region.move(5000, 5000);
+  region.calculateTileViewError(far, target);
+  expect(target.inView).toBe(true);
+  region.retain([]);
+  region.calculateTileViewError(far, target);
+  expect(target.inView).toBe(false);
+});

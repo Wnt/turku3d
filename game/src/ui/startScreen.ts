@@ -17,6 +17,7 @@ export class StartScreen implements MenuHost {
   readonly element = document.createElement('section');
   readonly menu: MenuPanel;
   active = true;
+  private multiplayerReady = true;
   private status: HTMLElement;
   private touchLine: HTMLElement;
   private readonly onClose: () => void;
@@ -56,11 +57,17 @@ export class StartScreen implements MenuHost {
     this.status.after(this.menu.element);
     document.body.append(this.element);
   }
-  show(page: MenuPage) { this.menu.show(page); }
+  show(page: MenuPage) {
+    this.menu.show(this.multiplayerReady ? page : { ...page, items: page.items.map(item => item.id === 'multiplayer'
+      ? { ...item, enabled: false, detail: 'Connection unavailable · reload to retry' } : item) });
+  }
   /** The world is loaded: the menu accepts picks. */
-  ready() {
+  ready(multiplayerReady = true) {
+    this.multiplayerReady = multiplayerReady;
+    if (this.menu.page) this.show(this.menu.page);
     this.menu.setEnabled(true);
-    this.element.querySelector('.start-hint')!.textContent = 'Press Ⓐ or select an option.';
+    this.element.querySelector('.start-hint')!.textContent = multiplayerReady
+      ? 'Press Ⓐ or select an option.' : 'Multiplayer unavailable. Choose solo play or reload to reconnect.';
   }
   update(input: Input) {
     this.status.textContent = input.gamepadName ? `${input.gamepadName} connected`

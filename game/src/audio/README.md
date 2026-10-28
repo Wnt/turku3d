@@ -47,10 +47,11 @@ address clips in the order shown in the HUD. Rules:
 - A line shown before the audio context runs waits for unlock, unless another message replaces it first.
 - `playDialogLine(text, ended)` plays one opening-dialog clip and advances on its natural end;
   `stopDialogLine()` cancels it when the player advances or skips. Unvoiced messages leave it running.
-- Clips are fetched and decoded on first use and cached. Manifest or clip failures are contained in
+- Startup clips are predecoded before Ready; other clips are fetched and decoded on first use and cached. Manifest or clip failures are contained in
   `voice.snapshot().errors`. `window.__game.voice` exposes `attach`, `show`, `narrate`, `snapshot`.
 
-The context is created and resumed synchronously on the first key/pointer input. Gamepad activity
+Startup creates the suspended context and predecodes every effect, the opening narration, and all initial
+permit/pizzeria hint variants before Ready. The first key/pointer input resumes playback synchronously. Gamepad activity
 also attempts unlock; Chrome may still require a click or key under its user-activation policy.
 Asset loading is asynchronous and errors are contained in `audio.snapshot().errors`; missing audio
 never blocks gameplay. No historical steps/impacts are replayed after loading. A pending connection

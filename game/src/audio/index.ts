@@ -57,8 +57,8 @@ export class GameAudio {
       musicVolume: this.musicVolume, musicMuted: this.musicMuted, muted: this.muted })); } catch { /* storage may be unavailable */ }
   }
 
-  /** Called synchronously inside the first input handler so Chrome receives user activation. */
-  unlock(): Promise<void> {
+  /** Build the suspended graph and decode effects before the menu is ready. */
+  preload(): Promise<void> {
     if (this.disposed) return Promise.resolve();
     try {
       if (!this.context) {
@@ -83,9 +83,6 @@ export class GameAudio {
         this.applyVolumes();
       }
       const ctx = this.context;
-      this.music?.start();
-      // Do not await asset downloads before resume: the activation would already have expired.
-      const resume = ctx.state === 'running' ? Promise.resolve() : ctx.resume();
       this.loading ??= Promise.all(SOUNDS.map(async sound => {
         const done = loading.begin(`Audio ${sound}.ogg`);
         try {
@@ -100,13 +97,23 @@ export class GameAudio {
         if (this.disposed) return;
         this.refreshLoops();
       });
-      return Promise.all([resume, this.loading]).then(() => {
-        if (this.disposed || ctx.state !== 'running') return;
-        if (this.summary) this.summary.textContent = 'Audio';
-        if (this.pendingConnect) { this.pendingConnect = false; this.emit({ type: 'gamepad-connected' }); }
-        for (const callback of this.running) callback();
-      }).catch(error => { this.errors.push(String(error)); });
+      return this.loading;
     } catch (error) { this.errors.push(String(error)); return Promise.resolve(); }
+  }
+
+  /** Resume synchronously in the input gesture; downloads have already finished during preload. */
+  unlock(): Promise<void> {
+    const loaded = this.preload();
+    const ctx = this.context;
+    if (!ctx || this.disposed) return loaded;
+    this.music?.start();
+    const resume = ctx.state === 'running' ? Promise.resolve() : ctx.resume();
+    return Promise.all([resume, loaded]).then(() => {
+      if (this.disposed || ctx.state !== 'running') return;
+      if (this.summary) this.summary.textContent = 'Audio';
+      if (this.pendingConnect) { this.pendingConnect = false; this.emit({ type: 'gamepad-connected' }); }
+      for (const callback of this.running) callback();
+    }).catch(error => { this.errors.push(String(error)); });
   }
 
   emit(event: AudioEvent) {
