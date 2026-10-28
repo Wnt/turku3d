@@ -11,6 +11,7 @@ import { LoadingKtx } from './loadingKtx';
 import { loading } from '../core/loading';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { batchTileShadows } from './shadowBatch';
+import { disposeShadowBatch } from './shadowChunks';
 import { refinableParents } from './residency';
 import { TileReuse } from './tileReuse';
 import { PlayerLoadRegion } from './loadRegion';
@@ -167,8 +168,7 @@ export class VisualTiles {
       if (model.userData.releasePlaceholder) return;
       const shadow = this.shadowBatches.get(model);
       if (shadow) {
-        shadow.removeFromParent(); shadow.geometry.dispose();
-        (shadow.material as THREE.Material).dispose();
+        disposeShadowBatch(shadow);
         this.shadowBatches.delete(model);
       }
       if (this.triCount.has(model)) {

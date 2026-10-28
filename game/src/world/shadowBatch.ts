@@ -1,11 +1,12 @@
 import * as THREE from 'three/webgpu';
 import { vegetationOwner } from './vegetationLod';
+import { shadowChunks } from './shadowChunks';
 
 // Colour, normal and reflection cameras use layer 0; sun shadow cameras also enable this layer.
 export const TILE_SHADOW_LAYER = 1;
 
 // The tile materials must stay separate for facades and object IDs. Shadows only
-// need their geometry, so one mesh can cast the same silhouette for the tile.
+// need their geometry. Spatial chunks retain the silhouette without drawing an entire 250 m tile per cascade.
 export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
   model.updateWorldMatrix(true, true);
   const toModel = model.matrixWorld.clone().invert();
@@ -68,17 +69,19 @@ export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
       else for (let i = 0; i < attribute.count; i++) indices[indexOffset++] = offset + i;
     }
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeBoundingSphere();
   const material = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
-  const proxy = new THREE.Mesh(geometry, material);
-  proxy.name = 'tile-shadow-batch';
-  proxy.castShadow = true;
-  proxy.layers.set(TILE_SHADOW_LAYER);
-  proxy.frustumCulled = true;
-  proxy.userData.shadowBatch = true;
+  const chunks = shadowChunks(positions, indices, model.matrixWorld).map(geometry => {
+    const proxy = new THREE.Mesh(geometry, material);
+    proxy.name = 'tile-shadow-batch';
+    proxy.castShadow = true;
+    proxy.layers.set(TILE_SHADOW_LAYER);
+    proxy.frustumCulled = true;
+    proxy.userData.shadowBatch = true;
+    return proxy;
+  });
+  // Children are independently frustum tested even when their parent's mesh is outside a cascade.
+  const proxy = chunks[0];
+  proxy.add(...chunks.slice(1));
   model.add(proxy);
   return proxy;
 }
