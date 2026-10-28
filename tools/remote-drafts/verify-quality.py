@@ -7,6 +7,7 @@ import struct
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urljoin
 
 
 def fetch(url):
@@ -31,7 +32,7 @@ def check(base, tile, seen):
         for image in images:
             uri = image.get("uri")
             if uri and not uri.startswith("data:"):
-                fetch(f"{base}/{tile}/{uri}")
+                fetch(urljoin(f"{base}/{tile}/", uri))
         seen[key] = len(images)
     return dict(tile=tile, sha256=key[1], images=seen[key], stale=manifest.get("stale", False))
 
