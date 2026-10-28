@@ -63,6 +63,12 @@ triggers = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse_latency.py"
 commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_latency.py"]]
 
 [[stages]]
+name = "coarse-ground-unit"
+kind = "command"
+triggers = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse_surfaces.py", "pipeline/tests/test_coarse_tunnels.py"]
+commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_surfaces.py", "pipeline/tests/test_coarse_tunnels.py"]]
+
+[[stages]]
 name = "gmaps-compare-unit"
 kind = "command"
 triggers = ["tools/compare/*.py", "pipeline/turku3d/config.py"]

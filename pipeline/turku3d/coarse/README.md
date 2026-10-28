@@ -34,13 +34,18 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   The existing ground library arrays are extracted at 512 px albedo / 256 px normal and ORM and encoded once into
   content-addressed shared KTX2 maps. A deterministic procedural floor supports an absent library.
   Draft ground no longer displays aerial shadows, roofs, cars or blue-white patches as albedo.
+  Object support heights use the actual grid triangle, including its diagonal, rather than a
+  bilinear patch. The same sampler places vegetation, poles and barriers on visual/collision ground.
 - **Paint and kerbs**: explicit OSM crossing/lane/stop lines are draped on dry road triangles,
   clipped to their exact boundaries and offset 8 mm. Point-only crossings remain unresolved.
   Mapped kerb linework (deduplicated against polygon outlines) becomes an 18 cm wide strip with
   matching collision and a default, unmeasured 12 cm raised profile. Lowered/flush tags and
   mapped crossings leave openings; buildings and water exclude kerbs. No kerbs are inferred
   from road edges. Full strips are clipped after extrusion, with the owning terrain grid sampled
-  on both sides of tile seams. Bridge/tunnel/nonzero-layer ways are excluded.
+  on both sides of tile seams. Each strip corner follows the ground cross-slope, including
+  bridge approach adjustments. Tops and walls split at terrain rows, columns and diagonals,
+  so a strip cannot bridge a dip or float between sampled corners. Bridge/tunnel/nonzero-layer
+  ways are excluded.
   `marking_triangles`, `kerb_triangles` and `ground_surfaces` record output counts.
 - **Water**: cells inside water polygons become the water sensor at the shoreline level over a synthetic bed
   (`ground.water.add_river_bed`), and are drawn as a flat surface at that level (`material_key` water, which the
@@ -89,7 +94,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   Run `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_fences.py` for synthetic placement
   and road-clipping checks. `manifest.barriers.seconds` records the extra producer seconds on each built tile.
 
-- **Tunnels** (`tunnels.py`): OSM road/path/rail `tunnel=yes|building_passage|culvert`, plus
+- **Tunnels** (`tunnels.py`): OSM road/path/rail `tunnel=yes|culvert`, plus
   `covered=yes` with negative `layer`, become box sections with portal wings, solid walls,
   roof, emissive light strips and a road/path floor. Width/maxheight override class defaults
   (7 m / 4.5 m for roads, 3 m / 2.5 m for paths). Full-block lidar samples keep a measured dip;
@@ -98,12 +103,24 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   the draft shell below the ceiling and retain the upper building. Walls reuse structures
   `profile_wall` and all faces reuse `Faces`; tube collision reaches every intersecting cell.
   `manifest.tunnels` counts ways; `seconds.tunnels` records producer overhead separately.
+  Portal floors split along every terrain triangle across their full width and blend into the
+  measured interior over 2 m. Foundations extend below the lowest terrain plane across each
+  wall's width, and road graph heights retain the floor's centre profile.
+  `tunnel=building_passage` keeps the original ground triangles and relief, with mapped ground-level
+  asphalt/paving semantics. Only its building shell is carved: the visible ceiling reuses that
+  shell's existing downward collision floor. It adds no slab, freestanding tube, portal wings or
+  light strips, so sloping entrances and steps remain continuous with the surrounding ground.
+  Carved parts retain the original building's collision owner and appearance metadata, including
+  stored per-building facade descriptions, even when a part's centroid crosses a tile boundary.
   Visuals and collision are clipped to the same tile bounds. Tight offset corners use individual wall
   sections in a combined mesh; passage footprint cuts remove sub-0.5 mm slivers before triangulation.
   Optional `roads.json.edgeHeights` stores floor Y per edge vertex, shared with draft bridges.
   Missing remote portal lidar falls back to the local grid; stacked/intersecting tunnels and
   abrupt OSM way splits still need surveyed profiles. Pure synthetic checks:
   `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_tunnels.py`.
+
+Ground support and kerb cross-slope checks:
+`bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_surfaces.py`.
 
 No inferred curbs, surveyed stairs, unique facade maps or LOD parents.
 

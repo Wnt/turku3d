@@ -42,8 +42,9 @@ The first mission hint follows the dialog:
 > Turku, 2027. Last month you were a software developer. Then came the redundancy talks, and
 > thousands of jobs like yours went to AI.
 >
-> The austerity package abolished unemployment benefits, earnings-related and basic alike. The only
-> work left is the work robots cannot yet do on their own.
+> The government has decided to remove all unemployment benefits and social welfare. Effectively
+> everyone is forced to find a job at a job market where there are none. The only work left is the
+> work robots cannot yet do on their own.
 >
 > A traditional pizzeria on Linnankatu needs a courier, but first you need a courier permit, and the
 > only ones left are rented out on the black market. You have 120 euros.

@@ -24,11 +24,11 @@
    "id": "intro_2",
    "speaker": "narrator",
    "file": "intro_2.ogg",
-   "seconds": 9.098,
-   "text": "The austerity package abolished unemployment benefits, earnings-related and basic alike. The only work left is the work robots cannot yet do on their own.",
-   "textSha256": "0c91505bad1c097d8256601a8cfeda76a764d8a0a5bc6568dc70234c9e590176",
-   "key": "ccea24a0e50c42c06a3408a45ad5df80d0f482ed118caa62274dfaadbd4ef5e0",
-   "fileSha256": "39b87620aefceb214a976c4474ef2b4b0f6ca2d2a8b42cd1373df8da774fea92"
+   "seconds": 12.899,
+   "text": "The government has decided to remove all unemployment benefits and social welfare. Effectively everyone is forced to find a job at a job market where there are none. The only work left is the work robots cannot yet do on their own.",
+   "textSha256": "ac32b7583f6ba57f4cf0bf78805d2e80ef0fe608c1d9e1233b5d36958d2cfd08",
+   "key": "90074817057f4b6cf14a3224706ad0a65fea1849afcbc6fd3c67749515db1328",
+   "fileSha256": "5445923712edf690953a4da7b9b99849b95dffec445b0f787dd3122956645d9c"
   },
   {
    "id": "intro_3",
@@ -4051,6 +4051,26 @@
    "fileSha256": "88f547c27e078eae9d103d6acbd5d8c67cf1826cd89b8103479d85db639742d7"
   },
   {
+   "id": "address_aninkaistenkatu_2",
+   "speaker": "pizzeria",
+   "file": "address_aninkaistenkatu_2.ogg",
+   "seconds": 1.791,
+   "text": "Aninkaistenkatu 2",
+   "textSha256": "2b142e321c6158e24d67cb03f50bc2d7fb019ddcd6378092a2a69b1e209b195d",
+   "key": "4e16a6ec7401258aba520194d276dceb478be80a4966e1a8f102ea5f96a622b4",
+   "fileSha256": "ec1646160deaa3e05ea7956c5469d4ce1dbff136228bea0094d0dd2df0ef4e5f"
+  },
+  {
+   "id": "address_aninkaistenkatu_4",
+   "speaker": "pizzeria",
+   "file": "address_aninkaistenkatu_4.ogg",
+   "seconds": 1.838,
+   "text": "Aninkaistenkatu 4",
+   "textSha256": "f5d21e7cd1a0d53dc7c8fde0a7b950ea697636ae63a97044c9ec429f2ceb40ff",
+   "key": "b4bf734d8a758e8783a1cef5320ad3fe9ab449b2bd3bdd6677b7f1e9cc85e367",
+   "fileSha256": "adbeba07d96488dc14a80bf8778ab9b7552dbbbdf94a63474559fe850ff5fae2"
+  },
+  {
    "id": "address_aurakatu_1",
    "speaker": "pizzeria",
    "file": "address_aurakatu_1.ogg",
@@ -4129,6 +4149,36 @@
    "textSha256": "119873b62018fdc5b522c37803c0806d6a1789a6bb2eb537371c470be40e680b",
    "key": "4875e79e4926536b4fe57674652f1b86a5b71823d874807e65c3fb617cab87ac",
    "fileSha256": "64498781e2487a4333a2822261d34aec70495af05ebe37a32459efae48a375a0"
+  },
+  {
+   "id": "address_betaniankatu_1a",
+   "speaker": "pizzeria",
+   "file": "address_betaniankatu_1a.ogg",
+   "seconds": 2.086,
+   "text": "Betaniankatu 1a",
+   "textSha256": "a6432217f9d33ecdadc694601c7be4f6e5858ae866504eb7e5a1b1510d9711e4",
+   "key": "56b0e71ab245b277b20d2c6d2e834039d453a67a58d34466f2c7056c9dc6a1ac",
+   "fileSha256": "0d926cbe0e10f24ba8223c6405fe163c0b204c616d33efe2e5632a55a422e0ad"
+  },
+  {
+   "id": "address_betaniankatu_1b",
+   "speaker": "pizzeria",
+   "file": "address_betaniankatu_1b.ogg",
+   "seconds": 2.146,
+   "text": "Betaniankatu 1b",
+   "textSha256": "47e66b77fef45d76fead23b8c469b675e09fe6c85d40c63ad83d02ab91bb83e0",
+   "key": "425de4809a98101f438df9211f048b17a1d41ccbf87d6a22c88c701aebd84f31",
+   "fileSha256": "2d8e461ab6bb1029fee570d8fd0b4c9fd74e92308805e1227e90e5acb25a8a93"
+  },
+  {
+   "id": "address_betaniankatu_2",
+   "speaker": "pizzeria",
+   "file": "address_betaniankatu_2.ogg",
+   "seconds": 1.59,
+   "text": "Betaniankatu 2",
+   "textSha256": "2d86be90f1e02896382e81afd9622f1bd0f3806a22fb033f335d8a6654e348be",
+   "key": "6d689dd94150a9108d6689fbf1e5e192c774fa3b1fa310ba92fe52480fa2a64c",
+   "fileSha256": "9dc6ad0678c62e471057e380150569222799cd5c04f58cff1a05479e3b256aed"
   },
   {
    "id": "address_brahenkatu_1",
@@ -4281,6 +4331,16 @@
    "fileSha256": "86c55a330a8571d0bb6312917d16c0ad8a88a0cb162d8b951a8a7a67ee58e509"
   },
   {
+   "id": "address_eerikinkatu_17",
+   "speaker": "pizzeria",
+   "file": "address_eerikinkatu_17.ogg",
+   "seconds": 2.178,
+   "text": "Eerikinkatu 17",
+   "textSha256": "d04fa8573bc95653aac8553b947c25665a81e91fe7a8ced21a1459a0388904ac",
+   "key": "f4df3fe0a6301955a9e486d3d6c9ab9323457421cf4f4b56904ec6b7ea6ff153",
+   "fileSha256": "e9ae686df691eaf0a3359eccfda33ac465369941fad4c704ce2e1eab39a7f76a"
+  },
+  {
    "id": "address_eerikinkatu_18",
    "speaker": "pizzeria",
    "file": "address_eerikinkatu_18.ogg",
@@ -4299,6 +4359,16 @@
    "textSha256": "597f5f6224743b52df2f4c98396739e88e36f8acbea5d288226a40584faf980c",
    "key": "693f86ccaff41c10ee64614ff1ff61da5ef65ec52813d6f137417d213867d9b6",
    "fileSha256": "31d90ad82be7a17eeaecf76a9679849d0fbc0109eb1eeee595ea33e5cf31b4aa"
+  },
+  {
+   "id": "address_eerikinkatu_28",
+   "speaker": "pizzeria",
+   "file": "address_eerikinkatu_28.ogg",
+   "seconds": 2.09,
+   "text": "Eerikinkatu 28",
+   "textSha256": "1a4cda9bbada200d8a2a11748332762edf5f482afcfdf4153da52c3481a4b19f",
+   "key": "68ff453637e8ec1ddbaf569deb4f0179b0ef49f6cc6399c9b56f6de7bb00ec12",
+   "fileSha256": "70be812006aa22cf73999762d3c8985a3cbf8e282f842093529973f15821f990"
   },
   {
    "id": "address_eerikinkatu_4",
@@ -4369,6 +4439,66 @@
    "textSha256": "04b8f5f32373ac55e58ed076655536236cd3f4e6e6ed606e0d45a5a168dc96d6",
    "key": "55c502952865858e87948474c13b56066c7277215236a3c37da038d87a1d9603",
    "fileSha256": "233940bf11a8c92a5977a146dd05cb75647b5ceef67ab6e31b0af8aecf59b44f"
+  },
+  {
+   "id": "address_eskelinkatu_1",
+   "speaker": "pizzeria",
+   "file": "address_eskelinkatu_1.ogg",
+   "seconds": 1.627,
+   "text": "Eskelinkatu 1",
+   "textSha256": "756fdefaafa7250a518f1a170627e55b3724886c646e93335ed475ac7eed7297",
+   "key": "707c9e3e1d7dd32617cb56c5cdb8dc193c4065054060e5c170fb865d000b0c40",
+   "fileSha256": "4b71e54743a4ddadccf0270661ed6780e859ae2dcd49434ae34c9870e81476c3"
+  },
+  {
+   "id": "address_eskelinkatu_2a",
+   "speaker": "pizzeria",
+   "file": "address_eskelinkatu_2a.ogg",
+   "seconds": 1.858,
+   "text": "Eskelinkatu 2a",
+   "textSha256": "1c0a230fcd75cd0c0551fbe608a1b936631d118d4fbdc69975bf41e4f8acbc89",
+   "key": "6360aef745807930c0fae8b0ce8232869d7669ee2115adddd90e838352cfbe8d",
+   "fileSha256": "0a56ca8e37646c9a3e020bafc56067574588d6646e8c8b72f5e83535c2833ff3"
+  },
+  {
+   "id": "address_eskelinkatu_2b",
+   "speaker": "pizzeria",
+   "file": "address_eskelinkatu_2b.ogg",
+   "seconds": 1.91,
+   "text": "Eskelinkatu 2b",
+   "textSha256": "353e346183d65a865cb2023ab97e1fe086045e26ca5dbe2d2c9a848087cbd3ba",
+   "key": "fa7a8b0c0d8c28e5b15fa2da0a2e34d1ebe0f84743c653bf4b500c933bd18a33",
+   "fileSha256": "5f9f62a0a0e704fb128fb2803f36b41220fa0cc817a7036ecb2e51da74659d48"
+  },
+  {
+   "id": "address_eskelinkatu_3",
+   "speaker": "pizzeria",
+   "file": "address_eskelinkatu_3.ogg",
+   "seconds": 1.624,
+   "text": "Eskelinkatu 3",
+   "textSha256": "34e84a28318c018e618b27684abea80882e63c332f979ca5e52e69e0899a571b",
+   "key": "0720814aaa1e0a24b72ada7a07396af838d2a22a7f26b36c4c7a71a5b4b8d3bb",
+   "fileSha256": "8e8d0f2df7f23109660bc08af21670534019ea0989ed02d63a641a48703335a0"
+  },
+  {
+   "id": "address_eskelinkatu_4",
+   "speaker": "pizzeria",
+   "file": "address_eskelinkatu_4.ogg",
+   "seconds": 1.552,
+   "text": "Eskelinkatu 4",
+   "textSha256": "db614553dff17c247af58d2ba967a863cf51360a9f9aaa19e24ac8dacad8bd08",
+   "key": "871a2687cb19f69def7989f04b5933476aba537630cd1f85aeae3b0392aa543a",
+   "fileSha256": "158918636b335947ba3fbb49aabaee2d53c1895924d8d7889392bbaaf3230bfc"
+  },
+  {
+   "id": "address_eskelinkatu_5",
+   "speaker": "pizzeria",
+   "file": "address_eskelinkatu_5.ogg",
+   "seconds": 1.66,
+   "text": "Eskelinkatu 5",
+   "textSha256": "d295cdd177b8c79f979e835265c48bd1b9b1efbffe8de965a0d897bfb242c404",
+   "key": "8f1e3e44f6fa9b9742918c27d19be5ccf8799153cf787888abd6dd8ed33031b5",
+   "fileSha256": "4c7333ea0eee5ed0f592699838da0558f56a358795bbe19eda52962b74c94b29"
   },
   {
    "id": "address_hameenkatu_15",
@@ -4551,6 +4681,46 @@
    "fileSha256": "78ffa2f4b1ba219b53af4fe6e92822649fe2f59d14bf2708285339d187a45744"
   },
   {
+   "id": "address_itainen_rantakatu_2",
+   "speaker": "pizzeria",
+   "file": "address_itainen_rantakatu_2.ogg",
+   "seconds": 2.042,
+   "text": "Itäinen Rantakatu 2",
+   "textSha256": "4069c8a8625f5bf18c661c6acbd2d6ad7f0b030ba0e6b81e1dec2c490f5068d2",
+   "key": "a272d37009cfeca54266517c5187ae420aea970ca847e9d18354de8411693785",
+   "fileSha256": "578885397e893816aa58fd4b5a789b7aba97e7cc8d2c16c8855fa69c480cb1ad"
+  },
+  {
+   "id": "address_itainen_rantakatu_23",
+   "speaker": "pizzeria",
+   "file": "address_itainen_rantakatu_23.ogg",
+   "seconds": 2.647,
+   "text": "Itäinen Rantakatu 23",
+   "textSha256": "2dbf0f3db5c798a97e38d94ec5b0d2a8b89c5e5d67d397e576c45f47da7c4506",
+   "key": "3a3c6bf817d82cf53e552ac6b9c68ea3d5097a2b97d26af9776f4b32fa65caea",
+   "fileSha256": "dd6b856f99e2de94cf819b58378ce24de0fdcee6b4018b39ef27d86bc1971447"
+  },
+  {
+   "id": "address_itainen_rantakatu_25",
+   "speaker": "pizzeria",
+   "file": "address_itainen_rantakatu_25.ogg",
+   "seconds": 2.634,
+   "text": "Itäinen Rantakatu 25",
+   "textSha256": "b1bdebcd0bf7a89e11d4110c9b4b7578591d32be950881dff361e6e0698beb97",
+   "key": "2a346a5cb32379be6fec98ec8c721af3f0cd5b3727c09a7a4926a3382baf3936",
+   "fileSha256": "312a8f1cfdd706844ad916addd563aa68511aa038f670bc913bd99eff1f76acf"
+  },
+  {
+   "id": "address_itainen_rantakatu_38",
+   "speaker": "pizzeria",
+   "file": "address_itainen_rantakatu_38.ogg",
+   "seconds": 2.464,
+   "text": "Itäinen Rantakatu 38",
+   "textSha256": "78d2fc9567f349ed1edbfb358ca0a218ed46d0e5617bf923d104efc15064f82e",
+   "key": "f480345caf17ad072b973a81c58baa64ed52b0b0d6f49a33e9cbfa7989a76b6f",
+   "fileSha256": "3469d85be30adc3c9ad161d02c0723e91c3e683a54c418a67a92d04a77a9dbac"
+  },
+  {
    "id": "address_itainen_rantakatu_4",
    "speaker": "pizzeria",
    "file": "address_itainen_rantakatu_4.ogg",
@@ -4559,6 +4729,36 @@
    "textSha256": "914d50c5648652633583ccfd89b68b3ee0733087906dd3035db4ad837fd8c9c0",
    "key": "cb2288df8ead1bc003400b59c8424c03106c8dafae7a836da9d1d5f71c78b83e",
    "fileSha256": "0a96548faefeb3f5277eb93b67336be0d9d81835b4b11ca3f13c395896b9912d"
+  },
+  {
+   "id": "address_itainen_rantakatu_40a",
+   "speaker": "pizzeria",
+   "file": "address_itainen_rantakatu_40a.ogg",
+   "seconds": 2.512,
+   "text": "Itäinen Rantakatu 40a",
+   "textSha256": "b31769784c4f684b66bbb4fc8674cc1195ea6618fe0d674009a8ab9ca0177453",
+   "key": "61c1004fe0fd40a474db5e7ad3fa59f13f4a067174ffb1e46083fd9a52908d84",
+   "fileSha256": "b844995ede346198f5bbeaa19e4c684f1952a24bfe7edca2b0351cb92f277494"
+  },
+  {
+   "id": "address_itainen_rantakatu_42",
+   "speaker": "pizzeria",
+   "file": "address_itainen_rantakatu_42.ogg",
+   "seconds": 2.603,
+   "text": "Itäinen Rantakatu 42",
+   "textSha256": "7b17489faae93fc3cd11b9100f77d4ea613a54c7148319d4b9a24993370d5632",
+   "key": "5c7d5b9368fa95eba749a3fe40189171e576b8acfd2a48d1cc35091185e498bf",
+   "fileSha256": "469eb0d175589413b69255ae433586d9769423501c74729fc83d81bc81ee8acd"
+  },
+  {
+   "id": "address_itainen_rantakatu_44",
+   "speaker": "pizzeria",
+   "file": "address_itainen_rantakatu_44.ogg",
+   "seconds": 2.691,
+   "text": "Itäinen Rantakatu 44",
+   "textSha256": "689e6425d89d23400a8ad52e74e1dd8d4d1d29d7972de4b2771b7a8f538f6396",
+   "key": "5898b6de83d99ed8f7948a508e6944cf7821ac10ea5f94c3e961204e2139cb55",
+   "fileSha256": "08c60da5e2d7994ca2402ff5656f47abef6c237fb7e5627f706912780742ae56"
   },
   {
    "id": "address_kaskenkatu_1",
@@ -4629,6 +4829,16 @@
    "textSha256": "e9fdf31cd26f52db7db16a0efb16ba50f49af8a6d9bc37c94e317beb97a95de8",
    "key": "f3426973ee1568da0ad115de9bd1ae376f05b3db7bacfe1739249b2c29ab0f2b",
    "fileSha256": "b4507da6eaa42d53600d63154beff34d04db84b7893998a2875afb57fd3a2927"
+  },
+  {
+   "id": "address_kaskenkatu_7",
+   "speaker": "pizzeria",
+   "file": "address_kaskenkatu_7.ogg",
+   "seconds": 1.765,
+   "text": "Kaskenkatu 7",
+   "textSha256": "64d4df687a33bbb431d2cbfbc23ff9d05b2ba93ef0bd631c7ed904ddb07b1fc2",
+   "key": "c7bcba1afa9087529a23f501e9efd4a733cc5c852ecf27bb8b3386b48724a51b",
+   "fileSha256": "6fde1d3b0468eb9b291de6b30852941671e675f558b6dbf40759097fd66def20"
   },
   {
    "id": "address_kauppiaskatu_1",
@@ -4721,6 +4931,26 @@
    "fileSha256": "567b90df306ba4933af4a58e69f925f0d04564de97e5e443e46cf4087628bed9"
   },
   {
+   "id": "address_koulukatu_1",
+   "speaker": "pizzeria",
+   "file": "address_koulukatu_1.ogg",
+   "seconds": 1.487,
+   "text": "Koulukatu 1",
+   "textSha256": "687827dc601455a4cd618fb0ffdfa639ed6647d28aa3b5116907969ec7b04ed7",
+   "key": "75c0b7cbbd66b992231466529816ac607f677e0efe9d495693e9ebe0715293ac",
+   "fileSha256": "e65e67322ccc8154275be4962084069df891d01b804c2100990a14948d6872a3"
+  },
+  {
+   "id": "address_koulukatu_2",
+   "speaker": "pizzeria",
+   "file": "address_koulukatu_2.ogg",
+   "seconds": 1.352,
+   "text": "Koulukatu 2",
+   "textSha256": "88a740bc4fd959894af8cc8fa1372f9a615081ef5dbe8d9d86fce9e180560bda",
+   "key": "5f9d9aed86a93afbdf8834b644763a7e2f32368e725c182919452b22d6f7bacf",
+   "fileSha256": "36a504914b4bd0912e6ed710b34e473c7dbff7a4f808999f3ebb9a3b4d2ec2f5"
+  },
+  {
    "id": "address_kristiinankatu_1",
    "speaker": "pizzeria",
    "file": "address_kristiinankatu_1.ogg",
@@ -4791,6 +5021,16 @@
    "fileSha256": "98a108bc8148f448ce0d5881a421094683d76a43adb86fd24b52d243b3e6624f"
   },
   {
+   "id": "address_kristiinankatu_6a",
+   "speaker": "pizzeria",
+   "file": "address_kristiinankatu_6a.ogg",
+   "seconds": 1.954,
+   "text": "Kristiinankatu 6a",
+   "textSha256": "48042df38774cb056b387c92fc27cd99b7efc34a76285ac543b8f18d4070d494",
+   "key": "3737ee05b6641a943890c324709a9b7890ca1faa15ac412892f5fa300f5566cf",
+   "fileSha256": "42a44a95229ba054edc3e1dd5710c1ee6dee166f2daf5d0925c87d062f4c1865"
+  },
+  {
    "id": "address_kristiinankatu_7",
    "speaker": "pizzeria",
    "file": "address_kristiinankatu_7.ogg",
@@ -4799,6 +5039,36 @@
    "textSha256": "923f2248e23be00a4ce570cd940351461af4fe4d6f7965662d9c4308ab5b3934",
    "key": "9c14d9aab10d45fae3fcc5b3e596ded446fac16b827d910a19913fcc4e077d9d",
    "fileSha256": "64e68177c21a11f2aea4c387f4485ac570b712b64d05f21977f0599f6871c778"
+  },
+  {
+   "id": "address_kulttuurikuja_1",
+   "speaker": "pizzeria",
+   "file": "address_kulttuurikuja_1.ogg",
+   "seconds": 1.715,
+   "text": "Kulttuurikuja 1",
+   "textSha256": "9e274a7994e67a3d4a95463d0a7248ba8b8bdd1c7a832efffcac833cb740fb5a",
+   "key": "513010893480187ec227accc2e2009615a8fede9792a20254ed5ddc8b4dcf967",
+   "fileSha256": "6adf054c2dae1d5c8a84afa2acf8ce60f1a2d7ef17334c11d71ff6b71a7b1e18"
+  },
+  {
+   "id": "address_kulttuurikuja_2",
+   "speaker": "pizzeria",
+   "file": "address_kulttuurikuja_2.ogg",
+   "seconds": 1.594,
+   "text": "Kulttuurikuja 2",
+   "textSha256": "8dacf4d480b75b986f912972d9063f51b80b26691af45e5174efe370acbe9697",
+   "key": "58567c8549021cec9101d8a18687a96d4eae4cfecbfe5ce9c11cd87318f5f2ba",
+   "fileSha256": "7e9171a8e1f29f70ddea3ccac2e7446a90a49da52de18cd0a536930eb17f5e42"
+  },
+  {
+   "id": "address_kulttuurikuja_3",
+   "speaker": "pizzeria",
+   "file": "address_kulttuurikuja_3.ogg",
+   "seconds": 1.635,
+   "text": "Kulttuurikuja 3",
+   "textSha256": "6e00a5f76834a120e67be2d047a59e3ed124f130d107470798591bee2adab2f2",
+   "key": "143717000ad61825f069782ccaec294f1b8fceae8d4f64974aa971340f4bccf3",
+   "fileSha256": "7260c4919baa137d0fc3bd193fd695594d9fa18806a7a5b9e6fc0c4b817e64aa"
   },
   {
    "id": "address_lantinen_rantakatu_1",
@@ -4881,6 +5151,36 @@
    "fileSha256": "b238d554a537a4ae1efd03e7a0230efe94b9d5e090b33516a66951b81f91fde4"
   },
   {
+   "id": "address_lantinen_rantakatu_23",
+   "speaker": "pizzeria",
+   "file": "address_lantinen_rantakatu_23.ogg",
+   "seconds": 2.672,
+   "text": "Läntinen Rantakatu 23",
+   "textSha256": "104ffc881632036377d199c6478bd260c8fa8eac29765f19c9269af9ac65946b",
+   "key": "b66079aab6cc430aa5deee1b81e7a56d4435e90d1b2c4f587e43c2bd680a6e35",
+   "fileSha256": "9066dbc603102eb6b171222b05c387a2f0c0ca13031c5e4ff65b6d1af681059a"
+  },
+  {
+   "id": "address_lantinen_rantakatu_25",
+   "speaker": "pizzeria",
+   "file": "address_lantinen_rantakatu_25.ogg",
+   "seconds": 2.735,
+   "text": "Läntinen Rantakatu 25",
+   "textSha256": "6b8f238fd646164b8e342289915d1875aca35a3d6b6012c817921ebcb6b7d559",
+   "key": "cc9fe62d2236b3c32c64bd434fa1f9fd7dd651fee9ef0d7b27dec1faff3f662a",
+   "fileSha256": "ed48b98483ba7387898f71db214396b91d8866f7be7fa1070a1592db12a6612d"
+  },
+  {
+   "id": "address_lantinen_rantakatu_27",
+   "speaker": "pizzeria",
+   "file": "address_lantinen_rantakatu_27.ogg",
+   "seconds": 2.716,
+   "text": "Läntinen Rantakatu 27",
+   "textSha256": "5b1abe6a762ae47724b89b7b264b9fd5607958d761126266534915fa10fbe4b2",
+   "key": "55f158476d6894cfbb2028076ff14c4dddc55f064504242afc43e3ec17d8b3ff",
+   "fileSha256": "a6ec0f521c026ab9bde0c0d8978914f403d2e43f8c0cf7d83d7b007945fbadeb"
+  },
+  {
    "id": "address_lantinen_rantakatu_3",
    "speaker": "pizzeria",
    "file": "address_lantinen_rantakatu_3.ogg",
@@ -4889,6 +5189,26 @@
    "textSha256": "7fd234034f71933d9351a5367a0b3eecf4c612dbbaa54b586e57866b80b1b4b3",
    "key": "1b87dcd0571813348cabc1d2d169268bbae5d2df0e396d4b9a8b64fd8de0b4d7",
    "fileSha256": "810f400510c3a633ad4a2d2dd77930fcbd82280cac15353e374787f3ca25e9b6"
+  },
+  {
+   "id": "address_lantinen_rantakatu_31",
+   "speaker": "pizzeria",
+   "file": "address_lantinen_rantakatu_31.ogg",
+   "seconds": 2.763,
+   "text": "Läntinen Rantakatu 31",
+   "textSha256": "8ded5c1ebfb143179bf0fa896be03d96bc5cd19c439c24b204614a61e89b7471",
+   "key": "7b551b54e60ab77450a30d4e8c9e5298649199e908a962612ecafae64e74f960",
+   "fileSha256": "b47ef5a3f86422fc497579899bb68362b22e8d1813428f9cb0c0d2f48375f10e"
+  },
+  {
+   "id": "address_lantinen_rantakatu_35",
+   "speaker": "pizzeria",
+   "file": "address_lantinen_rantakatu_35.ogg",
+   "seconds": 2.734,
+   "text": "Läntinen Rantakatu 35",
+   "textSha256": "1794863d7c611391915efd31e68289f927b07e20c36f6b9b27838e9b1de8f914",
+   "key": "eea8b5c6378ebbcf6bdcefe7d5513d67853acfea746e9dfcd447b1c249669c33",
+   "fileSha256": "e2a9b5065d9207ffd3abbd48ffc19eafc24985ae744e03c17f840a731ae78423"
   },
   {
    "id": "address_lantinen_rantakatu_5",
@@ -4921,6 +5241,16 @@
    "fileSha256": "675dd4a12decb38f0871681c3ad358c8097f6a63b6c60c556025b9bbe4b59721"
   },
   {
+   "id": "address_linnankatu_1",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_1.ogg",
+   "seconds": 1.532,
+   "text": "Linnankatu 1",
+   "textSha256": "a9b122387ae1a2997569e07305812248c91bbbd64fb82e97b36175d7720b8833",
+   "key": "6f9131186a342ed1de0ca15222fd5619bfada5afc779dd067fd48716dd86fcdd",
+   "fileSha256": "94b3b1dd7bef6bad5c849f44d836437931c3b207345c6b014a7ec39d7315d56f"
+  },
+  {
    "id": "address_linnankatu_10",
    "speaker": "pizzeria",
    "file": "address_linnankatu_10.ogg",
@@ -4939,6 +5269,16 @@
    "textSha256": "1a4ecefa0f8c841450977edb1bb528e6055d7e04859a5f1ce78a7b28a3f96ba1",
    "key": "48f53d3d13af313d24ec8e03fedc095f320b5d155684fec8f4c4b14297756b78",
    "fileSha256": "833c1e030ad5b0769486ba16ba0e81cea0c47406ed8aa1dacfd448a10d5bf3f6"
+  },
+  {
+   "id": "address_linnankatu_12",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_12.ogg",
+   "seconds": 1.62,
+   "text": "Linnankatu 12",
+   "textSha256": "40be5e76495999c30d2e0f72a6fd1b4b4c7fc9bdcd6f007d701f0cace094b07e",
+   "key": "1606a5f37c57aa287b6fd82314794612ddad22b90145482bab976549729743f7",
+   "fileSha256": "b2dc236bcdf6729cd02a722d63fe60ba1ede1a026ed87f4f8b9290d66b546f21"
   },
   {
    "id": "address_linnankatu_13a",
@@ -5051,6 +5391,96 @@
    "fileSha256": "14baf15adc6d553b28216e60f159f67d7201c3fa84aa030534868edd8ff87388"
   },
   {
+   "id": "address_linnankatu_21",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_21.ogg",
+   "seconds": 2.012,
+   "text": "Linnankatu 21",
+   "textSha256": "77272903cab0177227280117a6efa68ddbba628f4386f6be957f8970a1738279",
+   "key": "e86bd0caa0d5c21edfc3cfbfbdefd50fe87efaef9df0303c4df911b769e1f7ee",
+   "fileSha256": "9753bf8699b61f3feac38b8562b62028a3ea82530367d7466e0473710bc779d0"
+  },
+  {
+   "id": "address_linnankatu_22",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_22.ogg",
+   "seconds": 1.995,
+   "text": "Linnankatu 22",
+   "textSha256": "aed242d55db186964d062c41caedb7ae01be87a33fa1b843399d637f4b465082",
+   "key": "e47e9e3b853cb42b4a0faffc821dd4d971ba8cd4f6b18f5422e4a1a2ea666b6d",
+   "fileSha256": "371016e2ed28e9d003f5e3af1a19948fb5568e7a3995fe10fcb78ec3af3beb89"
+  },
+  {
+   "id": "address_linnankatu_23",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_23.ogg",
+   "seconds": 2.025,
+   "text": "Linnankatu 23",
+   "textSha256": "7e75ea9017c0b09f07ff9f3ea0de2af093f60a81b8cae1ba5048f13dbc9ca502",
+   "key": "99dc2f0de4a16be7ef5f1f36f5eb4b6da3b2d2a20b388859ae9f3827563de4de",
+   "fileSha256": "9ad2574867a328811bba44c312da3a7929c5020092f46f5e57419adfa5012ced"
+  },
+  {
+   "id": "address_linnankatu_24",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_24.ogg",
+   "seconds": 2.022,
+   "text": "Linnankatu 24",
+   "textSha256": "92bc33c63ada55952bfdda1dac4726f3dd58b18e209e4bb78ad6c71013604e4c",
+   "key": "eff94faa35afa5c009334c37e3e547da9549a333aeea1132d60f0360ee289673",
+   "fileSha256": "0732e922efee09f5b89b9096b9a1de3852aec3740ca51a15fe0bf480676e2374"
+  },
+  {
+   "id": "address_linnankatu_25",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_25.ogg",
+   "seconds": 2.039,
+   "text": "Linnankatu 25",
+   "textSha256": "96bc0a2bbb61a33cd6e7e0e6d53fdeeca7c975598675c05c8d6db8ca2e042025",
+   "key": "679d4169a13e89df3a69bb1f6da351f22be40c1944db987944d74d6c384fc076",
+   "fileSha256": "711d1ec60565c261dfd92bf2d540220131e310e9556ed7dd45736c91b01bb6f2"
+  },
+  {
+   "id": "address_linnankatu_26",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_26.ogg",
+   "seconds": 1.902,
+   "text": "Linnankatu 26",
+   "textSha256": "bf7330679773568117be1395aa69edc1bafaff4b2c25d16dc0fcf4eeda2c895f",
+   "key": "f1b9d5c83c97527e4b9a2dfc7fc998dcd3acc9ddcba7e7a0aa750bb812e39f3b",
+   "fileSha256": "30fc7e234daa7998c512bf0cde822b437f0806c09ca57f145fb87db75296349b"
+  },
+  {
+   "id": "address_linnankatu_27",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_27.ogg",
+   "seconds": 2.072,
+   "text": "Linnankatu 27",
+   "textSha256": "00da46adbe94a543de975064705835ae275ce530bb5dbc3f5bf6749fec95bf7b",
+   "key": "27bf85bba47d9a24109a715e8f89fb6be8909ecabcd916e6dc8607d1ce11e867",
+   "fileSha256": "57d653c590942024bd59dd089971526b948d2c93933f87972cd1f213022104df"
+  },
+  {
+   "id": "address_linnankatu_28",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_28.ogg",
+   "seconds": 1.932,
+   "text": "Linnankatu 28",
+   "textSha256": "3d8c080d57fbe5e07e15b3a61833e4972a3f02d277aa6ae6da80870a747403d6",
+   "key": "fa045f4d04ecca66474cdc1391adcdb091eedadb7819fc515e3bf7bd3562e35b",
+   "fileSha256": "624ec4e7c1955156395c93f4724edd1657994a5d638576c0e600b8fcf5a54a5f"
+  },
+  {
+   "id": "address_linnankatu_29",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_29.ogg",
+   "seconds": 2.034,
+   "text": "Linnankatu 29",
+   "textSha256": "14ea96aa38be288be98aefe5cede02f05ceae458be25ead739b2dda4e0f2ac43",
+   "key": "ecc5a4d536524d2d2e37d1cb546e4d86400ee0d5f59c5d48ed68ebc4fb67d2f5",
+   "fileSha256": "656c913c66570e93e102d870dc40c62d0bed4d379e0f11ec8d894d37409a59c8"
+  },
+  {
    "id": "address_linnankatu_3",
    "speaker": "pizzeria",
    "file": "address_linnankatu_3.ogg",
@@ -5059,6 +5489,76 @@
    "textSha256": "db1eedf3404801fa57386987a995df4682d072e124eff3797d2e7111a0204213",
    "key": "00d50ea7e666bef8e050d4c49e226565b88ea7f2043666177e49e64e6a155977",
    "fileSha256": "58fd700d37de19262314977257d55d8b3f9adc046edf8a4d20c3a38b4fb7b069"
+  },
+  {
+   "id": "address_linnankatu_32",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_32.ogg",
+   "seconds": 2.012,
+   "text": "Linnankatu 32",
+   "textSha256": "9fcb116f13a050ec30c37fa9a035ea8f2f452d2b97d2010c3b2690c4c29a8272",
+   "key": "8d343d6cf844207de3748131d4b70f8bccc39b6c298cda3791693e9919227b47",
+   "fileSha256": "30c07800f9166ab2e90db6ced2cdd97774c6e59c64c116371ecadf6d29b189bb"
+  },
+  {
+   "id": "address_linnankatu_33",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_33.ogg",
+   "seconds": 2.032,
+   "text": "Linnankatu 33",
+   "textSha256": "f1ba87a5c5c26e1976cc4c76f4943c178b13586257dd0f33ce0ec689f9981b03",
+   "key": "1485f8fd3e03dda1375cf481e93677405b1617543f7a138f310983bb29045bb5",
+   "fileSha256": "6e7493a9aeaa7152e76b578eee1b0874f196f063fa1dd1a247e4fb02d4367ce5"
+  },
+  {
+   "id": "address_linnankatu_35a",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_35a.ogg",
+   "seconds": 2.162,
+   "text": "Linnankatu 35a",
+   "textSha256": "0c6b1d26a1749fc35a19c22bd1841282ab9e89ee5252362013f0df0dddc99875",
+   "key": "e2c410ce85d7b98df3306965161b919e392970a6f565898664ceb8b009992f1c",
+   "fileSha256": "41803fa95d34218045241505f9d42274806a1a2277ff8e9c68bdfb301b6a374e"
+  },
+  {
+   "id": "address_linnankatu_35b",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_35b.ogg",
+   "seconds": 2.28,
+   "text": "Linnankatu 35b",
+   "textSha256": "94fdf3f023ba6c9aa2a349b12c6860a74e8ba49d4f20163c4c86619525330c6c",
+   "key": "b43816816d884574f7054038d85417dc0c718fdbb488838acdf4c5711b4256cd",
+   "fileSha256": "04d1d46592138a97237a6b076606b267a704619e17288e7fcc76f22307e87dfd"
+  },
+  {
+   "id": "address_linnankatu_37a",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_37a.ogg",
+   "seconds": 2.216,
+   "text": "Linnankatu 37a",
+   "textSha256": "3f5720537bb7f21b15b3ea6335dcc62fc93a31b88cfb261884f5d23a2be63331",
+   "key": "acb573dd85b6d567fd084bdf9a578c05b443d57ed0f8f553616b8d09d7b7b578",
+   "fileSha256": "035caa865c9f8a3588ed3537098e2f3962bf6eae4b11481eb8bd1adf507968fb"
+  },
+  {
+   "id": "address_linnankatu_37b",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_37b.ogg",
+   "seconds": 2.325,
+   "text": "Linnankatu 37b",
+   "textSha256": "18fdcd8aeff9fcb2f7463bc7e0f4eaa96856a96323c0c43e43e5cb83c6f46322",
+   "key": "5d97ed6908bbcc2bd0986f5dfd973051f7b03c2bf367284eea65f0189813dd63",
+   "fileSha256": "7ebaab10842f9526ddf80cb5aa268bd2f2ead36cedd86a51d35d24921f6885c3"
+  },
+  {
+   "id": "address_linnankatu_38b",
+   "speaker": "pizzeria",
+   "file": "address_linnankatu_38b.ogg",
+   "seconds": 2.119,
+   "text": "Linnankatu 38b",
+   "textSha256": "79263359cdc94be331ab2e59f687656cdcfd40a2674b79a8b6270bdf2c09dcbd",
+   "key": "514ef792443ed51e9c01c234a2dde59d3f45a9d732a287ab33c5113583f06a5f",
+   "fileSha256": "9971076af27244743f18635b656baea113c39d4e83f5ce04ca476a736eea66d0"
   },
   {
    "id": "address_linnankatu_5",
@@ -5139,6 +5639,106 @@
    "textSha256": "e496415032b2a6cbc11d3911c2f2266fa79f2396fcfe0842032fb2fcd4c2d37e",
    "key": "24a5c013e7762fdf617bc4e25dc8b622684fd47ce75b80a199bc2d86bf9df2f4",
    "fileSha256": "e0fc8c51c19577db8a3c9d6e7b95586db44fc15b7113efec00f44dbf3cc4a234"
+  },
+  {
+   "id": "address_martinkatu_1",
+   "speaker": "pizzeria",
+   "file": "address_martinkatu_1.ogg",
+   "seconds": 1.591,
+   "text": "Martinkatu 1",
+   "textSha256": "6f8c1a6e9a54bab8adabd4f7bf9b5acdd964c329a0376ae3fbdff86c0ad86e7c",
+   "key": "ed1a5437abf6a5be3db625c1564950a2609836e7cf76c9bd468ca68faf3fa9d5",
+   "fileSha256": "dbff351a79cac831642ee6d23cd3da3f10b3507a950700dcaae0c94cd7b08a84"
+  },
+  {
+   "id": "address_martinkatu_2",
+   "speaker": "pizzeria",
+   "file": "address_martinkatu_2.ogg",
+   "seconds": 1.506,
+   "text": "Martinkatu 2",
+   "textSha256": "f3f08f5aa744505908c7376ce5a31f21c29ae594a60d400973d9f2cc9b645f94",
+   "key": "76d230cc9de501fdc845a9d6a70ac4b2941f4b169ee7625638711452a143f1be",
+   "fileSha256": "39b5adfd4f555d95127b60d339ff6df003cca2b193bda3a4cad4ca60984db34d"
+  },
+  {
+   "id": "address_martinkatu_3",
+   "speaker": "pizzeria",
+   "file": "address_martinkatu_3.ogg",
+   "seconds": 1.526,
+   "text": "Martinkatu 3",
+   "textSha256": "7459874143f468a9e545d3585f37d3a9f2ea0542b66651c6affded16b7d6dfa7",
+   "key": "30476a12b0d08bbbd52985f812337fe2dcba4d48dd67db57dd816186fe57e4ec",
+   "fileSha256": "3831281f18cb526112d6e87b6cc24496cdeb23b2be132b8ef7382587b113c115"
+  },
+  {
+   "id": "address_martinkatu_5",
+   "speaker": "pizzeria",
+   "file": "address_martinkatu_5.ogg",
+   "seconds": 1.543,
+   "text": "Martinkatu 5",
+   "textSha256": "d9b024bb98ed62242715897e667b63c30449faa91759269c55b0de90115104a7",
+   "key": "813efc21e173b97d3e00b98976be37e2820dcbf47d4d5e90a088d7d0f8bb3d96",
+   "fileSha256": "9e90a59f8013dc9fe28c3f84c259b672f8f7cbaf707d806f7149df69475fb00c"
+  },
+  {
+   "id": "address_martinkatu_7",
+   "speaker": "pizzeria",
+   "file": "address_martinkatu_7.ogg",
+   "seconds": 1.721,
+   "text": "Martinkatu 7",
+   "textSha256": "363a3c9462fc3331c5e966b14c24a4dfd850ff1033635ab4cedbe852a761bfa6",
+   "key": "a1e455e94c03b520f72b7dc0e0dcb8da24357d336cd4fe723cbb8098786fbaee",
+   "fileSha256": "2fe271b9b9b7f342c70c7f44de134ff03262e7047ab18074e50ebce04f42e340"
+  },
+  {
+   "id": "address_matinkatu_1",
+   "speaker": "pizzeria",
+   "file": "address_matinkatu_1.ogg",
+   "seconds": 1.591,
+   "text": "Matinkatu 1",
+   "textSha256": "0e4a0d574f3863ca839ef8b267cef7194f250001e50038d9ded1bb4f0b12db5c",
+   "key": "9dfe3f66abc405a226ce832be6bc09eaec67d0baa744cdd381691f55c60af3b7",
+   "fileSha256": "8cae8e35e90235e757c2fe23f9ce12d50583e29175563a7273e653f7f8672832"
+  },
+  {
+   "id": "address_matinkatu_2a",
+   "speaker": "pizzeria",
+   "file": "address_matinkatu_2a.ogg",
+   "seconds": 1.895,
+   "text": "Matinkatu 2a",
+   "textSha256": "12c81f5680de9e53c3260b93332959b1bd44fff36f2f114cb8dcf013b939f3cf",
+   "key": "4311a9ca1a37ca7713ce9567cb0cb15d6b13b58e7067c029b391e3d1a7b5b868",
+   "fileSha256": "6240e220a0e39eb53523f1e1f0115891076ad1e447947c99a12fc3edabde9319"
+  },
+  {
+   "id": "address_matinkatu_2b",
+   "speaker": "pizzeria",
+   "file": "address_matinkatu_2b.ogg",
+   "seconds": 1.834,
+   "text": "Matinkatu 2b",
+   "textSha256": "68340b6558e21c7e9c166bd9d9e1a36c02eb331bb3e8d293f9df1795bca38e64",
+   "key": "41fd0ea96be1cfbf322d34cc609ada5a063d0d2c088c22b9e1938bee5a35a18e",
+   "fileSha256": "b40f8be016bcccb84ec5e654e832530b11e4832636b5494b09ef5a04a1d4ce89"
+  },
+  {
+   "id": "address_matinkatu_3",
+   "speaker": "pizzeria",
+   "file": "address_matinkatu_3.ogg",
+   "seconds": 1.594,
+   "text": "Matinkatu 3",
+   "textSha256": "835a68f317905000f965c54eb4a081b528ab704e2acc25f8fcecf23c2d777844",
+   "key": "740d5e749297193cb096cc20ac559ded6f8bf14d634f70e1313d9081e2270158",
+   "fileSha256": "693fe37106a59b9e2b784fddcd818580add88acf38f1cba3f4b84d89ff2b058a"
+  },
+  {
+   "id": "address_matinkatu_4",
+   "speaker": "pizzeria",
+   "file": "address_matinkatu_4.ogg",
+   "seconds": 1.456,
+   "text": "Matinkatu 4",
+   "textSha256": "cba83061382317bb9406c26e28acf9744cd5f600896d1d6bdb7532eabd117ac1",
+   "key": "92c8d24dc12911960f74a719ec0643f204ac71eb750370bde871652fdeb379f7",
+   "fileSha256": "236053a8b0f2b2ce5226718b2193ba07d0bd7271db60fa250db3295059ac1a76"
   },
   {
    "id": "address_mustainveljestenkuja_1",
@@ -5241,6 +5841,136 @@
    "fileSha256": "01d129c34bd3c7015620d0de4419148f2931a7f0efa1dcf31df26a6816f640aa"
   },
   {
+   "id": "address_paavo_nurmen_puistotie_1",
+   "speaker": "pizzeria",
+   "file": "address_paavo_nurmen_puistotie_1.ogg",
+   "seconds": 2.187,
+   "text": "Paavo Nurmen puistotie 1",
+   "textSha256": "93748f15ea5b87e02edace48c86de9cb9dddd50b6c947efcb1ec5c5478c4cfd7",
+   "key": "c0b0ec7a05d24eac7778926040f8a359cb532521b7710055f3e057ed44193944",
+   "fileSha256": "3d48f1bf14ba2a57f20378b52d16b776266c16ccb27d5a4d2562d42e25d7b9db"
+  },
+  {
+   "id": "address_paavo_nurmen_puistotie_1a",
+   "speaker": "pizzeria",
+   "file": "address_paavo_nurmen_puistotie_1a.ogg",
+   "seconds": 2.433,
+   "text": "Paavo Nurmen puistotie 1a",
+   "textSha256": "9923c0a2f1d37ae327d080f3578b30b88e1d93ef36587ca2a30b31beaafc1f4a",
+   "key": "a81e0edb418d055b05b5290cd112b5405af94b4ccfc3697d06a521f485ce4922",
+   "fileSha256": "9d1b29ecc17bcde1914b0355fd6e9790418144855965914ccb4e8c3a626a51de"
+  },
+  {
+   "id": "address_paavo_nurmen_puistotie_2",
+   "speaker": "pizzeria",
+   "file": "address_paavo_nurmen_puistotie_2.ogg",
+   "seconds": 2.209,
+   "text": "Paavo Nurmen puistotie 2",
+   "textSha256": "2af4a6a49b4133ce5edb930be51bedfe3baab9075f0a60fd9ea21d852c2d6362",
+   "key": "010a0d0f071faebe2bb2ad6cb3590aed8e8b615a9ae90b095c09defce85d800b",
+   "fileSha256": "ab30194d473e952b028767102b8d5bac440c651b1c0f2cea7bebd2d16adb95f6"
+  },
+  {
+   "id": "address_paavo_nurmen_puistotie_3",
+   "speaker": "pizzeria",
+   "file": "address_paavo_nurmen_puistotie_3.ogg",
+   "seconds": 2.3,
+   "text": "Paavo Nurmen puistotie 3",
+   "textSha256": "72d6eda7a5c2e3c9dcc5b4d27d3d62f71f5699fcd713881f8eb343bb3a7b4f97",
+   "key": "81a7f89f37d905a117e572ff270e85cc2c290aae54af98922814329ae6137d6a",
+   "fileSha256": "17a6151784c41a2a644e71628b7218ab9fe96d3474a26dc15c3af857eae2509a"
+  },
+  {
+   "id": "address_paavo_nurmen_puistotie_5",
+   "speaker": "pizzeria",
+   "file": "address_paavo_nurmen_puistotie_5.ogg",
+   "seconds": 2.316,
+   "text": "Paavo Nurmen puistotie 5",
+   "textSha256": "ae5377bbf2fa95f0b821c70be0b03aac62315be0bd6b784f472539c9d83adaf5",
+   "key": "f68149cfaff2373829044799a8743bfd579460e03548e7fcf70634cc28605577",
+   "fileSha256": "6854ff749d0a2847bc2e8a049c113a8de45d404f1b7ba76b352454b7027034e7"
+  },
+  {
+   "id": "address_paavo_nurmen_puistotie_9",
+   "speaker": "pizzeria",
+   "file": "address_paavo_nurmen_puistotie_9.ogg",
+   "seconds": 2.248,
+   "text": "Paavo Nurmen puistotie 9",
+   "textSha256": "5b3e3afb04ba246315939f6da4ac16d009b0fd793c75b85d7c72f74edfef4a33",
+   "key": "4000b8783a5f8f636e03d68691dc59761d876050267576ccc1d3646e07bb311f",
+   "fileSha256": "cf21483810a79e1ef819754821c7a6c15af3000b049d5eb164936fccdde131c7"
+  },
+  {
+   "id": "address_samppalinnankatu_4",
+   "speaker": "pizzeria",
+   "file": "address_samppalinnankatu_4.ogg",
+   "seconds": 1.709,
+   "text": "Samppalinnankatu 4",
+   "textSha256": "db4daff41723a6e8f0ed72d521b79f119bbc9fae416042b6f6d36c8b57ad82d2",
+   "key": "7ba9fe42c73bbf4905fe8655c6268dca2ea5e6977e694c7d1d5aa67adc1e60da",
+   "fileSha256": "3daa7c13e9ae4b1f84a53609e48d46b64115143e0c37b296620e603b92d5bd99"
+  },
+  {
+   "id": "address_samppalinnankatu_5",
+   "speaker": "pizzeria",
+   "file": "address_samppalinnankatu_5.ogg",
+   "seconds": 1.79,
+   "text": "Samppalinnankatu 5",
+   "textSha256": "37ae0fdff1a9d11ae11862ebf1c7de1ffa376c708a797ad1a1fd8701b8d921cf",
+   "key": "5ca4863b3662e95be103cebdeb4d73fc8c1f39429dc82adae987040bb707a4ea",
+   "fileSha256": "3badd5813eae41ffd7a315b4b2aaf62a64d3db66008985faacc59544197b372a"
+  },
+  {
+   "id": "address_samppalinnankatu_6",
+   "speaker": "pizzeria",
+   "file": "address_samppalinnankatu_6.ogg",
+   "seconds": 1.77,
+   "text": "Samppalinnankatu 6",
+   "textSha256": "c97a0e4f52542b2e90d8dcf9347b18e13f076fb7de9f9cb665c3fab4105aabe8",
+   "key": "8385be5d0633d1e1b3dd0788b16e2e67aa257947f5065ddbe7516a741007e657",
+   "fileSha256": "ccddb78b1b98153fe2d001bdff57e434f1f70a311f9c24fe223845021f23b88b"
+  },
+  {
+   "id": "address_sotalaistenkatu_4",
+   "speaker": "pizzeria",
+   "file": "address_sotalaistenkatu_4.ogg",
+   "seconds": 1.757,
+   "text": "Sotalaistenkatu 4",
+   "textSha256": "17093d3100a18641fc787433f570394e284bcfc021a1bf600d4873cf004c212c",
+   "key": "9e5c4443499722415d43a80eace39c9701260c94e77def566e0a9574c9004328",
+   "fileSha256": "43ab7dd3c273cb8f9c7ddfe15a96faf002d57d358cb9d7cea613e390e017dc73"
+  },
+  {
+   "id": "address_sotalaistenkatu_6",
+   "speaker": "pizzeria",
+   "file": "address_sotalaistenkatu_6.ogg",
+   "seconds": 1.793,
+   "text": "Sotalaistenkatu 6",
+   "textSha256": "e80f443b9c123b35bd8fcd2bb258cb6f24f034feda2180ff642ef2033ae692f2",
+   "key": "6ef262b5652776320eb12cccd60b0fffc44c36f68a52999a7720ea01d5b5a60d",
+   "fileSha256": "857383026f1bc058c7b450bf66417b3a16f0fe662c1c92717d333ed1341150a2"
+  },
+  {
+   "id": "address_sotalaistenkatu_8",
+   "speaker": "pizzeria",
+   "file": "address_sotalaistenkatu_8.ogg",
+   "seconds": 1.87,
+   "text": "Sotalaistenkatu 8",
+   "textSha256": "3fa4e3a66ae772777d8389951ee0b34525bb3a8325eff744f38dd0f01bf7e0cc",
+   "key": "baa142db0f5a3d18fe873c7122cb6c9bb9df6c3117e155cc0c84076609c76d10",
+   "fileSha256": "363c16c9d541a446edb29a5403b6584e145175c0491af01f2d468b11091756d2"
+  },
+  {
+   "id": "address_tuomiokirkontori_0",
+   "speaker": "pizzeria",
+   "file": "address_tuomiokirkontori_0.ogg",
+   "seconds": 1.801,
+   "text": "Tuomiokirkontori 0",
+   "textSha256": "275160d6f832370c6697e286cd519b3b659c8f886ac50cf7da544f5569f32673",
+   "key": "b01df7a0cf25f41cb06686cf0da7aa579534a442464cfdf9bfda5df81fea338a",
+   "fileSha256": "1783e5c9669d2b7f0b26d2211d5d526c614e664bc7c9e258b6a4a962aaaa6412"
+  },
+  {
    "id": "address_tuomiokirkontori_3",
    "speaker": "pizzeria",
    "file": "address_tuomiokirkontori_3.ogg",
@@ -5251,6 +5981,16 @@
    "fileSha256": "1c5b6fda635eba24e0bdb62af0677da85ba0421e685c4c47911b9acc0420ce56"
   },
   {
+   "id": "address_ursininkatu_1",
+   "speaker": "pizzeria",
+   "file": "address_ursininkatu_1.ogg",
+   "seconds": 1.647,
+   "text": "Ursininkatu 1",
+   "textSha256": "f514c5c83ff71b3875099a69f26e1f6646afc1ee4a4778fb2192c6779a92609d",
+   "key": "74769322a3cbda7ccc333d4f75ffe194c121a8b3cb7ca2e29f56604c199e5cff",
+   "fileSha256": "b09f2d1ad965625028dd79fbffe28d9d301c2014fb7f1afabfc8fe85bc2660a7"
+  },
+  {
    "id": "address_uudenmaankatu_1",
    "speaker": "pizzeria",
    "file": "address_uudenmaankatu_1.ogg",
@@ -5259,6 +5999,26 @@
    "textSha256": "f88d728419cb83813c63379ffa2ef13dc2c473abca9369d0114e33c8e7b80d85",
    "key": "04c286433b72f0de9e82445636fa438151dc346a466c55aa692f2f42d256fee0",
    "fileSha256": "9937cc2946585fb16446cdaf456962517c47b12a91f529172147663a6387b969"
+  },
+  {
+   "id": "address_uudenmaankatu_2a",
+   "speaker": "pizzeria",
+   "file": "address_uudenmaankatu_2a.ogg",
+   "seconds": 1.856,
+   "text": "Uudenmaankatu 2a",
+   "textSha256": "bf49350672b2359b171d78b21bd713b507cc32e03cf2d8b8795b1126699c6dba",
+   "key": "28de025ab2560b68b6e8a4affbb8478dd680033038331a6c2f33b53720e99475",
+   "fileSha256": "0c40cb44447ec0f370ff30f8fb02344c9fe2bec6f0b8b6506c1b3ef957187a3e"
+  },
+  {
+   "id": "address_uudenmaankatu_2b",
+   "speaker": "pizzeria",
+   "file": "address_uudenmaankatu_2b.ogg",
+   "seconds": 1.956,
+   "text": "Uudenmaankatu 2b",
+   "textSha256": "b09a79342c5eba6339ac0c6b544110ee56f1e59c881a18f8ecb69048c987e9ee",
+   "key": "624557ffa1b76a7196ec956b92bc93f72db71ced9211070bca6548b40e6c1d58",
+   "fileSha256": "10cace52f0e6acaec3bf283d2efc6c1b2de577e8708d0dc85a0ef3a9a8b7ebcf"
   },
   {
    "id": "address_uudenmaankatu_3",
@@ -5281,6 +6041,16 @@
    "fileSha256": "69ea34f1c4a729bc7f7f429ec7c551added04266e39e9474312c621dc0b599ef"
   },
   {
+   "id": "address_vanha_suurtori_2",
+   "speaker": "pizzeria",
+   "file": "address_vanha_suurtori_2.ogg",
+   "seconds": 1.692,
+   "text": "Vanha Suurtori 2",
+   "textSha256": "472cc50684675d347ac0c91ddaf49bde1049c283667f63625cf281072c6e6faf",
+   "key": "71f7a3aa538d5ae5b410f31360106f1f9a44229c0ccec828184132b0036910a9",
+   "fileSha256": "6a40cbd02874038c2d5d190d3f9488d7421994d31d6b6af0d916b93bf61d1244"
+  },
+  {
    "id": "address_vanha_suurtori_3",
    "speaker": "pizzeria",
    "file": "address_vanha_suurtori_3.ogg",
@@ -5299,6 +6069,16 @@
    "textSha256": "8ad54e5d20f2fd9da5575670104f1622d9977ab9c462e401b5db260d23336520",
    "key": "ec294250cbfa067ab5a3b496aa1c42ca94441c123b549a3bb58b35af0157d21f",
    "fileSha256": "68cad6a150b460579238edf20341c1762a78d2ce59e628bc1db1760d62b85836"
+  },
+  {
+   "id": "address_vanha_suurtori_7",
+   "speaker": "pizzeria",
+   "file": "address_vanha_suurtori_7.ogg",
+   "seconds": 1.897,
+   "text": "Vanha Suurtori 7",
+   "textSha256": "1cb796d70529cd1975674e098794afa28231f90e80bb52be2aa5d74c8bafc674",
+   "key": "e4f7cd4b218d2968d8d1f042db10a2ab65e798374b0e30e65bfeb4f0bd0e7a1c",
+   "fileSha256": "2f03eb36b777e8ed5b4e069ba5598e85f37a31db0ee63cff795fde3a44c7b8d0"
   },
   {
    "id": "address_vartiokuja_1",
@@ -5329,16 +6109,6 @@
    "textSha256": "a0af91fba4145c3cc337d73807299eb6c9bbcae63e4cfcc88dfa1da60cf75016",
    "key": "e8e85ee719b1ec8fe18f6c8f4a233cdec8bc1359efdec58b93cdc2948c80f0bf",
    "fileSha256": "7352c1e58ff02427a6e18451bb246eb46aeb607ae7662468f03d536f0d6759ac"
-  },
-  {
-   "id": "address_volter_kilven_katu_1",
-   "speaker": "pizzeria",
-   "file": "address_volter_kilven_katu_1.ogg",
-   "seconds": 2.147,
-   "text": "Volter Kilven katu 1",
-   "textSha256": "9cc323a052348200f5f4c903993d32b1165b9781354389ac45a162adaf473be2",
-   "key": "ad5aaba53ffcdf46745b73d772a83c3f9b8460e3bda6af1c638addacd75f5358",
-   "fileSha256": "72e570d52522da51982286749cf5dd8ddde9e5ca1df40a672b207f59a16fb859"
   }
  ]
 }

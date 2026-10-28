@@ -8,6 +8,98 @@ from turku3d.coarse.surfaces import classify, fallback, slope_fallback, visuals
 from turku3d.col.materials import mat_id
 
 
+def test_ground_sampler_uses_mesh_diagonal_and_exact_outer_edge():
+    from turku3d.coarse.surfaces import grid_height
+
+    tile = C.VisualTile(0, 1, -1)
+    # A saddle exposes bilinear interpolation: the diagonal is entirely flat.
+    heights = np.array([[0.0, 0.0], [0.0, 8.0]])
+    x, _, z = tile.origin
+    assert grid_height(tile, heights, x + 125, z + 125) == 0
+    assert grid_height(tile, heights, x + 187.5, z + 187.5) == 4
+    assert grid_height(tile, heights, x + 250, z + 250) == 8
+    assert grid_height(tile, heights, x, z) == 0
+
+
+def test_kerb_sampler_keeps_the_current_adjusted_grid_at_its_outer_edge(tmp_path):
+    from turku3d.coarse.kerbs import height_sampler
+
+    class NoNeighbourReads:
+        def lidar_paths(self, tile):
+            raise AssertionError("An owned boundary point must use the current adjusted grid")
+
+    tile = C.VisualTile(0, 0, 0)
+    sample = height_sampler(tile, np.array([[0.0, 0.0], [0.0, 8.0]]), tmp_path, NoNeighbourReads())
+    assert sample(250, 250) == 8
+
+
+def test_kerb_corners_follow_cross_slope_with_identical_collision_faces():
+    from turku3d.coarse.kerbs import produce, visuals
+
+    tile = C.VisualTile(0, 0, 0)
+
+    def height(x, z):
+        return 2 + z * 0.5
+
+    meshes = produce(tile, shapely.LineString([(10, 10), (14, 10)]), height, [], [], [])
+    assert len(meshes) == 1
+    mesh = meshes[0]
+    visual = visuals(tile, meshes)[0]
+    np.testing.assert_allclose(visual.positions, mesh.positions)
+    np.testing.assert_array_equal(visual.indices, mesh.indices)
+    relative = mesh.positions[:, 1] - (2 + mesh.positions[:, 2] * 0.5)
+    assert np.all(np.isclose(relative, 0.12) | np.isclose(relative, -0.02))
+
+
+def test_kerb_top_follows_terrain_inside_triangles_and_at_tile_clip():
+    from turku3d.coarse.inputs import CELLS
+    from turku3d.coarse.kerbs import produce
+
+    tile = C.VisualTile(0, 0, 0)
+    step = tile.size / CELLS
+
+    def height(x, z):
+        return max(0, x + z - step)
+
+    mesh = produce(tile, shapely.LineString([(-0.2, 0.8), (1.6, 0.8)]), height, [], [], [])[0]
+    triangles = mesh.positions[mesh.indices]
+    area_y = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])[:, 1]
+    top = triangles[area_y > 1e-10]
+    assert len(top) > 2
+    for p in top.mean(axis=1):
+        assert abs(p[1] - height(p[0], p[2]) - 0.12) < 1e-12
+    assert mesh.positions[:, 0].min() == 0
+
+
+def test_building_passage_keeps_its_mapped_ground_paving(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.surfaces import osm_surfaces
+
+    rows = []
+    for z, tunnel, layer in (
+        (10, "building_passage", "0"),
+        (20, "yes", "0"),
+        (30, "building_passage", "-1"),
+    ):
+        rows.append(
+            dict(
+                tags=json.dumps(
+                    dict(highway="service", surface="asphalt", tunnel=tunnel, layer=layer)
+                ),
+                geometry_local=shapely.LineString([(10, z), (20, z)]).wkb,
+            )
+        )
+    path = tmp_path / "osm.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    regions = osm_surfaces(C.VisualTile(0, 0, 0), path)
+    assert len(regions) == 1
+    assert regions[0][1] == mat_id("road")
+    assert regions[0][0].covers(shapely.Point(15, 10))
+
+
 def test_vectors_override_baked_blue_and_white_and_vegetation():
     tile = C.VisualTile(0, 0, 0)
     points = np.array([[10, 1, 10], [20, 1, 10], [30, 1, 10]])

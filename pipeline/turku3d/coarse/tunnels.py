@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 import mapbox_earcut
@@ -13,7 +14,7 @@ import shapely
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh
-from turku3d.structures.geometry import Faces, profile_wall
+from turku3d.structures.geometry import Faces, Mesh, profile_wall
 
 from .geometry import clip_mesh
 
@@ -108,6 +109,19 @@ def cut_required(ground, floor, clearance):
     return (ground > floor - 0.25) & (ground < floor + clearance + 0.35)
 
 
+def grounded_wall(object_id, xz, bottom, top, sample, step, *, thickness=0.3):
+    """A straight wall's foundation stays below every terrain plane under its width."""
+    from .kerbs import terrain_patches
+
+    xz = np.asarray(xz, float)
+    direction = xz[1] - xz[0]
+    normal = np.array([-direction[1], direction[0]]) / np.linalg.norm(direction) * thickness / 2
+    footprint = np.array([xz[0] + normal, xz[1] + normal, xz[1] - normal, xz[0] - normal])
+    ground = [sample(x, z) for patch in terrain_patches(footprint, step) for x, z in patch]
+    foundation = min(ground) - 0.2
+    return profile_wall(object_id, xz, np.minimum(bottom, foundation), top, thickness=thickness)
+
+
 def passage_footprint(polygon):
     """Remove submillimetre cut slivers before roof triangulation and float32 collision."""
     return polygon.simplify(0.0005, preserve_topology=True)
@@ -137,6 +151,7 @@ class Tunnels:
     profiles: list
     shells: list
     count: int
+    ceilings: list = field(default_factory=list)  # collision already belongs to the building shell
 
     def visuals(self, tile):
         return [
@@ -151,7 +166,7 @@ class Tunnels:
                     layer="structures", object_id=m.object_id, material_key="tunnel_concrete"
                 ),
             )
-            for m in self.meshes
+            for m in [*self.meshes, *self.ceilings]
             if m.visual
         ]
 
@@ -204,26 +219,31 @@ class Tunnels:
         return {**roads, "json": (json.dumps(graph, separators=(",", ":")) + "\n").encode()}
 
 
-def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
+def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sample=None):
     """Produce sealed tubes, exact ground remainders and passage openings in draft buildings."""
-    from .inputs import Building
+    from .inputs import CELLS
+    from .kerbs import terrain_patches
 
     keep = np.ones(len(grid_idx), bool)
+    original_bases = {b.key: b.base for b, _ in shells}
     meshes, profiles, passages = [], [], []
     cuts = {}
     if not ways:
         return Tunnels(keep, meshes, profiles, shells, 0)
     window = shapely.box(*tile.bbox.as_tuple())
+    bounds = tile.bbox.as_tuple()
+    clip_low, clip_high = np.array(bounds[:2]), np.array(bounds[2:])
     tree = shapely.STRtree(shapely.polygons(grid_pos[grid_idx][:, :, [0, 2]]))
     for key, line, tags in ways:
+        passage = tags.get("tunnel") == "building_passage"
         width, clearance = dimensions(tags)
         distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length / 2)) + 1))
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         terrain = np.array([sample(x, z) for x, z in xz])
-        floor = floor_profile(terrain, distances)
+        if passage and surface_sample is not None:
+            terrain = np.array([surface_sample(x, z) for x, z in xz])
+        floor = terrain if passage else floor_profile(terrain, distances)
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
-        if tags.get("tunnel") == "building_passage":
-            passages.append((corridor, float(np.max(floor) + clearance + 0.35)))
         # Mitered offset sections meet at bends without cracks.
         direction = np.diff(xz, axis=0)
         direction /= np.linalg.norm(direction, axis=1)[:, None]
@@ -237,6 +257,32 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             ]
         )
         left, right = xz + offset * width / 2, xz - offset * width / 2
+        if passage:
+            side_floors = (
+                np.array([[surface_sample(x, z) for x, z in side] for side in (left, right)])
+                if surface_sample is not None
+                else np.array([floor, floor])
+            )
+            passages.append((corridor, float(np.max(side_floors) + clearance + 0.35)))
+            # Exposed ground under a building keeps its original relief. Replacing
+            # it with a one-dimensional slab opens gaps across sloping entrances.
+            if corridor.intersects(window):
+                profiles.append((line, distances, floor, width))
+            continue
+
+        def floor_height(query, line=line, distances=distances, floor=floor):
+            ds = shapely.line_locate_point(line, shapely.points(query))
+            h = np.interp(ds, distances, floor)
+            if surface_sample is not None:
+                blend = np.clip(
+                    1 - np.minimum(ds, line.length - ds) / min(2, line.length / 2), 0, 1
+                )
+                near = blend > 0
+                ground = np.array([surface_sample(x, z) for x, z in query[near]])
+                h[near] += (ground - h[near]) * blend[near]
+            return h
+
+        left_floor, right_floor = (floor_height(side) for side in (left, right))
         tube, road, lamps = Faces(), Faces(), Faces()
         for i in range(len(xz) - 1):
             j = i + 1
@@ -244,11 +290,17 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             if not section.intersects(window):
                 continue
 
-            def point(side, k, h=0, floor=floor):
-                return [side[k, 0], floor[k] + h, side[k, 1]]
+            def point(side, k, h=0, left=left, left_floor=left_floor, right_floor=right_floor):
+                side_floor = left_floor if side is left else right_floor
+                return [side[k, 0], side_floor[k] + h, side[k, 1]]
 
             # Floor up, ceiling down; outer ceiling closes the walkable top as well.
-            road.face([point(left, i), point(left, j), point(right, j), point(right, i)])
+            for patch in terrain_patches(
+                np.array([left[i], left[j], right[j], right[i]]), tile.size / CELLS, bounds
+            ):
+                patch = np.clip(patch, clip_low, clip_high)
+                p = np.c_[patch[:, 0], floor_height(patch), patch[:, 1]]
+                road.face(p[::-1], patch[::-1])
             tube.face(
                 [
                     point(left, i, clearance),
@@ -268,7 +320,11 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             # Bright strips are ordinary geometry, keeping the draft free of dynamic point lights.
             if i % 6 == 0:
                 c = (xz[i] + xz[j]) / 2
-                y = (floor[i] + floor[j]) / 2 + clearance - 0.03
+                y = (
+                    (left_floor[i] + right_floor[i] + left_floor[j] + right_floor[j]) / 4
+                    + clearance
+                    - 0.03
+                )
                 lamps.face(
                     [
                         [c[0] - 0.4, y, c[1] - 0.1],
@@ -279,34 +335,37 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                 )
         if not road.indices:
             continue
-        profiles.append((line, distances, floor, width))
-        meshes.extend(
-            [
-                tube.mesh(f"tunnel:{key}:roof", "wall"),
-                road.mesh(
-                    f"tunnel:{key}:floor",
-                    "paving_slab"
-                    if tags.get("highway") in {"footway", "path", "pedestrian", "steps"}
-                    else "road",
-                ),
-            ]
+        profiles.append((line, distances, floor_height(xz), width))
+        meshes.append(
+            road.mesh(
+                f"tunnel:{key}:floor",
+                "paving_slab"
+                if tags.get("highway") in {"footway", "path", "pedestrian", "steps"}
+                else "road",
+            )
         )
+        meshes.append(tube.mesh(f"tunnel:{key}:roof", "wall"))
         if lamps.indices:
             lamp = lamps.mesh(f"tunnel:{key}:lights", "wall")
             lamp.metadata["lamp"] = True
             meshes.append(lamp)
-        for side, name in ((left, "left"), (right, "right")):
+        for side, side_floor, name in (
+            (left, left_floor, "left"),
+            (right, right_floor, "right"),
+        ):
             # Offset curves can reverse at tight OSM corners. Emit each measured section
             # into one mesh instead of mitering the already-mitered side a second time.
             wall = Faces()
             for i in range(len(side) - 1):
                 if np.linalg.norm(side[i + 1] - side[i]) < 1e-6:
                     continue
-                section = profile_wall(
+                section = grounded_wall(
                     f"tunnel:{key}:{name}",
                     side[i : i + 2],
-                    floor[i : i + 2] - 0.2,
-                    floor[i : i + 2] + clearance + 0.3,
+                    side_floor[i : i + 2] - 0.2,
+                    side_floor[i : i + 2] + clearance + 0.3,
+                    surface_sample or sample,
+                    tile.size / CELLS,
                     thickness=0.4,
                 )
                 for tri in section.indices:
@@ -315,15 +374,17 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                 meshes.append(wall.mesh(f"tunnel:{key}:{name}", "wall"))
         for end in (0, -1):
             # Portal wing walls leave the whole clear box open.
-            for sign, side in ((1, left), (-1, right)):
+            for sign, side, side_floor in ((1, left, left_floor), (-1, right, right_floor)):
                 a = side[end]
                 b = a + sign * offset[end] * 1.5
                 meshes.append(
-                    profile_wall(
+                    grounded_wall(
                         f"tunnel:{key}:portal:{end}:{sign}",
                         [a, b],
-                        [floor[end] - 0.2] * 2,
-                        [floor[end] + clearance + 0.3] * 2,
+                        [side_floor[end] - 0.2] * 2,
+                        [side_floor[end] + clearance + 0.3] * 2,
+                        surface_sample or sample,
+                        tile.size / CELLS,
                     )
                 )
         candidates = tree.query(corridor, predicate="intersects")
@@ -355,20 +416,30 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             ):
                 for poly in shapely.get_parts(footprint):
                     if poly.geom_type == "Polygon" and poly.area > 0.01 and base < b.top:
-                        part = Building(
-                            b.key,
-                            shapely.geometry.polygon.orient(passage_footprint(poly), 1),
-                            base,
-                            b.top,
-                            b.material_key,
-                        )
-                        part.facade_key = b.facade_key
+                        part = copy.copy(b)
+                        part.footprint = shapely.geometry.polygon.orient(passage_footprint(poly), 1)
+                        part.base = base
                         part.attributes = b.attributes.copy()
-                        part.roof_parts = b.roof_parts
-                        part.height_evidence = b.height_evidence
+                        centre = b.footprint.centroid
+                        part._collision_owner = getattr(
+                            b, "_collision_owner", C.CollisionTile.at(centre.x, centre.y)
+                        )
                         shell = extrude(part)
                         if len(shell[0]):
                             updated.append((part, shell))
         shells = updated
     meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
-    return Tunnels(keep, meshes, profiles, shells, len(profiles))
+    # The building visual producer exports roofs and walls. Expose precisely the
+    # raised shell's downward floor here, sharing its existing collision surface.
+    ceilings = [
+        Mesh(
+            f"passage:{b.key}:{i}:ceiling",
+            "building",
+            shell[2],
+            shell[3],
+            shell[2][:, [0, 2]],
+        )
+        for i, (b, shell) in enumerate(shells)
+        if b.base > original_bases[b.key] + 1e-6
+    ]
+    return Tunnels(keep, meshes, profiles, shells, len(profiles), ceilings)

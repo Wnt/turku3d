@@ -49,12 +49,14 @@ def height_sampler(tile, heights, root, sources):
     """Use the owning tile's measured grid on both sides of a visual-tile seam."""
     from turku3d import config as C
 
-    from .inputs import _ABSENT, CELLS, _entry, _load, _prepare_one, _save
+    from .inputs import _ABSENT, _entry, _load, _prepare_one, _save
+    from .surfaces import grid_height
 
     grids = {tile.id: heights}
 
     def sample(x, z):
-        owner = C.VisualTile.at(x, z)
+        b = tile.bbox
+        owner = tile if b.xmin <= x <= b.xmax and b.zmin <= z <= b.zmax else C.VisualTile.at(x, z)
         if owner.id not in grids:
             paths, missing = sources.lidar_paths(owner)
             if missing:
@@ -65,22 +67,14 @@ def height_sampler(tile, heights, root, sources):
                 data = _prepare_one(owner, "ground", paths)
                 _save(path, key, data)
             grids[owner.id] = data["heights"]
-        grid = grids[owner.id]
-        u, v = (
-            (x - owner.origin[0]) / owner.size * CELLS,
-            (z - owner.origin[2]) / owner.size * CELLS,
-        )
-        i, j = min(int(u), CELLS - 1), min(int(v), CELLS - 1)
-        fu, fv = u - i, v - j
-        return float(
-            (grid[j, i] * (1 - fu) + grid[j, i + 1] * fu) * (1 - fv)
-            + (grid[j + 1, i] * (1 - fu) + grid[j + 1, i + 1] * fu) * fv
-        )
+        return grid_height(owner, grids[owner.id], x, z)
 
     return sample
 
 
 def produce(tile, linework, height_at, water, buildings, markings):
+    from .inputs import CELLS
+
     if linework is None or linework.is_empty:
         return []
     blocked = shapely.union_all(
@@ -88,7 +82,10 @@ def produce(tile, linework, height_at, water, buildings, markings):
     )
     clipped = linework.difference(blocked)
     window = shapely.box(*tile.bbox.buffered(0.2).as_tuple())
+    bounds = tile.bbox.as_tuple()
+    clip_low, clip_high = np.array(bounds[:2]), np.array(bounds[2:])
     faces = Faces()
+    step = tile.size / CELLS
     for line in getattr(clipped, "geoms", [clipped]):
         if line.geom_type != "LineString":
             continue
@@ -107,28 +104,38 @@ def produce(tile, linework, height_at, water, buildings, markings):
                 p, q = a + direction * low, a + direction * high
                 if not shapely.LineString([p, q]).intersects(window):
                     continue
-                hp, hq = height_at(*p), height_at(*q)
                 # Mapped kerb semantics, with an explicitly unmeasured 12 cm raised profile.
-                corners = np.array(
-                    [
-                        [*(p - normal), hp],
-                        [*(q - normal), hq],
-                        [*(q + normal), hq],
-                        [*(p + normal), hp],
-                    ]
-                )[:, [0, 2, 1]]
-                bottom = corners.copy()
-                bottom[:, 1] -= 0.02
-                top = corners.copy()
-                top[:, 1] += 0.12
-                faces.face(top[::-1], top[::-1][:, [0, 2]])
+                xz = np.array([p - normal, q - normal, q + normal, p + normal])
+                # Each top patch stays on one terrain plane, rather than
+                # bridging a grid diagonal or a sharp bank between corners.
+                for patch in terrain_patches(xz, step, bounds):
+                    patch = np.clip(patch, clip_low, clip_high)
+                    top = np.c_[patch[:, 0], [height_at(*v) + 0.12 for v in patch], patch[:, 1]]
+                    faces.face(top[::-1], top[::-1][:, [0, 2]])
                 for i in range(4):
                     j = (i + 1) % 4
-                    wall = np.array([bottom[i], bottom[j], top[j], top[i]])
-                    faces.face(
-                        wall[::-1],
-                        np.array([[0, 0], [high - low, 0], [high - low, 0.14], [0, 0.14]]),
+                    clipped_edge = shapely.LineString([xz[i], xz[j]]).intersection(
+                        shapely.box(*bounds)
                     )
+                    if clipped_edge.geom_type != "LineString" or clipped_edge.length < 1e-9:
+                        continue
+                    endpoints = np.clip(shapely.get_coordinates(clipped_edge), clip_low, clip_high)
+                    edge = terrain_edge(endpoints[0], endpoints[-1], step)
+                    for edge_start, edge_end in zip(edge[:-1], edge[1:], strict=True):
+                        ha, hb = height_at(*edge_start), height_at(*edge_end)
+                        wall = np.array(
+                            [
+                                [edge_start[0], ha - 0.02, edge_start[1]],
+                                [edge_end[0], hb - 0.02, edge_end[1]],
+                                [edge_end[0], hb + 0.12, edge_end[1]],
+                                [edge_start[0], ha + 0.12, edge_start[1]],
+                            ]
+                        )
+                        u0, u1 = (np.linalg.norm(v - xz[i]) for v in (edge_start, edge_end))
+                        faces.face(
+                            wall[::-1],
+                            np.array([[u0, 0], [u1, 0], [u1, 0.14], [u0, 0.14]]),
+                        )
     if not faces.indices:
         return []
     mesh = faces.mesh(
@@ -136,6 +143,38 @@ def produce(tile, linework, height_at, water, buildings, markings):
     )
     result = clip_mesh(mesh, tile.bbox)
     return [result] if result else []
+
+
+def terrain_patches(corners, step, bounds=None):
+    """Convex strip pieces inside the same regular triangles as visual/collision ground."""
+    strip = shapely.Polygon(corners)
+    if bounds is not None:
+        strip = strip.intersection(shapely.box(*bounds))
+    lo = np.floor(np.min(corners, axis=0) / step).astype(int)
+    hi = np.floor(np.max(corners, axis=0) / step).astype(int)
+    for i in range(lo[0], hi[0] + 1):
+        for j in range(lo[1], hi[1] + 1):
+            a = np.array([i, j]) * step
+            b, c, d = a + [step, 0], a + [0, step], a + step
+            for triangle in ((a, b, c), (b, d, c)):
+                clipped = strip.intersection(shapely.Polygon(triangle))
+                if clipped.geom_type == "Polygon" and clipped.area > 1e-9:
+                    yield np.asarray(shapely.geometry.polygon.orient(clipped, 1).exterior.coords)[
+                        :-1
+                    ]
+
+
+def terrain_edge(a, b, step):
+    """Split an edge at grid rows, columns and their shared descending diagonal."""
+    cuts = {0.0, 1.0}
+    for start, end in zip([*a, a.sum()], [*b, b.sum()], strict=True):
+        if abs(end - start) < 1e-12:
+            continue
+        for k in range(math.floor(min(start, end) / step) + 1, math.ceil(max(start, end) / step)):
+            t = (k * step - start) / (end - start)
+            if 1e-10 < t < 1 - 1e-10:
+                cuts.add(t)
+    return a + np.asarray(sorted(cuts))[:, None] * (b - a)
 
 
 def visuals(tile, meshes):
