@@ -110,8 +110,11 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   the draft shell below the ceiling and retain the upper building. Walls reuse structures
   `profile_wall` and all faces reuse `Faces`; tube collision reaches every intersecting cell.
   `manifest.tunnels` counts ways; `seconds.tunnels` records producer overhead separately.
-  Portal floors split along every terrain triangle across their full width and blend into the
-  measured interior over 2 m. Foundations extend below the lowest terrain plane across each
+  Portal floors split along every terrain triangle across their full width. Their 2 m joins
+  retain road crossfall up to 10%, reject enclosing banks and overburden, and connect through
+  carved 2 m open approach aprons. Ground cuts test the height range at the corridor intersection,
+  including triangles whose edges cross the clearance without a vertex inside it.
+  Foundations extend below the lowest terrain plane across each
   wall's width, and road graph heights retain the floor's centre profile.
   `tunnel=building_passage` keeps the original ground triangles and relief, with mapped ground-level
   asphalt/paving semantics. Only its building shell is carved: the visible ceiling reuses that
