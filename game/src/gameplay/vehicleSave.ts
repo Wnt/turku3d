@@ -45,8 +45,9 @@ export function roadSpots(graph: RoadGraph, near: V3): VehicleSpot[] {
 export async function vehicleGround(physics: Pick<PhysicsClient, 'raycast' | 'cameraCast'>,
   at: VehicleSpot, saved: SavedVehicle, spawnHeight: number, fallback: boolean): Promise<number | null> {
   const down = { x: 0, y: -1, z: 0 };
-  const top = { x: at.x, y: fallback ? 500 : at.y + 2, z: at.z };
-  const hit = await physics.raycast(top, down, fallback ? 1000 : 8);
+  const top = { x: at.x, y: at.y + 2, z: at.z };
+  const hit = await physics.raycast(top, down, fallback ? 60 : 8)
+    ?? (fallback ? await physics.raycast({ ...top, y: 500 }, down, 1000) : null);
   if (!hit || !hit.tile || hit.normal.y < 0.7 || ([MAT.building, MAT.roof, MAT.wall] as number[]).includes(hit.material)) return null;
   const y = hit.point.y;
   if (!fallback && Math.abs(at.y - spawnHeight - y) > 3) return null;
