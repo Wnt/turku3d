@@ -1,3 +1,4 @@
+import { statusBadges } from '../ui/statusBadges';
 // Coarse (draft) tiles on localhost: when the player comes within one tile of an L0 cell the published tileset lacks,
 // the companion service (tools/dev/coarse-tiles, proxied at /coarse/) builds it in seconds and this module streams it
 // in like a published tile: the GLB goes into the scene, its .col entries into the manifest so CollisionStreamer
@@ -229,9 +230,8 @@ export class CoarseTiles {
     this.load = host.loadModel ?? this.gltfLoader();
     this.page = host.pageUrl ?? location.href;
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
-    if (parent) this.badge = parent.appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
-    if (this.badge) Object.assign(this.badge.style, { position: 'fixed', top: '8px', left: '50%', transform: 'translateX(-50%)',
-      padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
+    if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
+    if (this.badge) Object.assign(this.badge.style, { padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
       font: '12px/1.4 system-ui, sans-serif', pointerEvents: 'none', zIndex: '20', display: 'none' });
     host.tiles.addEventListener('load-model', ({ scene, tile }) => {
       const id = tile.extras?.id;
@@ -249,6 +249,10 @@ export class CoarseTiles {
     return async (url: string) => (await loader.loadAsync(url)).scene;
   }
 
+  retainedStarts: readonly { x: number; z: number }[] = [];
+  private wantedStarts(x: number, z: number) {
+    return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.published, this.leaves)))];
+  }
   /** Call every frame with the player position; work is throttled to once per second (`now` in ms). */
   update(x: number, z: number, now = performance.now()) {
     this.clock = now;
@@ -263,7 +267,8 @@ export class CoarseTiles {
       return;
     }
     void this.want(x, z);
-    const wanted = wantedTiles(x, z, this.published, this.leaves);
+    for (const p of this.retainedStarts) void this.want(p.x, p.z);
+    const wanted = this.wantedStarts(x, z);
     const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z, this.published).filter(id => !wanted.includes(id));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (e.state !== 'built' && (e.version ?? this.version) < this.version));
@@ -302,7 +307,7 @@ export class CoarseTiles {
 
   /** Startup waits for the same 360° window that play keeps resident, including REPLACE siblings. */
   progressAt(x: number, z: number) {
-    const wanted = wantedTiles(x, z, this.published, this.leaves);
+    const wanted = this.wantedStarts(x, z);
     const ready = wanted.filter(id => ['draft', 'published'].includes(this.entries.get(id)?.state ?? ''));
     const errors = wanted.flatMap(id => this.entries.get(id)?.state === 'failed' ? [`draft ${id}: ${this.entries.get(id)!.error}`] : []);
     return { loaded: ready.length, total: wanted.length, errors };

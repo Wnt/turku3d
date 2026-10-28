@@ -16,7 +16,7 @@ from pathlib import Path
 
 import browser_budget
 
-LIMITS = {"build": 3, "browser": 1, "integration": 1, "integration-data": 1}
+LIMITS = {"build": 3, "browser": 3, "integration": 1, "integration-data": 1}
 # The code lane (`integration`, with Chrome) and the data lane (no Chrome) of the integrator.
 # Both are stored as kind `integration` with their `lane`, so tooling that predates the data
 # lane counts it as an integration instead of failing on an unknown kind.
@@ -24,12 +24,12 @@ INTEGRATIONS = ("integration", "integration-data")
 
 # Host budget in CPU job units and browser (GPU) workers. One integration reserves a
 # fixed share; build and browser admissions continue within what remains.
-BUDGET = {"jobs": 10, "gpu": 3}
+BUDGET = {"jobs": 10, "gpu": 5}
 COST = {
     "build": {"jobs": 2},
     "browser": {"gpu": 1},
-    # Leave GPU headroom for the desktop: at most two integration workers plus
-    # one already-running agent browser. Prefer longer suites to concurrent renderers.
+    # The integrator's Chrome takes at most two of the five GPU workers; agents' Chrome shares
+    # the rest, also while the integrator's Chrome stage runs. Jonni plays on another machine.
     "integration": {"jobs": 6, "gpu": 2},
     "integration-data": {"jobs": 4},
 }
@@ -66,13 +66,8 @@ def fits(entries, kind):
 
 
 def admissible(entries, entry):
-    """Admit within budget; later admissions never starve a waiting integration, and
-    agents' Chrome suites queue while the integrator's Chrome stage runs."""
+    """Admit within budget; later admissions never starve a waiting integration."""
     if not fits(entries, lane(entry)):
-        return False
-    if entry["kind"] == "browser" and any(
-        lane(e) == "integration" and e.get("phase") == "chrome" for e in entries
-    ):
         return False
     older = any(
         lane(e) == "integration" and e["state"] == "waiting" and e["since"] < entry["since"]

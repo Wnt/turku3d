@@ -61,6 +61,12 @@ class BrowserBudgetTests(unittest.TestCase):
         self.assertEqual((account["budget_minutes"], account["remaining_minutes"]), (45.0, 25.0))
         self.assertIsNone(browser_budget.refusal(account))
 
+    def test_inline_brief_budget_is_honoured_without_matching_a_longer_name(self):
+        self.brief.write_text("Follow `AGENTS.md`. BROWSER_BUDGET_MIN = 60\n")
+        self.assertEqual(self.read()["budget_minutes"], 60.0)
+        self.brief.write_text("OTHER_BROWSER_BUDGET_MIN = 60\n")
+        self.assertEqual(self.read()["budget_minutes"], 5.0)
+
     def host_slots(self, task, *command):
         env = {
             **os.environ,

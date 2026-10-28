@@ -138,3 +138,17 @@ test('near a tile that exists but is not loaded the player is held to a speed th
   expect(holdCar({ ...drive, throttle: 0, brake: 1 }, -8, 2)).toEqual({ throttle: 1, steer: 0.2, brake: 0, handbrake: false });
   expect(holdFoot({ vx: 6, vz: 8, jump: false }, 5)).toEqual({ vx: 3, vz: 4, jump: false });
 });
+
+test('preloads the union of distant starts and does not evict either while the menu focus changes', async () => {
+  const { manifest, physics } = fakes(20, 2);
+  const s = new CollisionStreamer(manifest, physics as never, 40, 20);
+  s.retainedStarts = [{ x: 30, z: 30 }, { x: 1000, z: 30 }];
+  await settle(s, 30, 30);
+  expect(s.progressAt(30, 30).loaded).toBe(s.progressAt(30, 30).total);
+  expect(physics.loaded.has('c_16_0')).toBe(true);
+  s.update(1000, 30, true);
+  expect(physics.loaded.has('c_0_0')).toBe(true);
+  s.retainedStarts = [];
+  s.update(1000, 30, true);
+  expect(physics.loaded.has('c_0_0')).toBe(false);
+});

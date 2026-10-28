@@ -562,9 +562,9 @@ Playwright suites, playtest, the gate's e2e stage and the integrator's live buil
 `scripts/dev/host_slots.py`. The shared state is `~/turku3d/host-slots/` (override with
 `TURKU3D_SLOT_DIR` only for synthetic tests).
 
-Admission is budgeted, not exclusive. The host has 10 CPU job units and 3 browser (GPU)
+Admission is budgeted, not exclusive. The host has 10 CPU job units and 5 browser (GPU)
 workers (`BUDGET`). A `build` costs 2 job units (at most three at once, each with
-`TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (one agent suite at a time, `TURKU3D_JOBS` = 1), the
+`TURKU3D_JOBS` ≤ 2), a `browser` suite one GPU worker (at most three agent suites at once, `TURKU3D_JOBS` = 1), the
 single `integration` reservation (the integrator's code lane) 6 job units plus 2 browser
 workers, and the single `integration-data` reservation (its data lane, no Chrome; stored as kind
 `integration` with `lane`, so older tooling counts it) 4 job units (`COST`). Builds and browser suites keep being admitted beside a running integration within the
@@ -579,8 +579,8 @@ in `codex-task ls` and `watch`, and the command prints when a slot is acquired.
 Browser share: Chrome gets 2 workers below load 60 (`BROWSER_LOAD`), else 1 (`browser_workers`). The 20-test real-tile suite took 1.9 min with 4 workers: estimate 3.8 min with 2 or 7.6 min with 1,
 before load overhead, within `advisory_chrome.TIMEOUT` (2 h per invocation). Playwright's 120 s limit is per test.
 Agent suites use 1 worker, including playtest's two backends serially. During integrator Chrome,
-`host_slots.phase("chrome")` marks `phase: chrome` in `state.json`: new agent `browser` admissions
-wait until the stage ends; suites already running finish.
+`host_slots.phase("chrome")` marks `phase: chrome` in `state.json` for status tools; agent `browser`
+admissions continue within the GPU budget (5 workers, at most 2 for the integrator).
 
 Every admission appends `{"time", "kind", "name", "wait_seconds"}` (name is the sandbox) to
 `~/turku3d/host-slots/waits.jsonl`.

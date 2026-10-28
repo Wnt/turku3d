@@ -22,8 +22,8 @@ are surfaced, rather than treating an idle queue as success. The tileset is inde
 an empty first traversal nor `loadProgress === 1` alone can release the screen.
 
 Textures in PBR slots and TSL graphs are uploaded with `initTexture`; `compileAsync` sees offscreen meshes too.
-Six real warmup views exercise shadow/MRT/post-processing and vegetation variants on WebGPU and WebGL2, followed
-by the restored initial view. During play the same distance-region plugin feeds the library's own priority queues,
+Six real warmup views per selectable spawn cell exercise shadow/MRT/post-processing and vegetation variants on
+WebGPU and WebGL2, followed by the restored initial view. During play the same distance-region plugin feeds the library's own priority queues,
 parsers and LRU cache. Used ring content cannot be evicted. Cache admission reserves 256 MiB above current protected
 content: the library's fixed default byte cap could otherwise stop refinement with required tiles still missing.
 Unused content still evicts and the allowance shrinks as the player leaves an area.
@@ -32,7 +32,40 @@ The loading UI can poll `worldLoad.snapshot()` (`loadProgress.ts`) or `window.__
 `phase` (`loading`, `compiling`, `ready`, `error`), `elapsedMs`, `bytesLoaded`, `visual: {loaded,total}`,
 `textures: {loaded,pending}`, `collision: {loaded,total}`, `compile: {done,total}` and `errors`. Counts represent
 required models/cells and actual upload/warmup work. Bytes are completed encoded HTTP response bodies, not an
-estimated total or partial in-flight transfer count. Compile progress counts six rendered directions.
+estimated total or partial in-flight transfer count. Compile progress counts six rendered directions per selectable spawn cell.
+
+Startup resolves the multiplayer welcome (retained pose before assigned spawn) before Ready, and retains the
+union of new-game parking, every save-slot player/owned vehicle, and multiplayer start regions. Collision, published
+visuals and localhost draft windows all use that union until placement finishes. Ground queries are prepared before
+GPU warmup; each selectable visual cell gets a panorama at its resolved height. The start gesture sends actor
+placement commands using those results. Returning to a menu or streaming later never reopens the startup loader;
+exceptional placement holds show the small in-game `stream-hint`. An unavailable multiplayer connection is disabled
+in the menu and reported before Ready. Effects decode in a suspended AudioContext, as do opening narration and all
+initial permit/pizzeria hint variants; only playback needs a user gesture.
+
+Manual startup proof, including a saved game and retained multiplayer pose at engine `(410, 9, 280)`:
+
+```sh
+source ../sandbox.env
+npm --prefix game ci && npm --prefix server ci
+# Copy one fixed release into $TURKU3D_WORK/dist/tiles before starting the servers.
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- npm --prefix game run build
+# Separate shells, each with the sandbox environment sourced:
+TURKU_MP_PORT="$((TURKU3D_PORT_BASE + 4))" TURKU_MP_SCORES="$TURKU3D_WORK/reports/start-loading/scores" node server/index.js
+npm --prefix game run dev -- --host 127.0.0.1
+node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build" --port "$((TURKU3D_PORT_BASE + 1))" \
+  --mount "/tiles=$TURKU3D_WORK/dist/tiles"
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
+  node game/scripts/start-loading-probe.mjs localhost
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
+  node game/scripts/start-loading-probe.mjs pages-like "http://localhost:$((TURKU3D_PORT_BASE + 1))/game/"
+```
+
+The probe disables HTTP caching and records the actual menu click and first movement-enabled frame, overlay
+visibility on every transition frame, requests in that interval, a short movement sample, and before/after
+screenshots under `$TURKU3D_WORK/reports/start-loading/<label>/`. It fails at 200 ms or any new world/audio request.
+The nested `/game/` production URL checks Pages-style relative asset paths. Badge lines share `ui/statusBadges.ts`'s
+vertical wrapping flow, so long build and draft statuses remain separate.
 
 Manual cold-cache proof (outside the gate; uses fresh sandbox Chrome, 10 Mbps/40 ms networking and 4× CPU throttle):
 

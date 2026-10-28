@@ -42,6 +42,8 @@ export class CollisionStreamer {
     }
     return out;
   }
+  retainedStarts: readonly { x: number; z: number }[] = [];
+
   constructor(private manifest: Manifest, private physics: Physics, public radius = 200, public hysteresis = 50) {}
 
   /** Tiles along the next AHEAD_SECONDS of travel at (vx, vz) m/s beyond the radius, with a one-tile corridor, each
@@ -69,7 +71,8 @@ export class CollisionStreamer {
     if (!force && now - this.lastCheck < 250) return [];
     this.lastCheck = now;
     const ahead = this.ahead(x, z, vx, vz);
-    const keep = new Set(ahead.map(t => t.id));
+    const retained = this.retainedStarts.flatMap(p => this.near(p.x, p.z, this.radius));
+    const keep = new Set([...ahead, ...retained].map(t => t.id));
     for (const id of [...this.physics.loaded.keys()]) {
       const ij = parseCollisionId(id);
       if (ij && !keep.has(id) && distToCollisionTile(x, z, ij.i, ij.j) > this.radius + this.hysteresis) this.physics.unloadTile(id);
@@ -84,7 +87,7 @@ export class CollisionStreamer {
         const along = speed > 0 ? (((ij.i + 0.5) * COLLISION_TILE - x) * vx + ((ij.j + 0.5) * COLLISION_TILE - z) * vz) / speed : 0;
         return d - 0.5 * Math.max(0, along);
       };
-      const byId = new Map([...this.near(x, z, this.radius), ...ahead].map(t => [t.id, t]));
+      const byId = new Map([...this.near(x, z, this.radius), ...ahead, ...retained].map(t => [t.id, t]));
       const want = [...byId.values()].filter(({ id }) => !this.physics.loaded.has(id) && !this.loading.has(id) && !this.failed.has(id)
         && (this.retries.get(id)?.at ?? 0) <= now).map(t => ({ id: t.id, r: rank(t) }));
       want.sort((a, b) => a.r - b.r);
@@ -163,7 +166,7 @@ export class CollisionStreamer {
 
   /** Counts worker-decoded cells, not completed HTTP requests. Failed required cells prevent startup. */
   progressAt(x: number, z: number) {
-    const wanted = this.near(x, z, this.radius).map(t => t.id);
+    const wanted = [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => this.near(p.x, p.z, this.radius).map(t => t.id)))];
     return { loaded: wanted.filter(id => this.physics.loaded.has(id)).length, total: wanted.length,
       errors: wanted.filter(id => this.failed.has(id)).map(id => `collision ${id} failed`) };
   }

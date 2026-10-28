@@ -82,6 +82,16 @@ export class VoicePlayer {
     });
   }
 
+  /** Decode opening narration and every initial mission-hint variant while the context is suspended. */
+  async preload(texts: readonly string[] = []) {
+    await this.ready;
+    const ctx = this.output.context();
+    if (!ctx) return;
+    await loading.track('Voice clips decoded', Promise.all(this.manifestLines.filter(clip =>
+      /^(intro_|phrase_hint_permit_|phrase_hint_pizzeria_)/.test(clip.id) || texts.includes(clip.text)).map(clip =>
+      this.load(clip, ctx).catch(error => { this.errors.push(`${clip.id}: ${String(error)}`); }))));
+  }
+
   /** Follows a mission HUD source; attaching another source replaces the previous subscription. */
   attach(source: MissionHudSource) {
     this.unsubscribe?.();

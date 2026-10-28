@@ -96,15 +96,17 @@ class HostSlotsTest(unittest.TestCase):
         self.until(lambda: self.kinds(extra) == [("build", "running")])
 
     def test_dead_owner_reclaimed_and_browser_cap(self):
-        # One agent Chrome suite per host at a time.
-        browsers = [self.start("browser") for _ in range(2)]
-        self.until(lambda: len(self.snapshot()) == 2)
-        self.assertEqual(sum(e["state"] == "running" for e in self.snapshot()), 1)
+        # At most LIMITS["browser"] (3) agent Chrome suites per host; the fourth waits.
+        browsers = [self.start("browser") for _ in range(4)]
+        self.until(lambda: len(self.snapshot()) == 4)
+        self.until(
+            lambda: sorted(e["state"] for e in self.snapshot()) == ["running"] * 3 + ["waiting"]
+        )
         owner = next(e for e in self.snapshot() if e["state"] == "running")
         child = next(c for c in browsers if c.pid == owner["pid"])
         os.killpg(child.pid, signal.SIGKILL)
         child.wait(timeout=3)
-        self.until(lambda: [e["state"] for e in self.snapshot()] == ["running"])
+        self.until(lambda: [e["state"] for e in self.snapshot()] == ["running"] * 3)
 
     def test_child_worker_budget(self):
         for kind, expected in (("build", "2"), ("browser", "1")):
@@ -171,19 +173,23 @@ class HostSlotsTest(unittest.TestCase):
         code = {"kind": "integration", "state": "running", "since": 0}
         data = {**code, "lane": "integration-data"}
         browser = {"kind": "browser", "state": "waiting", "since": 1}
-        self.assertEqual(host_slots.BUDGET["gpu"], 3)
+        self.assertEqual(host_slots.BUDGET["gpu"], 5)
         self.assertEqual(host_slots.COST["integration"]["gpu"], 2)
         # Spare GPU capacity is usable outside Chrome, even with both CPU lanes held.
         self.assertTrue(host_slots.admissible([code, data], browser))
         self.assertTrue(host_slots.fits([{**browser, "state": "running"}], "integration"))
-        # The phase rule queues Chrome even though the GPU resource budget still fits.
+        # Agents' Chrome shares the GPU budget with the integrator's Chrome stage.
         chrome = {**code, "phase": "chrome"}
-        self.assertTrue(host_slots.fits([chrome], "browser"))
-        self.assertFalse(host_slots.admissible([chrome], browser))
-        # The data lane neither reserves GPU capacity nor blocks agent Chrome.
+        running = [chrome, *[{**browser, "state": "running", "since": n} for n in range(2)]]
+        self.assertTrue(host_slots.admissible(running, browser))
+        # Two integrator workers plus three agent browsers fill the five GPU workers.
+        self.assertFalse(
+            host_slots.admissible([*running, {**browser, "state": "running"}], browser)
+        )
+        # The data lane reserves no GPU capacity.
         self.assertTrue(host_slots.admissible([{**data, "phase": "chrome"}], browser))
 
-    def test_agents_chrome_queues_while_the_integrator_runs_chrome(self):
+    def test_agents_chrome_runs_beside_the_integrators_chrome_stage(self):
         # The integration child marks its Chrome phase for 1.5 s, then works without it.
         script = (
             "import sys, time; sys.path.insert(0, sys.argv[1]); import host_slots; "
@@ -214,9 +220,10 @@ class HostSlotsTest(unittest.TestCase):
 
         self.until(lambda: phase() == ["chrome"])
         browser = self.start("browser")
-        self.until(lambda: self.kinds(browser) == [("browser", "waiting")])
-        self.until(lambda: phase() == [None])
-        self.until(lambda: self.kinds(browser) == [("browser", "running")])
+        # Admitted during the 1.5 s Chrome phase, not after it.
+        self.until(
+            lambda: self.kinds(browser) == [("browser", "running")] and phase() == ["chrome"]
+        )
         # The marked entry is still released as the same admission.
         os.killpg(integration.pid, signal.SIGTERM)
         integration.wait(timeout=3)

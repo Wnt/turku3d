@@ -1,3 +1,4 @@
+import { statusBadges } from './statusBadges';
 // Localhost game build badge (Vite dev server only; tools/dev/localhost/README.md): main's commit that the open tab
 // runs and the integrator's verdict for it, `main <commit> · unverified` until its integration row is in, then
 // `verified`, or `tests red: <stage>` when it was published with failing advisory checks (Chrome, audits); a build
@@ -36,10 +37,10 @@ export class BuildBadge {
   constructor(parent: HTMLElement) {
     this.element.id = 'build-badge';
     this.element.setAttribute('role', 'status');
-    Object.assign(this.element.style, { position: 'fixed', top: '8px', right: '8px', zIndex: '11', padding: '3px 10px',
+    Object.assign(this.element.style, { padding: '3px 10px',
       borderRadius: '4px', background: 'rgba(20,24,32,0.78)', font: '12px/1.4 ui-monospace, Menlo, monospace',
       pointerEvents: 'none', display: 'none' });
-    parent.append(this.element);
+    statusBadges(parent).append(this.element);
   }
 
   set(status: BuildStatus) {

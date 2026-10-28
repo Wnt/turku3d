@@ -255,3 +255,16 @@ test('GameAudio routes voice to its own bus and ducks ambience by 6 dB without t
   audio.dispose();
   expect(output.context()).toBeNull();
 });
+
+test('preload decodes voice clips while suspended and the first line reuses its buffer after unlock', async () => {
+  const { ctx, player, fetched, unlock } = rig();
+  await player.preload([OFFER]);
+  expect(ctx.state).toBe('suspended');
+  expect(ctx.sources).toHaveLength(0);
+  const before = fetched.length;
+  await unlock();
+  player.show(OFFER);
+  await settle();
+  expect(ctx.sources).toHaveLength(1);
+  expect(fetched).toHaveLength(before);
+});

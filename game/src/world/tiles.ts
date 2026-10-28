@@ -58,6 +58,7 @@ export class VisualTiles {
   private resolution = new THREE.Vector2();
   private ktx2: LoadingKtx;
   private swapped: (() => void) | null = null;
+  private retainedStarts: readonly { x: number; z: number }[] = [];
   private focus: { x: number; z: number; radius: number } | null = null;
 
   constructor(url: string, private renderer: THREE.WebGPURenderer, private camera: THREE.PerspectiveCamera,
@@ -83,6 +84,7 @@ export class VisualTiles {
       set.region.radius = this.focus.radius;
       renderer.registerPlugin(set.region);
       set.region.move(this.focus.x, this.focus.z);
+      set.region.retain(this.retainedStarts);
     }
     // The KTX2 loader (its transcoder workers) is shared by a swapped-in release: disposing the old tileset keeps it.
     renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false }));
@@ -178,6 +180,12 @@ export class VisualTiles {
       set.region.radius = radius;
       set.region.move(x, z);
     }
+  }
+
+  /** Keep every selectable start resident until the player has entered the world. */
+  retainStarts(points: readonly { x: number; z: number }[]) {
+    this.retainedStarts = points;
+    for (const set of this.next ? [this.current, this.next] : [this.current]) set.region?.retain(points);
   }
 
   get progress() { return this.current.region?.progress ?? { loaded: this.residentModels, total: this.residentModels }; }

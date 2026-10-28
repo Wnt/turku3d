@@ -3,6 +3,7 @@ import type Node from 'three/src/nodes/core/Node.js';
 import type { PlayWorld } from '../play';
 import { VISUAL_RING_RADIUS } from './residency';
 import { worldLoad } from './loadProgress';
+import type { V3 } from '../core/origin';
 import { loading, loadBytes } from '../core/loading';
 
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
@@ -47,7 +48,7 @@ function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
 }
 
 /** The session has loaded actors/parked cars but has not enabled input or installed its animation loop yet. */
-export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }) {
+export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<V3[]>) {
   const { tiles, streamer, coarse, materials, renderer, scene, camera, env, renderFrame, params } = world;
   tiles.setFocus(focus.x, focus.z, Math.max(VISUAL_RING_RADIUS, params.collisionRadius));
   env.follow(new THREE.Vector3(focus.x, camera.position.y, focus.z));
@@ -77,7 +78,9 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   downloaded(`${lastCounts} · ${loadBytes(worldLoad.snapshot().bytesLoaded)}`);
   // Upload even offscreen textures and compile all currently visible model materials. The temporary culling
   // override includes meshes behind the camera; it never changes the distance-region request set.
-  worldLoad.update({ phase: 'compiling', compile: { done: 0, total: 6 } });
+  const starts = await prepare?.() ?? [world.spawn];
+  const total = starts.length * 6;
+  worldLoad.update({ phase: 'compiling', compile: { done: 0, total } });
   const compiled = loading.begin('GPU texture upload and pipeline warmup');
   const textures = modelTextures(scene);
   let uploaded = 0;
@@ -88,7 +91,8 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   }
   const culled = new Map<THREE.Object3D, boolean>();
   scene.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
-  const rotation = camera.quaternion.clone();
+  const rotation = camera.quaternion.clone(), position = camera.position.clone();
+  const offset = position.clone().sub(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
   try {
     await renderer.compileAsync(scene, camera);
     for (const [object, value] of culled) object.frustumCulled = value;
@@ -96,24 +100,31 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     // Real draws warm the MRT, shadow, GTAO and temporal variants that compileAsync's default target cannot
     // cover. Six views also exercise vegetation's view-dependent instance buffers before control is released.
     const directions = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 1, 0], [0, -1, 0]];
-    for (const [i, direction] of directions.entries()) {
-      camera.lookAt(camera.position.clone().add(new THREE.Vector3(...direction)));
-      camera.updateMatrixWorld();
-      renderFrame();
-      await drainGpu(renderer);
-      worldLoad.update({ compile: { done: i + 1, total: directions.length },
-        textures: { loaded: renderer.info.memory.textures, pending: 0 } });
-      loading.note(`GPU warmup ${i + 1}/${directions.length} directions · ${renderer.info.memory.textures} textures resident`);
-      await frame();
+    let done = 0;
+    for (const start of starts) {
+      camera.position.set(start.x, start.y, start.z).add(offset);
+      env.follow(new THREE.Vector3(start.x, start.y, start.z));
+      for (const direction of directions) {
+        camera.lookAt(camera.position.clone().add(new THREE.Vector3(...direction)));
+        camera.updateMatrixWorld();
+        renderFrame();
+        await drainGpu(renderer);
+        worldLoad.update({ compile: { done: ++done, total },
+          textures: { loaded: renderer.info.memory.textures, pending: 0 } });
+        loading.note(`GPU warmup ${done}/${total} directions · ${renderer.info.memory.textures} textures resident`);
+        await frame();
+      }
     }
   } finally {
     for (const [object, value] of culled) object.frustumCulled = value;
+    camera.position.copy(position);
+    env.follow(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
     camera.quaternion.copy(rotation);
     camera.updateMatrixWorld();
   }
   // Restore the initial view and flush temporal history from the warmup before showing the world.
   for (let i = 0; i < 8; i++) { renderFrame(); await frame(); }
   await drainGpu(renderer);
-  compiled(`${renderer.info.memory.textures} textures · 6/6 directions`);
+  compiled(`${renderer.info.memory.textures} textures · ${total}/${total} directions`);
   worldLoad.update({ phase: 'ready' });
 }
