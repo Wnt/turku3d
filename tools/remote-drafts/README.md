@@ -43,7 +43,8 @@ Python user-site imports. Never source osgallery-dev's legacy `pipeline.env`.
 Only approved city lidar, city WFS, city ortho and OSM inputs were transferred;
 no street imagery, private tree or Google-derived data is needed or copied.
 
-Multiplayer has a separate source snapshot at `~/turku3d-mp/repo/server/`, runtime
+Multiplayer runs from `~/turku3d-mp/repo/server/`, checksum-synced from the deployed
+drafts snapshot by `deploy-drafts`, with runtime
 data in `server/data/`, and an architecture-neutral binary name
 `~/turku3d-mp/bin/forwarder-agent`. The forwarder was compiled from Wnt/forwarder
 with its pinned Go compiler and vendored dependencies because CI artifacts were
@@ -127,8 +128,14 @@ The alternate persistent systemd producer slot starts on loopback 7765/7766 in
 standby, serving complete cached textured outputs while its builders are paused.
 After health succeeds, the source pointer and Caddy upstream change, and SIGUSR1
 reloads Caddy without closing its listener. The proxy confirms the new slot before
-the old producer stops. Only then does the new slot activate its workers. Multiplayer
-and tunnel processes remain running. `ACTIVE_PORT`, `ACTIVE_UNIT` and the slot's
+the old producer stops. Only then does the new slot activate its workers.
+The same deploy then checksum-syncs `server/` into `~/turku3d-mp/repo/server/`,
+including deletion of obsolete source files. `server/data/` and `node_modules/`
+are excluded and preserved; changed package manifests trigger `npm ci`.
+Only changed multiplayer files trigger a `turku-mp-server` restart. The existing
+two-client presence probe runs against the local proxy afterwards, including on
+repeated deployments of the same commit. Probe failures fail the deployment.
+The service checkout remains in use; the tunnel process stays running. `ACTIVE_PORT`, `ACTIVE_UNIT` and the slot's
 environment persist across reboot. Caddy signal reload follows its
 [documented signal contract](https://caddyserver.com/docs/command-line#signals).
 

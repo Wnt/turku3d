@@ -17,6 +17,13 @@ from facade_publish import HOST, SSH, remote
 HOME = "/home/ubuntu/turku3d-drafts"
 
 
+def deploy_multiplayer(destination):
+    return remote(
+        f"{HOME}/run.sh bash {destination}/tools/remote-drafts/update-multiplayer.sh "
+        f"{destination}"
+    )
+
+
 def deploy(repo, commit):
     started = time.monotonic()
     repo = Path(repo)
@@ -35,7 +42,9 @@ def deploy(repo, commit):
     remote(f"mountpoint -q /srv/turku3d && mkdir -p {destination}")
     previous = remote(f"readlink -f {HOME}/repo")
     if previous == destination:
-        return dict(commit=commit, seconds=round(time.monotonic() - started, 3), reused=True)
+        multiplayer = deploy_multiplayer(destination)
+        return dict(commit=commit, seconds=round(time.monotonic() - started, 3),
+                    reused=True, multiplayer=multiplayer)
     result = subprocess.run(
         [
             "rsync",
@@ -125,6 +134,7 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         "systemctl --user restart --no-block turku-drafts-prebuild && "
         "date -u +%Y-%m-%dT%H:%M:%SZ"
     )
+    multiplayer = deploy_multiplayer(destination)
     return dict(
         commit=commit,
         seconds=round(time.monotonic() - started, 3),
@@ -132,6 +142,7 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         proxy_restarted=False,
         active_port=port,
         rsync=result.stdout,
+        multiplayer=multiplayer,
     )
 
 

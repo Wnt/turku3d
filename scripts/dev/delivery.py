@@ -164,6 +164,8 @@ def after_merge(name, repo, commit, selected, path):
                 "pipeline/turku3d/config.py",
                 "textures/turkutex/facade_fast_render.py",
                 "tools/remote-drafts/*",
+                "server/*",
+                "scripts/dev/deploy_drafts.py",
             )
             generator_changed = any(
                 fnmatch.fnmatchcase(file, pattern)
