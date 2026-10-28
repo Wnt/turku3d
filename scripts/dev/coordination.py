@@ -23,8 +23,10 @@ Commit often. Give a short high-level shared-change heads-up when needed. Finish
 rebases, runs your selected affected tests within 30 seconds, merges into main and
 deploys Pages immediately; five-second curl smoke and your selective ten-minute
 async run follow. No deployment queue or rollback. See AGENTS.md for exact commands.
-Handle requests/warnings, acknowledge them with codex-task ack ID, and check the board
-after commits and before finishing. A merge notice means rebase before selected checks.
+Runner hooks announce new inbox messages. Handle requests/warnings and acknowledge
+them with scripts/dev/codex-task ack <id>. Check scripts/dev/codex-task board
+after commits and before finishing. Run long commands through
+scripts/dev/codex-task wait-cmd -- <command> or poll at 30-second intervals. A merge notice means rebase before selected checks.
 """
 
 

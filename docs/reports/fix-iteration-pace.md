@@ -77,3 +77,33 @@ Node version, Vite environment and all output-file hashes. Missing, extra or cor
 outputs rebuild. Cache hits take no host slot. The shared live bundle key now
 excludes runtime tile/layer/facade data and prior tile-stage keys, which previously
 invalidated the bundle for unrelated data changes. Environment changes still miss.
+
+## Agreed flow: first real direct deployment
+
+Merged and deployed `e03e9464929d` using the new finish flow. Its four selected
+checks ran in parallel in **1.365 s**. Game packaging took **1.944 s**, Pages upload
+**30.239 s**, package + upload **32.184 s**. The payload was **16,462,743 bytes**,
+versus **360,742,281 bytes** in the earlier served-tile deployment (95.4% smaller).
+Both Pages entry probes passed in **0.246 s**. The initial draft-service probe used
+the private status path and failed; it is corrected forward to the public `/coarse/health`
+endpoint. All smoke commands share the same five-second deadline.
+
+A selective tooling/gate/process/cache run started asynchronously from a frozen
+copy of that exact commit. Its ten-minute deadline includes bulk-slot wait time;
+it is recorded by `codex-task checks`. No browser suite or tile build ran before
+merge or as part of Pages packaging. Production publication uses no deployment
+lock, queue, superseded-release check, automatic retry or rollback.
+
+Historical measured code-merge-to-Pages latency was median118.590 s, max1006.273 s
+(n=20). The new32.184 s sample measures package/upload after merge, not a new
+production median; more observations are needed for that statistic. The earlier
+slot max3453.23 s remains historical. Normal selected quick checks now bypass
+host slots entirely, so queued bulk work does not delay them or game publication.
+
+The first selective async run completed in 172.326 s including its slot wait
+(27.82 s executing tests): 62 passed, three failed. It found a real frozen-dependency
+copy bug: dereferencing node_modules executable symlinks broke ESLint's package-relative
+resolution. The one forward fix preserves symlinks and adds a focused regression.
+It also restores operational runner guidance and corrects browser detection to match
+actual imports rather than marker strings inside the static launch-policy scanner.
+Delivery tests run serially because their mocks patch shared module globals.

@@ -31,6 +31,26 @@ def append(row):
         output.write(json.dumps(row) + "\n")
 
 
+def copy_dependencies(repo, snapshot):
+    """Clone local dependencies while preserving package executable symlinks."""
+    for relative in (
+        "node_modules",
+        "game/node_modules",
+        "tools/validator/node_modules",
+        "pipeline/.venv",
+        "textures/.venv",
+        "qa/.venv",
+        ".venv",
+    ):
+        original, target = repo / relative, snapshot / relative
+        if original.exists() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if original.resolve().is_relative_to(repo.parent):
+                subprocess.run(["cp", "-cR", str(original.resolve()), str(target)], check=True)
+            else:
+                target.symlink_to(original.resolve(), target_is_directory=True)
+
+
 def start(name, repo, commit, plan, env):
     created = time.time()
     root = s.tasks_root() / name / "checks" / commit
@@ -52,22 +72,7 @@ def start(name, repo, commit, plan, env):
     s.git("update-ref", "refs/heads/deployed", commit, cwd=snapshot)
     s.git("symbolic-ref", "HEAD", "refs/heads/deployed", cwd=snapshot)
     s.git("read-tree", commit, cwd=snapshot)
-    for relative in (
-        "node_modules",
-        "game/node_modules",
-        "tools/validator/node_modules",
-        "pipeline/.venv",
-        "textures/.venv",
-        "qa/.venv",
-        ".venv",
-    ):
-        original, target = repo / relative, snapshot / relative
-        if original.exists() and not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if original.resolve().is_relative_to(repo.parent):
-                subprocess.run(["cp", "-cRL", str(original.resolve()), str(target)], check=True)
-            else:
-                target.symlink_to(original.resolve(), target_is_directory=True)
+    copy_dependencies(repo, snapshot)
     job_env = {
         **env,
         "REPO": str(snapshot),

@@ -94,7 +94,7 @@ def smoke(repo, deployed, path):
     url = deployed["url"].rstrip("/")
     env = environment(repo)
     draft = env.get("VITE_DRAFT_URL", "https://turku.lab.madekivi.fi/coarse/")
-    urls = [url + "/", url + "/game/", draft.rstrip("/") + "/status"]
+    urls = [url + "/", url + "/game/", draft.rstrip("/") + "/health"]
     deadline = time.monotonic() + SMOKE_SECONDS
     # No shell quoting of URLs or environment strings.
     import concurrent.futures

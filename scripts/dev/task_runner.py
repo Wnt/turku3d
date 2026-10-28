@@ -135,8 +135,8 @@ def launch(
             common = (home / "repo/docs/briefs/COMMON.md").read_text()
             prompt = (
                 f"You are Codex agent '{name}'. Work only in {home / 'repo'}. "
-                "The exported TURKU3D_* variables define your sandbox. Do not merge main yourself: "
-                "a DONE result lands your branch when your turn ends.\n\n"
+                "The exported TURKU3D_* variables define your sandbox. Use codex-task finish to "
+                "merge into main and deploy each completed slice.\n\n"
                 + common
                 + "\n\n"
                 + coord.PROMPT

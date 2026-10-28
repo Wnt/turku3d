@@ -230,13 +230,19 @@ export class CoarseTiles {
       .filter(Boolean).join(' · '));
   }
 
-  /** Startup waits for the requested draft ground on both localhost and Pages. */
+  /** Startup waits for the requested draft ground on both localhost and Pages. A draft whose build failed does not
+   *  block startup: it is left out and warned about once, and the world starts without that tile. */
   progressAt(x: number, z: number) {
-    const wanted = this.wantedStarts(x, z);
+    const wanted = this.wantedStarts(x, z).filter(id => {
+      const entry = this.entries.get(id);
+      if (entry?.state !== 'failed') return true;
+      if (!this.skipped.has(id)) { this.skipped.add(id); console.warn(`draft ${id} failed, starting without it: ${entry.error}`); }
+      return false;
+    });
     const ready = wanted.filter(id => this.entries.get(id)?.state === 'draft');
-    const errors = wanted.flatMap(id => this.entries.get(id)?.state === 'failed' ? [`draft ${id}: ${this.entries.get(id)!.error}`] : []);
-    return { loaded: ready.length, total: wanted.length, errors };
+    return { loaded: ready.length, total: wanted.length, errors: [] as string[] };
   }
+  private skipped = new Set<string>();
 
   private show(status: string) {
     this.status = status;

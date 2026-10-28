@@ -14,6 +14,8 @@ import delivery  # noqa: E402
 import landing  # noqa: E402
 import post_deploy  # noqa: E402
 
+SERIAL = True  # Cases patch shared delivery/sandbox globals.
+
 
 class DeliveryTests(unittest.TestCase):
     def test_parallel_checks_share_one_deadline_and_kill_timed_out_children(self):
@@ -80,6 +82,42 @@ class DeliveryTests(unittest.TestCase):
                 external_worker.finish("self", result)
             self.assertEqual(json.loads((root / "meta.json").read_text())["state"], "running")
             self.assertTrue(merge.call_args.args[1])
+
+    def test_smoke_uses_public_health_route_with_one_shared_deadline(self):
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append((command, kwargs["deadline"]))
+            return {"exit": 0, "seconds": 0.01}
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.object(delivery, "environment", return_value={}),
+            patch.object(bounded_checks, "run", side_effect=run),
+        ):
+            result = delivery.smoke(Path(temp), {"url": "https://example.test/"}, Path(temp))
+        self.assertTrue(result["ok"])
+        self.assertEqual(len({deadline for _, deadline in calls}), 1)
+        urls = [command[-1] for command, _ in calls]
+        self.assertIn("https://turku.lab.madekivi.fi/coarse/health", urls)
+        self.assertFalse(any(url.endswith("/status") for url in urls))
+
+    def test_snapshot_preserves_dependency_executable_symlinks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, snapshot = root / "repo", root / "snapshot"
+            package = repo / "node_modules/package/bin"
+            package.mkdir(parents=True)
+            (package / "cli.js").write_text("require('../package.json')")
+            executable = repo / "node_modules/.bin/cli"
+            executable.parent.mkdir()
+            executable.symlink_to("../package/bin/cli.js")
+            post_deploy.copy_dependencies(repo, snapshot)
+            copied = snapshot / "node_modules/.bin/cli"
+            self.assertTrue(copied.is_symlink())
+            self.assertEqual(
+                copied.resolve(), (snapshot / "node_modules/package/bin/cli.js").resolve()
+            )
 
     def test_second_forward_fix_is_rejected(self):
         rows = [
