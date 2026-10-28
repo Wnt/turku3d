@@ -10,13 +10,16 @@ isolateBrowser();
 const phase = process.argv[2];
 const baseline = process.argv[3] ?? '312849f6';
 const full = process.argv.includes('--full');
+const performanceOnly = process.argv.includes('--perf');
 if (!['before', 'after'].includes(phase)) throw new Error('usage: node qa/render/texture-sanity.mjs before|after');
 const root = path.join(workRoot, 'reports/texture-sanity', phase);
-const region = full ? 'full' : 'textures';
+const region = (full ? 'full' : 'textures') + (performanceOnly ? '-perf' : '');
 const tiles = full ? ['t0_0_0', 't0_0_1', 't0_1_0'] : fs.readdirSync(root).filter(t => /^t0_/.test(t) && fs.existsSync(path.join(root, t, 'manifest.json')));
 const sceneFile = 'game/__texture-sanity.js', pageFile = 'game/__texture-sanity.html';
 const link = 'game/public/__texture-sanity';
-const views = JSON.parse(fs.readFileSync(path.join(workRoot, 'reports/texture-sanity/views.json'), 'utf8')).filter(v => tiles.includes(v.tile));
+const views = JSON.parse(fs.readFileSync(path.join(workRoot, 'reports/texture-sanity/views.json'), 'utf8'))
+  .filter(v => tiles.includes(v.tile) && (!performanceOnly || /-(eye-0|chase|oblique)$/.test(v.name)))
+  .map(v => performanceOnly ? { ...v, width: 2560, height: 1440 } : v);
 const snapshot = 'game/__texture-before-facade.ts';
 const materialSnapshot = 'game/src/render/ground/__texture-before-material.ts';
 const bindingSnapshot = 'game/src/render/ground/__texture-before-binding.ts';
@@ -56,9 +59,10 @@ window.probe={async view(v){
  camera.lookAt(t);camera.updateMatrixWorld();env.follow(camera.position);env.updateIBL();
  // Isolate each tile so before/after counts use identical visibility.
  for(const model of models)model.visible=model.name===v.tile;
- for(let i=0;i<40;i++){lod.update(camera);post.render();await new Promise(requestAnimationFrame);}
- perf.reset();for(let i=0;i<60;i++){perf.begin();lod.update(camera);post.render();perf.end();await new Promise(requestAnimationFrame);}
- await perf.completed();await perf.flush();return perf.snapshot();
+ for(let i=0;i<${performanceOnly ? 120 : 40};i++){lod.update(camera);post.render();await new Promise(requestAnimationFrame);}
+ const measured=${performanceOnly ? 240 : 60};perf.reset();const start=performance.now();
+ for(let i=0;i<measured;i++){perf.begin();lod.update(camera);post.render();perf.end();await new Promise(requestAnimationFrame);}
+ await perf.completed();await perf.flush();return {...perf.snapshot(),drainedMsPerFrame:(performance.now()-start)/measured};
 }};window.ready=true;`;
 let browser;
 try {
@@ -75,7 +79,7 @@ try {
   fs.writeFileSync(sceneFile, source, { flag: 'wx' });
   fs.writeFileSync(pageFile, '<link rel="icon" href="data:,"><script type="module" src="/__texture-sanity.js"></script>', { flag: 'wx' });
   fs.symlinkSync(root, link);
-  browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling'] });
+  browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', ...(performanceOnly ? ['--disable-gpu-vsync', '--disable-frame-rate-limit'] : [])] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -86,7 +90,7 @@ try {
   const results = [];
   for (const view of views) {
     const top = view.top ?? false;
-    const name = (full ? 'full-' : '') + view.name;
+    const name = (full ? 'full-' : '') + (performanceOnly ? 'perf-' : '') + view.name;
     await page.setViewportSize({ width: view.width ?? 1280, height: view.height ?? 720 });
     const stats = await page.evaluate(v => window.probe.view(v), { ...view, top });
     await page.screenshot({ path: path.join(root, `${name}.png`) });
