@@ -12,6 +12,7 @@ export class LoadingScreen {
   private finished = false;
   private menuReady = false;
   private draft = '';
+  private failure: string | null = null;
 
   constructor(qa: boolean) {
     if (qa) { this.element.hidden = true; loading.stop(); return; }
@@ -37,7 +38,7 @@ export class LoadingScreen {
   ready() { this.menuReady = true; this.element.classList.add('menu-ready'); }
 
   update(playing: boolean, canMove: boolean, visualsReady: boolean, draft?: string) {
-    if (this.finished) return;
+    if (this.finished || this.failure) return;
     if (draft && draft !== this.draft) { this.draft = draft; loading.note(draft); }
     if (this.menuReady) this.element.classList.toggle('menu-ready', !playing);
     if (playing && canMove && visualsReady) {
@@ -51,10 +52,10 @@ export class LoadingScreen {
     }
   }
 
-  fail(error: string) { this.active.textContent = `Loading failed · ${error}`; this.element.classList.remove('menu-ready'); }
+  fail(error: string) { this.failure = error; this.draw(); this.element.classList.remove('menu-ready'); }
 
   private draw() {
-    this.active.textContent = loading.active.join(' · ') || (this.menuReady ? 'Ready · choose Multiplayer to enter the city' : 'Preparing the city');
+    this.active.textContent = this.failure ? `Loading failed · ${this.failure}` : loading.active.join(' · ') || (this.menuReady ? 'Ready · choose Multiplayer to enter the city' : 'Preparing the city');
     this.progress.max = Math.max(1, loading.total);
     this.progress.value = loading.completed;
     this.count.textContent = `${loading.completed} / ${loading.total} tasks complete · more discovered as tiles stream`;

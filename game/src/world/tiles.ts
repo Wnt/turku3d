@@ -57,7 +57,7 @@ export class VisualTiles {
   private create(url: string, unchanged?: ReadonlySet<string>): Tileset {
     const renderer = new TilesRenderer(url);
     const pending = new Map<Tile, ReturnType<typeof loading.begin>>();
-    renderer.addEventListener('tile-download-start', ({ tile, url }: { tile: Tile; url: string }) => { if (!url.endsWith('.json')) pending.set(tile, loading.begin(`Visual tile ${url.split('/').slice(-2).join('/')}`)); });
+    renderer.addEventListener('tile-download-start', ({ tile, url }: { tile: Tile; url: string }) => { if (loading.running && !url.endsWith('.json')) pending.set(tile, loading.begin(`Visual tile ${url.split('/').slice(-2).join('/')}`)); });
     const set: Tileset = { renderer, l0Parents: new Map(), refinable: new Set(), loaded: 0 };
     if (unchanged) {
       set.reuse = new TileReuse(this.current.renderer, renderer, unchanged);

@@ -196,8 +196,12 @@ Public release start menus offer only Multiplayer (`core/release.ts`, set by the
 
 Release HUD shows your multiplayer nickname. F3 (or H) toggles diagnostics, including the draft-tile banner; `?debug` starts with diagnostics visible. Local builds default to diagnostics.
 
-`loadingScreen.ts` starts from static HTML before the entry bundle downloads, then shows real task progress, active work and a bounded technical log. It observes Resource Timing bytes/durations and hooks tile downloads, embedded KTX2 transcodes, Rapier readiness/collider construction, audio decoding, voice indexing and multiplayer welcome. While choosing a start option it becomes a small progress dock; after joining it fades when placement and the current visual tiles are ready. Optional audio failures are logged and never block movement. Instrumentation stops after entry.
+`loadingScreen.ts` starts from static HTML before the entry bundle downloads, then shows real task progress, active work and a bounded technical log. It observes Resource Timing bytes/durations and hooks tile downloads, embedded KTX2 transcodes, Rapier readiness/collider construction, audio decoding, voice indexing and multiplayer welcome. While choosing a start option it becomes a small progress dock; after joining it fades when placement and the first visual model are ready. Optional audio failures are logged and never block movement. Instrumentation stops after entry.
 
 `render/dayClock.ts` shows the Helsinki clock without a slider; `core/dayCycle.ts` determines the synchronized daylight cycle. QA `?time=` remains deterministic.
 
 `controlsHelp.ts` hides each control mode's prompts after 60 seconds of active play in that mode, or after two separate uses of at least 75% of its listed controls. Foot, fly and car progress is independent, so a new unlearned mode shows help again. Menus and pauses do not spend the timer. Progress is remembered in `localStorage` (`turku3d.controls-help.v1`), with storage failures handled in memory. Movement/look groups and repeated land prompts count once per distinct press.
+
+The menu's compact loading dock uses the desktop gutter; below 1100 px it yields that space to the menu. The full loading screen returns during joining and fades when the player can move in the visible world.
+
+Loading instrumentation API: `loading.begin(label)` returns an idempotent completion callback accepting detail text; `loading.note(text)` records a real phase/count update. A preloader can use these for GPU texture uploads or shader warmup while `startPlay` is pending. The screen stays full until `startScreen.ready()` and keeps logging until movement readiness; counters should have one owner per loader.

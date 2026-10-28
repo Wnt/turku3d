@@ -9,6 +9,7 @@ isolateBrowser();
 // dist mounted at /tiles. TILE_DIST overrides the local output (default $TURKU3D_WORK/dist/tiles).
 const PORT = Number(process.env.E2E_TILE_PORT ?? port(1));
 const TILE_DIST = tileDist;
+const GAME_DIST = process.env.E2E_GAME_DIST || gameDist;
 const DEV = process.env.E2E_TILE_DEV === '1';
 export default defineConfig({
   testDir: 'tests/e2e-tile',
@@ -35,7 +36,7 @@ export default defineConfig({
   ],
   webServer: process.env.E2E_TILE_EXTERNAL_SERVER === '1' ? undefined : {
     command: DEV ? `./node_modules/.bin/vite --host 127.0.0.1 --port ${PORT} --strictPort`
-      : `node ../tools/dev/serve-dist.mjs --root ${JSON.stringify(gameDist)} --port ${PORT} --mount ${JSON.stringify(`/tiles=${TILE_DIST}`)}`,
+      : `node ../tools/dev/serve-dist.mjs --root ${JSON.stringify(GAME_DIST)} --port ${PORT} --mount ${JSON.stringify(`/tiles=${TILE_DIST}`)}`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 30_000,

@@ -649,7 +649,7 @@ and the preceding stage key.
 
 ### Landing and integration
 
-Main only requires the fast gate; the live build and Chrome run once per batch after the merge.
+Main only requires the fast gate; the live build and Chrome run once per batch after the merge. Public builds (`VITE_PUBLIC_RELEASE=1 make game-build`) freeze `build/game` for live/Pages and `build/check-game` for existing solo Chrome assertions (`E2E_GAME_DIST`); both travel through the release/cache.
 Live and Pages point to a release built from exactly the commit it names; its advisory results ride along.
 
 ```

@@ -16,5 +16,8 @@ export function dayCycle(utcMs: number) {
   const minutes = transition ? (END + (1440 - END + START) * t) % 1440 : START + (END - START) * t;
   // Keep every sky sample within the daylight range: never render the unsupported night lighting.
   const lightMinutes = transition ? END + (START - END) * ease : minutes;
-  return { time: dateAt(minutes), lightTime: dateAt(lightMinutes), transition, phase };
+  // Fade the HDR solar disc during the rapid sweep so its bloom cannot flash across the player's view.
+  const fade = transition ? Math.min(1, Math.min(t, 1 - t) / 0.2) : 0;
+  const sunDisc = 1 - fade * fade * (3 - 2 * fade);
+  return { time: dateAt(minutes), lightTime: dateAt(lightMinutes), sunDisc, transition, phase };
 }

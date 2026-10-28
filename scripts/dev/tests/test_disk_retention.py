@@ -64,11 +64,13 @@ class DiskRetentionTests(unittest.TestCase):
                     path.mkdir(parents=True)
                     (path / "result.json").write_text("{}")
                     if stage == "game-build":
-                        (path / "build/game").mkdir(parents=True)
-                        (path / "build/game/file").write_text(str(index))
+                        for relative in live_cache.OUTPUTS[stage]:
+                            (path / relative).mkdir(parents=True)
+                            (path / relative / "file").write_text(str(index))
                     os.utime(path, (index + 1, index + 1))
             self.assertEqual(live_cache.restore(data, data / "work", "game-build", "0"), {})
             self.assertEqual((data / "work/build/game/file").read_text(), "0")
+            self.assertEqual((data / "work/build/check-game/file").read_text(), "0")
             live_cache.prune(data, "game-build")
             self.assertTrue(live_cache.directory(data, "game-build", "0").is_dir())
             self.assertFalse(live_cache.directory(data, "game-build", "1").exists())

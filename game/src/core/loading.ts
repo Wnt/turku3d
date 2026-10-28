@@ -4,6 +4,7 @@ const log: string[] = [];
 let serial = 0, completed = 0, stopped = false;
 let listener: (() => void) | null = null;
 export const loading = {
+  get running() { return !stopped; },
   get active() { return [...active.values()]; },
   get log() { return log; },
   get completed() { return completed; },

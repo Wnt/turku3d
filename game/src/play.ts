@@ -85,7 +85,7 @@ export interface PlayWorld {
   hudEl: HTMLElement;
   loadingScreen: LoadingScreen;
   renderFrame: () => void;
-  /** The sun clock and its setter (`window.__render.setTime`). */
+  /** The shared clock; restoration only affects an unpinned developer clock. */
   clockTime: () => Date;
   setClock: (date: Date) => void;
   /** Ground height under (x, z) from a physics ray. */
@@ -315,7 +315,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         remotes: remotePlayers.markers(), remoteVisuals: remotePlayers.visualBounds(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
   Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, edgeMarker, streamer, multiplayerClient: () => multiplayer, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.close();
   else if (resume) saveGame.hooks.play(resume);
@@ -561,7 +561,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const help = document.getElementById('help')!;
     help.hidden = startScreen.active || helpLearning.hidden(mode, !!fly?.active);
     help.textContent = controlsHelp(input, mode, !!fly?.active, paused, !!recovery.lost);
-    world.loadingScreen.update(!startScreen.active, !paused && !saveGame.loading, tiles.settled && !materials?.ground?.pending, coarse?.status);
+    world.loadingScreen.update(!startScreen.active, !paused && !saveGame.loading, tiles.loadedModels > 0, coarse?.status);
     perf.end();
   });
 

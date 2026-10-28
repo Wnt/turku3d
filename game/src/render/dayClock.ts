@@ -25,7 +25,7 @@ export class DayClock {
     }
   }
 
-  set(date: Date) { this.fixed = date; this.time = date; this.env.setTime(date); this.env.updateIBL(); }
+  set(date: Date) { this.fixed = date; this.time = date; this.env.sky.showSunDisc.value = 1; this.env.setTime(date); this.env.updateIBL(); }
   /** Old saves never override a wall-clock cycle or an explicit ?time= QA pose. */
   restore(date: Date) { if (this.fixed && !this.pinned) this.set(date); }
 
@@ -35,6 +35,7 @@ export class DayClock {
       const cycle = dayCycle(Date.now());
       this.time = cycle.time;
       this.env.setTime(cycle.lightTime);
+      this.env.sky.showSunDisc.value = cycle.sunDisc;
       if (!cycle.transition && start - this.lastIBL >= 30_000) {
         const iblStart = performance.now();
         this.env.updateIBL();
@@ -43,7 +44,7 @@ export class DayClock {
       }
     }
     if (this.label && start - this.lastLabel >= 250) {
-      this.label.textContent = `${this.formatter.format(this.time)} · Helsinki`;
+      this.label.textContent = `${this.formatter.format(this.time).replaceAll('/', '.')} · Helsinki`;
       this.lastLabel = start;
     }
     const ms = performance.now() - start;
