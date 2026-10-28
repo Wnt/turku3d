@@ -20,6 +20,7 @@ def tags(row):
 
 
 def select():
+    (ROOT / 'synthetic').mkdir(parents=True, exist_ok=True)
     seen = set()
     geometries, records = [], []
     for source in PLAN['sources']:

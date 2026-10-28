@@ -72,9 +72,10 @@ def normalise(data, coverage, scorer_dir):
         corrected = np.clip(np.where(v <= .0031308, v * 12.92,
                                      1.055 * v ** (1 / 2.4) - .055) * 255, 0, 255)
         group["normalised_reference_rgb"] = corrected.tolist()
-        measurements[group["building_key"]].append(corrected)
+        measurements[group.get("building_id", group["building_key"])].append(corrected)
     for row in data["buildings"]:
-        row["normalised_reference_rgb"] = np.median(measurements[row["building_key"]], axis=0).tolist()
+        key = row["building_id"] if row["building_id"] in measurements else row["building_key"]
+        row["normalised_reference_rgb"] = np.median(measurements[key], axis=0).tolist()
     data["illumination"] = corrections
     data["lighting"] = "Bounded per-channel linear ground illumination proxy; directional wall shadows remain unknown"
     return data
@@ -125,6 +126,7 @@ def collect(coverage):
             own = np.median([v["own"] for v in values], axis=0)
             measurements[key].append(reference)
             groups.append(dict(quarter=quarter, group=group, building_key=key,
+                               building_id=attributes[key]["building_id"],
                                reference_rgb=reference.tolist(), own_rgb=own.tolist(),
                                reference_sha256=report["reference_sha256"],
                                own_sha256=report["build_sha256"]))
