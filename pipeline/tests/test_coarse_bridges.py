@@ -208,6 +208,61 @@ def test_bridge_slab_separates_surface_from_structural_thickness():
     assert mesh[1].material == "wall"
 
 
+def test_crown_station_cuts_do_not_add_paired_internal_bulkheads():
+    _, body = slab(
+        "deck",
+        shapely.box(0, -3, 20, 3),
+        shapely.LineString([(0, 0), (20, 0)]),
+        np.array([0, 5, 10, 15, 20]),
+        np.array([5, 5.3, 5.5, 5.3, 5]),
+        "road",
+    )
+    triangles = body.positions[body.indices]
+    vertical = np.ptp(triangles[:, :, 1], axis=1) > 0.1
+    # Only the two physical ends may span the width of this straight slab.
+    across = vertical & (np.ptp(triangles[:, :, 0], axis=1) == 0)
+    assert set(triangles[across, :, 0].ravel()) == {0, 20}
+    # Crown stations still break the longitudinal outer walls at their measured heights.
+    assert any(np.allclose(p, [10, 5.5, 3]) for p in body.positions)
+
+
+def test_crown_cuts_keep_vertical_walls_around_physical_openings():
+    _, body = slab(
+        "deck",
+        shapely.box(0, -3, 20, 3).difference(shapely.box(8, -1, 12, 1)),
+        shapely.LineString([(0, 0), (20, 0)]),
+        np.array([0, 5, 10, 15, 20]),
+        np.full(5, 5.0),
+        "road",
+    )
+    triangles = body.positions[body.indices]
+    across = (np.ptp(triangles[:, :, 1], axis=1) > 0.1) & (np.ptp(triangles[:, :, 0], axis=1) == 0)
+    assert set(triangles[across, :, 0].ravel()) == {0, 8, 12, 20}
+
+
+def test_slab_ignores_line_remainders_from_outline_clipping():
+    polygon = shapely.GeometryCollection(
+        [shapely.box(0, -3, 20, 3), shapely.LineString([(0, -3), (-2, -3)])]
+    )
+    top, _ = slab(
+        "deck",
+        polygon,
+        shapely.LineString([(0, 0), (20, 0)]),
+        np.array([0, 10, 20]),
+        np.full(3, 5.0),
+        "road",
+    )
+    triangles = top.positions[top.indices]
+    area = (
+        np.linalg.norm(
+            np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]), axis=1
+        ).sum()
+        / 2
+    )
+    assert np.isclose(area, 120)
+    assert top.positions[:, 0].min() == 0
+
+
 def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
     from turku3d.coarse.bridge_details import surfaces
 

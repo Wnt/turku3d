@@ -8,10 +8,12 @@ import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../too
 
 isolateBrowser();
 const phase = process.argv[2];
-if (!['before', 'after'].includes(phase)) throw new Error('usage: bridge-quality.mjs before|after');
-const root = path.join(workRoot, 'reports/bridge-quality', phase);
+if (!['before', 'after', 'current'].includes(phase)) throw new Error('usage: bridge-quality.mjs before|after [audit-root] | current <build-root>');
+if (phase === 'current' && !process.argv[3]) throw new Error('current requires a build root');
+const auditRoot = process.argv[3] ?? path.join(workRoot, 'reports/bridge-quality');
+const root = phase === 'current' ? auditRoot : path.join(auditRoot, phase);
 const tiles = fs.readdirSync(root).filter(t => /^t0_/.test(t) && fs.existsSync(path.join(root, t, 'manifest.json')));
-const inventory = JSON.parse(fs.readFileSync(path.join(workRoot, 'reports/bridge-quality/after/inventory.json')));
+const inventory = JSON.parse(fs.readFileSync(phase === 'current' ? path.join(root, 'inventory.json') : path.join(auditRoot, 'after/inventory.json')));
 const seen = new Set(), views = [];
 for (const [tile, records] of Object.entries(inventory)) {
   if (!Array.isArray(records)) continue;
@@ -33,7 +35,7 @@ for (const [tile, records] of Object.entries(inventory)) {
   }
 }
 if (phase === 'before') {
-  const fixed = JSON.parse(fs.readFileSync(path.join(workRoot, 'reports/bridge-quality/after/render.json'))).results;
+  const fixed = JSON.parse(fs.readFileSync(path.join(auditRoot, 'after/render.json'))).results;
   for (const view of views) {
     const pose = fixed.find(row => row.name === view.name);
     if (!pose) throw new Error(`Render after first: missing fixed camera ${view.name}`);
@@ -70,7 +72,7 @@ scene.updateMatrixWorld(true);
 const perf=new PerformanceMonitor(renderer,'webgpu');
 window.probe={async view(v){
  camera.position.set(...v.position);
- if(${phase === 'after'}&&v.grounding){
+ if(${phase !== 'before'}&&v.grounding){
   const support=(x,z,layer)=>new THREE.Raycaster(new THREE.Vector3(x,1000,z),new THREE.Vector3(0,-1,0)).intersectObjects(surfaces[layer],false)[0];
   let hit=support(camera.position.x,camera.position.z,v.grounding);
   if(!hit&&v.grounding==='ground')hit=support(camera.position.x,camera.position.z,'bridges');

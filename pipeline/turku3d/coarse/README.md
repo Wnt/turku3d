@@ -317,6 +317,8 @@ Mapped pedestrian member ways become raised pavements; lane tags place paint, ga
 place rails/sleepers, and mapped `highway=street_lamp` nodes place poles. `lit=yes` alone does
 not invent lamp locations. Meshes batch by material; paint has no duplicate collider, while
 decks, pavement, structural members and visible railing bars supply collision.
+Longitudinal crown stations split the top and soffit for triangulation. Only the physical
+outline and hole boundaries get vertical slab walls; station cuts do not add internal bulkheads.
 
 `bridge_survey.py` optionally reads existing full city lidar through `turku3d.lidar.TileStore`
 into the sandbox cache. It never fetches. Classes 1/2/10/12/17 contribute robust deck profiles;
@@ -458,7 +460,11 @@ baseline is the historical pre-quality producer. Audit the initial structural pa
 with `--first-pass --out "$TURKU3D_WORK/reports/bridge-first/before"`. Use a separate output
 parent for a cold initial-pass audit: prepared full-pass roads in the same parent are reused
 by the runtime and include optional bridge survey profiles. Full-pass and initial-pass output
-must not overwrite each other.
+must not overwrite each other. Pass that audit parent as the renderer's optional third argument,
+for example `node qa/render/bridge-quality.mjs after "$TURKU3D_WORK/reports/bridge-first"`.
+For a standalone current-build inspection, use
+`node qa/render/bridge-quality.mjs current "$TURKU3D_WORK/reports/bridge-quality/before"`;
+it reads that build's inventory and grounds cameras without requiring an after build.
 
 ## Latency diagnostics
 
