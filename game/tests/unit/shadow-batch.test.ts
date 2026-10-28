@@ -58,17 +58,18 @@ test('spatial shadow chunks retain every triangle and bound all vertices, includ
   const root = batchTileShadows(model)!;
   const chunks: THREE.Mesh[] = []; root.traverse(object => chunks.push(object as THREE.Mesh));
   expect(chunks.length).toBeGreaterThan(1);
-  const triangleIndices: number[] = [], point = new THREE.Vector3();
+  const triangleVertices: number[][] = [], point = new THREE.Vector3();
   for (const chunk of chunks) {
     const index = chunk.geometry.getIndex()!, positions = chunk.geometry.getAttribute('position');
     for (let i = 0; i < index.count; i++) {
-      triangleIndices.push(index.getX(i));
+
       point.fromBufferAttribute(positions, index.getX(i));
+      triangleVertices.push(point.toArray());
       expect(chunk.geometry.boundingSphere!.containsPoint(point)).toBe(true);
     }
   }
-  expect(triangleIndices.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
-  const distant = chunks.find(chunk => chunk.geometry.getIndex()!.getX(0) === 3)!;
+  expect(triangleVertices.sort((a, b) => a[0] - b[0] || a[1] - b[1])).toEqual([[-80,0,0],[0,0,0],[0,1,0],[1,0,0],[100,0,0],[100,100,0],[200,0,0],[200,1,0],[201,0,0]]);
+  const distant = chunks.find(chunk => chunk.geometry.boundingBox!.min.x >= 200)!;
   const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 100);
   camera.position.set(0, 0, 10); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
   root.updateMatrixWorld(true);

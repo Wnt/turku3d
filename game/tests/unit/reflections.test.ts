@@ -19,6 +19,7 @@ test('river pass includes large static surfaces and excludes water, props and ve
 });
 
 test('reflection warmup uses its real target and layer mask without leaking state across awaits', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
   const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   const env = new Environment(scene, renderer, 'medium');
@@ -40,6 +41,7 @@ test('reflection warmup uses its real target and layer mask without leaking stat
   expect(model.visible).toBe(false); expect(surface.frustumCulled).toBe(true);
   complete(); await prepared;
   river.dispose(); env.dispose();
+  vi.unstubAllGlobals();
 });
 
 test('river reuse preserves explicit and automatic CSM update requests', () => {

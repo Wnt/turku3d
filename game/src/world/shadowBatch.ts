@@ -82,6 +82,7 @@ export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
   // Children are independently frustum tested even when their parent's mesh is outside a cascade.
   const proxy = chunks[0];
   proxy.add(...chunks.slice(1));
+  proxy.userData.shadowTriangles = indexCount / 3;
   model.add(proxy);
   return proxy;
 }

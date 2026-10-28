@@ -34,8 +34,27 @@ export function shadowChunks(positions: Float32Array, indices: Uint16Array | Uin
       group.bounds.expandByPoint(point.fromBufferAttribute(attribute, index));
     }
   }
+  const remap = new Uint32Array(positions.length / 3), seen = new Uint32Array(remap.length);
+  let generation = 0;
   return [...groups.values()].map(group => {
+    generation++;
+    let vertices = 0;
+    const index = group.indices!;
+    for (const original of index) {
+      if (seen[original] !== generation) { seen[original] = generation; remap[original] = vertices++; }
+    }
+    // Compact each chunk. Sharing the full tile attribute makes both upload lifetime and LRU byte estimates
+    // depend on unrelated chunks (the upstream estimator counts each geometry's attributes independently).
+    const compact = new Float32Array(vertices * 3);
+    for (let i = 0; i < index.length; i++) {
+      const original = index[i], local = remap[original];
+      compact[local * 3] = positions[original * 3];
+      compact[local * 3 + 1] = positions[original * 3 + 1];
+      compact[local * 3 + 2] = positions[original * 3 + 2];
+      index[i] = local;
+    }
     const geometry = group.geometry!;
+    geometry.setAttribute('position', new THREE.BufferAttribute(compact, 3));
     geometry.boundingBox = group.bounds;
     geometry.boundingSphere = group.bounds.getBoundingSphere(new THREE.Sphere());
     return geometry;

@@ -73,7 +73,9 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   };
   function tick(now) {
     if (!state.active) return;
-    if (previous !== null) state.frames.push([now, now - previous, state.phase, now - lastPhysics]);
+    const latest = game.physics.latest;
+    const publishedAge = latest?.publishedAt === undefined ? null : Math.max(0, performance.timeOrigin + performance.now() - latest.publishedAt);
+    if (previous !== null) state.frames.push([now, now - previous, state.phase, Math.max(0, performance.now() - lastPhysics), publishedAge, latest?.tick]);
     previous = now;
     if (state.phase === 'flight') {
       const u = Math.min(1, (now - state.started) / (flightSeconds * 1000));

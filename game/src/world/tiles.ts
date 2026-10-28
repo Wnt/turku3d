@@ -12,6 +12,7 @@ import { loading } from '../core/loading';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { batchTileShadows } from './shadowBatch';
 import { disposeShadowBatch } from './shadowChunks';
+import { prepareTiles } from './tilePreparation';
 import { refinableParents } from './residency';
 import { TileReuse } from './tileReuse';
 import { PlayerLoadRegion } from './loadRegion';
@@ -112,27 +113,14 @@ export class VisualTiles {
     }
     // The KTX2 loader (its transcoder workers) is shared by a swapped-in release: disposing the old tileset keeps it.
     renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false, plugins: [() => textureUploads(this.renderer).plugin()] }));
-    // Keep the library's parse promise pending through final styling/compilation. REPLACE parents remain
-    // visible, and original glTF resources stay owned by the loader even after material replacement.
-    const parser = renderer as unknown as { parseTile(buffer: ArrayBuffer, tile: Tile, extension: string, url: string, signal: AbortSignal): Promise<void> };
-    const parse = parser.parseTile.bind(renderer);
-    parser.parseTile = async (buffer, tile, extension, url, signal) => {
-      await parse(buffer, tile, extension, url, signal);
-      const model = (tile as Tile & { engineData: { scene: THREE.Object3D | null } }).engineData.scene;
-      if (!model || signal.aborted) return;
-      model.parent = renderer.group; // include the tileset's Z-up -> engine-axis transform without drawing it
-      model.updateWorldMatrix(true, true);
+    prepareTiles(renderer as unknown as Parameters<typeof prepareTiles>[0], async (model, tile, signal) => {
       this.configure(model);
-      try { await this.prepareModel?.(model, tile, signal); }
-      finally {
-        if (signal.aborted) model.traverse(object => {
-          const mesh = object as THREE.Mesh;
-          if (!mesh.isMesh) return;
-          mesh.geometry.dispose();
-          for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
-        });
-      }
-    };
+      await this.prepareModel?.(model, tile, signal);
+    }, (model, tile) => {
+      const shadow = this.shadowBatches.get(model);
+      if (shadow) { disposeShadowBatch(shadow); this.shadowBatches.delete(model); }
+      this.events.dispatchEvent({ type: 'dispose-model', scene: model, tile });
+    });
     renderer.errorTarget = 8;
     // QA retains the nearest-L0 budget. In play the region plugin owns refinement and masks camera error.
     const viewer = renderer as unknown as { calculateTileViewError: ViewError };
@@ -157,6 +145,9 @@ export class VisualTiles {
       pending.get(event.tile as Tile)?.(); pending.delete(event.tile as Tile);
       const model = event.scene;
       if (model.userData.releasePlaceholder) return;
+      // Native parse finishes its tile-culling override after processTileModel. Restore per-mesh culling,
+      // including the spatial shadow chunks, before publication.
+      model.traverse(object => { if ((object as THREE.Mesh).isMesh) object.frustumCulled = true; });
       const tris = this.configure(model);
       this.triCount.set(model, tris);
       this.residentTris += tris; this.residentModels++; this.loadedModels++; set.loaded++;

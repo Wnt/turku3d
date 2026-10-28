@@ -27,6 +27,7 @@ if (fs.existsSync(profile)) {
 }
 console.log(JSON.stringify({ directory, phase, seconds, frames: frames.length, ms: summary(sorted),
   over100msPerMinute: sorted.filter(ms => ms > 100).length * 60 / seconds,
+  publicationAgeMs: summary(frames.map(row => row[4]).filter(Number.isFinite)),
   receiptAgeMs: summary(frames.map(row => Math.max(0, row[3]))), messageRttMs: summary(rtts),
   heapMiB: { first: heaps[0] / 1024 ** 2, last: heaps.at(-1) / 1024 ** 2, min: Math.min(...heaps) / 1024 ** 2, max: Math.max(...heaps) / 1024 ** 2 },
   scale: [...new Set(poses.map(pose => pose.scale))], canvas: [...new Set(poses.map(pose => pose.canvas.slice(1).join('x')))],
