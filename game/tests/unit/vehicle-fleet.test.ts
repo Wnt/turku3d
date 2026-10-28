@@ -20,3 +20,17 @@ test('a sleeping parked vehicle can be entered, driven 20 m, and left in place',
   for (let i = 0; i < 4 * 60; i++) physics.fixedStep({ vx: 0, vz: 0, jump: false }, null);
   expect(physics.vehicleStates().find(v => v.id === 'parked/suv')!.pos.x).toBeGreaterThan(20);
 });
+
+
+test('streaming removes an untouched parked actor and its controller, while the driven car stays', () => {
+  const physics = new PhysicsWorld(Rapier);
+  physics.spawnVehicle({ x: 0, y: 1, z: 0 }, 0, { id: 'borrowed' });
+  physics.spawnVehicle({ x: 20, y: 1, z: 0 }, 0, { id: 'untouched' });
+  physics.driveVehicle('borrowed');
+  physics.removeVehicle('borrowed');
+  physics.removeVehicle('untouched');
+  expect(physics.vehicleStates().map(v => v.id)).toEqual(['borrowed']);
+  physics.driveVehicle(null);
+  physics.removeVehicle('borrowed');
+  expect(physics.vehicleStates()).toEqual([]);
+});

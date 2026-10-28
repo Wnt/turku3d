@@ -52,6 +52,7 @@ export type ToWorker =
   | { type: 'checkTile'; id: number; buffer: ArrayBuffer }
   | { type: 'spawnCharacter'; pos: V3 }
   | { type: 'setCharacterEnabled'; enabled: boolean; pos?: V3 }
+  | { type: 'removeVehicle'; id: string }
   | { type: 'spawnVehicle'; spec: VehicleSpec }
   | { type: 'driveVehicle'; id: string | null }
   | { type: 'resetVehicle'; id: string; pos: V3; yaw: number }

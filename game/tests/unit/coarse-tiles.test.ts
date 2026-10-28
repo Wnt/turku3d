@@ -35,6 +35,8 @@ function fakeService(manifest: Manifest) {
   const polls = new Map<string, number>();
   // t0_1_-1 lacks one collision cell; t0_2_-1 ships .col files the worker cannot decode (first byte 0xff).
   const fragment = (id: string) => ({ coarse: true, tile: id, visual: { [id]: { url: 'vis.glb', sha256: '', bytes: 3, tris: 1, h: [0, 1] } },
+    vehicles: id === 't0_2_0' ? [{ object_id: 'draft:slot', model: 'sedan', color: 'blue' }] : [],
+    vehicle_models: { 'sedan/blue': { url: '../shared/model.glb', sha256: 'car', bytes: 100 } },
     roads: id === 't0_2_0' ? { url: 'roads.json', bytes: 100 } : null,
     collision: Object.fromEntries(cellsOf(id).slice(id === 't0_1_-1' ? 1 : 0)
       .map(cid => [cid, { url: `col/${cid}.col`, sha256: '', bytes: 4, tris: 2, h: [0, 1] }])) });
@@ -104,6 +106,8 @@ test('streams only drafts, validates all collision before visibility and unloads
   expect(coarse.entries.get('t0_2_0')?.state).toBe('draft');
   expect(coarse.entries.get('t0_3_-1')?.state).toBe('failed');
   expect(loadedUrls).toContain('http://127.0.0.1:5171/coarse/t0_2_0/vis.glb');
+  expect(manifest.vehicles?.map(v => v.object_id)).toContain('draft:slot');
+  expect(manifest.vehicle_models?.['sedan/blue'].url).toBe('http://127.0.0.1:5171/coarse/shared/model.glb');
   expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_8_0.col');
   // Collision before visibility: each drawn draft had all 16 .col files accepted before its GLB was even loaded;
   // a draft with a missing cell or an undecodable .col is never drawn and its cells stay out of the manifest.

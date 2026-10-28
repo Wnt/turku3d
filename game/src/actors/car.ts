@@ -75,6 +75,7 @@ export class CarVisual {
 /** Parked cars share draws until one is driven; driven cars keep their own scene-level mesh. */
 export class ParkedCarVisuals {
   private groups = new Map<string, { mesh: THREE.InstancedMesh; cars: ParkedVehicle[] }>();
+  private sources = new Map<string, THREE.Mesh>();
   private dynamic = new Map<string, THREE.Mesh>();
   private matrix = new THREE.Matrix4();
   private position = new THREE.Vector3();
@@ -84,25 +85,31 @@ export class ParkedCarVisuals {
   constructor(private readonly scene: THREE.Object3D) {}
 
   async load(manifest: Manifest) {
-    const cars = manifest.vehicles ?? [];
+    const cars = (manifest.vehicles ?? []).filter(c => c.model !== 'truck' && !this.dynamic.has(c.object_id));
     const loader = new GLTFLoader();
     await Promise.all([...new Set(cars.map(c => `${c.model}/${c.color}`))].map(async key => {
+      if (this.sources.has(key)) return;
       const entry = manifest.vehicle_models?.[key];
       if (!entry) throw new Error(`Missing parked car model ${key}`);
       const gltf = await loader.loadAsync(new URL(entry.url, manifest.baseUrl).href);
       let source: THREE.Mesh | undefined;
       gltf.scene.traverse(o => { if ((o as THREE.Mesh).isMesh) source = o as THREE.Mesh; });
       if (!source) throw new Error(`Parked car model ${key} has no mesh`);
+      this.sources.set(key, source);
+    }));
+    for (const { mesh } of this.groups.values()) { mesh.removeFromParent(); mesh.dispose(); }
+    this.groups.clear();
+    for (const key of new Set(cars.map(c => `${c.model}/${c.color}`))) {
+      const source = this.sources.get(key)!;
       const members = cars.filter(c => `${c.model}/${c.color}` === key);
       const mesh = new THREE.InstancedMesh(source.geometry, source.material, members.length);
-      // Saved slot models are preloaded before their physics vehicles exist; keep those instances hidden.
       const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
       members.forEach((_car, i) => mesh.setMatrixAt(i, hidden));
       mesh.name = `parked/${key}`;
       mesh.castShadow = true; mesh.receiveShadow = true;
       this.scene.add(mesh);
       this.groups.set(key, { mesh, cars: members });
-    }));
+    }
   }
 
   takeOver(id: string) {
@@ -126,7 +133,7 @@ export class ParkedCarVisuals {
 
   /** A remote driver uses the same mesh and material as a local takeover. */
   remoteModel(key: string): THREE.Mesh | null {
-    const source = this.groups.get(key)?.mesh;
+    const source = this.sources.get(key);
     if (!source) return null;
     const model = new THREE.Mesh(source.geometry, source.material);
     model.name = `remote/${key}`;
@@ -140,7 +147,7 @@ export class ParkedCarVisuals {
     for (const { mesh, cars } of this.groups.values()) {
       cars.forEach((car, i) => {
         const state = byId.get(car.object_id);
-        if (!state) return;
+        if (!state) { mesh.setMatrixAt(i, this.matrix.makeScale(0, 0, 0)); return; }
         this.position.set(state.pos.x, state.pos.y - 0.75, state.pos.z);
         this.rotation.set(state.rot.x, state.rot.y, state.rot.z, state.rot.w)
           .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2));

@@ -13,9 +13,10 @@ import { TruckVisual } from './truck';
 export class SeatedVehicles {
   readonly scooter: ScooterVisual;
   readonly truck: TruckVisual;
+  private readonly extraTrucks = new Map<string, TruckVisual>();
   private readonly byId: Record<string, ScooterVisual | TruckVisual>;
 
-  constructor(root: THREE.Object3D, private readonly physics: Pick<PhysicsClient, 'spawnVehicle'>,
+  constructor(private readonly root: THREE.Object3D, private readonly physics: Pick<PhysicsClient, 'spawnVehicle'>,
     private readonly groundAt: (x: number, z: number) => Promise<number>) {
     this.scooter = new ScooterVisual(root);
     this.truck = new TruckVisual(root);
@@ -24,6 +25,14 @@ export class SeatedVehicles {
 
   load(base: string) {
     return Promise.all([this.scooter.load(`${base}assets/vehicles/scooter.glb`), this.truck.load(`${base}assets/vehicles/truck.glb`)]);
+  }
+
+  async addTruck(id: string) {
+    if (this.byId[id]) return;
+    const truck = new TruckVisual(this.root);
+    await truck.load(`${import.meta.env.BASE_URL}assets/vehicles/truck.glb`);
+    this.extraTrucks.set(id, truck);
+    this.byId[id] = truck;
   }
 
   /** The seated visual for physics vehicle `id`; undefined for a car, whose driver disappears into it. */
@@ -46,6 +55,11 @@ export class SeatedVehicles {
     const scooter = latestOf(SCOOTER_ID), truck = latestOf(TRUCK_ID);
     if (scooter) this.scooter.update(dt, scooter);
     if (truck) this.truck.update(truck);
+    for (const [id, actor] of this.extraTrucks) {
+      const state = latestOf(id);
+      if (state) actor.update(state);
+      else actor.root.visible = false;
+    }
     const seat = this.of(drivenId);
     if (seat && latestOf(drivenId!)) player.ride(dt, seat.seat);
   }

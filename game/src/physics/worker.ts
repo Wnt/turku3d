@@ -100,6 +100,7 @@ async function handle(msg: ToWorker) {
     case 'knownTiles': pw.edges.setKnown(msg.add, msg.remove); break;
     case 'spawnCharacter': pw.spawnCharacter(msg.pos); break;
     case 'setCharacterEnabled': pw.setCharacterEnabled(msg.enabled, msg.pos); break;
+    case 'removeVehicle': pw.removeVehicle(msg.id); break;
     case 'spawnVehicle': pw.spawnVehicle(msg.spec.pos, msg.spec.yaw, msg.spec); break;
     case 'driveVehicle': pw.driveVehicle(msg.id); break;
     case 'resetVehicle': pw.resetVehicle(msg.pos, msg.yaw, msg.id); break;

@@ -114,6 +114,7 @@ export class PhysicsClient {
     this.send({ type: 'setCharacterEnabled', enabled, pos });
   }
   spawnVehicle(pos: V3, yaw: number, spec: Partial<VehicleSpec> = {}) { this.send({ type: 'spawnVehicle', spec: { id: spec.id ?? 'player', pos, yaw, ...spec } }); }
+  removeVehicle(id: string) { this.send({ type: 'removeVehicle', id }); }
   driveVehicle(id: string | null) { this.send({ type: 'driveVehicle', id }); }
   resetVehicle(pos: V3, yaw: number, id = 'player') { this.placed(id, pos); this.send({ type: 'resetVehicle', id, pos, yaw }); }
   setRemotes(bodies: RemoteBody[]) { this.send({ type: 'remotes', bodies }); }

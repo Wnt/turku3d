@@ -234,7 +234,7 @@ export class SaveGameController {
       const spot = prepared?.lastSpot ?? await this.vehicleSpot(last, at);
       const a = last.appearance;
       physics.spawnVehicle(spot, spot.yaw, { id: last.id, kind: last.kind,
-        ...(a ? { halfExt: { x: a.length / 2, y: a.height * 0.28, z: a.width / 2 }, parked: true } : {}) });
+        ...(a && last.kind === 'car' ? { halfExt: { x: a.length / 2, y: a.height * 0.28, z: a.width / 2 }, parked: true } : {}) });
       // Synchronize the worker before switching the frame loop and chase camera to this id.
       const t0 = performance.now();
       while (!physics.latest?.vehicles.some(v => v.id === last.id && Math.hypot(v.pos.x - spot.x, v.pos.z - spot.z) < 0.5)) {
