@@ -17,6 +17,8 @@ const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
 export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene,
   camera: THREE.PerspectiveCamera, target: THREE.RenderTarget, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
   context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false, passDepth = 0) {
+  const contexts = (renderer as unknown as { _renderContexts: RenderContexts | null })._renderContexts;
+  if (!contexts) throw new Error('Streaming shader preparation requires an initialized renderer');
   let budget = budgets.get(renderer);
   if (!budget) { budget = new PreparationBudget(); budgets.set(renderer, budget); }
   const pending = budget.checkpoint();
@@ -51,7 +53,6 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       renderer.debug.onNodeBuilderCreated = onBuilder;
       // r186 compileAsync selects depth zero. Nested post/reflection draws use other contexts,
       // whose IDs are part of shader keys; use the depth observed by the actual pass.
-      const contexts = (renderer as unknown as { _renderContexts: RenderContexts })._renderContexts;
       const getContext = contexts.get;
       let compiled: Promise<void>;
       try {
