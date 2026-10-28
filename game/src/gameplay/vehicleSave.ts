@@ -82,3 +82,12 @@ export async function restoreVehicleSpot(saved: SavedVehicle, player: V3, graph:
   }
   throw new Error('No collision-backed drivable road is available to restore the saved vehicle');
 }
+
+/** A borrowed vehicle can outlive the draft tile that originally supplied its model and identity. */
+export function keepSavedVehicle(manifest: Manifest, last: SavedVehicle | null | undefined) {
+  if (!last?.appearance || !last.modelAsset) return;
+  manifest.vehicles ??= [];
+  if (!manifest.vehicles.some(v => v.object_id === last.id)) manifest.vehicles.push(last.appearance);
+  manifest.vehicle_models ??= {};
+  manifest.vehicle_models[`${last.appearance.model}/${last.appearance.color}`] ??= last.modelAsset;
+}
