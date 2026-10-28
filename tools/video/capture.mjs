@@ -1,4 +1,4 @@
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../dev/chrome-args.mjs';
 // Fixed-step WebGPU camera splines and physics-driven cars; all traffic stays in this sandbox.
 import { chromium } from '../../game/node_modules/playwright-core/index.mjs';
 import fs from 'node:fs';
@@ -18,7 +18,7 @@ if(fs.existsSync(timelinePath))for(const scene of JSON.parse(fs.readFileSync(tim
 }
 fs.mkdirSync(path.join(root,'shots'),{recursive:true});
 const context=await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR,'video-v2'),{
- ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel:'chrome',headless:true,viewport:{width:1920,height:1080},deviceScaleFactor:1,
+ ignoreDefaultArgs: chromeIgnoreDefaultArgs, executablePath: chromeExecutable(),headless:true,viewport:{width:1920,height:1080},deviceScaleFactor:1,
  args:chromeArgs(['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist','--disable-background-timer-throttling']),
 });
 const page=await context.newPage();

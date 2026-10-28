@@ -74,8 +74,8 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     script = r"""
 const {chromium}=require(process.argv[1]);
-(async()=>{const {chromeArgs,chromeIgnoreDefaultArgs}=await import(process.argv[5]);const context=await chromium.launchPersistentContext(process.argv[2],{
-ignoreDefaultArgs:chromeIgnoreDefaultArgs,channel:'chrome',headless:true,viewport:{width:1400,height:950},args:chromeArgs(['--use-angle=metal'])});
+(async()=>{const {chromeArgs,chromeIgnoreDefaultArgs,chromeExecutable}=await import(process.argv[5]);const context=await chromium.launchPersistentContext(process.argv[2],{
+ignoreDefaultArgs:chromeIgnoreDefaultArgs,executablePath: chromeExecutable(),headless:true,viewport:{width:1400,height:950},args:chromeArgs(['--use-angle=metal'])});
 try{for(const phase of ['before','after'])for(const view of ['aurasilta','rantakatu','teatterisilta']){
 const page=await context.newPage();await page.goto(process.argv[3]+'/preview.html?phase='+phase+'&view='+view);
 await page.waitForFunction(()=>window.__placementReady,{},{timeout:120000});

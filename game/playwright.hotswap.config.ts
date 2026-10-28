@@ -1,4 +1,4 @@
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../tools/dev/chrome-args.mjs';
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
 import { port, reportsRoot, isolateBrowser } from '../tools/dev/environment.mjs';
@@ -18,10 +18,9 @@ export default defineConfig({
   outputDir: path.join(reportsRoot, 'playwright-hotswap'),
   use: {
     baseURL: `http://localhost:${PORT}/`,
-    channel: 'chrome',
     headless: true,
     viewport: { width: 960, height: 540 },
-    launchOptions: { ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
+    launchOptions: { executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
   },
   projects: [{ name: 'webgpu' }],
 });

@@ -1,4 +1,4 @@
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../dev/chrome-args.mjs';
 // Local reference viewing only: no response interception, tile export or network archive.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -63,7 +63,7 @@ export async function main(file, shared = {}) {
     if (!context) {
       const profile = path.join(process.env.TURKU3D_BROWSER_DIR, 'gmaps-compare');
       context = await chromium.launchPersistentContext(profile, {
-        ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: false, viewport: { width: record.width, height: record.height },
+        ignoreDefaultArgs: chromeIgnoreDefaultArgs, executablePath: chromeExecutable(), headless: false, viewport: { width: record.width, height: record.height },
         deviceScaleFactor: 1, locale: 'en-US', serviceWorkers: 'block', args,
       });
     }

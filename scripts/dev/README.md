@@ -3,28 +3,19 @@
 Python 3.10+, Git, `lsof`, Node and the authenticated Codex CLI are required. No services, API keys or Python
 packages are needed for these commands. Policy: [AGENTS.md](../../AGENTS.md).
 
-## Chrome launch arguments
+## Automation browser
 
-Every Playwright config and Chrome launcher uses `chromeArgs([...])` from
-`tools/dev/chrome-args.mjs`. It merges existing `--disable-features` lists into one
-switch and disables `MacAppCodeSignClone`, preventing macOS from copying Chrome's
-app bundle at launch. Playwright launch options also set `ignoreDefaultArgs: chromeIgnoreDefaultArgs`
-from that module: this removes Playwright's original feature switch while preserving all its
-features in the merged argument and avoiding duplicate feature switches.
-Tests check defaults against installed Playwright; update them on upgrades. Python previews
-import the same module; localhost, the integrator and gate delegate to protected configs.
-Do not append another `--disable-features` switch after the helper.
+Use the pinned Chrome for Testing executable for all project automation.
+Install the pinned stable macOS ARM64 release once:
 
 ```bash
-node tools/dev/check-chrome-launches.mjs        # runs uncached in every fast gate
-node --test tools/dev/chrome-args.test.mjs       # synthetic merger and policy checks
-python3 scripts/dev/host_slots.py browser -- node tools/dev/verify-chrome-clone.mjs
+mkdir -p "$TURKU3D_WORK/cache" "$HOME/turku3d/browsers/156.0.8078.73"
+curl -fL --retry 2 https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.73/mac-arm64/chrome-mac-arm64.zip -o "$TURKU3D_WORK/cache/chrome-mac-arm64.zip"
+ditto -x -k "$TURKU3D_WORK/cache/chrome-mac-arm64.zip" "$HOME/turku3d/browsers/156.0.8078.73"
 ```
 
-The macOS probe runs the music-lab Playwright spec and a native Chrome CDP launch,
-checking the CDP command line and sampling the system clone directory every 50 ms,
-including while Chrome is running. It writes `reports/chrome-clone/verification.json`
-under `$TURKU3D_WORK`. Unrelated unprotected Chrome launches share that directory and fail the probe. Existing clones are only listed.
+[Override, launch contract and verification](browser.md).
+The fast gate rejects desktop Chrome launch paths and channels.
 
 ## Worktrees
 
@@ -406,7 +397,7 @@ npm ci --no-audit --no-fund
 (cd tools/validator && npm ci --no-audit --no-fund)
 (cd qa/render && npm ci --no-audit --no-fund)
 (cd textures/node && npm ci --no-audit --no-fund)
-# QA renderer uses the locally installed Chrome; game e2e also uses Chrome.
+# Install the pinned Chrome for Testing release above for QA and game e2e.
 scripts/dev/install-hooks
 ```
 

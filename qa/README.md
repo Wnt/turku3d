@@ -36,7 +36,7 @@ Reports: `$QA_DATA/runs/<run>/report.html`, `issues.jsonl`, `run.json`, `judge/*
 `renders/*`. Cross-run records: `$QA_DATA/history.jsonl`, `$QA_DATA/issues.jsonl`.
 Run IDs are immutable: choose a fresh ID, rather than overwriting old evidence. A run
 records full git SHA, dirty state, exact reference image/pose hashes, prompt/schema hash,
-model, browser channel, backend and package manifest hash/content. Partial rendering,
+model, browser resolver hash/override, backend and package manifest hash/content. Partial rendering,
 missing IDs, missing photos, judge errors and quota stops exit nonzero. A no-judge run
 is never a regression baseline.
 
@@ -120,7 +120,7 @@ matching is not used. Cache/registration artifacts live in `$QA_DATA/registratio
 ```sh
 node qa/render/render.mjs --views qa/views/views.jsonl \
   --url "http://localhost:$((TURKU3D_PORT_BASE + 1))/" --out "$TURKU3D_WORK/qa/renders" \
-  --backend webgpu --channel chrome
+  --backend webgpu
 ```
 
 URL contract: `?cam=E,N,H,yaw,pitch,fov&roll=R&qa=1&pass=color|id&backend=webgpu|webgl`;

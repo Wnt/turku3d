@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
 // Render the game from the poses in a view registry (qa/views/views.jsonl) via the QA URL contract
 // (qa/README.md). For each view it writes, into --out:
 //   <id>.png            colour pass at the reference's exact width x height
@@ -12,7 +12,7 @@ import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args
 //   node render.mjs --views ../views/views.jsonl --url http://localhost:$TURKU3D_PORT_BASE/ --out "$TURKU3D_WORK/qa/runs/R/renders"
 //   node render.mjs --views ... --serve stub --out "$TURKU3D_WORK/qa/stub-renders" # test against the contract stub
 // Options: --ids a,b  --pass color|id|both (default both)  --backend webgpu|webgl  --timeout 120000
-//          --channel chrome|chromium (default chromium)  --headed  --extra "k=v&k2=v2"
+//          --headed  --extra "k=v&k2=v2"
 import { chromium } from 'playwright';
 import { port, isolateBrowser } from '../../tools/dev/environment.mjs';
 isolateBrowser();
@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 export function parseArgs(argv) {
-  const a = { port: port(2), pass: 'both', timeout: 120000, ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', backend: null, headed: false, extra: '' };
+  const a = { port: port(2), pass: 'both', timeout: 120000, backend: null, headed: false, extra: '' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const next = () => argv[++i];
@@ -37,7 +37,6 @@ export function parseArgs(argv) {
     else if (k === '--pass') a.pass = next();
     else if (k === '--backend') a.backend = next();
     else if (k === '--timeout') a.timeout = Number(next());
-    else if (k === '--channel') a.channel = next();
     else if (k === '--extra') a.extra = next();
     else if (k === '--headed') a.headed = true;
     else throw new Error(`unknown option ${k}`);
@@ -123,7 +122,7 @@ export async function main(argv = process.argv.slice(2), sharedBrowser = null) {
     base = `http://127.0.0.1:${srv.address().port}/index.html`;
   }
   const browser = sharedBrowser ?? await chromium.launch({
-    ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: a.channel === 'chrome' ? 'chrome' : undefined, headless: !a.headed,
+    ignoreDefaultArgs: chromeIgnoreDefaultArgs, executablePath: chromeExecutable(), headless: !a.headed,
     args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist', '--hide-scrollbars']),
   });
   const summary = [];

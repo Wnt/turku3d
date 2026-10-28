@@ -1,4 +1,4 @@
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
 // Manual cold-cache/first-turn measurement; deliberately outside the gate.
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';
@@ -11,7 +11,7 @@ isolateBrowser();
 const [label = 'after', backend = 'webgpu', base = `http://127.0.0.1:${port(1)}/`] = process.argv.slice(2);
 const out = path.join(reportsRoot, 'preload', `${label}-${backend}`);
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true,
+const browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, executablePath: chromeExecutable(), headless: true,
   args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 try {
   const browserCdp = await browser.newBrowserCDPSession();

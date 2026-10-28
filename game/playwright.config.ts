@@ -1,4 +1,4 @@
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../tools/dev/chrome-args.mjs';
 import { jobs } from '../tools/dev/environment.mjs';
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
@@ -6,7 +6,7 @@ import { port, reportsRoot, isolateBrowser } from '../tools/dev/environment.mjs'
 
 isolateBrowser();
 
-// Real Chrome (channel 'chrome') in headless mode uses the Mac's Metal GPU (docs/research/engine.md §8).
+// Chrome for Testing in headless mode uses the Mac's Metal GPU (docs/research/engine.md §8).
 const PORT = Number(process.env.E2E_PORT ?? port(1));
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -20,10 +20,9 @@ export default defineConfig({
   outputDir: path.join(reportsRoot, 'playwright'),
   use: {
     baseURL: `http://localhost:${PORT}/`,
-    channel: 'chrome',
     headless: process.env.HEADED ? false : true,
     viewport: { width: 960, height: 540 },
-    launchOptions: { ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
+    launchOptions: { executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
   },
   projects: [
     { name: 'webgpu', use: { backendParam: 'webgpu',
