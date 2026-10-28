@@ -14,11 +14,11 @@ from .geometry import clip_mesh
 
 
 def prepare(tile, path):
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows
 
     lines, lowered = [], []
     window = shapely.box(*tile.bbox.buffered(2).as_tuple())
-    for row in pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist():
+    for _, row in rows(path, tile.bbox.buffered(2)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("barrier") != "kerb":
             continue
@@ -28,7 +28,7 @@ def prepare(tile, path):
             or tags.get("layer", "0") not in ("0", "")
         ):
             continue
-        geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
+        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if not geom.intersects(window):
             continue
         if tags.get("kerb") in ("lowered", "flush"):
@@ -158,10 +158,14 @@ def terrain_patches(corners, step, bounds=None):
             b, c, d = a + [step, 0], a + [0, step], a + step
             for triangle in ((a, b, c), (b, d, c)):
                 clipped = strip.intersection(shapely.Polygon(triangle))
-                pieces = [clipped] if clipped.geom_type == "Polygon" else getattr(clipped, "geoms", [])
+                pieces = (
+                    [clipped] if clipped.geom_type == "Polygon" else getattr(clipped, "geoms", [])
+                )
                 for piece in pieces:
                     if piece.geom_type == "Polygon" and piece.area > 1e-9:
-                        yield np.asarray(shapely.geometry.polygon.orient(piece, 1).exterior.coords)[:-1]
+                        yield np.asarray(shapely.geometry.polygon.orient(piece, 1).exterior.coords)[
+                            :-1
+                        ]
 
 
 def terrain_edge(a, b, step):

@@ -18,21 +18,15 @@ TRUCK_SIZE = (2.5, 2.5, 5.6)  # Includes trophy tyres, bumpers and roof lights.
 
 def prepare(tile, osm, streets=None, buildings=None):
     """Read complete source geometries, including neighbouring obstructions; never clip bay IDs."""
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows
 
     window = shapely.box(*tile.bbox.buffered(30).as_tuple())
     features, city = [], []
     for path, kind in ((osm, "osm"), (streets, "city"), (buildings, "building")):
         if path is None:
             continue
-        names = pq.read_schema(path).names
-        columns = ["geometry_local"] + [
-            n
-            for n in ("osm_type", "osm_id", "tags", "feature_key", "Katuosalaji_koodi")
-            if n in names
-        ]
-        for i, row in enumerate(pq.read_table(path, columns=columns).to_pylist()):
-            geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
+        for i, row in rows(path, tile.bbox.buffered(30)):
+            geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
             if geom.is_empty or not geom.intersects(window):
                 continue
             if kind == "osm":

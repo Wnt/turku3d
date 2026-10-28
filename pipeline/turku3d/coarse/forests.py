@@ -53,11 +53,11 @@ def open_outline(geom):
 
 
 def read_areas(tile, path):
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows
 
     window = shapely.box(*tile.bbox.as_tuple())
     result = []
-    for i, row in enumerate(pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist()):
+    for i, row in rows(path, tile.bbox.buffered(OPEN_MARGIN)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         excluded = open_surface(tags)
         kind = next(
@@ -70,7 +70,7 @@ def read_areas(tile, path):
         )
         if not excluded and kind not in (*DENSITY, "tree_row"):
             continue
-        geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
+        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if excluded:
             geom = open_outline(geom)
             if not geom.is_empty and geom.intersects(window):

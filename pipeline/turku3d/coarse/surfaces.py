@@ -83,11 +83,11 @@ def grid_height(tile, heights, x, z):
 
 def osm_surfaces(tile, path):
     """Mapped areas and ground-level road/path corridors; no elevated transport painted on terrain."""
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows
 
     result = []
     window = shapely.box(*tile.bbox.as_tuple())
-    for row in pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist():
+    for _, row in rows(path, tile.bbox.buffered(50)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") not in (
             "no",
@@ -120,7 +120,7 @@ def osm_surfaces(tile, path):
             )
         if not key:
             continue
-        geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
+        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if not geom.intersects(window):
             continue
         if (
@@ -358,7 +358,7 @@ def library(root: Path, base: Path, channels):
 
 def mapped_paint(tile, path):
     """Only explicit OSM line markings/crosswalks; points cannot establish a paint heading."""
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows
 
     from turku3d.facade_kit import renderer
 
@@ -367,7 +367,7 @@ def mapped_paint(tile, path):
 
     result = []
     window = shapely.box(*tile.bbox.as_tuple())
-    for row in pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist():
+    for _, row in rows(path, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         crossing = tags.get("footway") == "crossing" or tags.get("highway") == "crossing"
         kind = "crosswalk" if crossing else tags.get("road_marking")
@@ -379,7 +379,7 @@ def mapped_paint(tile, path):
             continue
         if tags.get("layer", "0") not in ("0", ""):
             continue
-        geom = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
+        geom = shapely.force_2d(row["geometry_local"])
         if geom.geom_type != "LineString" or not geom.intersects(window):
             continue
         try:

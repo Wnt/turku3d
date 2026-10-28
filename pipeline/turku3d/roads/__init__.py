@@ -76,10 +76,10 @@ def reversed_oneway(tags: dict) -> bool:
 
 def osm_ways(path: Path, bbox):
     """(engine x/z vertices, flags) of every OSM highway in the parquet at `path`, clipped to `bbox`."""
-    import geopandas as gpd
+    from turku3d.spatial import frame as spatial_frame
     from shapely import box, get_parts
 
-    frame = gpd.read_parquet(path, columns=["highway", "tags", "geometry_local"])
+    frame = spatial_frame(path, bbox)
     frame = frame[frame["highway"].notna()]
     clip = box(*bbox.as_tuple())
     for row in frame.itertuples():

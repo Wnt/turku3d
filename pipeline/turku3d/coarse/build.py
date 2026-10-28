@@ -298,6 +298,8 @@ def build(
     producer_code = code_hash()
     inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
+    seconds.update({"input_" + k: v for k, v in inputs.seconds.items()})
+    seconds["inputs_total"] = time.perf_counter() - started
 
     cache = StageCache(out.parent / ".stages" / tile.id)
     base = Path(__file__).parents[1]
@@ -648,7 +650,7 @@ def build(
     )
     if (stage / "fences.vis.glb").exists():
         layer_files.append(stage / "fences.vis.glb")
-    seconds["fences"] = barrier_stats["seconds"]
+    seconds["fences"] = cache.metrics["fences"]["seconds"]
     surface_channels = {
         surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))
         for m in ground_meshes

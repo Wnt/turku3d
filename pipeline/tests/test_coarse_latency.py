@@ -243,7 +243,8 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     monkeypatch.setattr(inputs, "_prepare_one", prepare)
     sources = SimpleNamespace(missing=lambda _: [], input_key=lambda _: "raw-key")
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
-    assert called == ["ground", "wfs", "roads", "tunnels", "stairs", "parking"]
+    assert called == ["ground", "wfs", "roads", "tunnels", "stairs"]
+    assert result.parking == ((), ())
     assert result.stairs == ((), ())
     assert result.parking == ((), ())
     assert result.kerbs is None
@@ -323,9 +324,12 @@ def test_ortho_raster_content_invalidates_prepared_input_without_vrt_change(tmp_
     raster = tmp_path / "ortho.tif"
     raster.write_bytes(b"old")
     vrt = tmp_path / "ortho.vrt"
-    vrt.write_text('<VRTDataset><SourceFilename relativeToVRT="1">ortho.tif</SourceFilename></VRTDataset>')
+    vrt.write_text(
+        '<VRTDataset><SourceFilename relativeToVRT="1">ortho.tif</SourceFilename></VRTDataset>'
+    )
     key = inputs._key([vrt], "ortho")
     import os
+
     os.utime(raster, None)
     assert inputs._key([vrt], "ortho") == key
     raster.write_bytes(b"new")

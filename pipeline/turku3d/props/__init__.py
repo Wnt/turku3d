@@ -197,14 +197,14 @@ def osm_props(frame, bbox, register, carriageway, skipped):
 
 
 def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=None):
-    import geopandas as gpd
+    from turku3d.spatial import frame as spatial_frame
 
     missing, candidates, skipped = [], [], Counter()
     root = C.raw_dir("wfs") / source_area
     outer = bbox.buffered(max(SIGN_REGISTER_REACH, LAMP_REACH))
 
-    def load(path):
-        frame = gpd.read_parquet(path)
+    def load(path, bounds=outer):
+        frame = spatial_frame(path, bounds)
         if "geometry_local" not in frame:
             raise ValueError(f"{path}: expected fetch geometry_local")
         return frame
@@ -216,14 +216,12 @@ def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=No
     )
     roads = None
     if road_path is not None and road_path.exists():
-        frame = load(road_path)
+        frame = load(road_path, None)
         roads = STRtree(
-            [
-                r.geometry_local
-                for _, r in frame.iterrows()
-                if r.geometry_local.geom_type == "LineString"
-                and str(r.get("Katuosalaji", "")).casefold() == "ajorata"
-            ]
+            frame.geometry_local[
+                (frame.geometry_local.geom_type == "LineString")
+                & (frame["Katuosalaji"].astype(str).str.casefold() == "ajorata")
+            ].values
         )
     else:
         missing.append("GIS_Keskilinjat.parquet")

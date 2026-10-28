@@ -9,6 +9,7 @@ import cProfile
 import json
 import platform
 import pstats
+import shutil
 import time
 from pathlib import Path
 
@@ -21,6 +22,9 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--tiles", nargs="+", default=["t0_1_2"])
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument(
+        "--assets", type=Path, help="reuse prepared shared texture assets, as the live service does"
+    )
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
     report = dict(platform=platform.platform(), profiled=args.profile, runs=[])
@@ -28,6 +32,12 @@ def main():
     for tile in args.tiles:
         for phase in ("first", "full"):
             out = args.root / tile / phase / tile
+            if args.assets:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                for pattern in ("shared", ".surface-library*", ".texture-cache"):
+                    for asset in args.assets.glob(pattern):
+                        if asset.is_dir():
+                            shutil.copytree(asset, out.parent / asset.name, dirs_exist_ok=True)
             for warmth in ("cold", "warm"):
                 name = f"{tile}-{phase}-{warmth}"
                 profiler = cProfile.Profile() if args.profile else None

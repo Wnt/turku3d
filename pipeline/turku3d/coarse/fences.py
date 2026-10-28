@@ -70,7 +70,7 @@ def height(tags):
 
 def prepare(tile, path):
     """Read barrier lines/points and area outlines, with road membership for deliberate road barriers."""
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows as source_rows
 
     rows = []
     roads = []
@@ -78,7 +78,7 @@ def prepare(tile, path):
     from .bridges import footprint
 
     window = shapely.box(*tile.bbox.as_tuple())
-    for row in pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist():
+    for _, row in source_rows(path, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if (
             not tags.get("highway")
@@ -87,7 +87,7 @@ def prepare(tile, path):
             and tags.get("man_made") != "bridge"
         ):
             continue
-        geom = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
+        geom = shapely.force_2d(row["geometry_local"])
         if not geom.intersects(window):
             continue
         poly = footprint(geom)
