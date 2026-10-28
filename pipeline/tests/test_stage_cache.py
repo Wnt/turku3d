@@ -90,3 +90,32 @@ def test_new_generator_is_not_served_from_old_manifest_during_rebuild(tmp_path):
     path.write_text(json.dumps({"code": "new"}))
     assert builder.request("t0_0_0", 0)["state"] == "built"
     builder.stop()
+
+
+def test_artifact_stage_restores_outputs_without_rerunning(tmp_path):
+    cache = StageCache(tmp_path / "cache")
+    calls = []
+
+    def operation(directory):
+        calls.append(1)
+        (directory / "layer.glb").write_bytes(b"geometry")
+        return [2, 3]
+
+    first, second = tmp_path / "first", tmp_path / "second"
+    assert cache.files("layer", "v1", [], first, operation) == [2, 3]
+    first.joinpath("layer.glb").write_bytes(b"bad")
+    assert cache.files("layer", "v1", [], second, operation) == [2, 3]
+    assert second.joinpath("layer.glb").read_bytes() == b"geometry"
+    assert calls == [1]
+
+
+def test_old_payloads_remain_addressable_while_generator_rebuilds():
+    from turku3d.coarse.service import immutable_payload
+
+    digest = "a" * 64
+    assert immutable_payload(f"vis.{digest}.glb")
+    assert immutable_payload(f"roads.{digest}.json")
+    assert immutable_payload(f"col/c_1_-1.{digest}.col")
+    assert not immutable_payload("manifest.json")
+    assert not immutable_payload("vis.glb")
+    assert not immutable_payload(f"../vis.{digest}.glb")

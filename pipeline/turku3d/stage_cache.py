@@ -9,6 +9,7 @@ import inspect
 import json
 import pickle
 import struct
+import tempfile
 import time
 from pathlib import Path
 
@@ -46,6 +47,7 @@ def content_key(value) -> str:
             for item in v:
                 visit(item)
         elif isinstance(v, (set, frozenset)):
+            part(type(v).__name__.encode())
             visit(sorted(content_key(item) for item in v))
         elif hasattr(v, "wkb"):
             part(b"geometry", v.wkb)
@@ -105,6 +107,31 @@ class StageCache:
         self.metrics[name] = dict(
             key=key, cached=hit, seconds=round(time.perf_counter() - started, 6)
         )
+        return value
+
+    def files(self, name, code, inputs, directory: Path, operation):
+        """Cache a stage's local files together with its typed result; no path enters the key."""
+
+        def build():
+            with tempfile.TemporaryDirectory(prefix="stage-", dir=self.root) as temp:
+                root = Path(temp)
+                value = operation(root)
+                files = {
+                    str(p.relative_to(root)): p.read_bytes()
+                    for p in sorted(root.rglob("*"))
+                    if p.is_file()
+                }
+                return value, files
+
+        # run() creates the namespace before invoking build().
+        value, files = self.run(name, code, inputs, build)
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, data in files.items():
+            path = directory / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(path.name + ".tmp")
+            temporary.write_bytes(data)
+            temporary.replace(path)
         return value
 
     def report(self, path: Path):

@@ -24,7 +24,7 @@ const sharp = (await dep('sharp')).default;
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
 let meshCache;
 const meshEncoder = cachedEncoder(MeshoptEncoder,
-  createHash('sha256').update(fs.readFileSync(require.resolve('meshoptimizer'))).digest('hex'),
+  createHash('sha256').update(fs.readFileSync(require.resolve('meshoptimizer/encoder'))).digest('hex'),
   () => meshCache);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.encoder': meshEncoder.encoder, 'meshopt.decoder': MeshoptDecoder });

@@ -1,21 +1,133 @@
 """Content-addressed draft visual packaging, independent of generator source versions."""
 
+import hashlib
 import json
 import os
+import shutil
+import subprocess
+import threading
 from pathlib import Path
 
 from turku3d import config as C
 from turku3d.facade_assets import stored_request
+from turku3d.facade_kit import code_hash as kit_hash
 from turku3d.facade_kit import ensure_kit, parameter_hash
 from turku3d.package.facades import glb_buildings
 from turku3d.stage_cache import StageCache, source_key
+
+BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
+
+
+def code_hash() -> str:
+    """Producer identity: the coarse sources plus the shared visual packager they call."""
+    h = hashlib.sha256(kit_hash().encode())
+    props = Path(__file__).parents[1] / "props"
+    for p in sorted(
+        [
+            *Path(__file__).parent.glob("*.py"),
+            Path(__file__).parents[1] / "stage_cache.py",
+            *BRIDGE.parent.glob("*.mjs"),
+            Path(__file__).parents[1] / "buildings/source_surfaces.py",
+            props / "__init__.py",
+            props / "models.py",
+            props / "orientation.py",
+            Path(C.__file__),
+            Path(__file__).parents[1] / "layers.py",
+            Path(__file__).parents[1] / "facade_assets.py",
+            Path(__file__).parents[1] / "package/gltf.py",
+            Path(__file__).parents[1] / "ground/water.py",
+            *sorted((Path(__file__).parents[1] / "col").glob("*.py")),
+            *sorted((Path(__file__).parents[1] / "col").glob("*.mjs")),
+            Path(__file__).parents[1] / "col/materials_v1.json",
+            *sorted((Path(__file__).parents[1] / "vegetation").glob("*.py")),
+            *sorted((Path(__file__).parents[1] / "structures").glob("*.py")),
+            C.REPO_ROOT / "pipeline/env/package-lock.json",
+        ]
+    ):
+        h.update(p.name.encode())
+        h.update(p.read_bytes())
+    return h.hexdigest()[:16]
+
+
+class Packager:
+    """One persistent ``node visual.mjs --serve`` per process: a build worker packages every tile
+    without starting node and loading glTF-Transform again (about 0.3 s CPU, seconds of wall time
+    on a loaded host). A packager that died is started again on the next tile."""
+
+    def __init__(self):
+        self.proc: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+
+    def package(self, requests: Path) -> None:
+        with self.lock:
+            if self.proc is None or self.proc.poll() is not None:
+                self.proc = subprocess.Popen(
+                    ["node", str(BRIDGE), "--serve"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                )
+            self.proc.stdin.write(f"{requests}\n")
+            self.proc.stdin.flush()
+            answer = self.proc.stdout.readline().strip()
+        if answer != "ok":
+            message = answer.removeprefix("error ")
+            if answer.startswith("error "):
+                message = json.loads(message)
+            raise RuntimeError(f"visual packaging failed\n{message or 'the packager exited'}")
+
+
+PACKAGER = Packager()
+
+
+def _package_visual(
+    tile: C.VisualTile,
+    layer_files: list[Path],
+    stage: Path,
+    work: Path,
+    library: Path,
+    *,
+    first_pass: bool = False,
+    building_keys=(),
+) -> tuple[bytes, dict]:
+    request = dict(
+        tile=tile.id,
+        level=0,
+        inputs=[str(p) for p in layer_files],
+        output=str(stage / "out" / "tile.glb"),
+        stats=str(stage / "out" / "stats.json"),
+        library=str(library),
+        facades=str(stage / "no-facades"),
+        facadeBindings=[],
+        facadeDensity={},
+        groundBinding=None,
+        textureCache=str(work / ".texture-cache"),
+        coarseTerrain=False,
+        draftTextures=True,
+        facadeKit=None if first_pass else ensure_kit(work / "shared"),
+        firstPass=first_pass,
+    )
+    request.update(stored_request(building_keys))
+    (stage / "out").mkdir(parents=True, exist_ok=True)
+    req = stage / "requests.json"
+    req.write_text(json.dumps([request]))
+    PACKAGER.package(req)
+    stats = json.loads((stage / "out" / "stats.json").read_text())
+    shared = stage / "shared"
+    if shared.exists():
+        (work / "shared").mkdir(parents=True, exist_ok=True)
+        for asset in shared.iterdir():
+            dest = work / "shared" / asset.name
+            if not dest.exists():
+                shutil.copyfile(asset, dest)
+    return (stage / "out" / "tile.glb").read_bytes(), stats
 
 
 def package_visual(tile, layer_files, stage, work, library, *, first_pass=False):
     """Reuse a packed visual when emitted geometry, material files and packaging code match."""
     from turku3d.tile_layer import identities
 
-    from .build import BRIDGE, _package_visual, _write
+    from .build import _write
 
     files = {f"input/{i}": p for i, p in enumerate(layer_files)}
     for directory, _, names in os.walk(library, followlinks=True):

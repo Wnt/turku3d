@@ -344,6 +344,7 @@ export class CoarseTiles {
       }));
       const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
         .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
+      if (this.entries.get(id) !== e || e.state !== 'draft') return;
       if (!visualChanged) {
         this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
         if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }

@@ -11,7 +11,16 @@ from urllib.parse import urlparse
 
 from turku3d import config as C
 from turku3d.coarse.prefetch import Prefetcher
-from turku3d.coarse.service import FILE, MIME, SHARED, TILE, Builder, Server, handler
+from turku3d.coarse.service import (
+    FILE,
+    MIME,
+    SHARED,
+    TILE,
+    Builder,
+    Server,
+    handler,
+    immutable_payload,
+)
 from turku3d.coarse.sources import Sources, Unit
 
 
@@ -126,7 +135,7 @@ def public_handler(builder, prefetcher, settings):
                         if k in fragment
                     },
                 )
-            if tile is not None and tile not in builder.servable:
+            if tile is not None and tile not in builder.servable and not immutable_payload(name):
                 return self._json(404, {"error": "unbuilt"})
             path = builder.root / (tile or "shared") / name
             if not path.is_file():

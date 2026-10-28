@@ -128,6 +128,11 @@ def rank(tile: str, distance: float, motion) -> tuple[int, float] | None:
     return None
 
 
+def immutable_payload(name: str) -> bool:
+    """An old fragment may finish loading during a rebuild; content-addressed bytes stay valid."""
+    return bool(FILE.fullmatch(name) and re.search(r"\.[0-9a-f]{64}\.(?:glb|json|col)$", name))
+
+
 class Workers:
     """One persistent ``python -m turku3d.coarse worker`` per builder thread: the interpreter, the
     producer's imports and the node packager are paid once, not per tile (seconds of wall time each
@@ -684,7 +689,7 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     return self._json(404, state)
                 if state["state"] != "built":
                     return self._json(202, state)
-            elif tile not in builder.servable:
+            elif tile not in builder.servable and not immutable_payload(name):
                 return self._json(404, {"error": f"{tile} is not built"})
             path = builder.root / tile / name
             if not path.exists():
