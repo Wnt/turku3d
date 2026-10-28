@@ -29,8 +29,8 @@ room supplies the same first assigned spawn each run. Continue restores engine `
 Timing starts at the actual menu activation (`pointerup`, capture phase) and ends at the first unpaused,
 not-loading gameplay frame; the scenario then holds W for one second and observes five more seconds.
 
-Baseline game source: `38e57affa949`, identical under `game/` to current main `e9abf052f34a` (the intervening landing
-changes the roof producer). Measured canvas: **2541×1450**, the current game's pixel cap on the Air; these numbers
+Baseline game source: `38e57affa949`, identical under `game/` to current main `4e9f3574` (intervening landings change
+the roof producer and host scheduler). Measured canvas: **2541×1450**, the current game's pixel cap on the Air; these numbers
 are not a reproduction at the earlier uncapped 3200×1826 canvas. The production run uses the ordinary full-menu
 static bundle so the same Continue case remains selectable, served under `/game/` with sibling `/tiles` paths.
 
@@ -110,11 +110,10 @@ No heavy build or local Chrome suite bypassed host admission. Remote Air capture
 
 ## Gate output
 
-Fast gate: GREEN. Policy, Python/JS lint, game types and game unit stages pass; final timing is recorded below
-after the report commit. Five browser-budget tests also pass. No tests or checks were weakened. The slow/deep
+Fast gate: **GREEN in 2.922 s** after rebasing onto `4e9f3574`. Policy, Python/JS lint, game types and game unit
+stages pass. Five browser-budget tests also pass. No tests or checks were weakened. The slow/deep
 and integration Chrome stages remain advisory under project policy.
 
 ## Follow-ups
 
-None for this brief. Renderer throughput/reflection and physics controller/isolation work remain with their
-already-running owners; the source-recorder repair was reported to the orchestrator.
+None for this brief. The shared source-recorder repair was reported to the orchestrator.
