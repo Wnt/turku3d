@@ -370,7 +370,7 @@ test('a drawn draft owns the collision of all its cells, also a published margin
 });
 
 test('Pages retries offline and queue-full states, then draws remote drafts after collision checks', async () => {
-  const manifest = { visual: {}, collision: {} } as Manifest;
+  const manifest = { visual: { t0_0_0: { url: 'vis.glb' } }, collision: {} } as unknown as Manifest;
   const service = fakeService(manifest);
   const requests: string[] = [];
   let state: 'offline' | 'full' | 'online' = 'offline';
@@ -396,6 +396,8 @@ test('Pages retries offline and queue-full states, then draws remote drafts afte
     }) as typeof globalThis.fetch,
   };
   const coarse = (await CoarseTiles.start(host))!;
+  expect(coarse.progressAt(100, 100)).toEqual({ loaded: 0, total: 0, errors: [] });
+  expect(coarse.progressAt(600, 100)).toEqual({ loaded: 0, total: 1, errors: [] });
   const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0)); };
   coarse.update(600, 100, 0);
   expect(coarse.status).toBe('drafts: remote service offline');

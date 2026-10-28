@@ -258,7 +258,7 @@ async function runPlay() {
   const [rapier, manifest] = await Promise.all([physics.ready, loading.track('Tile manifest', loadManifest(params.manifest) as Promise<Manifest>)]);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   telemetry?.setBuiltTiles(Object.keys(manifest.visual));
-  // Localhost only: draft tiles from tools/dev/coarse-tiles beyond the published tileset (null elsewhere).
+  // Draft tiles beyond the published tileset: local companion on localhost, public endpoint on Pages.
   const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids), checkCollision: buffer => physics.checkTile(buffer),
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),

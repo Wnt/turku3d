@@ -74,7 +74,7 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
 - **Budgets (initial):** ≤ 300 MB GPU texture memory [U]; ≤ 150 MB resident WASM collision (≈ 135 B/tri [V] → about 1M resident tris); visual L0 tile ≤ 8 MB on the wire.
 - **Playable area is a tile list.** `$TURKU3D_DATA/playable-tiles.json` (`{"level": 0, "tiles": [...], "core_bbox_en": [...]}`, migrated to the four office tiles `t0_0_0 … t0_1_1` when missing) names the L0 tiles that ship with full collision. `config.playable_tile_ids()` reads it (a sandbox's own `$TURKU3D_WORK/playable-tiles.json` shadows it), the `playable-tiles` area, `make refresh`, the live build, its per-tile budget checks and the integrator's data key follow it, and the game discovers tiles from `tileset.json`/`manifest.json` without code changes. The four core tiles require every layer; expansion tiles require ground, buildings and roads. The client refines at most nine L0 tiles at once (nearest 500 m parents first), so memory stays bounded as the list grows. `make tile-add T=t0_i_j` grows a sandbox's list by one lidar-covered tile and rebuilds the list-following layers (ground, buildings, massing, roads, props); `python -m turku3d.region list-tile` lists it in the data root for the next live build.
 
-- **Two tiers (localhost).** Published tiles come from the full pipeline (lidar TIN with curbs, structures, generated
+- **Two tile tiers.** Published tiles come from the full pipeline (lidar TIN with curbs, structures, generated
   facades, LOD parents). When the player comes within one tile of an L0 cell the published tileset lacks, the
   localhost companion service `tools/dev/coarse-tiles` builds a *coarse* tile of that cell in seconds
   (`pipeline/turku3d/coarse`: ~2 m key-point TIN with classified repeating ground materials, LOD2 footprints with their upper sloping/terraced roof envelope and coverage-checked class-6 lidar offsets, street-polygon collision materials, water sensor) in the same `vis.glb` + `.col` format, and
@@ -82,7 +82,11 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   500 m leaf once all four quadrants are drafted. When the published manifest later gains the tile, the draft is
   swapped out. Drafts include mapped kerbs, bridges, tunnels, barriers, traffic poles and vegetation, with
   source-driven facade-kit parameters. They skip surveyed curb profiles, stairs, parked cars and unique facade
-  maps; drafts are never published to Pages or written into the data root's published layers.
+  maps; drafts stay out of the static Pages release and the data root's published layers.
+  Pages streams them at runtime from the bounded public service on osgallery-dev
+  (`VITE_DRAFT_URL`, default `https://turku.lab.madekivi.fi/coarse/`); localhost retains
+  its same-origin companion. Collision passes `checkTile` before drawing in both.
+  Operations and source provenance: `tools/remote-drafts/README.md`.
 - **Localhost runs main, hot (user decision 2026-10-27).** `live` and Pages serve every release that builds
   (user decision 2026-10-27 21:00: advisory checks never block them); the localhost game
   (`tools/dev/localhost-game`) runs main's checkout through the Vite dev server with a badge
