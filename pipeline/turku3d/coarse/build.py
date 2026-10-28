@@ -196,16 +196,10 @@ def collision_tiles(tile, grid_pos, grid_idx, materials, level, shells, ground_k
 
 
 def grid_height(tile: C.VisualTile, grid_pos: np.ndarray, x: float, z: float) -> float:
-    """Bilinear height of the ground grid at (x, z) inside the tile."""
-    n, step = CELLS + 1, tile.size / CELLS
+    """Height on the same triangle used by ground visuals and collision."""
+    n = CELLS + 1
     heights = grid_pos[:, 1].reshape(n, n)
-    u = min(max((x - tile.origin[0]) / step, 0.0), CELLS - 1e-9)
-    v = min(max((z - tile.origin[2]) / step, 0.0), CELLS - 1e-9)
-    i, j = int(u), int(v)
-    fu, fv = u - i, v - j
-    top = heights[j, i] * (1 - fu) + heights[j, i + 1] * fu
-    bottom = heights[j + 1, i] * (1 - fu) + heights[j + 1, i + 1] * fu
-    return float(top * (1 - fv) + bottom * fv)
+    return surfaces.grid_height(tile, heights, x, z)
 
 
 def draft_trees(tile, grid_pos, trees, water, shells):
@@ -375,12 +369,18 @@ def build(
     from .tunnels import produce as produce_tunnels
 
     t = time.perf_counter()
+    ground_sources = sources or Sources()
+    surface_sample = kerbs.height_sampler(
+        tile, grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1), out.parent, ground_sources
+    )
     tunnels = cache.run(
         "tunnels",
         source_key(
             grid_height,
             *common,
             Path(__file__).with_name("tunnels.py"),
+            Path(kerbs.__file__),
+            Path(surfaces.__file__),
             Path(__file__).with_name("extrusion.py"),
             Path(__file__).with_name("roofs.py"),
         ),
@@ -393,6 +393,7 @@ def build(
             shells,
             extrude,
             ground_sampler(lambda x, z: grid_height(tile, grid_pos, x, z)),
+            surface_sample,
         ),
     )
     shells = tunnels.shells
@@ -466,11 +467,12 @@ def build(
     )
     if paint is not None:
         ground_meshes.append(paint)
-    kerb_sources = sources or Sources()
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
             Path(kerbs.__file__),
+            Path(surfaces.__file__),
+            Path(__file__).with_name("inputs.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             *common,
@@ -478,18 +480,18 @@ def build(
         [
             tile,
             inputs.kerbs,
-            inputs.heights,
+            grid_pos[:, 1],
             water,
             [b.footprint for b in blds],
             inputs.markings,
-            kerb_inputs(tile, kerb_sources)
+            kerb_inputs(tile, ground_sources)
             if inputs.kerbs is not None and not inputs.kerbs.is_empty
             else None,
         ],
         lambda: kerbs.produce(
             tile,
             inputs.kerbs,
-            kerbs.height_sampler(tile, inputs.heights, out.parent, kerb_sources),
+            surface_sample,
             water,
             blds,
             inputs.markings,

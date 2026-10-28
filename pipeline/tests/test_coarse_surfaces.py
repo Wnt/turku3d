@@ -8,6 +8,37 @@ from turku3d.coarse.surfaces import classify, fallback, slope_fallback, visuals
 from turku3d.col.materials import mat_id
 
 
+def test_ground_sampler_uses_mesh_diagonal_and_exact_outer_edge():
+    from turku3d.coarse.surfaces import grid_height
+
+    tile = C.VisualTile(0, 1, -1)
+    # A saddle exposes bilinear interpolation: the diagonal is entirely flat.
+    heights = np.array([[0.0, 0.0], [0.0, 8.0]])
+    x, _, z = tile.origin
+    assert grid_height(tile, heights, x + 125, z + 125) == 0
+    assert grid_height(tile, heights, x + 187.5, z + 187.5) == 4
+    assert grid_height(tile, heights, x + 250, z + 250) == 8
+    assert grid_height(tile, heights, x, z) == 0
+
+
+def test_kerb_corners_follow_cross_slope_with_identical_collision_faces():
+    from turku3d.coarse.kerbs import produce, visuals
+
+    tile = C.VisualTile(0, 0, 0)
+
+    def height(x, z):
+        return 2 + z * 0.5
+
+    meshes = produce(tile, shapely.LineString([(10, 10), (14, 10)]), height, [], [], [])
+    assert len(meshes) == 1
+    mesh = meshes[0]
+    visual = visuals(tile, meshes)[0]
+    np.testing.assert_allclose(visual.positions, mesh.positions)
+    np.testing.assert_array_equal(visual.indices, mesh.indices)
+    relative = mesh.positions[:, 1] - (2 + mesh.positions[:, 2] * 0.5)
+    assert np.all(np.isclose(relative, 0.12) | np.isclose(relative, -0.02))
+
+
 def test_vectors_override_baked_blue_and_white_and_vegetation():
     tile = C.VisualTile(0, 0, 0)
     points = np.array([[10, 1, 10], [20, 1, 10], [30, 1, 10]])

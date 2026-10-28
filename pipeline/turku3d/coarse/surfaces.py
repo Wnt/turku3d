@@ -62,6 +62,24 @@ SURFACES = {
 }
 
 
+def grid_height(tile, heights, x, z):
+    """Sample the actual two ground triangles, including their shared diagonal."""
+    cells = heights.shape[0] - 1
+    u = min(max((x - tile.origin[0]) / tile.size * cells, 0.0), cells)
+    v = min(max((z - tile.origin[2]) / tile.size * cells, 0.0), cells)
+    i, j = min(int(u), cells - 1), min(int(v), cells - 1)
+    fu, fv = u - i, v - j
+    if fu + fv <= 1:
+        return float(
+            heights[j, i] * (1 - fu - fv) + heights[j, i + 1] * fu + heights[j + 1, i] * fv
+        )
+    return float(
+        heights[j + 1, i + 1] * (fu + fv - 1)
+        + heights[j + 1, i] * (1 - fu)
+        + heights[j, i + 1] * (1 - fv)
+    )
+
+
 def osm_surfaces(tile, path):
     """Mapped areas and ground-level road/path corridors; no elevated transport painted on terrain."""
     import pyarrow.parquet as pq

@@ -49,7 +49,8 @@ def height_sampler(tile, heights, root, sources):
     """Use the owning tile's measured grid on both sides of a visual-tile seam."""
     from turku3d import config as C
 
-    from .inputs import _ABSENT, CELLS, _entry, _load, _prepare_one, _save
+    from .inputs import _ABSENT, _entry, _load, _prepare_one, _save
+    from .surfaces import grid_height
 
     grids = {tile.id: heights}
 
@@ -65,17 +66,7 @@ def height_sampler(tile, heights, root, sources):
                 data = _prepare_one(owner, "ground", paths)
                 _save(path, key, data)
             grids[owner.id] = data["heights"]
-        grid = grids[owner.id]
-        u, v = (
-            (x - owner.origin[0]) / owner.size * CELLS,
-            (z - owner.origin[2]) / owner.size * CELLS,
-        )
-        i, j = min(int(u), CELLS - 1), min(int(v), CELLS - 1)
-        fu, fv = u - i, v - j
-        return float(
-            (grid[j, i] * (1 - fu) + grid[j, i + 1] * fu) * (1 - fv)
-            + (grid[j + 1, i] * (1 - fu) + grid[j + 1, i + 1] * fu) * fv
-        )
+        return grid_height(owner, grids[owner.id], x, z)
 
     return sample
 
@@ -107,16 +98,9 @@ def produce(tile, linework, height_at, water, buildings, markings):
                 p, q = a + direction * low, a + direction * high
                 if not shapely.LineString([p, q]).intersects(window):
                     continue
-                hp, hq = height_at(*p), height_at(*q)
                 # Mapped kerb semantics, with an explicitly unmeasured 12 cm raised profile.
-                corners = np.array(
-                    [
-                        [*(p - normal), hp],
-                        [*(q - normal), hq],
-                        [*(q + normal), hq],
-                        [*(p + normal), hp],
-                    ]
-                )[:, [0, 2, 1]]
+                xz = np.array([p - normal, q - normal, q + normal, p + normal])
+                corners = np.c_[xz[:, 0], [height_at(*v) for v in xz], xz[:, 1]]
                 bottom = corners.copy()
                 bottom[:, 1] -= 0.02
                 top = corners.copy()

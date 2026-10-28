@@ -204,7 +204,7 @@ class Tunnels:
         return {**roads, "json": (json.dumps(graph, separators=(",", ":")) + "\n").encode()}
 
 
-def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
+def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sample=None):
     """Produce sealed tubes, exact ground remainders and passage openings in draft buildings."""
     from .inputs import Building
 
@@ -220,10 +220,12 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
         distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length / 2)) + 1))
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         terrain = np.array([sample(x, z) for x, z in xz])
+        if surface_sample is not None:
+            # Raw key-point interpolation is useful inside a buried tube, but its
+            # portals must meet the surface the player actually stands on.
+            terrain[0], terrain[-1] = (surface_sample(*xz[k]) for k in (0, -1))
         floor = floor_profile(terrain, distances)
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
-        if tags.get("tunnel") == "building_passage":
-            passages.append((corridor, float(np.max(floor) + clearance + 0.35)))
         # Mitered offset sections meet at bends without cracks.
         direction = np.diff(xz, axis=0)
         direction /= np.linalg.norm(direction, axis=1)[:, None]
@@ -237,6 +239,17 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             ]
         )
         left, right = xz + offset * width / 2, xz - offset * width / 2
+        side_floors = []
+        for side in (left, right):
+            h = floor.copy()
+            if surface_sample is not None:
+                blend = min(2.0, line.length / 2)
+                for end, d in ((0, distances), (-1, line.length - distances)):
+                    h += (surface_sample(*side[end]) - floor[end]) * np.clip(1 - d / blend, 0, 1)
+            side_floors.append(h)
+        left_floor, right_floor = side_floors
+        if tags.get("tunnel") == "building_passage":
+            passages.append((corridor, float(np.max(side_floors) + clearance + 0.35)))
         tube, road, lamps = Faces(), Faces(), Faces()
         for i in range(len(xz) - 1):
             j = i + 1
@@ -244,8 +257,9 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             if not section.intersects(window):
                 continue
 
-            def point(side, k, h=0, floor=floor):
-                return [side[k, 0], floor[k] + h, side[k, 1]]
+            def point(side, k, h=0, left=left, left_floor=left_floor, right_floor=right_floor):
+                side_floor = left_floor if side is left else right_floor
+                return [side[k, 0], side_floor[k] + h, side[k, 1]]
 
             # Floor up, ceiling down; outer ceiling closes the walkable top as well.
             road.face([point(left, i), point(left, j), point(right, j), point(right, i)])
@@ -268,7 +282,11 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             # Bright strips are ordinary geometry, keeping the draft free of dynamic point lights.
             if i % 6 == 0:
                 c = (xz[i] + xz[j]) / 2
-                y = (floor[i] + floor[j]) / 2 + clearance - 0.03
+                y = (
+                    (left_floor[i] + right_floor[i] + left_floor[j] + right_floor[j]) / 4
+                    + clearance
+                    - 0.03
+                )
                 lamps.face(
                     [
                         [c[0] - 0.4, y, c[1] - 0.1],
@@ -279,7 +297,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                 )
         if not road.indices:
             continue
-        profiles.append((line, distances, floor, width))
+        profiles.append((line, distances, (left_floor + right_floor) / 2, width))
         meshes.extend(
             [
                 tube.mesh(f"tunnel:{key}:roof", "wall"),
@@ -295,7 +313,10 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             lamp = lamps.mesh(f"tunnel:{key}:lights", "wall")
             lamp.metadata["lamp"] = True
             meshes.append(lamp)
-        for side, name in ((left, "left"), (right, "right")):
+        for side, side_floor, name in (
+            (left, left_floor, "left"),
+            (right, right_floor, "right"),
+        ):
             # Offset curves can reverse at tight OSM corners. Emit each measured section
             # into one mesh instead of mitering the already-mitered side a second time.
             wall = Faces()
@@ -305,8 +326,8 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                 section = profile_wall(
                     f"tunnel:{key}:{name}",
                     side[i : i + 2],
-                    floor[i : i + 2] - 0.2,
-                    floor[i : i + 2] + clearance + 0.3,
+                    side_floor[i : i + 2] - 0.2,
+                    side_floor[i : i + 2] + clearance + 0.3,
                     thickness=0.4,
                 )
                 for tri in section.indices:
@@ -315,15 +336,15 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                 meshes.append(wall.mesh(f"tunnel:{key}:{name}", "wall"))
         for end in (0, -1):
             # Portal wing walls leave the whole clear box open.
-            for sign, side in ((1, left), (-1, right)):
+            for sign, side, side_floor in ((1, left, left_floor), (-1, right, right_floor)):
                 a = side[end]
                 b = a + sign * offset[end] * 1.5
                 meshes.append(
                     profile_wall(
                         f"tunnel:{key}:portal:{end}:{sign}",
                         [a, b],
-                        [floor[end] - 0.2] * 2,
-                        [floor[end] + clearance + 0.3] * 2,
+                        [side_floor[end] - 0.2] * 2,
+                        [side_floor[end] + clearance + 0.3] * 2,
                     )
                 )
         candidates = tree.query(corridor, predicate="intersects")
