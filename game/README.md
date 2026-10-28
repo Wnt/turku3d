@@ -295,3 +295,5 @@ from the repository root to run the walk/drive subset with its synthetic pipelin
 Ground texture material API and isolated Chrome QA: [src/render/ground/README.md](src/render/ground/README.md).
 From the repo root, source the sandbox environment and run `make ground-render-test` (port 5310
 by default; override `GROUND_QA_PORT` outside the W1-10 sandbox).
+
+Public live/Pages builds set `VITE_PUBLIC_RELEASE=1` at build time. Their start menu offers Multiplayer only; local dev and ordinary `npm run build` keep all start options. This is a build target, not a runtime URL option.

@@ -191,3 +191,5 @@ with Pillow. The `ART` entry `icon_scooter` holds its prompt; the next Codex `ui
 the highest quality (86 down to 38) that fits 200 KB. To change one picture, edit its subject in
 `ART` (or bump `PROMPT_VERSION` for all), rerun the three commands, and look at the result before
 committing. Tests: `cd textures && .venv/bin/python -m pytest -q tests/test_ui_art.py`.
+
+Public release start menus offer only Multiplayer (`core/release.ts`, set by the live build). Local builds retain Continue, New game, Load game and Scoreboard.

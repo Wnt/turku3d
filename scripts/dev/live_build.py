@@ -493,6 +493,7 @@ def build(
                         checks,
                     )
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            run_env["VITE_PUBLIC_RELEASE"] = "1" if stage == "game-build" else ""
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
             load_before = os.getloadavg()
             if stage in ("tile-validate", "collision-checks"):
