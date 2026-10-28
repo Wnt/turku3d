@@ -75,9 +75,12 @@ def admissible(entries, entry):
     )
     if not older:
         return True
+    # The queued code integration replaces the current one; it cannot run beside
+    # it. Reserve against that future state rather than counting both at once.
+    future = [e for e in entries if not (lane(e) == "integration" and e["state"] == "running")]
     # Admit only what still leaves room for the waiting integration.
     return lane(entry) != "integration" and fits(
-        [*entries, {**entry, "state": "running"}], "integration"
+        [*future, {**entry, "state": "running"}], "integration"
     )
 
 
