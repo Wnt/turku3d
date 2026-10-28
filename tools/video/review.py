@@ -4,7 +4,6 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from PIL import Image
 
 root=Path(os.environ['TURKU3D_WORK'])/'video/review'
 root.mkdir(exist_ok=True)
@@ -31,7 +30,7 @@ black=run(['ffmpeg','-hide_banner','-i',str(final),'-vf','blackdetect=d=0.05:pix
 silence=run(['ffmpeg','-hide_banner','-i',str(final),'-af','silencedetect=noise=-45dB:d=0.7','-vn','-f','null','-'],capture_output=True,text=True).stderr
 (root/'silencedetect.txt').write_text('\n'.join(x for x in silence.splitlines() if 'silence_' in x)+'\n')
 # Subtitle timestamps must be ordered and inside the completed video.
-srt=(final.parent/'turku3d-pipeline.srt').read_text()
+srt=(final.parent/'turku3d-pipeline-v2.srt').read_text()
 def seconds(t):
     hh,mm,ss,ms=map(int,re.split('[:,]',t));return hh*3600+mm*60+ss+ms/1000
 intervals=[tuple(map(seconds,p)) for p in re.findall(r'(\d\d:\d\d:\d\d,\d\d\d) --> (\d\d:\d\d:\d\d,\d\d\d)',srt)]
@@ -44,3 +43,28 @@ summary={'duration_s':float(probe['format']['duration']),'size_bytes':final.stat
     'black_segments':len([x for x in (root/'blackdetect.txt').read_text().splitlines() if 'black_start' in x])}
 (root/'technical.json').write_text(json.dumps(summary,indent=2))
 print(json.dumps(summary,indent=2))
+
+# Verify the edit's footage inventory and actual camera movement, not only its labels.
+timeline=json.loads((root.parent/'timeline.json').read_text())
+shot_ids=[shot for scene in timeline for shot in scene['shots']]
+assert len(shot_ids)==len(set(shot_ids)), 'A captured shot was reused'
+shots=[]
+capture_metadata=[]
+for shot in shot_ids:
+    info=json.loads((root.parent/'shots'/f'{shot}.json').read_text())
+    capture_metadata.append(info)
+    poses=[m['pose'] for m in info['motion']]
+    travel=sum(sum((b[k]-a[k])**2 for k in ['E','N','H'])**0.5 for a,b in zip(poses,poses[1:]))
+    assert travel>1, f'{shot}: less than one metre of actual camera movement'
+    assert info['info']['info']['backend']=='WebGPU'
+    assert not info['errors'], f'{shot}: page errors'
+    shots.append({'id':shot,'camera_travel_m':round(travel,2),'samples':len(poses),
+                  'physics_drive':bool(info['shot'].get('drive'))})
+motion=run(['ffmpeg','-hide_banner','-i',str(final),'-vf','freezedetect=n=-50dB:d=4','-an','-f','null','-'],capture_output=True,text=True).stderr
+(root/'freezedetect.txt').write_text('\n'.join(x for x in motion.splitlines() if 'freeze_' in x)+'\n')
+(root/'footage.json').write_text(json.dumps({'moving_game_seconds':sum(s['duration'] for s in timeline),
+    'runtime_seconds':float(probe['format']['duration']),'unique_shots':len(shot_ids),'shots':shots,
+    'max_source_panel_fraction':1080*495/(1920*1080),'reused_shots':0},indent=2)+'\n')
+print(f'{len(shot_ids)} unique moving game shots; no repeated shots; freeze audit saved')
+
+(root/'capture-metadata.json').write_text(json.dumps(capture_metadata,indent=2)+'\n')

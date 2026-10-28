@@ -22,7 +22,7 @@ model = KModel(repo_id='hexgrad/Kokoro-82M', config=str(model_root / 'config.jso
                model=str(model_root / 'kokoro-v1_0.pth')).to('cpu').eval()
 pipes = {}
 
-def say(text, voice, speed=0.94):
+def say(text, voice, speed=1.03):
     if voice[0] not in pipes:
         pipes[voice[0]] = KPipeline(lang_code=voice[0], repo_id='hexgrad/Kokoro-82M', model=model)
     pipe = pipes[voice[0]]
@@ -51,8 +51,8 @@ else:
         sentences = re.split(r'(?<=[.!?])\s+', scene['text'])
         for i, sentence in enumerate(sentences):
             cached = next((r for r in previous if r['scene'] == scene['id'] and r['sentence'] == sentence
-                           and f'-{a.voice}' in Path(r['path']).stem and Path(r['path']).exists()), None)
-            key = hashlib.sha256((a.voice + '\0' + sentence).encode()).hexdigest()[:12]
+                           and r.get('speed') == 1.03 and f'-{a.voice}' in Path(r['path']).stem and Path(r['path']).exists()), None)
+            key = hashlib.sha256((a.voice + '\0v2-1.03\0' + sentence).encode()).hexdigest()[:12]
             output = Path(cached['path']) if cached else root / f"{scene['id']}-{i}-{a.voice}-{key}.wav"
             if not output.exists():
                 data = say(sentence, a.voice)
@@ -61,6 +61,6 @@ else:
                     data = data[max(0, active[0]-1200):min(len(data), active[-1]+2400)]
                 sf.write(output, data, 24000, subtype='PCM_24')
             data, rate = sf.read(output)
-            index.append({'scene':scene['id'], 'sentence':sentence, 'path':str(output), 'seconds':len(data)/rate})
+            index.append({'scene':scene['id'], 'sentence':sentence, 'path':str(output), 'seconds':len(data)/rate, 'speed':1.03})
         print(scene['id'], flush=True)
     (root / 'index.json').write_text(json.dumps(index, indent=2, ensure_ascii=False))
