@@ -4,6 +4,7 @@ import { context } from 'three/tsl';
 import { compileModel } from '../../src/render/compileModel';
 
 test('one-draw compilation preserves material arrays, children, visibility and renderer state across awaits', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
   const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
   const originalContext = renderer.contextNode, passContext = context({}), target = new THREE.RenderTarget();
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
@@ -26,4 +27,5 @@ test('one-draw compilation preserves material arrays, children, visibility and r
   expect(parent.children).toEqual([child, water]); expect(parent.material).toBe(materials);
   expect(renderer.contextNode).toBe(originalContext); expect(parent.frustumCulled).toBe(true);
   target.dispose();
+  vi.unstubAllGlobals();
 });

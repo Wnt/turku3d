@@ -2,7 +2,7 @@ import { compileModel } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { cameraPosition, dot, float, max, mix, normalize, positionWorld, pow, reflect, reflector,
   texture, time, uniform, vec2, vec3 } from 'three/tsl';
-import { REFLECTION_LAYER } from './reflections';
+import { REFLECTION_LAYER, ReflectionShadows } from './reflections';
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
 
@@ -48,13 +48,16 @@ export class RiverMaterial {
       return reflected;
     };
     const update = reflector.updateBefore.bind(reflector);
+    const shadows = new ReflectionShadows();
     let last = -Infinity;
     reflector.updateBefore = frame => {
       const now = performance.now();
       if (!deterministic && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
       const previous = renderer.contextNode;
       renderer.contextNode = context;
-      try { update(frame); last = now; } finally { renderer.contextNode = previous; }
+      shadows.pause(env.csm.lights);
+      try { update(frame); last = now; }
+      finally { shadows.restore(env.csm.lights); renderer.contextNode = previous; }
     };
     this.attach(mesh);
     const clock = deterministic ? float(0) : time;

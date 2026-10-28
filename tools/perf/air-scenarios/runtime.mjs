@@ -14,10 +14,20 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     const t = (distance - lengths[i - 1]) / (lengths[i] - lengths[i - 1]);
     return points[i - 1].map((v, axis) => v + (points[i][axis] - v) * t);
   }
-  const state = window.__air = { phase: 'flight', started: performance.now(), frames: [], poses: [], points,
-    flightSeconds, materialKeys: 0, shadowKeys: 0, inFrame: false, builders: [], enterPending: false, target: 1, route: [], active: true, driveStart: null, driveEnd: null };
+  const state = window.__air = { phase: flightSeconds > 0 ? 'flight' : 'prepare-drive', started: performance.now(), frames: [], poses: [], points,
+    flightSeconds, physics: [], materialKeys: 0, shadowKeys: 0, inFrame: false, builders: [], enterPending: false, target: 1, route: [], active: true, driveStart: null, driveEnd: null };
   const perf = window.__render.perf, renderer = window.__render.renderer;
   const beforeFrame = perf.begin.bind(perf), afterFrame = perf.end.bind(perf);
+  let lastPhysics = performance.now();
+  const onPhysics = event => {
+    if (event.data?.type !== 'state') return;
+    const now = performance.now(), message = event.data, probe = window.__prof;
+    lastPhysics = now;
+    const sent = probe?.sent.get(message.seq);
+    state.physics.push([now, sent === undefined ? null : now - sent, message.stepMs, state.phase]);
+    if (sent !== undefined) { probe.rtt.push(now - sent); probe.stepMs.push(message.stepMs); probe.sent.delete(message.seq); }
+  };
+  game.physics.worker.addEventListener('message', onPhysics);
   const previousBuilder = renderer.debug.onNodeBuilderCreated;
   const sample = renderer._objects._renderObjects.values().next().value;
   const renderObjectPrototype = Object.getPrototypeOf(sample);
@@ -63,7 +73,7 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   };
   function tick(now) {
     if (!state.active) return;
-    if (previous !== null) state.frames.push([now, now - previous, state.phase]);
+    if (previous !== null) state.frames.push([now, now - previous, state.phase, now - lastPhysics]);
     previous = now;
     if (state.phase === 'flight') {
       const u = Math.min(1, (now - state.started) / (flightSeconds * 1000));
@@ -76,10 +86,18 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
-  state.prepareDrive = () => {
+  state.prepareDrive = async () => {
     state.phase = 'prepare-drive';
     const pos = initialCar.pos;
     game.physics.setCharacterEnabled(true, { x: pos[0] - 2, y: pos[1] - 0.7, z: pos[2] });
+    const cell = `c_${Math.floor(pos[0] / 62.5)}_${Math.floor(pos[2] / 62.5)}`;
+    const deadline = performance.now() + 30000;
+    while (!game.physics.loaded.has(cell)) {
+      if (performance.now() > deadline) throw new Error(`Drive start collision unavailable: ${cell}`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    game.physics.resetVehicle({ x: pos[0], y: pos[1] + 0.1, z: pos[2] }, 2 * Math.atan2(initialCar.rot.y, initialCar.rot.w));
+    await game.physics.stats();
     state.tryEntering = true;
   };
   state.beginDrive = () => {
@@ -91,9 +109,12 @@ export function installScenario({ flightSeconds = 75 } = {}) {
       if (part?.length) { state.route.push(...part); from = part.at(-1); }
     }
     if (!state.route.length) throw new Error('No car route in the loaded street graph');
+    const heading = state.route.find(point => Math.hypot(point.x - car.pos[0], point.z - car.pos[2]) > 5) ?? state.route[1];
+    const yaw = Math.atan2(-(heading.z - car.pos[2]), heading.x - car.pos[0]);
+    game.physics.resetVehicle({ x: car.pos[0], y: car.pos[1] + 0.1, z: car.pos[2] }, yaw);
     state.driveStart = performance.now(); state.phase = 'drive';
     return { route: state.route, state: game.state() };
   };
-  state.stop = () => { state.driveEnd = performance.now(); state.active = false; scene.onBeforeRender = previousRender; game.input.update = previousInput; perf.begin = beforeFrame; perf.end = afterFrame; renderer.debug.onNodeBuilderCreated = previousBuilder; renderObjectPrototype.getMaterialCacheKey = materialKey; };
+  state.stop = () => { state.driveEnd = performance.now(); state.active = false; scene.onBeforeRender = previousRender; game.input.update = previousInput; perf.begin = beforeFrame; perf.end = afterFrame; renderer.debug.onNodeBuilderCreated = previousBuilder; renderObjectPrototype.getMaterialCacheKey = materialKey; game.physics.worker.removeEventListener('message', onPhysics); };
   return { points, initialCar, flightSeconds, started: state.started };
 }

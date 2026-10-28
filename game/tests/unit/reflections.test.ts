@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { REFLECTION_LAYER, reflectionSurface } from '../../src/render/reflections';
+import { REFLECTION_LAYER, reflectionSurface, ReflectionShadows } from '../../src/render/reflections';
 import { RiverMaterial } from '../../src/render/water';
 import { Environment } from '../../src/render/environment';
 
@@ -40,4 +40,15 @@ test('reflection warmup uses its real target and layer mask without leaking stat
   expect(model.visible).toBe(false); expect(surface.frustumCulled).toBe(true);
   complete(); await prepared;
   river.dispose(); env.dispose();
+});
+
+test('river reuse preserves explicit and automatic CSM update requests', () => {
+  const a = new THREE.DirectionalLight(), b = new THREE.DirectionalLight();
+  a.shadow.autoUpdate = true; a.shadow.needsUpdate = true;
+  b.shadow.autoUpdate = false; b.shadow.needsUpdate = false;
+  const reuse = new ReflectionShadows();
+  reuse.pause([a, b]);
+  expect([a.shadow.autoUpdate, a.shadow.needsUpdate, b.shadow.autoUpdate, b.shadow.needsUpdate]).toEqual([false, false, false, false]);
+  reuse.restore([a, b]);
+  expect([a.shadow.autoUpdate, a.shadow.needsUpdate, b.shadow.autoUpdate, b.shadow.needsUpdate]).toEqual([true, true, false, false]);
 });

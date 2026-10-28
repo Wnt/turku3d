@@ -11,3 +11,24 @@ export function reflectionSurface(mesh: THREE.Mesh): boolean {
   }
   return false;
 }
+
+/** CSM is fitted to the primary camera. Reflections sample those same maps instead of drawing them again. */
+export class ReflectionShadows {
+  private automatic: boolean[] = [];
+  private dirty: boolean[] = [];
+  pause(lights: readonly { shadow?: THREE.LightShadow }[]) {
+    for (let i = 0; i < lights.length; i++) {
+      const shadow = lights[i].shadow;
+      if (!shadow) continue;
+      this.automatic[i] = shadow.autoUpdate; this.dirty[i] = shadow.needsUpdate;
+      shadow.autoUpdate = false; shadow.needsUpdate = false;
+    }
+  }
+  restore(lights: readonly { shadow?: THREE.LightShadow }[]) {
+    for (let i = 0; i < lights.length; i++) {
+      const shadow = lights[i].shadow;
+      if (!shadow) continue;
+      shadow.autoUpdate = this.automatic[i]; shadow.needsUpdate = this.dirty[i];
+    }
+  }
+}

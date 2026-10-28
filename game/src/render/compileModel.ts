@@ -1,9 +1,16 @@
 import type * as THREE from 'three/webgpu';
+import { PreparationBudget } from './preparationBudget';
+
+const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
 
 /** Compile one draw at a time so r186 captures its pass state before yielding, then restore it immediately. */
 export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene,
   camera: THREE.PerspectiveCamera, target: THREE.RenderTarget, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
   context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false) {
+  let budget = budgets.get(renderer);
+  if (!budget) { budget = new PreparationBudget(); budgets.set(renderer, budget); }
+  const pending = budget.checkpoint();
+  if (pending) await pending;
   model.updateWorldMatrix(true, true);
   const meshes: THREE.Mesh[] = [];
   model.traverse(object => {
@@ -25,6 +32,8 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         mesh.material = oldMaterial; mesh.children = children; mesh.visible = visible; mesh.frustumCulled = culled;
       }
       await compiled;
+      const nextFrame = budget.checkpoint();
+      if (nextFrame) await nextFrame;
     }
   }
 }
