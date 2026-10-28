@@ -249,3 +249,41 @@ def test_inventory_growth_preserves_existing_geometry_bindings_and_hash(tmp_path
         "bound": ["b1_0"],
         "library": ["plaster"],
     }
+
+
+def test_register_tile_inventory_without_staging(tmp_path):
+    from turkutex.post.pipeline import sha
+
+    source = tmp_path / "facades.geojson"
+    source.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    wall("b1", 0, E0, 8.0, 9.0),
+                    wall("b2", 0, E0 + 300, 8.0, 9.0),
+                ],
+            }
+        )
+    )
+    assembly = tmp_path / "assembly"
+    args = [
+        "inventory",
+        "--run",
+        str(tmp_path / "unused"),
+        "--inventory",
+        str(source),
+        "--assembly",
+        str(assembly),
+        "--tiles",
+        ff.tile_of(load_facades(source)[0]),
+    ]
+    assert ff.main(args) == 0
+    assert ff.main(args) == 0
+    approved = assembly / "APPROVED_INVENTORY.geojson"
+    assert [f.id for f in load_facades(approved)] == ["b1_0"]
+    assert json.loads((assembly / "MANIFEST.json").read_text()) == {
+        "inventory_sha256": sha(approved),
+        "bound": [],
+        "library": [],
+    }

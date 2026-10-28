@@ -197,7 +197,9 @@ Check each core visual entry's `wire_bytes` in `$FACADE_OUT/manifest.json` again
 Run `publish` above for each tile with the data-root assembly and the unchanged inventory used
 by its plan. Under the export lock, publication appends missing walls from the planned tiles
 to the approval inventory, updates its manifest hash, validates existing geometry and preserves
-better maps. Existing approved geometry is never replaced. Stream the built tiles without another build, preserving the
+better maps. Existing approved geometry is never replaced. `list-tile` also registers all walls
+before publishing, even if staging is absent. To register a tile independently, run
+`$PY -m turkutex.facade_fast inventory "${COMMON[@]}" --assembly "$A" --tiles t0_0_0`. Stream the built tiles without another build, preserving the
 served global road graph and address pool:
 `python3 scripts/dev/tile_store.py put-tiles --repo "$PWD" --tiles-dir "$FACADE_OUT" --tile-only --tiles t0_0_0 t0_0_1 t0_1_0 t0_1_1`.
 

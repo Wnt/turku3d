@@ -652,13 +652,13 @@ def contact_sheet(run: Path, inventory: Path, staging: Path, output: Path, assem
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="command", required=True)
-    for name in ("plan", "refs", "describe", "render", "publish", "contact"):
+    for name in ("inventory", "plan", "refs", "describe", "render", "publish", "contact"):
         p = sub.add_parser(name)
         p.add_argument("--run", type=Path, required=True, help="run directory (plan.json, calls)")
         p.add_argument("--inventory", type=Path, required=True, help="approved facade inventory")
-        if name in ("plan", "publish", "contact"):
+        if name in ("inventory", "plan", "publish", "contact"):
             p.add_argument("--assembly", type=Path, required=True, help="approval root")
-        if name == "plan":
+        if name in ("inventory", "plan"):
             p.add_argument("--tiles", nargs="*", default=[], help="L0 tiles, e.g. t0_0_0")
             p.add_argument("--walls", help="comma-separated facade IDs instead of tiles")
         if name in ("refs", "describe"):
@@ -697,7 +697,15 @@ def main(argv=None) -> int:
         if name == "contact":
             p.add_argument("--output", type=Path, required=True)
     a = ap.parse_args(argv)
-    if a.command == "plan":
+    if a.command == "inventory":
+        from .export import export_lock
+
+        if not a.tiles:
+            ap.error("inventory needs --tiles")
+        ids = {f.id for f in load_facades(a.inventory) if tile_of(f) in a.tiles}
+        with export_lock(a.assembly):
+            result = {"inventory_added": extend_inventory(a.inventory, a.assembly, ids)}
+    elif a.command == "plan":
         if not a.tiles and not a.walls:
             ap.error("plan needs --tiles or --walls")
         plan = plan_walls(a.inventory, a.assembly, a.tiles, a.walls.split(",") if a.walls else None)
