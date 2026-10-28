@@ -54,7 +54,7 @@ from turku3d.facade_kit import parameter_hash
 
 from .build import code_hash
 from .prefetch import Prefetcher
-from .request_journal import MAX_AGE, RequestJournal, complete_tile, request_tile
+from .request_journal import RequestJournal, complete_tile, request_tile
 from .sources import NoCoverage, Sources, Unit
 from .upgrade_queue import next_job, next_upgrade
 from .worker_pool import Workers
@@ -186,7 +186,7 @@ class Builder:
         self.workers = workers
         self.journal = RequestJournal(root)
         replay = list(self.journal.rows.items())
-        self.replay_until = {tile: time.time() + MAX_AGE for tile, _ in replay}
+        self.replay_until = {tile: float("inf") for tile, _ in replay}
         for tile, row in sorted(replay, key=lambda item: (item[1]["distance"], item[0])):
             self.request(tile, row["distance"])
         self.threads = [

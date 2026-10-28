@@ -16,6 +16,28 @@ from turku3d.package.facades import glb_buildings
 from turku3d.stage_cache import StageCache, source_key
 
 BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
+# Geometry/material dependencies only. Service, fetch scheduling, audits and benchmarks
+# must not invalidate finished world tiles when their orchestration changes.
+PRODUCERS = (
+    "build",
+    "packaging",
+    "stages",
+    "inputs",
+    "sources",
+    "surfaces",
+    "bridges",
+    "bridge_details",
+    "bridge_survey",
+    "kerbs",
+    "tunnels",
+    "forests",
+    "fences",
+    "geometry",
+    "extrusion",
+    "roofs",
+    "register",
+    "stored_facades",
+)
 
 
 def code_hash() -> str:
@@ -24,7 +46,7 @@ def code_hash() -> str:
     props = Path(__file__).parents[1] / "props"
     for p in sorted(
         [
-            *Path(__file__).parent.glob("*.py"),
+            *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
             Path(__file__).parents[1] / "stage_cache.py",
             *BRIDGE.parent.glob("*.mjs"),
             Path(__file__).parents[1] / "buildings/source_surfaces.py",

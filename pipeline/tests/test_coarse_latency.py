@@ -274,3 +274,21 @@ def test_idle_foreground_workers_upgrade_old_served_tiles_in_request_order(tmp_p
     assert next_job(builder) == (("t0_3_-2", 0), True)
     builder.building.clear()
     builder.stop()
+
+
+def test_revalidating_textured_tile_skips_structural_downgrade(tmp_path):
+    from types import SimpleNamespace
+
+    from turku3d.coarse.upgrade_queue import next_job
+
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps({"pass_kind": "full"}))
+    builder = SimpleNamespace(
+        two_pass=True,
+        upgrading=set(),
+        cached=lambda _: True,
+        manifest=lambda _: path,
+        _next=lambda: ("t0_0_0", 0),
+    )
+    assert next_job(builder) == (("t0_0_0", 0), True)
+    assert builder.upgrading == {"t0_0_0"}

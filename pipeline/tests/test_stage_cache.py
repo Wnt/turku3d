@@ -192,3 +192,51 @@ def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_
     assert restored._next() == (tile.id, 12)
     assert restored.cached(tile.id)
     restored.stop()
+
+
+def test_generator_identity_ignores_service_edits_but_tracks_geometry(monkeypatch):
+    from pathlib import Path
+
+    from turku3d.coarse.packaging import code_hash
+
+    before = code_hash()
+    original = Path.read_bytes
+
+    def service_edit(path):
+        return original(path) + (
+            b"\n# service edit"
+            if path.name
+            in (
+                "service.py",
+                "request_journal.py",
+                "upgrade_queue.py",
+                "prefetch.py",
+                "worker_pool.py",
+            )
+            else b""
+        )
+
+    monkeypatch.setattr(Path, "read_bytes", service_edit)
+    assert code_hash() == before
+
+    def geometry_edit(path):
+        return original(path) + (b"\n# geometry edit" if path.name == "bridges.py" else b"")
+
+    monkeypatch.setattr(Path, "read_bytes", geometry_edit)
+    assert code_hash() != before
+
+
+def test_unfinished_demand_survives_a_long_restart(tmp_path):
+    import json
+    import time
+
+    from turku3d.coarse.request_journal import RequestJournal
+
+    rows = {"t0_0_0": {"at": time.time() - 86400, "distance": 25}}
+    (tmp_path / ".requests.json").write_text(json.dumps(rows))
+    journal = RequestJournal(tmp_path)
+    assert journal.rows == rows
+    journal.record("t0_1_0", 30)
+    assert RequestJournal(tmp_path).rows["t0_0_0"] == rows["t0_0_0"]
+    journal.discard("t0_0_0")
+    assert "t0_0_0" not in RequestJournal(tmp_path).rows
