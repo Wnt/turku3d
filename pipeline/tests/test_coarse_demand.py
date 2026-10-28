@@ -63,3 +63,30 @@ def test_expired_replay_does_not_resurrect_abandoned_journal(tmp_path):
     b = Builder(tmp_path, code='test', workers=0)
     assert not b.priority and not b.upgrade_queue
     b.stop()
+
+
+def test_background_prebuild_yields_running_and_queued_work_to_driver(tmp_path):
+    b = Builder(tmp_path, code='test', workers=0)
+    cancelled = []
+    b.run = SimpleNamespace(cancel=lambda tile: cancelled.append(tile) or True)
+    b.request('t0_0_0', 1e6)
+    b.request('t0_0_1', 1e6)
+    b.priority.pop('t0_0_0')
+    b.building['t0_0_0'] = time.time()
+    b.demand.update('driver-a', ['t0_2_0'], ['t0_2_0'], [])
+    b.request('t0_2_0', 0)
+    b.demand.prune(b)
+    assert b.order() == ['t0_2_0']
+    assert cancelled == ['t0_0_0']
+    b.stop()
+
+
+def test_scheduler_edits_do_not_invalidate_generator_or_prepared_inputs(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse.packaging import code_hash
+    from turku3d.coarse.inputs import _key
+
+    before = code_hash(), _key([], 'ground'), _key([], 'wfs')
+    read = Path.read_bytes
+    monkeypatch.setattr(Path, 'read_bytes', lambda p: read(p) + (b'\n# scheduling edit' if p.name in {'service.py', 'demand.py', 'upgrade_queue.py'} else b''))
+    assert (code_hash(), _key([], 'ground'), _key([], 'wfs')) == before

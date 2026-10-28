@@ -394,6 +394,7 @@ class Builder:
     def _run(self, upgrade_only=False):
         while True:
             with self.lock:
+                self.demand.prune(self)
                 selected = next_job(self, upgrade_only)
                 while selected is None and not self.stopped:
                     self.lock.wait(timeout=1)

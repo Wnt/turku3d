@@ -27,13 +27,13 @@ def run(args):
     client = "drive-" + str(time.time_ns())
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
         while (now := time.monotonic() - start) < args.seconds:
-            x, z = -375 + now * (50 / 3.6), -375
+            x, z = args.x + now * (50 / 3.6), args.z
             ci, cj = math.floor(x / 250), math.floor(z / 250)
             wanted = [f"t0_{i}_{j}" for i in range(ci - 1, ci + 4) for j in range(cj - 1, cj + 2)]
             wanted.sort(key=lambda t: (int(t.split('_')[2]) != cj or int(t.split('_')[1]) < ci,
                                        abs(int(t.split('_')[1]) - ci), t))
             if args.demand:
-                get(args.base + 'demand?client=' + client + '&tiles=' + ','.join(wanted) + '&urgent=' + ','.join(t for t in wanted if int(t.split('_')[2]) == cj and int(t.split('_')[1]) >= ci) + '&visible=' + ','.join(
+                get(args.base + 'demand?client=' + client + '&tiles=' + ','.join(wanted) + '&urgent=' + ','.join(t for t in wanted if int(t.split('_')[2]) == cj and ci <= int(t.split('_')[1]) <= math.floor((x + 30 * 50 / 3.6) / 250)) + '&visible=' + ','.join(
                     t for t in wanted if abs(int(t.split('_')[1]) - ci) <= 1))
             jobs = {}
             for tile in wanted:
@@ -68,7 +68,7 @@ def run(args):
                 scheduler = {}
             samples.append({"t": now, "scheduler": scheduler, "wanted": wanted, "http": states, "journal_outstanding": len(outstanding),
                             "journal_outside_wanted": len(set(outstanding) - set(wanted))})
-            args.output.write_text(json.dumps({"seconds": now, "tiles": rows, "samples": samples}, indent=2) + '\n')
+            args.output.write_text(json.dumps({"seconds": now, "started_utc": time.time() - (time.monotonic() - start), "tiles": rows, "samples": samples}, indent=2) + '\n')
             time.sleep(max(0, 1 - (time.monotonic() - start - now)))
     crossings = [r for r in rows.values() if r['arrival'] is not None and r['arrival'] > 1]
     print(json.dumps({"crossings": len(crossings), "first_before_arrival": sum(r['first'] is not None and r['first'] <= r['arrival'] for r in crossings),
@@ -81,5 +81,7 @@ if __name__ == '__main__':
     p.add_argument('--base', default='https://turku.lab.madekivi.fi/coarse/')
     p.add_argument('--seconds', type=float, default=120)
     p.add_argument('--demand', action='store_true')
+    p.add_argument('--x', type=float, default=-375)
+    p.add_argument('--z', type=float, default=-375)
     p.add_argument('--output', type=Path, required=True)
     run(p.parse_args())

@@ -108,6 +108,40 @@ class PublicTest(unittest.TestCase):
             self.assertNotIn("Access-Control-Allow-Origin", headers)
             self.assertEqual(call("/coarse/health", "OPTIONS")[0], 204)
 
+    def test_want_list_is_bounded_and_old_polls_cannot_resurrect_departed_tiles(self):
+        from turku3d.coarse.service import Builder
+        with tempfile.TemporaryDirectory() as temp:
+            builder = Builder(Path(temp), code="test", workers=0)
+            cls = public.public_handler(builder, None, {"queue_max": 24, "tile_bounds": [-2, -2, 2, 2]})
+            def call(path):
+                h = object.__new__(cls)
+                h.path, h.command, h.headers = path, "GET", {}
+                h.wfile = io.BytesIO()
+                h.send_response = lambda value: setattr(h, "status", value)
+                h.send_header = lambda *_: None
+                h.end_headers = lambda: None
+                h.do_GET()
+                return h.status, json.loads(h.wfile.getvalue())
+            self.assertEqual(call('/coarse/demand?client=driver-one&tiles=t0_1_0&urgent=t0_1_0')[0], 200)
+            self.assertEqual(call('/coarse/t0_1_0/manifest.json?client=driver-one')[0], 202)
+            self.assertEqual(builder.order(), ['t0_1_0'])
+            self.assertEqual(call('/coarse/demand?client=driver-one&tiles=t0_-1_0&urgent=t0_-1_0')[0], 200)
+            self.assertEqual(call('/coarse/t0_1_0/manifest.json?client=driver-one'), (202, {'state': 'deferred'}))
+            self.assertNotIn('t0_1_0', builder.journal.rows)
+            self.assertEqual(call('/coarse/demand?client=driver-one&tiles=t0_3_0')[0], 400)
+            self.assertEqual(call('/coarse/demand?client=x&tiles=t0_1_0')[0], 400)
+            self.assertEqual(call('/coarse/demand?client=driver-two&tiles=t0_1_0&visible=t0_0_0')[0], 400)
+            builder.stop()
+
+    def test_warmer_covers_only_startup_cells(self):
+        spec = importlib.util.spec_from_file_location("prebuild", Path(__file__).with_name("prebuild.py"))
+        prebuild = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prebuild)
+        self.assertEqual(prebuild.spawn_tiles([(125, 125)], radius=3), ['t0_0_0'])
+        self.assertEqual(prebuild.spawn_tiles([(249, 249)], radius=3),
+                         ['t0_0_0', 't0_0_1', 't0_1_0', 't0_1_1'])
+        self.assertLess(len(prebuild.spawn_tiles()), 10)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,7 +37,7 @@ class Workers:
     def _worker(self, background=False) -> subprocess.Popen:
         w = getattr(self.local, "worker", None)
         if w and w["proc"].poll() is None and w["builds"] < self.MAX_BUILDS:
-            if not self._changed_since(w["started"]):
+            if not getattr(w["proc"], "deprioritized", False) and not self._changed_since(w["started"]):
                 return w["proc"]
         if w:
             self._end(w["proc"])
@@ -93,6 +93,16 @@ class Workers:
             return subprocess.CompletedProcess([], 1, "", "the build worker exited")
         r = json.loads(line)
         return subprocess.CompletedProcess([], r["code"], r.get("stdout", ""), r.get("stderr", ""))
+
+    def deprioritize(self, tile):
+        with self.lock:
+            proc = self.jobs.get(tile)
+            if proc is not None and proc.poll() is None and hasattr(os, 'setpriority'):
+                try:
+                    os.setpriority(os.PRIO_PGRP, proc.pid, 19)
+                    proc.deprioritized = True
+                except ProcessLookupError:
+                    pass
 
     def cancel(self, tile):
         with self.lock:

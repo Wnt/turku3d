@@ -55,7 +55,9 @@ class Demand:
                 recent = builder.full_recent if tile in builder.upgrading else builder.recent
                 expected = sum(recent) / len(recent) if recent else (30 if tile in builder.upgrading else 8)
                 # Keep a build estimated within its final two seconds; it may publish useful cached bytes.
-                if elapsed < max(1, expected - 2) and hasattr(builder.run, 'cancel'):
+                if hasattr(builder.run, 'deprioritize'):
+                    builder.run.deprioritize(tile)
+                if not max(1, expected - 2) <= elapsed <= expected + 2 and hasattr(builder.run, 'cancel'):
                     if builder.run.cancel(tile):
                         builder.cancelled.add(tile)
         self.managed.intersection_update(active | {t for _, ts, _, _ in self.clients.values() for t in ts})

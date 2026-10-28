@@ -431,3 +431,29 @@ test('failed drafts under a start or retained car stay required and recover on a
   expect(coarse.entries.get('t0_2_1')?.state).toBe('draft');
   expect(coarse.progressAt(600, 100).loaded).toBeGreaterThanOrEqual(2);
 });
+
+test('Pages sends replaceable anonymous tile demand with priority and no raw motion', async () => {
+  const urls: URL[] = [];
+  const host: CoarseHost = {
+    scene: new THREE.Scene(), manifest: { visual: {}, collision: {} } as unknown as Manifest,
+    pageUrl: 'https://wnt.github.io/turku-game/game/', renderer: {} as THREE.WebGPURenderer,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => {},
+    loadModel: async () => new THREE.Group(),
+    fetch: (async (url: string) => {
+      const u = new URL(url); urls.push(u);
+      return { ok: true, status: u.pathname.endsWith('/demand') ? 200 : 202,
+        json: async () => ({ state: 'queued', version: 0 }) } as Response;
+    }) as typeof fetch,
+  };
+  const coarse = new CoarseTiles(host);
+  coarse.update(490, 125, 0);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  coarse.update(504, 125, 1000);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const wants = urls.filter(u => u.pathname.endsWith('/demand'));
+  expect(wants).toHaveLength(2);
+  expect(wants[0].searchParams.get('client')).toBe(wants[1].searchParams.get('client'));
+  expect(wants[1].searchParams.get('urgent')?.split(',')[0]).toBe('t0_2_0');
+  expect([...wants[1].searchParams.keys()].sort()).toEqual(['client', 'tiles', 'urgent', 'visible']);
+  expect(urls.filter(u => u.pathname.endsWith('/manifest.json')).every(u => u.searchParams.has('client'))).toBe(true);
+});
