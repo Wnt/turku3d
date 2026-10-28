@@ -86,6 +86,8 @@ def code_hash():
         Path(__file__),
         base / "coarse/build.py",
         base / "coarse/inputs.py",
+        base / "coarse/extrusion.py",
+        base / "buildings/source_surfaces.py",
         base / "coarse/roofs.py",
         base / "facade_kit.py",
         C.REPO_ROOT / "textures/turkutex/facade_fast_render.py",
@@ -119,6 +121,8 @@ def build_tile(tile, staging):
         if not listed.is_empty and b.footprint.distance(listed) < EDGE_M:
             continue
         roof, roof_idx, _, _, walls, wall_uv, wall_idx = extrude(b)
+        if not len(wall_idx):
+            continue
         ident = f"outer-lod2-{b.key}"
         params = parameters(
             b.facade_key, b.top - b.base, max(float(wall_uv[:, 0].max()), 1.0), b.attributes

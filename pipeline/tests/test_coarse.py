@@ -1,5 +1,6 @@
 """Coarse tiles: published tile format from synthetic inputs, and the localhost build service."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -174,8 +175,11 @@ def test_coarse_tile_is_a_published_tile(tmp_path, inputs):
     assert json.loads((out / "manifest.json").read_text())["code"] == m["code"]
     # The street graph, clipped to the tile: the street splits at the footway junction; both clip points
     # lie on the tile edges, where the neighbouring tiles' graphs meet it.
-    graph = json.loads((out / "roads.json").read_bytes())
-    assert m["roads"]["url"] == "roads.json" and m["roads"]["edges"] == len(graph["edges"]) == 3
+    road_bytes = (out / m["roads"]["url"]).read_bytes()
+    graph = json.loads(road_bytes)
+    assert m["roads"]["url"] == f"roads.{hashlib.sha256(road_bytes).hexdigest()}.json"
+    assert (out / "roads.json").read_bytes() == road_bytes
+    assert m["roads"]["edges"] == len(graph["edges"]) == 3
     validate(graph)
     xs = graph["nodes"][0::2]
     assert min(xs) == TILE.origin[0] and max(xs) == TILE.origin[0] + 250
