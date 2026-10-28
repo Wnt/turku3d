@@ -193,6 +193,7 @@ def collect(coverage):
 
 
 def fit(rows):
+    normalised = all("normalised_reference_rgb" in row for row in rows)
     values = defaultdict(list)
     for row in rows:
         if row["held_out"]:
@@ -221,7 +222,11 @@ def fit(rows):
         version=1,
         colour_space="CIELAB D65",
         spread_scale=0.25,
-        method="Winsorised building-weighted appearance with bounded ground illumination proxy; directional wall lighting unknown",
+        method=(
+            "Winsorised building-weighted appearance with bounded ground illumination proxy; directional wall lighting unknown"
+            if normalised
+            else "Winsorised building-weighted raw base-colour appearance; baked lighting unknown"
+        ),
         holdout="SHA256(wall-holdout-v1:register-id) first32bits modulo5 ==0",
         groups=groups,
     )

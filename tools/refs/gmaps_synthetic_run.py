@@ -13,7 +13,7 @@ ROOT = base.ROOT / 'synthetic'
 base.ROOT = ROOT
 
 
-def run():
+def run(capture=True):
     proof = json.loads((ROOT / 'proof.json').read_text())
     if proof['status'] != 'scored':
         raise ValueError('Synthetic proof must be eligible and scored before expansion')
@@ -29,6 +29,8 @@ def run():
     rows = [row for row in base.PLAN['quarters'] if states[row['coverage_id']]['status'] not in ('scored','abstained')]
     capture_rows = [row for row in rows if not (ROOT/'captures'/row['coverage_id']/'capture.json').exists()
         or json.loads((ROOT/'captures'/row['coverage_id']/'capture.json').read_text()).get('inventory_state') != 'eligible']
+    if not capture:
+        capture_rows = []
     invocation = ROOT / 'sweep-invocation.json'
     remaining = base.browser_budget.read(os.environ['TURKU3D_SANDBOX'])['remaining_minutes'] * 60
     base.atomic_json(invocation, dict(session='synthetic-sweep',
@@ -43,7 +45,8 @@ def run():
     jobs = {}
     attempted = {}
     announced = json.loads((ROOT/'milestone.json').read_text()).get('scored',0)//10 if (ROOT/'milestone.json').exists() else 0
-    with ProcessPoolExecutor(max_workers=4) as pool:
+    workers = max(1, min(4, int(os.environ.get('TURKU3D_JOBS', '2'))))
+    with ProcessPoolExecutor(max_workers=workers) as pool:
         while True:
             for row in rows:
                 key = row['coverage_id']
@@ -53,9 +56,9 @@ def run():
                 record = json.loads(record_path.read_text())
                 if key in jobs:
                     continue
-                states[key].update(status=record['inventory_state'], progress=record.get('detail_progress'),
+                states[key].update(status=record.get('inventory_state', 'incomplete'), progress=record.get('detail_progress'),
                     stop_reason=record.get('stop_reason'))
-                if len(jobs) < 4 and record.get('finished') and record['inventory_state'] == 'eligible' and time.time()-attempted.get(key,0) > 15:
+                if len(jobs) < workers and record.get('finished') and record.get('inventory_state') == 'eligible' and time.time()-attempted.get(key,0) > 15:
                     jobs[key] = pool.submit(base.score_one, row, ROOT)
                     attempted[key] = time.time()
                     states[key]['status'] = 'scoring'
@@ -116,8 +119,9 @@ def prove():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['proof', 'sweep'], nargs='?', default='sweep')
-    if parser.parse_args().mode == 'proof':
+    parser.add_argument('mode', choices=['proof', 'sweep', 'score'], nargs='?', default='sweep')
+    mode = parser.parse_args().mode
+    if mode == 'proof':
         prove()
     else:
-        run()
+        run(capture=mode == 'sweep')

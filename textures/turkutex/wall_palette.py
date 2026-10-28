@@ -3,12 +3,8 @@
 import hashlib
 import json
 import math
-from functools import lru_cache
-from pathlib import Path
 
 import numpy as np
-
-TABLE = Path(__file__).with_name("wall_palette.json")
 
 
 def lab(rgb):
@@ -69,14 +65,8 @@ def group_keys(attributes):
     ]
 
 
-@lru_cache(maxsize=1)
-def table():
-    return json.loads(TABLE.read_text())
-
-
-def sample(building_id, attributes, model=None):
+def sample(building_id, attributes, model):
     """Stable identity controls the draw, independently of facade index or tile order."""
-    model = table() if model is None else model
     group = next(
         (model["groups"][key] for key in group_keys(attributes) if key in model["groups"]), None
     )
