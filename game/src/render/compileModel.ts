@@ -3,7 +3,7 @@ import { PreparationBudget } from './preparationBudget';
 
 const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
 
-/** Compile one draw at a time so r186 captures its pass state before yielding, then restore it immediately. */
+/** Compile hidden draws with stable pass state across r186's asynchronous shader stages. */
 export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene,
   camera: THREE.PerspectiveCamera, target: THREE.RenderTarget, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
   context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false) {
@@ -22,16 +22,37 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       if (!material.visible || material.name === 'river-planar' || (opaqueOnly && material.transparent)) continue;
       const oldTarget = renderer.getRenderTarget(), oldMrt = renderer.getMRT(), oldContext = renderer.contextNode;
       const oldMaterial = mesh.material, children = mesh.children, visible = mesh.visible, culled = mesh.frustumCulled;
+      const previousBuilder = renderer.debug.onNodeBuilderCreated;
+      const onBuilder: typeof previousBuilder = (builder, value) => {
+        const draw = value as { object: THREE.Object3D; material: THREE.Material; camera: THREE.Camera; context: unknown };
+        if (draw.object === mesh && draw.material === material && draw.camera === camera) {
+          // NodeBuilder.buildAsync reads renderer state again after scheduler.yield(). A renderer view
+          // keeps those reads in this pass while the live renderer continues the game's animation.
+          builder.renderer = new Proxy(renderer, { get(source, key, receiver) {
+            if (key === '_renderTarget') return target;
+            if (key === '_mrt') return mrt;
+            if (key === 'contextNode') return context;
+            if (key === '_currentRenderContext') return draw.context;
+            return Reflect.get(source, key, receiver);
+          } });
+        }
+        previousBuilder?.(builder, value);
+      };
+      renderer.debug.onNodeBuilderCreated = onBuilder;
       let compiled: Promise<void>;
       try {
         renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context;
         mesh.material = material; mesh.children = []; mesh.visible = true; mesh.frustumCulled = false;
         compiled = renderer.compileAsync(mesh, camera, scene);
+      } catch (error) {
+        renderer.debug.onNodeBuilderCreated = previousBuilder;
+        throw error;
       } finally {
         renderer.setRenderTarget(oldTarget); renderer.setMRT(oldMrt); renderer.contextNode = oldContext;
         mesh.material = oldMaterial; mesh.children = children; mesh.visible = visible; mesh.frustumCulled = culled;
       }
-      await compiled;
+      try { await compiled; }
+      finally { if (renderer.debug.onNodeBuilderCreated === onBuilder) renderer.debug.onNodeBuilderCreated = previousBuilder; }
       const nextFrame = budget.checkpoint();
       if (nextFrame) await nextFrame;
     }
