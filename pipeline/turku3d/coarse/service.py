@@ -55,7 +55,7 @@ from turku3d.facade_kit import parameter_hash
 
 from .build import code_hash
 from .prefetch import Prefetcher
-from .request_journal import MAX_AGE, RequestJournal
+from .request_journal import MAX_AGE, RequestJournal, complete_tile
 from .sources import NoCoverage, Sources, Unit
 
 REPO = Path(__file__).resolve().parents[3]
@@ -317,21 +317,7 @@ class Builder:
         return now is None or m.get("inputs") == now
 
     def cached(self, tile: str) -> bool:
-        """A complete prior draft is usable while its generator/input successor is built."""
-        try:
-            m = json.loads(self.manifest(tile).read_text())
-            visual = m["visual"][tile]
-            cells = {c.id for c in C.VisualTile.parse(tile).collision_tiles()}
-            if not m.get("coarse") or m.get("tile") != tile or set(m["collision"]) != cells:
-                return False
-            for entry in [visual, *m["collision"].values()]:
-                if not FILE.fullmatch(entry["url"]):
-                    return False
-                if (self.root / tile / entry["url"]).stat().st_size != entry["bytes"]:
-                    return False
-            return True
-        except (OSError, ValueError, KeyError, TypeError):
-            return False
+        return complete_tile(self.root, tile, FILE)
 
     def request(self, tile: str, distance: float) -> dict:
         """Persist unfinished demand and serve complete old bytes while revalidating them."""

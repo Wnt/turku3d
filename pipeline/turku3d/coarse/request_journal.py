@@ -45,3 +45,21 @@ class RequestJournal:
         temporary = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
         temporary.write_text(json.dumps(self.rows, sort_keys=True) + "\n")
         temporary.replace(self.path)
+
+
+def complete_tile(root: Path, tile: str, pattern) -> bool:
+    """Only complete, safe prior outputs may serve during generator revalidation."""
+    try:
+        m = json.loads((root / tile / "manifest.json").read_text())
+        visual = m["visual"][tile]
+        cells = {c.id for c in C.VisualTile.parse(tile).collision_tiles()}
+        if not m.get("coarse") or m.get("tile") != tile or set(m["collision"]) != cells:
+            return False
+        for entry in [visual, *m["collision"].values()]:
+            if not pattern.fullmatch(entry["url"]):
+                return False
+            if (root / tile / entry["url"]).stat().st_size != entry["bytes"]:
+                return False
+        return True
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
