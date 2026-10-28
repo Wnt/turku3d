@@ -71,7 +71,7 @@ def wall_meshes(b, walls, wuv, widx, origin, params):
                 extras=dict(
                     layer="buildings",
                     object_id=f"walls_{b.key}_{start}",
-                    building_id=b.facade_key,
+                    building_id=meta.get("building_id", b.facade_key),
                     facade_index=meta["facade_index"],
                     material_key="facade_stored",
                     surface="wall",

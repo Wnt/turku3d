@@ -76,12 +76,13 @@ def waiting_slots(processes):
 
 
 def phase(meta, live, waiting=None):
+    # A live agent stays "running" after merging a slice into main mid-turn; "landed" only describes a finished one.
+    state = meta.get("state", "inbox only")
+    if state in ACTIVE and live:
+        return f"waiting for {waiting} slot" if waiting else state
     if meta.get("landed"):
         return "landed"
-    state = meta.get("state", "inbox only")
-    if waiting and live:
-        return f"waiting for {waiting} slot"
-    return "interrupted" if state in ACTIVE and not live else state
+    return "interrupted" if state in ACTIVE else state
 
 
 def modified(path):

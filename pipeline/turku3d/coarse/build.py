@@ -240,9 +240,10 @@ def trunks(trees, ct):
 
 
 def default_library() -> Path:
-    """The sandbox's assembled material library, else the published one."""
-    library = C.work_root() / "textures/assembly/library"
-    return library if library.exists() else C.data_root() / "live/textures/assembly/library"
+    """Shared generated materials, independent of full-tile releases."""
+    from turku3d.facade_assets import material_library
+
+    return material_library()
 
 
 def _entry(url: str, data: bytes, **extra) -> dict:

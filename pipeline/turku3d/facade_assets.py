@@ -101,11 +101,31 @@ def legacy_rows(directory=None):
     return _legacy(str(directory), manifest.stat().st_mtime_ns) if manifest.exists() else {}
 
 
+def aliases(key):
+    key = str(key)
+    # Full-tile footprint fallbacks used gis-<registry-id>; drafts keep that same
+    # permanent registry id without the producer prefix. Never match by proximity alone.
+    return (key, key[4:]) if key.startswith("gis-") else (key, "gis-" + key)
+
+
 def building(key):
-    path = root() / "buildings" / opaque(key)
-    if path.is_file():
-        return json.loads(path.read_text())
-    return legacy_rows().get(str(key), {})
+    facades = {}
+    for identity in aliases(key):
+        path = root() / "buildings" / opaque(identity)
+        row = json.loads(path.read_text()) if path.is_file() else legacy_rows().get(identity, {})
+        for facade in row.get("facades", []):
+            facades.setdefault(facade["metadata"]["facade_id"], facade)
+    return dict(building_key=str(key), facades=list(facades.values()))
+
+
+def best_description(candidates):
+    return max(
+        candidates,
+        key=lambda m: (
+            m["fast_description"].get("source") in ("reference", "astra"),
+            m["width_m"],
+        ),
+    )
 
 
 def description_row(key):
@@ -115,9 +135,10 @@ def description_row(key):
         C.data_root() / "facade-params",
         root() / "facade-params",
     ):
-        path = directory / opaque(key)
-        if path.is_file():
-            return json.loads(path.read_text())
+        for identity in aliases(key):
+            path = directory / opaque(identity)
+            if path.is_file():
+                return {**json.loads(path.read_text()), "building_key": str(key)}
     candidates = [
         f["metadata"]
         for f in building(key).get("facades", [])
@@ -125,13 +146,7 @@ def description_row(key):
     ]
     if not candidates:
         return None
-    best = max(
-        candidates,
-        key=lambda m: (
-            m["fast_description"].get("source") in ("reference", "astra"),
-            m["width_m"],
-        ),
-    )
+    best = best_description(candidates)
     return dict(
         building_key=str(key),
         description=best["fast_description"]["description"],
@@ -147,7 +162,9 @@ def stored_request(keys):
     directory = root() if (root() / "index.json").exists() else assembly()
     return dict(
         facades=str(directory / "facades"),
-        facadeBindings=[f["metadata"]["facade_id"] for b in rows for f in b.get("facades", [])],
+        facadeBindings=sorted(
+            {f["metadata"]["facade_id"] for b in rows for f in b.get("facades", [])}
+        ),
     )
 
 
@@ -190,7 +207,7 @@ def export(target, source=None, parameter_roots=()):
             f["metadata"] for f in row["facades"] if f["metadata"].get("fast_description")
         ]
         if candidates:
-            best = max(candidates, key=lambda m: m["width_m"])
+            best = best_description(candidates)
             _write(
                 target / "facade-params" / opaque(key),
                 dict(
@@ -249,6 +266,40 @@ def main():
         )
     )
     return 0
+
+
+def material_library():
+    """Material inputs survive retirement of full-tile releases."""
+    candidates = (
+        C.work_root() / "textures/assembly/library",
+        root() / "library",
+        C.data_root() / "textures/assembly/library",
+        C.data_root() / "facade-approvals/assembly/library",
+    )
+    return next((p for p in candidates if p.is_dir()), candidates[2])
+
+
+@lru_cache(maxsize=4)
+def _library_digest(signature):
+    digest = hashlib.sha256()
+    for name, _, _ in signature:
+        path = Path(name)
+        digest.update(path.name.encode())
+        with path.open("rb") as stream:
+            digest.update(hashlib.file_digest(stream, "sha256").digest())
+    return digest.digest()
+
+
+def library_hash():
+    files = set(material_library().rglob("*"))
+    files.update((C.data_root() / "textures/library").glob("*.array.ktx2"))
+    files.update((C.work_root() / "textures/library").glob("*.array.ktx2"))
+    signature = tuple(
+        (str(p.resolve()), p.stat().st_size, p.stat().st_mtime_ns)
+        for p in sorted(files)
+        if p.is_file() and p.suffix in (".ktx2", ".json", ".png", ".jpg", ".jpeg")
+    )
+    return _library_digest(signature)
 
 
 if __name__ == "__main__":

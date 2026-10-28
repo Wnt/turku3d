@@ -100,3 +100,54 @@ def test_survey_offset_preserves_source_clamp_and_outward_side():
     assert match_wall(wall(), [f]) is None
     f["normal"] = [0, 0, -1]
     assert match_wall(wall(), [f]) is not None
+
+
+def test_gis_fallback_assets_keep_stable_registry_lookup_and_original_binding(
+    tmp_path, monkeypatch
+):
+    from turku3d import facade_assets as assets
+    from turku3d.coarse import stored_facades as sf
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_FACADE_ASSETS", str(tmp_path))
+    (tmp_path / "buildings").mkdir()
+    (tmp_path / "facade-params").mkdir()
+    (tmp_path / "index.json").write_text("{}")
+    f = facade()
+    f["metadata"].update(facade_id="gis-b_7", building_id="gis-b")
+    (tmp_path / "buildings" / opaque("gis-b")).write_text(json.dumps(dict(facades=[f])))
+    d = renderer().register_description("gis-b_7", "gis-b", {}, 10, 12)
+    (tmp_path / "facade-params" / opaque("gis-b")).write_text(
+        json.dumps(dict(building_key="gis-b", description=d))
+    )
+    assert assets.building("b")["facades"] == [f]
+    assert read_description("b") == d
+    assert assets.stored_request(["b", "gis-b"])["facadeBindings"] == ["gis-b_7"]
+    b = SimpleNamespace(key="part", facade_key="b", base=3, top=15)
+    meshes = sf.wall_meshes(
+        b, wall(), np.zeros((4, 2)), np.array([[0, 3, 2], [0, 2, 1]]), np.zeros(3), {}
+    )
+    assert meshes[0].extras["building_id"] == "gis-b"
+    assert meshes[0].extras["facade_index"] == 7
+
+
+def test_shared_texture_edits_invalidate_drafts_without_full_tile_release(tmp_path, monkeypatch):
+    from turku3d.facade_assets import material_library
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_FACADE_ASSETS", str(tmp_path / "store"))
+    library = tmp_path / "store/library/plaster"
+    library.mkdir(parents=True)
+    texture = library / "albedo.ktx2"
+    texture.write_bytes(b"first-generated-map")
+    assert material_library() == library.parent
+    before = parameter_hash(["building"])
+    texture.write_bytes(b"new-generated-map")
+    assert parameter_hash(["building"]) != before
+    arrays = tmp_path / "data/textures/library"
+    arrays.mkdir(parents=True)
+    before = parameter_hash(["building"])
+    (arrays / "albedo.array.ktx2").write_bytes(b"own-ground-library")
+    assert parameter_hash(["building"]) != before
