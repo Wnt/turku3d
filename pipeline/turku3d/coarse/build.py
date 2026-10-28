@@ -639,6 +639,7 @@ def build(
         "building_visual",
         source_key(
             building_visual,
+            Path(__file__).with_name("stages.py"),
             Path(__file__).with_name("stored_facades.py"),
             base / "facade_assets.py",
             base / "facade_kit.py",

@@ -263,7 +263,10 @@ Shared normals use UASTC with Zstd level 6 to preserve smooth plaster relief; al
 ORM use ETC1S. These maps are encoded once per kit hash and reused by subsequent tiles.
 The atlas is rendered once with `turkutex.facade_fast_render` and reused through `shared/`. Per-building colour,
 bay spacing and storey height travel in per-vertex kit attributes, with one shared kit material
-per tile/layer (the same package binder as published tiles); roofs retain the ortho. Seven blank modules preserve mapped sheds and garages without cloning residential windows. The game samples the
+per tile/layer (the same package binder as published tiles); all roofs retain the ortho,
+including heritage buildings and OSM roof-material tags. Missing/blank imagery and parts
+outside the centroid tile use a roof-material palette seeded by building ID; tile-edge
+pixels are never stretched over uncovered roof parts. Seven blank modules preserve mapped sheds and garages without cloning residential windows. The game samples the
 upper bay repeatedly and the ground-floor row only at the base on both renderer backends. Published
 walls without an approved generated, derived or fast map use the same kit. Pure mapping checks:
 `PYTHONPATH=pipeline:textures .venv/bin/python -m pytest pipeline/tests/test_facade_kit.py -q`.
