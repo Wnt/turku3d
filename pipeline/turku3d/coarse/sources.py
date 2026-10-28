@@ -38,7 +38,14 @@ OSM_SQUARE = 2000.0  # m: one OSM clip covers this O-aligned square
 ORTHO_PX = 512  # draft ortho per 250 m L0 tile (49 cm/px): one WMS chunk, one KTX2 encode
 ORTHO_SLUG = "ortho2022to"
 POINT_MARGIN = 20.0  # ground key points are read for the tile plus this margin
-WFS_LAYERS = ("bldg:Building_LOD2", "GIS:Katualueet", "kanta:Vesikohde")
+WFS_LAYERS = (
+    "bldg:Building_LOD2",
+    "GIS:Katualueet",
+    "kanta:Vesikohde",
+    "GIS:Liikennemerkit",
+    "kanta:Pysakki",
+    "GIS:Keskilinjat",
+)
 BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"
 

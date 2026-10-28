@@ -18,6 +18,12 @@ export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
     mesh.frustumCulled = true;
+    if (mesh.userData.prop_type === 'sign' || mesh.userData.prop_type === 'bus_stop'
+      || (Array.isArray(mesh.userData.objects) && mesh.userData.objects.some((e: Record<string, unknown>) =>
+        e.prop_type === 'sign' || e.prop_type === 'bus_stop'))) {
+      // These ranges are removed as posts break. Keep their shadow tied to the live mesh.
+      return;
+    }
     let owner: THREE.Object3D | null = mesh;
     while (owner && !owner.userData.layer) owner = owner.parent;
     if (owner?.userData.layer === 'ground') {

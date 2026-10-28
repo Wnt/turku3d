@@ -440,9 +440,6 @@ def test_a_draft_built_from_other_raw_files_is_stale(raw, tmp_path):
     assert sources.input_key(C.VisualTile(0, 1, 1)) != first
 
 
-# -- prepared inputs ------------------------------------------------------------------------------
-
-
 def _real_raw(tile: C.VisualTile):
     """Readable synthetic raw data for one tile: key-point LAZ, an ortho mosaic, WFS and OSM."""
     import subprocess
@@ -501,6 +498,11 @@ def _real_raw(tile: C.VisualTile):
         (adir / f"{name}.summary.json").write_text(
             json.dumps({"status": "ok", "bbox_en": list(block.bbox_en.as_tuple())})
         )
+    for name in WFS_LAYERS[3:]:
+        slug = name.replace(":", "_")
+        (adir / f"{slug}.summary.json").write_text(
+            json.dumps({"status": "empty", "bbox_en": list(block.bbox_en.as_tuple())})
+        )
     odir = C.raw_dir("osm") / osm_area(block).name
     odir.mkdir(parents=True)
     gpd.GeoDataFrame(
@@ -527,13 +529,24 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
     first = prepare(tile, root, sources)
     assert first["missing"] == [] and all(
         isinstance(first[d], float)
-        for d in ("ground", "ortho", "wfs", "roads", "trees", "barriers", "forests", "tunnels")
+        for d in (
+            "ground",
+            "ortho",
+            "wfs",
+            "roads",
+            "trees",
+            "barriers",
+            "forests",
+            "tunnels",
+            "poles",
+        )
     )
     assert not unprepared(tile, root, sources)
     assert {
         k: v for k, v in prepare(tile, root, sources).items() if k != "missing"
     } == dict.fromkeys(
-        ("ground", "ortho", "wfs", "roads", "trees", "barriers", "forests", "tunnels"), "cached"
+        ("ground", "ortho", "wfs", "roads", "trees", "barriers", "forests", "tunnels", "poles"),
+        "cached",
     )
     inputs = gather(tile, root, sources)
     assert inputs.heights.shape == (129, 129) and np.allclose(inputs.heights, 5.0)

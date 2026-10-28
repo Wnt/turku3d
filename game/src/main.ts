@@ -237,6 +237,7 @@ async function runPlay() {
   // Localhost only: draft tiles from tools/dev/coarse-tiles beyond the published tileset (null elsewhere).
   const coarse = await CoarseTiles.start({ scene, renderer, manifest, manifestUrl: params.manifest, tiles: tiles.events,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids), checkCollision: buffer => physics.checkTile(buffer),
+    trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); materials?.release(m); },
     styled: m => vegetation?.add(m) });
   builtTiles = () => [...Object.keys(manifest.visual), ...coarse?.drawn() ?? []];

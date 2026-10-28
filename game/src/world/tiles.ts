@@ -33,6 +33,18 @@ interface Tileset {
 export class VisualTiles {
   /** Model load and dispose events of the current tileset and of a release being swapped in. */
   readonly events = new THREE.EventDispatcher<TileEvents>();
+  /** Pole residency sees both published and draft models without repeating material styling events. */
+  readonly modelEvents = new THREE.EventDispatcher<TileEvents>();
+  /** Models currently in the scene, including drafts registered by CoarseTiles. */
+  readonly models = new Set<THREE.Object3D>();
+  trackModel(scene: THREE.Object3D, id: string) {
+    this.models.add(scene);
+    this.modelEvents.dispatchEvent({ type: 'load-model', scene, tile: { extras: { id } } });
+  }
+  untrackModel(scene: THREE.Object3D, id: string) {
+    this.models.delete(scene);
+    this.modelEvents.dispatchEvent({ type: 'dispose-model', scene, tile: { extras: { id } } });
+  }
   residentTris = 0;
   residentModels = 0;
   loadedModels = 0;
@@ -112,6 +124,7 @@ export class VisualTiles {
       }
       this.triCount.set(model, tris);
       this.residentTris += tris; this.residentModels++; this.loadedModels++; set.loaded++;
+      this.trackModel(model, String(event.tile.extras?.id ?? ''));
       this.events.dispatchEvent({ type: 'load-model', scene: model, tile: event.tile });
     });
     renderer.addEventListener('dispose-model', (event: ModelEvent) => {
@@ -124,6 +137,7 @@ export class VisualTiles {
         this.shadowBatches.delete(model);
       }
       this.residentTris -= this.triCount.get(model) ?? 0; this.residentModels--; this.triCount.delete(model);
+      this.untrackModel(model, String(event.tile.extras?.id ?? ''));
       this.events.dispatchEvent({ type: 'dispose-model', scene: model, tile: event.tile });
     });
     renderer.addEventListener('load-error', ({ error, url: u, tile }: { error: Error; url: string | URL; tile: Tile }) => {

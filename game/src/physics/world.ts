@@ -49,7 +49,7 @@ export class PhysicsWorld {
   private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode'] }>();
   private poles = new Map<string, { spec: PoleSpec; body: RAPIER_NS.RigidBody; anchor: RAPIER_NS.RigidBody; joint: RAPIER_NS.ImpulseJoint | null; brokenAt: number | null; brokeNow: boolean }>();
   private brokenPoles = new Set<string>();
-  private seenPoleImpacts = new Map<string, number>();
+  private poleEvents: RAPIER_NS.EventQueue;
   get vehicle(): Vehicle | null { return this.vehicles.get('player') ?? null; }
   private curbQueries: CurbQueries;
   /** Walls along the true edges of the collision (edgeWalls.ts). */
@@ -58,6 +58,7 @@ export class PhysicsWorld {
   constructor(private readonly R: R) {
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
+    this.poleEvents = new R.EventQueue(true);
     this.curbQueries = new CurbQueries(R, this.world);
     this.edges = new EdgeWalls(R, this.world);
   }
@@ -328,9 +329,11 @@ export class PhysicsWorld {
       const centre = { x: spec.base.x, y: spec.base.y + spec.height / 2, z: spec.base.z };
       const anchor = this.world.createRigidBody(this.R.RigidBodyDesc.fixed().setTranslation(spec.base.x, spec.base.y, spec.base.z));
       const body = this.world.createRigidBody(this.R.RigidBodyDesc.dynamic().setTranslation(centre.x, centre.y, centre.z)
-        .setCanSleep(true).setLinearDamping(0.8).setAngularDamping(0.8));
+        .setCanSleep(true).setCcdEnabled(true).setLinearDamping(0.8).setAngularDamping(0.8));
+      body.lockTranslations(true, false);
+      body.lockRotations(true, false);
       this.world.createCollider(this.R.ColliderDesc.cylinder(spec.height / 2, 0.05)
-        .setDensity(3).setFriction(0.7)
+        .setMass(12).setFriction(0.7).setActiveEvents(this.R.ActiveEvents.CONTACT_FORCE_EVENTS)
         .setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.STATIC_SOLID | GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC)), body);
       const joint = this.R.JointData.fixed({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 },
         { x: 0, y: -spec.height / 2, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
@@ -352,10 +355,13 @@ export class PhysicsWorld {
     if (!pole || pole.brokenAt !== null) return;
     if (pole.joint) this.world.removeImpulseJoint(pole.joint, true);
     pole.joint = null;
+    pole.body.lockTranslations(false, true);
+    pole.body.lockRotations(false, true);
     pole.brokenAt = this.tick;
     pole.brokeNow = local;
     pole.body.wakeUp();
     pole.body.applyImpulse({ x: 0.7, y: 0.1, z: 0.7 }, true);
+    pole.body.applyTorqueImpulse({ x: 0, y: 0, z: 8 }, true);
   }
 
   poleStates(): PoleState[] {
@@ -399,33 +405,29 @@ export class PhysicsWorld {
         } else if (distance > 8) this.nearbyVehicles.delete(id);
       }
     }
-    for (const [id, car] of this.vehicles) car.step(DT, id === this.drivenId ? vehicle : null);
-    this.world.step();
-    for (const car of this.vehicles.values()) car.afterStep(DT);
-    const impacts: { pos: V3; deltaV: number }[] = [];
+    const carSpeeds = new Map<number, { speed: number; local: boolean }>();
     for (const [id, car] of this.vehicles) {
-      const state = car.state(), impact = state.impact;
-      if (impact && impact.id !== this.seenPoleImpacts.get(id)) {
-        this.seenPoleImpacts.set(id, impact.id);
-        impacts.push({ pos: state.pos, deltaV: impact.impulse / car.body.mass() });
-      }
+      car.step(DT, id === this.drivenId ? vehicle : null);
+      const v = car.body.linvel();
+      carSpeeds.set(car.body.handle, { speed: Math.hypot(v.x, v.z), local: id === this.drivenId });
     }
-    const foot = this.charEnabled && this.charCollider ? this.charCollider.translation() : null;
-    const push = Math.hypot(character.vx, character.vz) >= 2.6;
-    for (const [id, pole] of this.poles) {
+    this.world.step(this.poleEvents);
+    for (const car of this.vehicles.values()) car.afterStep(DT);
+    const poleColliders = new Map<number, string>();
+    for (const [id, pole] of this.poles) if (pole.brokenAt === null) poleColliders.set(pole.body.collider(0).handle, id);
+    this.poleEvents.drainContactForceEvents(event => {
+      const a = event.collider1(), b = event.collider2();
+      const id = poleColliders.get(a) ?? poleColliders.get(b);
+      if (!id || event.totalForceMagnitude() * DT < 1) return;
+      const other = this.world.getCollider(poleColliders.has(a) ? b : a);
+      const car = other?.parent() && carSpeeds.get(other.parent()!.handle);
+      if (car && car.speed >= 10 / 3.6) this.breakPole(id, car.local);
+    });
+    for (const pole of this.poles.values()) {
       if (pole.brokenAt !== null) {
         if (this.tick - pole.brokenAt >= 20 / DT && pole.body.bodyType() !== this.R.RigidBodyType.Fixed)
           pole.body.setBodyType(this.R.RigidBodyType.Fixed, true);
         continue;
-      }
-      const base = pole.spec.base;
-      if (push && foot && Math.hypot(foot.x - base.x, foot.z - base.z) < 0.38) {
-        this.breakPole(id, true); continue;
-      }
-      for (const impact of impacts) {
-        if (impact.deltaV >= 0.8 && Math.hypot(impact.pos.x - base.x, impact.pos.z - base.z) < 2.2) {
-          this.breakPole(id, true); break;
-        }
       }
     }
   }

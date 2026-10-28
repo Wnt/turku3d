@@ -130,13 +130,13 @@ def osm_props(frame, bbox, register, carriageway, skipped):
     """Lamps, bollards and signs mapped in OSM, plus spacing-rule lamps along lit streets."""
     result, lit = [], []
     reach = bbox.buffered(LAMP_REACH)
-    for row in frame.to_dict("records"):
+    for index, row in enumerate(frame.to_dict("records")):
         tags = row.get("tags", {})
         tags = dict(json.loads(tags) if isinstance(tags, str) else tags or {})
         g = row["geometry_local"]
         if g is None or g.is_empty:
             continue
-        oid = f"osm:{row['osm_id']}"
+        oid = f"osm:{row.get('osm_id', index)}"
         if g.geom_type == "LineString":
             if tags.get("lit") == "yes" and tags.get("highway") in LIT_STREETS:
                 lit.append((oid, g, tags))
@@ -196,7 +196,7 @@ def osm_props(frame, bbox, register, carriageway, skipped):
     return [p for p in result if bbox.contains(p.x, p.z)]
 
 
-def read_sources(bbox, source_area="work-3x3"):
+def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=None):
     import geopandas as gpd
 
     missing, candidates, skipped = [], [], Counter()
@@ -209,9 +209,13 @@ def read_sources(bbox, source_area="work-3x3"):
             raise ValueError(f"{path}: expected fetch geometry_local")
         return frame
 
-    road_path = root / "GIS_Keskilinjat.parquet"
+    road_path = (
+        (source_paths or {}).get("GIS_Keskilinjat")
+        if source_paths is not None
+        else root / "GIS_Keskilinjat.parquet"
+    )
     roads = None
-    if road_path.exists():
+    if road_path is not None and road_path.exists():
         frame = load(road_path)
         roads = STRtree(
             [
@@ -222,11 +226,12 @@ def read_sources(bbox, source_area="work-3x3"):
             ]
         )
     else:
-        missing.append(road_path.name)
+        missing.append("GIS_Keskilinjat.parquet")
     for source, default in SOURCES.items():
-        path = root / f"{source}.parquet"
-        if not path.exists():
-            missing.append(path.name)
+        path = source_paths.get(source) if source_paths is not None else root / f"{source}.parquet"
+        if path is None or not path.exists():
+            if source_paths is None:
+                missing.append(f"{source}.parquet")
             continue
         for row in load(path).to_dict("records"):
             p = row["geometry_local"]
@@ -243,12 +248,20 @@ def read_sources(bbox, source_area="work-3x3"):
                 kind = "post"
             oid = str(row.get("Id") or row["feature_key"])
             candidates.append(Prop(f"{source}:{oid}", kind, p.x, 0, p.y, code=code, source=source))
-    osm_paths = sorted((C.raw_dir("osm") / source_area).glob("*.parquet"))
+    osm_paths = (
+        ([osm_path] if osm_path else [])
+        if source_paths is not None
+        else sorted((C.raw_dir("osm") / source_area).glob("*.parquet"))
+    )
     if not osm_paths:
         missing.append("osm/*.parquet")
     else:
         # Dated fetch snapshot: consume the latest one once, never overlapping epochs.
-        streets = root / "GIS_Katualueet.parquet"
+        streets = (
+            (source_paths or {}).get("GIS_Katualueet")
+            if source_paths is not None
+            else root / "GIS_Katualueet.parquet"
+        )
         # Carriageway areas near the tile (city polygons can be invalid: repair before union).
         window = shapely.box(*outer.as_tuple())
         carriageway = (
@@ -261,7 +274,7 @@ def read_sources(bbox, source_area="work-3x3"):
                     and r["geometry_local"].intersects(window)
                 ]
             )
-            if streets.exists()
+            if streets is not None and streets.exists()
             else shapely.Polygon()
         )
         candidates += osm_props(load(osm_paths[-1]), bbox, candidates, carriageway, skipped)

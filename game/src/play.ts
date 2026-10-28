@@ -454,7 +454,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (!paused) physics.step(dt, charIn, carIn);
 
     const st = physics.latest;
-    if (st) poles.update(st.poles);
+    if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
     clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000);
     if (st) {
