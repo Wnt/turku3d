@@ -46,7 +46,11 @@ def store_path(key: str, root: Path | None = None) -> Path:
 
 def read_description(key: str, root: Path | None = None, width: float | None = None) -> dict | None:
     try:
-        row = json.loads(store_path(key, root).read_text())
+        from turku3d.facade_assets import description_row
+
+        row = json.loads(store_path(key, root).read_text()) if root else description_row(key)
+        if row is None:
+            return None
         description = row["description"]
         if row["building_key"] == str(key) and not renderer().validate(
             description, description["facade_id"]
@@ -204,11 +208,17 @@ def parameter_hash(keys, root: Path | None = None) -> str:
     h = hashlib.sha256()
     for key in sorted(set(map(str, keys))):
         h.update(key.encode())
-        path = store_path(key, root)
-        try:
-            h.update(path.read_bytes())
-        except FileNotFoundError:
-            h.update(b"missing")
+        if root is None:
+            from turku3d.facade_assets import building_hash, description_row
+
+            h.update(building_hash(key))
+            h.update(json.dumps(description_row(key), sort_keys=True).encode())
+        else:
+            path = store_path(key, root)
+            try:
+                h.update(path.read_bytes())
+            except FileNotFoundError:
+                h.update(b"missing")
     return h.hexdigest()[:24]
 
 
@@ -218,7 +228,9 @@ def kit_request(root: Path, keys=()) -> dict:
     widths = {}
     for key in descriptions:
         try:
-            widths[key] = json.loads(store_path(key).read_text()).get("width_m")
+            from turku3d.facade_assets import description_row
+
+            widths[key] = (description_row(key) or {}).get("width_m")
         except (OSError, ValueError):
             pass
     return {**result, "descriptions": descriptions, "referenceWidths": widths}
