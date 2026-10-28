@@ -6,8 +6,8 @@ import numpy as np
 
 from .shells import Surface
 
-# The facade rebind accepts base corrections through 0.75 m. Larger discrepancies
-# need model review, rather than extending elevated structures down to the street.
+# The facade rebind accepts base corrections through 0.75 m. A wall needs nearby
+# ground support before a deeper local dip can request this bounded extension.
 MAX_EXTENSION_M = 0.75
 
 
@@ -40,15 +40,21 @@ def ground_contact(shell, sample):
         a, b = np.unravel_index(
             np.linalg.norm(p[:, None] - p[None, :], axis=2).argmax(), (len(p), len(p))
         )
-        count = max(3, int(np.ceil(np.linalg.norm(p[a] - p[b]) / 2)) + 1)
+        # Include the midpoint even when the regular spacing would skip it.
+        count = max(3, int(np.ceil(np.linalg.norm(p[a] - p[b]) / 2)) + 1) | 1
+        residuals = []
         for t in np.linspace(0, 1, count):
             point = p[a] * (1 - t) + p[b] * t
             found = sample(point[[0, 2]] + normal[[0, 2]] * 0.4)
             if found is None:
                 continue
-            residual = point[1] - found[0]
-            if 0 < residual <= MAX_EXTENSION_M:
-                drop = max(drop, float(residual))
+            residuals.append(float(point[1] - found[0]))
+        # A local depression must not be discarded just because full contact
+        # exceeds the correction range. Extend as far as allowed, provided this
+        # wall also has a sample near its surveyed footing. Uniformly elevated
+        # walls still require model review and stay untouched.
+        if residuals and min(map(abs, residuals)) <= MAX_EXTENSION_M:
+            drop = max(drop, min(MAX_EXTENSION_M, max(residuals)))
     if drop <= 0.05:
         return shell, 0.0
     positions = shell.positions.copy()

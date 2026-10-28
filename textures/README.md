@@ -619,6 +619,11 @@ textures keep the building's library key. The assembler must apply sidecar `uv.s
 use `files.normal` and `files.orm`, and apply library `material.json` `uv_scale` to metre UVs.
 The export preserves file timestamps when unchanged. It removes stale unique bindings in its own
 output tree. Provisional heights without a measured base cannot match authoritative geometry.
+When a published building footing extends downward, `turku3d.refresh --target facades`
+rebinds approved maps to the new wall height. The rebind accepts up to 0.75 m of base
+extension when the wall top stays fixed, including short walls whose percentage
+height change is larger than the ordinary matching limit. Verify with
+`PYTHONPATH=textures bash pipeline/env/run.sh python -m pytest -q textures/tests/test_facade_rebind.py`.
 
 Resume remaining acquisition and generation only when a new batch is authorized:
 

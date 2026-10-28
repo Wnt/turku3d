@@ -79,8 +79,12 @@ def match_score(old, new):
     old_base, new_base = old.base_h, new.base_h
     if old_base is None or new_base is None:
         return None
-    if abs(old_base - new_base) > 0.75 or abs(old.height_m - new.height_m) > min(
-        5.0, old.height_m * 0.25
+    base_shift = abs(old_base - new_base)
+    height_shift = abs(old.height_m - new.height_m)
+    footing_extension = abs((old_base + old.height_m) - (new_base + new.height_m)) <= 0.01
+    if base_shift > 0.75 + 1e-9 or (
+        height_shift > min(5.0, old.height_m * 0.25)
+        and not (footing_extension and height_shift <= 0.75 + 1e-9)
     ):
         return None
     return (
