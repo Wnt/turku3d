@@ -453,60 +453,77 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
     tree = shapely.STRtree(footprints)
     _, boundary = tree.query(shapely.boundary(polygons), predicate="intersects")
     boundary = np.unique(boundary)
-    region_tree = shapely.STRtree(polygons)
+    # Vertical bank faces have no terrain plane in x/z. Preserve them exactly;
+    # trying to invert their projected basis used to fail the entire tile.
+    boundary = boundary[shapely.area(footprints[boundary]) > 1e-12]
+    if not len(boundary):
+        return positions, indices[keep], materials[keep], normals
     uncut = np.ones(len(selected), bool)
     uncut[boundary] = False
-    out_indices = [indices[selected[uncut]]]
-    out_materials = [materials[selected[uncut]]]
-    out_positions, out_normals = [positions], [normals]
-    count = len(positions)
-    for i in boundary:
-        footprint = footprints[i]
-        tri_index = selected[i]
-        remaining = footprint
-        pieces = []
-        for j in sorted(region_tree.query(footprint, predicate="intersects"), reverse=True):
-            piece = remaining.intersection(polygons[j])
-            if not piece.is_empty:
-                pieces.append((piece, regions[j][1]))
-                remaining = remaining.difference(polygons[j])
-            if remaining.is_empty:
-                break
-        if not remaining.is_empty:
-            pieces.append(
-                (
-                    remaining,
-                    int(
-                        (materials if fallback_materials is None else fallback_materials)[tri_index]
-                    ),
-                )
-            )
-        triangle = positions[indices[tri_index]]
-        inverse_basis = np.linalg.inv(np.c_[triangle[:, [0, 2]], np.ones(3)])
-        for geometry, material in pieces:
-            for poly in getattr(geometry, "geoms", [geometry]):
-                if poly.geom_type != "Polygon" or poly.area < 1e-7:
-                    continue
-                rings = [np.asarray(r.coords)[:-1] for r in [poly.exterior, *poly.interiors]]
-                xz = np.concatenate(rings)
-                ix = mapbox_earcut.triangulate_float64(
-                    xz, np.cumsum([len(r) for r in rings]).astype(np.uint32)
-                ).reshape(-1, 3)
-                weights = np.c_[xz, np.ones(len(xz))] @ inverse_basis
-                points = np.c_[xz[:, 0], weights @ triangle[:, 1], xz[:, 1]]
-                v = points[ix]
-                flip = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])[:, 1] < 0
-                ix[flip] = ix[flip][:, [0, 2, 1]]
-                n = weights @ normals[indices[tri_index]]
-                n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-                out_positions.append(points)
-                out_normals.append(n)
-                out_indices.append(ix + count)
-                out_materials.append(np.full(len(ix), material, np.uint8))
-                count += len(points)
+    remaining = footprints[boundary].copy()
+    # GEOS handles arrays in C. Apply each region to all intersecting triangles,
+    # in the same last-region-wins order, instead of two Python GEOS calls and
+    # a spatial query for every individual triangle/region pair.
+    region_ids, triangle_ids = shapely.STRtree(remaining).query(polygons, predicate="intersects")
+    pieces, owners, channels = [], [], []
+    for region in np.unique(region_ids)[::-1]:
+        hits = triangle_ids[region_ids == region]
+        pieces.append(shapely.intersection(remaining[hits], polygons[region]))
+        owners.append(boundary[hits])
+        channels.append(np.full(len(hits), regions[region][1], np.uint8))
+        remaining[hits] = shapely.difference(remaining[hits], polygons[region])
+    pieces.append(remaining)
+    owners.append(boundary)
+    fallback = materials if fallback_materials is None else fallback_materials
+    channels.append(fallback[selected[boundary]])
+    parts, parent = shapely.get_parts(np.concatenate(pieces), return_index=True)
+    valid = (shapely.get_type_id(parts) == 3) & (shapely.area(parts) >= 1e-7)
+    parts, parent = parts[valid], parent[valid]
+    if not len(parts):
+        return positions, indices[selected[uncut]], materials[selected[uncut]], normals
+    owner = selected[np.concatenate(owners)[parent]]
+    material = np.concatenate(channels)[parent]
+    rings, polygon = shapely.get_rings(parts, return_index=True)
+    ring_lengths = shapely.get_num_coordinates(rings)
+    ring_ends = np.cumsum(ring_lengths)
+    coordinates = shapely.get_coordinates(rings)
+    # Earcut does not need the repeated closing vertex of a linear ring.
+    opened = np.ones(len(coordinates), bool)
+    opened[ring_ends - 1] = False
+    xz = coordinates[opened]
+    ring_ends = np.cumsum(ring_lengths - 1)
+    polygon_rings = np.r_[0, np.cumsum(np.bincount(polygon, minlength=len(parts)))]
+    ends = ring_ends[polygon_rings[1:] - 1]
+    starts = np.r_[0, ends[:-1]]
+    ix, face_materials = [], []
+    for k, (start, end) in enumerate(zip(starts, ends)):
+        triangles = mapbox_earcut.triangulate_float64(
+            xz[start:end],
+            (ring_ends[polygon_rings[k] : polygon_rings[k + 1]] - start).astype(np.uint32),
+        ).reshape(-1, 3)
+        ix.append(triangles + start)
+        face_materials.append(np.full(len(triangles), material[k], np.uint8))
+    ix = np.concatenate(ix)
+    vertex_owner = np.repeat(owner, ends - starts)
+    triangle = positions[indices[vertex_owner]]
+    a, b = (
+        triangle[:, 1, [0, 2]] - triangle[:, 0, [0, 2]],
+        triangle[:, 2, [0, 2]] - triangle[:, 0, [0, 2]],
+    )
+    delta = xz - triangle[:, 0, [0, 2]]
+    determinant = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+    u = (delta[:, 0] * b[:, 1] - delta[:, 1] * b[:, 0]) / determinant
+    v = (a[:, 0] * delta[:, 1] - a[:, 1] * delta[:, 0]) / determinant
+    weights = np.c_[1 - u - v, u, v]
+    points = np.c_[xz[:, 0], np.einsum("ij,ij->i", weights, triangle[:, :, 1]), xz[:, 1]]
+    faces = points[ix]
+    flip = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])[:, 1] < 0
+    ix[flip] = ix[flip][:, [0, 2, 1]]
+    n = np.einsum("ij,ijk->ik", weights, normals[indices[vertex_owner]])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     return (
-        np.concatenate(out_positions),
-        np.concatenate(out_indices).astype(np.uint32),
-        np.concatenate(out_materials),
-        np.concatenate(out_normals),
+        np.concatenate([positions, points]),
+        np.concatenate([indices[selected[uncut]], ix + len(positions)]).astype(np.uint32),
+        np.concatenate([materials[selected[uncut]], *face_materials]),
+        np.concatenate([normals, n]),
     )
