@@ -72,6 +72,8 @@ def height_sampler(tile, heights, root, sources):
 
 
 def produce(tile, linework, height_at, water, buildings, markings):
+    from .inputs import CELLS
+
     if linework is None or linework.is_empty:
         return []
     blocked = shapely.union_all(
@@ -80,6 +82,7 @@ def produce(tile, linework, height_at, water, buildings, markings):
     clipped = linework.difference(blocked)
     window = shapely.box(*tile.bbox.buffered(0.2).as_tuple())
     faces = Faces()
+    step = tile.size / CELLS
     for line in getattr(clipped, "geoms", [clipped]):
         if line.geom_type != "LineString":
             continue
@@ -100,19 +103,29 @@ def produce(tile, linework, height_at, water, buildings, markings):
                     continue
                 # Mapped kerb semantics, with an explicitly unmeasured 12 cm raised profile.
                 xz = np.array([p - normal, q - normal, q + normal, p + normal])
-                corners = np.c_[xz[:, 0], [height_at(*v) for v in xz], xz[:, 1]]
-                bottom = corners.copy()
-                bottom[:, 1] -= 0.02
-                top = corners.copy()
-                top[:, 1] += 0.12
-                faces.face(top[::-1], top[::-1][:, [0, 2]])
+                # Each top patch stays on one terrain plane, rather than
+                # bridging a grid diagonal or a sharp bank between corners.
+                for patch in terrain_patches(xz, step):
+                    top = np.c_[patch[:, 0], [height_at(*v) + 0.12 for v in patch], patch[:, 1]]
+                    faces.face(top[::-1], top[::-1][:, [0, 2]])
                 for i in range(4):
                     j = (i + 1) % 4
-                    wall = np.array([bottom[i], bottom[j], top[j], top[i]])
-                    faces.face(
-                        wall[::-1],
-                        np.array([[0, 0], [high - low, 0], [high - low, 0.14], [0, 0.14]]),
-                    )
+                    edge = terrain_edge(xz[i], xz[j], step)
+                    for edge_start, edge_end in zip(edge[:-1], edge[1:], strict=True):
+                        ha, hb = height_at(*edge_start), height_at(*edge_end)
+                        wall = np.array(
+                            [
+                                [edge_start[0], ha - 0.02, edge_start[1]],
+                                [edge_end[0], hb - 0.02, edge_end[1]],
+                                [edge_end[0], hb + 0.12, edge_end[1]],
+                                [edge_start[0], ha + 0.12, edge_start[1]],
+                            ]
+                        )
+                        u0, u1 = (np.linalg.norm(v - xz[i]) for v in (edge_start, edge_end))
+                        faces.face(
+                            wall[::-1],
+                            np.array([[u0, 0], [u1, 0], [u1, 0.14], [u0, 0.14]]),
+                        )
     if not faces.indices:
         return []
     mesh = faces.mesh(
@@ -120,6 +133,36 @@ def produce(tile, linework, height_at, water, buildings, markings):
     )
     result = clip_mesh(mesh, tile.bbox)
     return [result] if result else []
+
+
+def terrain_patches(corners, step):
+    """Convex strip pieces inside the same regular triangles as visual/collision ground."""
+    strip = shapely.Polygon(corners)
+    lo = np.floor(np.min(corners, axis=0) / step).astype(int)
+    hi = np.floor(np.max(corners, axis=0) / step).astype(int)
+    for i in range(lo[0], hi[0] + 1):
+        for j in range(lo[1], hi[1] + 1):
+            a = np.array([i, j]) * step
+            b, c, d = a + [step, 0], a + [0, step], a + step
+            for triangle in ((a, b, c), (b, d, c)):
+                clipped = strip.intersection(shapely.Polygon(triangle))
+                if clipped.geom_type == "Polygon" and clipped.area > 1e-9:
+                    yield np.asarray(shapely.geometry.polygon.orient(clipped, 1).exterior.coords)[
+                        :-1
+                    ]
+
+
+def terrain_edge(a, b, step):
+    """Split an edge at grid rows, columns and their shared descending diagonal."""
+    cuts = {0.0, 1.0}
+    for start, end in zip([*a, a.sum()], [*b, b.sum()], strict=True):
+        if abs(end - start) < 1e-12:
+            continue
+        for k in range(math.floor(min(start, end) / step) + 1, math.ceil(max(start, end) / step)):
+            t = (k * step - start) / (end - start)
+            if 1e-10 < t < 1 - 1e-10:
+                cuts.add(t)
+    return a + np.asarray(sorted(cuts))[:, None] * (b - a)
 
 
 def visuals(tile, meshes):

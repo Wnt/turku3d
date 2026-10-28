@@ -39,6 +39,26 @@ def test_kerb_corners_follow_cross_slope_with_identical_collision_faces():
     assert np.all(np.isclose(relative, 0.12) | np.isclose(relative, -0.02))
 
 
+def test_kerb_top_follows_terrain_inside_triangles_and_at_tile_clip():
+    from turku3d.coarse.inputs import CELLS
+    from turku3d.coarse.kerbs import produce
+
+    tile = C.VisualTile(0, 0, 0)
+    step = tile.size / CELLS
+
+    def height(x, z):
+        return max(0, x + z - step)
+
+    mesh = produce(tile, shapely.LineString([(-0.2, 0.8), (1.6, 0.8)]), height, [], [], [])[0]
+    triangles = mesh.positions[mesh.indices]
+    area_y = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])[:, 1]
+    top = triangles[area_y > 1e-10]
+    assert len(top) > 2
+    for p in top.mean(axis=1):
+        assert abs(p[1] - height(p[0], p[2]) - 0.12) < 1e-12
+    assert mesh.positions[:, 0].min() == 0
+
+
 def test_vectors_override_baked_blue_and_white_and_vegetation():
     tile = C.VisualTile(0, 0, 0)
     points = np.array([[10, 1, 10], [20, 1, 10], [30, 1, 10]])

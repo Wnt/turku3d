@@ -43,7 +43,9 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   mapped crossings leave openings; buildings and water exclude kerbs. No kerbs are inferred
   from road edges. Full strips are clipped after extrusion, with the owning terrain grid sampled
   on both sides of tile seams. Each strip corner follows the ground cross-slope, including
-  bridge approach adjustments. Bridge/tunnel/nonzero-layer ways are excluded.
+  bridge approach adjustments. Tops and walls split at terrain rows, columns and diagonals,
+  so a strip cannot bridge a dip or float between sampled corners. Bridge/tunnel/nonzero-layer
+  ways are excluded.
   `marking_triangles`, `kerb_triangles` and `ground_surfaces` record output counts.
 - **Water**: cells inside water polygons become the water sensor at the shoreline level over a synthetic bed
   (`ground.water.add_river_bed`), and are drawn as a flat surface at that level (`material_key` water, which the
