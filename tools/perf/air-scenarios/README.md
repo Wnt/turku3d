@@ -84,15 +84,42 @@ The script opens New game, skips the introduction, places the character beside t
 player car and enters with F. It records 10 s idle, W for 20 s, resets to the starting
 pose, settles for 2 s, W+A from rest for 20 s, W+D while driving for 20 s, then releases
 all keys for 10 s. The last held key repeats at 30 Hz through CDP, matching keyboard
-autorepeat when multiple keys are held. The controller run uses the same route and
+autorepeat when multiple keys are held. The controller run uses the same timed input and
 pedal/steering phases through a virtual standard Gamepad with no keyboard repeat.
+This is a timed-input test, not path following: the car can hit benches or walls.
+A stationary car alone does not establish a physics freeze. Compare publication
+age and tick progression; do not use this run as an unobstructed handling or
+pose-matched rendering benchmark.
 
 `~/turku3d/profiling/record.mjs` runs in light mode, installing its normal probes
-before workers are constructed. Output remains local under
+before workers are constructed. The scenario compiles its injected probe first. If
+the supplied recorder has unescaped nested-template strings, it uses a corrected
+`String.raw` copy under the sandbox reports; it never edits the external recorder.
+Self-clocked transport has no one-reply-per-step contract, so the scenario clears
+the legacy pending-step tracker there. Publication age/ticks are the authoritative measurement;
+old recordings made before that tracker correction can report a false `stuckMs`
+on either live transport.
+Output remains local under
 `$TURKU3D_WORK/reports/latency/air/{before,after,controller}/`: its per-second
 `frames.json` and `recorder.log`, per-render-frame publication age/physics ticks,
 worker step duration, shared packet byte count and heap in `state-age.json`, phase
-percentiles in `summary.json`, and an Air screenshot. Publication age uses absolute
+per-second age/ticks in `state-seconds.json`, phase percentiles in `summary.json`, and an Air screenshot. Publication age uses absolute
 performance time across worker and page. Shared transport has no state message
 round trip; use publication age and tick progression to compare it with baseline.
 The scenario measures real render load rather than adding a synthetic busy loop.
+
+For the nested static-host and isolation-disabled checks, serve the final production
+bundle with a plain HTTP server on port base +4. The sandbox report server root has
+`turku-game/game` pointing to `build/game` and sibling `turku-game/tiles` pointing to
+the same read-only tile release. It supplies no isolation headers:
+
+```sh
+python3 -m http.server "$((TURKU3D_PORT_BASE+4))" --bind 127.0.0.1 \
+  --directory "$TURKU3D_WORK/reports/latency/pages-root"
+scripts/dev/codex-task wait-cmd -- node tools/perf/air-scenarios/physics-latency.mjs pages
+scripts/dev/codex-task wait-cmd -- node tools/perf/air-scenarios/physics-latency.mjs fallback
+```
+
+`pages` requires isolated shared transport after the scoped service-worker bootstrap.
+`fallback` uses CDP `Network.setBypassServiceWorker` to simulate unavailable isolation
+and requires the self-clocked message transport. Both reuse the same car phases.
