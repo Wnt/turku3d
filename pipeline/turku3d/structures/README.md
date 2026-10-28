@@ -126,7 +126,9 @@ Material keys are `stone_stairs`, `concrete_wall`, `metal_fence`, `metal_railing
 integration requirement; the layer GLBs currently use neutral base colours.
 
 Complete objects (`params.seams=objects`) go to every collision tile of their own L0 tile they
-touch and to that tile's visual; no grid clipping or face duplication occurs.
+touch and to that tile's visual; no grid clipping or face duplication occurs in the layer.
+The assembler deduplicates those copies and distributes intact triangles across L0 ownership
+boundaries too, so an endpoint cheek on a tile edge is present on both sides.
 All NPZ, GLB and manifest publication uses `turku3d.layers`; the v1 reader verifies
 these files in the synthetic regression. Cross-grid tests preserve every original
 triangle exactly, including helpers and cheeks.

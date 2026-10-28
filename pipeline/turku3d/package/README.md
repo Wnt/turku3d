@@ -61,7 +61,10 @@ Collision merges preserve all triangles, per-face material IDs, and primitives. 
 are converted from float64 world-local into tile-local float32; every output is decoded,
 checked against the source within 2 mm, and limited to 1 MB. Continuous-layer seams are
 checked bitwise before and after conversion, including neighbouring previously shipped tiles.
-Complete objects are not clipped or duplicated. `AOI_BORDER` follows the available collision
+Structure triangles are distributed intact to every collision cell their bounds touch,
+including cells across an L0 producer boundary. Repeated producer copies are deduplicated;
+effective per-cell geometry hashes invalidate retained neighbours when a source face changes.
+Other complete objects are not clipped or duplicated. `AOI_BORDER` follows the available collision
 inventory, and changes on existing neighbours when new tiles are added.
 Available collision tiles in the 50 m margin around each requested L0 tile are also
 published. This includes the west Teatterisilta shore outside the four visual tiles.
