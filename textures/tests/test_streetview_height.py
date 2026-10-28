@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-
 from turkutex.streetview.height import fit_ground
 
 

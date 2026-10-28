@@ -13,6 +13,8 @@ from turku3d import config
 
 def fit_ground(xy: np.ndarray, heights: np.ndarray, query: np.ndarray) -> float | None:
     """Fit a supported local plane, rejecting gaps, steep/discontinuous or noisy samples."""
+    if not all(np.isfinite(values).all() for values in (xy, heights, query)):
+        return None
     delta = np.asarray(xy) - query
     distances = np.linalg.norm(delta, axis=1)
     if len(distances) < 6 or distances.min() > 5 or distances.max() > 20:

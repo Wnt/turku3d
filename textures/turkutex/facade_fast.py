@@ -232,6 +232,10 @@ def describe(
     engine: str = "astra",
     segmentation: str = "classic",
 ) -> dict:
+    if engine == "hybrid":
+        from .facade_hybrid import describe as describe_hybrid
+
+        return describe_hybrid(run, inventory, refs)
     if engine == "cv-priors":
         from .facade_priors import describe as describe_priors
 
@@ -311,13 +315,13 @@ def descriptions(run: Path, facades, attributes: dict) -> dict[str, dict]:
         issues = fr.validate(answer, f.id)
         if issues:
             problems[f.id] = "; ".join(issues)
-        elif answer["wall_visible"]:
+        elif answer["wall_visible"] or record.get("meta", {}).get("cv", {}).get("fields"):
             own[f.id] = (answer, record)
         else:
             problems[f.id] = f"reference does not show the wall: {answer['problem']}"
     by_building: dict[str, list] = {}
     for f in facades:
-        if f.id in own:
+        if f.id in own and not own[f.id][1].get("meta", {}).get("cv", {}).get("fields"):
             by_building.setdefault(f.props["building_id"], []).append(f)
     result = {}
     for f in facades:
@@ -325,7 +329,9 @@ def descriptions(run: Path, facades, attributes: dict) -> dict[str, dict]:
         if f.id in own:
             answer, record = own[f.id]
             result[f.id] = {
-                "source": "reference",
+                "source": "hybrid"
+                if record.get("meta", {}).get("cv", {}).get("fields")
+                else "reference",
                 "description": answer,
                 "reference": record["meta"]["reference"],
                 **({"cv": record["meta"]["cv"]} if "cv" in record["meta"] else {}),
@@ -677,6 +683,7 @@ def main(argv=None) -> int:
                     "astra",
                     "cv",
                     "cv-priors",
+                    "hybrid",
                     "cv-transforms",
                     "cmp",
                     "cmp-grid",
