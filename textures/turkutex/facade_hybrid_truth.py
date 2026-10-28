@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
@@ -14,43 +15,66 @@ from . import facade_fast as ff
 from . import facade_priors as priors
 from .building_jobs import latest
 from .facade_fast_render import MATERIALS
-from .streetview.facades import Facade, load_facades, merge_edges, save_facades
-
-
-def edge_heights(points: np.ndarray, start: np.ndarray, end: np.ndarray) -> np.ndarray:
-    tangent = end - start
-    length = np.linalg.norm(tangent)
-    tangent = tangent / length
-    delta = points[:, :2] - start
-    along = delta @ tangent
-    across = np.abs(delta[:, 0] * tangent[1] - delta[:, 1] * tangent[0])
-    keep = (across <= 0.6) & (along >= -0.5) & (along <= length + 0.5)
-    if keep.sum() < 2 or np.ptp(along[keep]) < length * 0.6:
-        return np.empty(0)
-    return points[keep, 2]
+from .streetview.facades import Facade, load_facades, save_facades
 
 
 def inventory(args):
-    """Whole street-facing footprint runs across the cached 3x3 WFS area, with LOD2 heights."""
+    """Whole street-facing LOD2 wall surfaces across the cached 3x3 WFS area."""
     import geopandas as gpd
     import shapely
     from shapely.geometry import LineString
-    from shapely.geometry.polygon import orient
     from turku3d import config
 
+    from .streetview.height import ground_height
+    from .streetview.walls import wall_rectangles
+
     wfs = config.raw_dir("wfs/work-3x3")
-    frame = gpd.read_parquet(wfs / "bldg_Building_LOD2.parquet")
+    if args.radius:
+        import pandas as pd
+
+        from .streetview.visibility import file_bounds, overlaps, source_files
+
+        bounds = (
+            config.ORIGIN_E - args.radius,
+            config.ORIGIN_N - args.radius,
+            config.ORIGIN_E + args.radius,
+            config.ORIGIN_N + args.radius,
+        )
+        files = [r[0] for r in source_files() if (b := file_bounds(r)) and overlaps(b, bounds)]
+        frames = [
+            gpd.read_parquet(
+                path,
+                columns=[
+                    "feature_key",
+                    "geom_index",
+                    "geometry",
+                    "geom_type",
+                    "surface_type",
+                    "pysyvarakennustunnus",
+                ],
+            )
+            for path in files
+        ]
+        frame = gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs=frames[0].crs)
+        frame = frame.drop_duplicates(["feature_key", "geom_index"])
+    else:
+        frame = gpd.read_parquet(wfs / "bldg_Building_LOD2.parquet")
     frame = frame[
-        (frame.geom_type == "Polygon") & frame.surface_type.isin(["GroundSurface", "RoofSurface"])
+        (frame.geom_type == "Polygon") & frame.surface_type.isin(["GroundSurface", "WallSurface"])
     ]
     buildings = []
+    excluded = (
+        {f.props["building_id"] for f in load_facades(args.exclude_inventory)}
+        if args.exclude_inventory
+        else set()
+    )
     for key, group in frame.groupby("feature_key", sort=True):
         bid = str(group.pysyvarakennustunnus.iloc[0])
-        if bid in ("", "None", "nan", "0", "<NA>"):
+        if bid in ("", "None", "nan", "0", "<NA>") or bid in excluded:
             continue
         ground = group[group.surface_type == "GroundSurface"]
-        roofs = group[group.surface_type == "RoofSurface"]
-        if ground.empty or roofs.empty:
+        surfaces = group[group.surface_type == "WallSurface"]
+        if ground.empty or surfaces.empty:
             continue
         footprint = shapely.make_valid(
             shapely.union_all([shapely.force_2d(g) for g in ground.geometry])
@@ -58,60 +82,85 @@ def inventory(args):
         polygons = [p for p in getattr(footprint, "geoms", [footprint]) if p.geom_type == "Polygon"]
         if not polygons:
             continue
-        footprint = orient(max(polygons, key=lambda p: p.area), 1)
-        ground_points = np.concatenate([np.asarray(g.exterior.coords) for g in ground.geometry])
-        roof_points = np.concatenate([np.asarray(g.exterior.coords) for g in roofs.geometry])
-        buildings.append((bid, key, footprint, ground_points, roof_points))
+        buildings.append((bid, key, footprint, list(surfaces.geometry)))
     shapes = [r[2] for r in buildings]
     tree = shapely.STRtree(shapes)
-    roads = gpd.read_parquet(wfs / "GIS_Keskilinjat.parquet").geometry
-    roads = shapely.union_all([shapely.force_2d(g) for g in roads])
+    roads = None
+    if not args.radius:
+        roads = gpd.read_parquet(wfs / "GIS_Keskilinjat.parquet").geometry
+        roads = shapely.union_all([shapely.force_2d(g) for g in roads])
     walls = []
-    for bi, (bid, key, shape, ground_points, roof_points) in enumerate(buildings):
-        ring = np.asarray(shape.exterior.coords)[:-1, :2]
-        for index, (a, b) in enumerate(merge_edges(ring, max_turn_deg=5, max_dev=0.3)):
-            bottom = edge_heights(ground_points, ring[a], ring[b])
-            upper = edge_heights(roof_points, ring[a], ring[b])
-            if not len(bottom) or not len(upper) or np.ptp(np.quantile(upper, [0.1, 0.9])) > 2:
+    for bi, (bid, key, shape, surfaces) in enumerate(buildings):
+        rectangles = wall_rectangles(surfaces)
+        for p0, p1, base, top, normal in rectangles:
+            centre = (p0 + p1) / 2
+            if (
+                args.radius
+                and np.max(np.abs(centre - [config.ORIGIN_E, config.ORIGIN_N])) > args.radius
+            ):
                 continue
-            base, top = float(np.median(bottom)), float(np.median(upper))
-            from .streetview.height import ground_height
-
-            centre = (ring[a] + ring[b]) / 2
-            delta = ring[b] - ring[a]
-            outward = np.array([delta[1], -delta[0]]) / np.linalg.norm(delta)
-            terrain = ground_height(*(centre + outward * 0.75))
-            # Some raw GroundSurface polygons use an unmeasured zero datum. Keep
-            # the supported absolute eaves height; never add the terrain offset to it.
-            if terrain is not None and terrain - base > 1.0:
-                base = terrain
+            if shape.boundary.distance(shapely.Point(centre)) > 0.5:
+                continue  # A recessed upper wall does not include the ground storey.
+            tangent = (p1 - p0) / np.linalg.norm(p1 - p0)
+            if any(
+                other_top > top + 3
+                and abs(other_normal @ normal) > 0.99
+                and abs(((a + b) / 2 - centre) @ normal) < 5
+                and min(max((a - p0) @ tangent, (b - p0) @ tangent), np.linalg.norm(p1 - p0))
+                - max(min((a - p0) @ tangent, (b - p0) @ tangent), 0)
+                > np.linalg.norm(p1 - p0) * 0.8
+                for a, b, _, other_top, other_normal in rectangles
+            ):
+                continue  # A low podium in front of the taller facade is not a whole facade.
+            # Select the side facing an unobstructed street. Recessed upper walls
+            # may lie inside the ground footprint on both sides; a centroid test
+            # cannot determine their outward side reliably.
+            choices = []
+            for sign in (1, -1):
+                start = centre + sign * normal * 0.5
+                if shape.contains(shapely.Point(start)):
+                    continue
+                if roads is None:
+                    choices.append((0, sign))
+                    continue
+                ray = LineString([start, start + sign * normal * 60])
+                hit = ray.intersection(roads)
+                if hit.is_empty:
+                    continue
+                distance = shapely.Point(start).distance(hit)
+                if any(
+                    i != bi
+                    and shapely.Point(start).distance(ray.intersection(shapes[i])) < distance
+                    for i in tree.query(ray, predicate="intersects")
+                ):
+                    continue
+                choices.append((distance, sign))
+            if not choices:
+                continue
+            _, sign = min(choices)
+            terrain = ground_height(*(centre + sign * normal * 0.75))
+            if terrain is not None:
+                if base - terrain > 2:  # Upper-only surfaces cannot label the building's storeys.
+                    continue
+                base = max(base, terrain)
             if top - base < 3:
                 continue
-            fid = bid + "_" + hashlib.sha256((key + ":" + str(index)).encode()).hexdigest()[:10]
+            signature = np.round(np.r_[p0, p1, base, top], 3).tolist()
+            fid = bid + "_" + hashlib.sha256((key + repr(signature)).encode()).hexdigest()[:10]
             wall = Facade(
                 fid,
-                ring[a],
-                ring[b],
+                p0,
+                p1,
                 top - base,
                 base,
                 dict(
                     building_id=bid,
                     street_facing=True,
-                    height_source="LOD2 edge ground/eaves vertices",
+                    height_source="connected coplanar LOD2 WallSurface extent",
                 ),
+                "right" if sign == 1 else "left",
             )
             if not 8 <= wall.length <= 65:
-                continue
-            start = wall.centre + wall.normal * 0.5
-            ray = LineString([start, start + wall.normal * 45])
-            hit = ray.intersection(roads)
-            if hit.is_empty:
-                continue
-            distance = shapely.Point(start).distance(hit)
-            if any(
-                i != bi and shapely.Point(start).distance(ray.intersection(shapes[i])) < distance
-                for i in tree.query(ray, predicate="intersects")
-            ):
                 continue
             walls.append(wall)
     args.root.mkdir(parents=True, exist_ok=True)
@@ -183,7 +232,29 @@ def prepare(args):
             independent_buildings=len({priors.building_group(f.id) for f in selected}),
         ),
     )
-    errors = ff.make_refs(selected, args.root / "refs", ("lookaround", "google", "mapillary"), 3, 1)
+    errors = {}
+    start = time.monotonic()
+    for index in range(0, len(selected), 10):
+        errors.update(
+            ff.make_refs(
+                selected[index : index + 10],
+                args.root / "refs",
+                ("lookaround", "google", "mapillary"),
+                3,
+                1,
+            )
+        )
+        print(
+            json.dumps(
+                dict(
+                    stage="refs",
+                    processed=min(index + 10, len(selected)),
+                    total=len(selected),
+                    seconds=round(time.monotonic() - start, 1),
+                )
+            ),
+            flush=True,
+        )
     screen(args, errors)
 
 
@@ -353,7 +424,7 @@ def label(args):
     path.write_text("".join(json.dumps(job) + "\n" for job in jobs))
     code = Runner(
         args.root / args.reviewer,
-        parallel=3,
+        parallel=args.parallel,
         max_pct=args.max_pct,
         retries=0,
         cache_dir=args.root / "call-cache",
@@ -410,11 +481,18 @@ def main():
     )
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--inventory", type=Path)
+    parser.add_argument(
+        "--radius", type=float, default=0, help="regional WFS radius around origin in metres"
+    )
+    parser.add_argument(
+        "--exclude-inventory", type=Path, help="exclude every building in this local inventory"
+    )
     parser.add_argument("--labels", type=Path)
     parser.add_argument("--limit", type=int, default=240)
     parser.add_argument("--reviewer", choices=["a", "b", "low"])
     parser.add_argument("--max-pct", type=float, default=100)
     parser.add_argument("--batch-size", type=int, default=12)
+    parser.add_argument("--parallel", type=int, default=3)
     parser.add_argument("--label-limit", type=int, default=1000)
     args = parser.parse_args()
     args.root = args.root.resolve()

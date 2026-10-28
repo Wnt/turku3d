@@ -8,8 +8,8 @@ Equirect convention (Google Street View via streetlevel, VERIFIED in docs/resear
 Google depth from streetlevel 0.12.13 must be np.fliplr-ed to match the image (Verification #3);
 `panos.py` stores the raw array and flips at load time.
 
-Pano pitch/roll (small, ~1 deg) are not applied: crops are references for Codex, not projection
-bakes, so a degree of tilt does not matter (ARCHITECTURE D6 use 3).
+Provider pitch/roll and true-to-grid convergence are applied before sampling. Even one degree
+can clip a window row at the far end of a wide wall.
 """
 
 from __future__ import annotations
@@ -24,8 +24,11 @@ import numpy as np
 class EquirectModel:
     heading_rad: float  # azimuth of the image centre column
     sign: float = 1.0  # +1: azimuth grows to the right (Google)
+    rotation: np.ndarray | None = None  # image ENU -> grid ENU, when the full pose is known
 
     def uv_from_dir(self, d: np.ndarray, W: int, H: int):
+        if self.rotation is not None:
+            d = d @ self.rotation
         az = np.arctan2(d[..., 0], d[..., 1])
         el = np.arctan2(d[..., 2], np.hypot(d[..., 0], d[..., 1]))
         u = ((self.sign * (az - self.heading_rad) / (2 * np.pi) + 0.5) % 1.0) * W
@@ -35,7 +38,36 @@ class EquirectModel:
     def dir_from_uv(self, u, v, W: int, H: int) -> np.ndarray:
         az = self.heading_rad + self.sign * (np.asarray(u) / W - 0.5) * 2 * np.pi
         el = (0.5 - np.asarray(v) / H) * np.pi
-        return np.stack([np.sin(az) * np.cos(el), np.cos(az) * np.cos(el), np.sin(el)], -1)
+        d = np.stack([np.sin(az) * np.cos(el), np.cos(az) * np.cos(el), np.sin(el)], -1)
+        return d if self.rotation is None else d @ self.rotation.T
+
+
+def panorama_pose(heading, pitch, roll, convergence=0.0, *, lookaround=False):
+    """Provider image directions -> grid ENU, following the providers' upright correction.
+
+    Look Around uses Photo Sphere Viewer's sphereCorrection (YXZ); GPano uses its
+    panoramaPose (-pitch, -heading, roll, YXZ). PSV axes are (-E, U, N). Apple's
+    stitched centre faces the reverse travel direction, unlike the GPano centre.
+    Sources: sk-zk/lookaround-map/js/viewer/viewer.js and
+    mistic100/Photo-Sphere-Viewer/packages/core/src/services/Renderer.ts.
+    """
+    pan, tilt = (heading, pitch) if lookaround else (-heading, -pitch)
+    cy, sy, cx, sx, cz, sz = (
+        math.cos(pan),
+        math.sin(pan),
+        math.cos(tilt),
+        math.sin(tilt),
+        math.cos(roll),
+        math.sin(roll),
+    )
+    ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    rx = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    rz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    to_enu = np.array([[-1, 0, 0], [0, 0, 1], [0, 1, 0]])
+    from_image = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]]) if lookaround else to_enu.T
+    c, s = math.cos(convergence), math.sin(convergence)
+    grid = np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
+    return grid @ to_enu @ ry @ rx @ rz @ from_image
 
 
 @dataclass

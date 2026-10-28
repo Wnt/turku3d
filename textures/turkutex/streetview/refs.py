@@ -43,7 +43,7 @@ from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 from .rectify import rectified_points, sample_wall
 
-REFS_VERSION = "7-wall-occluders-ground"
+REFS_VERSION = "8-upright-grid-pose"
 
 # Reference fallback order when the best-scored full view fails screening.
 SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")
@@ -138,13 +138,21 @@ def equirect_model(m: PanoMeta) -> C.EquirectModel:
         from .mapillary_camera import MapillaryCamera
 
         return MapillaryCamera(m)
-    if m.source in ("google", "mapillary"):
-        return C.EquirectModel(m.heading_rad, 1.0)
     # Look Around: streetlevel's stitch puts face yaw 0 at column W/2 + ... ; equirect centre is the
     # inverse travel direction; heading is CCW (0 = N, 90 = W) -> centre azimuth = -heading + pi.
     # VERIFIED 2026-10-25: LA 17922395357700297309 vs Google de5igFTgjff1c9FgktKFXQ (1.2 m apart):
     # gradient-profile cross-correlation over 360 deg gives a 2.1 deg offset (incl. parallax).
-    return C.EquirectModel((-m.heading_rad + math.pi) % (2 * math.pi), 1.0)
+    convergence = math.radians(config.true_to_grid_bearing(m.E, m.N, 0))
+    return C.EquirectModel(
+        0.0,
+        rotation=C.panorama_pose(
+            m.heading_rad,
+            m.pitch_rad,
+            m.roll_rad,
+            convergence,
+            lookaround=m.source == "lookaround",
+        ),
+    )
 
 
 def network_result(call, errors: list, source: str, fallback):
@@ -441,6 +449,8 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
 
     semantic = measure(rectified.astype(np.uint8))
     rec = {
+        "reference_version": REFS_VERSION,
+        "image_to_grid": model.rotation.tolist() if isinstance(model, C.EquirectModel) else None,
         "semantic": semantic,
         "lod2_visibility": e.get("lod2_visibility"),
         "view_id": view_id,
@@ -498,7 +508,7 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
         "notes": (
             "calibrated Mapillary camera rotation; approximate camera height; "
             if hasattr(model, "project")
-            else "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; "
+            else "upright panorama pose and true-to-grid heading; depth fliplr-ed; "
         )
         + "attribution: imagery (c) Google / Apple / Mapillary contributors, reference use only, never shipped",
     }

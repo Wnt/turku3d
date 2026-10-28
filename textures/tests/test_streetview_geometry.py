@@ -44,6 +44,28 @@ def test_render_centres_target():
     assert out[10, 10, 0] < 50
 
 
+def test_provider_pose_centres_and_grid_convergence():
+    for apple in (False, True):
+        model = C.EquirectModel(0, rotation=C.panorama_pose(0.4, 0, 0, 0.02, lookaround=apple))
+        azimuth = (math.pi - 0.4 if apple else 0.4) + 0.02
+        assert np.allclose(
+            model.dir_from_uv(500, 250, 1000, 500), [math.sin(azimuth), math.cos(azimuth), 0]
+        )
+        tilted = C.EquirectModel(0, rotation=C.panorama_pose(0, 0.1, 0, lookaround=apple))
+        assert abs(tilted.dir_from_uv(500, 250, 1000, 500)[2] - math.sin(0.1)) < 1e-12
+
+
+def test_upright_pose_sampling_round_trip_with_roll():
+    for apple in (False, True):
+        model = C.EquirectModel(
+            0, rotation=C.panorama_pose(1.2, 0.1, -0.07, 0.01, lookaround=apple)
+        )
+        pixels = np.array([[30, 50], [500, 250], [970, 440]])
+        directions = model.dir_from_uv(pixels[:, 0], pixels[:, 1], 1000, 500)
+        u, v = model.uv_from_dir(directions, 1000, 500)
+        assert np.allclose(np.column_stack([u, v]), pixels)
+
+
 def test_project_matches_rays():
     cam = C.PerspectiveCam(np.array([10.0, 20.0, 2.0]), 123.0, -5.0, 70.0, 320, 200)
     rays = cam.rays()

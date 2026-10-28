@@ -9,7 +9,7 @@ import numpy as np
 _LOCK = Lock()
 _MODEL = None
 _DETECTOR = None
-VERSION = "ade20k-dino-foreground-v1"
+VERSION = "ade20k-dino-foreground-v2"
 
 
 def box_coverage(shape: tuple, boxes: list) -> float:
@@ -80,6 +80,8 @@ def measure(rgb: np.ndarray) -> dict:
 def problem(evidence: dict) -> str | None:
     if evidence.get("state") != "measured":
         return "semantic reference screen unavailable"
+    if evidence.get("interior_share", 0) > 0.05:
+        return "interior floor/ceiling in an exterior wall reference"
     if evidence["occlusion_share"] > 0.2:
         return f"foreground/off-wall coverage proxy {evidence['occlusion_share']:.0%} > 20%"
     if evidence["facade_share"] < 0.65:

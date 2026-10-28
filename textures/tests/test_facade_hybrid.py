@@ -3,7 +3,7 @@
 import numpy as np
 from turkutex.facade_hybrid import bay_spacing, field_outputs, merge_fields, surface_discontinuity
 from turkutex.facade_hybrid_research import fold, summary
-from turkutex.facade_hybrid_truth import agreement, edge_heights
+from turkutex.facade_hybrid_truth import agreement
 from turkutex.facade_priors import prior
 
 
@@ -88,8 +88,53 @@ def test_missing_astra_predictions_stay_in_denominator():
     assert result["hybrid"]["colour_median_de76"] == 0
 
 
-def test_wall_eaves_ignore_a_taller_roof_in_the_same_building():
-    points = np.array([[0, 0, 10], [10, 0, 10], [0, 8, 24], [10, 8, 24]], float)
-    heights = edge_heights(points, np.array([0, 0]), np.array([10, 0]))
-    assert heights.tolist() == [10, 10]
-    assert not len(edge_heights(points[:1], np.array([0, 0]), np.array([10, 0])))
+def test_queue_evidence_is_per_field_and_requires_one_hundred_walls():
+    from turkutex.facade_hybrid_research import winning_fields
+
+    label = dict(storeys=2, window_columns=3, material="brick", wall_colour="#aaaaaa")
+    rows = [
+        dict(
+            label=label,
+            register=dict(label, material="plaster", wall_colour="#ffffff"),
+            hybrid=label,
+        )
+    ] * 100
+    assert winning_fields(summary(rows)) == ["material", "wall_colour"]
+    assert winning_fields(summary(rows[:99])) == []
+
+
+def test_wall_extent_joins_coplanar_parts_but_not_offset_terrace_or_courtyard():
+    from shapely.geometry import Polygon
+    from turkutex.streetview.walls import wall_rectangles
+
+    def wall(left, right, y, base, top):
+        return Polygon([(left, y, base), (right, y, base), (right, y, top), (left, y, top)])
+
+    rectangles = wall_rectangles(
+        [
+            wall(0, 12, 0, 0, 4),
+            wall(0, 12, 0, 4, 20),
+            wall(0, 12, -2, 0, 4),
+            wall(20, 30, 0, 0, 20),
+        ]
+    )
+    assert sorted(
+        (round(np.linalg.norm(b - a)), round(z0, 2), round(z1, 2)) for a, b, z0, z1, _ in rectangles
+    ) == [
+        (10, 0, 20),
+        (12, 0, 4),
+        (12, 0, 20),
+    ]
+
+
+def test_shallow_survey_step_does_not_cut_a_physical_wall_in_half():
+    from shapely.geometry import Polygon
+    from turkutex.streetview.walls import wall_rectangles
+
+    surfaces = [
+        Polygon([(0, 0, 0), (10, 0, 0), (10, 0, 10), (0, 0, 10)]),
+        Polygon([(10, 0.25, 0), (20, 0.25, 0), (20, 0.25, 10), (10, 0.25, 10)]),
+    ]
+    walls = wall_rectangles(surfaces)
+    assert len(walls) == 1
+    assert abs(np.linalg.norm(walls[0][1] - walls[0][0]) - 20) < 0.1

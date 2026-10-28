@@ -230,14 +230,22 @@ class DescribeQueue:
         self.prefer_astra = False
         self.child_log = None
         self.budget = root / ".facade-describe-budget.json"
-        self.events = []
         self.progress = root / ".facade-progress.jsonl"
+        self.events = []
+        if self.progress.exists():
+            for line in self.progress.read_text().splitlines():
+                try:
+                    event = json.loads(line)
+                    if event["finished_at"] > time.time() - 3600:
+                        self.events.append(event)
+                except (ValueError, KeyError, TypeError):
+                    continue
         self.thread = threading.Thread(target=self._run, name="facade-describe", daemon=True)
         self.thread.start()
 
     def status(self) -> dict:
         with self.lock:
-            return dict(self.state)
+            return dict(self.state, **queue_metrics(self.events, time.time()))
 
     def _status(self, **state):
         with self.lock:
@@ -405,7 +413,7 @@ def worker():
                 result = upgrade(Path(inventory), building, Path(root), engine)
             result["seconds"] = time.monotonic() - started
         except Exception as exc:
-            result = dict(state="failed", error=str(exc)[-500:])
+            result = dict(state="failed", error=str(exc)[-500:], calls=None)
         print(json.dumps(result), flush=True)
 
 

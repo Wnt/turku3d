@@ -37,6 +37,7 @@ def test_semantic_occlusion_overrides_sharp_pixels():
     assert "support" in problem(dict(evidence, occlusion_share=0, facade_share=0.4))
     assert "multiple" in problem(dict(evidence, occlusion_share=0, multiple_surfaces=True))
     assert problem(dict(state="unavailable")) is not None
+    assert "interior" in problem(dict(evidence, interior_share=0.2))
 
 
 def test_target_support_rejects_rectangle_across_courtyard_gap():

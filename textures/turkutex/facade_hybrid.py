@@ -118,6 +118,7 @@ class Evidence:
         return dict(
             facade_share=float(facade.mean()),
             wall_share=float(wall.mean()),
+            interior_share=float(np.isin(labels, [3, 5]).mean()),
             occlusion_share=float(excluded.mean()),
             multiple_surfaces=surface_discontinuity(rgb, wall),
         )

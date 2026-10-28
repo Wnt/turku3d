@@ -183,6 +183,29 @@ def summary(rows):
     return result
 
 
+def winning_fields(metrics):
+    """Field-wise deployment evidence; ties keep the register and small pilots cannot qualify."""
+    if metrics["walls"] < 100:
+        return []
+    baseline, candidate = metrics["register"], metrics["hybrid"]
+    fields = [
+        field
+        for field, score in (
+            ("storeys", "storeys"),
+            ("window_columns", "columns"),
+            ("material", "material"),
+        )
+        if candidate[score]["total"] == baseline[score]["total"]
+        and candidate[score]["correct"] > baseline[score]["correct"]
+    ]
+    if (
+        candidate["colour_coverage"] == baseline["colour_coverage"] == metrics["walls"]
+        and candidate["colour_median_de76"] < baseline["colour_median_de76"]
+    ):
+        fields.append("wall_colour")
+    return fields
+
+
 def evaluate(args):
     records = list(json.loads((args.output / "features.json").read_text()).values())
     old = [r for r in records if r["old"] and clean(r)]
@@ -232,11 +255,8 @@ def evaluate(args):
             f: sum(r["fields"][f]["state"] == "abstain" for r in results) for f in hybrid.FIELDS
         },
     )
-    metrics["eligible_for_queue"] = bool(
-        len(truth) >= 100
-        and metrics["hybrid"]["storeys"]["correct"] > metrics["register"]["storeys"]["correct"]
-        and metrics["hybrid"]["colour_median_de76"] < metrics["register"]["colour_median_de76"]
-    )
+    metrics["winning_fields"] = winning_fields(metrics)
+    metrics["eligible_for_queue"] = bool(metrics["winning_fields"])
     ff.write_json(args.output / "predictions.json", results)
     ff.write_json(args.output / "metrics.json", metrics)
     source, scores = select_material(old + truth)
