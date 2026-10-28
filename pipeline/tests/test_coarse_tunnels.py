@@ -79,9 +79,17 @@ def test_ground_cut_preserves_outside_and_roof_seals_inside():
 def test_building_passage_keeps_upper_shell_and_road_floor_metadata():
     result = scene(passage=True)
     assert len(result.shells) == 3
+    assert not any(
+        m.object_id.endswith(":roof") or ":portal:" in m.object_id for m in result.meshes
+    )
+    assert not any(m.object_id.endswith((":left", ":right")) for m in result.meshes)
+    assert len(result.ceilings) == 1
     for b, _ in result.shells:
         if b.footprint.contains(shapely.Point(10, 10)):
             assert b.base >= 6.5
+    raised = next(shell for b, shell in result.shells if b.base > 2)
+    np.testing.assert_array_equal(result.ceilings[0].positions, raised[2])
+    np.testing.assert_array_equal(result.ceilings[0].indices, raised[3])
     graph = build_graph([([(0, 10), (20, 10)], 3)], [0, 0, 20, 20], "test", connected=False)
     roads = result.roads({"json": encode(graph)})
     encoded = json.loads(roads["json"])

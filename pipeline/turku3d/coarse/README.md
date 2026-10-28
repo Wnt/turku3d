@@ -104,6 +104,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   Portal centres and both floor edges meet the actual owning terrain triangles; cross-slope
   blends into the measured interior over 2 m. Walls, roof and building passage openings follow
   that floor, and road graph heights retain its centre profile.
+  Building passages use their carved building shell as enclosure, with no additional freestanding
+  tube, portal wings or light strips; these belong only to genuine tunnels.
   Visuals and collision are clipped to the same tile bounds. Tight offset corners use individual wall
   sections in a combined mesh; passage footprint cuts remove sub-0.5 mm slivers before triangulation.
   Optional `roads.json.edgeHeights` stores floor Y per edge vertex, shared with draft bridges.
