@@ -51,8 +51,10 @@ def screen(facades, refs, output):
                 and cached.get("semantic", {}).get("version") == VERSION
             ):
                 continue
-            with Image.open(path) as image:
-                evidence = measure(np.asarray(image.convert("RGB")))
+            evidence = view.get("semantic", {})
+            if evidence.get("version") != VERSION:
+                with Image.open(path) as image:
+                    evidence = measure(np.asarray(image.convert("RGB")))
             row.update(
                 sha256=digest,
                 view_id=view["view_id"],

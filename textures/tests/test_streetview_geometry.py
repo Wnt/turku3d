@@ -193,6 +193,7 @@ def test_select_full_wall_from_each_available_source_before_detail():
         _ev("p", 0, -10, "partial", 5, 0.99),
     ]
     assert [e["meta"].id for e in select(evs, P)] == ["l", "g", "m"]
+    assert [e["meta"].id for e in select(evs, SelectParams(max_views=2))] == ["l", "g"]
 
 
 def test_sub_facade_centred_on_camera():

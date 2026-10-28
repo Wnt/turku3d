@@ -389,9 +389,7 @@ def select(evals: list[dict], P: SelectParams) -> list[dict]:
     for source in SOURCE_ORDER:
         if len(chosen) >= P.max_views:
             break
-        full = next(
-            (e for e in pool if e["part"] == "full" and e["meta"].source == source), None
-        )
+        full = next((e for e in pool if e["part"] == "full" and e["meta"].source == source), None)
         if full is not None:
             chosen.append(full)
     if not chosen:

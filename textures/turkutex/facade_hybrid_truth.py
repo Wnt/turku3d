@@ -240,8 +240,8 @@ def prepare(args):
                 selected[index : index + 10],
                 args.root / "refs",
                 ("lookaround", "google", "mapillary"),
-                3,
-                1,
+                workers=3,
+                max_views=4,
             )
         )
         print(
