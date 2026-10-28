@@ -107,6 +107,8 @@ test('deliveries accept bounded whole euros, reject duplicates and malformed cla
   assert.equal(f.room.scores()[0].money, 25);
   assert.deepEqual(f.room.scores().map(s => s.rank), [1, 2]);
   assert.equal(a.messages.at(-1).type, 'scores');
+  a.send({ ...delivery, orderId: 'long-job', job: 'long', routeMeters: 3000, payout: 60, tip: 8 });
+  assert.equal(f.room.scores()[0].money, 93);
 });
 
 test('protocol mismatch requests reload; malformed, binary, oversized and unknown messages count as rejected', () => {

@@ -165,7 +165,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const missions = new MissionSystem({ router, addresses, onPaid: drop => {
     if (!multiplayerPlaying) return;
     multiplayer?.sendDelivery({ orderId: `${multiplayerRunId}:order-${drop.orderIndex}:stop-${drop.stopIndex}`,
-      addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters });
+      addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters, job: drop.job });
   } });
   minimap.setSource(missions);
   voice.attach(missions);

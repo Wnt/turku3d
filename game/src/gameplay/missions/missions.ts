@@ -5,7 +5,7 @@ import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, 
 import {
   basePay, LONG_UNLOCK_ROUNDS, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
   PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline, parSeconds,
-  sellBackPrice, tip, type VehicleOwnership,
+  sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
 import { DIALOGUE, lineText } from '../content/dialogue';
 import { addressSentence, nextPhrase, PHRASES, type PhraseKind } from '../content/announcements';
@@ -63,7 +63,7 @@ interface MissionOptions {
 }
 
 export interface PaidDropoff {
-  orderIndex: number; stopIndex: number; addressId: string; payout: number; tip: number; routeMeters: number;
+  orderIndex: number; stopIndex: number; addressId: string; payout: number; tip: number; routeMeters: number; job: DeliveryJob;
 }
 
 /** A moment worth an autosave (core/save.ts): a delivery ended, or something was bought or sold in a shop. */
@@ -494,7 +494,7 @@ export class MissionSystem implements MissionHudSource {
     const pay = basePay(this.metresFromPizzeria(stop, this.parVehicle()), this.s.job);
     this.s.money += pay + t + bonus;
     this.options.onPaid?.({ orderIndex: this.s.delivery, stopIndex: this.s.stop,
-      addressId: stop.pool?.id ?? stop.id, payout: pay + bonus, tip: t,
+      addressId: stop.pool?.id ?? stop.id, job: this.s.job, payout: pay + bonus, tip: t,
       routeMeters: this.s.stop === 0 ? this.metresFromPizzeria(stop, this.parVehicle())
         : this.streetMetres(stops[this.s.stop - 1].point, stop.point) });
     this.s.pizzas += 1;

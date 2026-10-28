@@ -11,7 +11,7 @@ export interface NetPose {
 export interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
 export interface Score { nick: string; money: number; deliveries: number; rank: number; online: boolean }
 export interface Hour { id: string; start: string; end: string; tz: string }
-interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number }
+interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number; job?: 'short' | 'long' }
 interface MultiplayerState {
   connected: boolean; you: { id: string; nick: string; spawn: NetPlayer['spawn'] } | null;
   hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
