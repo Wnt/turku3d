@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { vegetationOwner } from './vegetationLod';
-import { shadowChunks } from './shadowChunks';
+import { drain, shadowChunkSteps } from './shadowChunks';
+import { PreparationBudget } from '../render/preparationBudget';
 
 // Colour, normal and reflection cameras use layer 0; sun shadow cameras also enable this layer.
 export const TILE_SHADOW_LAYER = 1;
@@ -8,6 +9,22 @@ export const TILE_SHADOW_LAYER = 1;
 // The tile materials must stay separate for facades and object IDs. Shadows only
 // need their geometry. Spatial chunks retain the silhouette without drawing an entire 250 m tile per cascade.
 export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
+  return drain(shadowBatchSteps(model));
+}
+
+const budget = new PreparationBudget();
+export async function prepareTileShadows(model: THREE.Object3D): Promise<THREE.Mesh | null> {
+  const steps = shadowBatchSteps(model);
+  let next = steps.next();
+  while (!next.done) {
+    const pending = budget.checkpoint();
+    if (pending) await pending;
+    next = steps.next();
+  }
+  return next.value;
+}
+
+function* shadowBatchSteps(model: THREE.Object3D): Generator<void, THREE.Mesh | null> {
   model.updateWorldMatrix(true, true);
   const toModel = model.matrixWorld.clone().invert();
   const point = new THREE.Vector3();
@@ -61,16 +78,20 @@ export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
       }
       const offset = vertexOffset;
       for (let i = 0; i < attribute.count; i++) {
+        if (i % 4096 === 0) yield;
         point.fromBufferAttribute(attribute, i).applyMatrix4(transform);
         positions[vertexOffset * 3] = point.x; positions[vertexOffset * 3 + 1] = point.y; positions[vertexOffset * 3 + 2] = point.z;
         vertexOffset++;
       }
-      if (index) for (let i = 0; i < index.count; i++) indices[indexOffset++] = offset + index.getX(i);
+      if (index) for (let i = 0; i < index.count; i++) {
+        if (i % 4096 === 0) yield;
+        indices[indexOffset++] = offset + index.getX(i);
+      }
       else for (let i = 0; i < attribute.count; i++) indices[indexOffset++] = offset + i;
     }
   }
   const material = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
-  const chunks = shadowChunks(positions, indices, model.matrixWorld).map(geometry => {
+  const chunks = (yield* shadowChunkSteps(positions, indices, model.matrixWorld)).map(geometry => {
     const proxy = new THREE.Mesh(geometry, material);
     proxy.name = 'tile-shadow-batch';
     proxy.castShadow = true;

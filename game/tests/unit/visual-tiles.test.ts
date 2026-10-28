@@ -32,3 +32,23 @@ test('cancelled unpublished preparation disposes its shadow resources exactly on
   expect(geometry).toHaveBeenCalledTimes(1); expect(material).toHaveBeenCalledTimes(1);
   expect(tiles.residentModels).toBe(0); expect(tiles.models.size).toBe(0);
 });
+
+
+test('streaming shadow preparation yields before publication and retains its derived geometry', async () => {
+  let clock = 0, frames = 0;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => clock += 3);
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames++; callback(0); return 1; });
+  const tiles = new VisualTiles(), model = new THREE.Group();
+  model.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+  await tiles.prepareModelAsync(model);
+  expect(frames).toBeGreaterThan(0);
+  now.mockRestore();
+  const proxy = model.children.find(object => object.userData.shadowBatch)!;
+  expect(proxy).toBeDefined();
+  tiles.trackModel(model, 'streamed');
+  expect(model.children.filter(object => object.userData.shadowBatch)).toEqual([proxy]);
+  expect(tiles.residentTris).toBe(12);
+  tiles.untrackModel(model, 'streamed');
+  expect(proxy.parent).toBeNull();
+  vi.unstubAllGlobals();
+});

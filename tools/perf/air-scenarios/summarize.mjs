@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 const [directory, phase = 'flight'] = process.argv.slice(2);
 if (!directory || !['flight', 'drive'].includes(phase)) throw new Error('Usage: summarize.mjs DIRECTORY flight|drive');
-const filename = path.join(directory, fs.existsSync(path.join(directory, 'scenario.json')) ? 'scenario.json' : 'flight-state.json');
+const filename = path.join(directory, fs.existsSync(path.join(directory, 'scenario.json')) ? 'scenario.json' : `${phase}-state.json`);
 const state = JSON.parse(fs.readFileSync(filename));
 const frames = state.frames.filter(row => row[2] === phase);
 const sorted = frames.map(row => row[1]).sort((a, b) => a - b);
