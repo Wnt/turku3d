@@ -29,6 +29,7 @@ import shapely
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
+from turku3d.spatial import frame as spatial_frame
 
 from . import roofs
 from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
@@ -37,25 +38,39 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
 # not decode classified roof/bridge lidar again for every surrounding tile.
 DEPENDENCIES = {
-    "wfs": ("roofs.py", "../buildings/source_surfaces.py", "../ground/materials.py"),
+    "wfs": (
+        "roofs.py",
+        "../buildings/source_surfaces.py",
+        "../ground/materials.py",
+        "../spatial.py",
+    ),
     "roads": (
         "bridges.py",
         "bridge_survey.py",
         "tunnels.py",
         "bridge_details.py",
         "underpasses.py",
+        "area.py",
+        "../spatial.py",
+        "../roads/__init__.py",
     ),
-    "parking": ("parked.py", "../parked/placement.py"),
-    "barriers": ("fences.py",),
-    "forests": ("forests.py",),
-    "tunnels": ("tunnels.py", "bridge_details.py", "underpasses.py"),
-    "stairs": ("stairs.py",),
-    "surfaces": ("surfaces.py",),
-    "markings": ("surfaces.py",),
-    "kerbs": ("kerbs.py",),
-    "appearance": ("register.py",),
+    "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
+    "trees": ("../spatial.py",),
+    "barriers": ("fences.py", "../spatial.py"),
+    "forests": ("forests.py", "../spatial.py"),
+    "tunnels": ("tunnels.py", "bridge_details.py", "underpasses.py", "area.py", "../spatial.py"),
+    "stairs": ("stairs.py", "../spatial.py"),
+    "surfaces": ("surfaces.py", "../spatial.py"),
+    "markings": ("surfaces.py", "../spatial.py"),
+    "kerbs": ("kerbs.py", "../spatial.py"),
+    "appearance": ("register.py", "../spatial.py"),
     "register": ("register.py",),
-    "poles": ("../props/__init__.py", "../props/models.py", "../props/orientation.py"),
+    "poles": (
+        "../props/__init__.py",
+        "../props/models.py",
+        "../props/orientation.py",
+        "../spatial.py",
+    ),
 }
 CODE = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 
@@ -184,23 +199,19 @@ def read_ortho(path: Path, tile: C.VisualTile) -> np.ndarray:
 def _frame(path: Path | None, bbox: C.BBoxLocal, kinds=("Polygon", "MultiPolygon")):
     if path is None:
         return []
-    import geopandas as gpd
-
-    frame = gpd.read_parquet(path)
+    frame = spatial_frame(path, bbox)
     frame = frame[frame.geom_type.isin(kinds)]
     window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
-    local = frame.geometry_local.apply(lambda g: shapely.force_2d(g))
+    local = frame.geometry_local.apply(shapely.force_2d)
     keep = local.intersects(window)
     return list(zip(local[keep], frame[keep].itertuples(), strict=True))
 
 
 def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
     """Complete surveyed solid footprints owned by centroid, retaining the roof envelope."""
-    import geopandas as gpd
-
     from turku3d.buildings.source_surfaces import classify_surfaces
 
-    frame = classify_surfaces(gpd.read_parquet(path))
+    frame = classify_surfaces(spatial_frame(path, tile.bbox.buffered(100), whole_features=True))
     frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
     if frame.empty:
         return []
@@ -320,18 +331,14 @@ def prepare_trees(tile: C.VisualTile, osm: Path) -> list:
     """The OSM ``natural=tree`` points in the tile: (id, x, z, height, conifer)."""
     import json
 
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows
 
-    names = pq.read_schema(osm).names
-    table = pq.read_table(
-        osm, columns=[c for c in ("osm_id", "tags", "geometry_local") if c in names]
-    )
     trees = []
-    for k, row in enumerate(table.to_pylist()):
+    for k, row in rows(osm, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("natural") != "tree":
             continue
-        point = shapely.from_wkb(row["geometry_local"])
+        point = row["geometry_local"]
         if point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
             continue
         try:
@@ -562,6 +569,7 @@ def gather(
     seconds, values, provenance = {}, {}, {}
     for dataset, paths in _sources(tile, sources).items():
         if first_pass and dataset in {
+            "parking",
             "trees",
             "forests",
             "barriers",

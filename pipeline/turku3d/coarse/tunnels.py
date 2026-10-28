@@ -83,27 +83,38 @@ def selected(tags):
 
 def prepare(tile, path):
     """Keep full way extents for stable portals; clip only the emitted geometry to the tile."""
-    import pyarrow.parquet as pq
+    from pathlib import Path
 
-    names = pq.read_schema(path).names
-    table = pq.read_table(
-        path, columns=[c for c in ("osm_id", "tags", "geometry_local") if c in names]
-    )
+    from turku3d.spatial import rows
+
+    from .area import cached, passages
+
     window = shapely.box(*tile.bbox.as_tuple()).buffer(100)
-    out = []
-    from .underpasses import quay_passages
 
-    rows = table.to_pylist()
-    passages = quay_passages(rows)
-    passage_ids = {key for key, _, _ in passages}
-    for k, row in enumerate(rows):
-        tags = json.loads(row["tags"]) if row["tags"] else {}
-        if not selected(tags) or str(row.get("osm_id", k)) in passage_ids:
-            continue
-        line = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
-        if line.geom_type == "LineString" and line.length > 0.5:
-            out.append((str(row.get("osm_id", k)), line, tags))
-    return [way for way in merge_parallel([*out, *passages]) if way[1].intersects(window)]
+    def area_tunnels():
+        out = []
+        quay = passages(path)
+        passage_ids = {key for key, _, _ in quay}
+        for k, row in rows(path):
+            tags = json.loads(row["tags"]) if row["tags"] else {}
+            if not selected(tags) or str(row.get("osm_id", k)) in passage_ids:
+                continue
+            line = shapely.force_2d(row["geometry_local"])
+            if line.geom_type == "LineString" and line.length > 0.5:
+                out.append((str(row.get("osm_id", k)), line, tags))
+        return merge_parallel([*out, *quay])
+
+    ways = cached(
+        path,
+        "tunnels",
+        [
+            Path(__file__),
+            Path(__file__).with_name("underpasses.py"),
+            Path(__file__).with_name("bridge_details.py"),
+        ],
+        area_tunnels,
+    )
+    return [way for way in ways if way[1].intersects(window)]
 
 
 def merge_parallel(ways):

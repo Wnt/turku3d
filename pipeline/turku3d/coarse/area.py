@@ -1,0 +1,32 @@
+"""Small content-cached structural inputs shared by every tile in a source area."""
+
+from pathlib import Path
+
+from turku3d import config as C
+from turku3d.spatial import frame
+from turku3d.stage_cache import StageCache, source_key
+from turku3d.tile_layer import identities
+
+
+def cached(path, name, producers, operation):
+    return StageCache(C.cache_dir("coarse-area")).run(
+        name,
+        source_key(*producers, Path(__file__), Path(__file__).parents[1] / "spatial.py"),
+        identities({"source": path}),
+        operation,
+    )
+
+
+def passages(path):
+    from . import underpasses
+
+    return cached(
+        path,
+        "quay_passages",
+        [
+            Path(underpasses.__file__),
+            Path(__file__).with_name("bridge_details.py"),
+            Path(__file__).with_name("tunnels.py"),
+        ],
+        lambda: underpasses.quay_passages(frame(path).to_dict("records")),
+    )

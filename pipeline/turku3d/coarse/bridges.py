@@ -167,15 +167,11 @@ def passes_under(bridge, way):
 
 def prepare(tile, osm, survey_paths=(), spot_paths=()):
     """Resolve physical crossings with full source ways before selecting this tile."""
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows
 
-    names = pq.read_schema(osm).names
-    table = pq.read_table(
-        osm, columns=[c for c in ("osm_id", "tags", "geometry_local") if c in names]
-    )
     window = shapely.box(*tile.bbox.buffered(500).as_tuple())
     ways, outlines, obstacles, piers, lamps = [], {}, [], [], []
-    for row_index, row in enumerate(table.to_pylist()):
+    for row_index, row in rows(osm, tile.bbox.buffered(500)):
         tags = json.loads(row["tags"] or "{}")
         if not (
             tags.get("highway")
@@ -184,7 +180,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
             or tags.get("man_made") in ("bridge", "pier")
         ):
             continue
-        line = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
+        line = shapely.force_2d(row["geometry_local"])
         if not line.intersects(window):
             continue
         key = str(row.get("osm_id", row_index))
@@ -212,10 +208,10 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
                 width=way_width(tags),
             )
         )
+    from .area import passages as area_passages
     from .bridge_survey import height_anchors, spot_heights
-    from .underpasses import quay_passages
 
-    passages = quay_passages(table.to_pylist())
+    passages = area_passages(osm)
     spots = spot_heights(spot_paths)
     bridges = merge_crossings([w for w in ways if w["bridge"]], list(outlines.values()))
     road_tree = shapely.STRtree([w["line"] for w in ways])

@@ -16,6 +16,7 @@ envelope reaches into it). A producer's `key(tile)` must name everything its bui
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -24,6 +25,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from turku3d import config as C
@@ -50,30 +52,57 @@ def _tile(tile) -> C.VisualTile:
     return C.VisualTile.parse(tile) if isinstance(tile, str) else tile
 
 
+@lru_cache(maxsize=8)
+def _hash_index(path, size, modified):
+    return json.loads(Path(path).read_text())
+
+
 def fingerprints(paths: dict[str, Path]) -> dict[str, dict]:
     """SHA-256 identities, memoized by path, size and mtime; raw files are immutable by contract.
 
     Per-tile builds ask for overlapping path sets, so the memo keeps every path it has seen."""
     cache = C.cache_dir("inputs") / "hashes.json"
     cache.parent.mkdir(parents=True, exist_ok=True)
-    previous = json.loads(cache.read_text()) if cache.exists() else {}
-    memo = dict(previous)
+
+    def read():
+        try:
+            stat = cache.stat()
+            return _hash_index(str(cache), stat.st_size, stat.st_mtime_ns)
+        except FileNotFoundError:
+            return {}
+
+    def identity(path):
+        stat = path.stat()
+        return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+    def matches(old, current):
+        return "sha256" in old and all(old.get(k) == v for k, v in current.items())
+
+    memo = read()
+    states = {key: identity(path) for key, path in paths.items()}
+    missing = [
+        key for key, path in paths.items() if not matches(memo.get(str(path), {}), states[key])
+    ]
+    if missing:
+        # Workers may discover overlapping source areas together. Merge under a
+        # lock: replacing a stale whole index used to lose other workers' hashes
+        # and reread hundreds of MB on their next tile.
+        with cache.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            memo = dict(read())
+            for key in missing:
+                path = paths[key]
+                current = states[key]
+                if not matches(memo.get(str(path), {}), current):
+                    with path.open("rb") as stream:
+                        current["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+                    memo[str(path)] = current
+            temporary = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
+            temporary.write_text(json.dumps(memo, indent=2) + "\n")
+            temporary.replace(cache)
     result = {}
     for key, path in paths.items():
-        stat = path.stat()
-        identity = {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
-        old = memo.get(str(path), {})
-        if all(old.get(k) == v for k, v in identity.items()):
-            identity["sha256"] = old["sha256"]
-        else:
-            with path.open("rb") as stream:
-                identity["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
-        memo[str(path)] = identity
-        result[key] = identity
-    if memo != previous:
-        temporary = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(memo, indent=2) + "\n")
-        temporary.replace(cache)
+        result[key] = dict(memo[str(path)])
     return result
 
 

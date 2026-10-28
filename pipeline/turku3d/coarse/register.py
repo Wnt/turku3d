@@ -72,9 +72,10 @@ def read_osm(tile, path):
     """OSM building outlines and shop POIs are optional independent appearance evidence."""
     import json
 
-    import pyarrow.parquet as pq
     import shapely
     from PIL import ImageColor
+
+    from turku3d.spatial import rows
 
     buildings, shops = [], []
     window = shapely.box(*tile.bbox.buffered(100).as_tuple())
@@ -93,11 +94,11 @@ def read_osm(tile, path):
         "glass": "glass",
         "tiles": "concrete",
     }
-    for row in pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist():
+    for _, row in rows(path, tile.bbox.buffered(100)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if not tags.get("building") and not tags.get("shop"):
             continue
-        geom = shapely.force_2d(shapely.make_valid(shapely.from_wkb(row["geometry_local"])))
+        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if not geom.intersects(window):
             continue
         if tags.get("shop") not in (None, "no", "vacant"):

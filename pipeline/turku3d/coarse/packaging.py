@@ -20,6 +20,8 @@ BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
 # must not invalidate finished world tiles when their orchestration changes.
 PRODUCERS = (
     "build",
+    "area",
+    "collision",
     "banks",
     "parked",
     "packaging",
@@ -52,6 +54,8 @@ def code_hash() -> str:
         [
             *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
             Path(__file__).parents[1] / "stage_cache.py",
+            Path(__file__).parents[1] / "spatial.py",
+            Path(__file__).parents[1] / "roads/__init__.py",
             *BRIDGE.parent.glob("*.mjs"),
             Path(__file__).parents[1] / "buildings/source_surfaces.py",
             Path(__file__).parents[1] / "ground/materials.py",

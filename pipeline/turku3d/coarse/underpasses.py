@@ -21,7 +21,14 @@ def quay_passages(rows):
     for row in rows:
         tags = json.loads(row["tags"] or "{}")
         key = str(row.get("osm_id"))
-        geom = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
+        if tags.get("man_made") != "bridge" and tags.get("highway") not in {
+            "footway",
+            "path",
+            "pedestrian",
+        }:
+            continue
+        raw = row["geometry_local"]
+        geom = shapely.force_2d(shapely.from_wkb(raw) if isinstance(raw, bytes) else raw)
         if tags.get("man_made") == "bridge":
             if geom.geom_type == "LineString" and geom.is_ring:
                 geom = shapely.Polygon(geom)

@@ -15,15 +15,15 @@ from .surfaces import split_boundaries
 
 
 def prepare(tile, path):
-    import pyarrow.parquet as pq
+    from turku3d.spatial import rows as source_rows
 
     rows, areas, seen = [], [], set()
     window = shapely.box(*tile.bbox.buffered(50).as_tuple())
-    for row in pq.read_table(path, columns=["osm_id", "tags", "geometry_local"]).to_pylist():
+    for _, row in source_rows(path, tile.bbox.buffered(50)):
         tags = json.loads(row["tags"] or "{}")
         if tags.get("highway") != "steps" and tags.get("area:highway") != "steps":
             continue
-        geom = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
+        geom = shapely.force_2d(row["geometry_local"])
         if not geom.intersects(window):
             continue
         if tags.get("area:highway") == "steps" or tags.get("area") == "yes":
