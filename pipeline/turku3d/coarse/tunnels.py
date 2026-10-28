@@ -265,7 +265,15 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 profiles.append((line, distances, floor, width))
             continue
 
-        def floor_height(query, line=line, distances=distances, floor=floor):
+        portal_offsets = (
+            np.array([surface_sample(*xz[0]) - floor[0], surface_sample(*xz[-1]) - floor[-1]])
+            if surface_sample is not None
+            else np.zeros(2)
+        )
+
+        def floor_height(
+            query, line=line, distances=distances, floor=floor, portal_offsets=portal_offsets
+        ):
             ds = shapely.line_locate_point(line, shapely.points(query))
             h = np.interp(ds, distances, floor)
             if surface_sample is not None:
@@ -279,12 +287,6 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 # Banks and overburden beside the road are not portal floor. Retain
                 # ordinary crossfall, but never pull a floor up the enclosing hillside.
                 crossfall = 0.1 * np.linalg.norm(query[near] - centre, axis=1)
-                portal_offsets = np.array(
-                    [
-                        surface_sample(*xz[0]) - floor[0],
-                        surface_sample(*xz[-1]) - floor[-1],
-                    ]
-                )
                 endpoint = np.where(ds[near] < line.length / 2, 0, 1)
                 correction = portal_offsets[endpoint] + np.clip(
                     ground - road_height, -crossfall, crossfall
