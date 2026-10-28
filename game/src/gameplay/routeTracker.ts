@@ -28,7 +28,8 @@ export class RouteTracker {
       return false;
     }
     if (!changed && this.route && this.route.length > 1) {
-      const nearest = projectRoute(position, this.route);
+      // Bound forward progress by movement so nearby return legs cannot swallow a loop.
+      const nearest = projectRoute(position, this.route, moved * 1.5 + REROUTE_M);
       if (nearest.distance <= OFF_ROUTE_M) {
         this.offSince = null;
         this.origin = { ...position };
@@ -51,14 +52,18 @@ export class RouteTracker {
   }
 }
 
-function projectRoute(position: WorldPoint, route: WorldPoint[]) {
-  let distance = Infinity, segment = 0, point = route[0];
+function projectRoute(position: WorldPoint, route: WorldPoint[], maxProgress: number) {
+  let distance = Infinity, segment = 0, point = route[0], travelled = 0;
   for (let i = 0; i + 1 < route.length; i++) {
     const a = route[i], b = route[i + 1], dx = b.x - a.x, dz = b.z - a.z;
-    const t = Math.max(0, Math.min(1, ((position.x - a.x) * dx + (position.z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+    const length = Math.hypot(dx, dz);
+    const limit = Math.min(1, (maxProgress - travelled) / (length || 1));
+    const t = Math.max(0, Math.min(limit, ((position.x - a.x) * dx + (position.z - a.z) * dz) / (dx * dx + dz * dz || 1)));
     const p = { x: a.x + t * dx, z: a.z + t * dz };
     const d = Math.hypot(position.x - p.x, position.z - p.z);
     if (d < distance) { distance = d; segment = i; point = p; }
+    travelled += length;
+    if (travelled >= maxProgress) break;
   }
   return { distance, segment, point };
 }

@@ -22,10 +22,25 @@ try {
     const { StreetRouter } = await import('/src/gameplay/router.ts');
     const { RouteTracker, routeView } = await import('/src/gameplay/routeTracker.ts');
     const { Minimap } = await import('/src/gameplay/minimap.ts');
+    const { createGameplay } = await import('/src/gameplay/index.ts');
+    const { draftManifest } = await import('/src/world/manifest.ts');
     const metadata = await fetch('/coarse/navigation.json').then(r => { if (!r.ok) throw Error(`navigation HTTP ${r.status}`); return r.json(); });
-    const graph = parseRoadGraph(metadata.roads), router = new StreetRouter(graph);
+    const runtime = await createGameplay(draftManifest(new URL('/coarse/', location.href).href), document.body);
+    const { router } = runtime, graph = router.graph;
+    runtime.minimap.dispose();
+    await runtime.streets.update([]);
+    await runtime.streets.update([{ ...metadata.roads, edges: [] }]);
+    if (router.graph !== graph) throw Error('tile load/unload replaced the city graph');
+    if (graph.edges.length !== metadata.roads.edges.length) throw Error('city loader changed the network');
     router.mode = 'car';
     const start = { x: 168, z: 246 };
+    const resident = new StreetRouter(parseRoadGraph({ ...metadata.roads, edgeHeights: undefined,
+      edges: metadata.roads.edges.filter(row => {
+        const points = [metadata.roads.nodes[2 * row[0]], metadata.roads.nodes[2 * row[0] + 1],
+          ...row.slice(4), metadata.roads.nodes[2 * row[1]], metadata.roads.nodes[2 * row[1] + 1]];
+        return points.every(value => value >= -250 && value <= 750);
+      }) }));
+    resident.mode = 'car';
     const landmarks = metadata.addresses.addresses.filter(a => a.landmark);
     if (landmarks.length < 5) throw Error('landmark metadata missing');
     const rows = [];
@@ -57,7 +72,7 @@ try {
       router.route = route;
       const fit = routeView(start, path, 650);
       if (path.some(p => Math.abs(p.x - fit.centre.x) > fit.span / 2 || Math.abs(p.z - fit.centre.z) > fit.span / 2)) throw Error('expanded map crops route');
-      rows.push({ id: address.id, address: address.address, metres: router.distance(path), seams, samples, plans: calls, remaining: tracker.length });
+      rows.push({ residentOnlyRoute: !!resident.route(start, goal), id: address.id, address: address.address, metres: router.distance(path), seams, samples, plans: calls, remaining: tracker.length });
       if (/Kural|Forum/i.test(address.address)) {
         const minimap = new Minimap(document.body, graph, router);
         minimap.setSource({ subscribe(fn) { fn({ targets: [target], activeTargetId: target.id, message: address.address, money: 0, timerSeconds: null }); return () => {}; } });
