@@ -55,7 +55,7 @@ Capture pose retention, assets and GC phase affect these snapshots; they do not 
 The remaining 358–367 ms animation tasks in the final flight trace are dominated by synchronous TSL construction.
 
 Baseline is main 104343661aed4b6a5d163da4ab4fa716697eff45, served from the sandbox source archive. After is
-renderer commit 3683511 before rebasing; final documentation/cascade-initialization guards leave the measured
+renderer commit ef239d10 (identical game tree to the captured local 3683511); final documentation/cascade-initialization guards leave the measured
 steady path unchanged. Subsequent main rebases contain no game-source changes relative to that baseline.
 Both are Vite dev builds, WebGPU, medium, fixed 2026-10-15T11:00:00Z, 1600×913 CSS at DPR 2. Before's output is
 2541×1450; after adapts through 1779×1015 to 1270×725, with 1397×797 probes. The lower output is softer: no
@@ -101,7 +101,7 @@ not modified. The independent RAF log also avoids the recorder's missing interva
 
 ## Gate output
 
-`scripts/dev/gate --fast --base main`: GREEN; cached repeat 1.616 s. The preceding uncached run was GREEN
+`scripts/dev/gate --fast --base main`: GREEN; final rebased run 4.150 s (cached repeat 1.616 s). The preceding uncached run was GREEN
 143.938 s at host load over 200; the earlier renderer gate was GREEN 19.373 s. No checks were weakened.
 The gate covers lint/format policy, Chrome launch policy, generated contracts, type checks and unit tests.
 New pure synthetic tests cover resolution hysteresis, upload admission/errors, native tile ownership/abort,
