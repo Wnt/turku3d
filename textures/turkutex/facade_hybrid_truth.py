@@ -545,6 +545,23 @@ def combine(args):
     if set(facades) != selected_ids:
         raise ValueError("selected wall geometry missing from source inventories")
     save_facades([facades[row["facade_id"]] for row in selected], args.root / "candidates.geojson")
+    refs = args.root / "refs"
+    refs.mkdir(exist_ok=True)
+    for fid in selected_ids:
+        sources = [
+            root / "refs" / fid for root in args.source_root if (root / "refs" / fid).is_dir()
+        ]
+        if len(sources) != 1:
+            raise ValueError(f"expected one source reference set for {fid}; found {len(sources)}")
+        link = refs / fid
+        target = sources[0].resolve()
+        if link.is_symlink():
+            if link.resolve() == target:
+                continue
+            link.unlink()
+        elif link.exists():
+            raise ValueError(f"refuse to overwrite reference directory: {link}")
+        link.symlink_to(target, target_is_directory=True)
     for reviewer in ("a", "b"):
         records = args.root / reviewer / "out.jsonl"
         records.parent.mkdir(parents=True, exist_ok=True)
