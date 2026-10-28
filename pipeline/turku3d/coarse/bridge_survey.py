@@ -123,7 +123,9 @@ def pier_stations(axis, width, points, classes, stations, heights):
         if not len(group) or group[-1] - group[0] > 5:
             continue
         cluster = indices[(along[indices] >= group[0]) & (along[indices] < group[-1] + 1)]
-        if len(cluster) < 10 or np.ptp(points[cluster, 1]) < 0.75:
+        # Airborne returns often see only the low exposed side of a support.
+        # Require a vertical spread above lidar noise without demanding a whole pier.
+        if len(cluster) < 10 or np.ptp(points[cluster, 1]) < 0.25:
             continue
         result.append(float(np.median(along[cluster])))
     return result

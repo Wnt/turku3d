@@ -316,7 +316,10 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
     for poly in pieces:
         if poly.geom_type != "Polygon" or poly.area < 0.01:
             continue
-        poly = shapely.geometry.polygon.orient(poly, 1)
+        # Intersected sidewalk strips can leave submillimetre ears that collapse
+        # after collision-cell float32 export. Keep top, soffit and walls on one
+        # simplified ring, rather than dropping mismatched triangles afterwards.
+        poly = shapely.geometry.polygon.orient(poly.simplify(0.0005, preserve_topology=True), 1)
         rings = [np.asarray(r.coords)[:-1] for r in [poly.exterior, *poly.interiors]]
         xz = np.concatenate(rings)
         yy = (

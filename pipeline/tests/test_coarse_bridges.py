@@ -241,7 +241,7 @@ def test_lidar_piers_require_vertical_returns_and_ignore_bank_walls():
     from turku3d.coarse.bridge_survey import pier_stations
 
     axis = shapely.LineString([(0, 0), (60, 0)])
-    x, y, z = np.meshgrid([2, 12, 48], np.linspace(1.2, 3.2, 12), [-2, 2])
+    x, y, z = np.meshgrid([2, 12, 48], np.linspace(1.2, 1.55, 12), [-2, 2])
     points = np.c_[x.ravel(), y.ravel(), z.ravel()]
     assert pier_stations(axis, 6, points, np.full(len(points), 10), [0, 60], [5, 5]) == [12, 48]
     points[:, 1] = 2

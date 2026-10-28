@@ -385,5 +385,9 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_bridges.
 ```
 
 Output: `$TURKU3D_WORK/reports/bridge-quality/{before,after}/{inventory.json,render.json}`
-and local PNGs. Private reference pairs/scores require the comparison tool's own coverage and
+and local PNGs. Targeted `--tiles` reruns retain the other inventory entries, and failed tile
+builds give a nonzero exit status. For an isolated supplementary WFS index, append
+`--wfs-cache "$TURKU3D_WORK/cache/bridge-wfs"`; it uses the same summaries and source checks,
+with shared inputs linked read-only and newly downloaded layers kept in the sandbox.
+Private reference pairs/scores require the comparison tool's own coverage and
 calibration checks and remain outside this repository. No reference values feed generation.

@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import types
+from pathlib import Path
 
 import numpy as np
 
@@ -12,7 +13,7 @@ from turku3d import config as C
 from turku3d.coarse import bridges
 from turku3d.coarse.build import build, grid_mesh
 from turku3d.coarse.inputs import gather
-from turku3d.coarse.sources import MissingInputs
+from turku3d.coarse.sources import MissingInputs, Sources, _Files
 
 # Covers complete named crossings and all incidental bridge instances in these tiles.
 TILES = [
@@ -50,6 +51,11 @@ def main():
     parser.add_argument("phase", choices=["before", "after"])
     parser.add_argument("--baseline-ref", default="d78eb3c7bc45")
     parser.add_argument("--tiles", nargs="+", default=TILES)
+    parser.add_argument(
+        "--wfs-cache",
+        type=Path,
+        help="Supplementary sandbox WFS index, including shared input links",
+    )
     args = parser.parse_args()
     root = C.work_root() / "reports/bridge-quality" / args.phase
     root.mkdir(parents=True, exist_ok=True)
@@ -67,10 +73,13 @@ def main():
     inventory = root / "inventory.json"
     summary = json.loads(inventory.read_text()) if inventory.exists() else {}
     failed = False
+    sources = Sources()
+    if args.wfs_cache:
+        sources.wfs = _Files(args.wfs_cache, "*/*.summary.json")
     for name in args.tiles:
         try:
             tile = C.VisualTile.parse(name)
-            inputs = gather(tile, root.parent)
+            inputs = gather(tile, root.parent, sources)
             pos, _ = grid_mesh(tile, inputs.heights)
             decks = bridges.produce(tile, pos, inputs)
             summary[name] = [
