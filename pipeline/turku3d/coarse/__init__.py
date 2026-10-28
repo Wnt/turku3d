@@ -10,5 +10,7 @@ for _name in (
     "OMP_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS",
     "RAYON_NUM_THREADS",
+    "ARROW_IO_THREADS",
+    "VIPS_CONCURRENCY",
 ):
     os.environ[_name] = "1"

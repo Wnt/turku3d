@@ -167,6 +167,8 @@ class Workers:
                 "OMP_NUM_THREADS": "1",
                 "VECLIB_MAXIMUM_THREADS": "1",
                 "RAYON_NUM_THREADS": "1",
+                "ARROW_IO_THREADS": "1",
+                "VIPS_CONCURRENCY": "1",
             },
         )
         self.local.worker = {"proc": proc, "builds": 0, "started": time.time()}
@@ -246,7 +248,8 @@ class Builder:
         self.version = 0  # counts finished builds; the game re-polls its tiles when it changes
         self.built_count = 0  # tiles this process built
         self.servable: frozenset[str] = frozenset()  # immutable snapshot, read without the lock
-        self.recent: list[float] = []  # service seconds of the latest builds
+        self.recent: list[float] = []  # first-pass service seconds for deadline estimates
+        self.full_recent: list[float] = []
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
@@ -382,12 +385,18 @@ class Builder:
         and the free workers (call with the lock held)."""
         mean = sum(self.recent) / len(self.recent) if self.recent else 8.0
         now = time.time()
-        out = {t: max(0.5, mean - (now - since)) for t, since in self.building.items()}
-        free = sorted([*out.values(), *[0.0] * max(0, self.workers - len(self.building))])
+        out = {
+            t: max(0.5, mean - (now - since))
+            for t, since in self.building.items()
+            if t not in self.upgrading
+        }
+        free = sorted([*out.values(), *[0.0] * max(0, self.workers - len(out))])
         for tile in self.order():
             start = heapq.heappop(free) if free else 0.0
             out[tile] = start + mean
             heapq.heappush(free, out[tile])
+        full_mean = sum(self.full_recent) / len(self.full_recent) if self.full_recent else 30.0
+        out.update({t: max(0.5, full_mean - (now - self.building[t])) for t in self.upgrading})
         return {t: round(v, 1) for t, v in out.items()}
 
     def _building(self, tile: str) -> dict:
@@ -407,7 +416,10 @@ class Builder:
         return None
 
     def _next_upgrade(self):
-        if self.draining or self.priority:
+        if self.draining or any(
+            (r := rank(t, d, self.motion)) is not None and r[0] == 0
+            for t, d in self.priority.items()
+        ):
             return None
         for tile in sorted(
             self.upgrade_queue, key=lambda t: (rank(t, 0, self.motion) or (9, 0), t)
@@ -454,11 +466,24 @@ class Builder:
                 elif proc.returncode == 0 and self.built(tile):
                     self.pending.pop(tile, None)
                     m = json.loads(self.manifest(tile).read_text())
-                    self.timings.pop(tile, None)
+                    previous = self.timings.pop(tile, {})
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
+                    first = (
+                        previous.get("first_pass")
+                        if upgrade
+                        else {
+                            "service": round(seconds, 3),
+                            "total": m.get("seconds", {}).get("total"),
+                        }
+                    )
+                    if first:
+                        self.timings[tile]["first_pass"] = first
                     for old in list(self.timings)[:-STATUS_ITEMS]:
                         del self.timings[old]
-                    self.recent = [*self.recent[-(ETA_BUILDS - 1) :], seconds]
+                    if upgrade:
+                        self.full_recent = [*self.full_recent[-(ETA_BUILDS - 1) :], seconds]
+                    else:
+                        self.recent = [*self.recent[-(ETA_BUILDS - 1) :], seconds]
                     self.stale.pop(tile, None)
                     self.built_count += 1
                     self.servable = self.servable | {tile}

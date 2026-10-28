@@ -403,6 +403,10 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
 
 
 def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
+    import pyarrow
+
+    pyarrow.set_cpu_count(1)
+    pyarrow.set_io_thread_count(1)
     if dataset == "appearance":
         from .register import read_osm
 

@@ -146,3 +146,19 @@ def test_roof_crop_preserves_supported_planes_and_evidence(tmp_path, monkeypatch
     assert original[0].height_evidence == cropped[0].height_evidence
     assert original[0].height_evidence[0]["source"] == "class6_plane_offset"
     assert np.array_equal(original[0].roof_parts[0][1], cropped[0].roof_parts[0][1])
+
+
+def test_lateral_work_does_not_starve_full_quality_upgrades(tmp_path):
+    builder = Builder(tmp_path, code="test", workers=0)
+    builder.steer(260, 125, 27, 0)
+    builder.upgrade_queue.add("t0_1_0")
+    builder.requested["t0_1_0"] = time.time()
+    builder.priority["t0_1_1"] = 125  # beside the moving car, away from its swept path
+    assert builder._next_upgrade() == ("t0_1_0", 0)
+    builder.building["t0_1_0"] = time.time()
+    builder.recent = [5]
+    builder.full_recent = [60]
+    builder.workers = 1
+    assert builder.eta()["t0_1_1"] == 5  # full upgrade owns its own lane
+    builder.building.clear()
+    builder.stop()
