@@ -456,6 +456,9 @@ def test_a_draft_built_from_other_raw_files_is_stale(raw, tmp_path):
     assert first != without_osm  # the street-less draft is rebuilt once OSM lands
     assert first and first == sources.input_key(C.VisualTile(0, 1, 1))
     lidar = C.raw_dir("laz") / "maanpinta" / f"{BLOCK.name}.laz"
+    import os
+    os.utime(lidar, None)
+    assert sources.input_key(C.VisualTile(0, 1, 1)) == first
     lidar.write_bytes(b"LASF" * 200)
     assert sources.input_key(C.VisualTile(0, 1, 1)) != first
 
@@ -527,7 +530,7 @@ def _real_raw(tile: C.VisualTile):
     odir.mkdir(parents=True)
     gpd.GeoDataFrame(
         {
-            "highway": ["residential"],
+            "osm_id": [1], "highway": ["residential"],
             "tags": [json.dumps({"highway": "residential"})],
             "geometry_local": gpd.GeoSeries(
                 [P.shapely.LineString([(x0, z0 + 50), (x0 + 250, z0 + 50)])]
@@ -580,6 +583,8 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
             "kerbs",
             "appearance",
             "register",
+            "stairs",
+            "parking",
         ),
         "cached",
     )

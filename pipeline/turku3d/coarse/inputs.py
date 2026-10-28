@@ -352,6 +352,9 @@ def _key(paths: list[Path], dataset: str = "") -> str:
         )
     from turku3d.tile_layer import identities
 
+    from .sources import content_paths
+
+    paths = content_paths(paths)
     # Size/mtime memoize the expensive read; only bytes identify a prepared input.
     h.update(
         json.dumps(identities({str(i): p for i, p in enumerate(paths)}), sort_keys=True).encode()

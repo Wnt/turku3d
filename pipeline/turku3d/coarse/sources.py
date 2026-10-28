@@ -51,6 +51,29 @@ BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"
 
 
+def content_paths(paths):
+    """Include raster bytes referenced by VRTs, not just their unchanged XML wrapper."""
+    import xml.etree.ElementTree as ET
+
+    result = {}
+    def add(path):
+        path = Path(path)
+        if path in result:
+            return
+        result[path] = path
+        if path.suffix == '.vrt' and path.is_file():
+            try:
+                nodes = ET.fromstring(path.read_bytes()).iter('SourceFilename')
+                for node in nodes:
+                    source = Path(node.text)
+                    add(path.parent / source if node.get('relativeToVRT') == '1' else source)
+            except ET.ParseError:
+                pass  # Unreadable mosaics fail in the producer, not during HTTP admission.
+    for path in paths:
+        add(path)
+    return list(result)
+
+
 class NoCoverage(RuntimeError):
     """The tile lies outside every keyless source this producer can use."""
 
@@ -317,7 +340,7 @@ class Sources:
         return missing
 
     def input_key(self, tile: C.VisualTile) -> str | None:
-        """Identity (path, size, mtime) of every raw file the tile's build reads, and whether OSM is
+        """Content identity of every raw file the tile's build reads, and whether OSM is
         there; None while a required unit is missing. A draft built from other files is stale."""
         laz, missing = self.lidar_paths(tile)
         ortho, osm = self.ortho_source(tile), self.osm_source(tile)
@@ -334,7 +357,7 @@ class Sources:
         h = hashlib.sha256(b"osm" if osm else b"no-osm")
         from .roofs import lidar_paths
 
-        for path in [
+        paths = [
             *laz,
             *lidar_paths(tile),
             ortho,
@@ -343,12 +366,13 @@ class Sources:
             *(p for p in registers if p),
             *spot_sources(tile, self),
             *([osm] if osm else []),
-        ]:
-            try:
-                st = path.stat()
-            except OSError:
-                return None
-            h.update(f"{path}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+        ]
+        from turku3d.tile_layer import identities
+
+        paths = content_paths(paths)
+        if not all(p.is_file() for p in paths):
+            return None
+        h.update(json.dumps(identities({str(i): p for i, p in enumerate(paths)}), sort_keys=True).encode())
         return h.hexdigest()[:24]
 
     def unit_present(self, unit: Unit) -> bool:

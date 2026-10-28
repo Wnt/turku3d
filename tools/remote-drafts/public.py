@@ -132,7 +132,8 @@ def public_handler(builder, prefetcher, settings):
             if route == "navigation":
                 return super().do_GET()
             if route == "health":
-                return self._json(200, {"state": "online", "instance": instance})
+                return self._json(200, {"state": "online", "instance": instance,
+                                        "failure_count": builder.failure_count, "failed_tiles": len(builder.failed)})
             if route == "invalid":
                 return self._json(404, {"error": "route"})
             name = urlparse(self.path).path.removeprefix("/coarse/").split("/", 1)[1]
@@ -148,7 +149,6 @@ def public_handler(builder, prefetcher, settings):
                     if (
                         tile not in active
                         and not builder.built(tile)
-                        and not builder.cached(tile)
                         and len(active) >= settings["queue_max"]
                     ):
                         return self._json(429, {"state": "queue-full"})
@@ -177,11 +177,7 @@ def public_handler(builder, prefetcher, settings):
                         **(
                             {
                                 "stale": True,
-                                "refresh": {
-                                    k: state["refresh"][k]
-                                    for k in ("state", "eta")
-                                    if k in state["refresh"]
-                                },
+                                "failure": {"state": "failed"},
                             }
                             if state.get("stale")
                             else {}

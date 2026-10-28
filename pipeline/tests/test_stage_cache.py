@@ -154,8 +154,9 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
     assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
 
 
-def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_path):
+def test_outdated_draft_waits_and_only_failed_rebuild_falls_back(tmp_path):
     import json
+    import time
 
     from turku3d import config as C
     from turku3d.coarse.service import Builder
@@ -183,9 +184,8 @@ def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_
     )
     builder = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
     state = builder.request(tile.id, 12)
-    assert state["state"] == "built" and state["stale"]
-    assert state["refresh"]["state"] == "queued"
-    assert tile.id in builder.servable and tile.id in builder.priority
+    assert state["state"] == "queued"
+    assert tile.id not in builder.servable and tile.id in builder.priority
     assert builder.journal.path.is_file()
     builder.stop()
     restored = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
@@ -193,14 +193,34 @@ def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_
     from turku3d.coarse.upgrade_queue import next_job
 
     restored.two_pass = True
-    assert next_job(restored) == ((tile.id, 12), True)
+    assert next_job(restored) == ((tile.id, 12), False)
     restored.building[tile.id] = 1
     for _ in range(3):  # A fresh client re-enters while the replacement is running.
-        assert restored.request(tile.id, 12)["stale"]
+        assert restored.request(tile.id, 12)["state"] == "building"
         assert json.loads(restored.manifest(tile.id).read_text())["pass_kind"] == "full"
     restored.building.clear()
     assert restored.cached(tile.id)
+    import threading
+    from types import SimpleNamespace
+
+    restored.two_pass = False
+    restored.run = lambda *_: SimpleNamespace(returncode=1, stderr="broken generator", stdout="")
+    restored.request(tile.id, 12)
+    worker = threading.Thread(target=restored._run, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 2
+    while tile.id not in restored.failed and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert restored.status()["failure_count"] == 1
+    fallback = restored.request(tile.id, 12)
+    assert fallback == {"state": "built", "stale": True,
+                        "failure": {"state": "failed", "error": "broken generator"}}
+    assert tile.id in restored.servable
+    restored.code = lambda: "fixed"
+    assert restored.request(tile.id, 12)["state"] == "queued"
+    assert tile.id not in restored.servable
     restored.stop()
+    worker.join(2)
 
 
 def test_generator_identity_ignores_service_edits_but_tracks_geometry(monkeypatch):
