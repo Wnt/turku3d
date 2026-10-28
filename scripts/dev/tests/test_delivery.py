@@ -130,11 +130,18 @@ class DeliveryTests(unittest.TestCase):
             executable = repo / "node_modules/.bin/cli"
             executable.parent.mkdir()
             executable.symlink_to("../package/bin/cli.js")
+            server_dependency = repo / "server/node_modules/ws/index.js"
+            server_dependency.parent.mkdir(parents=True)
+            server_dependency.write_text("export default 'websocket dependency';")
             post_deploy.copy_dependencies(repo, snapshot)
             copied = snapshot / "node_modules/.bin/cli"
             self.assertTrue(copied.is_symlink())
             self.assertEqual(
                 copied.resolve(), (snapshot / "node_modules/package/bin/cli.js").resolve()
+            )
+            self.assertEqual(
+                (snapshot / "server/node_modules/ws/index.js").read_text(),
+                server_dependency.read_text(),
             )
 
     def test_second_forward_fix_is_rejected(self):

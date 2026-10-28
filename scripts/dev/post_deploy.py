@@ -36,6 +36,7 @@ def copy_dependencies(repo, snapshot):
     for relative in (
         "node_modules",
         "game/node_modules",
+        "server/node_modules",
         "tools/validator/node_modules",
         "pipeline/.venv",
         "textures/.venv",
