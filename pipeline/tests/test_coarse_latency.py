@@ -162,3 +162,72 @@ def test_lateral_work_does_not_starve_full_quality_upgrades(tmp_path):
     assert builder.eta()["t0_1_1"] == 5  # full upgrade owns its own lane
     builder.building.clear()
     builder.stop()
+
+
+def test_first_pass_keeps_structural_collision_inputs_without_preparing_decoration(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    import numpy as np
+    import shapely
+    from turku3d import config as C
+
+    source = tmp_path / "source"
+    source.touch()
+    datasets = (
+        "ground",
+        "ortho",
+        "wfs",
+        "roads",
+        "trees",
+        "barriers",
+        "forests",
+        "tunnels",
+        "poles",
+        "surfaces",
+        "markings",
+        "kerbs",
+        "appearance",
+        "register",
+    )
+    paths = {d: [source] for d in datasets}
+    paths["wfs"] = [source, None, None, source]  # optional roof survey must wait
+    paths["roads"] = [source, source]  # optional bridge survey must wait
+    monkeypatch.setattr(inputs, "_sources", lambda *_: paths)
+    building = inputs.Building("solid", shapely.box(0, 0, 10, 10), 0, 10, "facade_plaster")
+    called = []
+
+    def prepare(tile, dataset, sources):
+        called.append(dataset)
+        if dataset == "ground":
+            return {"points": np.zeros((4, 3)), "heights": np.zeros((129, 129))}
+        if dataset == "wfs":
+            assert len(sources) == 3
+            return {"buildings": [building], "streets": [], "water": []}
+        if dataset == "roads":
+            assert len(sources) == 1
+            return {"bridge_ways": [{"id": "crossing"}]}
+        if dataset == "tunnels":
+            return [{"id": "passage"}]
+        raise AssertionError(f"first pass prepared decorative input {dataset}")
+
+    monkeypatch.setattr(inputs, "_prepare_one", prepare)
+    sources = SimpleNamespace(missing=lambda _: [], input_key=lambda _: "raw-key")
+    result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
+    assert called == ["ground", "wfs", "roads", "tunnels"]
+    assert result.kerbs is None
+    assert result.buildings[0].key == "solid"
+    assert result.roads["bridge_ways"][0]["id"] == "crossing"
+    assert result.tunnels[0]["id"] == "passage"
+
+
+def test_fixed_producer_retries_a_failed_tile_without_old_backoff(tmp_path):
+    builder = Builder(tmp_path, run=lambda *_: None, code="old", workers=0)
+    tile = "t0_1_2"
+    builder.failed[tile] = ("old producer failed", time.time())
+    builder.failure_codes[tile] = "old"
+    assert builder.request(tile, 0)["state"] == "failed"
+    builder.code = lambda: "fixed"
+    assert builder.request(tile, 0)["state"] == "queued"
+    builder.stop()

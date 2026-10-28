@@ -68,7 +68,7 @@ One flat first-pass build and at most one full upgrade run at once, each on its 
 restarted when a pipeline source changes, after 50 tiles, or when it dies): the game also asks for the cells within the next
 30 s of travel along the player's heading (`world/coarseTiles.ts`), so a cold tile's minutes of raw-data
 download overlap with the warm builds. `/coarse/status` lists the tiles `building`. Built tiles are reused
-until the producer code changes. First passes open the edge with collision before texture codecs or classified lidar surveys run; full drafts replace them in place. Content-addressed payload URLs keep first-pass readers safe during upgrades. `status.upgrading` identifies the background full build.
+until the producer code changes. First passes open the edge with structural collision before texture codecs, classified lidar surveys or decorative inputs run; full drafts replace them in place. Content-addressed payload URLs keep first-pass readers safe during upgrades. `status.upgrading` identifies the background full build.
 A failed tile answers 404 with the reason and is retried after two minutes.
 A build never
 downloads: while a tile's raw inputs are missing it answers 202 `{"state": "pending-data",

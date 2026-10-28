@@ -514,6 +514,31 @@ def gather(
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance = {}, {}, {}
     for dataset, paths in _sources(tile, sources).items():
+        if first_pass and dataset in {
+            "trees",
+            "forests",
+            "barriers",
+            "poles",
+            "surfaces",
+            "markings",
+            "kerbs",
+            "appearance",
+            "register",
+            "ortho",
+        }:
+            # Collision-safe structural coverage precedes decorative inputs. These
+            # are all restored by the full pass, using their ordinary caches.
+            values[dataset] = (
+                np.zeros((ORTHO_PX, ORTHO_PX, 3), np.uint8)
+                if dataset == "ortho"
+                else None
+                if dataset == "kerbs"
+                else {}
+                if dataset in ("appearance", "register")
+                else ()
+            )
+            seconds[dataset] = 0.0
+            continue
         full_paths = paths
         if first_pass and paths and dataset in ("wfs", "roads"):
             paths = paths[:3] if dataset == "wfs" else paths[:1]

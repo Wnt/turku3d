@@ -149,15 +149,21 @@ class Workers:
             for p in C.REPO_ROOT.glob(pattern)
         )
 
-    def _worker(self) -> subprocess.Popen:
+    def _worker(self, background=False) -> subprocess.Popen:
         w = getattr(self.local, "worker", None)
         if w and w["proc"].poll() is None and w["builds"] < self.MAX_BUILDS:
-            if not self._changed_since(w["started"]):
+            if w["background"] == background and not self._changed_since(w["started"]):
                 return w["proc"]
         if w:
             self._end(w["proc"])
         proc = subprocess.Popen(
-            [sys.executable, "-m", "turku3d.coarse", "worker"],
+            [
+                *(["nice", "-n", "10"] if background else []),
+                sys.executable,
+                "-m",
+                "turku3d.coarse",
+                "worker",
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
@@ -171,13 +177,18 @@ class Workers:
                 "VIPS_CONCURRENCY": "1",
             },
         )
-        self.local.worker = {"proc": proc, "builds": 0, "started": time.time()}
+        self.local.worker = {
+            "proc": proc,
+            "builds": 0,
+            "started": time.time(),
+            "background": background,
+        }
         with self.lock:
             self.procs.append(proc)
         return proc
 
     def __call__(self, tile: str, out: Path, *, first_pass=False) -> subprocess.CompletedProcess:
-        proc = self._worker()
+        proc = self._worker(background=not first_pass)
         self.local.worker["builds"] += 1
         try:
             proc.stdin.write(
@@ -253,6 +264,7 @@ class Builder:
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
+        self.failure_codes: dict[str, str] = {}
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}  # the latest STATUS_ITEMS builds, oldest first
         self.code_seen = self.code()  # producer hash of the latest check, for /coarse/status
@@ -316,14 +328,21 @@ class Builder:
                 return {"state": "built"}
             self.servable = self.servable - {tile}
             error, at = self.failed.get(tile, (None, 0.0))
-            if error and time.time() - at < RETRY_SECONDS:
+            current_code = self.code()
+            if (
+                error
+                and self.failure_codes.get(tile, current_code) == current_code
+                and time.time() - at < RETRY_SECONDS
+            ):
                 return {"state": "failed", "error": error}
             self.failed.pop(tile, None)
+            self.failure_codes.pop(tile, None)
         try:
             missing = self.inputs(tile)
         except NoCoverage as e:
             with self.lock:
                 self.failed[tile] = (str(e), time.time())
+                self.failure_codes[tile] = self.code()
             return {"state": "failed", "error": str(e)}
         with self.lock:
             self.requested[tile] = time.time()
@@ -504,6 +523,7 @@ class Builder:
                         "build failed"
                     ]
                     self.failed[tile] = (tail[0][:500], time.time())
+                    self.failure_codes[tile] = self.code()
                 if (
                     tile not in self.pending
                     and outcome != "stale"

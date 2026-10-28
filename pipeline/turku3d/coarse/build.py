@@ -508,7 +508,7 @@ def build(
     seconds["tunnels"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    image = jpeg(inputs.ortho)
+    image = None if first_pass else jpeg(inputs.ortho)
     origin = np.asarray(tile.origin)
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)

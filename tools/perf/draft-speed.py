@@ -24,6 +24,12 @@ def main():
     summary = {}
     args.root.mkdir(parents=True, exist_ok=True)
     for tile in args.tiles:
+        if args.service:
+            _, i, j = tile.split("_")
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{args.service}/coarse/want?x={(int(i) + 0.5) * 250}&z={(int(j) + 0.5) * 250}&vx=0&vz=0"
+            ) as response:
+                response.read()
         summary[tile] = {}
         for phase in ("first", "full"):
             out = args.root / "after" / tile

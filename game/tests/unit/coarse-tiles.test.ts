@@ -428,3 +428,41 @@ test('Kaskenkatu requests actual southeast crossings before nearer lateral cells
   expect(arrivalToL0('t0_2_0', 490, 125, 27, 0)).toBeCloseTo(10 / 27);
 
 });
+
+test('a full draft upgrades geometry, changed collision and streets only after the replacement is ready', async () => {
+  const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  let phase = 'first', release!: (model: THREE.Object3D) => void;
+  const first = new THREE.Group(), full = new THREE.Group(), refreshed: string[] = [];
+  const scene = new THREE.Scene();
+  const graph = () => ({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
+    nodes: phase === 'first' ? [500, 100, 700, 100] : [500, 101, 700, 101], edges: [[0, 1, 3, 200]] });
+  const fetch = (async (url: string) => {
+    const name = new URL(url).pathname;
+    const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
+    if (name.endsWith('/want')) return json(200, {});
+    if (name === `/coarse/${id}/manifest.json`) return json(200, { coarse: true, tile: id,
+      visual: { [id]: { url: `vis.${phase}.glb`, sha256: phase } }, roads: { url: `roads.${phase}.json` },
+      collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `col/${cid}.${cid === 'c_8_0' ? phase : 'same'}.col`,
+        sha256: cid === 'c_8_0' ? phase : 'same', bytes: 4, tris: 2, h: [0, 1] }])) });
+    if (name.endsWith('.col')) return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) } as Response;
+    if (name.endsWith('.json') && name.includes('/roads.')) return json(200, graph());
+    return json(404, {});
+  }) as typeof globalThis.fetch;
+  const coarse = new CoarseTiles({ scene, manifest, tiles: new THREE.EventDispatcher() as CoarseHost['tiles'],
+    manifestUrl: '/tiles/manifest.json', pageUrl: 'http://127.0.0.1:5171/', renderer: {} as THREE.WebGPURenderer,
+    fetch, unloadCollision: () => {}, refreshCollision: ids => refreshed.push(...ids), checkCollision: async () => 2,
+    loadModel: async () => phase === 'first' ? first : new Promise(resolve => { release = resolve; }) });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };
+  coarse.update(600, 100, 0); await settle();
+  expect(first.parent).toBe(scene);
+  phase = 'full';
+  coarse.update(600, 100, 16_000); await settle();
+  expect(first.parent).toBe(scene);
+  expect(manifest.collision.c_8_0.sha256).toBe('first');
+  release(full); await settle();
+  expect(first.parent).toBeNull();
+  expect(full.parent).toBe(scene);
+  expect(manifest.collision.c_8_0.sha256).toBe('full');
+  expect(coarse.roadGraphs()[0].nodes).toEqual([500, 101, 700, 101]);
+  expect(refreshed).toEqual(['c_8_0']);
+});

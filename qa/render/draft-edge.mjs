@@ -10,7 +10,7 @@ isolateBrowser();
 const out = path.join(workRoot, 'reports/draft-speed');
 const sceneFile = 'game/__draft-edge.js', pageFile = 'game/__draft-edge.html';
 const published = 'game/public/__draft-published';
-let browser;
+let browser, page;
 try {
   fs.symlinkSync(fs.realpathSync(path.join(process.env.TURKU3D_DATA, 'live/tiles')), published);
   fs.writeFileSync(sceneFile, `import * as THREE from 'three/webgpu';
@@ -59,10 +59,10 @@ window.probe={physics,streamer,coarse,rows,events,errors,start,velocity,begin(){
   fs.writeFileSync(pageFile, '<link rel="icon" href="data:,"><script type="module" src="/__draft-edge.js"></script>', { flag:'wx' });
   browser = await chromium.launch({ executablePath:chromeExecutable(), ignoreDefaultArgs:chromeIgnoreDefaultArgs,
     headless:true, args:chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
-  const page = await browser.newPage({ viewport:{ width:1280, height:720 } });
+  page = await browser.newPage({ viewport:{ width:1280, height:720 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(`http://127.0.0.1:${port()}/__draft-edge.html`);
+  await page.goto(`http://127.0.0.1:${port()}/__draft-edge.html?run=${Date.now()}`);
   await page.waitForFunction(() => window.ready, null, { timeout:120000 });
   await page.waitForFunction(() => { window.probe.streamer.update(349,284); return window.probe.physics.loaded.has('c_7_7'); }, null, { timeout:30000 });
   await page.evaluate(() => window.probe.begin());
@@ -77,6 +77,16 @@ window.probe={physics,streamer,coarse,rows,events,errors,start,velocity,begin(){
   fs.writeFileSync(path.join(out, 'kaskenkatu-edge.json'), JSON.stringify({ ...result,errors },null,2));
   if (errors.length || result.physicsErrors.length) throw new Error(JSON.stringify({ errors,physics:result.physicsErrors }));
   console.log(JSON.stringify(result.rows));
+} catch (error) {
+  const diagnostic = await page?.evaluate(() => {
+    const p = window.probe;
+    return p && { rows:p.rows,events:p.events,errors:p.errors,velocity:p.coarse.velocity,
+      entries:[...p.coarse.entries].map(([id,e])=>({id,state:e.state,error:e.error,drawn:!!e.model?.parent})),
+      loaded:[...p.physics.loaded.keys()],edges:p.streamer.trueEdges() };
+  }).catch(() => null);
+  fs.writeFileSync(path.join(out, 'kaskenkatu-edge-failed.json'),JSON.stringify({error:String(error),diagnostic},null,2));
+  console.log(JSON.stringify(diagnostic));
+  throw error;
 } finally {
   await browser?.close();
   for (const p of [sceneFile,pageFile]) fs.rmSync(p,{force:true});

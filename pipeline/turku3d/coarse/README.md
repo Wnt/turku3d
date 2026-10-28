@@ -110,17 +110,18 @@ No inferred curbs, surveyed stairs, unique facade maps or LOD parents.
 ## Service (`service.py`)
 
 `tools/dev/coarse-tiles` (localhost only, port `$TURKU3D_PORT_BASE + 5`, proxied at `/coarse/` by the dev and dist
-servers). One first-pass build and at most one full upgrade run at once. Native BLAS/OpenMP/LAZ thread pools are limited to one thread per worker. The current tile and actual velocity-ray crossings come first, ordered by entry time; surrounding ring/cone tiles follow. The game requests the cells
+servers). One first-pass build and at most one full upgrade run at once. Native BLAS/OpenMP/Arrow/LAZ/image thread pools are limited to one thread per worker. The current tile and actual velocity-ray crossings come first, ordered by entry time; surrounding ring/cone tiles follow. The game requests the cells
 ahead of a moving player as well as the 3x3 window. Routes and queueing: `tools/dev/README.md`. Built tiles are
 reused until the producer code changes, so a producer fix rebuilds each draft the next time the game asks for it.
 On main the localhost game service runs it and restarts it when a landing changes a file it loaded
 (`tools/dev/localhost/README.md`): `/coarse/status` reports `started` and `modules` (the repository files the process
 imported), and `POST /coarse/drain` stops new builds so the running ones finish first.
 Manifest requests report `building` until the first worker commits completion. A complete first pass
-remains servable during its full upgrade; `version` advances at each publication. First passes retain
-terrain, structural geometry, buildings, roads and all 16 collision cells, use flat materials and skip
-classified roof/bridge survey preparation, boundary splitting, paint and vegetation scatter. Full drafts
-restore the detailed textures, surveyed profiles and decoration in place. A first pass has
+remains servable during its full upgrade; `version` advances at each publication. First passes retain ground, solid building shells, bridge decks, tunnels, roads and all 16 collision
+cells. Flat materials open the boundary before orthophoto sampling, classified survey preparation,
+material boundary splitting, kerbs, fences, props, vegetation and facade appearance preparation.
+Full drafts restore the detailed materials, surveyed profiles and all decorative/collision additions
+in place. A first pass reuses already prepared full survey inputs when available. A first pass has
 `pass_kind: "first"`; the replacement has `pass_kind: "full"`. Payload URLs include SHA-256 identities,
 so requests already using a first manifest keep reading its immutable files during the upgrade.
 The `vis.glb`, `roads.json` and `col/*.col` aliases are retained for offline QA. Shared texture URLs
@@ -157,7 +158,7 @@ Each dataset is reduced once per tile to what the build needs and cached under
 heights over their TIN), `ortho` (512 px RGB), `wfs` (building shells, street polygons with their
 collision material, water polygons), `roads` (`roads.json` of the tile's OSM street graph) and
 `trees` (the tile's OSM `natural=tree` points). The
-key covers `inputs.py`, the dataset’s own producer dependencies and the raw files' path, size and mtime, so new data or relevant code prepares again. A surface edit retains prepared roofs, bridges and ground. First-pass WFS/roads use separate caches; full WFS reuses the base shells before survey refinement. Roof refinement crops cached class-6 points to the buildings before constructing its search tree.
+key covers `inputs.py`, the dataset’s own producer dependencies and the raw files' path, size and mtime, so new data or relevant code prepares again. A surface edit retains prepared roofs, bridges and ground. Material extraction keys cover only the library/fallback generators, so unrelated geometry edits also retain extracted maps. First-pass WFS/roads use separate caches; full WFS reuses the base shells before survey refinement. Roof refinement crops cached class-6 points to the buildings before constructing its search tree.
 The prefetch workers prepare the complete tiles within 1 km of the player in the background
 (`python -m turku3d.coarse prepare <tile> --root <coarse root>`), so a build reads a few small
 pickles instead of decoding LAZ, 5 cm ortho mosaics and whole-area GeoParquet files, and imports
@@ -447,3 +448,5 @@ python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools
 # First/full snapshots and timing JSON stay in $TURKU3D_WORK/reports/draft-speed.
 bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_latency.py
 ```
+
+Full upgrade workers use `nice -n 10`; first-pass workers retain normal priority. Queue ETAs use first-pass times and their dedicated worker, independently of survey upgrades. Producer fixes invalidate failed-build backoff immediately.
