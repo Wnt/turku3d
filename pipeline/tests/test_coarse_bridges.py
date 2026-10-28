@@ -408,6 +408,31 @@ def test_cathedral_arch_has_open_spandrels_between_rib_and_deck():
     assert concrete.positions[:, 1].min() < 3.5
 
 
+def test_skew_abutment_fills_wedge_on_mapped_continuation(monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d.coarse.bridges import produce
+
+    monkeypatch.setattr("turku3d.coarse.tunnels.ground_sampler", lambda fallback: lambda x, z: 6)
+    deck = way("skew", [(20, 20), (60, 20)], width=10)
+    deck.update(
+        outline=shapely.Polygon([(18, 15), (58, 15), (62, 25), (22, 25)]),
+        approaches=[way("east", [(58, 17), (80, 17)], bridge=False, width=6)],
+        under=[],
+        survey={"stations": [0, 40], "heights": [6, 6]},
+    )
+    inputs = SimpleNamespace(
+        points=np.array([[0, 6, 0], [100, 6, 0], [0, 6, 100], [100, 6, 100]]),
+        roads={"bridge_ways": [deck]},
+        buildings=[],
+    )
+    result = produce(C.VisualTile(0, 0, 0), np.empty((0, 3)), inputs)[0]
+    top = result.meshes[0]
+    footprint = shapely.union_all(shapely.polygons(top.positions[top.indices][:, :, [0, 2]]))
+    assert footprint.covers(shapely.Point(59.5, 17))
+    assert not deck["outline"].covers(shapely.Point(59.5, 17))
+
+
 def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
     from turku3d.coarse.bridge_details import surfaces
 

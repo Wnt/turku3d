@@ -60,23 +60,40 @@ export function crossing(world: any, a: number[], b: number[]) {
   } finally { world.removeVehicleController(car.controller); world.removeRigidBody(car.body); }
 }
 
+function routeTiles(bridge: typeof bridges[number]) {
+  const tiles = new Set<string>();
+  const length = Math.hypot(bridge.b[0] - bridge.a[0], bridge.b[1] - bridge.a[1]);
+  for (let s = -20; s <= length + 20; s++) {
+    const x = bridge.a[0] + (bridge.b[0] - bridge.a[0]) * s / length;
+    const z = bridge.a[1] + (bridge.b[1] - bridge.a[1]) * s / length;
+    for (const ox of [-4, 4]) for (const oz of [-4, 4]) tiles.add(`t0_${Math.floor((x + ox) / 250)}_${Math.floor((z + oz) / 250)}`);
+  }
+  return tiles;
+}
+
 async function main() {
   const root = process.argv[2];
   if (!root) throw new Error('usage: node tools/validator/src/bridge-crossing.ts CACHE [NAME,...] [--cached]');
-  const selected = bridges.filter(b => !process.argv[3] || process.argv[3].split(',').includes(b.name));
+  const names = process.argv.slice(3).find(a => !a.startsWith('--'));
+  const selected = bridges.filter(b => !names || names.split(',').includes(b.name));
+  if (!selected.length) throw new Error(`unknown bridge selection: ${names}`);
   const cached = process.argv.includes('--cached');
   await R.init(); await MeshoptDecoder.ready;
   const results = [];
+  // Hold anonymous player-style demand while downloading; a queued tile must
+  // not disappear behind the startup warmer between individual manifest polls.
+  const wanted = [...new Set(selected.flatMap(b => [...routeTiles(b)]))];
+  const client = `bridge-check-${Date.now()}`;
+  const demand = async (tiles: string[]) => {
+    const query = new URLSearchParams({ client, tiles: tiles.join(','), urgent: tiles.join(',') });
+    await fetch(`https://turku.lab.madekivi.fi/coarse/demand?${query}`, { signal: AbortSignal.timeout(5000) });
+  };
+  if (!cached) await demand(wanted);
+  const heartbeat = cached ? undefined : setInterval(() => { void demand(wanted).catch(() => {}); }, 3000).unref();
   for (const bridge of selected) {
     const world = new R.World({ x: 0, y: -9.81, z: 0 });
     try {
-      const tiles = new Set<string>();
-      const length = Math.hypot(bridge.b[0] - bridge.a[0], bridge.b[1] - bridge.a[1]);
-      for (let s = -20; s <= length + 20; s++) {
-        const x = bridge.a[0] + (bridge.b[0] - bridge.a[0]) * s / length;
-        const z = bridge.a[1] + (bridge.b[1] - bridge.a[1]) * s / length;
-        for (const ox of [-4, 4]) for (const oz of [-4, 4]) tiles.add(`t0_${Math.floor((x + ox) / 250)}_${Math.floor((z + oz) / 250)}`);
-      }
+      const tiles = routeTiles(bridge);
       const manifests = [];
       for (const tile of tiles) {
         const dir = path.join(root, tile); await fs.mkdir(dir, { recursive: true });
@@ -95,7 +112,7 @@ async function main() {
           await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
         }
         if (manifest.stale) throw new Error(`${tile} is stale`);
-        manifests.push({ tile, pass: manifest.pass_kind, visual: manifest.visual[tile].sha256 });
+        manifests.push({ tile, state: 'built', stale: false, pass: manifest.pass_kind, visual: manifest.visual[tile].sha256 });
         for (const entry of Object.values(manifest.collision) as any[]) {
           const file = path.join(dir, entry.url); await fs.mkdir(path.dirname(file), { recursive: true });
           let bytes;
@@ -112,10 +129,13 @@ async function main() {
       for (const reverse of [false, true]) {
         const result = { name: bridge.name, reverse, manifests, ...crossing(world, reverse ? bridge.b : bridge.a, reverse ? bridge.a : bridge.b) };
         results.push(result);
+        await fs.writeFile(path.join(root, 'crossings.json'), JSON.stringify(results, null, 2));
         console.log(JSON.stringify({ ...result, profile: undefined, samples: undefined }));
       }
     } finally { world.free(); }
   }
+  if (heartbeat) clearInterval(heartbeat);
+  if (!cached) await demand([]);
   await fs.writeFile(path.join(root, 'crossings.json'), JSON.stringify(results, null, 2));
   if (results.some(r => !r.passed)) process.exitCode = 1;
 }
