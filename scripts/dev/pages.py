@@ -1,4 +1,4 @@
-"""Publish main's game with the tiles the localhost game serves to GitHub Pages as one orphan commit.
+"""Publish main's game with the tiles the localhost game serves to GitHub Pages with serialized, ordered publication.
 
 `publish-pages` (`--from-served`, the default) ships main's production bundle with the served
 tile set (served.release: the live release when it already is exactly that); `--release DIR`
@@ -8,9 +8,9 @@ The deploy repository named in `$TURKU3D_DATA/publish/pages.json`
 (`{"repo": "owner/name", "branch": "gh-pages", "region": {...}}`) only ever holds the latest
 release: `game/` from the release, `tiles/` filtered to the configured region (pages_region.py),
 the site files in `pages-site/` and `.nojekyll`.
-Each publish force-pushes a new parentless commit, so the repository never accumulates
-older releases. No source code, pipeline data or street imagery is published: every bound
-facade must be generated-style. The commit message is the release notes: the commits since
+Each publish fetches the remote head under a shared local lock and appends a commit.
+Older code or tile inputs cannot replace a newer release. No source code, pipeline data or
+street imagery is published: every bound facade must be generated-style. The commit message is the release notes: the commits since
 the previous Pages release, the advisory checks the release failed (known-broken) and the
 region: the shipped tiles and each excluded tile with the criterion it failed.
 
@@ -29,6 +29,8 @@ import time
 from pathlib import Path
 
 import pages_region
+import sandbox
+import tile_store
 
 CONFIG = "publish/pages.json"
 # The last release this data root pushed to Pages; the next notes list commits since it.
@@ -189,21 +191,91 @@ def git(*args, cwd, timeout=120):
     ).stdout.strip()
 
 
-def push(site, repo, branch, message):
-    """Force-push site as a single parentless commit; returns the commit id."""
-    git("init", "-q", "-b", branch, cwd=site)
-    git("add", "-A", cwd=site)
-    git("commit", "-q", "-m", message, cwd=site)
-    git(
-        "push",
-        "-q",
-        "--force",
-        remote_url(repo),
-        f"HEAD:refs/heads/{branch}",
-        cwd=site,
-        timeout=PUSH_TIMEOUT,
+def superseded(record, current, repo=REPO):
+    """Reject older/divergent code and, for compatible code, older tile inputs."""
+    if record["commit"] != current["commit"]:
+        try:
+            git("merge-base", "--is-ancestor", current["commit"], record["commit"], cwd=repo)
+        except subprocess.CalledProcessError:
+            return "older or unrelated source commit"
+    old_time, new_time = current.get("data_time"), record.get("data_time")
+    if old_time is not None and (new_time is None or new_time < old_time):
+        return "older or unknown tile inputs"
+    return None
+
+
+def release_message(message, record):
+    return (
+        message
+        + "\nPages-Release: "
+        + json.dumps({key: record.get(key) for key in ("commit", "data_time")})
     )
-    return git("rev-parse", "HEAD", cwd=site)
+
+
+def remote_release(site):
+    message = git("log", "-1", "--format=%B", "FETCH_HEAD", cwd=site)
+    for line in message.splitlines():
+        if line.startswith("Pages-Release: "):
+            return json.loads(line.removeprefix("Pages-Release: "))
+    # Publications before the ordering metadata used the source SHA in the subject.
+    first = message.splitlines()[0].split()
+    if len(first) >= 2 and first[0] == "Release":
+        return {"commit": first[1]}
+    raise ValueError("remote Pages head has no release identity")
+
+
+def fetch_head(site, remote, branch):
+    try:
+        git("fetch", "-q", "--depth=1", remote, branch, cwd=site, timeout=PUSH_TIMEOUT)
+    except subprocess.CalledProcessError as exc:
+        if "couldn't find remote ref" not in (exc.stderr or ""):
+            raise
+        return None
+    return git("rev-parse", "FETCH_HEAD", cwd=site)
+
+
+def retryable(exc):
+    return any(
+        text in (exc.stderr or "").lower()
+        for text in ("cannot lock ref", "non-fast-forward", "fetch first", "failed to update ref")
+    )
+
+
+def push(site, target, record, date, selection, source):
+    """Fetch/check/commit/push under the caller's lock; retry a remote race once."""
+    git("init", "-q", cwd=site)
+    git("add", "-A", cwd=site)
+    tree = git("write-tree", cwd=site)
+    remote, branch = remote_url(target["repo"]), target["branch"]
+    for attempt in range(2):
+        parent = fetch_head(site, remote, branch)
+        current = remote_release(site) if parent else None
+        if current and (reason := superseded(record, current, source)):
+            return {
+                "status": "skipped",
+                "skipped": reason,
+                "remote_commit": parent,
+                "remote_release": current["commit"],
+                "retries": attempt,
+            }
+        since = current["commit"] if current else record.get("from")
+        message = release_message(notes(record, since, date, selection, source), record)
+        parents = ("-p", parent) if parent else ()
+        commit = git("commit-tree", tree, *parents, "-m", message, cwd=site)
+        try:
+            git(
+                "push",
+                "-q",
+                remote,
+                f"{commit}:refs/heads/{branch}",
+                cwd=site,
+                timeout=PUSH_TIMEOUT,
+            )
+        except subprocess.CalledProcessError as exc:
+            if attempt or not retryable(exc):
+                raise
+            continue
+        return {"status": "published", "commit": commit, "retries": attempt}
 
 
 def gh(*args):
@@ -236,35 +308,38 @@ def enable_pages(repo, branch):
 def publish(published, release=None, repo=REPO):
     """Publish release (default: the live release) to the configured Pages repository.
 
-    Any built release may go: its advisory failures are listed in the release notes. Only
-    the generated-facade rule refuses one (check_facades)."""
+    Advisory failures are listed in the release notes. Generated-facade validation and
+    the remote release ordering check protect publication."""
+    with sandbox.lock(Path(published) / "publish/pages.lock"):
+        return _publish(published, release, repo)
+
+
+def _publish(published, release, repo):
     published = Path(published)
     target = config(published)
     if target is None:
         raise ValueError(f"{published / CONFIG} does not exist")
     release = Path(release or (published / "live")).resolve()
     record = json.loads((release / "live-build.json").read_text())
+    record["data_time"] = tile_store.base_time(release / "tiles")
     facades = check_facades(release)
     selection = pages_region.plan(target, release)
     started = time.monotonic()
     date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
     state_path = published / STATE
-    try:
-        since = json.loads(state_path.read_text()).get("release")
-    except (OSError, ValueError):
-        since = None
-    if since in (None, record["commit"]):
-        since = record.get("from", since)
-    message = notes(record, since, date, selection, repo)
     with tempfile.TemporaryDirectory(prefix="pages-") as temp:
         site = Path(temp) / "site"
         size = assemble(release, site, target["repo"], target["branch"], selection)
-        commit = push(site, target["repo"], target["branch"], message)
+        outcome = push(site, target, record, date, selection, repo)
+    if outcome["status"] == "skipped":
+        return {**outcome, "release": record["commit"], "url": site_url(target["repo"])}
+    commit = outcome["commit"]
     url = enable_pages(target["repo"], target["branch"])
     pending = state_path.with_suffix(".tmp")
     pending.write_text(json.dumps({"release": record["commit"], "commit": commit}) + "\n")
     os.replace(pending, state_path)
     return {
+        **outcome,
         "repo": target["repo"],
         "branch": target["branch"],
         "release": record["commit"],
@@ -279,7 +354,12 @@ def publish(published, release=None, repo=REPO):
 
 
 def update_notes(published, release, deployment):
-    """Amend only the deployed commit's notes, with a lease protecting newer releases."""
+    """Append notes only while this deployment is still the remote head."""
+    with sandbox.lock(Path(published) / "publish/pages.lock"):
+        return _update_notes(published, release, deployment)
+
+
+def _update_notes(published, release, deployment):
     try:
         record = json.loads((release / "live-build.json").read_text())
         if deployment.get("release") != record["commit"]:
@@ -287,7 +367,8 @@ def update_notes(published, release, deployment):
         target = config(published)
         selection = pages_region.plan(target, release)
         date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
-        message = notes(record, record.get("from"), date, selection)
+        record["data_time"] = tile_store.base_time(release / "tiles")
+        message = release_message(notes(record, record.get("from"), date, selection), record)
         with tempfile.TemporaryDirectory(prefix="pages-notes-") as temp:
             site = Path(temp)
             git("init", "-q", cwd=site)
@@ -296,11 +377,10 @@ def update_notes(published, release, deployment):
             if git("rev-parse", "FETCH_HEAD", cwd=site) != deployment["commit"]:
                 return {"skipped": "newer Pages deployment"}
             tree = git("rev-parse", "FETCH_HEAD^{tree}", cwd=site)
-            commit = git("commit-tree", tree, "-m", message, cwd=site)
+            commit = git("commit-tree", tree, "-p", "FETCH_HEAD", "-m", message, cwd=site)
             git(
                 "push",
                 "-q",
-                f"--force-with-lease=refs/heads/{branch}:{deployment['commit']}",
                 remote,
                 f"{commit}:refs/heads/{branch}",
                 cwd=site,
