@@ -176,8 +176,24 @@ class Segment:
     yaw: float
 
 
-def place(tile, records, streets, sample, water=()):
+def place(tile, records, streets, sample, water=(), tunnels=()):
     window = shapely.box(*tile.bbox.as_tuple()).difference(shapely.union_all(water).buffer(0.35))
+    from .tunnels import dimensions
+
+    # Tunnel mouths own their frames; OSM barriers must never add panels or
+    # retaining blocks inside the opening, even when tagged as on-road.
+    mouths = []
+    for _, line, tags in tunnels:
+        if tags.get("tunnel") == "building_passage":
+            continue
+        coords = np.asarray(line.coords)
+        for end, neighbour in ((0, 1), (-1, -2)):
+            point = coords[end]
+            outward = point - coords[neighbour]
+            outward /= np.linalg.norm(outward)
+            approach = shapely.LineString([point - outward * 2, point + outward * 4])
+            mouths.append(approach.buffer(dimensions(tags)[0] / 2 + 1.9, cap_style="flat"))
+    window = window.difference(shapely.union_all(mouths))
     roads = shapely.union_all([g for g, _ in streets])
     openings = shapely.union_all(
         [
@@ -375,7 +391,7 @@ def produce(tile, inputs, stage, layer_files, sample):
     import time
 
     started = time.perf_counter()
-    batch = place(tile, inputs.barriers, inputs.streets, sample, inputs.water)
+    batch = place(tile, inputs.barriers, inputs.streets, sample, inputs.water, inputs.tunnels)
     if batch:
         path = stage / "fences.vis.glb"
         write_instances(path, tile, batch)

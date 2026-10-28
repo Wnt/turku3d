@@ -366,6 +366,12 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 height = base + (ground - base) * along
                 road.face(np.c_[patch[:, 0], height, patch[:, 1]][::-1], patch[::-1])
         cut_corridor = shapely.union_all([corridor, *aprons])
+        # At the mouth the frame replaces the bank, including high triangles
+        # whose tips used to survive above the clearance test as rock slabs.
+        mouths = shapely.union_all(
+            [corridor.intersection(shapely.Point(*point).buffer(2)) for point in (xz[0], xz[-1])]
+            + aprons
+        )
         profiles.append((line, distances, floor_height(xz), width))
         meshes.append(
             road.mesh(
@@ -392,7 +398,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     continue
                 section = grounded_wall(
                     f"tunnel:{key}:{name}",
-                    side[i : i + 2],
+                    side[i : i + 2] + (1 if name == "left" else -1) * offset[i : i + 2] * 0.2,
                     side_floor[i : i + 2] - 0.2,
                     side_floor[i : i + 2] + clearance + 0.3,
                     surface_sample or sample,
@@ -404,20 +410,33 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             if wall.indices:
                 meshes.append(wall.mesh(f"tunnel:{key}:{name}", "wall"))
         for end in (0, -1):
-            # Portal wing walls leave the whole clear box open.
+            # A single U-shaped frame owns the mouth. Its jambs and thickness
+            # stay outside the clear carriageway, including at skewed portals.
+            frame = Faces()
             for sign, side, side_floor in ((1, left, left_floor), (-1, right, right_floor)):
-                a = side[end]
+                a = side[end] + sign * offset[end] * 0.2
                 b = a + sign * offset[end] * 1.5
-                meshes.append(
-                    grounded_wall(
-                        f"tunnel:{key}:portal:{end}:{sign}",
-                        [a, b],
-                        [side_floor[end] - 0.2] * 2,
-                        [side_floor[end] + clearance + 0.3] * 2,
-                        surface_sample or sample,
-                        tile.size / CELLS,
-                    )
+                jamb = grounded_wall(
+                    "jamb",
+                    [a, b],
+                    [side_floor[end] - 0.2] * 2,
+                    [side_floor[end] + clearance + 0.3] * 2,
+                    surface_sample or sample,
+                    tile.size / CELLS,
+                    thickness=0.4,
                 )
+                for tri in jamb.indices:
+                    frame.face(jamb.positions[tri], jamb.uvs[tri])
+            header = profile_wall(
+                "header",
+                [left[end] + offset[end] * 1.7, right[end] - offset[end] * 1.7],
+                [left_floor[end] + clearance, right_floor[end] + clearance],
+                [left_floor[end] + clearance + 0.3, right_floor[end] + clearance + 0.3],
+                thickness=0.4,
+            )
+            for tri in header.indices:
+                frame.face(header.positions[tri], header.uvs[tri])
+            meshes.append(frame.mesh(f"tunnel:{key}:portal:{end}", "wall"))
         candidates = tree.query(cut_corridor, predicate="intersects")
         for tid in candidates:
             p = grid_pos[grid_idx[tid]]
@@ -429,10 +448,13 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             delta = np.c_[query, np.ones(len(query))] @ coeff - floor_height(query)
             # A triangle can cross the entire clear box with all three vertices
             # outside it. Test the height range on the actual corridor intersection.
+            cut = cut_corridor
             if delta.max() <= -0.25 or delta.min() >= clearance + 0.35:
-                continue
+                cut = mouths
+                if shapely.Polygon(p[:, [0, 2]]).intersection(cut).area < 1e-10:
+                    continue
             keep[tid] = False
-            cuts[tid] = cuts[tid].union(cut_corridor) if tid in cuts else cut_corridor
+            cuts[tid] = cuts[tid].union(cut) if tid in cuts else cut
     remainder = Faces()
     for tid, cut in cuts.items():
         p = grid_pos[grid_idx[tid]]
