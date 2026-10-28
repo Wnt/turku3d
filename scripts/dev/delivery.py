@@ -59,7 +59,7 @@ def environment(repo):
 
 def check(repo, selected, path):
     return bounded_checks.commands(
-        selected["tests"],
+        ["python3 scripts/dev/repository_policy.py", *selected["tests"]],
         cwd=repo,
         env=environment(repo),
         directory=path / "quick",

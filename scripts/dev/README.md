@@ -151,7 +151,9 @@ scripts/dev/codex-task finish NAME --result "$TURKU3D_WORK/reports/result.md" \
 ```
 
 These are examples for delivery changes; pick affected commands and grep filters for
-your change. All `--test` commands share a hard 30-second wall deadline, in parallel.
+your change. All `--test` commands share a hard 30-second wall deadline, in parallel with the
+mandatory uncached repository-wide `policy` and `chrome-launch-policy` stages.
+These two stages also run when `--no-tests-reason` is selected.
 Use `--no-tests-reason TEXT` when there are no affected quick tests. `--heads-up TEXT`
 sends the shared-interface note before rebase. The quick suite stays tiny; new tests
 need a strong reason.

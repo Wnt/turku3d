@@ -2,10 +2,9 @@
 // python3 scripts/dev/host_slots.py browser -- node game/scripts/probe-long-delivery.mjs
 // Seeds a migrated 40-order save; uses real shop UI, physics/input and collision streaming.
 // Auto-steering is diagnostic assistance: report obstacles and cancellations, never call it a clean player drive.
-import fs from 'node:fs';
+import { chromeExecutable, chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 const repo = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 const {chromium}=await import(repo+'/game/node_modules/@playwright/test/index.mjs');
-const {chromeExecutable,chromeArgs,chromeIgnoreDefaultArgs}=await import(repo+'/tools/dev/chrome-args.mjs');
 const {isolateBrowser}=await import(repo+'/tools/dev/environment.mjs');
 isolateBrowser();
 const browser=await chromium.launch({executablePath:chromeExecutable(),headless:true,ignoreDefaultArgs:chromeIgnoreDefaultArgs,args:chromeArgs(['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist'])});
@@ -13,7 +12,6 @@ try {
 const page=await browser.newPage({viewport:{width:1100,height:700}});
 page.on('response',r=>{if(r.status()>=400 && !r.url().includes('/coarse/want'))console.log('HTTP',r.status(),r.url());});
 page.on('pageerror',e=>console.log('PAGEERROR',e.message));
-page.on('console',m=>{if(m.type()==='error')0;});
 await page.addInitScript(()=>localStorage.setItem('turku3d.missions',JSON.stringify({version:3,phase:'at_pizzeria',money:1000,permit:10,plates:false,kidney:false,warning:false,vehicle:'car',delivery:40,pizzas:40,seed:Number(new URLSearchParams(location.search).get('probeSeed') ?? 24),delivered:[],order:[],lastAddress:null,stop:0,elapsed:0,par:0,firstPar:0})));
 await page.goto('http://localhost:'+process.env.TURKU3D_PORT_BASE+'/?backend=webgpu&quality=low&probeSeed=24');
 await page.waitForFunction(()=>window.__game?.ready,{},{timeout:180000}).catch(async e=>{console.log('TIMEOUT',await page.locator('body').innerText()); await page.screenshot({path:process.env.TURKU3D_WORK+'/reports/long-timeout.png'});throw e;});

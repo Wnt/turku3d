@@ -28,7 +28,8 @@ class DeliveryTests(unittest.TestCase):
                 cwd=temp,
                 env=dict(os.environ),
                 directory=Path(temp),
-                seconds=0.15,
+                # Allow interpreter startup while the other gate stages run in parallel.
+                seconds=0.5,
             )
         self.assertFalse(result["ok"])
         self.assertEqual([r["exit"] for r in result["checks"]], [124, 0])
@@ -49,6 +50,20 @@ class DeliveryTests(unittest.TestCase):
             with patch.object(delivery.s, "git", return_value="new-tree"):
                 with self.assertRaisesRegex(ValueError, "select affected checks"):
                     delivery.plan(root, root)
+
+    def test_every_selection_runs_repository_policy_with_the_same_parallel_deadline(self):
+        for tests in ([], ["unit --grep affected"]):
+            with (
+                patch.object(delivery, "environment", return_value={}),
+                patch.object(bounded_checks, "commands", return_value={"ok": False}) as run,
+            ):
+                result = delivery.check(Path("repo"), {"tests": tests}, Path("task"))
+            self.assertFalse(result["ok"])
+            self.assertEqual(
+                run.call_args.args[0],
+                ["python3 scripts/dev/repository_policy.py", *tests],
+            )
+            self.assertEqual(run.call_args.kwargs["seconds"], 30)
 
     def test_deploy_failure_keeps_merged_commit_and_never_runs_rollback(self):
         with (
@@ -73,8 +88,11 @@ class DeliveryTests(unittest.TestCase):
             patch.object(delivery, "ledger"),
         ):
             result = delivery.after_merge(
-                "test", Path(temp), "a" * 40,
-                {"changed_paths": ["server/economy.js"]}, Path(temp),
+                "test",
+                Path(temp),
+                "a" * 40,
+                {"changed_paths": ["server/economy.js"]},
+                Path(temp),
             )
         deploy.assert_called_once_with(Path(temp), "a" * 40)
         self.assertEqual(result["generator"]["multiplayer"], "presence ok")

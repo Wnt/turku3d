@@ -82,7 +82,8 @@ Choose commands for your own affected area; the example is not a universal gate.
 For a change with no affected quick tests, provide `--no-tests-reason` instead of
 `--test`. `--heads-up TEXT` sends the shared-interface notice before rebase.
 
-`finish` sends that notice, rebases, runs the selected checks within 30 seconds,
+`finish` sends that notice, rebases, runs the selected checks in parallel with the
+mandatory repository-wide policy and Chrome-launch policy stages within 30 seconds,
 merges into main, announces the merge, packages/uploads Pages, runs five-second smoke
 probes and starts the selective async run. A merge conflict or red quick selection
 leaves main unchanged. An upload or later test failure never rolls main back. The
