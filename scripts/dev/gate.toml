@@ -57,6 +57,12 @@ triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
 sources = ["tools/validator/*.py", "tools/compare/*.py", "tools/remote-drafts/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
 
 [[stages]]
+name = "coarse-latency-unit"
+kind = "command"
+triggers = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse_latency.py"]
+commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_latency.py"]]
+
+[[stages]]
 name = "gmaps-compare-unit"
 kind = "command"
 triggers = ["tools/compare/*.py", "pipeline/turku3d/config.py"]
@@ -102,8 +108,8 @@ paths = ["pipeline/turku3d/col/*"]
 tests = ["turku3d/col/tests", "tests/test_package.py", "tests/test_specs.py"]
 
 [[stages.related]]
-paths = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse.py", "pipeline/tests/test_coarse_prefetch.py"]
-tests = ["tests/test_coarse.py", "tests/test_coarse_prefetch.py"]
+paths = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse.py", "pipeline/tests/test_coarse_prefetch.py", "pipeline/tests/test_coarse_latency.py"]
+tests = ["tests/test_coarse.py", "tests/test_coarse_prefetch.py", "tests/test_coarse_latency.py"]
 
 [[stages.related]]
 paths = ["pipeline/turku3d/lidar/*", "pipeline/tests/test_lidar.py"]

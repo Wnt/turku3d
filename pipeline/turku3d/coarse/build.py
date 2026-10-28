@@ -388,7 +388,13 @@ PACKAGER = Packager()
 
 
 def package_visual(
-    tile: C.VisualTile, layer_files: list[Path], stage: Path, work: Path, library: Path
+    tile: C.VisualTile,
+    layer_files: list[Path],
+    stage: Path,
+    work: Path,
+    library: Path,
+    *,
+    first_pass: bool = False,
 ) -> tuple[bytes, dict]:
     request = dict(
         tile=tile.id,
@@ -404,7 +410,8 @@ def package_visual(
         textureCache=str(work / ".texture-cache"),
         coarseTerrain=False,
         draftTextures=True,
-        facadeKit=ensure_kit(work / "shared"),
+        facadeKit=None if first_pass else ensure_kit(work / "shared"),
+        firstPass=first_pass,
     )
     (stage / "out").mkdir(parents=True, exist_ok=True)
     req = stage / "requests.json"
@@ -439,6 +446,7 @@ def build(
     inputs: Inputs | None = None,
     library: Path | None = None,
     sources=None,
+    first_pass: bool = False,
 ) -> dict:
     """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
 
@@ -449,7 +457,7 @@ def build(
     if tile.level != 0:
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
-    inputs = inputs or gather(tile, out.parent, sources)
+    inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
 
     t = time.perf_counter()
@@ -474,6 +482,7 @@ def build(
     osm_decks = bridges.produce(tile, grid_pos, inputs)
     decks = 0 if osm_decks else bridge_decks(grid_pos, grid_idx, materials, wet)
     seconds["bridges"] = time.perf_counter() - t_bridges
+    seconds["terrain"] = t_bridges - t
     seconds["ground"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -499,7 +508,7 @@ def build(
     seconds["tunnels"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    image = jpeg(inputs.ortho)
+    image = None if first_pass else jpeg(inputs.ortho)
     origin = np.asarray(tile.origin)
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
@@ -508,14 +517,24 @@ def build(
     fallback_materials = surfaces.slope_fallback(
         grid_pos, grid_idx, surfaces.classify(centroids, inputs.ortho, tile, [])
     )
-    surface_pos, surface_idx, surface_ids, surface_normals = surfaces.split_boundaries(
-        grid_pos,
-        grid_idx,
-        visual_materials,
-        ~wet & tunnels.keep,
-        [*inputs.surfaces, *inputs.streets],
-        fallback_materials,
-    )
+    t_surface = time.perf_counter()
+    if first_pass:
+        surface_pos, surface_idx, surface_ids = (
+            grid_pos,
+            grid_idx[~wet & tunnels.keep],
+            visual_materials[~wet & tunnels.keep],
+        )
+        surface_normals = None
+    else:
+        surface_pos, surface_idx, surface_ids, surface_normals = surfaces.split_boundaries(
+            grid_pos,
+            grid_idx,
+            visual_materials,
+            ~wet & tunnels.keep,
+            [*inputs.surfaces, *inputs.streets],
+            fallback_materials,
+        )
+    seconds["surface_boundaries"] = time.perf_counter() - t_surface
     ground_meshes = surfaces.visuals(
         tile,
         surface_pos,
@@ -524,13 +543,17 @@ def build(
         np.ones(len(surface_idx), bool),
         surface_normals,
     )
-    paint = surfaces.paint_visual(
-        tile,
-        surface_pos,
-        surface_idx,
-        surface_ids,
-        np.ones(len(surface_idx), bool),
-        inputs.markings,
+    paint = (
+        None
+        if first_pass
+        else surfaces.paint_visual(
+            tile,
+            surface_pos,
+            surface_idx,
+            surface_ids,
+            np.ones(len(surface_idx), bool),
+            inputs.markings,
+        )
     )
     if paint is not None:
         ground_meshes.append(paint)
@@ -568,11 +591,15 @@ def build(
     from .forests import BUSH_CAP, TREE_CAP, produce
 
     vegetation_start = time.perf_counter()
-    trees, bushes = produce(
-        tile,
-        inputs,
-        lambda x, z: grid_height(tile, grid_pos, x, z),
-        draft_trees(tile, grid_pos, inputs.trees, water, shells),
+    trees, bushes = (
+        ([], [])
+        if first_pass
+        else produce(
+            tile,
+            inputs,
+            lambda x, z: grid_height(tile, grid_pos, x, z),
+            draft_trees(tile, grid_pos, inputs.trees, water, shells),
+        )
     )
     seconds["vegetation_scatter"] = time.perf_counter() - vegetation_start
     if trees or bushes:
@@ -602,7 +629,7 @@ def build(
                 roof_pos - origin,
                 np.concatenate(roof_idx),
                 uvs=ortho_uv(tile, roof_pos),
-                image=image,
+                image=None if first_pass else image,
                 extras=dict(
                     layer="buildings",
                     object_id=f"roofs_{tile.id}",
@@ -648,8 +675,18 @@ def build(
         for m in ground_meshes
         if m.extras["material_key"].startswith("draft_")
     }
-    surface_library = surfaces.library(out.parent, library or default_library(), surface_channels)
-    vis, stats = package_visual(tile, layer_files, stage, out.parent, surface_library)
+    seconds["visual_geometry"] = time.perf_counter() - t
+    t_library = time.perf_counter()
+    surface_library = library or default_library()
+    if not first_pass:
+        surface_library = surfaces.library(out.parent, surface_library, surface_channels)
+    seconds["surface_library"] = time.perf_counter() - t_library
+    t_package = time.perf_counter()
+    vis, stats = package_visual(
+        tile, layer_files, stage, out.parent, surface_library, first_pass=first_pass
+    )
+    seconds["package"] = time.perf_counter() - t_package
+    seconds.update({"package_" + k: v for k, v in stats.get("seconds", {}).items()})
     seconds["visual"] = time.perf_counter() - t
     if stats["brotli_bytes"] > WIRE_CAP:
         raise ValueError(
@@ -684,16 +721,24 @@ def build(
     roads = tunnels.roads(bridges.road_heights(inputs.roads, osm_decks))
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
+    visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
+    _write(out / visual_url, vis)
     _write(out / "vis.glb", vis)
     if roads is not None:
+        roads_url = f"roads.{hashlib.sha256(roads['json']).hexdigest()}.json"
+        _write(out / roads_url, roads["json"])
         _write(out / "roads.json", roads["json"])
     for cid, data in cols.items():
+        url = f"col/{cid}.{hashlib.sha256(data).hexdigest()}.col"
+        _write(out / url, data)
+        collision[cid]["url"] = url
         _write(out / "col" / f"{cid}.col", data)
     seconds["total"] = time.perf_counter() - started
     manifest = dict(
         format=FORMAT,
         version=VERSION,
         coarse=True,
+        pass_kind="first" if first_pass else "full",
         tile=tile.id,
         code=code_hash(),
         built=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -701,7 +746,7 @@ def build(
         grid=dict(visual_l0=C.VISUAL_TILE_SIZE, collision=C.COLLISION_TILE_SIZE, cells=CELLS),
         visual={
             tile.id: _entry(
-                "vis.glb",
+                visual_url,
                 vis,
                 level=0,
                 tris=stats["tris"],
@@ -712,7 +757,7 @@ def build(
         },
         collision=collision,
         roads=(
-            _entry("roads.json", roads["json"], nodes=roads["nodes"], edges=roads["edges"])
+            _entry(roads_url, roads["json"], nodes=roads["nodes"], edges=roads["edges"])
             if roads is not None
             else None
         ),

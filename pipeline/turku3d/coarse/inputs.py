@@ -33,21 +33,23 @@ from . import roofs
 from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
 
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
-CODE = hashlib.sha256(
-    Path(__file__).read_bytes()
-    + Path(roofs.__file__).read_bytes()
-    + Path(__file__).with_name("fences.py").read_bytes()
-    + Path(__file__).with_name("bridges.py").read_bytes()
-    + Path(__file__).with_name("bridge_survey.py").read_bytes()
-    + Path(__file__).with_name("forests.py").read_bytes()
-    + Path(__file__).with_name("tunnels.py").read_bytes()
-    + (Path(__file__).parents[1] / "props" / "__init__.py").read_bytes()
-    + (Path(__file__).parents[1] / "props" / "models.py").read_bytes()
-    + (Path(__file__).parents[1] / "props" / "orientation.py").read_bytes()
-    + Path(__file__).with_name("surfaces.py").read_bytes()
-    + Path(__file__).with_name("register.py").read_bytes()
-    + Path(__file__).with_name("kerbs.py").read_bytes()
-).hexdigest()[:16]
+# Each prepared dataset depends only on its own producers. A surface fix must
+# not decode classified roof/bridge lidar again for every surrounding tile.
+DEPENDENCIES = {
+    "wfs": ("roofs.py",),
+    "roads": ("bridges.py", "bridge_survey.py"),
+    "barriers": ("fences.py",),
+    "forests": ("forests.py",),
+    "tunnels": ("tunnels.py",),
+    "surfaces": ("surfaces.py",),
+    "markings": ("surfaces.py",),
+    "kerbs": ("kerbs.py",),
+    "appearance": ("register.py",),
+    "register": ("register.py",),
+    "poles": ("../props/__init__.py", "../props/models.py", "../props/orientation.py"),
+}
+CODE = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
+
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
 
@@ -327,8 +329,14 @@ def prepare_trees(tile: C.VisualTile, osm: Path) -> list:
 # -- cache ----------------------------------------------------------------------------------------
 
 
-def _key(paths: list[Path]) -> str:
+def _key(paths: list[Path], dataset: str = "") -> str:
     h = hashlib.sha256(CODE.encode())
+    for name in DEPENDENCIES.get(dataset.removesuffix("-first"), ()):
+        h.update(
+            Path(__file__).with_name(name).read_bytes()
+            if "/" not in name
+            else (Path(__file__).parent / name).read_bytes()
+        )
     for p in paths:
         st = p.stat()
         h.update(f"{p}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
@@ -395,6 +403,10 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
 
 
 def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
+    import pyarrow
+
+    pyarrow.set_cpu_count(1)
+    pyarrow.set_io_thread_count(1)
     if dataset == "appearance":
         from .register import read_osm
 
@@ -459,7 +471,7 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
 def _entry(root: Path, tile: C.VisualTile, dataset: str, paths: list) -> tuple[Path, str]:
     """The cache file names its key, so checking for a current entry is one stat."""
-    key = _key([p for p in paths if p])
+    key = _key([p for p in paths if p], dataset)
     return root / ".inputs" / tile.id / f"{dataset}.{key}.pkl", key
 
 
@@ -490,24 +502,72 @@ def unprepared(tile: C.VisualTile, root: Path, sources: Sources) -> bool:
     return False
 
 
-def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> Inputs:
+def gather(
+    tile: C.VisualTile, root: Path, sources: Sources | None = None, *, first_pass: bool = False
+) -> Inputs:
     """The tile's prepared inputs, preparing what is not cached yet. Raises MissingInputs (after
     preparing the datasets that are on disk) while units are missing."""
     sources = sources or Sources()
     missing = sources.missing(tile)
     if missing:
-        prepare(tile, root, sources)
+        if not first_pass:
+            prepare(tile, root, sources)
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance = {}, {}, {}
     for dataset, paths in _sources(tile, sources).items():
+        if first_pass and dataset in {
+            "trees",
+            "forests",
+            "barriers",
+            "poles",
+            "surfaces",
+            "markings",
+            "kerbs",
+            "appearance",
+            "register",
+            "ortho",
+        }:
+            # Collision-safe structural coverage precedes decorative inputs. These
+            # are all restored by the full pass, using their ordinary caches.
+            values[dataset] = (
+                np.zeros((ORTHO_PX, ORTHO_PX, 3), np.uint8)
+                if dataset == "ortho"
+                else None
+                if dataset == "kerbs"
+                else {}
+                if dataset in ("appearance", "register")
+                else ()
+            )
+            seconds[dataset] = 0.0
+            continue
+        full_paths = paths
+        if first_pass and paths and dataset in ("wfs", "roads"):
+            paths = paths[:3] if dataset == "wfs" else paths[:1]
         if paths is None:  # only the optional roads and trees: no OSM clip yet
             values[dataset] = None
             continue
         t = time.perf_counter()
-        path, key = _entry(root, tile, dataset, paths)
-        value = _load(path, key)
+        cache_dataset = (
+            dataset + "-first" if first_pass and dataset in ("wfs", "roads") else dataset
+        )
+        path, key = _entry(root, tile, cache_dataset, paths)
+        value = _ABSENT
+        if first_pass and dataset in ("wfs", "roads"):
+            full_path, full_key = _entry(root, tile, dataset, full_paths)
+            value = _load(full_path, full_key)
         if value is _ABSENT:
-            value = _prepare_one(tile, dataset, paths)
+            value = _load(path, key)
+        if value is _ABSENT:
+            if dataset == "wfs" and not first_pass:
+                base_path, base_key = _entry(root, tile, "wfs-first", paths[:3])
+                value = _load(base_path, base_key)
+                if value is _ABSENT:
+                    value = _prepare_one(tile, dataset, paths[:3])
+                    _save(base_path, base_key, value)
+                if value["buildings"] and paths[3:]:
+                    roofs.refine(value["buildings"], paths[3:])
+            else:
+                value = _prepare_one(tile, dataset, paths)
             _save(path, key, value)
         values[dataset] = value
         provenance[dataset] = [str(p) if p else None for p in paths]

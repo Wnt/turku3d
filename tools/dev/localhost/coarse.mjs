@@ -115,11 +115,19 @@ export class CoarseService {
   /** Drains the running service, stops it and starts it again from the worktree. A call while the service drains
    *  joins that restart (its start reads the newest checkout); one after the new process spawned restarts again. */
   restart() {
+    this.restartRequests = (this.restartRequests ?? 0) + 1;
     if (this.restarting) return this.restarting;
-    this.restarting = this.drainAndStop().then(() => {
-      this.restarting = null;
-      return this.start();
-    });
+    const restart = async () => {
+      while (!this.stopping) {
+        await this.drainAndStop();
+        // Requests received while draining share the newest checkout. A later
+        // request, after spawning, needs another restart once this start finishes.
+        const requested = this.restartRequests;
+        await this.start();
+        if (requested === this.restartRequests) return;
+      }
+    };
+    this.restarting = restart().finally(() => { this.restarting = null; });
     return this.restarting;
   }
 

@@ -105,19 +105,27 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   abrupt OSM way splits still need surveyed profiles. Pure synthetic checks:
   `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_tunnels.py`.
 
-No inferred curbs, stairs, props, facade maps or LOD parents.
+No inferred curbs, surveyed stairs, unique facade maps or LOD parents.
 
 ## Service (`service.py`)
 
 `tools/dev/coarse-tiles` (localhost only, port `$TURKU3D_PORT_BASE + 5`, proxied at `/coarse/` by the dev and dist
-servers). Up to four builds run at once (`WORKERS`), the ring first, then the path ahead; the game requests the cells
+servers). One first-pass build and at most one full upgrade run at once. Native BLAS/OpenMP/Arrow/LAZ/image thread pools are limited to one thread per worker. The current tile and actual velocity-ray crossings come first, ordered by entry time; surrounding ring/cone tiles follow. The game requests the cells
 ahead of a moving player as well as the 3x3 window. Routes and queueing: `tools/dev/README.md`. Built tiles are
 reused until the producer code changes, so a producer fix rebuilds each draft the next time the game asks for it.
 On main the localhost game service runs it and restarts it when a landing changes a file it loaded
 (`tools/dev/localhost/README.md`): `/coarse/status` reports `started` and `modules` (the repository files the process
 imported), and `POST /coarse/drain` stops new builds so the running ones finish first.
-Manifest requests keep reporting `building` until the worker commits completion, including the
-`built` and `version` counters and timings; a manifest written by a running worker is not yet published.
+Manifest requests report `building` until the first worker commits completion. A complete first pass
+remains servable during its full upgrade; `version` advances at each publication. First passes retain ground, solid building shells, bridge decks, tunnels, roads and all 16 collision
+cells. Flat materials open the boundary before orthophoto sampling, classified survey preparation,
+material boundary splitting, kerbs, fences, props, vegetation and facade appearance preparation.
+Full drafts restore the detailed materials, surveyed profiles and all decorative/collision additions
+in place. A first pass reuses already prepared full survey inputs when available. A first pass has
+`pass_kind: "first"`; the replacement has `pass_kind: "full"`. Payload URLs include SHA-256 identities,
+so requests already using a first manifest keep reading its immutable files during the upgrade.
+The `vis.glb`, `roads.json` and `col/*.col` aliases are retained for offline QA. Shared texture URLs
+remain relative to the tile directory. The client also refreshes the road graph with the upgrade.
 Payload requests (`.col`, GLB and roads) use the immutable in-memory servable set: a successful build or manifest
 request admits a tile, and a manifest request that finds it stale removes it. They never recheck manifests or raw
 inputs and hold no builder lock while reading or sending bytes. `/coarse/want` returns `queued` and `building`
@@ -150,12 +158,12 @@ Each dataset is reduced once per tile to what the build needs and cached under
 heights over their TIN), `ortho` (512 px RGB), `wfs` (building shells, street polygons with their
 collision material, water polygons), `roads` (`roads.json` of the tile's OSM street graph) and
 `trees` (the tile's OSM `natural=tree` points). The
-key covers `inputs.py` and the raw files' path, size and mtime, so new data or code prepares again.
+key covers `inputs.py`, the dataset’s own producer dependencies and the raw files' path, size and mtime, so new data or relevant code prepares again. A surface edit retains prepared roofs, bridges and ground. Material extraction keys cover only the library/fallback generators, so unrelated geometry edits also retain extracted maps. First-pass WFS/roads use separate caches; full WFS reuses the base shells before survey refinement. Roof refinement crops cached class-6 points to the buildings before constructing its search tree.
 The prefetch workers prepare the complete tiles within 1 km of the player in the background
 (`python -m turku3d.coarse prepare <tile> --root <coarse root>`), so a build reads a few small
 pickles instead of decoding LAZ, 5 cm ortho mosaics and whole-area GeoParquet files, and imports
 neither geopandas nor rasterio nor laspy. The draft ortho is encoded with the fastest ETC1S effort
-(`draftTextures` in the visual packager request, `--clevel 0`). The service builds on persistent
+(`draftTextures` in the visual packager request, `--clevel 0`). Linear-map UASTC uses lossless Zstd level 6 for drafts instead of level 18; decoded texels and texture dimensions are unchanged. The service builds on persistent
 workers (`python -m turku3d.coarse worker`, one per build slot) that keep the producer imported and
 one `node visual.mjs --serve` packager running, so a tile pays neither interpreter nor node start-up
 (each about 0.3 s CPU and, on a host at load 250, 3-5 s of wall time).
@@ -427,3 +435,18 @@ the actual supporting mesh, and before reuses those exact camera positions. For 
 with shared inputs linked read-only and newly downloaded layers kept in the sandbox.
 Private reference pairs/scores require the comparison tool's own coverage and
 calibration checks and remain outside this repository. No reference values feed generation.
+
+## Latency diagnostics
+
+`manifest.seconds` separates terrain, bridges, building shells, surface boundary cuts,
+material extraction, collision and visual packaging. `package_*` separates binding, facade
+atlases, batching, snapshots, texture codecs and compression/round-trip verification.
+
+```sh
+source ../sandbox.env
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools/perf/draft-speed.py
+# First/full snapshots and timing JSON stay in $TURKU3D_WORK/reports/draft-speed.
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_latency.py
+```
+
+Full upgrade workers use `nice -n 10`; first-pass workers retain normal priority. Queue ETAs use first-pass times and their dedicated worker, independently of survey upgrades. Producer fixes invalidate failed-build backoff immediately.

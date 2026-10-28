@@ -545,7 +545,22 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
     assert {
         k: v for k, v in prepare(tile, root, sources).items() if k != "missing"
     } == dict.fromkeys(
-        ("ground", "ortho", "wfs", "roads", "trees", "barriers", "forests", "tunnels", "poles"),
+        (
+            "ground",
+            "ortho",
+            "wfs",
+            "roads",
+            "trees",
+            "barriers",
+            "forests",
+            "tunnels",
+            "poles",
+            "surfaces",
+            "markings",
+            "kerbs",
+            "appearance",
+            "register",
+        ),
         "cached",
     )
     inputs = gather(tile, root, sources)
@@ -588,55 +603,6 @@ def test_prefetcher_prepares_complete_tiles_near_the_player(raw, tmp_path):
     assert (
         max(t.i for t in tiles) == 5 and min(t.i for t in tiles) == -1
     )  # 1 km ahead, 500 m behind
-
-
-def test_queue_ranks_ring_then_cone_and_drops_what_the_player_left(tmp_path):
-    builder = Builder(tmp_path / "coarse", run=one_shot(_fake_build([])), code="test", workers=0)
-    requests = (
-        ("t0_1_0", 0),
-        ("t0_0_1", 0),
-        ("t0_2_0", 125),
-        ("t0_-1_0", 125),  # behind once driving east
-        ("t0_4_0", 600),  # ahead, inside the cone
-        ("t0_9_0", 2000),  # ahead, beyond 30 s of travel
-        ("t0_1_3", 600),  # beside the path
-    )
-    for tile, d in requests:
-        builder.request(tile, d)
-    # No position report yet: every tile stays, nearest first by the reported distance.
-    assert builder.order()[:2] in (["t0_0_1", "t0_1_0"], ["t0_1_0", "t0_0_1"])
-    assert len(builder.order()) == 7
-    builder.building["t0_7_7"] = 0.0  # a running build is never interrupted
-    builder.steer(260, 125, 27, 0)  # driving east through t0_1_0
-    assert builder.order() == ["t0_1_0", "t0_0_1", "t0_2_0", "t0_4_0"]  # ring by distance, cone
-    assert "t0_7_7" in builder.building
-    assert builder.request("t0_9_0", 2000) == {"state": "deferred"}
-    assert "t0_9_0" not in builder.order()
-    builder.steer(260, 125, 0, -27)  # turned north: the cone east is dropped, the ring stays
-    assert builder.order() == ["t0_1_0", "t0_0_1", "t0_2_0"]
-    builder.request("t0_1_-3", 700)
-    assert builder.order()[-1] == "t0_1_-3"
-    builder.steer(260, 125, 0.5, 0)  # standing: ring only (and the ring's parent quadrants)
-    builder.request("t0_3_1", 400)  # quadrant of the ring's parent t1_1_0
-    assert builder.order() == ["t0_1_0", "t0_0_1", "t0_2_0", "t0_3_1"]
-    del builder.building["t0_7_7"]
-    builder.workers = 2
-    builder.recent = [4.0, 6.0]
-    eta = builder.eta()
-    assert [eta[t] for t in builder.order()] == [5.0, 5.0, 10.0, 10.0]
-    assert builder.request("t0_2_0", 125) == {"state": "queued", "position": 2, "eta": 10.0}
-
-
-def test_queue_holds_the_ring_and_the_nearest_cone_tiles_up_to_its_cap(tmp_path):
-    builder = Builder(tmp_path / "coarse", run=one_shot(_fake_build([])), code="test", workers=0)
-    builder.steer(260, 125, 27, 0)
-    for i in range(7):
-        for j in (-1, 0, 1):
-            builder.request(f"t0_{i}_{j}", 0)
-    order = builder.order()
-    ring = {f"t0_{i}_{j}" for i in (0, 1, 2) for j in (-1, 0, 1)}
-    assert len(order) == S.QUEUE_MAX and set(order[:9]) == ring
-    assert order[9:] == ["t0_3_0", "t0_3_-1", "t0_3_1"]  # along + beside, then by id
 
 
 def test_status_answers_from_memory_and_stays_small(tmp_path):
