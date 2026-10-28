@@ -571,6 +571,50 @@ def combine(args):
     print(json.dumps(dict(selected=len(selected), independent_buildings=len(buildings))))
 
 
+def reserve(args):
+    """Select unreviewed wide walls from other buildings for a fresh reference pass."""
+    if not args.source_root or not args.exclude_inventory:
+        raise ValueError("reserve requires --source-root and --exclude-inventory")
+    excluded = {f.props["building_id"] for f in load_facades(args.exclude_inventory)}
+    candidates = []
+    for root in args.source_root:
+        rows = json.loads((root / "screened.json").read_text())
+        rejected = json.loads((root / "rejected-labels.json").read_text())
+        facades = {f.id: f for f in load_facades(root / "candidates.geojson")}
+        candidates.extend(
+            facades[row["facade_id"]]
+            for row in rows
+            if row["width_m"] >= args.min_width
+            and row["building_id"] not in excluded
+            and rejected.get(row["facade_id"]) == "missing independent reading"
+        )
+    candidates.sort(key=lambda f: (-f.length, f.id))
+    selected = []
+    for f in candidates:
+        building = f.props["building_id"]
+        if building in excluded:
+            continue
+        selected.append(f)
+        excluded.add(building)
+        if len(selected) == args.limit:
+            break
+    if len(selected) < args.limit:
+        raise ValueError(f"only {len(selected)} unreviewed buildings; need {args.limit}")
+    args.root.mkdir(parents=True, exist_ok=True)
+    save_facades(selected, args.root / "candidates.geojson")
+    ff.write_json(
+        args.root / "selection.json",
+        dict(
+            source_roots=[str(root.resolve()) for root in args.source_root],
+            exclude_inventory=str(args.exclude_inventory.resolve()),
+            minimum_width_m=args.min_width,
+            selected=len(selected),
+            independent_buildings=len({f.props["building_id"] for f in selected}),
+        ),
+    )
+    print(json.dumps(dict(selected=len(selected), independent_buildings=len(selected))))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -584,6 +628,7 @@ def main():
             "label",
             "collect",
             "combine",
+            "reserve",
         ],
     )
     parser.add_argument("--root", type=Path, required=True)
