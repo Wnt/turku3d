@@ -83,3 +83,9 @@ curl -s localhost:$((TURKU3D_PORT_BASE+5))/coarse/status | python3 -m json.tool 
 Playwright and QA profiles use `TURKU3D_BROWSER_DIR/tmp`. See [agent tooling](../../scripts/dev/README.md).
 
 Build outputs are local; no sync step is needed. `make tile-show` serves the locally built tiles.
+
+## Google aerial comparison
+
+`make gmaps-compare` captures local-only Google/game reference pairs using the QA camera.
+The current implementation rejects the observed headless 2D fallback; pose calibration is
+unverified. See [commands and limitations](../compare/README.md). Never publish its screenshots.

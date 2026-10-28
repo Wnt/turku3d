@@ -107,6 +107,18 @@ class PublishedImageTest(unittest.TestCase):
         self.write("docs/reports/notes.txt", "streetview")
         self.assertEqual(self.errors(), [])
 
+    def test_google_comparisons_fail_in_any_directory_even_if_listed(self):
+        for path in (
+            "tools/compare/gmaps-compare/pair.png",
+            "research/google_maps/aerial.jpg",
+            "docs/googlemaps.webp",
+        ):
+            with self.subTest(path=path):
+                self.files = []
+                self.write(path)
+                self.allow((path, "Project render", "MIT"))
+                self.assertIn("must remain local-only", "\n".join(self.errors()))
+
     def test_sidecar_and_caption_mark_an_image(self):
         self.write("docs/reports/a/frame.png")
         self.write("docs/reports/a/frame.png.json", '{"provider": "Mapillary"}')
