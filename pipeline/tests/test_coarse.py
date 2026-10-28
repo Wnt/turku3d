@@ -280,6 +280,39 @@ def test_builder_runs_four_builds_at_once(tmp_path):
         builder.stop()
 
 
+def test_builder_waits_for_completion_before_publishing_manifest(tmp_path):
+    written = threading.Event()
+    finish = threading.Event()
+
+    def run(tile, out):
+        out.mkdir(parents=True)
+        (out / "manifest.json").write_text(json.dumps({"code": "test"}))
+        written.set()
+        assert finish.wait(5), "test did not release the build"
+        return subprocess.CompletedProcess([], 0)
+
+    builder = Builder(tmp_path, run=run, code="test", workers=1)
+    tile = "t0_4_4"
+    try:
+        builder.request(tile, 12)
+        assert written.wait(5), "worker did not write the manifest"
+        assert builder.request(tile, 12)["state"] == "building"
+        assert tile not in builder.servable
+        assert builder.status()["built"] == builder.status()["version"] == 0
+        finish.set()
+        _wait(lambda: builder.status()["built"] == 1)
+        assert builder.request(tile, 12) == {"state": "built"}
+        assert tile in builder.servable
+        status = builder.status()
+        assert status["built"] == status["version"] == 1
+        assert tile in status["timings"]
+    finally:
+        finish.set()
+        builder.stop()
+        for thread in builder.threads:
+            thread.join(5)
+
+
 def test_service_http_routes(tmp_path):
     order = []
     builder = Builder(tmp_path, run=one_shot(_fake_command(order)), code="test")
