@@ -1,5 +1,7 @@
 """Structural collision assembly, independent of visual and texture packaging."""
 
+import json
+
 import numpy as np
 
 from turku3d import config as C
@@ -7,6 +9,25 @@ from turku3d.col.format import MIN_TRI_AREA
 from turku3d.col.materials import mat_id
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
+
+
+def fragment(builder, tile):
+    """Only current, atomically published structural payloads can bypass visuals."""
+    for name in ("collision.json", "manifest.json"):
+        try:
+            value = json.loads((builder.root / tile / name).read_text())
+            if value.get("code") != builder.code():
+                continue
+            key = builder.input_key(tile)
+            if key is not None and value.get("inputs") != key:
+                continue
+            cells = {c.id for c in C.VisualTile.parse(tile).collision_tiles()}
+            if value.get("tile") == tile and set(value.get("collision", {})) == cells:
+                return {k: value[k] for k in ("coarse", "tile", "collision", "pass_kind")}
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return None
+
 
 def solid_triangles(pos, idx, mat):
     """Drop the slivers and duplicates that successive bank, tunnel and kerb cuts can leave (measured on the stored

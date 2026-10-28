@@ -110,3 +110,25 @@ def test_overlapping_producer_snapshots_do_not_collide(tmp_path, monkeypatch):
             job.result()
     assert json.loads((tmp_path / '.scheduler.json').read_text())['slot'] in (7765, 7766)
     assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_new_crossings_preempt_visual_upgrades_and_keep_their_demand(tmp_path):
+    b = Builder(tmp_path, code="test", workers=0)
+    cancelled = []
+    b.run = SimpleNamespace(cancel=lambda t: cancelled.append(t) or True)
+    b.workers = 4
+    upgrades = [f"t0_{i}_0" for i in range(3)]
+    urgent = ["t0_4_0", "t0_5_0", "t0_6_0"]
+    b.demand.update("driver-a", urgent + upgrades, urgent, upgrades)
+    for tile in upgrades:
+        b.building[tile] = time.time()
+        b.upgrading.add(tile)
+    for tile in urgent:
+        b.priority[tile] = 0
+    b.demand.prune(b)
+    assert len(cancelled) == 2  # one free worker plus two reclaimed slots
+    assert b.upgrade_queue == set(cancelled)
+    assert set(b.priority) == set(urgent)
+    b.demand.prune(b)
+    assert len(cancelled) == 2  # pending cancellation already releases its slot
+    b.stop()

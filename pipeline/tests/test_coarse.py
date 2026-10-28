@@ -146,6 +146,31 @@ def inputs(tmp_path):
     )
 
 
+def test_collision_publishes_even_when_visual_packaging_fails(tmp_path, inputs, monkeypatch):
+    import importlib
+    from turku3d.coarse.collision import fragment
+
+    module = importlib.import_module("turku3d.coarse.build")
+    out = tmp_path / "coarse" / TILE.id
+
+    def fail_visual(*args, **kwargs):
+        early = json.loads((out / "collision.json").read_text())
+        assert len(early["collision"]) == 16
+        for entry in early["collision"].values():
+            assert len((out / entry["url"]).read_bytes()) == entry["bytes"]
+        assert not (out / "manifest.json").exists()
+        raise RuntimeError("visual failure")
+
+    monkeypatch.setattr(module, "package_visual", fail_visual)
+    with pytest.raises(RuntimeError, match="visual failure"):
+        build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library", first_pass=True)
+    builder = Builder(out.parent, code=module.code_hash(), workers=0)
+    assert fragment(builder, TILE.id)["collision"]
+    builder.input_key = lambda _: "new-source"
+    assert fragment(builder, TILE.id) is None
+    builder.stop()
+
+
 def test_coarse_tile_is_a_published_tile(tmp_path, inputs):
     out = tmp_path / "coarse" / TILE.id
     m = build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library")
