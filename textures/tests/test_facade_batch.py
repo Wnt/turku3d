@@ -449,9 +449,10 @@ def test_refs_resume_when_only_binding_metadata_changes(tmp_path, monkeypatch):
     sources = ("google",)
     import hashlib
 
+    # Full-feature legacy key, including the terrain slot (unused for Google-only crops).
     key = hashlib.sha256(
         json.dumps(
-            [module.REFS_VERSION, f.to_feature(), params.__dict__, sources], sort_keys=True
+            [module.REFS_VERSION, f.to_feature(), params.__dict__, sources, None], sort_keys=True
         ).encode()
     ).hexdigest()
     path = tmp_path / "f"
