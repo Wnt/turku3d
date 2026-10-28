@@ -33,7 +33,7 @@ try {
   });
   page.on('pageerror', e => { errors.push(e.message); console.log('PAGEERROR', e.message); });
   console.log('opening localhost', destination);
-  await page.goto(`http://localhost:${port()}/?backend=webgpu&quality=low`);
+  await page.goto(`http://localhost:${process.env.ROUTE_DRIVE_PORT ?? port()}/?backend=webgpu&quality=low`);
   await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 180000 }).catch(async error => {
     console.log('STARTUP', await page.locator('body').innerText());
     await page.screenshot({ path: path.join(out, 'startup.png') });
