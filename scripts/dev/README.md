@@ -667,7 +667,7 @@ integrator code lane (asynchronous, one run at a time, `integration` host reserv
                G green: bisect G..M (build stages) → revert the culprit landing as one
                         commit through land.lock + gate --fast → request to its author
                         → live stays at G; the next run integrates the rest plus the revert
-data lane: build(T = live tiles' builder, else main, data) on a changed data root → <G>-<key12>, live game;
+data lane: build(main, data) on a changed data root → <G>-<key12>, live game;
         `refresh-stale` (`make tiles-refresh-stale`, sentinel, load < 40): build(main) → <G>-<key12>-<main12>
 ```
 
@@ -704,9 +704,9 @@ the build re-reads main once, before its first stage that is not a cache hit; a 
 builds publishes under
 `wt/.registry/publish.lock`; if the data lane published meanwhile (live parts changed), M is recomposed on that
 release (`rebuilt_on`; game-build is a cache hit), at most once; live changing again records `failed` for the next
-run. The data lane (`run_data`) builds with the tile code that built the live tiles (`tiles_commit`), so a pipeline
-change in main never forces a rebuild, and publishes `<G>-<data key 12>` (record `commit` G); if a code release
-moved live meanwhile on the same tiles it ships that release's game, else it records `superseded`. After
+run. The data lane (`run_data`) builds with main's tile code (`tiles_commit`), so data rebuilds include landed pipeline
+fixes even when the live tiles were built by older code. A code-only landing still carries served tiles.
+The data lane publishes `<G>-<data key 12>` (record `commit` G); if a code release moved live meanwhile on the same tiles it ships that release's game, else it records `superseded`. After
 publishing, both lanes deploy Pages and send the advisory failures
 that the replaced release did not have (`failing` labels: `chrome <project:spec>`, `tile-validate <check>`, a stage)
 to the authors of the batch's landings as one `warning` (the orchestrator for the data lane and in-place full runs;

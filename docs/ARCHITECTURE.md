@@ -228,10 +228,9 @@ to the new commit with the published content; any other batch builds only main's
 publishes it with the served tile set (the tile store entry for main's tile key, else the live release's tiles;
 `scripts/dev/served.py`) to `live` and GitHub Pages. Only a game-build failure bisects and reverts the culprit
 landing. The data lane owns every change of the data root (facade approvals, the playable tile list, layers): it
-rebuilds the affected tiles with the tile code that built the live tiles, so a pipeline change in main never forces
-a rebuild of tiles whose outputs exist (main's tile code is the fallback when the old code cannot build the new
-data), and runs tile-validate (format and seams block), the car report, the facade ground audit and the @streaming
-specs when the tile list changed; it ships the live game bundle. The release record names each tile's builder
+rebuilds the affected tiles with main's tile code, so data rebuilds include landed pipeline fixes. A code-only
+landing still carries served tiles. The data lane runs tile-validate (format and seams block), the car report,
+the facade ground audit and the @streaming specs when the tile list changed; it ships the live game bundle. The release record names each tile's builder
 (`tiles_from`, `tile_commits`) and the tiles built with older tile code than the release commit's (`stale_by_code`);
 `make tiles-refresh-stale` rebuilds those with main's code when the host is idle (the sentinel's heartbeat, load
 < 40). Advisory findings (car report, facade ground audit, tile-validate's walk checks, the facade baseline,

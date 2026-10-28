@@ -349,7 +349,7 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(row["tiles"], list(CORE))
         self.assertEqual((row["result"], self.classes), ("green", ["data"]))
         self.assertEqual(integrator.live_commit(self.published), head)
-        self.assertEqual(self.live_record()["tile_commits"], {tile: self.base for tile in CORE})
+        self.assertEqual(self.live_record()["tile_commits"], {tile: head for tile in CORE})
 
     def test_newly_listed_tile_is_built_by_the_data_lane_only(self):
         head = self.land("voice", "game/public/assets/voice/fi/a.ogg", "clip")
@@ -365,7 +365,7 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual((row["data_delta"], row["tiles"]), (["playable-tiles"], ["t0_1_-1"]))
         self.assertEqual((row["result"], self.classes), ("green", ["code", "data"]))
         self.assertEqual(sorted(self.live_record()["tiles"]), sorted(tiles))
-        self.assertEqual(self.live_record()["tile_commits"]["t0_1_-1"], self.base)
+        self.assertEqual(self.live_record()["tile_commits"]["t0_1_-1"], head)
         self.assertEqual(integrator.live_commit(self.published), head)
 
     def test_tooling_batch_is_code(self):
@@ -477,30 +477,37 @@ class IntegratorTests(IntegratorFixture):
         record = self.live_record()
         self.assertEqual(integrator.live_commit(self.published), head)
         self.assertEqual(record["stale_by_code"], list(CORE))
-        # New data is still built with the tile code that built the live tiles.
+        # New data uses landed pipeline fixes rather than the stale live tile builder.
         self.approve(3)
         row = self.data()
         self.assertEqual(
-            (row["result"], row["tiles_commit"], self.builds[-1]), ("green", self.base, self.base)
+            (row["result"], row["tiles_commit"], self.builds[-1]), ("green", head, head)
         )
-        self.assertEqual(self.live_record()["stale_by_code"], list(CORE))
+        self.assertEqual(self.live_record()["stale_by_code"], [])
         self.assertEqual(integrator.live_commit(self.published), head)
-        # The idle-host refresh rebuilds the stale tiles with main's tile code.
-        row = self.data(refresh_stale=True)
-        self.assertEqual((row["result"], row["refresh_stale"]), ("green", list(CORE)))
-        self.assertEqual((row["tiles_commit"], self.builds[-1]), (head, head))
+        # No stale refresh remains after the data rebuild.
         record = self.live_record()
         self.assertEqual((record["stale_by_code"], record["tile_commits"]["t0_0_0"]), ([], head))
         self.assertIsNone(self.data(refresh_stale=True))
 
-    def test_data_lane_falls_back_to_mains_tile_code_when_the_live_code_cannot_build(self):
+    def test_stale_refresh_uses_main_without_a_data_change(self):
+        head = self.land("pipeline", "pipeline/ground.py", "texture_key = 2\n")
+        self.integrate()
+        self.assertEqual(self.live_record()["stale_by_code"], list(CORE))
+        row = self.data(refresh_stale=True)
+        self.assertEqual((row["result"], row["refresh_stale"]), ("green", list(CORE)))
+        self.assertEqual((row["tiles_commit"], self.builds[-1]), (head, head))
+        self.assertEqual(self.live_record()["stale_by_code"], [])
+        self.assertIsNone(self.data(refresh_stale=True))
+
+    def test_data_lane_uses_main_without_trying_an_incompatible_live_builder(self):
         head = self.land("pipeline", "pipeline/new.py", "fetch = 'per tile'\n")
         self.integrate()
         (self.published / "needs-new-code").write_text("")
         self.approve(3)
         row = self.data()
         self.assertEqual((row["result"], row["tiles_commit"]), ("green", head))
-        self.assertEqual(self.builds[-2:], [self.base, head])
+        self.assertEqual(self.builds, [head, head])
         self.assertEqual(self.live_record()["stale_by_code"], [])
 
     def test_code_lane_recomposes_on_a_data_release_published_meanwhile(self):
@@ -517,9 +524,9 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(
             (row["result"], row["rebuilt_on"]), ("green", f"{self.base}-{data[0]['data_key'][:12]}")
         )
-        # Game build, the data lane's tile build of G, then M's game recomposed on its tiles.
+        # Game build, main's tile build, then main's game recomposed on those tiles.
         self.assertEqual(self.classes, ["code", "data", "code"])
-        self.assertEqual(self.builds, [head, self.base, head])
+        self.assertEqual(self.builds, [head, head, head])
         live = self.published / "live"
         self.assertEqual(integrator.live_commit(self.published), head)
         self.assertEqual(
@@ -542,7 +549,7 @@ class IntegratorTests(IntegratorFixture):
         self.assertEqual(row["result"], "failed")
         self.assertIn("again during the rebuild", row["failure"]["detail"])
         self.assertEqual(self.classes, ["code", "data", "code", "data"])
-        self.assertEqual(self.builds, [head, self.base, head, self.base])
+        self.assertEqual(self.builds, [head, head, head, head])
         self.assertEqual(integrator.live_commit(self.published), self.base)
 
     def test_data_lane_ships_a_newer_code_release_game_on_the_same_tiles(self):
