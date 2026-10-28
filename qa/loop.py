@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 from datetime import UTC, datetime
@@ -69,7 +70,6 @@ def main(argv=None):
     ap.add_argument("--serve")
     ap.add_argument("--renders", type=Path)
     ap.add_argument("--backend", choices=["webgpu", "webgl"], default="webgpu")
-    ap.add_argument("--channel", default="chrome", choices=["chrome", "chromium"])
     ap.add_argument("--run-id")
     ap.add_argument("--no-judge", action="store_true")
     ap.add_argument("--no-id-image", action="store_true")
@@ -128,7 +128,7 @@ def main(argv=None):
         {
             "views": view_hashes,
             "backend": a.backend,
-            "channel": a.channel,
+            "browser_executable_override": os.environ.get("TURKU3D_CHROME"),
             "model": DEFAULT_MODEL,
             "prompt": file_digest(PROMPT),
             "schema": file_digest(SCHEMA),
@@ -150,8 +150,6 @@ def main(argv=None):
             str(rdir),
             "--backend",
             a.backend,
-            "--channel",
-            a.channel,
         ]
         cmd += ["--url", a.url] if a.url else ["--serve", a.serve]
         if subprocess.run(cmd, cwd=QA_DIR / "render").returncode:

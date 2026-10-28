@@ -45,8 +45,8 @@ class StopTests(unittest.TestCase):
             (home / "browser/tmp").mkdir(parents=True)
             (home / "sandbox.env").write_text("export TURKU3D_PORT_BASE=5360\n")
             commands = (
-                f"41 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir={home}/browser/tmp/a\n"
-                f"42 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir={home}/browser2/a\n"
+                f"41 /browsers/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --user-data-dir={home}/browser/tmp/a\n"
+                f"42 /browsers/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --user-data-dir={home}/browser2/a\n"
             )
             with patch.object(runner.s, "root", return_value=Path(directory)):
                 with patch.object(

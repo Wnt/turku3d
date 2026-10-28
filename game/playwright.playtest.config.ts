@@ -1,4 +1,4 @@
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../tools/dev/chrome-args.mjs';
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
 import { isolateBrowser, jobs } from '../tools/dev/environment.mjs';
@@ -23,10 +23,10 @@ export default defineConfig({
   outputDir: path.join(report, 'results'),
   reporter: [['list'], ['./tests/e2e-playtest/reporter.ts', { outputDir: report }]],
   use: {
-    channel: 'chrome', headless: !process.env.HEADED,
+    headless: !process.env.HEADED,
     viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1,
     video: { mode: 'on', fps: 12, size: { width: 640, height: 360 } }, screenshot: 'only-on-failure', trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true },
-    launchOptions: { ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
+    launchOptions: { executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
   },
   projects: backends.map((backend, index) => ({ name: backend, use: { baseURL: `http://127.0.0.1:${s.port + 8 + index}/` } })),
   webServer: backends.map((_, index) => ({

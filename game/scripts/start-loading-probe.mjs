@@ -1,4 +1,4 @@
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
 // Manual real-data startup proof, outside the gate. Run through host_slots.py browser.
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';
@@ -26,7 +26,7 @@ async function seedSession() {
     });
   });
 }
-const browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true,
+const browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, executablePath: chromeExecutable(), headless: true,
   args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 try {
   for (const scenario of ['multiplayer', 'continue', 'retained-multiplayer']) {
