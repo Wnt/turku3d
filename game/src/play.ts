@@ -275,7 +275,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   // Joining before Ready resolves both the server-assigned spawn and a retained session's actual pose.
   const { client, ready: preparedMultiplayer } = prepareMultiplayer();
   multiplayer = client;
-  poles.setClient(client);
   scoreboard.setClient(client);
   let owned = missions.vehicle;
   if (hot) {
@@ -284,6 +283,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     owned = missions.vehicle;
     if (hot.multiplayer) {
       multiplayerPlaying = true;
+      poles.setClient(client);
     }
   }
   // A landing that cannot swap reloads the page (Vite full reload or a restarted dev server): autosave and resume.

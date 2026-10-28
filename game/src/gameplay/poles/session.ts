@@ -12,6 +12,7 @@ export class PoleSession {
   private notice: PoleNotice;
   private poles: BreakablePoles;
   private client: MultiplayerClient | null = null;
+  private attached = new WeakSet<MultiplayerClient>();
   constructor(tiles: VisualTiles, physics: PhysicsClient, missions: MissionSystem, voice: VoicePlayer, parent: HTMLElement) {
     this.notice = new PoleNotice(voice, parent);
     this.poles = new BreakablePoles(tiles, physics, id => {
@@ -22,6 +23,9 @@ export class PoleSession {
   }
   setClient(client: MultiplayerClient) {
     this.client = client;
+    if (client.state.connected) this.poles.setBroken(client.state.brokenPoles);
+    if (this.attached.has(client)) return;
+    this.attached.add(client);
     client.addEventListener('welcome', () => { if (this.client === client) this.poles.setBroken(client.state.brokenPoles); });
     client.addEventListener('poleBreak', event => {
       if (this.client === client) this.poles.breakRemote((event as CustomEvent<string>).detail);
