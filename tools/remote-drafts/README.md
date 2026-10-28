@@ -214,7 +214,7 @@ walls retain the draft facade kit.
 scripts/dev/publish-facades
 # Incremental generator source upload, restart and metrics (no warming wait):
 scripts/dev/deploy-drafts --commit HEAD
-# After curl smoke checks, enqueue nearest-first warming asynchronously:
+# Recovery: re-enqueue nearest-first warming asynchronously (deploy already starts it):
 scripts/dev/deploy-drafts --prewarm
 curl --max-time 1 -fsSI -H 'Origin: https://wnt.github.io' \
   https://turku.lab.madekivi.fi/facades/index.json
@@ -225,7 +225,11 @@ cat ~/turku3d-drafts/reports/facade-assets.log
 
 `deploy-drafts` archives the specified commit, rsyncs only changed source files
 using the previous source as a hard-link basis, validates Caddy, then switches the
-source pointer and restarts the draft producer/proxy. Multiplayer and its tunnel
-keep running. Native dependency changes still require the ARM64 bootstrap before
+source pointer and restarts the draft producer/proxy. The draft service journals
+queued, building and pending demand under its persistent coarse root and replays it
+before accepting new work. Deployment immediately starts nearest-first ring warming
+with every configured foreground worker. Multiplayer and its tunnel keep running. Native dependency changes still require the ARM64 bootstrap before
 this source-only deployment. `--prewarm` starts the supervised ring warmer and
 returns immediately; cached manifests are checked against the current generator.
+Record public producer/proxy restart times in the task result. Never restart a producer
+version that cannot preserve queued demand during normal deployment.
