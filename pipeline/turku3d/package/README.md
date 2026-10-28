@@ -284,3 +284,9 @@ resize it without deleting another request's temporary files. Verify with
 
 The 7.6 MB headroom target stops at authored facade density floors when the tile already
 fits the hard 8 MB wire limit. Density drops below those floors only to meet the hard limit.
+
+Roof nodes carrying measured `roof_rgb` use linear `COLOR_0` and a neutral base factor.
+Their generic library albedo is omitted while normal/ORM detail remains shared. Vertex
+colours survive material deduplication and batching, so light, dark and coloured roofs
+retain the measured orthophoto brightness without adding a material for every building.
+Roof classes without measured RGB retain their library fallback.

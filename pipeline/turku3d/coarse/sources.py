@@ -311,7 +311,16 @@ class Sources:
             return None
         chunks = ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")
         h = hashlib.sha256(b"osm" if osm else b"no-osm")
-        for path in [*laz, ortho, chunks, *(p for _, p in wfs if p), *([osm] if osm else [])]:
+        from .roofs import lidar_paths
+
+        for path in [
+            *laz,
+            *lidar_paths(tile),
+            ortho,
+            chunks,
+            *(p for _, p in wfs if p),
+            *([osm] if osm else []),
+        ]:
             try:
                 st = path.stat()
             except OSError:

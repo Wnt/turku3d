@@ -55,7 +55,7 @@ lidar or a candidate model is missing. Shared data is never modified.
 ([`outer.py`](outer.py), [`turku3d.tile_layer`](../tile_layer.py)): every unlisted tile within
 two tiles of a listed one (for the four core tiles, exactly work-3x3). A ring tile's massing is
 the city's CityGML LOD2 buildings whose footprint centroid lies in it, extruded from the base to
-the area-weighted mean roof height (`coarse.inputs.buildings`, `coarse.build.extrude`: the draft tiles' rule),
+the upper roof envelope, preserving terraces and sloping planes (`coarse.inputs.buildings`, `coarse.build.extrude`: the draft tiles' geometry rule; optional lidar refinement applies to drafts),
 except buildings within 1 m of a listed tile, which the buildings layer owns. LOD2 comes from
 any prepared raw area covering the tile (work-3x3, `tile-<id>`, the draft prefetcher's blocks);
 `make tile-add` reads it through for new ring tiles (`outer.fetch_missing`, one WFS layer per
@@ -194,3 +194,23 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_buildings_groun
 make refresh
 bash pipeline/env/run.sh python -m turku3d.package.facade_ground_audit
 ```
+
+## Measured roof colour
+
+Roof classification and RGB come from the 2022 true ortho: a 0.75 m footprint inset
+(where at least 25% of the area remains), nodata/green-vegetation rejection, deep-shadow
+masking relative to the roof's own brightness, and highlight trimming. The retained median
+is exported on roof nodes as `roof_rgb` (sRGB 0–255). Packaging converts it to linear vertex
+colours, retains shared metal normal/ORM detail and bypasses the generic dark metal albedo.
+Different colours still batch together. Facade maps and shell selection are unchanged.
+
+```sh
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.buildings.roof_audit
+bash pipeline/env/run.sh python -m pytest pipeline/tests/test_coarse_roofs.py -q
+node --test pipeline/turku3d/package/facade_kit.test.mjs
+```
+
+The manual audit repackages the existing full office shells with/without measured colour,
+writing `WORK/reports/roofs/{colour-audit.json,before/t0_0_0,after/t0_0_0}`. Its RGB MAE
+compares constant material colour with roof-interior orthophoto pixels, before lighting;
+it does not claim to identify physical roof material from RGB alone.

@@ -364,7 +364,11 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                         )
                         part.facade_key = b.facade_key
                         part.attributes = b.attributes.copy()
-                        updated.append((part, extrude(part)))
+                        part.roof_parts = b.roof_parts
+                        part.height_evidence = b.height_evidence
+                        shell = extrude(part)
+                        if len(shell[0]):
+                            updated.append((part, shell))
         shells = updated
     meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
     return Tunnels(keep, meshes, profiles, shells, len(profiles))

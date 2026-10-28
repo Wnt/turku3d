@@ -86,6 +86,7 @@ def code_hash():
         Path(__file__),
         base / "coarse/build.py",
         base / "coarse/inputs.py",
+        base / "coarse/roofs.py",
         base / "facade_kit.py",
         C.REPO_ROOT / "textures/turkutex/facade_fast_render.py",
         base / "tile_layer.py",

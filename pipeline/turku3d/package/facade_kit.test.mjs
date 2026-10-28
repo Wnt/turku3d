@@ -43,3 +43,24 @@ test('kit styles share a batch while preserving metre UVs, styles and object ran
   assert.ok(Math.abs(prim.getAttribute('_KIT_WALL').getElement(0, [])[0] - 0.21586) < 0.00001);
   assert.deepEqual(prim.getAttribute('_KIT_TRIM').getElement(3, []), [0, 0, 0]);
 });
+
+test('orthophoto roof RGB survives linear conversion and batches across roof classes', async () => {
+  const { bindRoofColour } = await import('./materials.mjs');
+  const doc = new Document(), buffer = doc.createBuffer(), scene = doc.createScene();
+  for (const [i, rgb] of [[210, 215, 215], [40, 45, 45]].entries()) {
+    const position = doc.createAccessor().setBuffer(buffer).setType('VEC3').setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]));
+    const material = doc.createMaterial().setBaseColorFactor([0.25, 0.25, 0.25, 1]);
+    const prim = doc.createPrimitive().setAttribute('POSITION', position).setMaterial(material);
+    bindRoofColour(doc, material, prim, rgb);
+    assert.equal(material.getBaseColorTexture(), null);
+    assert.deepEqual(material.getBaseColorFactor(), [1, 1, 1, 1]);
+    const s = rgb[0] / 255, linear = ((s + 0.055) / 1.055) ** 2.4;
+    assert.ok(Math.abs(prim.getAttribute('COLOR_0').getElement(0, [])[0] - linear) < 1e-6);
+    scene.addChild(doc.createNode().setExtras({ layer:'buildings', object_id:`roof-${i}` }).setMesh(doc.createMesh().addPrimitive(prim)));
+  }
+  await batchVisual(doc, scene, 't0_0_0', { dedup, joinPrimitives, transformPrimitive });
+  const batches = scene.listChildren().filter(n => n.getMesh());
+  assert.equal(batches.length, 1);
+  const colours = batches[0].getMesh().listPrimitives()[0].getAttribute('COLOR_0');
+  assert.ok(colours.getElement(0, [])[0] > colours.getElement(3, [])[0] * 10);
+});

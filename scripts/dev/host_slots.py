@@ -101,6 +101,8 @@ def identity(pid):
                 ["ps", "-p", str(pid), "-o", "lstart=", "-o", "stat="],
                 text=True,
                 stderr=subprocess.DEVNULL,
+                # The start time is the identity: format it the same in every caller's locale.
+                env={**os.environ, "LC_ALL": "C"},
             )
             .strip()
             .split()

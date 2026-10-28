@@ -29,11 +29,13 @@ import shapely
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 
+from . import roofs
 from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
 
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 CODE = hashlib.sha256(
     Path(__file__).read_bytes()
+    + Path(roofs.__file__).read_bytes()
     + Path(__file__).with_name("fences.py").read_bytes()
     + Path(__file__).with_name("bridges.py").read_bytes()
     + Path(__file__).with_name("forests.py").read_bytes()
@@ -49,6 +51,8 @@ class Building:
         self.material_key = material_key
         self.facade_key = str(key)
         self.attributes = {}
+        self.roof_parts = []
+        self.height_evidence = []
 
 
 @dataclass
@@ -166,7 +170,7 @@ def _frame(path: Path | None, bbox: C.BBoxLocal, kinds=("Polygon", "MultiPolygon
 
 
 def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
-    """LOD2 footprints whose centroid lies in this tile, flat roof at the mean roof height."""
+    """LOD2 footprints owned by centroid, with their upper roof envelope retained."""
     import geopandas as gpd
 
     frame = gpd.read_parquet(path)
@@ -195,10 +199,12 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
             [np.asarray(g.exterior.coords)[:, 2] for g in group.geometry[ground]]
         )
         base = float(heights.min())
-        roofs = group[~ground]
-        if len(roofs):
-            areas = roofs.geometry.area.to_numpy()
-            means = np.array([np.asarray(g.exterior.coords)[:, 2].mean() for g in roofs.geometry])
+        roof_surfaces = group[~ground]
+        if len(roof_surfaces):
+            areas = roof_surfaces.geometry.area.to_numpy()
+            means = np.array(
+                [np.asarray(g.exterior.coords)[:, 2].mean() for g in roof_surfaces.geometry]
+            )
             top = float((means * areas).sum() / max(areas.sum(), 1e-9))
         else:
             top = base + float(group.measuredHeight.astype(float).iloc[0])
@@ -207,6 +213,8 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
         building = Building(
             key, shapely.geometry.polygon.orient(footprint, 1.0), base, top, "facade_plaster"
         )
+
+        building.roof_parts = roofs.envelope(footprint, roof_surfaces.geometry_local, top)
 
         def value(*columns, group=group):
             for column in columns:
@@ -235,13 +243,16 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
 
 
 def prepare_wfs(
-    tile: C.VisualTile, bldg: Path | None, streets: Path | None, water: Path | None
+    tile: C.VisualTile, bldg: Path | None, streets: Path | None, water: Path | None, roof_paths=()
 ) -> dict:
     """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
 
+    shells = buildings(bldg, tile) if bldg else []
+    if shells and roof_paths:
+        roofs.refine(shells, roof_paths)
     return {
-        "buildings": buildings(bldg, tile) if bldg else [],
+        "buildings": shells,
         "streets": [
             (shapely.make_valid(g), mat_id(surface_material(r.Katuosalaji, r.Pintamateriaali)))
             for g, r in _frame(streets, tile.bbox)
@@ -344,7 +355,9 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
     return {
         "ground": None if missing else laz,
         "ortho": [ortho] if ortho else None,
-        "wfs": [p for _, p in wfs] if all(found for found, _ in wfs) else None,
+        "wfs": [p for _, p in wfs] + roofs.lidar_paths(tile)
+        if all(found for found, _ in wfs)
+        else None,
         "roads": [osm] if osm else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
@@ -377,8 +390,8 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         return read_areas(tile, paths[0])
     if dataset == "trees":
         return prepare_trees(tile, paths[0])
-    bldg, streets, water = paths
-    return prepare_wfs(tile, bldg, streets, water)
+    bldg, streets, water, *roof_paths = paths
+    return prepare_wfs(tile, bldg, streets, water, roof_paths)
 
 
 def _entry(root: Path, tile: C.VisualTile, dataset: str, paths: list) -> tuple[Path, str]:
