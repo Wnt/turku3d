@@ -6,8 +6,8 @@ import json
 import struct
 import time
 import urllib.request
-from urllib.parse import urljoin
 from pathlib import Path
+from urllib.parse import urljoin
 
 
 def fetch(url):
