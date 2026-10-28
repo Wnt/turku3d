@@ -467,8 +467,8 @@ def build(
     ground_meshes = cache.run(
         "ground_visual",
         source_key(surfaces.visuals, base / "package/gltf.py", *common),
-        [visual_args, surfaces.KEYS, surfaces.BINDINGS],
-        lambda: surfaces.visuals(*visual_args),
+        [visual_args, None if first_pass else inputs.ortho, surfaces.KEYS, surfaces.BINDINGS],
+        lambda: surfaces.visuals(*visual_args, ortho=None if first_pass else inputs.ortho),
     )
     paint_args = (
         tile,
