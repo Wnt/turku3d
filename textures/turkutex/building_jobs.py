@@ -61,7 +61,7 @@ def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     import numpy as np
     from PIL import Image
 
-    from .streetview.refs import source_rank, view_problem
+    from .streetview.refs import view_problem
 
     if not reference_matches(facade, root):
         return [], "no current reference set"
@@ -77,16 +77,18 @@ def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
             problems.append(f"{v['source']} {v['view_id']}: {problem}")
         else:
             valid.append(v)
-    valid.sort(
-        key=lambda v: (
-            v.get("semantic", {}).get("occlusion_share", 0),
-            source_rank(v["source"]),
-            -(v.get("score") or 0),
-        )
-    )
+    valid.sort(key=reference_quality_key)
     if not valid:
         return [], "no valid full-wall view: " + "; ".join(problems)
     return valid, None
+
+
+def reference_quality_key(view: dict) -> tuple:
+    """Distinguish clear views, then trust geometry over small proxy-occlusion differences."""
+    from .streetview.refs import source_rank
+
+    occlusion = view.get("semantic", {}).get("occlusion_share", 0)
+    return (occlusion >= 0.1, source_rank(view["source"]), -(view.get("score") or 0), occlusion)
 
 
 def reference_status(

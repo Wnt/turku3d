@@ -1,5 +1,5 @@
 import numpy as np
-from turkutex.building_jobs import view_height
+from turkutex.building_jobs import reference_quality_key, view_height
 from turkutex.streetview.evidence import problem
 from turkutex.streetview.facades import Facade
 from turkutex.streetview.refs import supported_wall, view_problem
@@ -99,3 +99,17 @@ def test_description_height_matches_rendered_wall_plane():
     view = {"facade_corners_EN_H": [[0, 0, 5], [1, 0, 5], [1, 0, 13], [0, 0, 13]]}
     assert view_height(view, 14) == 8
     assert view_height({}, 14) == 14
+
+
+def test_reference_quality_uses_clear_band_then_geometry_within_usable_band():
+    def view(occlusion, score):
+        return dict(source="lookaround", score=score, semantic=dict(occlusion_share=occlusion))
+
+    assert (
+        sorted([view(0.181, 0.6468), view(0.125, 0.6452)], key=reference_quality_key)[0]["score"]
+        == 0.6468
+    )
+    assert (
+        sorted([view(0.181, 0.6468), view(0.04, 0.63)], key=reference_quality_key)[0]["score"]
+        == 0.63
+    )
