@@ -34,3 +34,16 @@ test('worker clock drops suspended time, caps catch-up and restarts without paus
   expect(clock.advance(10000, true)).toBe(0);
   expect(clock.advance(10020, true)).toBeCloseTo(0.02);
 });
+
+test('mailbox contention never waits or overwrites a snapshot being copied', () => {
+  const writer = SharedMailbox.create<string>(128), reader = new SharedMailbox<string>(writer.buffer);
+  writer.write('old');
+  const lock = new Int32Array(writer.buffer, 0, 3);
+  Atomics.store(lock, 2, 1);
+  expect(writer.write('new')).toBe(false);
+  expect(reader.read()).toBeNull();
+  Atomics.store(lock, 2, 0);
+  expect(reader.read()).toBe('old');
+  expect(writer.write('new')).toBe(true);
+  expect(reader.read()).toBe('new');
+});

@@ -1,6 +1,6 @@
 import { DT, MAX_SUBSTEPS } from './constants';
 
-/** Single-writer shared mailbox. Odd sequence = being written; readers retry on the next frame rather than wait.
+/** Single-writer shared mailbox. A try-lock protects the copy; contention skips a write/read rather than waits.
  * UTF-8 snapshots retain the full protocol (variable vehicle/pole lists and stable string IDs). */
 export class SharedMailbox<T> {
   readonly buffer: SharedArrayBuffer;
@@ -11,26 +11,33 @@ export class SharedMailbox<T> {
   private seen = 0;
   constructor(buffer: SharedArrayBuffer) {
     this.buffer = buffer;
-    this.header = new Int32Array(buffer, 0, 2);
-    this.bytes = new Uint8Array(buffer, 8);
+    this.header = new Int32Array(buffer, 0, 3);
+    this.bytes = new Uint8Array(buffer, 12);
   }
-  static create<T>(capacity: number) { return new SharedMailbox<T>(new SharedArrayBuffer(capacity + 8)); }
+  static create<T>(capacity: number) { return new SharedMailbox<T>(new SharedArrayBuffer(capacity + 12)); }
   get publishedBytes() { return Atomics.load(this.header, 1); }
   write(value: T) {
     const encoded = this.encoder.encode(JSON.stringify(value));
     if (encoded.length > this.bytes.length) throw new Error(`physics mailbox overflow: ${encoded.length}/${this.bytes.length}`);
-    Atomics.add(this.header, 0, 1);
-    this.bytes.set(encoded);
-    Atomics.store(this.header, 1, encoded.length);
-    Atomics.add(this.header, 0, 1);
+    if (Atomics.compareExchange(this.header, 2, 0, 1) !== 0) return false;
+    try {
+      Atomics.add(this.header, 0, 1);
+      this.bytes.set(encoded);
+      Atomics.store(this.header, 1, encoded.length);
+      Atomics.add(this.header, 0, 1);
+      return true;
+    } finally { Atomics.store(this.header, 2, 0); }
   }
   read(): T | null {
-    const seq = Atomics.load(this.header, 0);
-    if (seq === this.seen || (seq & 1)) return null;
-    const length = Atomics.load(this.header, 1);
-    const copy = this.bytes.slice(0, length);
-    if (seq !== Atomics.load(this.header, 0)) return null;
-    this.seen = seq;
+    // The bounded try-lock makes the byte copy data-race-free under the JS memory model. Neither side waits.
+    if (Atomics.compareExchange(this.header, 2, 0, 1) !== 0) return null;
+    let copy: Uint8Array;
+    try {
+      const seq = Atomics.load(this.header, 0);
+      if (seq === this.seen || (seq & 1)) return null;
+      copy = this.bytes.slice(0, Atomics.load(this.header, 1));
+      this.seen = seq;
+    } finally { Atomics.store(this.header, 2, 0); }
     return JSON.parse(this.decoder.decode(copy)) as T;
   }
 }

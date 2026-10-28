@@ -33,18 +33,20 @@ fixed-step accumulator (at most five substeps). Delayed timers discard excess de
 resuming after pause starts a fresh clock. Inputs expire after 500 ms without a
 render-frame heartbeat, so suspended tabs cannot keep driving. Explicit `step(dt, …)`
 remains an ordered command for initial query barriers, save/load placement and tools;
-it never waits for a state reply. `PhysicsWorld` and its deterministic fixed steps
-are unchanged. Timer ticks join the same promise chain as tile decode, actor commands,
+it never waits for a state reply. The deterministic fixed-step simulation is unchanged; actor publication caches
+affect state extraction only. Timer ticks join the same promise chain as tile decode, actor commands,
 remote proxies and pole updates, with at most one timer queued.
 
 When `crossOriginIsolated`, two single-writer SharedArrayBuffer mailboxes carry input
 and state. The frame loop writes input and reads `latest` directly; no main-thread
 message task is involved in state delivery. A jump counter preserves pulses across
-worker reads. Each mailbox has two Int32 header words (sequence, byte length), then
-UTF-8 JSON bytes: odd sequence means writing, even means complete. Readers copy only
-the published length and validate the sequence afterwards; on contention they retain
-the previous snapshot until the next frame. Input capacity is 2 KiB and state capacity
-4 MiB; overflow is an explicit physics error, never a truncated actor list. JSON retains string IDs and the existing pose fields; actor updates use the
+worker reads. Each mailbox has three Int32 header words (sequence, byte length, try-lock), then
+UTF-8 JSON bytes: odd sequence means writing, even means complete. Readers and writers attempt the lock once and never spin or wait. Copying bytes
+under that lock is data-race-free; readers decode after releasing it. On contention,
+the writer skips publication or the reader retains its previous snapshot until the
+next frame. Unacknowledged actor updates and jump counters survive skipped writes.
+Input capacity is 2 KiB and state capacity 4 MiB; overflow is an explicit physics error, never a truncated actor list.
+JSON retains string IDs and the existing pose fields; actor updates use the
 acknowledged delta protocol below. The client reconstructs complete vehicle state.
 `publishedAt` uses `performance.timeOrigin + performance.now()` across contexts;
 interpolation uses publication time rather than delayed message receipt time.
@@ -71,7 +73,7 @@ siblings under `../tiles/` (outside the worker's scope but allowed by COEP). Opt
 external tiles already use CORS fetches; their server must allow the game origin.
 Multiplayer uses WebSocket (not an embedded resource); its HTTP score fetches use
 CORS. No credentialless rewriting, cross-origin asset proxy or new endpoint is used.
-COEP requirements: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy
+[COEP requirements](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy).
 
 Verify pure transport, clock, input and existing physics fixtures from a sourced sandbox:
 
