@@ -226,7 +226,15 @@ def fast_run(tile_id: str, work: Path) -> tuple[Path, list[str]]:
 
 def facade_fast(step: str, args: list[str], log) -> dict:
     python = C.REPO_ROOT / "textures/.venv/bin/python"
-    return json.loads(stream([str(python), "-m", "turkutex.facade_fast", step, *args], log)[-1])
+    lines = stream([str(python), "-m", "turkutex.facade_fast", step, *args], log)
+    for line in reversed(lines):
+        try:
+            result = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(result, dict):
+            return result
+    raise ValueError(f"facade-fast {step} produced no JSON result")
 
 
 def fast_facades(tile_id: str, work: Path, log) -> dict:
