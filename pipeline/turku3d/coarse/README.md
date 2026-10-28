@@ -30,6 +30,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   are cut exactly against those polygons, interpolating the original terrain plane and normals.
   Collision retains the original grid. Shared asphalt, paving, grass, gravel, stone and quay PBR
   maps repeat every 2 m; steep faces project onto a vertical plane to avoid stretched bank textures.
+  Default paving on near-vertical terrain uses the neutral rock/gravel material in visual output.
   The existing ground library arrays are extracted at 512 px albedo / 256 px normal and ORM and encoded once into
   content-addressed shared KTX2 maps. A deterministic procedural floor supports an absent library.
   Draft ground no longer displays aerial shadows, roofs, cars or blue-white patches as albedo.

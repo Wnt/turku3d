@@ -491,13 +491,17 @@ def build(
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
+    visual_materials = surfaces.slope_fallback(grid_pos, grid_idx, materials)
+    fallback_materials = surfaces.slope_fallback(
+        grid_pos, grid_idx, surfaces.classify(centroids, inputs.ortho, tile, [])
+    )
     surface_pos, surface_idx, surface_ids, surface_normals = surfaces.split_boundaries(
         grid_pos,
         grid_idx,
-        materials,
+        visual_materials,
         ~wet & tunnels.keep,
         [*inputs.surfaces, *inputs.streets],
-        surfaces.classify(centroids, inputs.ortho, tile, []),
+        fallback_materials,
     )
     ground_meshes = surfaces.visuals(
         tile,

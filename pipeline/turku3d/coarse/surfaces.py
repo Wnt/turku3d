@@ -38,7 +38,7 @@ BINDINGS = {
     "gravel": 6,
     "soil": 6,
     "sand": 6,
-    "rock": 2,
+    "rock": 6,
     "quay": 7,
     "curb": 2,
 }
@@ -139,6 +139,16 @@ def classify(centroids, rgb, tile, streets, regions=()):
         order = np.argsort(pi, kind="stable")
         out[qi[order]] = np.asarray([m for _, m in polygons], np.uint8)[pi[order]]
     return out
+
+
+def slope_fallback(positions, indices, materials):
+    """Avoid projecting pavement onto bare, near-vertical terrain faces."""
+    triangles = positions[indices]
+    face = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    steep = np.abs(face[:, 1]) < 0.45 * np.linalg.norm(face, axis=1)
+    result = materials.copy()
+    result[steep & (materials == mat_id("paving_slab"))] = mat_id("rock")
+    return result
 
 
 def visuals(tile, positions, indices, materials, keep, normals=None):

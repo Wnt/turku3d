@@ -113,5 +113,7 @@ try {
   fs.writeFileSync(report, JSON.stringify({ ...evidence, browser: browser.version(), complete: true, errors, results }, null, 2));
 } finally {
   await browser?.close();
-  for (const file of [sceneFile, pageFile, link, snapshot, materialSnapshot, bindingSnapshot, fullLink]) if (fs.existsSync(file)) fs.unlinkSync(file);
+  for (const file of [sceneFile, pageFile, link, snapshot, materialSnapshot, bindingSnapshot, fullLink]) {
+    if (fs.lstatSync(file, { throwIfNoEntry: false })) fs.unlinkSync(file);
+  }
 }

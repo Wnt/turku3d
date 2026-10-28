@@ -4,7 +4,7 @@ import numpy as np
 import shapely
 from turku3d import config as C
 from turku3d.coarse.register import attributes
-from turku3d.coarse.surfaces import classify, fallback, visuals
+from turku3d.coarse.surfaces import classify, fallback, slope_fallback, visuals
 from turku3d.col.materials import mat_id
 
 
@@ -36,6 +36,21 @@ def test_steep_bank_uses_height_uvs_without_changing_geometry():
     assert np.allclose(m.positions[m.indices], positions[indices])
     assert np.linalg.matrix_rank(m.uvs[1:] - m.uvs[0]) == 2
     assert m.image is None
+
+
+def test_steep_terrain_uses_rock_without_repainting_mapped_roads():
+    positions = np.array([[0.0, 0, 0], [0, 5, 0], [0, 0, 5], [5, 0, 0]])
+    indices = np.array([[0, 1, 2], [0, 2, 3]], np.uint32)
+    material = np.array([mat_id("paving_slab"), mat_id("paving_slab")], np.uint8)
+    assert slope_fallback(positions, indices, material).tolist() == [
+        mat_id("rock"),
+        mat_id("paving_slab"),
+    ]
+    material[0] = mat_id("road")
+    assert slope_fallback(positions, indices, material).tolist() == [
+        mat_id("road"),
+        mat_id("paving_slab"),
+    ]
 
 
 def test_metric_uvs_do_not_restart_on_tile_edges():
