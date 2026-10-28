@@ -313,7 +313,13 @@ def main(argv=None):
     streets = unary_union(
         [local_polygon(p) for p in gpd.read_parquet(paths["GIS_Keskilinjat"]).geometry]
     )
-    ortho = sorted((C.raw_dir("ortho") / "ortho2022to" / args.source_area).glob("*.tif"))
+    # The WFS union is read from work-3x3, but expanded tiles can lie beyond its
+    # orthophoto extent. Chunks share an origin-aligned grid across input areas.
+    ortho_by_chunk = {}
+    for area in dict.fromkeys([args.source_area, *(C.source_area(t) for t in args.tiles)]):
+        for path in sorted((C.raw_dir("ortho") / "ortho2022to" / area).glob("*.tif")):
+            ortho_by_chunk.setdefault(path.name, path)
+    ortho = sorted(ortho_by_chunk.values())
     # Only the LAZ tiles under or near some building: an L-shaped tile list's bounding box can
     # reach lidar tiles nobody fetched because nothing there is built.
     laz = sorted({p for b in buildings for p in (*roofer_lidar(b), *evidence_lidar(b))})
