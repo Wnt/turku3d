@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 import advisory as advisory_check
+import advisory_chrome
 import live_cache
 import sandbox as s
 import served
@@ -510,7 +511,7 @@ def build(
                         env=run_env,
                         bundle_dir=work / "build/game",
                         tiles_manifest=work / "dist/tiles/manifest.json",
-                        runner=lambda command, cwd, env: s.run_group(
+                        runner=lambda command, cwd, env: advisory_chrome.run(
                             command, cwd=cwd, env=env, cancelled=cancelled
                         ),
                         log=log,

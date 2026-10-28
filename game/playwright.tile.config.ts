@@ -33,7 +33,7 @@ export default defineConfig({
     { name: 'webgl', use: { backendParam: 'webgl',
       ...(process.env.TURKU3D_BROWSER_WS_WEBGL ? { connectOptions: { wsEndpoint: process.env.TURKU3D_BROWSER_WS_WEBGL } } : {}) } as never },
   ],
-  webServer: {
+  webServer: process.env.E2E_TILE_EXTERNAL_SERVER === '1' ? undefined : {
     command: DEV ? `./node_modules/.bin/vite --host 127.0.0.1 --port ${PORT} --strictPort`
       : `node ../tools/dev/serve-dist.mjs --root ${JSON.stringify(gameDist)} --port ${PORT} --mount ${JSON.stringify(`/tiles=${TILE_DIST}`)}`,
     url: `http://localhost:${PORT}/`,

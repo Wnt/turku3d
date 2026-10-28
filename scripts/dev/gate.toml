@@ -182,6 +182,12 @@ triggers = ["scripts/dev/*", "ruff.toml", "eslint.config.mjs", "knip.json", "doc
 commands = [["{python}", "scripts/dev/tests/run.py", "test_gate.py", "test_policy.py", "test_gate_fixtures.py", "test_gate_state.py", "test_spec_selection.py"]]
 
 [[stages]]
+name = "advisory-chrome-tests"
+kind = "command"
+triggers = ["scripts/dev/advisory_chrome.py", "scripts/dev/tests/test_advisory_chrome.py", "scripts/dev/sandbox.py", "scripts/dev/live_build.py", "game/playwright.tile.config.ts"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_advisory_chrome.py"]]
+
+[[stages]]
 name = "tooling-tests"
 tier = "deep"
 inputs = ["pipeline/turku3d/*", "textures/turkutex/codex/*", "docs/flags.toml", "docs/specs/materials.md", "game/src/shared/col/materials.ts", "game/public/basis/*"]
