@@ -1,9 +1,24 @@
-## Result: BLOCKED
+## Result: IN PROGRESS
 
-The remote deployment timing gate failed: single-build outer tile `t0_7_7`
-took **41.897 s**, above the **30 s** limit. No public service, reverse proxy,
-forwarder change or Pages game change was deployed. Multiplayer remains on its
-existing route. The orchestrator and `fix-draft-speed` received the measurements.
+The orchestrator accepted Phase 1 in substance and explicitly authorized Phase 2
+on pinned pipeline commit `38e57aff` in the 2026-10-28 remote handover. The
+original strict outer-tile miss (41.897 s versus 30 s) remains recorded below.
+
+Phase 2 public serving is live. Caddy on loopback 7764 forwards draft routes to
+7765 and all other traffic, including WebSockets, to 7700. The forwarder uses
+an isolated systemd drop-in, with the original credential untouched. Pages-origin
+multiplayer probes passed before switching (nickname ML), through the local
+proxy (BR), and after switching the public route (TL). Public health is 200 with
+Pages CORS, an unapproved origin is 403, and private status is 404.
+
+The client slice needs Mac landing/publication before its published-URL check.
+The handover branch and GitHub origin/main have unrelated root histories, so
+this host preserves the handed-over branch for the orchestrator to land.
+
+Prebuild exposed existing pinned-producer collision failures (degenerate
+triangles, including `t0_-1_0` and `t0_-2_-2`). Failed drafts remain undrawn.
+The serving layer and game do not weaken collision validation. The handover
+outbox requests coordination with `fix-draft-speed` for the next pipeline commit.
 
 ## What changed
 
@@ -13,6 +28,11 @@ existing route. The orchestrator and `fix-draft-speed` received the measurements
 - Copied only `raw/{ortho,laz,wfs,osm}` and the generated material library with
   rsync. Final dry-run found no differing input files, only three directory mtimes.
   No street imagery, private data or credentials were copied.
+- Added the public bounded queue, restricted CORS, ETags, safe manifest projection,
+  private management routes, supervised proxy and Pages draft endpoint. Remote
+  badge states and collision-before-draw have synthetic regression coverage.
+- Changed prebuild to use the producer queue, preventing concurrent writes to the
+  same tile from prebuild workers and public requests.
 - Added the dedicated environment launcher, repeatable cold prepared-cache
   benchmark, measured conda lock, JSON evidence and operations README under
   `tools/remote-drafts/`. Included the new Python tooling in gate lint selection.

@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from turku3d import config as C
 from turku3d.coarse.prefetch import Prefetcher
-from turku3d.coarse.service import FILE, SHARED, TILE, Builder, Server, handler
+from turku3d.coarse.service import FILE, MIME, SHARED, TILE, Builder, Server, handler
 from turku3d.coarse.sources import Sources, Unit
 
 
@@ -72,8 +72,8 @@ def public_handler(builder, prefetcher, settings):
             if self.command != "HEAD":
                 self.wfile.write(body)
             # No IP, query, headers, player position or user-agent in request logs.
-            route, tile = public_route(urlparse(self.path).path, settings["tile_bounds"])
-            print(json.dumps({"http": status, "route": route, "tile": tile}), flush=True)
+            route, _ = public_route(urlparse(self.path).path, settings["tile_bounds"])
+            print(json.dumps({"http": status, "route": route}), flush=True)
 
         def _json(self, status, value):
             # Pipeline exceptions can contain filesystem paths; expose only retryable states.
@@ -99,6 +99,7 @@ def public_handler(builder, prefetcher, settings):
                 return self._json(200, {"state": "online"})
             if route == "invalid":
                 return self._json(404, {"error": "route"})
+            name = urlparse(self.path).path.removeprefix("/coarse/").split("/", 1)[1]
             if route == "manifest":
                 # Condition uses an RLock; hold admission through Builder.request so racing
                 # requests cannot exceed the cap. Cached/running requests never consume a slot.
@@ -110,8 +111,29 @@ def public_handler(builder, prefetcher, settings):
                         and len(active) >= settings["queue_max"]
                     ):
                         return self._json(429, {"state": "queue-full"})
-                    return super().do_GET()
-            return super().do_GET()
+                    # Ignore client priority: one public player must not steer every player's queue.
+                    state = builder.request(tile, 0.0)
+                if state["state"] == "failed":
+                    return self._json(404, {"state": "failed"})
+                if state["state"] != "built":
+                    return self._json(202, {k: state[k] for k in ("state", "eta") if k in state})
+                fragment = json.loads(builder.manifest(tile).read_text())
+                return self._json(
+                    200,
+                    {
+                        k: fragment[k]
+                        for k in ("coarse", "tile", "visual", "collision", "roads")
+                        if k in fragment
+                    },
+                )
+            if tile is not None and tile not in builder.servable:
+                return self._json(404, {"error": "unbuilt"})
+            path = builder.root / (tile or "shared") / name
+            if not path.is_file():
+                return self._json(404, {"error": "missing"})
+            return self._send(
+                200, path.read_bytes(), MIME[path.suffix], "public, max-age=0, must-revalidate"
+            )
 
     return PublicHandler
 

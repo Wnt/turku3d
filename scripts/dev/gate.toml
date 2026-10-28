@@ -69,6 +69,12 @@ triggers = ["tools/compare/*.mjs"]
 commands = [["node_modules/.bin/eslint", "tools/compare/capture.mjs"]]
 
 [[stages]]
+name = "remote-drafts-tests"
+kind = "command"
+triggers = ["tools/remote-drafts/*.py", "tools/remote-drafts/config.json", "pipeline/turku3d/coarse/service.py"]
+commands = [["{python}", "-m", "unittest", "discover", "-s", "tools/remote-drafts", "-p", "test_public.py"]]
+
+[[stages]]
 name = "pipeline-tests"
 tier = "deep"
 kind = "pytest"

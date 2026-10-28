@@ -8,7 +8,7 @@ also loads in every direction. Mesh frustum culling still limits actual renderin
 camera/SSE budget in `residency.ts`. `collisionStreaming.ts` keeps `.col` tiles within the collision radius in the physics worker,
 `shadowBatch.ts` merges non-vegetation shadow casters on layer 1, enabled only on sun shadow cameras
 (including the cloned CSM cascades). Colour, normal and reflection cameras retain layer 0, so the
-shadow proxies never submit duplicate geometry to those passes. `coarseTiles.ts` streams localhost draft tiles for cells the
+shadow proxies never submit duplicate geometry to those passes. `coarseTiles.ts` streams local or remote draft tiles for cells the
 tileset lacks (`tools/dev/coarse-tiles`).
 The draft badge's building count comes from `/coarse/want` (`queued` plus the running `building` ids), so retained
 client entries outside the requested area do not count as work. Verify locally with `scripts/dev/gate --fast --base main`.
@@ -235,3 +235,5 @@ and `--label` select the sandbox server and report paths. Reports include errors
 all-pass calls/triangles, CPU/GPU/work percentiles and drained ms/frame. Compare
 work time and drained throughput; a vsync-limited RAF interval conceals headroom.
 See [Kupittaa measurements](../../../docs/reports/perf-kupittaa-check.md).
+
+Pages drafts use the HTTPS endpoint from `VITE_DRAFT_URL` (default `https://turku.lab.madekivi.fi/coarse/`); localhost keeps `/coarse/`. Public clients use only health and tile routes, with no shared motion steering. Queue-full responses retry after five seconds and appear in the draft badge; offline services are probed until recovery. Operations: [remote drafts](../../../tools/remote-drafts/README.md).
