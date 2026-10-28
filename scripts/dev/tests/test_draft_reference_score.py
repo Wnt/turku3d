@@ -154,6 +154,30 @@ class ScoreTests(unittest.TestCase):
             self.assertEqual(run.call_args_list[0].args[0][1], "diff")
             self.assertTrue((directory / "summary.json").exists())
 
+    def test_context_is_built_but_not_scored(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / "measurement"
+            result = {"metrics": {"synthetic": metric()}}
+            with (
+                patch.object(score, "private_tool", return_value="fake-gmaps"),
+                patch.object(
+                    score, "build_version", return_value={"seconds": {"a": 1, "neighbor": 2}}
+                ) as build,
+                patch.object(
+                    score.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, json.dumps(result)),
+                ) as run,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                report = score.compare(
+                    "HEAD", "worktree", directory, tiles=["a"], context_tiles=["neighbor", "a"]
+                )
+            self.assertEqual(build.call_args.args[3], ("a", "neighbor"))
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual([row["tile"] for row in report["rows"]], ["a"])
+            self.assertIn("neighbor |", (directory / "table.md").read_text())
+
 
 class PrivateAdvisoryTests(unittest.TestCase):
     def test_noncoarse_and_absent_private_install_do_not_spawn(self):

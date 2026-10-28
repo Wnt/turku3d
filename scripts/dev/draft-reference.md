@@ -5,6 +5,8 @@ make draft-reference-score BEFORE=main AFTER=worktree
 make draft-reference-score BEFORE=<commit> AFTER=<commit>
 # Optional measured-tile subset (default: all five agreed tiles):
 make draft-reference-score BEFORE=main AFTER=worktree T='t0_1_0 t0_2_-1'
+# Extra own neighboring outputs for streamed-scene / bridge duplicate support:
+make draft-reference-score BEFORE=main AFTER=worktree T=t0_1_0 CONTEXT_TILES='t0_0_0 t0_0_1'
 ```
 
 The command snapshots refs or a dirty worktree directory, builds both versions concurrently
@@ -47,3 +49,8 @@ Private diagnostics use an inbox-only path, entirely separate from the normal ad
 collection, integration ledger, release metadata and Pages notes. A build/setup failure
 notifies the orchestrator privately and never changes publication status. `queued.json`
 records request IDs and before/after draft build seconds for local audit.
+
+Context tiles are built at both versions but are not themselves scored. Supply all eight
+neighbors when establishing bridge duplicate absence or edge-building coverage; incomplete
+context must abstain where required by the private scorer. Never fill absent context from a
+reference. Context build seconds are included in the final timing table.

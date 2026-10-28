@@ -198,13 +198,14 @@ def build_pair(before, after, directory, tiles=TILES, repo=REPO):
         return {side: future.result() for side, future in futures.items()}
 
 
-def compare(before, after, directory, tiles=TILES, noise=0.00001, repo=REPO):
+def compare(before, after, directory, tiles=TILES, noise=0.00001, repo=REPO, context_tiles=()):
     tool = private_tool()
     if not tool:
         print("Private gmaps tool unavailable; nothing scored (optional local installation).")
         return None
     directory.mkdir(parents=True, exist_ok=False)
-    builds = build_pair(before, after, directory, tiles, repo)
+    build_tiles = tuple(dict.fromkeys([*tiles, *context_tiles]))
+    builds = build_pair(before, after, directory, build_tiles, repo)
     rows, errors = [], []
     for tile in tiles:
         command = [
@@ -244,7 +245,7 @@ def compare(before, after, directory, tiles=TILES, noise=0.00001, repo=REPO):
             "--- | ---: | ---: | ---:",
         ]
     )
-    for tile in tiles:
+    for tile in build_tiles:
         a, b = (builds[side]["seconds"][tile] for side in ("before", "after"))
         output.append(f"{tile} | {a:.3f} | {b:.3f} | {b - a:+.3f}")
     rendered = "\n".join(output)
@@ -259,6 +260,12 @@ def main(argv=None):
     parser.add_argument("--before", required=True)
     parser.add_argument("--after", required=True, help="git ref, worktree, or worktree directory")
     parser.add_argument("--tiles", nargs="+", default=TILES)
+    parser.add_argument(
+        "--context-tiles",
+        nargs="+",
+        default=(),
+        help="build neighboring own tiles for streamed-scene support; do not score them",
+    )
     parser.add_argument(
         "--noise",
         type=float,
@@ -277,7 +284,9 @@ def main(argv=None):
     reports = work / "reports/draft-reference-score"
     reports.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="pair-", dir=reports)) / "measurement"
-    report = compare(args.before, args.after, directory, args.tiles, args.noise)
+    report = compare(
+        args.before, args.after, directory, args.tiles, args.noise, context_tiles=args.context_tiles
+    )
     return 2 if report and report["unscored"] else 0
 
 
