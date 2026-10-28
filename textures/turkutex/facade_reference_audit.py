@@ -148,7 +148,7 @@ def label(args):
     raise SystemExit(
         Runner(
             args.output / args.reviewer,
-            parallel=3,
+            parallel=args.parallel,
             max_pct=100,
             retries=0,
             cache_dir=args.output / "call-cache",
@@ -186,6 +186,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--reviewer", choices=["a", "b"])
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--parallel", type=int, default=1)
     args = parser.parse_args()
     args.output = args.output.resolve()
     if args.refs:
