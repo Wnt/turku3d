@@ -201,7 +201,7 @@ def upgrade(
     run = root / store_path(building).stem
     refs = run / "refs"
     run.mkdir(parents=True, exist_ok=True)
-    ff.make_refs(facades, refs, ("lookaround", "google", "mapillary"), workers=1, max_views=1)
+    ff.make_refs(facades, refs, ("lookaround", "google", "mapillary"), workers=1, max_views=4)
     jobs, _ = ff.describe_jobs(facades, refs, run)
     if not jobs:
         return dict(state="no-reference")

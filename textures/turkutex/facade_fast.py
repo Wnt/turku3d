@@ -674,7 +674,7 @@ def main(argv=None) -> int:
         if name == "refs":
             p.add_argument("--sources", default="lookaround,google,mapillary")
             p.add_argument("--ref-workers", type=int, default=8)
-            p.add_argument("--max-views", type=int, default=2)
+            p.add_argument("--max-views", type=int, default=4)
         if name == "describe":
             p.add_argument("-j", type=int, default=16)
             p.add_argument("--max-pct", type=float, default=90)
