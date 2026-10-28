@@ -51,3 +51,48 @@ an output-only, compile-checked copy, preserving a future `String.raw` correctio
 to the already-running physics worker in `current` mode. Shared profiling files are never modified, and empty
 recorder samples fail the capture. The actual menu action fires on `pointerup`, so activation timing starts in its
 capture phase before the menu can remove the selected row.
+
+# Air physics latency scenario
+
+Manual performance diagnostic, never bundled into production or run in a gate.
+It uses the exclusive `~/turku3d/profiling/air-session` session and only that task's
+remote Chrome profile. It stops the session in `finally` and debits its actual Air
+reservation against the task's browser budget. Never stop another task's session.
+
+From a sourced sandbox, serve the real published tile release read-only at the
+sandbox's `dist/tiles` path and start Vite on port base +0:
+
+```sh
+source ../sandbox.env
+npm --prefix game run dev -- --host 127.0.0.1
+```
+
+Run each command separately; the `before` run temporarily serves current main's
+existing game files, adding only a publication timestamp to its state packet, and
+restores the branch files in `finally`. Do not edit or build this sandbox during it.
+New branch-only modules remain unused by main's entry. Vite dev serving is used for
+both sides, with the same real tile release, native headed Air viewport and default
+quality; this is not the synthetic fixture or a headless M1 Max measurement.
+
+```sh
+scripts/dev/codex-task wait-cmd -- node tools/perf/air-scenarios/physics-latency.mjs before
+scripts/dev/codex-task wait-cmd -- node tools/perf/air-scenarios/physics-latency.mjs after
+scripts/dev/codex-task wait-cmd -- node tools/perf/air-scenarios/physics-latency.mjs controller
+```
+
+The script opens New game, skips the introduction, places the character beside the
+player car and enters with F. It records 10 s idle, W for 20 s, resets to the starting
+pose, settles for 2 s, W+A from rest for 20 s, W+D while driving for 20 s, then releases
+all keys for 10 s. The last held key repeats at 30 Hz through CDP, matching keyboard
+autorepeat when multiple keys are held. The controller run uses the same route and
+pedal/steering phases through a virtual standard Gamepad with no keyboard repeat.
+
+`~/turku3d/profiling/record.mjs` runs in light mode, installing its normal probes
+before workers are constructed. Output remains local under
+`$TURKU3D_WORK/reports/latency/air/{before,after,controller}/`: its per-second
+`frames.json` and `recorder.log`, per-render-frame publication age/physics ticks,
+worker step duration, shared packet byte count and heap in `state-age.json`, phase
+percentiles in `summary.json`, and an Air screenshot. Publication age uses absolute
+performance time across worker and page. Shared transport has no state message
+round trip; use publication age and tick progression to compare it with baseline.
+The scenario measures real render load rather than adding a synthetic busy loop.
