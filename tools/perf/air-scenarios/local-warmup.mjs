@@ -17,7 +17,8 @@ try {
   await page.waitForFunction(() => window.__warmupResult, null, { timeout: 120000 });
   const result = { ...await page.evaluate(() => window.__warmupResult), errors };
   fs.writeFileSync(output, JSON.stringify(result, null, 2));
-  console.log(JSON.stringify({ preparedMs: result.preparedMs, firstDrawMs: result.firstDrawMs, publicationBuilds: result.publicationBuilds, warmedReceiveShadow: result.warmedReceiveShadow, errors }));
+  console.log(JSON.stringify({ preparedMs: result.preparedMs, firstDrawMs: result.firstDrawMs, publicationBuilds: result.publicationBuilds, publicationAoBuilds: result.publicationAoBuilds, warmedReceiveShadow: result.warmedReceiveShadow, errors }));
   if (errors.length) throw new Error(errors.join('\n'));
+  if (Number(expectedBuilds) === 0 && result.publicationAoBuilds) throw new Error('Publication rebuilt the shared GTAO graph');
   if (result.publicationBuilds !== Number(expectedBuilds)) throw new Error(`Expected ${expectedBuilds} publication shader builds, got ${result.publicationBuilds}`);
 } finally { await browser.close(); }

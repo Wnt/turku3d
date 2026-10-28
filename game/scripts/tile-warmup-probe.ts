@@ -50,4 +50,4 @@ const beforeRender = performance.now(); post.render();
 const firstDrawMs = performance.now() - beforeRender;
 phase = 'steady'; post.render();
 (window as any).__warmupResult = { preparedMs, firstDrawMs, warmedReceiveShadow, publishedReceiveShadow: mesh.receiveShadow,
-  builds, stages, publicationBuilds: builds.filter((row: any) => row.phase === 'publish' && row.mesh === mesh.name).length };
+  builds, stages, publicationAoBuilds: builds.filter((row: any) => row.phase === 'publish' && row.mesh === 'AO').length, publicationBuilds: builds.filter((row: any) => row.phase === 'publish' && row.mesh === mesh.name).length };

@@ -32,7 +32,9 @@ export class PostProcessing {
     const updatePre = pre.updateBefore.bind(pre);
     pre.updateBefore = frame => {
       if (isPrecompiling(renderer)) return;
-      this.preDepth = nextRenderDepth(renderer); updatePre(frame);
+      this.preDepth = nextRenderDepth(renderer);
+      const previous = renderer.contextNode; renderer.contextNode = this.baseContext;
+      try { updatePre(frame); } finally { renderer.contextNode = previous; }
     };
     pre.setMRT(mrt({ output: packNormalToRGB(normalView), velocity }));
     pre.getTexture('output').type = THREE.UnsignedByteType;
@@ -42,8 +44,17 @@ export class PostProcessing {
     const depth = pre.getTextureNode('depth');
     const normals = sample(uv => unpackRGBToNormal(pre.getTextureNode().sample(uv)));
     const ambient = ao(depth, normals, camera);
+    // r186 setup() replaces GTAO's fullscreen material graph for every surface that references it.
+    // This effect belongs to one renderer/camera; retain its graph across streamed surface builders.
+    const setupAmbient = ambient.setup.bind(ambient);
+    let ambientOutput: ReturnType<typeof ambient.setup> | undefined;
+    ambient.setup = builder => ambientOutput ??= setupAmbient(builder);
     const updateAmbient = ambient.updateBefore.bind(ambient);
-    ambient.updateBefore = frame => { if (!isPrecompiling(renderer)) updateAmbient(frame); };
+    ambient.updateBefore = frame => {
+      if (isPrecompiling(renderer)) return;
+      const previous = renderer.contextNode; renderer.contextNode = this.baseContext;
+      try { updateAmbient(frame); } finally { renderer.contextNode = previous; }
+    };
     ambient.resolutionScale = q.aoScale;
     ambient.samples.value = q.aoSamples;
     ambient.radius.value = 0.6;
