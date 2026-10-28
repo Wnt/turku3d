@@ -52,7 +52,8 @@ try {
         probe.entered = performance.now();
         const sample = () => {
           const state = window.__game.state();
-          probe.samples.push({ at: performance.now(), overlay: !document.getElementById('loading-screen').hidden,
+          const style = getComputedStyle(document.getElementById('loading-screen'));
+          probe.samples.push({ at: performance.now(), overlay: style.display !== 'none' && style.visibility !== 'hidden',
             loading: state.loading, paused: state.paused, startScreen: state.startScreen });
           if (!state.startScreen && !state.loading && !state.paused) probe.enabled = performance.now();
           else requestAnimationFrame(sample);

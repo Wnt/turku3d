@@ -11,9 +11,7 @@
     <title>Turku3D</title>
     <link rel="icon" href="data:," />
     <style>
-      #loading-screen { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at 70% 25%, #234e56, #08191f 75%); color: #edf4f3; font: 14px/1.5 system-ui, sans-serif; transition: opacity .5s; pointer-events: none; }
-      #loading-screen[hidden] { display: none; }
-      #loading-screen.leaving { opacity: 0; }
+      #loading-screen { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at 70% 25%, #234e56, #08191f 75%); color: #edf4f3; font: 14px/1.5 system-ui, sans-serif; pointer-events: none; }
       .loading-panel { width: min(720px, calc(100vw - 64px)); }
       .loading-panel h1 { font-size: clamp(26px, 4vw, 42px); margin: 10px 0 24px; }
       .loading-active { color: #a1ebd3; overflow-wrap: anywhere; max-height: 5em; overflow: hidden; }
@@ -24,6 +22,7 @@
       .menu-ready .loading-panel { width: 100%; }
       .menu-ready h1, .menu-ready .eyebrow, .menu-ready .loading-log { display: none; }
       .menu-ready p { margin: 4px 0; }
+      #loading-screen[hidden] { display: none; }
       @media (max-width: 1100px) { #loading-screen.menu-ready { visibility: hidden; } }
       .pole-notice { position: fixed; z-index: 90; top: 20px; right: 20px; display: flex; align-items: center; gap: 12px; width: min(370px, calc(100vw - 40px)); padding: 10px; border: 2px solid #d2b979; border-radius: 12px; background: #213d50ed; color: #fff4da; font: 600 15px/1.35 system-ui, sans-serif; box-shadow: 0 8px 30px #0008; pointer-events: none; transform: translateX(calc(100% + 30px)); opacity: 0; transition: transform .3s ease, opacity .3s ease; }
       .pole-notice.visible { transform: translateX(0); opacity: 1; }
