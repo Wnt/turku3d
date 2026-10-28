@@ -503,15 +503,53 @@ def render_all(
 # ------------------------------------------------------------------------------------------
 
 
+def extend_inventory(inventory: Path, assembly: Path, ids: set[str]) -> int:
+    """Append new walls without changing approved geometry. Caller holds export_lock."""
+    approved = assembly / "APPROVED_INVENTORY.geojson"
+    manifest_path = assembly / "MANIFEST.json"
+    previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    if previous and previous.get("inventory_sha256") != sha(approved):
+        raise ValueError("shared export inventory changed; repair it before extending")
+    target = (
+        json.loads(approved.read_text())
+        if approved.exists()
+        else {"type": "FeatureCollection", "features": []}
+    )
+    existing = {
+        f"{f['properties']['building_id']}_{f['properties']['facade_index']}"
+        for f in target["features"]
+    }
+    added = []
+    for feature in json.loads(inventory.read_text())["features"]:
+        props = feature["properties"]
+        fid = f"{props['building_id']}_{props['facade_index']}"
+        if fid in ids and fid not in existing:
+            added.append(feature)
+            existing.add(fid)
+    if added or not approved.exists():
+        target["features"].extend(added)
+        write_json(approved, target)
+        write_json(
+            manifest_path,
+            {
+                **previous,
+                "inventory_sha256": sha(approved),
+                "bound": previous.get("bound", []),
+                "library": previous.get("library", []),
+            },
+        )
+    return len(added)
+
+
 def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
     """Bind the staged fast maps under the export lock, against the approval root's own
-    inventory: a staged wall binds only where that inventory has the same wall (same ID and
-    geometry), and never where a generated or derived map is bound by then."""
+    inventory, extending it with missing walls from the planned tiles. Existing geometry
+    stays authoritative; generated and derived maps are preserved."""
     from types import SimpleNamespace
 
     from .export import export_assets, export_lock, matches
 
-    planned_facades(run, inventory)
+    plan, facades = planned_facades(run, inventory)
     staged = [
         r["facade_id"]
         for r in json.loads((staging / "fast.json").read_text())["rows"]
@@ -519,6 +557,9 @@ def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
     ]
     approved = assembly / "APPROVED_INVENTORY.geojson"
     with export_lock(assembly):
+        tiles = set(plan["tiles"])
+        listed = {f.id for f in load_facades(inventory) if tile_of(f) in tiles}
+        added = extend_inventory(inventory, assembly, listed | {f.id for f in facades})
         target = {f.id: f for f in load_facades(approved)}
         source = {f.id: f for f in load_facades(inventory) if f.id in set(staged)}
         unmatched = sorted(
@@ -548,6 +589,7 @@ def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
             )
     return {
         "published": len(ids),
+        "inventory_added": added,
         "kept_better": kept,
         "not_in_approved_inventory": unmatched,
         "bound_before": len(before["bound"]),
@@ -610,13 +652,13 @@ def contact_sheet(run: Path, inventory: Path, staging: Path, output: Path, assem
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="command", required=True)
-    for name in ("plan", "refs", "describe", "render", "publish", "contact"):
+    for name in ("inventory", "plan", "refs", "describe", "render", "publish", "contact"):
         p = sub.add_parser(name)
         p.add_argument("--run", type=Path, required=True, help="run directory (plan.json, calls)")
         p.add_argument("--inventory", type=Path, required=True, help="approved facade inventory")
-        if name in ("plan", "publish", "contact"):
+        if name in ("inventory", "plan", "publish", "contact"):
             p.add_argument("--assembly", type=Path, required=True, help="approval root")
-        if name == "plan":
+        if name in ("inventory", "plan"):
             p.add_argument("--tiles", nargs="*", default=[], help="L0 tiles, e.g. t0_0_0")
             p.add_argument("--walls", help="comma-separated facade IDs instead of tiles")
         if name in ("refs", "describe"):
@@ -655,7 +697,15 @@ def main(argv=None) -> int:
         if name == "contact":
             p.add_argument("--output", type=Path, required=True)
     a = ap.parse_args(argv)
-    if a.command == "plan":
+    if a.command == "inventory":
+        from .export import export_lock
+
+        if not a.tiles:
+            ap.error("inventory needs --tiles")
+        ids = {f.id for f in load_facades(a.inventory) if tile_of(f) in a.tiles}
+        with export_lock(a.assembly):
+            result = {"inventory_added": extend_inventory(a.inventory, a.assembly, ids)}
+    elif a.command == "plan":
         if not a.tiles and not a.walls:
             ap.error("plan needs --tiles or --walls")
         plan = plan_walls(a.inventory, a.assembly, a.tiles, a.walls.split(",") if a.walls else None)

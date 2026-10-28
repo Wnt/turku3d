@@ -210,3 +210,80 @@ def test_publish_binds_fast_maps_but_never_over_a_generated_or_derived_one(tmp_p
         assert sha(assembly / "facades/b1" / name) == digest
     # A rerun with unchanged descriptions re-encodes nothing.
     assert ff.render_all(run, inventory, staging, None, ff.PPM, 2)["cached"] == 2
+
+
+def test_inventory_growth_preserves_existing_geometry_bindings_and_hash(tmp_path):
+    from turkutex.export import export_lock
+    from turkutex.post.pipeline import sha
+
+    assembly = tmp_path / "assembly"
+    assembly.mkdir()
+    approved = assembly / "APPROVED_INVENTORY.geojson"
+    original = wall("b1", 0, E0, 8.0, 9.0)
+    approved.write_text(json.dumps({"type": "FeatureCollection", "features": [original]}))
+    manifest = assembly / "MANIFEST.json"
+    manifest.write_text(
+        json.dumps({"inventory_sha256": sha(approved), "bound": ["b1_0"], "library": ["plaster"]})
+    )
+    source = tmp_path / "source.geojson"
+    new = wall("b2", 0, E0 + 30, 6.0, 9.0)
+    unrelated = wall("b3", 0, E0 + 60, 6.0, 9.0)
+    source.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    wall("b1", 0, E0, 12.0, 9.0),
+                    new,
+                    unrelated,
+                ],
+            }
+        )
+    )
+    with export_lock(assembly):
+        assert ff.extend_inventory(source, assembly, {"b1_0", "b2_0"}) == 1
+        assert ff.extend_inventory(source, assembly, {"b1_0", "b2_0"}) == 0
+    assert json.loads(approved.read_text())["features"] == [original, new]
+    assert json.loads(manifest.read_text()) == {
+        "inventory_sha256": sha(approved),
+        "bound": ["b1_0"],
+        "library": ["plaster"],
+    }
+
+
+def test_register_tile_inventory_without_staging(tmp_path):
+    from turkutex.post.pipeline import sha
+
+    source = tmp_path / "facades.geojson"
+    source.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    wall("b1", 0, E0, 8.0, 9.0),
+                    wall("b2", 0, E0 + 300, 8.0, 9.0),
+                ],
+            }
+        )
+    )
+    assembly = tmp_path / "assembly"
+    args = [
+        "inventory",
+        "--run",
+        str(tmp_path / "unused"),
+        "--inventory",
+        str(source),
+        "--assembly",
+        str(assembly),
+        "--tiles",
+        ff.tile_of(load_facades(source)[0]),
+    ]
+    assert ff.main(args) == 0
+    assert ff.main(args) == 0
+    approved = assembly / "APPROVED_INVENTORY.geojson"
+    assert [f.id for f in load_facades(approved)] == ["b1_0"]
+    assert json.loads((assembly / "MANIFEST.json").read_text()) == {
+        "inventory_sha256": sha(approved),
+        "bound": [],
+        "library": [],
+    }

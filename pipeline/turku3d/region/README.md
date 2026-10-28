@@ -127,3 +127,7 @@ neither the content loop nor the integrator removes one; a human edits the file 
 fails, and live stays at the previous release, when a listed tile is not assembled with geometry and textured
 ground (`live_build.inspect`), so every listed tile of a live release is at full build quality. The tile store
 keeps its newest 30 entries plus the newest entry that carries each listed tile (`tile_store.prune`).
+
+`list-tile` can be rerun for an already listed tile to retry fast-map publication. Fast publish
+adds missing walls from that tile to the shared approval inventory under the export lock,
+retaining existing geometry and bindings and updating the inventory hash.
