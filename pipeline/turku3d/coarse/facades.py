@@ -7,6 +7,7 @@ sandbox; only validated descriptions and per-field provenance enter facade-param
 from __future__ import annotations
 
 import json
+import math
 import os
 import select
 import signal
@@ -66,7 +67,19 @@ def recent_priority(directory: Path, minute: int) -> dict:
             names.append(path.name)
         except OSError:
             continue
-    return prioritize(names, samples, {}, str(now))
+    priority = prioritize(names, samples, {}, str(now))
+    locations = [
+        row
+        for row in samples
+        if isinstance(row.get("E"), (int, float))
+        and isinstance(row.get("N"), (int, float))
+        and math.isfinite(row["E"])
+        and math.isfinite(row["N"])
+    ]
+    if locations:
+        latest = max(locations, key=lambda row: row["t"])
+        priority["player_EN"] = [float(latest["E"]), float(latest["N"])]
+    return priority
 
 
 def telemetry_priority() -> dict:
@@ -81,9 +94,13 @@ def telemetry_priority() -> dict:
 
 
 def preferred_job(
-    jobs: list[dict], widths: dict[str, float], priority: dict, building: str
+    jobs: list[dict],
+    widths: dict[str, float],
+    priority: dict,
+    building: str,
+    centres: dict[str, tuple[float, float]] | None = None,
 ) -> dict:
-    """Spend a call on the most-seen usable wall, with width as the unseen-wall fallback."""
+    """Spend a call on the most-seen usable wall, then the closest unseen wall."""
     rows = next(
         (
             r.get("walls", [])
@@ -93,14 +110,42 @@ def preferred_job(
         [],
     )
     scores = {r["facade_id"]: float(r.get("score", 0)) for r in rows}
+    player = priority.get("player_EN")
+
+    def distance(fid: str) -> float:
+        if (
+            not isinstance(player, list)
+            or len(player) != 2
+            or centres is None
+            or fid not in centres
+        ):
+            return math.inf
+        return math.dist(centres[fid], player)
+
     return min(
         jobs,
         key=lambda job: (
             -scores.get(job["meta"]["facade_id"], 0),
+            distance(job["meta"]["facade_id"]),
             -widths.get(job["meta"]["facade_id"], 0),
             job["meta"]["facade_id"],
         ),
     )
+
+
+def wall_distance(feature: dict, motion: tuple[float, ...]) -> float:
+    """Horizontal player distance to a candidate segment in engine metres."""
+    (e0, n0), (e1, n1) = feature["geometry"]["coordinates"][:2]
+    x0, z0 = e0 - C.ORIGIN_E, C.ORIGIN_N - n0
+    x1, z1 = e1 - C.ORIGIN_E, C.ORIGIN_N - n1
+    dx, dz = x1 - x0, z1 - z0
+    length2 = dx * dx + dz * dz
+    t = (
+        min(1.0, max(0.0, ((motion[0] - x0) * dx + (motion[1] - z0) * dz) / length2))
+        if length2
+        else 0.0
+    )
+    return math.hypot(motion[0] - x0 - t * dx, motion[1] - z0 - t * dz)
 
 
 def queue_metrics(events: list[dict], now: float) -> dict:
@@ -160,7 +205,13 @@ def upgrade(
     jobs, _ = ff.describe_jobs(facades, refs, run)
     if not jobs:
         return dict(state="no-reference")
-    job = preferred_job(jobs, {f.id: f.length for f in facades}, telemetry_priority(), building)
+    job = preferred_job(
+        jobs,
+        {f.id: f.length for f in facades},
+        telemetry_priority(),
+        building,
+        {f.id: tuple(f.centre) for f in facades},
+    )
     if engine == "hybrid":
         import numpy as np
         from PIL import Image
@@ -315,7 +366,7 @@ class DescribeQueue:
                     if engine == "astra"
                     else (ranked[0], -scores.get(key, 0))
                 )
-                choices.append((*order, ranked[1], key, tile, inventory))
+                choices.append((*order, wall_distance(f, motion), ranked[1], key, tile, inventory))
         return min(choices) if choices else None
 
     def _describe(self, inventory, key, engine, prechecked_usage=None):
@@ -396,7 +447,7 @@ class DescribeQueue:
                 self._status(state="idle")
                 self.closed.wait(14)
                 continue
-            _, _, _, key, tile, inventory = candidate
+            _, _, _, _, key, tile, inventory = candidate
             self.retried[key, engine] = time.time()
             self._status(state="describing", building=key, engine=engine)
             started = time.time()

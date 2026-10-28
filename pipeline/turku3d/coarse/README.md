@@ -241,7 +241,9 @@ The queue alternates local jobs with Astra refinement in a fresh process so the 
 does not inherit the Torch-loaded worker. It checks weekly usage before admitting each call.
 Astra prioritizes the highest
 viewing-exposure score across eligible ring/cone buildings and selects the highest-scoring
-usable wall within that building. Unseen walls fall back to the widest usable wall. The
+usable wall within that building. When there is no viewing history, it chooses the closest
+building wall to the player's latest position, then the closest usable wall in that building;
+wall width is the fallback if no position is available. The
 background lane refreshes the last 24 hours of current/previous-day session observations at
 most once a minute; an existing `telemetry/priority.json` is the fallback when no recent
 samples exist. Exposure accumulates screen share and proximity through the existing wall

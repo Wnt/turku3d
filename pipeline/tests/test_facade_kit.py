@@ -104,7 +104,8 @@ def test_mapped_blank_sheds_and_shopfronts_select_distinct_modules():
 
 
 def test_astra_selects_most_seen_usable_wall_then_widest_unseen():
-    from turku3d.coarse.facades import preferred_job
+    from turku3d import config as C
+    from turku3d.coarse.facades import preferred_job, wall_distance
 
     jobs = [{"meta": {"facade_id": fid}} for fid in ("b_1", "b_2")]
     widths = {"b_1": 20, "b_2": 10}
@@ -121,6 +122,11 @@ def test_astra_selects_most_seen_usable_wall_then_widest_unseen():
     }
     assert preferred_job(jobs, widths, priority, "b") is jobs[1]
     assert preferred_job(jobs, widths, {}, "b") is jobs[0]
+    nearby = {"b_1": (25.0, 0.0), "b_2": (2.0, 0.0)}
+    assert preferred_job(jobs, widths, {"player_EN": [0.0, 0.0]}, "b", nearby) is jobs[1]
+    wall = {"geometry": {"coordinates": [[C.ORIGIN_E, C.ORIGIN_N], [C.ORIGIN_E + 10, C.ORIGIN_N]]}}
+    assert wall_distance(wall, (5, 3, 0, 0)) == 3
+    assert wall_distance(wall, (20, 0, 0, 0)) == 10
 
 
 def test_queue_rate_includes_idle_time_and_counts_only_actual_calls():
