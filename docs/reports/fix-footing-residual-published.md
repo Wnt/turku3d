@@ -41,7 +41,21 @@ with the unchanged audit gives:
 - Full audit: **771 sampled, 771 approved, no failures**.
 
 The sandbox report is `$TURKU3D_WORK/reports/footing-integration-check.json`.
-Publication and its final ledger row are still being checked.
+The next completed data integration is **`dc63566f9056.3`** in
+`~/turku3d/wt/.registry/integrations.jsonl`: `result=green`,
+`tiles_commit=dc63566f90569e3bd3c9e15cf9413c7eb4a7cfb3`, no build cache hits.
+It was the already-running explicit stale refresh, which selects main in the
+same way as ordinary data rebuilds now do. Refresh took 80.182 s, tile-build
+513.324 s, and format/seam validation 3.333 s. Its post-publication facade
+check took 1.045 s and passed all 771 approved walls; the audit JSON is on
+line 26 of `integration-dc63566f9056.3-advisory.log`. Live and Pages publication
+completed. Its sole advisory is the separate collision check's missing curb
+test input; there is no facade-ground-audit advisory.
+
+The lane-selection repair itself remains on this task branch for runner-owned
+turn-end landing. The real batch confirms that selecting main picks up the
+already-landed footing geometry; the synthetic tests verify ordinary data
+rebuilds now make that selection too.
 
 ## Commands
 
