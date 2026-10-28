@@ -160,6 +160,8 @@ export interface CoarseHost {
   checkCollision: (buffer: ArrayBuffer) => Promise<unknown>;
   /** After material styling and draft tint: register derived runtime geometry here. */
   styled?: (model: THREE.Object3D) => void;
+  trackModel?: (model: THREE.Object3D, id: string) => void;
+  untrackModel?: (model: THREE.Object3D, id: string) => void;
   style?: (model: THREE.Object3D) => void;
   unstyle?: (model: THREE.Object3D) => void;
   fetch?: typeof fetch;
@@ -406,7 +408,8 @@ export class CoarseTiles {
       this.host.scene.add(model);
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
-      if (old) { this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
+      if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
+      this.host.trackModel?.(model, id);
     } catch (err) {
       if (err instanceof ServiceDown) this.down();
       else console.warn(`[coarse] ${id} facade refresh: ${(err as Error).message}`);
@@ -456,6 +459,7 @@ export class CoarseTiles {
       tintDraft(model, this.host.renderer);
       this.host.styled?.(model);
       this.host.scene.add(model);
+      this.host.trackModel?.(model, id);
       e.model = model;
       this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       e.state = 'draft'; e.visualHash = fragment.visual[id].sha256; e.nextPoll = this.clock + 15_000;
@@ -515,6 +519,7 @@ export class CoarseTiles {
         this.host.style?.(model);
         this.host.styled?.(model);
         this.host.scene.add(model);
+        this.host.trackModel?.(model, id);
         e.model = model;
         this.take(e, cellsOf(id).filter(cid => fresh.collision[cid])
           .map(cid => [cid, { ...fresh.collision[cid], url: new URL(fresh.collision[cid].url, base).href }]));
@@ -550,7 +555,11 @@ export class CoarseTiles {
   }
 
   private drop(e: Entry) {
-    if (e.model) { this.host.unstyle?.(e.model); e.model.removeFromParent(); this.dispose(e.model); e.model = undefined; }
+    if (e.model) {
+      const id = [...this.entries].find(([, entry]) => entry === e)?.[0];
+      if (id) this.host.untrackModel?.(e.model, id);
+      this.host.unstyle?.(e.model); e.model.removeFromParent(); this.dispose(e.model); e.model = undefined;
+    }
     const restored: string[] = [];
     for (const [cid, entry] of e.collision) {
       // A release swap may have replaced the entry since (world/releaseSwap.ts): then it is no longer this tile's.

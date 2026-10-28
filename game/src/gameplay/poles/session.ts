@@ -28,6 +28,6 @@ export class PoleSession {
     });
   }
   clearClient() { this.client = null; }
-  update(states: readonly PoleState[]) { this.poles.update(states); }
+  update(states: readonly PoleState[], focus: { x: number; z: number }, radius: number) { this.poles.update(states, focus, radius); }
   dispose() { this.poles.dispose(); this.notice.dispose(); }
 }

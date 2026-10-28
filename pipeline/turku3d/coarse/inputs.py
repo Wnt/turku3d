@@ -40,6 +40,9 @@ CODE = hashlib.sha256(
     + Path(__file__).with_name("bridges.py").read_bytes()
     + Path(__file__).with_name("forests.py").read_bytes()
     + Path(__file__).with_name("tunnels.py").read_bytes()
+    + (Path(__file__).parents[1] / "props" / "__init__.py").read_bytes()
+    + (Path(__file__).parents[1] / "props" / "models.py").read_bytes()
+    + (Path(__file__).parents[1] / "props" / "orientation.py").read_bytes()
 ).hexdigest()[:16]
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -74,6 +77,7 @@ class Inputs:
     forests: list = ()
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     tunnels: list = ()  # OSM full tunnel ways, with tags
+    poles: list = ()  # sign and bus-stop props with full-tile source identities
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -355,7 +359,7 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
     return {
         "ground": None if missing else laz,
         "ortho": [ortho] if ortho else None,
-        "wfs": [p for _, p in wfs] + roofs.lidar_paths(tile)
+        "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs)
         else None,
         "roads": [osm] if osm else None,
@@ -363,6 +367,9 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
         "tunnels": [osm] if osm else None,
+        "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm]
+        if all(found for found, _ in wfs)
+        else None,
     }
 
 
@@ -390,6 +397,21 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         return read_areas(tile, paths[0])
     if dataset == "trees":
         return prepare_trees(tile, paths[0])
+    if dataset == "poles":
+        from turku3d.props import read_sources
+
+        signs, stops, roads, streets, osm = paths
+        found, _ = read_sources(
+            tile.bbox,
+            source_paths={
+                "GIS_Liikennemerkit": signs,
+                "kanta_Pysakki": stops,
+                "GIS_Keskilinjat": roads,
+                "GIS_Katualueet": streets,
+            },
+            osm_path=osm,
+        )
+        return [p for p in found if p.kind in ("sign", "bus_stop")]
     bldg, streets, water, *roof_paths = paths
     return prepare_wfs(tile, bldg, streets, water, roof_paths)
 
@@ -466,4 +488,5 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         canopy=ground.get("canopy", np.empty((0, 3))),
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),
+        poles=values["poles"] or (),
     )

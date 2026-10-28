@@ -14,7 +14,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
 ## Output (`build.py`)
 
 `<out>/manifest.json` (format `turku3d-coarse-tile` v1: `visual`, `collision`, `roads`, `buildings`, `bridges`,
-`water_level`, `sources`, `seconds`, and `code`, the producer hash the service compares), `vis.glb`,
+`water_level`, `poles`, `sources`, `seconds`, and `code`, the producer hash the service compares), `vis.glb`,
 `col/c_i_j.col` for all 16 collision cells and `roads.json`; shared KTX2 textures go to `<out>/../shared/`.
 
 - **Streets** (`roads.json`, `manifest.roads` = `{url, sha256, bytes, nodes, edges}`): the tile's OSM street graph
@@ -23,6 +23,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   tile edges. OSM comes from work-3x3 when it holds the tile, else `tile-<id>`, the older per-tile clip
   `coarse-<tile>`, or the `osm` prefetch unit of the tile's block (below).
 
+- **Signs and bus stops**: the cached WFS sign, stop and centreline sources (plus OSM signs when available) feed the shared props reader. Each pole has the same stable `pole_id` as a published tile, and its base sits on the draft ground grid. They have runtime breakable colliders rather than baked primitives. Rebuild a draft after this producer changes with `bash pipeline/env/run.sh python -m turku3d.coarse build t0_2_0 --out "$TURKU3D_WORK/build/coarse/t0_2_0"`.
 - **Ground**: a 128 x 128 cell grid (~2 m) interpolated from the key points, textured with the ortho. Visual and
   collision use the same vertices, so the drawn ground is the collision ground. Street-area polygons set the
   collision material; green ortho pixels are grass, the rest paving.

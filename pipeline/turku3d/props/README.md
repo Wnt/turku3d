@@ -63,6 +63,9 @@ On the four core tiles a tile builds in 30–60 s (t0_0_0, 330 props, about 60 s
   duplication at tile edges (`seams: objects`). Cylinders cover posts, lamps and bins;
   benches use seat/base and backrest boxes. Racks use individual upright cylinders
   and top bars, retaining gaps. Material IDs are 25/27/28 from the shared table.
+- Draft tiles call `read_sources(..., source_paths=..., osm_path=...)` with their cached
+  sign, stop and road inputs, then use `visual_bytes` so the same source IDs reach the
+  runtime pole extractor. See `pipeline/turku3d/coarse/README.md` for the rebuild command.
 - Exact duplicate type/code/position records are removed. A `kanta_Pysakki` symbol
   within 2 m of an E6 sign is omitted to avoid a duplicate stop pole.
 

@@ -9,7 +9,7 @@ OSM bridges become separate drivable slabs with clear underpasses and ground-ble
 without OSM, street-area water bridges retain the abutment lift (``bridge_decks``).
 OSM ``natural=tree`` points become GPU-instanced
 vegetation prototypes (unmeasured, 10 m unless tagged) with trunk cylinders in the collision. The
-tile has no curbs, stairs, structures, props, unique facade maps or LOD parents: the full pipeline
+tile has no curbs, stairs, most structures, unique facade maps or LOD parents: the full pipeline
 replaces it when the tile is published.
 """
 
@@ -51,7 +51,16 @@ WIRE_CAP = 8_000_000
 def code_hash() -> str:
     """Producer identity: the coarse sources plus the shared visual packager they call."""
     h = hashlib.sha256(kit_hash().encode())
-    for p in sorted([*Path(__file__).parent.glob("*.py"), *BRIDGE.parent.glob("*.mjs")]):
+    props = Path(__file__).parents[1] / "props"
+    for p in sorted(
+        [
+            *Path(__file__).parent.glob("*.py"),
+            *BRIDGE.parent.glob("*.mjs"),
+            props / "__init__.py",
+            props / "models.py",
+            props / "orientation.py",
+        ]
+    ):
         h.update(p.name.encode())
         h.update(p.read_bytes())
     return h.hexdigest()[:16]
@@ -559,6 +568,14 @@ def build(
 
         write_instances(stage / "vegetation.vis.glb", tile, trees + bushes)
         layer_files.append(stage / "vegetation.vis.glb")
+    poles = list(inputs.poles)
+    if poles:
+        from turku3d.props import visual_bytes
+
+        for pole in poles:
+            pole.y = grid_height(tile, grid_pos, pole.x, pole.z)
+        _write(stage / "props.vis.glb", visual_bytes(poles, tile))
+        layer_files.append(stage / "props.vis.glb")
     if shells:
         roof_pos, roof_idx = [], []
         rc = 0
@@ -687,6 +704,7 @@ def build(
         ],
         facade_params=facade_params,
         trees=len(trees),
+        poles=len(poles),
         barriers=barrier_stats,
         vegetation=dict(
             tree_cap=TREE_CAP,
