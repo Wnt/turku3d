@@ -30,8 +30,8 @@ reason. The rules below are the ones that stay hard.
 3. **Dead code is deleted**, not kept "just in case".
 4. **Green before done** means `scripts/dev/gate --fast --base main` is green: lint and format, type checks, the
    policy stage and the unit-test stages that stay under 20 s. The Chrome suite and the deep tier (`make gate-deep`:
-   pipeline, validator, tooling and other slow test stages) are never required to finish; the integrator runs them
-   after publishing and sends you new failures as an advisory warning. Do not add browser specs or slow tests unless
+   pipeline, validator, tooling and other slow test stages) are never required to finish; run them explicitly only when they prove the changed behavior. Normal integration does not run
+   Chrome or the deep tier. Do not add browser specs or slow tests unless
    your brief asks for them. Real-data generator sanity screenshots (rule 11) are expected outside the gate.
    If you cannot make the fast gate green, finish with `## Result: BLOCKED`, the failing
    command and its output. Never weaken a test or a check to pass.
@@ -55,12 +55,15 @@ reason. The rules below are the ones that stay hard.
     so never commit Street View, Look Around, Mapillary or Bing imagery (or crops, previews, contact sheets of it)
     or raw city data; the gate's policy stage enforces this and `docs/published-images.toml` lists the source and
     licence of any marked or large image.
-11. **Sanity-check generated output on real data.** When adding or changing a geometry or placement algorithm
-    (bridges, tunnels, barriers, vegetation, facades or terrain), build the affected real tiles and inspect
-    top-down and oblique headless renders of every instance in at least two tiles, using your sandbox ports.
-    Compare counts and placement against the source (one deck per real bridge, no barrier crossing water),
-    retain the screenshots and fix anomalies before landing. Synthetic unit tests alone are not enough.
-    Compare a few affected spots with `make gmaps-compare` (local screenshots only); check its calibration status before treating views as pose-aligned.
+11. **Use the lightest evidence that proves the change.** A normal change-to-evidence loop should finish
+    within five minutes. Run the routed fast gate and one focused check for the changed behavior. Reuse existing
+    built tiles, bundles and screenshots. For a geometry or placement algorithm, rebuild only the affected stage
+    and changed real tile, then inspect top-down and oblique views of a representative changed instance. Add a
+    second tile or more instances only for a seam, boundary or materially different input case. Do not rebuild an
+    area, render every instance or run both browser backends by default. Compare a reference photo only when the
+    change concerns real-world appearance or placement; keep imagery local and check calibration before treating
+    views as pose-aligned. Report the exact evidence and any untested cases. Full Chrome suites, deep gates,
+    performance probes and exhaustive geometry audits are explicit investigations, never completion requirements.
 
 ## Isolated work and task tools
 
@@ -91,15 +94,11 @@ reason. The rules below are the ones that stay hard.
   main before your next gate and resolve conflicts yourself; `codex-task status <name>` shows how many
   landings you are behind. Unlanded branches are never shared: land an interface or data-structure change
   first as a small compatible slice, then build on it; never ask others to merge your branch.
-- The integrator builds every landed batch asynchronously and publishes it to `live` and GitHub Pages as soon
-  as its build stages succeed (refresh, tile build, tile format and seams, game build). Chrome specs (including
-  scheduled full runs), the facade ground audit, the car report, collision and walk checks run after live and
-  Pages publication; a newer landing
-  cuts advisories short with a recorded note so the next batch can build. These and the facade baseline are
-  advisory: a new failure reaches the batch's authors as an inbox `warning` and is listed in the Pages release
-  notes; fix yours in a new landing. Only a batch that cannot be built is bisected and its culprit reverted with
-  an inbox `request`. A facade count below the published baseline without a `Facade regression reason: ...` line
-  in the task result is such an advisory failure. Workers commit on their own branch.
+- The integrator publishes the game bundle with already built served tiles before data refresh or diagnostics.
+  Code and data builds have dedicated CPU shares; neither queues behind agent builds. Normal integrations run no
+  Chrome or deep gate. Data publication retains cheap collision, car and facade-ground diagnostics; their failures
+  are advisory warnings and release notes. Explicit `integrator.py run --full` runs Chrome and the deep tier after
+  publication. Only a batch that cannot be built is bisected and reverted with an inbox request to its author.
 - Remove finished sandboxes using `scripts/dev/wt rm <name>`; live processes must be stopped first.
   `--force` explicitly discards dirty or unmerged work; it never kills processes. `wt gc` only prunes missing entries.
 - Exact commands and troubleshooting: `scripts/dev/README.md`. No new API keys or paid services.

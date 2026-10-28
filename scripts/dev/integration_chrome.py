@@ -1,10 +1,7 @@
-"""The integrator's Chrome policy: batch plans and the full-suite schedule.
+"""Explicit Chrome diagnostics and browser load reporting.
 
-A code batch runs no Chrome (it ships the served tiles with a new game bundle); a data build
-runs the @streaming specs when the playable tile list changed. Every 2 hours with a landing
-since the last full run, the code lane runs the full suite on both projects
-(`full_suite: true`) from the live commit. Chrome is advisory: failing specs are recorded and
-reported to the batch's authors; they never block publication or bisect.
+Normal integrations run no Chrome. Request `integrator.py run --full` for a full
+suite after publication, or run a focused Playwright spec in the worker sandbox.
 """
 
 from __future__ import annotations
@@ -12,40 +9,17 @@ from __future__ import annotations
 import json
 import os
 
-import landing_class
 import spec_selection
-
-FULL_INTERVAL = 2 * 3600
-
-
-def last_full(rows):
-    """The newest full-suite integration row, or None."""
-    for row in reversed(rows):
-        if row.get("full_suite"):
-            return row
-    return None
-
-
-def full_due(rows, landed, now):
-    """A full run is due 2 h after the last one when a landing arrived since it."""
-    previous = last_full(rows)
-    since = previous["time"] if previous else 0.0
-    return now - since >= FULL_INTERVAL and any(row.get("time", 0) > since for row in landed)
 
 
 def full_plan():
-    """The scheduled full run's plan: every spec on both projects."""
-    return spec_selection.full_plan("scheduled full suite")
+    """The explicit full run's plan: every spec on both projects."""
+    return spec_selection.full_plan("explicit full suite")
 
 
 def data_plan(published, root):
-    """A data build's plan from the specs in root: @streaming specs only when the playable
-    tile list differs from the live release's."""
-    delta = landing_class.data_delta(
-        landing_class.data_parts(published),
-        landing_class.release_parts((published / "live").resolve()),
-    )
-    return spec_selection.select([], "data", tiles_changed="playable-tiles" in delta, root=root)
+    """Data publication runs no Chrome; focused streaming checks are explicit."""
+    return spec_selection.select([], "data", tiles_changed=False, root=root)
 
 
 def record_path(published):

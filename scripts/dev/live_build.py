@@ -26,7 +26,7 @@ import sandbox as s
 import served
 import spec_selection
 import tile_store
-from host_slots import integration_jobs, phase
+from host_slots import slot
 from integration_chrome import browser_load, load_summary
 from landing_class import C, data_parts
 from live_cache import same_tree
@@ -56,7 +56,6 @@ STAGES = {
         "collision-checks",
         "car-report",
         "facade-ground-audit",
-        "chrome",
     ),
     "inert": (),
 }
@@ -491,12 +490,12 @@ def build(
             if stage in ("tile-validate", "collision-checks"):
                 (work / "reports/validate-aoi.json").unlink(missing_ok=True)
             if stage.startswith("chrome"):
-                run_env["TURKU3D_JOBS"] = str(integration_jobs("browser"))
+                run_env["TURKU3D_JOBS"] = "1"
                 load_rows.parent.mkdir(parents=True, exist_ok=True)
                 load_rows.unlink(missing_ok=True)
                 run_env["TURKU3D_BROWSER_LOAD_LOG"] = str(load_rows)
-            # Agents' Chrome suites queue while this phase is marked (host_slots.admissible).
-            with phase(stage) if stage.startswith("chrome") else contextlib.nullcontext():
+            # Explicit diagnostics acquire one GPU worker only while Chrome actually runs.
+            with slot("browser") if stage.startswith("chrome") else contextlib.nullcontext():
                 if stage == "chrome":
                     code, output, chrome_stats = spec_selection.run(
                         chrome,

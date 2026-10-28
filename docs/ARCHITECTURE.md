@@ -217,8 +217,8 @@ Pipeline principles:
 Gates (Jonni, 2026-10-27: iteration speed beats coverage; he plays the game and reports what to fix): the fast gate
 (`scripts/dev/gate --fast`, run by every worker and by `finish`) is lint and format, type checks, the policy stage
 and only those unit-test stages whose full run stays under 20 s, so it finishes in under 30 s at host load 100 and
-never starts a browser. Stages over that budget carry `tier = "deep"` in `scripts/dev/gate.toml`; the integrator runs
-the deep tier (`gate --deep --all`, cached per stage input hash) after each code batch is published, and
+never starts a browser. Stages over that budget carry `tier = "deep"` in `scripts/dev/gate.toml`; explicit investigations run
+the deep tier (`gate --deep --all`, cached per stage input hash) only on explicit request, and
 `make gate-deep` runs it by hand. Deep and Chrome results are advisory. New tests are small unit tests of pure
 functions; browser specs only when a brief asks for them; time budgets only in by-hand perf targets.
 
@@ -234,17 +234,16 @@ publishes it with the served tile set (the tile store entry for main's tile key,
 landing. The data lane owns every change of the data root (facade approvals, the playable tile list, layers): it
 rebuilds the affected tiles with main's tile code, so data rebuilds include landed pipeline fixes. A code-only
 landing still carries served tiles. The data lane runs tile-validate (format and seams block), the car report,
-the facade ground audit and the @streaming specs when the tile list changed; it ships the live game bundle. The release record names each tile's builder
+the facade ground audit, without automatic Chrome; it ships the live game bundle. The release record names each tile's builder
 (`tiles_from`, `tile_commits`) and the tiles built with older tile code than the release commit's (`stale_by_code`);
 `make tiles-refresh-stale` rebuilds those with main's code when the host is idle (the sentinel's heartbeat, load
 < 40). Advisory findings (car report, facade ground audit, tile-validate's walk checks, the facade baseline,
-Chrome, the deep gate tier the code lane runs after publishing) are recorded in the ledger row and the release, shown on the localhost badge, listed in the Pages release
+explicit Chrome and deep-gate investigations) are recorded in the ledger row and the release, shown on the localhost badge, listed in the Pages release
 notes and sent to the batch's authors as an inbox warning when new; they never block, bisect or revert. Landings
 join a running code batch only while that is free (before its first stage that is not a cache hit, at most 3
 heads); publication is serialised: a code release is recomposed on tiles the data lane published meanwhile, and a
-data release ships the newer game of a code release published meanwhile on the same tiles. A full Chrome suite runs on live
-every 2 h with landings, as information. The integrator's Chrome stage
-gets 4 workers below load 60 (else 2), and agents' Chrome suites queue behind it. Details and ledger fields:
+data release ships the newer game of a code release published meanwhile on the same tiles. Chrome and the deep tier run only on explicit request (`integrator.py run --full`),
+with one scheduled GPU worker per Chrome invocation. Details and ledger fields:
 `scripts/dev/README.md`, "Landing", "Landing and integration" and "Host slots".
 
 ---

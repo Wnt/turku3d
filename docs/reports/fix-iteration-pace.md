@@ -20,3 +20,36 @@ integrator tests in 28.84 s. In the admission regression, three running builds n
 longer prevent either integration lane from starting. Historical maximum admitted
 build wait: 3453.23 s; browser wait: 2325.12 s. These are measured historical waits,
 not predictions of the revised scheduler.
+
+## Baseline and scope
+
+Twenty code landings with reconstructible Pages timestamps (including batched
+landings) took a median **118.590 s**, maximum **1006.273 s**. Earlier rows predate
+publication timing and are explicitly excluded; treating a later ancestor as their
+first publication would invent hours of latency. Those twenty observations already
+meet the requested 10/20-minute thresholds, unlike the slot wait tail. Historical
+`stage_seconds.game-build` is a median 2.970 s, max 29.620 s; it does **not** support
+the brief's 25–55-minute game-build observation for this current code lane. The
+separate slot ledger confirms the historical wait problem.
+
+## Slice 2: stop automatic exhaustive verification
+
+All Chrome specs are demoted to explicit diagnostics; none is deleted merely for
+an observed failure. Full-suite scheduling and data-list streaming Chrome are removed.
+The deep tier runs only for explicit `integrator.py run --full` or `make gate-deep`,
+not after every batch. The JSON inventory records every spec's last test-seconds,
+observed runs and failures; unobserved specs have unknown runtime/failure yield.
+In particular `parked.spec.ts` costs 1440.7 s (WebGPU) / 1920.1 s (WebGL),
+`integration.spec.ts` 167.2 / 687.1 s and `tile.spec.ts` 293.4 / 589.1 s.
+Repeated known-red results are not evidence of newly caught regressions.
+
+All ten deep stages are demoted from automatic batch runs. Over 34 observed logs:
+dependency-imports median 49.949 s, zero failures; validator-tests max 184.574 s,
+zero failures; tooling-tests median 76.984 s, five failures; pipeline-tests median
+80.333 s, seven failures; integrator-tests median 68.556 s, two failures. The
+inventory includes the remaining stages and separates cache hits (zero seconds).
+Keep cheap data audits: collision median 8.191 s / 5 failures in 28 observations,
+facade-ground audit 1.349 s / 10 in 28, car report 10.162 s / zero in 9.
+These remain scoped to changed colliders/parked cars and run after publication.
+AGENTS.md now defaults to one focused check and one changed real tile/instance,
+with extra tiles/views only for a relevant boundary or input case.

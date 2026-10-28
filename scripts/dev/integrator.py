@@ -118,15 +118,8 @@ def code_rows(published):
     ]
 
 
-def full_due(published, now=None):
-    landed = landing.ledger_rows()
-    return chrome.full_due(code_rows(published), landed, time.time() if now is None else now)
-
-
 def settled(published, main):
     """True when main needs no new code-lane run: it is live, or its last run took it."""
-    if full_due(published):
-        return False
     return main in (live_commit(published), last(published).get("to"))
 
 
@@ -534,7 +527,6 @@ def run_once(published, main_repo=s.REPO, name=NAME, full=False):
     end = s.git("rev-parse", "main", cwd=main_repo)
     if live is None:
         raise ValueError(f"no published live release in {published}")
-    full = full or full_due(published)
     if live == end and not full:
         return None
     start = live
