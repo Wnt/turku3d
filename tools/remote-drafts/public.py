@@ -35,6 +35,8 @@ def allowed_origin(origin: str | None) -> bool:
 
 
 def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
+    if path == "/coarse/navigation.json":
+        return "navigation", None
     if path == "/coarse/demand":
         return "demand", None
     if path == "/coarse/health":
@@ -127,6 +129,8 @@ def public_handler(builder, prefetcher, settings):
                     builder.lock.notify_all()
                     return self._json(200, {"version": builder.version, "queued": len(builder.priority),
                                             "building": sorted(builder.building)})
+            if route == "navigation":
+                return super().do_GET()
             if route == "health":
                 return self._json(200, {"state": "online", "instance": instance})
             if route == "invalid":

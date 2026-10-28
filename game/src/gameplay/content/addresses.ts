@@ -19,7 +19,7 @@ export interface PoolAddress {
   car: number | null;
 }
 
-interface AddressJson {
+export interface AddressJson {
   format: string; version: number; frame: string; origin: [number, number];
   addresses: { id: string; address: string; tile: string; point: [number, number]; street: [number, number];
     foot: number; car: number | null }[];

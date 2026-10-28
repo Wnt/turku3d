@@ -1,3 +1,23 @@
+## Long-range delivery jobs
+
+Mission save format 4 tracks `shortDeliveries`, `longDeliveries`, `job` and `longAnnounced` per slot.
+Every ten finished short orders (successful or cancelled, including doubles as one order) complete a
+rented round. Four rounds unlock the pizzeria's long-range option. Renting ahead and picking up an
+order do not advance it. Formats 1–3 migrate historical completed orders as short deliveries.
+The one-time narrator notice is queued after the delivery result and autosaved.
+
+`/coarse/navigation.json` provides the city road graph and voiced address pool independently of draft
+residency. Its disk cache hashes source, OSM input identities and the spoken address inventory.
+Drop-offs are outside mapped buildings beside reachable public driving streets; runtime `DropoffGuard`
+checks actual collision too. Short draws stay within 1.2 km on foot. Long draws require 2.5–7 km car
+routes and never substitute a short destination. `audio/voice/long-addresses.json` lists twelve voiced
+district destinations; `make voice-build` includes them in the common spoken inventory.
+Long pay is €24 + ceil(€12/km), plus the existing tip. Par uses 1.4 times the short-job speed for the
+same vehicle; the existing late-tip curve and zero-pay cancellation deadline apply.
+
+Verify: `npm --prefix game test -- tests/unit/long-deliveries.test.ts tests/unit/missions.test.ts tests/unit/orders.test.ts`
+and `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_navigation.py`.
+
 # Gameplay
 
 `contract.ts` is the shared interface between the mission system and the minimap/router: targets,

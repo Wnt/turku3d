@@ -1,7 +1,8 @@
 // Gameplay entry for main.ts: the street router and the delivery address pool handed to the mission system, and
 // the minimap.
 import type { Manifest } from '../world/manifest';
-import { loadAddressPool } from './content/addresses';
+import { draftsUrl } from '../net/config';
+import { parseAddressPool, type AddressJson, loadAddressPool } from './content/addresses';
 import { Minimap } from './minimap';
 import { loadRoadGraphJson, mergeRoadGraphs, type RoadGraphJson } from './roadGraph';
 import { StreetRouter } from './router';
@@ -45,7 +46,14 @@ class StreetMap {
  *  (the scripted deliveries repeat) when the build has none. The playable area is the union of the manifest's
  *  collision tiles. */
 export async function createGameplay(manifest: GameplayManifest, parent: HTMLElement) {
-  const [published, addresses] = await Promise.all([loadRoadGraphJson(manifest), loadAddressPool(manifest)]);
+  const endpoint = draftsUrl();
+  const navigation = endpoint ? await fetch(new URL('navigation.json', new URL(endpoint, location.href))).then(async res => {
+    if (!res.ok) throw new Error(`navigation: HTTP ${res.status}`);
+    return await res.json() as { roads: RoadGraphJson; addresses: AddressJson };
+  }) : null;
+  const [published, addresses] = navigation
+    ? [navigation.roads, parseAddressPool(navigation.addresses, () => true)]
+    : await Promise.all([loadRoadGraphJson(manifest), loadAddressPool(manifest)]);
   const graph = mergeRoadGraphs(published ? [published] : []);
   const router = new StreetRouter(graph);
   const area = new PlayableArea(manifest.collision);
