@@ -39,6 +39,7 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 DEPENDENCIES = {
     "wfs": ("roofs.py", "../buildings/source_surfaces.py", "../ground/materials.py"),
     "roads": ("bridges.py", "bridge_survey.py"),
+    "parking": ("parked.py", "../parked/placement.py"),
     "barriers": ("fences.py",),
     "forests": ("forests.py",),
     "tunnels": ("tunnels.py",),
@@ -88,6 +89,7 @@ class Inputs:
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
     register: dict = field(default_factory=dict)
     tunnels: list = ()  # OSM full tunnel ways, with tags
+    parking: tuple = ((), ())
     poles: list = ()  # sign and bus-stop props with full-tile source identities
 
 
@@ -401,6 +403,7 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         ]
         if osm
         else None,
+        "parking": [osm, wfs[1][1], wfs[0][1]] if osm else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
@@ -425,6 +428,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
     pyarrow.set_cpu_count(1)
     pyarrow.set_io_thread_count(1)
+    if dataset == "parking":
+        from .parked import prepare as prepare_parking
+
+        return prepare_parking(tile, *paths)
     if dataset == "appearance":
         from .register import read_osm
 
@@ -621,4 +628,5 @@ def gather(
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),
         poles=values["poles"] or (),
+        parking=values["parking"] or ((), ()),
     )

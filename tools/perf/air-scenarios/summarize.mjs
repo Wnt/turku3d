@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 const [directory, phase = 'flight'] = process.argv.slice(2);
 if (!directory || !['flight', 'drive'].includes(phase)) throw new Error('Usage: summarize.mjs DIRECTORY flight|drive');
-const filename = path.join(directory, fs.existsSync(path.join(directory, 'scenario.json')) ? 'scenario.json' : 'flight-state.json');
+const filename = path.join(directory, fs.existsSync(path.join(directory, 'scenario.json')) ? 'scenario.json' : `${phase}-state.json`);
 const state = JSON.parse(fs.readFileSync(filename));
 const frames = state.frames.filter(row => row[2] === phase);
 const sorted = frames.map(row => row[1]).sort((a, b) => a - b);
@@ -26,9 +26,10 @@ if (fs.existsSync(profile)) {
   allocations = { sampledBytes: bytes, recordingSeconds, bytesPerRecordedSecond: bytes / recordingSeconds };
 }
 console.log(JSON.stringify({ directory, phase, seconds, frames: frames.length, ms: summary(sorted),
+  over50ms: sorted.filter(ms => ms > 50).length,
   over100msPerMinute: sorted.filter(ms => ms > 100).length * 60 / seconds,
   publicationAgeMs: summary(frames.map(row => row[4]).filter(Number.isFinite)),
-  receiptAgeMs: summary(frames.map(row => Math.max(0, row[3]))), messageRttMs: summary(rtts),
+  messageRttMs: summary(rtts),
   heapMiB: { first: heaps[0] / 1024 ** 2, last: heaps.at(-1) / 1024 ** 2, min: Math.min(...heaps) / 1024 ** 2, max: Math.max(...heaps) / 1024 ** 2 },
   scale: [...new Set(poses.map(pose => pose.scale))], canvas: [...new Set(poses.map(pose => pose.canvas.slice(1).join('x')))],
   materialKeys: poses.at(-1)?.materialKeys - poses[0]?.materialKeys, shadowKeys: poses.at(-1)?.shadowKeys - poses[0]?.shadowKeys,

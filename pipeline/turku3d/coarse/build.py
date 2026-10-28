@@ -34,7 +34,7 @@ from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 
-from . import bridges, fences, kerbs, surfaces
+from . import bridges, fences, kerbs, parked, surfaces
 from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
@@ -687,6 +687,10 @@ def build(
         )
     seconds["collision"] = time.perf_counter() - t
 
+    t = time.perf_counter()
+    cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks)
+    vehicle_models = parked.publish_models(cars, out.parent)
+    seconds["parked"] = time.perf_counter() - t
     roads = tunnels.roads(bridge_roads)
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
@@ -725,6 +729,8 @@ def build(
             )
         },
         collision=collision,
+        vehicles=cars,
+        vehicle_models=vehicle_models,
         roads=(
             _entry(roads_url, roads["json"], nodes=roads["nodes"], edges=roads["edges"])
             if roads is not None

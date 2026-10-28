@@ -1,6 +1,6 @@
 // Resident draft model ownership and telemetry; loading belongs to CoarseTiles.
 import * as THREE from 'three/webgpu';
-import { batchTileShadows } from './shadowBatch';
+import { batchTileShadows, prepareTileShadows } from './shadowBatch';
 import { disposeShadowBatch } from './shadowChunks';
 
 type ModelEvent = { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } };
@@ -28,6 +28,20 @@ export class VisualTiles {
     });
     if (!this.idPass) {
       const shadow = batchTileShadows(scene);
+      if (shadow) this.shadows.set(scene, shadow);
+    }
+    this.prepared.add(scene);
+  }
+
+  /** Streaming keeps shadow buffer construction within the preparation frame budget. */
+  async prepareModelAsync(scene: THREE.Object3D) {
+    if (this.prepared.has(scene)) return;
+    scene.traverse(object => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }
+    });
+    if (!this.idPass) {
+      const shadow = await prepareTileShadows(scene);
       if (shadow) this.shadows.set(scene, shadow);
     }
     this.prepared.add(scene);

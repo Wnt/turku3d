@@ -52,8 +52,8 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
-from .demand import Demand, write_snapshot
 from .build import code_hash
+from .demand import Demand, write_snapshot
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
 from .sources import NoCoverage, Sources, Unit
@@ -65,7 +65,7 @@ TILE = re.compile(r"^t0_-?\d+_-?\d+$")
 FILE = re.compile(
     r"^(vis(?:\.[0-9a-f]{64})?\.glb|manifest\.json|roads(?:\.[0-9a-f]{64})?\.json|col/c_-?\d+_-?\d+(?:\.[0-9a-f]{64})?\.col)$"
 )
-SHARED = re.compile(r"^[0-9a-f]{64}\.ktx2$")
+SHARED = re.compile(r"^[0-9a-f]{64}\.(?:ktx2|glb)$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
 PENDING_EXIT = 3  # python -m turku3d.coarse build: inputs missing, {"pending": [units]} on stdout
 RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried after this
@@ -627,7 +627,9 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
             if len(parts) == 2 and parts[0] == "shared" and SHARED.match(parts[1]):
                 path = builder.root / "shared" / parts[1]
                 if path.exists():
-                    return self._send(200, path.read_bytes(), MIME[".ktx2"], "public, max-age=3600")
+                    return self._send(
+                        200, path.read_bytes(), MIME[path.suffix], "public, max-age=3600"
+                    )
                 return self._json(404, {"error": "not found"})
             if len(parts) != 2 or not TILE.match(parts[0]) or not FILE.match(parts[1]):
                 return self._json(404, {"error": "not found"})

@@ -16,6 +16,7 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   }
   const state = window.__air = { phase: flightSeconds > 0 ? 'flight' : 'prepare-drive', started: performance.now(), frames: [], poses: [], points,
     flightSeconds, work: [], physics: [], materialKeys: 0, shadowKeys: 0, inFrame: false, builders: [], enterPending: false, target: 1, route: [], active: true, driveStart: null, driveEnd: null };
+  state.traceAnchor = performance.now(); performance.mark('air-scenario-anchor');
   const perf = window.__render.perf, renderer = window.__render.renderer;
   const beforeFrame = perf.begin.bind(perf), afterFrame = perf.end.bind(perf);
   let lastPhysics = performance.now();
@@ -40,7 +41,9 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     if (restore) restoreWork.push(() => { owner[name] = original; });
   }
   instrument(renderer, 'initTexture', 'texture-upload');
-  instrument(game.tiles, 'trackModel', 'shadow-batch-and-publication');
+  instrument(game.tiles, 'trackModel', 'publication');
+  if (game.tiles.prepareModel) instrument(game.tiles, 'prepareModel', 'shadow-preparation');
+  if (game.materials) instrument(game.materials, 'apply', 'material-styling');
   const sample = renderer._objects._renderObjects.values().next().value;
   const renderObjectPrototype = Object.getPrototypeOf(sample);
   const materialKey = renderObjectPrototype.getMaterialCacheKey;
@@ -58,7 +61,7 @@ export function installScenario({ flightSeconds = 75 } = {}) {
       target: renderer.getRenderTarget()?.uuid, mrt: renderer.getMRT()?.uuid,
       reflection: object.camera.layers.mask === 4 && !object.material.isShadowPassMaterial });
   };
-  let pose = at(0), aim = at(0.025), lastTeleport = -Infinity, previous = null, lastPose = 0, lastEnter = -Infinity;
+  let pose = at(0), aim = at(0.025), lastTeleport = -Infinity, previous = null, lastPose = 0, lastEnter = -Infinity, lastRoute = -Infinity;
   scene.onBeforeRender = function (...args) {
     previousRender.apply(this, args);
     if ((state.phase !== 'flight' && state.phase !== 'inspection') || args[2] !== camera) return;
@@ -77,12 +80,23 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     const car = game.physics.latest?.vehicles.find(vehicle => vehicle.id === 'player');
     if (!car || !state.route.length) return;
     while (state.target < state.route.length - 1 && Math.hypot(state.route[state.target].x - car.pos.x, state.route[state.target].z - car.pos.z) < 8) state.target++;
+    // Extend the street route as new draft road graphs arrive. The initial residency ring cannot
+    // route to the far bank in advance; driving beyond a stale endpoint would hit the next building.
+    const end = state.route.at(-1), distanceToEnd = Math.hypot(end.x - car.pos.x, end.z - car.pos.z);
+    if (distanceToEnd < 35 && performance.now() - lastRoute > 1000) {
+      lastRoute = performance.now();
+      const leg = game.router.route({ x: car.pos.x, z: car.pos.z }, { x: -390, z: 550 });
+      if (leg?.length && Math.hypot(leg.at(-1).x - end.x, leg.at(-1).z - end.z) > 30) {
+        state.route = leg; state.target = 1;
+        state.extensions ??= []; state.extensions.push({ now: performance.now(), route: leg });
+      }
+    }
     const goal = state.route[state.target], q = car.rot;
     const desired = Math.atan2(-(goal.z - car.pos.z), goal.x - car.pos.x);
     const heading = Math.atan2(-2 * (q.x * q.z - q.w * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
     const error = Math.atan2(Math.sin(desired - heading), Math.cos(desired - heading));
-    game.input.actions.throttle = car.speed < 7 ? 0.4 : 0;
-    game.input.actions.brake = car.speed > 8 ? 0.2 : 0;
+    game.input.actions.throttle = distanceToEnd > 8 && car.speed < 7 ? 0.4 : 0;
+    game.input.actions.brake = distanceToEnd <= 8 ? 0.5 : car.speed > 8 ? 0.2 : 0;
     game.input.actions.steer = Math.max(-0.45, Math.min(0.45, -error * 1.7));
   };
   function tick(now) {
@@ -117,6 +131,7 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     state.tryEntering = true;
   };
   state.beginDrive = () => {
+    state.traceAnchor = performance.now(); performance.mark('air-scenario-anchor');
     const car = game.state().vehicles.find(vehicle => vehicle.id === 'player');
     game.router.mode = 'car';
     let from = { x: car.pos[0], z: car.pos[2] };

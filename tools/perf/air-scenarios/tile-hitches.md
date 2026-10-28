@@ -1,55 +1,69 @@
 # Draft tile loading on the Air
 
-Use `air-session` exclusively; never attach to another task's Chrome. The existing 75-second Aura
-flight moves the streaming focus across draft cells at low altitude. The optional drive uses real
-physics. The capture-only runtime supports the draft-only world and records synchronous shader
-builds, texture uploads and shadow batching/publication, alongside every RAF and physics publication age.
-The recorder's Chrome trace supplies parse, worker, GC and pipeline attribution. No game entry imports
-these tools.
+These capture-only tools never enter the production bundle. Use only your owned `air-session`.
+The 120-second drive controls the real physics car from the office toward the west bank, extending
+its road route as new draft graphs arrive. It records every RAF, actual physics publication age,
+heap, synchronous shader builds, texture uploads, shadow preparation and publication. Runtime route
+extensions can differ with arrival timing; report actual distance and endpoints as well as duration.
 
-Freeze the served inputs once, then use that exact snapshot for both versions. `snapshot.mjs` retains
-hashed model/collision URLs and external glTF images. Keep the files and screenshots outside git.
-Missing served tiles fail explicitly; do not compare changing live inputs.
+Freeze inputs once with `snapshot.mjs`; keep all data, traces and screenshots outside git:
 
 ```sh
 source ../sandbox.env
 node tools/perf/air-scenarios/snapshot.mjs https://turku.lab.madekivi.fi/coarse/ \
-  "$TURKU3D_WORK/air-inputs/coarse" \
+  "$TURKU3D_WORK/air-current-inputs/coarse" \
   t0_0_0 t0_0_1 t0_0_2 t0_0_3 t0_1_0 t0_1_1 t0_1_2 t0_1_3 \
   t0_-1_0 t0_-1_1 t0_-1_2 t0_-1_3 t0_-2_0 t0_-2_1 t0_-2_2 t0_-2_3
-node tools/perf/air-scenarios/drafts.mjs "$TURKU3D_WORK/air-inputs/coarse" "$((TURKU3D_PORT_BASE+5))"
-# In another sourced terminal (Vite dev build for both versions):
-npm --prefix game run dev -- --host 127.0.0.1 --port "$TURKU3D_PORT_BASE"
+node tools/perf/air-scenarios/drafts.mjs "$TURKU3D_WORK/air-current-inputs/coarse" "$((TURKU3D_PORT_BASE+5))"
+```
+
+Use production dist builds with `VITE_PUBLIC_RELEASE=1`, including for the baseline. The historical
+renderer predates current facade schemas. `baseline.mjs` archives the current release and restores
+only its pre-fix renderer/ownership code and decoder behavior; it retains current asset compatibility
+and request ordering. This is a counterfactual baseline, not a historical release measurement.
+
+```sh
+node tools/perf/air-scenarios/baseline.mjs 7847e0e9 148a553a "$TURKU3D_WORK/air-matched-baseline"
+python3 scripts/dev/host_slots.py build -- env VITE_PUBLIC_RELEASE=1 \
+  TURKU3D_WORK="$TURKU3D_WORK/air-baseline-work" node game/node_modules/vite/bin/vite.js \
+  build "$TURKU3D_WORK/air-matched-baseline/game" --config "$TURKU3D_WORK/air-matched-baseline/game/vite.config.ts"
+# Serve exact published game bytes as the primary root, and the baseline as a mount.
+node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/air-pages/game" --port "$TURKU3D_PORT_BASE" \
+  --mount "/baseline=$TURKU3D_WORK/air-baseline-work/build/game"
+```
+
+Start your own multiplayer server on port base+9 and reverse-tunnel only that port to the Air;
+use its isolated room for both builds. `air-session` forwards the game port. Never join another
+measurement's room or stop another session. The runner unloads before clearing storage (pagehide
+autosave otherwise restores the previous position), handles the public Multiplayer menu, resets the
+car once before measurement, then drives without teleporting.
+
+```sh
 ~/turku3d/profiling/air-session start fix-tile-load-hitches \
-  --game-port "$TURKU3D_PORT_BASE" --cdp-port "$((TURKU3D_PORT_BASE+8))" \
-  --url '/?backend=webgpu&time=2026-10-15T11:00:00Z'
+  --game-port "$TURKU3D_PORT_BASE" --cdp-port "$((TURKU3D_PORT_BASE+8))"
+# Use /baseline/ for before, / for published/current; same query and 120 seconds.
 node tools/perf/air-scenarios/run.mjs "http://127.0.0.1:$((TURKU3D_PORT_BASE+8))" \
-  "http://localhost:$TURKU3D_PORT_BASE/?backend=webgpu&time=2026-10-15T11:00:00Z" \
-  "$TURKU3D_WORK/reports/tile-hitches/before" flight
-node tools/perf/air-scenarios/summarize.mjs "$TURKU3D_WORK/reports/tile-hitches/before" flight
+  "http://localhost:$TURKU3D_PORT_BASE/?backend=webgpu&time=2026-10-15T11:00:00Z&mp=ws://localhost:$((TURKU3D_PORT_BASE+9))/" \
+  "$TURKU3D_WORK/reports/tile-hitches/after" drive 120
+node tools/perf/air-scenarios/summarize.mjs "$TURKU3D_WORK/reports/tile-hitches/after" drive
 ~/turku3d/profiling/air-session stop fix-tile-load-hitches
 ```
 
-Stop the owned Air session even after a failure. See `renderer.md` for the external recorder's
-`String.raw` probe correction and the `TURKU3D_RENDER_RECORDER` override. Preserve that same recorder
-and scenario instrumentation for the matched pair. Build/serve mode, input identity, frame percentiles,
-physics age and heap growth belong in the result; a flight is not evidence of successful normal driving.
+Always stop the owned session after failures too. Default drive recording is light. Set
+`TURKU3D_DRIVE_TRACE=1` for Chrome tracing/allocation sampling, then run
+`python3 tools/perf/air-scenarios/attribute.py OUTPUT drive 100` to attribute each interval above
+100 ms (optional threshold 50). The marker is emitted after tracing starts. Traced runs have
+additional overhead; do not combine their percentiles with the primary light comparison.
+See `renderer.md` for the external recorder's String.raw correction and
+`TURKU3D_RENDER_RECORDER` sandbox-copy override. No shared recorder changes are required.
 
-The focused local regression needs only Vite, with no draft service or city data:
+The focused local WebGPU reproduction needs Vite but no city data:
 
 ```sh
 python3 scripts/dev/host_slots.py browser -- node tools/perf/air-scenarios/local-warmup.mjs \
   "http://localhost:$TURKU3D_PORT_BASE/" "$TURKU3D_WORK/reports/tile-hitches/local-warmup.json"
 ```
 
-It exercises the real WebGPU backend, CSM, post passes, material styling and tile ownership. It fails
-if publication rebuilds the warmed surface or shared GTAO shader. Its 640x480 synthetic timing is
-a diagnostic for shader cache reuse, not an Air performance result. An optional final integer sets
-the expected publication surface-builder count when demonstrating an archived baseline (2 on the
-original path). The capture-only entry is `game/scripts/tile-warmup-probe.ts`.
-
-`local-flight.mjs GAME_URL OWN_CDP_PORT OUTPUT` launches the same 75-second scenario on the Mac's
-sandbox automation Chrome. Run it through the browser slot wrapper. Use frozen source when capturing:
-Vite hot reload interrupts the scenario. `TURKU3D_RENDER_TRACE=0` keeps light recording for exploratory
-local repeats; omit it for Air captures requiring trace/allocation attribution. Light and traced runs
-have different overhead and are not an allocation comparison.
+It asserts surface/AO shader reuse at publication. Its 640x480 synthetic timing is not an Air
+benchmark. `local-flight.mjs GAME_URL OWN_CDP_PORT OUTPUT` runs the 75-second low Aura flight;
+use frozen source and the browser slot wrapper. `TURKU3D_RENDER_TRACE=0` selects light flight capture.

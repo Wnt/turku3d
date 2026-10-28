@@ -1,3 +1,4 @@
+import { ParkedVehicles } from './world/parkedVehicles';
 // Play session over main.ts's persistent world: input, audio, UI, actors, missions, saves and frame loop.
 // Localhost hot updates dispose this session and restore it via gameplay/hotState.ts.
 import * as THREE from 'three/webgpu';
@@ -31,7 +32,7 @@ import { FlyMode } from './gameplay/flyMode';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
-import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
+import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { createGameplay, compassDeg } from './gameplay';
 import { SafeReset } from './gameplay/safeReset';
@@ -142,6 +143,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const car = new CarVisual(root);
   const seated = new SeatedVehicles(root, physics, groundAt);
   const parkedVisuals = new ParkedCarVisuals(root);
+  const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated);
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
@@ -149,6 +151,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   await loading.track('Player and vehicle models', Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
     seated.load(import.meta.env.BASE_URL),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]));
+  await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => seated.addTruck(v.object_id)));
   const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals });
   const scoreboard = new Scoreboard(document.body);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
@@ -474,7 +477,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     if (multiplayerPlaying && !startScreen.active && !saveGame.loading) {
       const yaw = mode === 'car' && vs ? yawOf(vs.rot) - Math.PI / 2 : player.root.rotation.y - Math.PI;
-      const poseMode = mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : drivenId === TRUCK_ID ? 'truck' : 'car';
+      const poseMode = mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : seated.of(drivenId) ? 'truck' : 'car';
       multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
         ...(poseMode !== 'foot' && vs ? { rot: vs.rot, wheels: vs.wheels } : {}),
@@ -521,6 +524,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const streamAt = saveGame.streamPoint(feet);
     if (!startScreen.active && !saveGame.loading) releaseStarts();
     coarse?.update(streamAt.x, streamAt.z);
+    parkedVehicles.update(streamAt.x, streamAt.z, drivenId, now);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);

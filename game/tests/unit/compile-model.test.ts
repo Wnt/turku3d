@@ -11,7 +11,7 @@ test('one-draw compilation preserves material arrays, children, visibility and r
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   const materials = [new THREE.MeshBasicMaterial(), new THREE.MeshBasicMaterial()];
   const parent = new THREE.Mesh(new THREE.BoxGeometry(), materials), child = new THREE.Mesh();
-  const water = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()); water.material.name = 'river-planar';
+  const water = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()); water.material.name = 'river-planar'; water.material.transparent = true;
   parent.add(child, water); scene.add(parent);
   const children = parent.children;
   const compile = vi.spyOn(renderer, 'compileAsync').mockImplementation((mesh, drawCamera, world) => {
@@ -24,7 +24,11 @@ test('one-draw compilation preserves material arrays, children, visibility and r
   expect(renderer.contextNode).toBe(originalContext); expect(renderer.getRenderTarget()).toBeNull();
   expect(parent.material).toBe(materials); expect(parent.children).toBe(children);
   await prepared;
+  expect(compile).toHaveBeenCalledTimes(4);
+  compile.mockClear();
+  await compileModel(renderer, scene, scene, camera, target, null, passContext, true);
   expect(compile).toHaveBeenCalledTimes(3);
+  expect(compile.mock.calls.some(([mesh]) => mesh === water)).toBe(false);
   expect(parent.children).toEqual([child, water]); expect(parent.material).toBe(materials);
   expect(renderer.contextNode).toBe(originalContext); expect(parent.frustumCulled).toBe(true);
   target.dispose();

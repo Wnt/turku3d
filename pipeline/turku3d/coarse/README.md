@@ -589,3 +589,30 @@ python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m tu
 The benchmark compares cold, warm, one-stage-code-changed and clean builds, asserts
 identical payload bytes, and writes per-stage timings. See
 [the measured results](../../../docs/research/incremental-drafts.md).
+
+## Parked vehicles
+
+Both draft passes publish `vehicles` and `vehicle_models`, using the existing parked-car
+manifest contract. The `parking` prepared input retains complete OSM bay/road geometry
+and city building/street exclusions. The independent `parked` stage hashes that input,
+the actual terrain grid, obstacles and its own placement code. It does not add parked
+meshes or boxes to the static tile: the client streams nearby collision-backed actors,
+loads shared content-addressed model GLBs, and retains borrowed identities after tile
+unload. Saved borrowed cars retain their model URL; trophy trucks use the built-in truck.
+
+Placement reuses the full generator's seeded bay candidates and access exclusions,
+adds surveyed buildings, water margins, bridge/tunnel/layer exclusions, barriers,
+trunks and poles, checks all four support corners (15 cm maximum variation), and
+requires a clear forward or reverse manoeuvre. Whole footprints stay 30 cm inside
+the tile so neighbouring builds do not overlap. Slots retain the existing `<source/bay>` identities, including vehicles saved before
+the draft-only transition. A SHA-256 draw per viable tile/slot selects the larger trophy truck with
+probability 1/1000; an unfitting truck waits for the next fitting bay while ordinary
+cars keep filling valid slots. No runtime rarity override is shipped. Tests can inject
+`parked.truck_slot`; the existing Developer menu can spawn a truck for a drive check.
+
+Focused checks:
+
+```sh
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_parked.py
+npm --prefix game test -- tests/unit/parked-streaming.test.ts tests/unit/coarse-tiles.test.ts tests/unit/vehicle-fleet.test.ts tests/unit/vehicleSave.test.ts
+```

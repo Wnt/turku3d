@@ -13,7 +13,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VISUAL_L0 } from '../core/origin';
 import { isLocalHost } from '../core/localOnly';
 import { draftsUrl } from '../net/config';
-import type { Manifest, ManifestEntry } from './manifest';
+import type { Manifest, ManifestEntry, ParkedVehicle } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
 const POLL_MS = 1000;
@@ -40,13 +40,14 @@ interface Outage { nextProbe: number; probing: boolean }
 
 interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
-  roads?: { url: string; bytes: number } | null }
+  roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
 interface Entry {
   state: State; model?: THREE.Object3D; nextPoll: number; error?: string; roads?: RoadGraphJson;
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */
   collision: Map<string, ManifestEntry>;
+  vehicles?: ParkedVehicle[];
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
@@ -366,6 +367,7 @@ export class CoarseTiles {
         .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
       if (this.entries.get(id) !== e || e.state !== 'draft') return;
       if (!visualChanged) {
+        this.takeVehicles(e, fragment, base);
         this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
         if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
         return;
@@ -375,6 +377,7 @@ export class CoarseTiles {
       if (!await this.prepareModel(id, e, model)) return;
       this.host.scene.add(model);
       const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
+      this.takeVehicles(e, fragment, base);
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
@@ -430,6 +433,7 @@ export class CoarseTiles {
       this.host.scene.add(model);
       this.host.trackModel?.(model, id);
       e.model = model;
+      this.takeVehicles(e, fragment, base);
       this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
       e.state = 'draft'; e.visualHash = fragment.visual[id].sha256; e.nextPoll = this.clock + 2000;
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
@@ -465,7 +469,21 @@ export class CoarseTiles {
     if (swapped.length) this.host.refreshCollision(swapped);
   }
 
+  private takeVehicles(e: Entry, fragment: CoarseFragment, base: URL) {
+    const old = new Set(e.vehicles ?? []);
+    e.vehicles = fragment.vehicles ?? [];
+    const incoming = new Set(e.vehicles.map(v => v.object_id));
+    this.host.manifest.vehicles = [...(this.host.manifest.vehicles ?? []).filter(v => !old.has(v) && !incoming.has(v.object_id)), ...e.vehicles];
+    this.host.manifest.vehicle_models ??= {};
+    for (const [key, asset] of Object.entries(fragment.vehicle_models ?? {})) {
+      this.host.manifest.vehicle_models[key] = { ...asset, url: new URL(asset.url, base).href };
+    }
+  }
+
   private drop(e: Entry) {
+    const oldVehicles = new Set(e.vehicles ?? []);
+    this.host.manifest.vehicles = this.host.manifest.vehicles?.filter(v => !oldVehicles.has(v));
+    e.vehicles = undefined;
     if (e.model) {
       const id = [...this.entries].find(([, entry]) => entry === e)?.[0];
       if (id) this.host.untrackModel?.(e.model, id);

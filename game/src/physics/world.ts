@@ -287,6 +287,18 @@ export class PhysicsWorld {
     this.vehicleRadii.set(id, Math.hypot(h.x, h.y, h.z) + 0.5);
   }
 
+  removeVehicle(id: string) {
+    if (id === this.drivenId) return;
+    const vehicle = this.vehicles.get(id);
+    if (!vehicle) return;
+    this.world.removeVehicleController(vehicle.controller);
+    this.world.removeRigidBody(vehicle.body);
+    this.vehicles.delete(id);
+    this.vehicleRadii.delete(id);
+    this.vehicleSnapshots.delete(id);
+    this.heldVehicles.delete(id);
+  }
+
   driveVehicle(id: string | null) {
     if (id && !this.vehicles.has(id)) throw new Error(`unknown vehicle ${id}`);
     this.drivenId = id;

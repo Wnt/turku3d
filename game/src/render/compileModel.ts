@@ -31,7 +31,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
   });
   for (const mesh of meshes) {
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-      if (!material.visible || material.name === 'river-planar' || (opaqueOnly && material.transparent)) continue;
+      if (!material.visible || (opaqueOnly && material.transparent)) continue;
       const oldTarget = renderer.getRenderTarget(), oldMrt = renderer.getMRT(), oldContext = renderer.contextNode;
       const oldMaterial = mesh.material, children = mesh.children, visible = mesh.visible, culled = mesh.frustumCulled;
       const previousBuilder = renderer.debug.onNodeBuilderCreated;
