@@ -264,9 +264,11 @@ export class CoarseTiles {
       .filter(Boolean).join(' · '));
   }
 
-  /** Startup waits for the same 360° window that play keeps resident, including REPLACE siblings. */
+  /** Local startup warms the full window. Remote speculative neighbours must not block a published start offline. */
   progressAt(x: number, z: number) {
-    const wanted = this.wantedStarts(x, z);
+    const wanted = this.remote ? [...new Set([{ x, z }, ...this.retainedStarts]
+      .map(p => `t0_${Math.floor(p.x / VISUAL_L0)}_${Math.floor(p.z / VISUAL_L0)}`))]
+      .filter(id => !this.published.has(id)) : this.wantedStarts(x, z);
     const ready = wanted.filter(id => ['draft', 'published'].includes(this.entries.get(id)?.state ?? ''));
     const errors = wanted.flatMap(id => this.entries.get(id)?.state === 'failed' ? [`draft ${id}: ${this.entries.get(id)!.error}`] : []);
     return { loaded: ready.length, total: wanted.length, errors };

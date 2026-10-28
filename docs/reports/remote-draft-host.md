@@ -12,13 +12,22 @@ proxy (BR), and after switching the public route (TL). Public health is 200 with
 Pages CORS, an unapproved origin is 403, and private status is 404.
 
 The client slice needs Mac landing/publication before its published-URL check.
+A headed Air Chrome navigated to the actual published URL and confirmed that
+the currently published client has no draft streamer. From that Pages origin,
+fetching a remote cached manifest and passing all 16 `.col` files through the
+published game's actual physics `checkTile` succeeded in 291–496 ms (280,944
+collision bytes). This checks live CORS and decoder compatibility, but is not
+a claim of automatic streamed drawing in the still-old published client.
 The handover branch and GitHub origin/main have unrelated root histories, so
 this host preserves the handed-over branch for the orchestrator to land.
 
-Prebuild exposed existing pinned-producer collision failures (degenerate
-triangles, including `t0_-1_0` and `t0_-2_-2`). Failed drafts remain undrawn.
-The serving layer and game do not weaken collision validation. The handover
-outbox requests coordination with `fix-draft-speed` for the next pipeline commit.
+The original prebuild passed 78/84 tiles. Its six degenerate-wall failures were
+fixed by backporting the already-landed `_extrude` ring weld from `9ad546a` to
+pinned `38e57aff`. The second prebuild passed **84/84** using the service queue.
+`~/turku3d-drafts/DEPLOYMENT.json` records the base, backport and checksum;
+`tools/remote-drafts/roof-ring.patch` reproduces the isolated backport. Collision
+validation is unchanged. The next complete main update replaces this source
+backport and should be coordinated with `fix-draft-speed`.
 
 ## What changed
 
@@ -74,11 +83,21 @@ the benchmark. No browser time was used because the deployment gate failed.
 
 ## Gate output
 
-`scripts/dev/gate --fast --base main`: **GREEN, 13.253 s** after rebasing onto
-`624a4811bfad`. Lint, formatting, policy, types and selected fast unit stages
-passed. An earlier run hit the existing localhost coarse-restart test assertion
-`1 !== 2`; it passed unchanged on the rebased run. The first environment sync
-took 239.713 s; the final sync took 0.002 s. No checks were weakened.
+`scripts/dev/gate --fast --base main`: **GREEN, 18.894 s** on this host after
+dependency setup (63.538 s). All selected fast checks pass, including the two
+in-memory public-boundary tests and ten draft-client tests. A complete uncached
+run exercised the stages; unchanged successes were cached on the final run.
+
+This clone has no Mac main ref and GitHub main has unrelated history. Local
+`main` is anchored at the handed-over branch's Mac base `624a481` for checks;
+no main branch was pushed. The Mac orchestrator still reruns its landing gate.
+The host's ShellCheck 0.9 falsely reported an indirectly invoked existing
+function as unreachable; using 0.11 resolves it without disabling checks.
+The current shfmt required a heredoc `then` placement correction in the existing
+multiplayer installer. One existing localhost supervisor test had a transient
+restart-count assertion; it passed unchanged. A separate run overlapped CDP's
+port with a gate fixture port; the CDP tunnel moved to reserved QA port 7772 and
+the final gate is green.
 
 ## Follow-ups
 

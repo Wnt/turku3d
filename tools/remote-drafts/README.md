@@ -210,6 +210,8 @@ cat ~/turku3d-drafts/work/prebuild.json
 ```
 
 Use `systemctl --user stop turku-drafts-prebuild` before replacing its list.
+After a failed transient run, `systemctl --user reset-failed turku-drafts-prebuild`
+releases its unit name before the next `systemd-run`.
 `prebuild-tiles.json` uses the repository playable-list shape `{"tiles":[...]}`;
 sync the published playable list when expanding the Pages region. The bounds
 also permit uncached travel farther out; those tiles build on demand.
@@ -238,6 +240,19 @@ printf '%s\n' "$SOURCE_COMMIT" > ../SOURCE_COMMIT
 systemctl --user start turku-drafts.service
 ```
 
+The initial `38e57aff` producer additionally carries the already-landed roof-ring
+weld from `9ad546a`, which fixes six degenerate-wall failures in the 84-tile ring.
+Apply its retained patch only to that original source before startup:
+
+```sh
+patch -p1 -d ~/turku3d-drafts/repo < tools/remote-drafts/roof-ring.patch
+```
+
+`~/turku3d-drafts/DEPLOYMENT.json` records base commit, backport function and
+source checksum. A main commit containing `9ad546a` already includes the fix;
+replace the complete source tree and omit the patch on that update. This is a
+source backport, with the ordinary encoder and browser validation unchanged.
+
 Rebuild the dedicated environment first if that commit changes environment
 files. Re-run the cold benchmark in a new report directory through host_slots,
 then restart prebuild. Old tiles become stale automatically through producer
@@ -252,7 +267,9 @@ defaulting to the public route for `wnt.github.io`. Localhost always uses
 same-origin `/coarse/`. Other hosts have no draft service. No feature flag or
 public player-position endpoint is used. The badge shows building, remote queue
 full (retrying) and remote offline states. All 16 collision cells must be present
-and pass the existing physics `checkTile` before a draft is drawn.
+and pass the existing physics `checkTile` before a draft is drawn. Public startup
+requires the start tile when it is a draft, while speculative remote neighbours
+do not block entry into published terrain during an outage.
 
 ```sh
 npm --prefix game test -- --run tests/unit/coarse-tiles.test.ts

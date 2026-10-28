@@ -45,7 +45,7 @@ if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -- "$token_source_host" \
   exit 1
 fi
 # Validate without sourcing, evaluating or printing the secret. Preserve only the assignment.
-if ! python3 - "$token_file" <<'PY'
+if ! python3 - "$token_file" <<'PY'; then
 import pathlib
 import re
 import sys
@@ -60,7 +60,6 @@ if not re.fullmatch(r"[A-Za-z0-9_./+=:-]+", value):
     sys.exit(1)
 path.write_text("FORWARDER_AGENT_TOKEN=" + value + "\n")
 PY
-then
   echo 'BLOCKED: the forwarder token is missing, empty, ambiguous or not a supported single-line token. No units were changed.' >&2
   exit 1
 fi
