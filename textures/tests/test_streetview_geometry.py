@@ -159,8 +159,8 @@ def test_camera_height_by_campaign():
     assert z17_tile(60.44839, 22.26726) == (73643, 37734)
 
 
-def _ev(pid, E, N, part, ang, score, sec=(0, 10)):
-    m = PanoMeta("google", pid, 0, 0, E, N, 7.0, 0, 0, 0, "2026-07", {})
+def _ev(pid, E, N, part, ang, score, sec=(0, 10), source="google"):
+    m = PanoMeta(source, pid, 0, 0, E, N, 7.0, 0, 0, 0, "2026-07", {})
     return {
         "meta": m,
         "part": part,
@@ -182,6 +182,17 @@ def test_select_diversity_and_full_view():
     ch = [e["meta"].id for e in select(evs, P)]
     assert ch[0] == "d"  # a full view is always included when one exists
     assert "a" in ch and "c" in ch and "b" not in ch and "e" not in ch
+
+
+def test_select_full_wall_from_each_available_source_before_detail():
+    P = SelectParams(max_views=3)
+    evs = [
+        _ev("m", 0, -20, "full", 15, 0.9, source="mapillary"),
+        _ev("g", 0, -25, "full", 15, 0.8),
+        _ev("l", 0, -30, "full", 15, 0.7, source="lookaround"),
+        _ev("p", 0, -10, "partial", 5, 0.99),
+    ]
+    assert [e["meta"].id for e in select(evs, P)] == ["l", "g", "m"]
 
 
 def test_sub_facade_centred_on_camera():

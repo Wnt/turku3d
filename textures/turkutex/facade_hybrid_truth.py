@@ -302,7 +302,7 @@ def refresh(args):
                 args.root / "refs",
                 ("lookaround", "google", "mapillary"),
                 workers=3,
-                max_views=2,
+                max_views=4,
             )
         )
         ff.write_json(args.root / "errors.json", errors)
@@ -376,13 +376,14 @@ def label(args):
 
     rows = json.loads((args.root / "screened.json").read_text())
     completed = read_labels(args.root, args.reviewer)
-    rows = [r for r in rows if r["facade_id"] not in completed][: args.label_limit]
+    rows = [r for r in rows if r["facade_id"] not in completed]
     schema = args.root / f"{args.reviewer}.schema.json"
     structure = label_schema()
     if args.reviewer == "low":
         structure["properties"]["walls"]["items"] = ff.fr.schema()
         kept = json.loads((args.root / "agreed.json").read_text())
         rows = [r for r in rows if r["facade_id"] in kept]
+    rows = rows[: args.label_limit]
     ff.write_json(schema, structure)
     jobs = []
     for start in range(0, len(rows), args.batch_size):

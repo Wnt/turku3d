@@ -43,7 +43,7 @@ from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 from .rectify import rectified_points, sample_wall
 
-REFS_VERSION = "11-explicit-foreground"
+REFS_VERSION = "12-source-diverse-full-views"
 
 # Reference fallback order when the best-scored full view fails screening.
 SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")
@@ -383,12 +383,21 @@ def evaluate(
 
 
 def select(evals: list[dict], P: SelectParams) -> list[dict]:
-    """Greedy by score with diversity; at least one full view when one exists; 2..max_views."""
+    """Try one full wall from each available source before detail or near-duplicate views."""
     pool = sorted([e for e in evals if e], key=lambda e: -e["score"])
     chosen: list[dict] = []
-    fulls = [e for e in pool if e["part"] == "full"]
-    if fulls:
-        chosen.append(fulls[0])
+    for source in SOURCE_ORDER:
+        if len(chosen) >= P.max_views:
+            break
+        full = next(
+            (e for e in pool if e["part"] == "full" and e["meta"].source == source), None
+        )
+        if full is not None:
+            chosen.append(full)
+    if not chosen:
+        full = next((e for e in pool if e["part"] == "full"), None)
+        if full is not None:
+            chosen.append(full)
     for e in pool:
         if len(chosen) >= P.max_views:
             break
