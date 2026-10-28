@@ -9,7 +9,8 @@ from turku3d.ground.mesh import Mesh
 from turku3d.structures.geometry import Faces
 
 from .geometry import clip_mesh
-from .kerbs import collision as collision, visuals as visuals
+from .kerbs import collision as collision
+from .kerbs import visuals as visuals
 from .surfaces import split_boundaries
 
 
