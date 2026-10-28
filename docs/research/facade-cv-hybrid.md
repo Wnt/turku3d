@@ -5,7 +5,8 @@ The final independently reviewed pilot contains six agreed walls. Hybrid storeys
 register on this pilot; colour improves. This is insufficient evidence to replace the kit's
 background queue. No hybrid queue integration, Astra scheduling change or production
 parameter-store write was made. The opt-in engine, reference-height repair and reproducible
-collection/evaluation tooling are implemented. The task remains blocked on reliable evidence.
+collection/evaluation tooling are implemented and approved for landing as an opt-in slice.
+The remaining truth-set work and conditional queue rollout are follow-ups.
 
 ## Per-field result
 
