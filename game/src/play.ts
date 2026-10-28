@@ -46,6 +46,9 @@ import type { Manifest } from './world/manifest';
 import { holdCar, holdFoot, type CollisionStreamer } from './world/collisionStreaming';
 import { EdgeMarker } from './world/edgeMarker';
 import type { CoarseTiles } from './world/coarseTiles';
+import { preloadWorld } from './world/preload';
+import { VISUAL_RING_RADIUS } from './world/residency';
+import { browserStorage, sessionStore } from './core/storage';
 import type { VisualTiles } from './world/tiles';
 import type { Telemetry } from './telemetry';
 import type { Environment } from './render/environment';
@@ -104,14 +107,6 @@ interface PlaySession {
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
-
-/** localStorage, or null where the browser blocks it (the save slots then last only for this page). */
-function browserStorage(): Storage | null {
-  try { return window.localStorage; } catch { return null; }
-}
-function sessionStore(): Storage | null {
-  try { return window.sessionStorage; } catch { return null; }
-}
 
 /** Starts a play session; `hot` continues a hot-swapped one (dev server only). */
 export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<PlaySession> {
@@ -314,6 +309,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         players: multiplayer.state.players.length, scores: multiplayer.state.scores,
         remotes: remotePlayers.markers(), remoteVisuals: remotePlayers.visualBounds(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
+  orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
+  await preloadWorld(world, feet);
   Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
@@ -528,6 +525,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
+    tiles.setFocus(streamAt.x, streamAt.z, Math.max(VISUAL_RING_RADIUS, params.collisionRadius));
     tiles.update(camera);
     renderFrame();
     window.__render?.afterFrame?.();

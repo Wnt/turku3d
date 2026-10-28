@@ -1,7 +1,7 @@
 // Visual tiles via 3DTilesRendererJS. tileset.json is in the 3D Tiles Z-up frame (docs/specs/tiles.md §1);
 // the renderer rotates Y-up glTF content to Z-up, so the group gets rotation.x = -PI/2 to return to engine axes.
 // `reload` swaps in a new tile release (localhost game): the new tileset loads hidden beside the current one and
-// replaces it once it has settled for the current view. Listeners subscribe to `events`, which carries the models
+// replaces it once it has settled for the player's ring (or the QA view). Listeners subscribe to `events`, which carries the models
 // of both, so styling, telemetry and draft tiles follow the swap.
 import * as THREE from 'three/webgpu';
 import { TilesRenderer, type Tile } from '3d-tiles-renderer';
@@ -12,6 +12,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { batchTileShadows } from './shadowBatch';
 import { refinableParents } from './residency';
 import { TileReuse } from './tileReuse';
+import { PlayerLoadRegion } from './loadRegion';
 
 interface ViewErrorTarget { error: number }
 type ViewError = (tile: Tile, target: ViewErrorTarget) => void;
@@ -26,6 +27,7 @@ interface Tileset {
   refinable: Set<string>;
   loaded: number;
   reuse?: TileReuse;
+  region?: PlayerLoadRegion;
 }
 
 export class VisualTiles {
@@ -44,6 +46,7 @@ export class VisualTiles {
   private resolution = new THREE.Vector2();
   private ktx2: LoadingKtx;
   private swapped: (() => void) | null = null;
+  private focus: { x: number; z: number; radius: number } | null = null;
 
   constructor(url: string, private renderer: THREE.WebGPURenderer, private camera: THREE.PerspectiveCamera,
     private scene: THREE.Scene, private idPass = false) {
@@ -63,15 +66,21 @@ export class VisualTiles {
       set.reuse = new TileReuse(this.current.renderer, renderer, unchanged);
       renderer.registerPlugin(set.reuse);
     }
+    if (this.focus) {
+      set.region = new PlayerLoadRegion();
+      set.region.radius = this.focus.radius;
+      renderer.registerPlugin(set.region);
+      set.region.move(this.focus.x, this.focus.z);
+    }
     // The KTX2 loader (its transcoder workers) is shared by a swapped-in release: disposing the old tileset keeps it.
     renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false }));
     renderer.errorTarget = 8;
-    // A parent outside the nearest-L0 budget reports no error, so it stays coarse and its L0 children go
-    // unused; the LRU cache's byte cap then evicts them, keeping memory bounded as the tile list grows.
+    // QA retains the nearest-L0 budget. In play the region plugin owns refinement and masks camera error.
     const viewer = renderer as unknown as { calculateTileViewError: ViewError };
     const viewError = viewer.calculateTileViewError.bind(renderer);
     viewer.calculateTileViewError = (tile, target) => {
       viewError(tile, target);
+      if (set.region) { target.error = 0; return; } // the distance-region plugin owns play-mode refinement
       const id = tile.extras?.id as string | undefined;
       if (!id) return;
       if (!set.l0Parents.has(id)) {
@@ -140,15 +149,32 @@ export class VisualTiles {
   }
 
   private ready(set: Tileset) {
+    if (set.region) return set.region.settled;
     return set.renderer.root !== null && (set.loaded + (set.reuse?.loaded ?? 0)) > 0 && set.renderer.loadProgress >= 1;
   }
+
+  /** Play-mode distance ring. QA keeps its camera/SSE contract. Call with the player, not the orbit camera. */
+  setFocus(x: number, z: number, radius: number) {
+    this.focus = { x, z, radius };
+    for (const set of this.next ? [this.current, this.next] : [this.current]) {
+      if (!set.region) {
+        set.region = new PlayerLoadRegion();
+        set.renderer.registerPlugin(set.region);
+      }
+      set.region.radius = radius;
+      set.region.move(x, z);
+    }
+  }
+
+  get progress() { return this.current.region?.progress ?? { loaded: this.residentModels, total: this.residentModels }; }
 
   update(camera: THREE.PerspectiveCamera) {
     camera.updateMatrixWorld();
     // SSE is measured in actual output pixels on every backend, including HiDPI and capped render sizes.
     this.renderer.getDrawingBufferSize(this.resolution);
     for (const set of this.next ? [this.current, this.next] : [this.current]) {
-      set.refinable = refinableParents(set.l0Parents, camera.position.x, camera.position.z);
+      if (!set.region) set.refinable = refinableParents(set.l0Parents, camera.position.x, camera.position.z);
+      if (this.focus) set.region?.move(this.focus.x, this.focus.z);
       set.renderer.setResolution(camera, this.resolution.x, this.resolution.y);
       set.renderer.update();
     }
@@ -165,8 +191,9 @@ export class VisualTiles {
     }
   }
 
-  /** True when the tileset has loaded something and nothing is pending for the current view. */
+  /** Required ring models are resident in play; QA keeps its current-view settled contract. */
   get settled(): boolean {
+    if (this.current.region) return this.current.region.settled;
     return this.tiles.root !== null && this.loadedModels > 0 && this.tiles.loadProgress >= 1;
   }
 }

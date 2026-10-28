@@ -27,6 +27,7 @@ import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
 import { BuildBadge, type BuildStatus } from './ui/buildBadge';
 import { startPlay, type PlayWorld } from './play';
+import { worldLoad } from './world/loadProgress';
 
 declare global {
   interface Window {
@@ -56,6 +57,7 @@ const hudEl = document.getElementById('hud')!;
 const errors: string[] = [];
 const fail = (e: unknown) => {
   const msg = String((e as Error)?.stack ?? e);
+  worldLoad.update({ phase: 'error', errors: [msg] });
   errors.push(msg);
   console.error(msg);
   loadingScreen.fail(msg);
@@ -115,7 +117,7 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
-window.__game = { dayClock, backend, params, errors, tiles, clock, unbuilt, three: THREE.REVISION };
+window.__game = { dayClock, backend, params, errors, tiles, clock, unbuilt, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot() };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
@@ -281,6 +283,7 @@ async function runPlay() {
   // and its verification verdict. Production builds drop this (import.meta.hot is undefined there).
   const badge = import.meta.hot ? new BuildBadge(document.body) : null;
   let session = await startPlay(world, null);
+  worldLoad.update({ phase: 'ready' });
   if (import.meta.hot && badge) {
     // A new tile release under /tiles (a data landing) is swapped in place (world/releaseSwap.ts); if that fails,
     // the page reloads into the autosave.

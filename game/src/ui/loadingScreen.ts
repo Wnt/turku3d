@@ -1,4 +1,5 @@
 import { loading, loadBytes } from '../core/loading';
+import { worldLoad } from '../world/loadProgress';
 
 /** Static HTML is visible before the entry bundle arrives. No fetch interception or resource duplication. */
 export class LoadingScreen {
@@ -59,6 +60,13 @@ export class LoadingScreen {
     this.progress.max = Math.max(1, loading.total);
     this.progress.value = loading.completed;
     this.count.textContent = `${loading.completed} / ${loading.total} tasks complete · more discovered as tiles stream`;
+    const world = worldLoad.snapshot();
+    const total = world.visual.total + world.collision.total + world.compile.total;
+    if (total) {
+      this.progress.max = total;
+      this.progress.value = world.visual.loaded + world.collision.loaded + world.compile.done;
+      this.count.textContent = `${world.visual.loaded}/${world.visual.total} models · ${world.collision.loaded}/${world.collision.total} collision cells · ${world.textures.loaded} GPU textures · ${world.compile.done}/${world.compile.total} warmup views · ${loadBytes(world.bytesLoaded)}`;
+    }
     this.log.textContent = loading.log.slice(-9).join('\n');
   }
 }
