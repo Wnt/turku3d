@@ -314,6 +314,9 @@ class Sources:
         laz, missing = self.lidar_paths(tile)
         ortho, osm = self.ortho_source(tile), self.osm_source(tile)
         wfs = [self.wfs_source(name, tile) for name in WFS_LAYERS]
+        registers = [
+            self.wfs_source(name, tile)[1] for name in ("kanta:Rakennus", "GIS:Rakennukset")
+        ]
         if missing or ortho is None or not all(found for found, _ in wfs):
             return None
         chunks = ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")
@@ -326,6 +329,7 @@ class Sources:
             ortho,
             chunks,
             *(p for _, p in wfs if p),
+            *(p for p in registers if p),
             *([osm] if osm else []),
         ]:
             try:

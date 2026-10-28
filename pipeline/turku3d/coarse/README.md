@@ -24,9 +24,24 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   `coarse-<tile>`, or the `osm` prefetch unit of the tile's block (below).
 
 - **Signs and bus stops**: the cached WFS sign, stop and centreline sources (plus OSM signs when available) feed the shared props reader. Each pole has the same stable `pole_id` as a published tile, and its base sits on the draft ground grid. They have runtime breakable colliders rather than baked primitives. Rebuild a draft after this producer changes with `bash pipeline/env/run.sh python -m turku3d.coarse build t0_2_0 --out "$TURKU3D_WORK/build/coarse/t0_2_0"`.
-- **Ground**: a 128 x 128 cell grid (~2 m) interpolated from the key points, textured with the ortho. Visual and
-  collision use the same vertices, so the drawn ground is the collision ground. Street-area polygons set the
-  collision material; green ortho pixels are grass, the rest paving.
+- **Ground**: a 128 × 128 cell terrain grid (~2 m) interpolated from ground key points.
+  City surface polygons override OSM ground-level road/path corridors and mapped land cover;
+  green orthophoto pixels only classify the remaining unlabelled ground. Visual material boundaries
+  are cut exactly against those polygons, interpolating the original terrain plane and normals.
+  Collision retains the original grid. Shared asphalt, paving, grass, gravel, stone and quay PBR
+  maps repeat every 2 m; steep faces project onto a vertical plane to avoid stretched bank textures.
+  Default paving on near-vertical terrain uses the neutral rock/gravel material in visual output.
+  The existing ground library arrays are extracted at 512 px albedo / 256 px normal and ORM and encoded once into
+  content-addressed shared KTX2 maps. A deterministic procedural floor supports an absent library.
+  Draft ground no longer displays aerial shadows, roofs, cars or blue-white patches as albedo.
+- **Paint and kerbs**: explicit OSM crossing/lane/stop lines are draped on dry road triangles,
+  clipped to their exact boundaries and offset 8 mm. Point-only crossings remain unresolved.
+  Mapped kerb linework (deduplicated against polygon outlines) becomes an 18 cm wide strip with
+  matching collision and a default, unmeasured 12 cm raised profile. Lowered/flush tags and
+  mapped crossings leave openings; buildings and water exclude kerbs. No kerbs are inferred
+  from road edges. Full strips are clipped after extrusion, with the owning terrain grid sampled
+  on both sides of tile seams. Bridge/tunnel/nonzero-layer ways are excluded.
+  `marking_triangles`, `kerb_triangles` and `ground_surfaces` record output counts.
 - **Water**: cells inside water polygons become the water sensor at the shoreline level over a synthetic bed
   (`ground.water.add_river_bed`), and are drawn as a flat surface at that level (`material_key` water, which the
   game renders as a river) instead of the ortho.
@@ -86,7 +101,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   abrupt OSM way splits still need surveyed profiles. Pure synthetic checks:
   `bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_tunnels.py`.
 
-No curbs, stairs, props, facade maps or LOD parents.
+No inferred curbs, stairs, props, facade maps or LOD parents.
 
 ## Service (`service.py`)
 
@@ -197,10 +212,10 @@ fetched or planned, and blocks under a listed playable tile's input area are nev
 
 ## Shared facade floor
 
-Draft walls use a 42-module, content-addressed procedural facade atlas (albedo, normal and ORM),
+Draft walls use a 49-module, content-addressed procedural facade atlas (albedo, normal and ORM),
 rendered once with `turkutex.facade_fast_render` and reused through `shared/`. Per-building colour,
 bay spacing and storey height travel in per-vertex kit attributes, with one shared kit material
-per tile/layer (the same package binder as published tiles); roofs retain the ortho. The game samples the
+per tile/layer (the same package binder as published tiles); roofs retain the ortho. Seven blank modules preserve mapped sheds and garages without cloning residential windows. The game samples the
 upper bay repeatedly and the ground-floor row only at the base on both renderer backends. Published
 walls without an approved generated, derived or fast map use the same kit. Pure mapping checks:
 `PYTHONPATH=pipeline:textures .venv/bin/python -m pytest pipeline/tests/test_facade_kit.py -q`.
@@ -297,3 +312,35 @@ The old flat mean, LOD2 envelope and lidar-refined envelope are reported separat
 explicit `--tiles` writes `height-audit-selected.json`. Build outputs and paired screenshots
 stay in that same sandbox directory. The renderer also expects the office colour audit
 from `turku3d.buildings.roof_audit`. No external map imagery is read.
+
+## Draft texture evidence
+
+Cached Kanta/GIS records enrich facade material, construction era and storeys. Spatially matched
+OSM building outlines add cladding, tagged colour and missing layout; shop POIs/building use add
+shopfronts. Register storeys and validated parameter-store descriptions remain authoritative.
+Missing register fields stay unknown. No reference images or sampled reference colours enter inputs.
+The game preserves authored draft colours; the former 55% saturation and blue multiplier are removed.
+Full ground keeps only a bounded 0.96–1.06 low-frequency luminance multiplier; material albedo
+remains authoritative at distance too.
+
+Manual real-data commands (outside the gate; start the sandbox Vite server for rendering):
+
+```sh
+source ../sandbox.env
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.texture_sanity before --baseline-ref 312849f6
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.texture_sanity after
+npm --prefix game run dev -- --host 127.0.0.1 --port "$TURKU3D_PORT_BASE" --strictPort
+# In another sourced shell, with reports/texture-sanity/views.json populated as below:
+python3 scripts/dev/host_slots.py browser -- node qa/render/texture-sanity.mjs before 312849f6
+python3 scripts/dev/host_slots.py browser -- node qa/render/texture-sanity.mjs after
+python3 scripts/dev/host_slots.py browser -- node qa/render/texture-sanity.mjs before 312849f6 --full
+python3 scripts/dev/host_slots.py browser -- node qa/render/texture-sanity.mjs after 312849f6 --full
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_surfaces.py pipeline/tests/test_facade_kit.py
+```
+
+`views.json` is a local array of `{name,tile,position:[x,y,z],target:[x,y,z],fov,width,height}`
+(world-local engine metres, vertical FOV); top/oblique views instead use `{name,tile,target,radius,top}`.
+The renderer retains screenshots and frame/GPU/draw measurements under each phase directory.
+`--full` loads the three published office tiles with their ground bindings and water shader.
+Private reference comparisons and their calibration caveats are described in the task report;
+all reference renders and pairs stay outside the repository.

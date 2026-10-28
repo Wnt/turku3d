@@ -105,13 +105,13 @@ export function createGroundMaterial(spec: GroundTileSpec, maps: GroundTileTextu
   const near = float(1).sub(smoothstep(8, 45, positionWorld.sub(cameraPosition).length()));
   // World E/N orientation matches the contract and the tangent basis of planar UVs.
   const detailUv = vec2(positionWorld.x, positionWorld.z.negate()).div(2);
-  const blend = (map: THREE.Texture, fallback: Node<'vec3'>) => Fn(() => {
+  const blend = (map: THREE.Texture, fallback: Node<'vec3'>, detailOnly = true) => Fn(() => {
     // Derivatives must be evaluated before non-uniform material branches.
     const lattice = stencil(detailUv);
     // Four 50 cm slabs per 2 m texture: shift by whole slabs so joints never ghost.
     const slabLattice = stencil(detailUv, 4);
     const result = vec3(0).toVar();
-    If(near.greaterThan(0), () => {
+    If(detailOnly ? near.greaterThan(0) : float(1).greaterThan(0), () => {
       for (let i = 0; i < channels.length; i++) {
         If(channels[i].greaterThan(.001), () => {
           result.addAssign(stochastic(map, GROUND_KEYS[i] === 'concrete_slabs' ? slabLattice : lattice, i).mul(channels[i]));
@@ -120,14 +120,16 @@ export function createGroundMaterial(spec: GroundTileSpec, maps: GroundTileTextu
     }).Else(() => { result.assign(fallback); });
     return result;
   })();
-  const ortho = texture(maps.ortho, orthoUv).rgb;
   const macro = texture(maps.ortho, orthoUv).level(float(6)).rgb;
-  const albedo = blend(library.albedo, ortho);
+  const albedo = blend(library.albedo, vec3(.5), false);
   const normal = blend(library.normal, vec3(.5, .5, 1));
   const orm = blend(library.orm, vec3(1, .9, 0));
   const material = new THREE.MeshStandardNodeMaterial();
   material.name = 'ground-ortho-stochastic-v1';
-  material.colorNode = mix(ortho, mix(albedo, macro, .3), near);
+  // Baked shadows and blue/white aerial objects must not become street-level albedo.
+  // Retain only a bounded, low-frequency luminance modulation of the material.
+  const macroLight = macro.dot(vec3(.2126, .7152, .0722)).mul(.2).add(.96).clamp(.96, 1.06);
+  material.colorNode = albedo.mul(macroLight);
   material.normalNode = normalMap(mix(vec3(.5, .5, 1), normal, near), vec2(.55));
   material.roughnessNode = clamp(mix(float(.9), orm.g, near), .45, 1);
   material.aoNode = mix(float(1), orm.r, near);

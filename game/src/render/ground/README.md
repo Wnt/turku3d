@@ -36,14 +36,15 @@ samplers are required (three arrays, ortho, two splats). The library is shared b
 KTX2 images have north-first rows and `flipY=false`. Metadata supplies the padded image UV
 transforms; do not use a tile's full [0,1] domain directly on the padded textures.
 
-Close range (≤8 m) uses material detail, with 30% low-frequency ortho colour. A smooth transition
-ends at 45 m, where the original geographic layout comes from the cleaned ortho. Three translated
+Close range (≤8 m) uses material detail. Orthophoto contributes only a bounded 0.96–1.06
+low-frequency luminance multiplier, so aerial shadows and blue/white objects cannot tint the material. Material albedo remains authoritative at distance; mipmaps reduce detail without reintroducing
+photographed shadows or objects. Normal/roughness detail fades between 8 and 45 m. Three translated
 samples on a triangular lattice suppress repeated patches. Shared lattice values and explicit
 texture gradients are evaluated before material branches: TSL's cached expressions otherwise
 leave nonzero material channels uninitialized. Translation preserves normal orientation. Concrete slabs quantize those translations to
 whole 50 cm slabs (four per 2 m texture), preserving the paving grid rather than blending
 misaligned joints.
-Splat samples are renormalized after lossy decoding. Detail normal/roughness/AO fade with colour.
+Splat samples are renormalized after lossy decoding. Detail normal/roughness/AO fade with distance; albedo retains the same material class.
 
 Road paint is separate vector geometry, not baked into the library. W1-04 must intersect
 `markings.geojson` with the ground triangles, triangulate and offset it 5 mm, preserving each

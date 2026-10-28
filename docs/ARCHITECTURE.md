@@ -77,11 +77,12 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
 - **Two tiers (localhost).** Published tiles come from the full pipeline (lidar TIN with curbs, structures, generated
   facades, LOD parents). When the player comes within one tile of an L0 cell the published tileset lacks, the
   localhost companion service `tools/dev/coarse-tiles` builds a *coarse* tile of that cell in seconds
-  (`pipeline/turku3d/coarse`: ~2 m key-point TIN with the true ortho, LOD2 footprints with their upper sloping/terraced roof envelope and coverage-checked class-6 lidar offsets, street-polygon collision materials, water sensor) in the same `vis.glb` + `.col` format, and
-  `game/src/world/coarseTiles.ts` streams it with a desaturated tint and a "draft tile" badge, hiding a published
+  (`pipeline/turku3d/coarse`: ~2 m key-point TIN with classified repeating ground materials, LOD2 footprints with their upper sloping/terraced roof envelope and coverage-checked class-6 lidar offsets, street-polygon collision materials, water sensor) in the same `vis.glb` + `.col` format, and
+  `game/src/world/coarseTiles.ts` streams it with a "draft tile" badge, hiding a published
   500 m leaf once all four quadrants are drafted. When the published manifest later gains the tile, the draft is
-  swapped out. The coarse tier skips curbs, stairs, walls, bridges, props, vegetation, parked cars, facade maps and
-  full roof reconstruction; it is never published to Pages or written into the data root's published layers.
+  swapped out. Drafts include mapped kerbs, bridges, tunnels, barriers, traffic poles and vegetation, with
+  source-driven facade-kit parameters. They skip surveyed curb profiles, stairs, parked cars and unique facade
+  maps; drafts are never published to Pages or written into the data root's published layers.
 - **Localhost runs main, hot (user decision 2026-10-27).** `live` and Pages serve every release that builds
   (user decision 2026-10-27 21:00: advisory checks never block them); the localhost game
   (`tools/dev/localhost-game`) runs main's checkout through the Vite dev server with a badge

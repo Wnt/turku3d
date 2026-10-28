@@ -43,6 +43,9 @@ CODE = hashlib.sha256(
     + (Path(__file__).parents[1] / "props" / "__init__.py").read_bytes()
     + (Path(__file__).parents[1] / "props" / "models.py").read_bytes()
     + (Path(__file__).parents[1] / "props" / "orientation.py").read_bytes()
+    + Path(__file__).with_name("surfaces.py").read_bytes()
+    + Path(__file__).with_name("register.py").read_bytes()
+    + Path(__file__).with_name("kerbs.py").read_bytes()
 ).hexdigest()[:16]
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -76,6 +79,10 @@ class Inputs:
     barriers: list = ()  # OSM barrier geometries, tags and deliberate road membership
     forests: list = ()
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    kerbs: object = None
+    markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
+    surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
+    register: dict = field(default_factory=dict)
     tunnels: list = ()  # OSM full tunnel ways, with tags
     poles: list = ()  # sign and bus-stop props with full-tile source identities
 
@@ -231,10 +238,12 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
         building.facade_key = value("pysyvarakennustunnus") or str(key)
         levels = value("kerrosluku", "storeysAboveGround")
         year = value("yearOfConstruction", "valmistunut")[:4]
-        year = int(year) if year.isdigit() else 2000
+        year = int(year) if year.isdigit() else None
         building.attributes = dict(
             levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
-            era="pre-1850"
+            era="unknown"
+            if year is None
+            else "pre-1850"
             if year < 1850
             else "1850-1919"
             if year < 1920
@@ -370,10 +379,39 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm]
         if all(found for found, _ in wfs)
         else None,
+        "surfaces": [osm] if osm else None,
+        "markings": [osm] if osm else None,
+        "kerbs": [osm] if osm else None,
+        "appearance": [osm] if osm else None,
+        "register": [
+            p
+            for name in ("kanta:Rakennus", "GIS:Rakennukset")
+            if (p := sources.wfs_source(name, tile)[1])
+        ],
     }
 
 
 def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
+    if dataset == "appearance":
+        from .register import read_osm
+
+        return read_osm(tile, paths[0])
+    if dataset == "register":
+        from .register import read_register
+
+        return read_register(paths)
+    if dataset == "kerbs":
+        from .kerbs import prepare as prepare_kerbs
+
+        return prepare_kerbs(tile, paths[0])
+    if dataset == "markings":
+        from .surfaces import mapped_paint
+
+        return mapped_paint(tile, paths[0])
+    if dataset == "surfaces":
+        from .surfaces import osm_surfaces
+
+        return osm_surfaces(tile, paths[0])
     if dataset == "tunnels":
         from .tunnels import prepare as prepare_tunnels
 
@@ -472,6 +510,10 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         provenance[dataset] = [str(p) if p else None for p in paths]
         seconds[dataset] = time.perf_counter() - t
     ground, wfs = values["ground"], values["wfs"]
+    from .register import enrich
+
+    for building in wfs["buildings"]:
+        enrich(building, values["register"], values["appearance"] or {})
     return Inputs(
         ground["points"],
         ground["heights"],
@@ -483,6 +525,10 @@ def gather(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> In
         provenance,
         seconds,
         sources.input_key(tile) or "",
+        kerbs=values["kerbs"],
+        markings=values["markings"] or (),
+        surfaces=values["surfaces"] or (),
+        register=values["register"],
         barriers=values["barriers"] or (),
         forests=values["forests"] or (),
         canopy=ground.get("canopy", np.empty((0, 3))),

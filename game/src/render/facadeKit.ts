@@ -1,6 +1,6 @@
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
-import { attribute, color, float, fract, materialColor, saturation, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
+import { attribute, color, float, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -30,10 +30,9 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   return material;
 }
 
-/** Draft look: 55 % saturation with a slight cool cast; drawn just in front of coplanar published terrain. */
+/** Bind draft facade materials and draw just in front of coplanar published terrain. */
 export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer) {
   const cache = new Map<THREE.Material, THREE.Material>();
-  const weights = THREE.ColorManagement.getLuminanceCoefficients(new THREE.Vector3());
   model.traverse(o => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -48,14 +47,11 @@ export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer)
       let node: THREE.MeshStandardMaterial | THREE.MeshStandardNodeMaterial;
       if (vegetation && pbr.type === 'MeshStandardMaterial' && !pbr.vertexColors &&
           !Object.values(pbr).some(value => value?.isTexture)) {
-        // This tint is constant on untextured tree parts. Keep ordinary PBR
+        // Keep ordinary PBR
         // materials so runtime LOD can combine bark/crown with vertex colours.
         node = pbr.clone();
-        const luma = node.color.r * weights.x + node.color.g * weights.y + node.color.b * weights.z;
-        node.color.lerp(new THREE.Color(luma, luma, luma), 0.45).multiply(new THREE.Color(0.94, 0.97, 1.04));
       } else {
         node = facadeKitMaterial(source, renderer) ?? ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
-        node.colorNode = saturation(node.colorNode ?? materialColor.rgb, 0.55).mul(vec3(0.94, 0.97, 1.04));
       }
       node.polygonOffset = true; node.polygonOffsetFactor = -1; node.polygonOffsetUnits = -2;
       cache.set(source, node);

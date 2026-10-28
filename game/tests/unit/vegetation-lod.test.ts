@@ -121,7 +121,7 @@ describe('vegetation LOD', () => {
     expect(bark.color.getHex()).toBe(0x442211);
   });
 
-  it('keeps constant draft tree tints compatible with part batching', () => {
+  it('preserves authored draft tree colours and part batching', () => {
     const model = new THREE.Group(), scene = new THREE.Scene(); scene.add(model);
     const original = new THREE.MeshStandardMaterial({ color: 0x996633 });
     for (const key of ['tree_bark', 'tree_foliage']) {
@@ -131,10 +131,9 @@ describe('vegetation LOD', () => {
     }
     tintDraft(model, {} as THREE.WebGPURenderer);
     const tinted = (model.children[0] as THREE.InstancedMesh).material as THREE.MeshStandardMaterial;
-    const weights = THREE.ColorManagement.getLuminanceCoefficients(new THREE.Vector3());
-    const luma = original.color.r * weights.x + original.color.g * weights.y + original.color.b * weights.z;
     expect(tinted.type).toBe('MeshStandardMaterial');
-    expect(tinted.color.r).toBeCloseTo((luma * 0.45 + original.color.r * 0.55) * 0.94);
+    expect(tinted.color.toArray()).toEqual(original.color.toArray());
+    expect(tinted).not.toBe(original);
     expect(original.color.getHex()).toBe(0x996633);
     const lod = new VegetationLod('medium'); lod.add(model);
     lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));

@@ -21,7 +21,9 @@ export function bindFacadeKit(doc, request, material, prim, e, texture) {
   const sourceWidth = request.facadeKit.referenceWidths?.[id] ?? width;
   const sourceBay = sourceWidth / Math.max(1, d?.window_columns || Math.round(sourceWidth / 3));
   const described = d ? {
-    module: ['plaster', 'brick', 'stone', 'wood', 'concrete', 'glass', 'metal'].indexOf(d.material) * 6
+    module: d.window_columns === 0 && d.ground_floor === 'plain'
+      ? 42 + ['plaster', 'brick', 'stone', 'wood', 'concrete', 'glass', 'metal'].indexOf(d.material)
+      : ['plaster', 'brick', 'stone', 'wood', 'concrete', 'glass', 'metal'].indexOf(d.material) * 6
       + (d.window_width > .55 ? 3 : 0) + ({ shops:2, doors:1 }[d.ground_floor] ?? 0),
     wall: d.wall_colour, trim: d.trim_colour,
     bay: sourceBay >= .9 && sourceBay <= 8 ? sourceBay : 3,
