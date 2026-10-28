@@ -52,7 +52,7 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
-from .demand import Demand
+from .demand import Demand, write_snapshot
 from .build import code_hash
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
@@ -207,9 +207,11 @@ class Builder:
                 self.demand.prune(self)
                 snapshot = self.status()
                 snapshot["at"] = time.time()
-                path = self.root / ".scheduler.json"
-                path.with_suffix(".tmp").write_text(json.dumps(snapshot) + "\n")
-                path.with_suffix(".tmp").replace(path)
+                try:
+                    write_snapshot(self.root, snapshot)
+                except OSError as error:
+                    # Telemetry must not stop demand expiry/cancellation when storage is unavailable.
+                    print(f"coarse scheduler snapshot: {error}", file=sys.stderr, flush=True)
                 self.lock.notify_all()
             time.sleep(1)
 

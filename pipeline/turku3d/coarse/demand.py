@@ -1,5 +1,8 @@
 """Short anonymous tile leases; clients send ordered tile ids, never motion or identity."""
 import time
+import json
+import os
+import threading
 
 TTL = 12.0
 MAX_CLIENTS = 128
@@ -61,3 +64,11 @@ class Demand:
                     if builder.run.cancel(tile):
                         builder.cancelled.add(tile)
         self.managed.intersection_update(active | {t for _, ts, _, _ in self.clients.values() for t in ts})
+
+
+def write_snapshot(root, value):
+    """Overlapping producer slots must never share the atomic-write temporary file."""
+    path = root / ".scheduler.json"
+    temporary = root / f".scheduler.{os.getpid()}.{threading.get_ident()}.tmp"
+    temporary.write_text(json.dumps(value) + "\n")
+    temporary.replace(path)
