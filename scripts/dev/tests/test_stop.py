@@ -12,6 +12,10 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import task_runner as runner  # noqa: E402
 
+# os.kill/killpg and sandbox.run are shared with the real process tests. Keep
+# their mocks in a separate process so they cannot intercept sibling cleanup.
+SERIAL = True
+
 
 class StopTests(unittest.TestCase):
     def test_run_group_cleans_descendant_after_parent_exit(self):
