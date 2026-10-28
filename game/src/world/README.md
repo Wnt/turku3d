@@ -58,7 +58,7 @@ node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build" --port "$((TURKU3D_PO
 scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
   node game/scripts/start-loading-probe.mjs localhost
 scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
-  node game/scripts/start-loading-probe.mjs pages-like "http://127.0.0.1:$((TURKU3D_PORT_BASE + 1))/game/"
+  node game/scripts/start-loading-probe.mjs pages-like "http://localhost:$((TURKU3D_PORT_BASE + 1))/game/"
 ```
 
 The probe disables HTTP caching and records the actual menu click and first movement-enabled frame, overlay

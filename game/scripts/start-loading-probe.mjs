@@ -6,14 +6,14 @@ import { isolateBrowser, reportsRoot, port } from '../../tools/dev/environment.m
 import WebSocket from '../../server/node_modules/ws/wrapper.mjs';
 
 isolateBrowser();
-const [label = 'localhost', base = `http://127.0.0.1:${port()}/`] = process.argv.slice(2);
+const [label = 'localhost', base = `http://localhost:${port()}/`] = process.argv.slice(2);
 const out = path.join(reportsRoot, 'start-loading', label);
 fs.mkdirSync(out, { recursive: true });
 const mp = `ws://127.0.0.1:${port(4)}/`;
 const retained = { E: 410, N: -280, H: 9, yaw: 0 };
 async function seedSession() {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(mp);
+    const ws = new WebSocket(mp, { origin: `http://localhost:${port()}` });
     ws.on('error', reject);
     ws.on('open', () => ws.send(JSON.stringify({ v: 1, type: 'hello' })));
     ws.on('message', raw => {
@@ -65,6 +65,8 @@ try {
     page.on('request', r => requests.push({ at: Date.now(), url: r.url() }));
     page.on('pageerror', e => errors.push(e.message));
     const url = new URL(base);
+    // The multiplayer server admits localhost origins, matching the actual local game.
+    if (url.hostname === '127.0.0.1') url.hostname = 'localhost';
     url.searchParams.set('mp', mp); url.searchParams.set('backend', 'webgpu');
     await page.goto(url.href);
     await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 600000 });
