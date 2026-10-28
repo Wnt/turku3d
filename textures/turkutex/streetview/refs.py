@@ -43,7 +43,7 @@ from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 from .rectify import rectified_points, sample_wall
 
-REFS_VERSION = "8-upright-grid-pose"
+REFS_VERSION = "9-opening-boundary-screen"
 
 # Reference fallback order when the best-scored full view fails screening.
 SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")

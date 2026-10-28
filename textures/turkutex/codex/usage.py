@@ -123,4 +123,10 @@ def snapshot(codex_bin: str = "codex") -> dict:
 
 
 if __name__ == "__main__":
-    print(json.dumps(snapshot()))
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--percent":
+        value = used_percent()
+        print("" if value is None else value)
+    else:
+        print(json.dumps(snapshot()))

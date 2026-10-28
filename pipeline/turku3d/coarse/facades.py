@@ -403,8 +403,15 @@ class DescribeQueue:
 def worker():
     """Keep model loading off both the draft request and subsequent enrichment jobs."""
     import contextlib
+    import shlex
 
     os.nice(15)
+    # After Torch loads, the app-server RPC can fail in this long-lived process.
+    # Read quota from a clean, short-lived Python process for each Astra attempt.
+    os.environ.setdefault(
+        "TURKUTEX_USAGE_CMD",
+        shlex.join([sys.executable, "-m", "turkutex.codex.usage", "--percent"]),
+    )
     for line in sys.stdin:
         try:
             inventory, building, root, engine = json.loads(line)

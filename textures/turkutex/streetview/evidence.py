@@ -9,7 +9,7 @@ import numpy as np
 _LOCK = Lock()
 _MODEL = None
 _DETECTOR = None
-VERSION = "ade20k-dino-foreground-v2"
+VERSION = "ade20k-dino-foreground-openings-v3"
 
 
 def box_coverage(shape: tuple, boxes: list) -> float:
@@ -21,6 +21,20 @@ def box_coverage(shape: tuple, boxes: list) -> float:
         y0, y1 = np.clip([int(np.floor(y0)), int(np.ceil(y1))], 0, height)
         mask[y0:y1, x0:x1] = True
     return float(mask.mean())
+
+
+def clipped_opening(shape: tuple, detections: list[dict]) -> bool:
+    """A confident, local window/door cut by the crop edge signals a partial wall."""
+    height, width = shape[:2]
+    for row in detections:
+        if row["score"] < 0.4 or not any(name in row["label"] for name in ("window", "door")):
+            continue
+        x0, y0, x1, y1 = row["box"]
+        if (x1 - x0) > 0.4 * width or (y1 - y0) > 0.5 * height:
+            continue
+        if x0 < 0.025 * width or x1 > 0.975 * width or y0 < 0.02 * height:
+            return True
+    return False
 
 
 def measure(rgb: np.ndarray) -> dict:
@@ -41,7 +55,7 @@ def measure(rgb: np.ndarray) -> dict:
         if min(rgb.shape[:2]) >= 32 and max(rgb.shape[:2]) / min(rgb.shape[:2]) <= 12:
             inputs = _DETECTOR.processor(
                 images=Image.fromarray(rgb),
-                text="a tree. a bus. a car. a truck. a person. a fence. scaffolding.",
+                text="a tree. a bus. a car. a truck. a person. a fence. scaffolding. a window. a door.",
                 size={"shortest_edge": 800, "longest_edge": 1600},
                 return_tensors="pt",
             ).to(_DETECTOR.device)
@@ -62,10 +76,30 @@ def measure(rgb: np.ndarray) -> dict:
             ):
                 if any(
                     name in label
-                    for name in ("tree", "bus", "car", "truck", "person", "fence", "scaffolding")
+                    for name in (
+                        "tree",
+                        "bus",
+                        "car",
+                        "truck",
+                        "person",
+                        "fence",
+                        "scaffolding",
+                        "window",
+                        "door",
+                    )
                 ):
                     detections.append(dict(box=box, score=score, label=label))
-        detected = box_coverage(rgb.shape, [row["box"] for row in detections])
+        detected = box_coverage(
+            rgb.shape,
+            [
+                row["box"]
+                for row in detections
+                if any(
+                    name in row["label"]
+                    for name in ("tree", "bus", "car", "truck", "person", "fence", "scaffolding")
+                )
+            ],
+        )
         return dict(
             evidence,
             state="measured",
@@ -73,6 +107,7 @@ def measure(rgb: np.ndarray) -> dict:
             semantic_occlusion_share=evidence["occlusion_share"],
             detector_box_share=detected,
             detections=detections,
+            clipped_opening=clipped_opening(rgb.shape, detections),
             occlusion_share=max(evidence["occlusion_share"], detected),
         )
 
@@ -88,4 +123,6 @@ def problem(evidence: dict) -> str | None:
         return f"facade support {evidence['facade_share']:.0%} < 65%"
     if evidence.get("multiple_surfaces"):
         return "multiple facade surfaces"
+    if evidence.get("clipped_opening"):
+        return "window or door cut by the reference boundary"
     return None

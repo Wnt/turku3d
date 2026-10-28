@@ -50,10 +50,15 @@ def test_target_support_rejects_rectangle_across_courtyard_gap():
 
 
 def test_foreground_boxes_are_clipped_and_overlaps_count_once():
-    from turkutex.streetview.evidence import box_coverage
+    from turkutex.streetview.evidence import box_coverage, clipped_opening
 
     assert box_coverage((10, 10, 3), [[-2, 0, 5, 5], [0, 0, 5, 5]]) == 0.25
     assert box_coverage((10, 10), []) == 0
+    assert clipped_opening((100, 200), [dict(label="window", score=0.6, box=[194, 30, 200, 60])])
+    assert not clipped_opening(
+        (100, 200), [dict(label="window", score=0.3, box=[194, 30, 200, 60])]
+    )
+    assert not clipped_opening((100, 200), [dict(label="window", score=0.6, box=[15, 30, 45, 60])])
 
 
 def test_concave_source_and_hole_are_not_filled_by_visibility_triangles():
