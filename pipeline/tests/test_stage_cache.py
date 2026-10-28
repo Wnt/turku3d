@@ -175,6 +175,7 @@ def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_
                 "coarse": True,
                 "tile": tile.id,
                 "code": "old",
+                "pass_kind": "full",
                 "visual": {tile.id: {"url": "vis.glb", "bytes": 1}},
                 "collision": collision,
             }
@@ -189,7 +190,15 @@ def test_stale_draft_stays_servable_and_unfinished_requests_survive_restart(tmp_
     builder.stop()
     restored = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
     assert tile.id in restored.priority
-    assert restored._next() == (tile.id, 12)
+    from turku3d.coarse.upgrade_queue import next_job
+
+    restored.two_pass = True
+    assert next_job(restored) == ((tile.id, 12), True)
+    restored.building[tile.id] = 1
+    for _ in range(3):  # A fresh client re-enters while the replacement is running.
+        assert restored.request(tile.id, 12)["stale"]
+        assert json.loads(restored.manifest(tile.id).read_text())["pass_kind"] == "full"
+    restored.building.clear()
     assert restored.cached(tile.id)
     restored.stop()
 
