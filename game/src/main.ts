@@ -96,6 +96,9 @@ const unbuilt = params.qa || idPass ? null : new UnbuiltArea(renderer);
 let builtTiles: () => Iterable<string> = () => [];
 let graphicsReady = Promise.resolve();
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
+  // Startup warms the complete scene with real draws before Ready. Per-model async compilation
+  // repeats that work and yields once per material; reserve paced compilation for streaming during play.
+  if (!params.qa && worldLoad.snapshot().phase !== 'ready') return Promise.resolve();
   const prepared = graphicsReady.then(async () => {
     if (signal?.aborted) return;
     await materials?.prepare(model, scene, camera, signal);

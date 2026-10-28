@@ -74,8 +74,12 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   const rotation = camera.quaternion.clone(), position = camera.position.clone();
   const offset = position.clone().sub(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
   try {
-    await renderer.compileAsync(scene, camera);
-    await materials?.prepare(scene, scene, camera);
+    // Real pass draws compile the same pipelines used by play, including offscreen meshes, reflections
+    // and CSM. compileAsync yields for every draw and repeats this work in several mismatched targets.
+    const firstDraw = loading.begin('Initial shader and GPU warmup draw');
+    renderFrame();
+    await drainGpu(renderer);
+    firstDraw();
     for (const [object, value] of culled) object.frustumCulled = value;
     culled.clear();
     // Real draws warm the MRT, shadow, GTAO and temporal variants that compileAsync's default target cannot

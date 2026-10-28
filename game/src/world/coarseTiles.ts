@@ -23,7 +23,7 @@ import { textureUploads } from '../render/textureUploads';
 // The /coarse/want answer carries the service's build counter: when it moves, the waiting tiles are polled at once, so a finished
 // draft arrives without waiting for its own poll; queued tiles carry an ETA that the badge shows.
 // Never active off localhost (GitHub Pages) or when the service is not running.
-import { aheadTiles, cellsOf, distToL0, leafParents, parentCovered, wantedTiles } from './coarseRegion';
+import { aheadTiles, cellsOf, distToL0, leafParents, parentCovered, startupDraftTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -181,7 +181,14 @@ export class CoarseTiles {
   }
 
   retainedStarts: readonly { x: number; z: number }[] = [];
+  private startup: { points: readonly { x: number; z: number }[]; radius: number } | null = null;
+  /** Preload actual starting ground; distant draft expansion joins ordinary streaming after placement. */
+  preload(points: readonly { x: number; z: number }[], radius: number): () => void {
+    this.startup = { points, radius };
+    return () => { this.startup = null; this.nextCheck = 0; };
+  }
   private wantedStarts(x: number, z: number) {
+    if (this.startup) return startupDraftTiles(this.startup.points, this.published, this.startup.radius);
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.published, this.leaves)))];
   }
   private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, draft: boolean) {

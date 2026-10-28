@@ -1,7 +1,8 @@
 // Rapier world used by the physics worker (and directly by the Node unit tests).
 // Everything is in engine world-local coordinates; each .col tile's float64 origin becomes its collider translation.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
-import type { V3 } from '../core/origin';
+import { collisionTileId, type V3 } from '../core/origin';
+import { collisionCovers } from './collisionCoverage';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
@@ -25,6 +26,9 @@ interface LoadedTile { stats: TileStats; colliders: RAPIER_NS.Collider[]; cell: 
 export class PhysicsWorld {
   readonly world: RAPIER_NS.World;
   private tiles = new Map<string, LoadedTile>();
+  private residentCells = new Set<string>();
+  private heldVehicles = new Set<string>();
+  private vehicleRadii = new Map<string, number>();
   private colliderInfo = new Map<number, ColliderInfo>();
   private acc = 0;
   tick = 0;
@@ -72,6 +76,7 @@ export class PhysicsWorld {
     const colliders = this.buildTile(id, col);
     const stats: TileStats = { id, tris: col.indices.length / 3, prims: col.prims.length, bytes: buffer.byteLength, buildMs: +(performance.now() - t0).toFixed(2), colliders: colliders.length, curbTris: colliders.reduce((n, c) => n + this.curbQueries.triangleCount(c.handle), 0) };
     this.tiles.set(id, { stats, colliders, cell: [col.tileI, col.tileJ] });
+    this.residentCells.add(collisionTileId(col.tileI, col.tileJ));
     const [lo, hi] = heightRange(col);
     this.edges.add(col.tileI, col.tileJ, lo, hi);
     return stats;
@@ -138,6 +143,7 @@ export class PhysicsWorld {
     if (!t) return false;
     for (const c of t.colliders) { this.colliderInfo.delete(c.handle); this.curbQueries.remove(c.handle); this.world.removeCollider(c, false); }
     this.tiles.delete(id);
+    this.residentCells.delete(collisionTileId(...t.cell));
     this.edges.remove(...t.cell);
     return true;
   }
@@ -277,6 +283,8 @@ export class PhysicsWorld {
     const existing = this.vehicles.get(id);
     if (existing) { existing.reset(pos, yaw); return; }
     this.vehicles.set(id, new Vehicle(this.R, this.world, pos, yaw, this.curbQueries, spec));
+    const h = spec.halfExt ?? VEHICLES[spec.kind ?? 'car'].halfExt;
+    this.vehicleRadii.set(id, Math.hypot(h.x, h.y, h.z) + 0.5);
   }
 
   driveVehicle(id: string | null) {
@@ -395,7 +403,36 @@ export class PhysicsWorld {
     this.acc = Math.min(this.acc + Math.max(0, dt), MAX_SUBSTEPS * DT);
     let n = 0;
     while (this.acc >= DT - 1e-9 && n < MAX_SUBSTEPS) {
-      this.fixedStep({ ...character, jump: this.jumpPending }, vehicle);
+      // This decision belongs to the worker, immediately before every fixed substep: main-thread
+      // braking cannot stop gravity, an evicted parked car, or a late input after a flight toggle.
+      let safeCharacter: CharacterInput | null = { ...character, jump: this.jumpPending };
+      if (this.charCollider && this.charEnabled) {
+        const p = this.charCollider.translation();
+        const covered = collisionCovers(this.residentCells, p.x, p.z,
+          p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin);
+        if (!covered) {
+          // Flight can cross unbuilt areas, but cannot descend through their visible ground.
+          safeCharacter = character.fly ? { ...safeCharacter, fly: { vy: Math.max(0, character.fly.vy) } } : null;
+          this.charVy = 0; this.charVel = { x: 0, y: 0, z: 0 }; this.charGrounded = false;
+        }
+      }
+      for (const [id, car] of this.vehicles) {
+        const p = car.body.translation(), v = car.body.linvel();
+        const radius = this.vehicleRadii.get(id)!;
+        const covered = collisionCovers(this.residentCells, p.x, p.z, p.x + v.x * DT, p.z + v.z * DT, radius);
+        if (!covered && !this.heldVehicles.has(id)) {
+          car.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+          car.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+          car.body.setBodyType(this.R.RigidBodyType.Fixed, false);
+          this.heldVehicles.add(id);
+          this.vehicleSnapshots.delete(id);
+        } else if (covered && this.heldVehicles.delete(id)) {
+          car.body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+          car.body.wakeUp();
+          this.vehicleSnapshots.delete(id);
+        }
+      }
+      this.fixedStep(safeCharacter, vehicle);
       this.jumpPending = false;
       this.acc -= DT;
       n++;
@@ -403,11 +440,12 @@ export class PhysicsWorld {
     return n;
   }
 
-  fixedStep(character: CharacterInput, vehicle: VehicleInput | null) {
+  /** Low-level solver step, also used by standalone synthetic collider fixtures. Runtime uses step(). */
+  fixedStep(character: CharacterInput | null, vehicle: VehicleInput | null) {
     this.previousCharacter = this.characterState();
     this.previousVehicle = this.vehicleState();
     this.tick++;
-    if (this.cc && this.charEnabled) this.stepCharacter(character);
+    if (character && this.cc && this.charEnabled) this.stepCharacter(character);
     if (this.charEnabled && this.charCollider) {
       const feet = this.charCollider.translation();
       for (const [id, car] of this.vehicles) {
@@ -421,12 +459,12 @@ export class PhysicsWorld {
     }
     const carSpeeds = new Map<number, { speed: number; local: boolean }>();
     for (const [id, car] of this.vehicles) {
-      car.step(DT, id === this.drivenId ? vehicle : null);
+      if (!this.heldVehicles.has(id)) car.step(DT, id === this.drivenId ? vehicle : null);
       const v = car.body.linvel();
       carSpeeds.set(car.body.handle, { speed: Math.hypot(v.x, v.z), local: id === this.drivenId });
     }
     this.world.step(this.poleEvents);
-    for (const car of this.vehicles.values()) car.afterStep(DT);
+    for (const [id, car] of this.vehicles) if (!this.heldVehicles.has(id)) car.afterStep(DT);
     const poleColliders = new Map<number, string>();
     for (const [id, pole] of this.poles) if (pole.brokenAt === null) poleColliders.set(pole.body.collider(0).handle, id);
     this.poleEvents.drainContactForceEvents(event => {

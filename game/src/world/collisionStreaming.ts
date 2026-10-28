@@ -3,6 +3,7 @@
 // which neighbours of the loaded tiles have collision somewhere (the manifest, drafts included, minus tiles that failed
 // for good): edge walls stand only where none does (physics/edgeWalls.ts). Near a tile that exists but is not loaded
 // yet, `speedLimit` holds the player gently instead.
+import { collisionCovers } from '../physics/collisionCoverage';
 import { loading, loadBytes } from '../core/loading';
 import { COLLISION_TILE, collisionTileId, distToCollisionTile, parseCollisionId } from '../core/origin';
 import type { Manifest } from './manifest';
@@ -157,6 +158,10 @@ export class CollisionStreamer {
       this.loading.add(id);
       void this.fetchAndLoad(id);
     }
+  }
+  /** Actual worker-acknowledged coverage, also for stationary actors outside the manifest. */
+  supports(x: number, z: number, radius = 0.32): boolean {
+    return collisionCovers(this.physics.loaded, x, z, x, z, radius);
   }
   get pending(): number { return this.loading.size; }
   /** Ids within radius that are not loaded yet (ignores failed ones). */

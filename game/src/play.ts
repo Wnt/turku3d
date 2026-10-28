@@ -519,7 +519,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     haptics.update({ now, active: !paused && !startScreen.active && !menuOpen,
       vehicle: mode === 'car' ? st?.vehicles.find(v => v.id === drivenId) ?? null : null, vehicleId: mode === 'car' ? drivenId : null,
       input: carIn, character: mode === 'foot' ? { grounded, vy: vel.y } : null });
-    streamHint.update(!startScreen.active && saveGame.loading);
+    streamHint.update(!startScreen.active && (saveGame.loading || (!fly?.active && !streamer.supports(feet.x, feet.z))));
     const streamAt = saveGame.streamPoint(feet);
     if (!startScreen.active && !saveGame.loading) releaseStarts();
     coarse?.update(streamAt.x, streamAt.z);

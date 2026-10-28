@@ -229,3 +229,38 @@ for (const height of [0.07, 0.15, 0.32, 0.35, 0.4]) test(`autostep handles ${hei
     pw.world.free();
   }
 });
+
+test('runtime holds gravity after flight over missing collision and resumes when the cell arrives', async () => {
+  const pw = new PhysicsWorld(RAPIER);
+  pw.spawnCharacter({ x: 168, y: 10, z: 246 });
+  const idle = { vx: 0, vz: 0, jump: false };
+  for (let i = 0; i < 30; i++) pw.step(1 / 60, { ...idle, fly: { vy: -10 } }, null);
+  expect(pw.characterState()!.pos.y).toBeCloseTo(10, 4);
+  for (let i = 0; i < 60; i++) pw.step(1 / 60, idle, null);
+  expect(pw.characterState()!.pos.y).toBeCloseTo(10, 4);
+  await pw.loadTile('c_2_3', load('c_2_3'));
+  for (let i = 0; i < 120; i++) pw.step(1 / 60, idle, null);
+  expect(pw.characterState()!.pos.y).toBeCloseTo(2, 1);
+  pw.unloadTile('c_2_3');
+  const before = pw.characterState()!.pos;
+  for (let i = 0; i < 60; i++) pw.step(1 / 60, { ...idle, vx: 6 }, null);
+  expect(pw.characterState()!.pos).toEqual(before);
+  pw.world.free();
+});
+
+test('runtime holds every car after collision eviction, then restores simulation when collision returns', async () => {
+  const pw = await worldWith(['c_2_3']);
+  const at = { x: 174, y: 3, z: 245 };
+  pw.spawnVehicle(at, 0);
+  pw.spawnVehicle({ ...at, x: 180 }, 0, { id: 'parked', parked: true });
+  const idle = { vx: 0, vz: 0, jump: false };
+  pw.unloadTile('c_2_3');
+  pw.vehicle!.body.setLinvel({ x: 0, y: -20, z: 0 }, true);
+  for (let i = 0; i < 60; i++) pw.step(1 / 60, idle, null);
+  for (const car of pw.vehicleStates()) expect(car.pos.y).toBe(3);
+  await pw.loadTile('c_2_3', load('c_2_3'));
+  for (let i = 0; i < 60; i++) pw.step(1 / 60, idle, null);
+  for (const car of pw.vehicleStates()) expect(car.pos.y, car.id).toBeLessThan(3);
+  expect(pw.vehicle!.body.isDynamic()).toBe(true);
+  pw.world.free();
+});
