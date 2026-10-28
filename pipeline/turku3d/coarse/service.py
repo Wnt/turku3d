@@ -52,6 +52,7 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
+from .demand import Demand
 from .build import code_hash
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
@@ -125,8 +126,6 @@ def rank(tile: str, distance: float, motion) -> tuple[int, float] | None:
             return 1, max(along, 0.0) + 2 * lateral + (size if along < 0 else 0)
     elif ring:
         return 0, near
-    if (ci - 1) // 2 <= t.i // 2 <= (ci + 1) // 2 and (cj - 1) // 2 <= t.j // 2 <= (cj + 1) // 2:
-        return 2, near
     return None
 
 
@@ -162,6 +161,8 @@ class Builder:
         self.code = (lambda: code) if code else code_hash
         self.two_pass = run is None
         self.run = run or Workers()
+        self.demand = Demand()
+        self.cancelled = set()
         self.upgrade_queue: set[str] = set()
         self.upgrading: set[str] = set()
         self.upgrade_requested: dict[str, float] = {}
@@ -182,23 +183,43 @@ class Builder:
         self.timings: dict[str, dict] = {}  # the latest STATUS_ITEMS builds, oldest first
         self.code_seen = self.code()  # producer hash of the latest check, for /coarse/status
         self.stopped = False
-        self.draining = False
+        self.draining = os.environ.get("TURKU3D_DRAFT_STANDBY") == "1"
         self.workers = workers
         self.journal = RequestJournal(root)
-        replay = list(self.journal.rows.items())
-        self.replay_until = {tile: float("inf") for tile, _ in replay}
+        replay = [(t, r) for t, r in self.journal.rows.items() if time.time() - r["at"] < 30]
+        self.replay_until = {tile: time.time() + STALE_SECONDS for tile, _ in replay}
         for tile, row in sorted(replay, key=lambda item: (item[1]["distance"], item[0])):
             self.request(tile, row["distance"])
         self.threads = [
             threading.Thread(target=self._run, name=f"coarse-builder-{k}", daemon=True)
             for k in range(workers)
         ]
-        if self.two_pass and workers:
-            self.threads.append(
-                threading.Thread(target=self._run, args=(True,), name="coarse-upgrade", daemon=True)
-            )
+        if workers:
+            self.threads.append(threading.Thread(target=self._maintain, name="coarse-demand", daemon=True))
         for thread in self.threads:
             thread.start()
+
+    def _maintain(self):
+        while True:
+            with self.lock:
+                if self.stopped:
+                    return
+                self.demand.prune(self)
+                snapshot = self.status()
+                snapshot["at"] = time.time()
+                path = self.root / ".scheduler.json"
+                path.with_suffix(".tmp").write_text(json.dumps(snapshot) + "\n")
+                path.with_suffix(".tmp").replace(path)
+                self.lock.notify_all()
+            time.sleep(1)
+
+    def job_rank(self, tile, distance=0):
+        lease = self.demand.rank(tile)
+        if lease is not None:
+            return lease
+        if self.demand.clients:
+            return 3, distance
+        return rank(tile, distance, self.motion)
 
     def manifest(self, tile: str) -> Path:
         return self.root / tile / "manifest.json"
@@ -232,6 +253,7 @@ class Builder:
     def _request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
         with self.lock:
+            self.requested[tile] = time.time()
             # A worker may have written its manifest but not committed its completion yet.
             # Publish only after counters, timings and servability are updated under this lock.
             if tile in self.building:
@@ -302,7 +324,7 @@ class Builder:
         """Drops the queued tiles ``rank`` rejects and, with a known player position, those beyond
         QUEUE_MAX in build order (the ring always stays); returns the build order (lock held)."""
         ranked = sorted(
-            (r, t) for t, d in self.priority.items() if (r := rank(t, d, self.motion)) is not None
+            (r, t) for t, d in self.priority.items() if (r := self.job_rank(t, d)) is not None
         )
         keep = [
             t
@@ -324,7 +346,7 @@ class Builder:
 
     def order(self) -> list[str]:
         """Queued tiles in build order (call with the lock held)."""
-        ranked = ((rank(t, d, self.motion), t) for t, d in self.priority.items())
+        ranked = ((self.job_rank(t, d), t) for t, d in self.priority.items())
         return [t for r, t in sorted((r, t) for r, t in ranked if r is not None)]
 
     def eta(self) -> dict[str, float]:
@@ -337,7 +359,9 @@ class Builder:
             for t, since in self.building.items()
             if t not in self.upgrading
         }
-        free = sorted([*out.values(), *[0.0] * max(0, self.workers - len(out))])
+        full_mean = sum(self.full_recent) / len(self.full_recent) if self.full_recent else 30.0
+        occupied = [max(0.5, full_mean - (now - self.building[t])) for t in self.upgrading]
+        free = sorted([*out.values(), *occupied, *[0.0] * max(0, self.workers - len(self.building))])
         for tile in self.order():
             start = heapq.heappop(free) if free else 0.0
             out[tile] = start + mean
@@ -370,6 +394,7 @@ class Builder:
     def _run(self, upgrade_only=False):
         while True:
             with self.lock:
+                self.demand.prune(self)
                 selected = next_job(self, upgrade_only)
                 while selected is None and not self.stopped:
                     self.lock.wait(timeout=1)
@@ -391,7 +416,11 @@ class Builder:
                 self.upgrading.discard(tile)
                 self.version += 1
                 outcome = "FAILED"
-                if proc.returncode == PENDING_EXIT:
+                if tile in self.cancelled:
+                    self.cancelled.discard(tile)
+                    outcome = "cancelled"
+                    self.failed.pop(tile, None)
+                elif proc.returncode == PENDING_EXIT:
                     units = json.loads(proc.stdout.strip().splitlines()[-1])["pending"]
                     self.pending[tile] = (units, distance)
                     outcome = "pending"
@@ -450,6 +479,8 @@ class Builder:
                 ):
                     self.requested.pop(tile, None)
                 self.lock.notify_all()
+                print(json.dumps({"job": tile, "at": time.time(), "seconds": round(seconds, 3),
+                                  "pass": "full" if upgrade else "first", "outcome": outcome}), flush=True)
                 print(
                     f"coarse {tile}: {outcome} ({'upgrade' if upgrade else 'first' if self.two_pass else 'full'}) in {seconds:.1f} s",
                     flush=True,
@@ -487,6 +518,8 @@ class Builder:
                 "state": "building" if self.building else "idle",
                 "building": sorted(self.building),
                 "upgrading": sorted(self.upgrading),
+                "foreground": sum(self.demand.rank(t) is not None
+                                  for t in set(order) | set(self.building) | set(self.pending)),
                 "queued": len(order),
                 "queue": order[:STATUS_ITEMS],
                 "eta": {tile: eta[tile] for tile in shown},

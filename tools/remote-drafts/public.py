@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import signal
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from turku3d import config as C
 from turku3d.coarse.prefetch import Prefetcher
+from turku3d.coarse.demand import MAX_TILES
 from turku3d.coarse.service import (
     FILE,
     MIME,
@@ -33,6 +35,8 @@ def allowed_origin(origin: str | None) -> bool:
 
 
 def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
+    if path == "/coarse/demand":
+        return "demand", None
     if path == "/coarse/health":
         return "health", None
     parts = path.removeprefix("/coarse/").split("/", 1)
@@ -104,6 +108,24 @@ def public_handler(builder, prefetcher, settings):
             if not allowed_origin(self.headers.get("Origin")):
                 return self._json(403, {"error": "origin"})
             route, tile = public_route(urlparse(self.path).path, settings["tile_bounds"])
+            if route == "demand":
+                q = parse_qs(urlparse(self.path).query, keep_blank_values=True)
+                client = q.get("client", [""])[0]
+                tiles = q.get("tiles", [""])[0].split(",") if q.get("tiles", [""])[0] else []
+                urgent = q.get("urgent", [""])[0].split(",") if q.get("urgent", [""])[0] else []
+                visible = q.get("visible", [""])[0].split(",") if q.get("visible", [""])[0] else []
+                if (len(self.path) > 16384 or not re.fullmatch(r"[a-zA-Z0-9-]{8,64}", client)
+                        or len(tiles) > MAX_TILES or len(set(tiles)) != len(tiles)
+                        or not set(urgent + visible) <= set(tiles)
+                        or any(public_route(f"/coarse/{t}/manifest.json", settings["tile_bounds"])[0] != "manifest" for t in tiles)):
+                    return self._json(400, {"error": "invalid demand"})
+                with builder.lock:
+                    if not builder.demand.update(client, tiles, urgent, visible):
+                        return self._json(429, {"state": "queue-full"})
+                    builder.demand.prune(builder)
+                    builder.lock.notify_all()
+                    return self._json(200, {"version": builder.version, "queued": len(builder.priority),
+                                            "building": sorted(builder.building)})
             if route == "health":
                 return self._json(200, {"state": "online"})
             if route == "invalid":
@@ -113,6 +135,10 @@ def public_handler(builder, prefetcher, settings):
                 # Condition uses an RLock; hold admission through Builder.request so racing
                 # requests cannot exceed the cap. Cached/running requests never consume a slot.
                 with builder.lock:
+                    q = parse_qs(urlparse(self.path).query)
+                    client = q.get("client", [None])[0]
+                    if client is not None and not builder.demand.wants(client, tile):
+                        return self._json(202, {"state": "deferred"})
                     active = set(builder.priority) | set(builder.building) | set(builder.pending)
                     if (
                         tile not in active
@@ -121,13 +147,13 @@ def public_handler(builder, prefetcher, settings):
                         and len(active) >= settings["queue_max"]
                     ):
                         return self._json(429, {"state": "queue-full"})
-                    # Ignore client priority: one public player must not steer every player's queue.
+                    lease = builder.demand.rank(tile) if hasattr(builder, "demand") else None
+                    # Legacy clients/prewarming have background priority, without player motion.
                     t = C.VisualTile.parse(tile)
                     spawn_x, _, spawn_z = C.en_to_local(C.OFFICE_E, C.OFFICE_N, 0)
-                    distance = (
-                        (t.origin[0] + t.size / 2 - spawn_x) ** 2
-                        + (t.origin[2] + t.size / 2 - spawn_z) ** 2
-                    ) ** 0.5
+                    distance = ((t.origin[0] + t.size / 2 - spawn_x) ** 2
+                                + (t.origin[2] + t.size / 2 - spawn_z) ** 2) ** 0.5
+                    distance = lease[1] if lease is not None else distance + 1e6
                     state = builder.request(tile, distance)
                 if state["state"] == "failed":
                     return self._json(404, {"state": "failed"})
@@ -139,7 +165,7 @@ def public_handler(builder, prefetcher, settings):
                     {
                         **{
                             k: fragment[k]
-                            for k in ("coarse", "tile", "visual", "collision", "roads")
+                            for k in ("coarse", "tile", "visual", "collision", "roads", "pass_kind")
                             if k in fragment
                         },
                         **(
@@ -182,12 +208,17 @@ def main():
         on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
     )
     prefetcher.on_landed = lambda unit: builder.landed()
-    server = Server(("127.0.0.1", settings["port"]), public_handler(builder, prefetcher, settings))
+    server = Server(("127.0.0.1", int(os.environ.get("TURKU3D_DRAFT_PORT", settings["port"]))), public_handler(builder, prefetcher, settings))
 
     def stop(*_):
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, stop)
+    def activate(*_):
+        with builder.lock:
+            builder.draining = False
+            builder.lock.notify_all()
+    signal.signal(signal.SIGUSR1, activate)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,4 +1,4 @@
-"""Incremental OCI source deployment with durable demand replay and immediate background warming."""
+"""Incremental OCI source deployment with uninterrupted cached serving and startup-only warming."""
 
 from __future__ import annotations
 
@@ -52,59 +52,90 @@ def deploy(repo, commit):
         capture_output=True,
         text=True,
     )
-    proxy_changed = (
-        remote(
-            f"cmp -s {previous}/tools/remote-drafts/Caddyfile "
-            f"{destination}/tools/remote-drafts/Caddyfile && echo same || echo changed"
-        )
-        != "same"
-    )
-    # Validate the proxy config before touching the live source pointer.
+    # Keep the old producer serving while a standby binds the alternate port. Its
+    # workers stay paused until the old process group has stopped writing caches.
+    active = remote(f"cat {HOME}/ACTIVE_PORT 2>/dev/null || echo 7765")
+    port = 7766 if active == "7765" else 7765
+    unit = f"turku-drafts-slot@{port}"
+    old_unit = remote(f"cat {HOME}/ACTIVE_UNIT 2>/dev/null || echo turku-drafts")
     remote(
+        f"test -f {HOME}/draft-upstream.caddy || "
+        f"cp {destination}/tools/remote-drafts/draft-upstream.caddy {HOME}/draft-upstream.caddy; "
         f"{HOME}/tools/bin/caddy validate --config {destination}/tools/remote-drafts/Caddyfile "
         "--adapter caddyfile >/dev/null"
     )
-    pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
-    restarted = remote(
-        f"systemctl --user stop turku-drafts-prebuild turku-drafts && "
-        f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
-        f"mv {HOME}/repo {HOME}/repo-initial-{uuid.uuid4().hex}; fi && "
-        f"ln -s {destination} {pending} && mv -Tf {pending} {HOME}/repo && "
-        f"echo {commit} > {HOME}/SOURCE_COMMIT && "
-        f"install -m 644 {destination}/tools/remote-drafts/turku-facade-assets.service "
-        f"{destination}/tools/remote-drafts/turku-facade-assets.path ~/.config/systemd/user/ && "
+    # Standby ignores journal replay until activation, but serves the same complete
+    # textured cache through request_tile's stale-while-revalidate path.
+    remote(
+        f"install -m 644 {destination}/tools/remote-drafts/turku-drafts-slot@.service ~/.config/systemd/user/ && "
+        f"printf '%s\\n' TURKU3D_DRAFT_HOME={HOME} TURKU3D_DRAFT_PORT={port} "
+        f"TURKU3D_DRAFT_STANDBY=1 TURKU3D_DRAFT_SOURCE={destination} > {HOME}/slot-{port}.env && "
         "systemctl --user daemon-reload && "
-        "systemctl --user enable --now turku-facade-assets.path && "
-        "systemctl --user start turku-drafts && "
-        "systemctl --user restart --no-block turku-drafts-prebuild && "
-        "systemctl --user start --no-block turku-facade-assets.service && "
-        + ("systemctl --user restart turku-drafts-proxy && " if proxy_changed else "")
-        + "date -u +%Y-%m-%dT%H:%M:%SZ"
+        f"systemctl --user start {unit}"
     )
-    # systemd Type=simple reports active before Python binds its socket. Returning
-    # only after loopback health avoids a false public smoke failure during startup.
-    health = """import time,urllib.request,urllib.error
+    health = f"""import time,urllib.request,urllib.error
 end=time.monotonic()+5
 while time.monotonic()<end:
  try:
-  with urllib.request.urlopen('http://127.0.0.1:7765/coarse/health',timeout=.5) as r:
+  with urllib.request.urlopen('http://127.0.0.1:{port}/coarse/health',timeout=.5) as r:
    if r.status==200: break
  except (OSError,urllib.error.URLError): pass
  time.sleep(.1)
-else: raise SystemExit('draft producer health did not become ready within5s')
+else: raise SystemExit('standby draft producer did not become ready within5s')
 """
     remote("python3 -c " + shlex.quote(health))
+    pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
+    remote(
+        f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
+        f"mv {HOME}/repo {HOME}/repo-initial-{uuid.uuid4().hex}; fi && "
+        f"ln -s {destination} {pending} && mv -Tf {pending} {HOME}/repo && "
+        f"echo 'reverse_proxy 127.0.0.1:{port}' > {HOME}/draft-upstream.caddy.next && "
+        f"mv {HOME}/draft-upstream.caddy.next {HOME}/draft-upstream.caddy && "
+        "systemctl --user kill --kill-whom=main --signal=USR1 turku-drafts-proxy"
+    )
+    # SIGUSR1 reloads Caddy's original config file without closing its listener.
+    # Do not stop the old upstream until the proxy confirms the new demand route.
+    switched = """import time,urllib.request
+end=time.monotonic()+5
+while time.monotonic()<end:
+ try:
+  with urllib.request.urlopen('http://127.0.0.1:7764/coarse/demand?client=deploy-probe&tiles=',timeout=.5) as r:
+   if r.status==200: break
+ except OSError: pass
+ time.sleep(.1)
+else: raise SystemExit('proxy did not switch to standby within5s')
+"""
+    remote("python3 -c " + shlex.quote(switched))
+    restarted = remote(
+        f"systemctl --user stop turku-drafts-prebuild {old_unit} && "
+        f"systemctl --user disable {old_unit} && "
+        f"echo {commit} > {HOME}/SOURCE_COMMIT && "
+        f"echo {port} > {HOME}/ACTIVE_PORT && echo {unit} > {HOME}/ACTIVE_UNIT && "
+        f"sed -i s/TURKU3D_DRAFT_STANDBY=1/TURKU3D_DRAFT_STANDBY=0/ {HOME}/slot-{port}.env && "
+        f"systemctl --user enable {unit} && "
+        f"systemctl --user kill --kill-whom=main --signal=USR1 {unit} && "
+        f"install -m 644 {destination}/tools/remote-drafts/turku-facade-assets.service "
+        f"{destination}/tools/remote-drafts/turku-facade-assets.path "
+        f"{destination}/tools/remote-drafts/turku-drafts-prebuild.service ~/.config/systemd/user/ && "
+        "systemctl --user daemon-reload && "
+        "systemctl --user enable --now turku-facade-assets.path && "
+        "systemctl --user start --no-block turku-facade-assets.service && "
+        "systemctl --user enable turku-drafts-prebuild && "
+        "systemctl --user restart --no-block turku-drafts-prebuild && "
+        "date -u +%Y-%m-%dT%H:%M:%SZ"
+    )
     return dict(
         commit=commit,
         seconds=round(time.monotonic() - started, 3),
         restarted_utc=restarted,
-        proxy_restarted=proxy_changed,
+        proxy_restarted=False,
+        active_port=port,
         rsync=result.stdout,
     )
 
 
 def prewarm():
-    """Queue the existing nearest-first ring; return without waiting for any tile build."""
+    """Warm startup tiles only; return without waiting for builds."""
     remote("systemctl --user restart --no-block turku-drafts-prebuild")
 
 
@@ -113,7 +144,7 @@ def main():
     parser.add_argument("--commit")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument(
-        "--prewarm", action="store_true", help="start background nearest-first warming only"
+        "--prewarm", action="store_true", help="warm only startup-area tiles"
     )
     args = parser.parse_args()
     if args.prewarm:

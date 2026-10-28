@@ -2,6 +2,7 @@
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -24,6 +25,7 @@ class Workers:
         self.local = threading.local()
         self.procs: list[subprocess.Popen] = []
         self.lock = threading.Lock()
+        self.jobs = {}
 
     def _changed_since(self, started: float) -> bool:
         return any(
@@ -35,18 +37,18 @@ class Workers:
     def _worker(self, background=False) -> subprocess.Popen:
         w = getattr(self.local, "worker", None)
         if w and w["proc"].poll() is None and w["builds"] < self.MAX_BUILDS:
-            if w["background"] == background and not self._changed_since(w["started"]):
+            if not getattr(w["proc"], "deprioritized", False) and not self._changed_since(w["started"]):
                 return w["proc"]
         if w:
             self._end(w["proc"])
         proc = subprocess.Popen(
             [
-                *(["nice", "-n", "10"] if background else []),
                 sys.executable,
                 "-m",
                 "turku3d.coarse",
                 "worker",
             ],
+            start_new_session=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
@@ -72,6 +74,8 @@ class Workers:
 
     def __call__(self, tile: str, out: Path, *, first_pass=False) -> subprocess.CompletedProcess:
         proc = self._worker(background=not first_pass)
+        with self.lock:
+            self.jobs[tile] = proc
         self.local.worker["builds"] += 1
         try:
             proc.stdin.write(
@@ -81,6 +85,8 @@ class Workers:
             line = proc.stdout.readline()
         except OSError:
             line = ""
+        with self.lock:
+            self.jobs.pop(tile, None)
         if not line:
             self._end(proc)
             self.local.worker = None
@@ -88,9 +94,33 @@ class Workers:
         r = json.loads(line)
         return subprocess.CompletedProcess([], r["code"], r.get("stdout", ""), r.get("stderr", ""))
 
+    def deprioritize(self, tile):
+        with self.lock:
+            proc = self.jobs.get(tile)
+            if proc is not None and proc.poll() is None and hasattr(os, 'setpriority'):
+                try:
+                    os.setpriority(os.PRIO_PGRP, proc.pid, 19)
+                    proc.deprioritized = True
+                except ProcessLookupError:
+                    pass
+
+    def cancel(self, tile):
+        with self.lock:
+            proc = self.jobs.get(tile)
+            if proc is None or proc.poll() is not None:
+                return False
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                return False
+            return True
+
     def _end(self, proc: subprocess.Popen) -> None:
         if proc.poll() is None:
-            proc.stdin.close()
+            try:
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
             try:
                 proc.wait(10)
             except subprocess.TimeoutExpired:

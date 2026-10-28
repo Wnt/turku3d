@@ -3,7 +3,7 @@
 // their replacement geometry and collision have been validated.
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
-import { arrivalToL0, aheadTiles, cellsOf, distToL0, startupDraftTiles, wantedTiles } from './coarseRegion';
+import { draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, startupDraftTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -96,6 +96,9 @@ export class CoarseTiles {
   private page: string;
   private root: string;
   private remote: boolean;
+  private client = `draft-${globalThis.crypto.randomUUID()}`;
+  private demandBusy = false;
+  private demandSequence = 0;
   /** Set while the service restarts: no tile or prefetch requests, only status probes. */
   outage: Outage | null = null;
 
@@ -178,11 +181,11 @@ export class CoarseTiles {
       return;
     }
     void this.want(x, z);
-    for (const p of this.retainedStarts) void this.want(p.x, p.z);
     const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
       - arrivalToL0(b, x, z, this.velocity.x, this.velocity.z) || distToL0(a, x, z) - distToL0(b, x, z);
     const wanted = this.wantedStarts(x, z).sort(byArrival);
     const ahead = aheadTiles(x, z, this.velocity.x, this.velocity.z).filter(id => !wanted.includes(id)).sort(byArrival);
+    if (this.remote) void this.sendDemand(draftDemand(wanted, ahead, x, z, this.velocity.x, this.velocity.z));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {
@@ -312,11 +315,30 @@ export class CoarseTiles {
     } catch { this.down(); }
   }
 
+  /** A replaced want-list releases old tiles immediately; a lost tab expires on the service. */
+  private async sendDemand(demand: ReturnType<typeof draftDemand>) {
+    if (this.demandBusy) return;
+    this.demandBusy = true;
+    const sequence = ++this.demandSequence;
+    const q = new URLSearchParams({ client: this.client, tiles: demand.tiles.join(','),
+      urgent: demand.urgent.join(','), visible: demand.visible.join(',') });
+    try {
+      const res = await this.request(`${this.root}demand?${q}`);
+      if (!res.ok) return;
+      const body = await res.json() as { version?: number };
+      if (sequence === this.demandSequence && typeof body.version === 'number' && body.version !== this.version) {
+        this.version = body.version;
+        this.nextCheck = 0;
+      }
+    } catch { this.down(); }
+    finally { this.demandBusy = false; }
+  }
+
   /** Keep resident collision and geometry until an upgraded draft is fully ready. */
   private async refreshDraft(id: string, e: Entry, d: number) {
-    e.refreshing = true; e.version = this.version; e.nextPoll = this.clock + 15_000;
+    e.refreshing = true; e.version = this.version; e.nextPoll = this.clock + 2000;
     try {
-      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}`);
+      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
       if (!res.ok || res.status === 202) return;
       const fragment = await res.json() as CoarseFragment;
       if (!fragment.coarse || fragment.tile !== id) throw new DraftRejected(`${id}: invalid draft fragment`);
@@ -359,7 +381,7 @@ export class CoarseTiles {
     e.state = 'loading';
     e.version = this.version;
     try {
-      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}`);
+      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
       if (res.status === 429) {
         e.state = 'pending'; e.error = 'queue full'; e.readyAt = undefined;
         e.nextPoll = this.clock + 5000; return;
@@ -401,7 +423,7 @@ export class CoarseTiles {
       this.host.trackModel?.(model, id);
       e.model = model;
       this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
-      e.state = 'draft'; e.visualHash = fragment.visual[id].sha256; e.nextPoll = this.clock + 15_000;
+      e.state = 'draft'; e.visualHash = fragment.visual[id].sha256; e.nextPoll = this.clock + 2000;
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
     } catch (err) {
       if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down(); return; }

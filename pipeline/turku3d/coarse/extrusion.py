@@ -14,7 +14,8 @@ def extrude(b: Building):
     from .roofs import above, plane_height, polygons
 
     centroid = b.footprint.centroid
-    collision_origin = np.asarray(C.CollisionTile.at(centroid.x, centroid.y).origin)[[0, 2]]
+    owner = getattr(b, "_collision_owner", C.CollisionTile.at(centroid.x, centroid.y))
+    collision_origin = np.asarray(owner.origin)[[0, 2]]
     parts = []
     for polygon, plane in b.roof_parts:
         for piece in polygons(

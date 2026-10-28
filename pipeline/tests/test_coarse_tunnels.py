@@ -140,3 +140,13 @@ def test_passage_parts_keep_collision_when_their_centroid_moves_outside_visual_t
         tile, pos, idx, np.full(len(idx), 1, np.uint8), 0, result.shells, result.keep
     )
     assert cells[C.CollisionTile(0, 0)][0][:, 0].min() == -10
+
+
+def test_reversing_approach_strip_preserves_both_valid_patches():
+    from turku3d.coarse.kerbs import terrain_patches
+
+    # Offset approaches can fold at a hairpin; the bowtie has two valid lobes.
+    corners = np.array([[0., 0.], [2., 2.], [0., 2.], [2., 0.]])
+    patches = list(terrain_patches(corners, 1, (0, 0, 2, 2)))
+    assert patches
+    assert sum(shapely.Polygon(p).area for p in patches) == 2

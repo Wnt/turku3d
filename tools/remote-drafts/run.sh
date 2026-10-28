@@ -9,7 +9,8 @@ export TURKU3D_PORT_BASE=7760
 export TURKU3D_BROWSER_DIR="$DRAFT_HOME/browser"
 export TURKU3D_SLOT_DIR="$DRAFT_HOME/host-slots"
 export PYTHONNOUSERSITE=1
-export PYTHONPATH="$DRAFT_HOME/repo/pipeline"
+DRAFT_SOURCE=${TURKU3D_DRAFT_SOURCE:-$DRAFT_HOME/repo}
+export PYTHONPATH="$DRAFT_SOURCE/pipeline"
 export TURKU3D_GLTF_TOOLS="$DRAFT_HOME/tools/npm"
 export TURKU3D_MESHOPT_DIR="$TURKU3D_GLTF_TOOLS/node_modules/meshoptimizer"
 case "$(uname -m)" in
@@ -31,5 +32,5 @@ export PROJ_DATA="$DRAFT_HOME/envs/pipeline/share/proj"
 export GDAL_DATA="$DRAFT_HOME/envs/pipeline/share/gdal"
 # Four processes must not each start a machine-sized native thread pool.
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
-cd "$DRAFT_HOME/repo"
+cd "$DRAFT_SOURCE"
 exec "$@"

@@ -86,66 +86,58 @@ Completed hourly scores persist; current-hour scores, sessions and broken poles
 are in memory and reset on multiplayer restart. Schedule routine multiplayer
 updates at an hour boundary when possible. Draft-only updates do not restart it.
 
-## Prebuild and cache
+## Startup warming and player demand
 
-Refresh the list from the actual Pages manifest, then warm through the bounded
-HTTP queue. The supervised oneshot takes the host build slot and starts on boot.
-It warms playable tiles and the replacement-parent-expanded 3x3 ring; the
-migration manifest contains 92 ring tiles. Structural passes are immediately
-servable; the producer upgrades their appearance in the background.
+Generator updates warm only the startup coverage around the office/car search and
+multiplayer spawn points in `server/spawns.json`, using the same 200 m footprint
+test as `startupDraftTiles`. Saved player/car starts are private to the browser;
+`preloadStarts` includes all selectable starts in its startup want-list. There is
+no 92-tile ring, parent expansion or background area rebuild.
 
-```sh
-~/turku3d-drafts/run.sh python - <<'PY'
-import json
-import urllib.request
-from pathlib import Path
-m = json.load(urllib.request.urlopen('https://wnt.github.io/turku-game/tiles/manifest.json'))
-p = Path.home() / 'turku3d-drafts/work/prebuild-tiles.json'
-p.write_text(json.dumps({'tiles': sorted(t for t in m['visual'] if t.startswith('t0_'))}, indent=2) + '\n')
-PY
-systemctl --user restart --no-block turku-drafts-prebuild
-tail -f ~/turku3d-drafts/reports/prebuild.log
-cat ~/turku3d-drafts/work/prebuild.json
-```
+Public clients send `GET /coarse/demand?client=<random-tab-id>&tiles=<ordered-ids>&urgent=<crossings>&visible=<ids>`
+every second. Up to 128 ids accommodate multiple saved starts. The random id lives
+only in memory; neither it nor tile lists appear in HTTP logs. No position, heading,
+speed, account or save data is transmitted. Leases expire after 12 seconds; a new
+list immediately replaces that tab's old list. Other tabs' leases remain valid.
+Manifest polls carry `client=`; a delayed poll for a removed id cannot revive it.
 
-The persistent serving cache is `work/coarse/`; prepared caches are under
-`work/cache/` and the coarse output root. To clear a tile, stop prebuild and
-producer, preserve needed evidence, remove only the chosen
-`~/turku3d-drafts/work/coarse/t0_i_j` directory, then restart producer and prebuild.
-Stop writers for whole-cache clearing too. Never delete `data/raw/` or the
-symlink targets themselves. There is no public management or cache-clear route.
+Four worker processes handle all passes. Upcoming first passes rank first, then
+upgrades on the path/in view, then remaining wanted neighbours. One slot stays
+available for fresh crossings while upgrades run. Obsolete queued, input-pending
+and upgrade jobs are discarded. Obsolete running workers and their packaging
+children are cancelled, except around their estimated final two seconds, when
+they finish at reduced priority. Overdue stale builds are cancelled too. The
+spawn warmer pauses and yields running background jobs whenever player work is
+pending. Legacy clients still work through expiring per-tile requests.
 
-`config.json` sets inclusive index bounds, four foreground workers and a cap of
-24 admitted running/queued/pending requests. Cached requests bypass the cap;
-full queues return 429 with Retry-After. Public manifests omit timings and
-filesystem details; CORS permits Pages and HTTP localhost. Request logs include
-only route class and status. ETags and revalidation prevent stale browser assets.
+Private `work/coarse/.scheduler.json` records the live queue and worker state once
+per second. Structured job completion records in `reports/service.log` contain
+tile, pass, elapsed worker seconds and outcome, including cancellation. Public
+manifests expose `pass_kind` so first/full availability can be measured.
 
 ## Update to a new commit
 
-Archive the orchestrator's chosen main commit into a **fresh** empty source
-directory; never overlay pipeline files. Transfer the archive with `git archive`
-over SSH from a checkout with that commit. Rebuild the native environment first
-if its manifests changed. Preserve data, tools, reports and the volume symlinks.
-
 ```sh
-# On the source checkout (reviewed commit, not a remote branch name):
-git archive <commit> | ssh oci-drafts 'mkdir ~/turku3d-drafts/repo-next; tar -x -C ~/turku3d-drafts/repo-next'
-# On OCI, with no other deployment update in progress:
-systemctl --user stop turku-drafts-prebuild turku-drafts
-mv ~/turku3d-drafts/repo ~/turku3d-drafts/repo-previous
-mv ~/turku3d-drafts/repo-next ~/turku3d-drafts/repo
-printf '%s\n' '<full-commit>' > ~/turku3d-drafts/SOURCE_COMMIT
-systemctl --user start turku-drafts
-systemctl --user restart --no-block turku-drafts-prebuild
+scripts/dev/deploy-drafts --commit HEAD
+scripts/dev/deploy-drafts --prewarm  # startup coverage only
 ```
 
-Use a unique backup directory if `repo-previous` already exists. Keep the old
-source until verification. Code and input hashes invalidate stale tiles
-automatically; omit the old roof-ring patch on main. Update the multiplayer
-source separately while it is stopped, preserving `server/data`, run `npm ci
---prefix ~/turku3d-mp/repo/server --ignore-scripts --omit=dev`, and restart it.
-Reinstall shared units if they changed; installation itself does not restart them.
+Source archives are incrementally uploaded to immutable `sources/<commit>`.
+The alternate persistent systemd producer slot starts on loopback 7765/7766 in
+standby, serving complete cached textured outputs while its builders are paused.
+After health succeeds, the source pointer and Caddy upstream change, and SIGUSR1
+reloads Caddy without closing its listener. The proxy confirms the new slot before
+the old producer stops. Only then does the new slot activate its workers. Multiplayer
+and tunnel processes remain running. `ACTIVE_PORT`, `ACTIVE_UNIT` and the slot's
+environment persist across reboot. Caddy signal reload follows its
+[documented signal contract](https://caddyserver.com/docs/command-line#signals).
+
+The demand journal survives source changes, but abandoned legacy requests no
+longer replay forever. Complete old textured tiles remain served until their full
+replacement is ready. Existing facade assets and stage caches stay in place.
+Only requested tiles and startup cells revalidate; content hashes select the
+changed stages. Inspect a tile's `stage-times.json` for hit/miss evidence. Native
+dependency changes still require the ARM64 bootstrap before source deployment.
 
 ## Benchmark and public verification
 
@@ -214,7 +206,7 @@ walls retain the draft facade kit.
 scripts/dev/publish-facades
 # Incremental generator source upload, restart and metrics (no warming wait):
 scripts/dev/deploy-drafts --commit HEAD
-# Recovery: re-enqueue nearest-first warming asynchronously (deploy already starts it):
+# Warm startup coverage asynchronously:
 scripts/dev/deploy-drafts --prewarm
 curl --max-time 1 -fsSI -H 'Origin: https://wnt.github.io' \
   https://turku.lab.madekivi.fi/facades/index.json
@@ -223,13 +215,5 @@ systemctl --user status turku-facade-assets.path turku-facade-assets.service
 cat ~/turku3d-drafts/reports/facade-assets.log
 ```
 
-`deploy-drafts` archives the specified commit, rsyncs only changed source files
-using the previous source as a hard-link basis, validates Caddy, then switches the
-source pointer and restarts the draft producer/proxy. The draft service journals
-queued, building and pending demand under its persistent coarse root and replays it
-before accepting new work. Deployment immediately starts nearest-first ring warming
-with every configured foreground worker. Multiplayer and its tunnel keep running. Native dependency changes still require the ARM64 bootstrap before
-this source-only deployment. `--prewarm` starts the supervised ring warmer and
-returns immediately; cached manifests are checked against the current generator.
-Record public producer/proxy restart times in the task result. Never restart a producer
-version that cannot preserve queued demand during normal deployment.
+`deploy-drafts` publishes generator sources independently of the Pages game.
+Record its producer switch timestamp and the uninterrupted-serving probe in the task result.
