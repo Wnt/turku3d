@@ -160,9 +160,9 @@ data batches run refresh, tile-build and format/seam validation, carrying the li
 are published do selected or scheduled full Chrome, collision/walk checks, car reports, facade ground audits and
 (code lane) the deep gate run in that build's checkout. Results update the exact release record, ledger advisory
 list, inbox warnings and Pages commit notes (a notes-only update protected against newer deployments).
-A newer main landing cancels owned advisory command groups, records `advisory_interrupted`, and frees the lane
-for the next batch; interrupted full Chrome runs are not marked complete. `publish_seconds` records time through
-the first Pages deployment, while `wall_seconds` includes advisory time and `pages.seconds` is deployment time.
+A newer landing cancels advisory command groups and records `advisory_interrupted`; interrupted full Chrome runs
+are not marked complete. `advisory_chrome.py` owns Playwright and its dist server in one timed group; stale server
+cleanup requires matching PID, birth identity and group in `$TURKU3D_WORK/cache/advisory-chrome-server.json`; `wall_seconds` includes advisory time.
 
 **Build stages and advisory stages** (user decision 2026-10-27 21:00). Only `live_build.BUILD_STAGES`
 (refresh, tile-build, tile-validate, game-build) and the manifest check (geometry, ground textures and < 8 MB

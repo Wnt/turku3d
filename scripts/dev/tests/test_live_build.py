@@ -336,6 +336,7 @@ class LiveBuildTests(unittest.TestCase):
             with (
                 RUN_GROUP,
                 patch.object(live_build.s, "run_group", side_effect=run),
+                patch.object(live_build.advisory_chrome, "run", side_effect=run),
                 patch("os.getloadavg", return_value=(12.0, 11.0, 10.0)),
             ):
                 report = self.build_and_advise(
@@ -406,6 +407,11 @@ class LiveBuildTests(unittest.TestCase):
             patch.object(
                 live_build.s,
                 "run_group",
+                side_effect=self.stage_runner(work, calls, failing, statuses),
+            ),
+            patch.object(
+                live_build.advisory_chrome,
+                "run",
                 side_effect=self.stage_runner(work, calls, failing, statuses),
             ),
             patch.object(live_build.served, "ship", return_value=self.shipped()),
