@@ -74,3 +74,15 @@ export function startupDraftTiles(points: readonly { x: number; z: number }[], r
   }
   return [...wanted];
 }
+
+/** Anonymous demand order: swept crossings, visible neighbours, then the background ring. */
+export function draftDemand(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number) {
+  const ordered = [...new Set([...visible, ...ahead])].sort((a, b) => {
+    const aa = arrivalToL0(a, x, z, vx, vz), bb = arrivalToL0(b, x, z, vx, vz);
+    return aa - bb || Number(visible.includes(b)) - Number(visible.includes(a))
+      || distToL0(a, x, z) - distToL0(b, x, z) || a.localeCompare(b);
+  }).slice(0, 128);
+  const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
+  const urgent = ordered.filter(id => id === here || Number.isFinite(arrivalToL0(id, x, z, vx, vz)));
+  return { tiles: ordered, urgent, visible: ordered.filter(id => visible.includes(id)) };
+}

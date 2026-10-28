@@ -120,14 +120,14 @@ def test_queue_ranks_ring_then_cone_and_drops_what_the_player_left(tmp_path):
     assert builder.order() == ["t0_1_0", "t0_0_1", "t0_2_0"]
     builder.request("t0_1_-3", 700)
     assert builder.order()[:2] == ["t0_1_0", "t0_1_-3"]
-    builder.steer(260, 125, 0.5, 0)  # standing: ring only (and the ring's parent quadrants)
+    builder.steer(260, 125, 0.5, 0)  # standing: visible ring only
     builder.request("t0_3_1", 400)  # quadrant of the ring's parent t1_1_0
-    assert builder.order() == ["t0_1_0", "t0_0_1", "t0_2_0", "t0_3_1"]
+    assert builder.order() == ["t0_1_0", "t0_0_1", "t0_2_0"]
     del builder.building["t0_7_7"]
     builder.workers = 2
     builder.recent = [4.0, 6.0]
     eta = builder.eta()
-    assert [eta[t] for t in builder.order()] == [5.0, 5.0, 10.0, 10.0]
+    assert [eta[t] for t in builder.order()] == [5.0, 5.0, 10.0]
     assert builder.request("t0_2_0", 125) == {"state": "queued", "position": 2, "eta": 10.0}
 
 
@@ -179,7 +179,7 @@ def test_lateral_work_does_not_starve_full_quality_upgrades(tmp_path):
     builder.recent = [5]
     builder.full_recent = [60]
     builder.workers = 1
-    assert builder.eta()["t0_1_1"] == 5  # full upgrade owns its own lane
+    assert builder.eta()["t0_1_1"] >= 64  # the full upgrade occupies the sole worker
     builder.building.clear()
     builder.stop()
 
@@ -301,6 +301,9 @@ def test_revalidating_textured_tile_skips_structural_downgrade(tmp_path):
     path.write_text(json.dumps({"pass_kind": "full"}))
     builder = SimpleNamespace(
         two_pass=True,
+        order=lambda: [],
+        upgrade_queue=set(),
+        demand=S.Demand(),
         upgrading=set(),
         cached=lambda _: True,
         manifest=lambda _: path,

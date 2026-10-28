@@ -15,7 +15,7 @@ http://:7764 {
 		file_server
 	}
 	handle /coarse/* {
-		reverse_proxy 127.0.0.1:7765
+		import /home/ubuntu/turku3d-drafts/draft-upstream.caddy
 	}
 	handle {
 		reverse_proxy 127.0.0.1:7700
