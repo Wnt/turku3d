@@ -182,9 +182,9 @@ export class Minimap {
   }
 
   /** Outside cells darkened, the boundary between inside and outside cells stroked (world units). */
-  private drawArea(area: PlayableArea, view: MinimapView, reach: number, k: number) {
+  private drawArea(area: PlayableArea, view: MinimapView, centre: WorldPoint, reach: number, k: number) {
     const { ctx } = this;
-    const x0 = view.position.x - reach, z0 = view.position.z - reach, x1 = view.position.x + reach, z1 = view.position.z + reach;
+    const x0 = centre.x - reach, z0 = centre.z - reach, x1 = centre.x + reach, z1 = centre.z + reach;
     const s = COLLISION_TILE;
     ctx.beginPath();
     ctx.rect(x0, z0, x1 - x0, z1 - z0);
@@ -227,7 +227,7 @@ export class Minimap {
       ctx.drawImage(this.streets, x0 - STATIC_PAD_M, z0 - STATIC_PAD_M,
         this.streets.width / this.pxPerM, this.streets.height / this.pxPerM);
     }
-    if (this.area) this.drawArea(this.area, view, span / Math.SQRT1_2 / 2, k);
+    if (this.area) this.drawArea(this.area, view, centre, span / Math.SQRT1_2 / 2, k);
     const route = this.routes.route;
     if (route && route.length > 1) {
       ctx.lineCap = ctx.lineJoin = 'round';

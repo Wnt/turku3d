@@ -23,7 +23,10 @@ export class RouteTracker {
     const changed = key !== this.key;
     const now = performance.now();
     const moved = this.origin ? Math.hypot(position.x - this.origin.x, position.z - this.origin.z) : Infinity;
-    if (!changed && (!target || moved <= REROUTE_M)) return false;
+    if (!changed && (!target || moved <= REROUTE_M)) {
+      this.offSince = null;
+      return false;
+    }
     if (!changed && this.route && this.route.length > 1) {
       const nearest = projectRoute(position, this.route);
       if (nearest.distance <= OFF_ROUTE_M) {

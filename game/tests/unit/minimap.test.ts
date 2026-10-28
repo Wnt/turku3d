@@ -73,3 +73,15 @@ test('expanded map fits the complete distant route and the player', async () => 
   expect(fit.centre).toEqual({ x: 500, z: -250 });
   expect(fit.span).toBe(6000);
 });
+
+
+test('a newly available graph retries a missing route while stationary', () => {
+  const route = vi.fn().mockReturnValueOnce(null).mockReturnValue([{ x: 0, z: 0 }, { x: 3000, z: 0 }]);
+  const tracker = new RouteTracker({ route, distance: () => 3000 });
+  const target: RouteTarget = { id: 'unloaded', point: { x: 3000, z: 0 }, label: 'Unloaded', kind: 'dropoff' };
+  tracker.update({ x: 0, z: 0 }, target, 'car');
+  expect(tracker.route).toBeNull();
+  tracker.invalidate();
+  expect(tracker.update({ x: 0, z: 0 }, target, 'car')).toBe(true);
+  expect(tracker.route).toHaveLength(2);
+});

@@ -87,7 +87,7 @@ export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
     // Quantisation cells are an index, not an equality test: a seam point can
     // straddle two rounding bins after independent tile clipping.
     const cx = Math.floor(x * 10), cz = Math.floor(z * 10);
-    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
       for (const k of index.get(`${cx + dx},${cz + dz}`) ?? []) {
         if (Math.hypot(nodes[2 * k] - x, nodes[2 * k + 1] - z) <= 0.11) return k;
       }
