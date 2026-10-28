@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -232,6 +233,15 @@ def worker(name):
         f'model_reasoning_effort="{effort}"',
         "-c",
         'approval_policy="never"',
+    ]
+    hook_command = f"python3 {shlex.quote(str(Path(__file__).with_name('inbox_hook.py').resolve()))} {shlex.quote(str(path))}"
+    handler = f'{{type="command", command={json.dumps(hook_command)}, timeout=10}}'
+    cmd += [
+        "--dangerously-bypass-hook-trust",
+        "-c",
+        f'hooks.PostToolUse=[{{matcher="", hooks=[{handler}]}}]',
+        "-c",
+        f"hooks.Stop=[{{hooks=[{handler}]}}]",
     ]
     if meta.get("session_id"):
         cmd += ["resume", meta["session_id"]]

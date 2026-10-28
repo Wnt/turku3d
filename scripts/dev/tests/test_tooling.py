@@ -212,7 +212,7 @@ class ToolingTests(Fixture):
         self.start()
         prompt = (self.base / "tasks/demo/prompt.md").read_text()
         self.assertIn("## Coordination", prompt)
-        self.assertIn("scripts/dev/codex-task inbox --unread", prompt)
+        self.assertIn("Runner hooks announce new inbox messages", prompt)
         self.assertIn("scripts/dev/codex-task board", prompt)
         self.assertIn("scripts/dev/codex-task wait-cmd -- <command>", prompt)
         self.assertIn("Tiny fake test brief.", prompt)
