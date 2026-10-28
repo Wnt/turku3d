@@ -686,4 +686,6 @@ passage with a compact luminous floor ring and low sign; its dialogue/options ar
 
 Stairs preserve mapped bends with shared mitered edges, so terrain cuts cannot expose gaps
 between independent rectangular treads. One-metre landing aprons blend the full stair width
-into ground; visible and collision faces share the same geometry.
+into ground; visible and collision faces share the same geometry. Terrain triangles whose
+centres lie inside a stair cut retain their original material on the exterior remainder,
+preventing small unsupported wedges beside the stairs and adjoining quay.
