@@ -126,6 +126,7 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) > 1 and sys.argv[1] == "--percent":
+        os.environ.pop("TURKUTEX_USAGE_CMD", None)
         value = used_percent()
         print("" if value is None else value)
     else:
