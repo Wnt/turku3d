@@ -2,7 +2,7 @@
 
 Mission save format 4 tracks `shortDeliveries`, `longDeliveries`, `job` and `longAnnounced` per slot.
 Every ten finished short orders (successful or cancelled, including doubles as one order) complete a
-rented round. Four rounds unlock the pizzeria's long-range option. Renting ahead and picking up an
+rented round. Four finished short deliveries unlock the pizzeria's long-range option. Renting ahead and picking up an
 order do not advance it. Formats 1–3 migrate historical completed orders as short deliveries.
 The one-time narrator notice is queued after the delivery result and autosaved.
 
