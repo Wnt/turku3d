@@ -210,6 +210,8 @@ def land(name, keep_sandbox=False, note=None):
         and s.read_json(path / "deployment.json", {}).get("commit") == head
         and s.read_json(path / "deployment.json", {}).get("result") == "deployed"
     ):
+        if not keep_sandbox:
+            cleanup_landed(name)
         return previous
     selected = delivery.plan(path, repo)
     if not already:

@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -312,7 +313,9 @@ class GateTest(unittest.TestCase):
 
     def test_every_stage_that_starts_a_browser_is_marked(self):
         config = tomllib.loads((DEV / "gate.toml").read_text())
-        markers = ("from 'playwright'", 'from "playwright"', "@playwright/test", "playwright test")
+        imports = re.compile(
+            r"(?m)^\s*import\s+.+?\s+from\s+[\"'](?:playwright|@playwright/test)[\"']"
+        )
         for stage in config["stages"]:
             sources = [
                 (REPO / arg).read_text(errors="ignore")
@@ -320,7 +323,7 @@ class GateTest(unittest.TestCase):
                 for arg in command
                 if "{" not in arg and (REPO / arg).is_file()
             ]
-            starts = any(m in text for text in sources for m in markers) or any(
+            starts = any(imports.search(text) for text in sources) or any(
                 "playwright" in arg for command in stage.get("commands", []) for arg in command
             )
             with self.subTest(stage=stage["name"]):
