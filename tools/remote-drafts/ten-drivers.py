@@ -20,10 +20,10 @@ import urllib.request
 from pathlib import Path
 
 
-def get(base, path, binary=False):
+def get(base, path, binary=False, timeout=5):
     try:
         req = urllib.request.Request(base + path, headers={"Origin": "https://wnt.github.io"})
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.status, response.read() if binary else json.load(response)
     except urllib.error.HTTPError as error:
         return error.code, {}
@@ -132,9 +132,9 @@ def main():
     ap.add_argument("--seconds", type=float, default=120)
     ap.add_argument("--speed-kmh", type=float, default=120)
     args = ap.parse_args()
-    status, navigation = get(args.base, "navigation.json")
+    status, navigation = get(args.base, "navigation.json", timeout=60)
     if status != 200:
-        raise RuntimeError("City road graph unavailable")
+        raise RuntimeError(f"City road graph unavailable: HTTP {status}")
     paths = routes(navigation["roads"])
     for path in paths:
         path["crossings"] = crossings(path)

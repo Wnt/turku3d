@@ -27,6 +27,8 @@ def _area(path, size, modified):
             data, geometry="geometry" if "geometry" in data else "geometry_local"
         )
     data = data.reset_index(drop=True)
+    if data.empty and "geometry_local" not in data:
+        data["geometry_local"] = gpd.GeoSeries([], dtype="geometry")
     geometry = shapely.force_2d(data.geometry_local.values)
     return data, geometry, shapely.STRtree(geometry)
 
@@ -41,7 +43,7 @@ def frame(path, bbox=None, *, whole_features=False):
     path = Path(path)
     stat = path.stat()
     data, geometry, tree = _area(str(path), stat.st_size, stat.st_mtime_ns)
-    if bbox is None:
+    if bbox is None or data.empty:
         return data.copy()
     # Bounds also retain closed OSM ways enclosing the query. Consumers may turn
     # those lines into polygons before their precise intersection test.
