@@ -72,6 +72,25 @@ def test_osm_preserves_named_paint_family_without_relabelling_measured_hex(tmp_p
     assert "wall_colour_name" not in measured
 
 
+def test_stored_ai_style_keeps_precedence_over_named_paint_fallback(tmp_path, monkeypatch):
+    from turku3d.facade_kit import renderer, write_description
+
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path))
+    d = renderer().register_description(
+        "wall", "building", {"material_class": "wood", "wall_colour": "#123456"}, 18, 9
+    )
+    write_description("building", d, "test", "hash", width=18)
+    p = parameters(
+        "building",
+        9,
+        18,
+        {"material_class": "render", "wall_colour_name": "yellow", "wall_colour": "#b9b946"},
+    )
+    assert p["wall"] == "#123456"
+    assert p["trim"] == d["trim_colour"]
+    assert 18 <= p["module"] < 24
+
+
 def test_atlas_mask_separates_white_frames_wall_and_unpainted_mortar():
     import numpy as np
     from turku3d.facade_kit import module_maps, renderer
