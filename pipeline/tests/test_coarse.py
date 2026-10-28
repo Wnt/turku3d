@@ -101,7 +101,12 @@ def inputs(tmp_path):
                 "Katuosalaji": "Ajorata",
                 "Pintamateriaali": "Asfalttibetoni",
                 "geometry": _box_en(x0 - 10, z0 + 40, x0 + 260, z0 + 52),
-            }
+            },
+            {
+                "Katuosalaji": "Tonttiliittymä",
+                "Pintamateriaali": "Betonilaatta",
+                "geometry": _box_en(x0 + 10, z0 + 60, x0 + 40, z0 + 70),
+            },
         ],
         tmp_path / "streets.parquet",
     )
