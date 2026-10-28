@@ -42,6 +42,16 @@ def reference_matches(facade, root: Path) -> bool:
     )
 
 
+def view_height(view: dict, fallback: float) -> float:
+    """Use the physical wall plane shown in the crop, not an overestimated roof height."""
+    corners = view.get("facade_corners_EN_H")
+    if corners and len(corners) == 4:
+        height = abs(float(corners[2][2]) - float(corners[0][2]))
+        if height >= 3:
+            return height
+    return float(fallback)
+
+
 def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     """Valid full-wall views, best first in fallback source order, or the reason there is none.
 

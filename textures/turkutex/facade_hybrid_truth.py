@@ -259,6 +259,8 @@ def prepare(args):
 
 
 def screen(args, errors=None):
+    from .building_jobs import view_height
+
     errors = dict(errors or {})
     rows = []
     for f in load_facades(args.root / "candidates.geojson"):
@@ -274,7 +276,7 @@ def screen(args, errors=None):
                 facade_id=f.id,
                 building_id=f.props["building_id"],
                 width_m=f.length,
-                height_m=f.height_m,
+                height_m=view_height(view, f.height_m),
                 crop=str(crop),
                 context=str(context),
                 crop_sha256=ff.sha(crop),

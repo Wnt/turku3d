@@ -1,4 +1,5 @@
 import numpy as np
+from turkutex.building_jobs import view_height
 from turkutex.streetview.evidence import problem
 from turkutex.streetview.facades import Facade
 from turkutex.streetview.refs import supported_wall, view_problem
@@ -92,3 +93,9 @@ def test_supported_wall_trims_a_roof_height_without_changing_its_segment():
     assert target.length == facade.length
     assert target.height_m == 7.0
     assert support["target_support"] == 1.0
+
+
+def test_description_height_matches_rendered_wall_plane():
+    view = {"facade_corners_EN_H": [[0, 0, 5], [1, 0, 5], [1, 0, 13], [0, 0, 13]]}
+    assert view_height(view, 14) == 8
+    assert view_height({}, 14) == 14

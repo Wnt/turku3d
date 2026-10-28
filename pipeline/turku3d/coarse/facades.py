@@ -171,15 +171,14 @@ def upgrade(
         if _model is None:
             _model = Engine()
         wall = next(f for f in facades if f.id == job["meta"]["facade_id"])
+        height = job["meta"].get("height_m", wall.height_m)
         attrs = wall.props.get("register_attributes")
         if attrs is None:
             attrs = building_attributes(C.raw_dir("wfs/work-3x3"), [building]).get(building, {})
-        register = renderer().register_description(
-            wall.id, building, attrs, wall.length, wall.height_m
-        )
+        register = renderer().register_description(wall.id, building, attrs, wall.length, height)
         with Image.open(job["images"][0]) as image:
             _, metadata = _model.measure(
-                np.asarray(image.convert("RGB")), wall.id, wall.length, wall.height_m, attrs
+                np.asarray(image.convert("RGB")), wall.id, wall.length, height, attrs
             )
         fields = metadata["fields"]
         for field in APPEARANCE_FIELDS:
