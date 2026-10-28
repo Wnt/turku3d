@@ -166,6 +166,7 @@ def cut_ground(mesh, openings):
         material,
         terrain,
         [(opening, 255)],
+        fallback_materials=mesh.material,
     )
     # River banks are vertical solid faces; they have no invertible X/Z plane.
     return Mesh(

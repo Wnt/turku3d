@@ -346,6 +346,9 @@ def test_stair_treads_replace_ground_and_share_collision_faces():
     ground = stairs.cut_ground(Mesh(pos, ix, np.full(len(ix), mat_id("grass"), np.uint8)), openings)
     polys = shapely.polygons(ground.positions[ground.indices][:, :, [0, 2]])
     assert shapely.area(shapely.intersection(polys, openings[0])).sum() < 1e-8
+    # A boundary triangle whose centre is cut still owns its exterior remainder.
+    expected = shapely.box(0, 0, 250, 250).difference(openings[0])
+    assert expected.symmetric_difference(shapely.union_all(polys)).area < 1e-8
     ct = C.CollisionTile.at(12, 20)
     p, idx, mat = stairs.collision(
         ct, meshes, np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8)
