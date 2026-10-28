@@ -100,59 +100,126 @@ pytest temporary directory. This also works in a fresh frozen post-deploy
 workspace; an absent QA directory must not turn unrelated fixture setup into a
 false regression.
 
-## Round 3: native-point proof and live scoring
+## Round 3: synthetic native-client requests
 
-The repository runner is `tools/refs/gmaps_round3.py`. It reads the same private
-round-2 plan (40 quarters, seed 20261101) and installed private decoder/scorer
-modules without editing their source. Products live under
-`$TURKU3D_WORK/gmaps-round3/`, outside the published tree.
+The round-2 diagnosis first led to a native-coordinate camera proof. That proof
+qualified `t0_-2_-6_q10` at a maximum accepted target error of 3.423 m, with
+417/435 terminal nodes and 4.138% masked required nodes missing. Its successful
+capture took 128.351 s, or 205.568 s through scoring. A rejected 8.20 m targeting
+attempt added 120.453 browser-seconds. The subsequently started camera sweep was
+stopped on Jonni's instruction. The superseded automated pan code was removed;
+its source remains available at commit `8768f73b4d39`.
 
-The capture checks the native **2D** control, which indicates an active tilted
-3D view, and measures the point at the drag location through Maps' coordinate
-context menu. Pan corrections use those observations; the URL supplies only
-orientation and zoom. A visit requires less than 5 m observed error. Planner
-history uses the observed point transformed to EPSG:3877, including visits whose
-network loading has not become quiet. Rejected targeting never establishes a
-verified visit. Menu dismissal is awaited before the next gesture.
+Jonni then explicitly authorized synthetic node requests through the Maps page's
+native transport. This supersedes the earlier no-replay capture-only restriction
+for this workflow. `gmaps_synthetic_transport.mjs` instruments the native XHR
+constructor/open/send path before Maps initializes. It preserves an observed
+request template, native credentials mode and explicit headers. Missing bulk
+metadata is requested first; every node ID and epoch comes from the independently
+resolved metadata tree for the requested extent. Terminal payloads follow with
+16 concurrent in-page XHRs. The tool invents no session tokens, keys or endpoint
+format, and does not move the camera.
 
-Each persistent browser profile has one content-addressed response catalogue.
-Every new or resumed quarter receives hard links to all originally observed
-bodies. Each extent independently resolves metadata and audits the required
-nodes. There is no provider-request replay. The explicit inventory advances from
-planned to native-verified visited, metadata resolved, eligible and scored;
-scoring is a transient state. An empty denominator never qualifies.
+A fresh headless proof loaded **435/435** terminal nodes, resolved all metadata
+and scored with zero missing nodes. Capture work took **3.489 s**, native
+initialization **4.804 s**, and scoring **31.079 s**: **39.372 s** total. This
+controlled score used the exact immutable OCI GLB from the camera proof, already
+retained locally; the live OCI draft was rebuilding. Transport batches resolved
+24 metadata branches and requested 392 missing payloads without transport errors.
+The capture comparison is about 15 times faster including native initialization;
+end-to-end timings also differ in OCI download/cache work and score support.
 
-The browser stops a quarter at resolved, nonempty metadata with at most 5%
-required nodes missing, or after 120 seconds without terminal-node gain. The
-latter retains an incomplete result. A loading wait is not a quarter deadline.
-The shared 120 browser-minute allowance includes both lanes and rejected proof
-attempts. Missing-node footprints remain masked in calibration and all scores.
+The repository runner is `tools/refs/gmaps_synthetic_run.py`. It reads the same
+40-quarter private plan (seed 20261101) and installed private decoder/scorer
+modules, without editing their source. Products live under
+`$TURKU3D_WORK/gmaps-round3/synthetic/`, outside the published tree. One
+content-addressed catalogue per browser session serves every new/resumed extent
+through hard links. An append journal avoids rewriting the entire growing index
+per response; each audit compacts the index. Each extent independently verifies
+nonempty metadata, epoch-matched payloads and completeness. Zero missing with an
+empty denominator never qualifies. Accepted missing-node footprints remain
+masked from calibration and every score.
 
-The first quarter (`t0_-2_-6_q10`) proved the complete path in one headless
-browser: maximum accepted target error **3.423 m**, **417/435** terminal nodes,
-**4.138%** masked required nodes missing, resolved metadata and an accepted
-calibration. The successful capture took **128.351 s**, **205.568 s** through
-scoring against a frozen current full-quality OCI draft. An earlier rejected
-8.20 m targeting attempt adds 120.453 browser-seconds; total capture time for
-this quarter was **248.804 s**. The own GLB hash and complete report are retained
-in private `proof.json` and its linked score report. A second browser starts
-only after this scored proof passes.
+Independent processes score eligible extents while capture continues. Current
+OCI snapshots require a full, non-stale manifest and SHA256-verified GLB/textures.
+Each scorer renews one nonurgent visible-tile demand lease every two seconds,
+uses that same client on manifest polls, and releases it after freezing bytes.
+Legacy unleased polls can be pruned while players are active.
 
-During a sweep, independent scoring processes freeze current OCI GLB and texture
-bytes and score eligible quarters while capture continues. `findings.md` and
-`findings.json` update continuously, ranking textures and bridges first, ground,
-wall and object geometry second, and roofs/heights last. Each ten scored
-quarters triggers a board note with the local findings path. Unavailable semantic
-observations remain explicit abstentions.
+`coverage.json`, `findings.md` and `findings.json` update incrementally. Each ten
+scored quarters triggers an orchestrator board note. Findings rank textures and
+bridges first, ground/wall/object geometry next, and roofs/heights last. Unsupported
+wall, prop, bridge-underside and tunnel-interior semantics remain abstentions.
 
 Run from the assigned checkout with its sandbox sourced:
 
 ```sh
-scripts/dev/codex-task wait-cmd -- bash pipeline/env/run.sh python tools/refs/gmaps_round3.py proof
-scripts/dev/codex-task wait-cmd -- bash pipeline/env/run.sh python tools/refs/gmaps_round3.py sweep
-node --test tools/refs/test_gmaps_capture_state.mjs
+scripts/dev/codex-task wait-cmd -- bash pipeline/env/run.sh python tools/refs/gmaps_synthetic_run.py proof
+scripts/dev/codex-task wait-cmd -- bash pipeline/env/run.sh python tools/refs/gmaps_synthetic_run.py sweep
+node --test tools/refs/test_gmaps_capture_state.mjs tools/refs/test_gmaps_synthetic_transport.mjs
+bash pipeline/env/run.sh python tools/refs/test_gmaps_oci.py
 ```
 
 `GMAPS_TOOLS` may name the installed private decoder directory; its default is
-`~/turku3d/private/gmaps-extract`. Chrome uses the sandbox's browser profiles and
-host admission/budget accounting. The runner never builds a local world tile.
+`~/turku3d/private/gmaps-extract`. Chrome uses the sandbox's profiles and host
+admission/budget accounting. The runner never builds a local world tile. A fresh
+proof must be eligible and scored before the sweep starts. A manual capture
+window remains a fallback if the native synthetic route is blocked; no manual
+window was needed for the successful proof.
+
+The scoring adapter also scopes decoding before unpacking geometry: cached
+metadata AABBs intersect the quarter plus 25 m, conservatively wider than the
+decoder's 20 m clip. The full response catalogue stays intact. A separate decoder
+input view uses hard links and reuses existing products; interruption does not
+replace the original capture inventory. Spatial metadata caches are addressed
+by response hash and parser/radius identity. Disk accounting counts hard-linked
+bodies once and tolerates atomic temporary-file renames.
+
+The selection retained every source mesh in fourteen completed unscoped decodes.
+A representative 7,307-response quarter reduced to 930 decoder inputs while
+preserving all 574 mesh records and producing bit-identical height, RGB, normal
+and LOD rasters. This representative validation took 13.50 s, excluding its
+sandbox-copy setup; no area rebuild or browser was needed.
+
+A complete reference can still lack enough independent open ground for vertical
+calibration. Such a score is explicitly **abstained**, with its reason and own
+snapshot recorded in `score-abstention.json`. It is not counted as measured and
+is not retried indefinitely. Calibration thresholds are unchanged. Transient OCI
+availability failures remain retryable.
+
+For the authorized fast-capture extension, `gmaps_extra_select.py` selects twenty
+more urban quarters within the original requested parent tiles, prioritizing
+bridges, retaining the same OSM exclusions and seeded order. It writes private
+`extra-plan.json` and `expanded-plan.json`. `GMAPS_PLAN` selects an explicit plan
+for the runner; the original forty remain its prefix. Existing eligible captures
+and completed scores are reused. Milestone notices retain their previous count
+across restarts.
+
+### Completed round-3 result
+
+All **60** quarter references qualified: the unchanged original forty plus twenty
+additional urban quarters in their existing parents. **57 scored** against frozen
+OCI drafts, covering **0.890625 km² of nominal new scored footprints**; **1,807 m²**
+of accepted missing-node footprints were excluded from calibration and scores.
+The original forty produced 37 scores and three calibration abstentions
+(`t0_2_-3_q11`, `t0_2_0_q11`, `t0_0_-1_q11`); all twenty extension quarters scored.
+
+Successful synthetic capture including native initialization averaged about
+**15.93 s/quarter** across the sixty. Core per-quarter work excluding initialization
+and final catalogue flushes averaged **15.41 s**. Total task browser use, including
+the stopped camera sweep and proof/setup failures, was **26.069/120 minutes**.
+All capture browsers are closed. Scoring completed with four independent workers;
+renewable OCI leases and physical-file quota accounting avoid the legacy demand
+pruning and repeated hard-link scans.
+
+Milestone handoffs were sent at 10, 20, 30, 40 and 50 measured quarters, followed
+by the final handoff. Final confirmed counts are **textures 0, bridges 0,
+ground/wall/object geometry 0, roofs/heights 18**. High-priority reference-only
+appearance and bridge candidates remain review inputs, not confirmed defects.
+The facade-characterization task received the read-only paired-colour contract.
+
+Private final evidence is under
+`$TURKU3D_WORK/gmaps-round3/synthetic/{coverage.json,summary.json,findings.md,findings.json}`.
+The reports retain exact own/reference/scorer identities and all abstention reasons.
+`bash pipeline/env/run.sh python tools/refs/gmaps_summary.py` refreshes the area and
+timing summary without opening a browser or issuing provider requests.

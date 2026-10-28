@@ -4,13 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {ResponseCatalogue, parseMapCoordinate, inventoryState} from './gmaps_capture_state.mjs';
-
-test('native coordinates are strict geographic observations', () => {
-  assert.deepEqual(parseMapCoordinate('60.450123, 22.261234'), {lat:60.450123,lon:22.261234});
-  assert.equal(parseMapCoordinate('https://maps/@60.450123,22.261234'), null);
-  assert.equal(parseMapCoordinate('99.450123, 22.261234'), null);
-});
+import {ResponseCatalogue, inventoryState} from './gmaps_capture_state.mjs';
 
 test('session bodies survive empty and resumed quarters without request replay', () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'gmaps-session-'));
@@ -19,6 +13,7 @@ test('session bodies survive empty and resumed quarters without request replay',
     const body=Buffer.from('original observed metadata');
     const sha=createHash('sha256').update(body).digest('hex');
     catalogue.add({url:'native/BulkMetadata/one'},sha,body);
+    assert.equal(new ResponseCatalogue(path.join(root,'session')).rows.size,1);
     for (const name of ['new','resumed']) {
       const out=path.join(root,name);
       fs.mkdirSync(path.join(out,'responses'),{recursive:true});
@@ -35,17 +30,14 @@ test('session bodies survive empty and resumed quarters without request replay',
 });
 
 test('zero missing and a directory never establish eligibility', () => {
-  const record={detail_visits:[]};
-  const plan={complete:true,frontier:0,summary:{terminal_data_nodes:0}};
-  assert.equal(inventoryState(record,plan),'planned');
-  record.detail_visits.push({timing:{target_error_m:1}});
-  assert.equal(inventoryState(record,plan),'visited');
-  plan.summary.terminal_data_nodes=100;
-  plan.frontier=1;
-  assert.equal(inventoryState(record,plan),'visited');
-  plan.frontier=0;
+  const plan={complete:true,metadata_complete:true,available:0};
+  assert.equal(inventoryState(plan),'planned');
+  plan.available=100;
+  plan.metadata_complete=false;
+  assert.equal(inventoryState(plan),'visited');
+  plan.metadata_complete=true;
   plan.complete=false;
-  assert.equal(inventoryState(record,plan),'metadata resolved');
+  assert.equal(inventoryState(plan),'metadata resolved');
   plan.complete=true;
-  assert.equal(inventoryState(record,plan),'eligible');
+  assert.equal(inventoryState(plan),'eligible');
 });
