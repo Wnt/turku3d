@@ -18,10 +18,10 @@ LANDED = "landed"
 LANDED_PATHS = 20
 RESUME_REASONS = ("unblock", "review", "main-moved", "quota", "follow-up", "other")
 PROMPT = """## Coordination
-After each major step/commit and before finishing, check:
-  scripts/dev/codex-task inbox --unread
-  scripts/dev/codex-task board
-Acknowledge what you act on: scripts/dev/codex-task ack <id> --note "..."
+Runner hooks announce new inbox messages after tool calls and stop once for unread requests
+or warnings. Handle announced requests and warnings, then acknowledge them with
+scripts/dev/codex-task ack <id> --note "...". Check the board after each major step/commit
+and before finishing: scripts/dev/codex-task board
 Send a message: scripts/dev/codex-task msg <name|all> --kind request --subject "..." "body"
 Announce shared interface changes with --kind interface --ref <commit> to all.
 Before changing another area's interface, request it from its running owner or the board.

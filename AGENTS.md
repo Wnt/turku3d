@@ -112,8 +112,9 @@ reason. The rules below are the ones that stay hard.
   need"`), to the task that owns the thing (`msg <task> ...`), or to everyone (`msg all --kind warning ...`) when it
   affects others; then continue with the parts that are not blocked. The orchestrator watches the inbox and unblocks
   (data, decisions, other agents, budget). Never wait silently on another task.
-- Check `scripts/dev/codex-task inbox --unread` and `scripts/dev/codex-task board` after each major
-  step (each commit) and before finishing. Acknowledge what you act on with `codex-task ack <id>`.
+- Runner hooks announce new inbox messages after tool calls. Handle announced requests and warnings,
+  then acknowledge them with `codex-task ack <id>`. Check `scripts/dev/codex-task board` after each
+  major step (each commit) and before finishing. Use `codex-task inbox --unread` for a manual check.
 - Announce interface changes others depend on (schemas, file layouts, module APIs) with
   `scripts/dev/codex-task msg all --kind interface --subject "..." --ref <commit> "body"`.
 - Before changing another area's interface, post a `request` to its owner when that task is running,

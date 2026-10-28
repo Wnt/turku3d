@@ -304,10 +304,10 @@ scripts/dev/codex-task ls
 scripts/dev/codex-task status stairs
 ```
 
-Check the inbox and board after major steps/commits and before finishing; acknowledge what you
-act on. `run` and `resume` inject these commands into the prompt. This is a polling channel:
-messages do not interrupt a running `codex exec`. Before changing another area's interface,
-send its running owner a `request`, or post to `all` when no owner is running. Announce schemas,
+`run` and `resume` attach `scripts/dev/inbox_hook.py` to Codex. Tool calls reveal requests and warnings
+in full (repeated after 15 minutes), notes and interfaces by subject, and landings with a rebase reminder.
+Stop blocks once for unread urgent messages; hook errors are logged. Check the board after commits and
+before finishing; acknowledge messages you act on. Manual inbox checks remain available. Before changing another area's interface, send its running owner a `request`, or post to `all` when no owner is running. Announce schemas,
 file layouts and module APIs that others depend on with an `interface` message and commit ref.
 
 `msg` accepts `note`, `request`, `interface`, or `warning`; it prints the new message ID. `--ref`
