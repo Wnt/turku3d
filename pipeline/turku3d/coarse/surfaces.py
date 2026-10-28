@@ -242,8 +242,17 @@ def fallback(channel, size=256):
     return rgb
 
 
+def neutral_asphalt(rgb):
+    """Remove the generated warm cast while retaining linear-light grain contrast."""
+    srgb = np.asarray(rgb, dtype=np.float64) / 255
+    linear = np.where(srgb <= 0.04045, srgb / 12.92, ((srgb + 0.055) / 1.055) ** 2.4)
+    light = linear @ [0.2126, 0.7152, 0.0722]
+    grey = np.where(light <= 0.0031308, light * 12.92, 1.055 * light ** (1 / 2.4) - 0.055)
+    return np.repeat(np.rint(np.clip(grey, 0, 1) * 255).astype(np.uint8)[..., None], 3, axis=-1)
+
+
 def library(root: Path, base: Path, channels):
-    """Reuse the full ground library at 512 px/2 m; cache once, share all encoded maps across tiles."""
+    """Retain native albedo detail at 1024 px/2 m; cache and share maps across tiles."""
     sources = [C.work_root() / "textures/library", C.data_root() / "textures/library"]
     source = next(
         (
@@ -253,7 +262,11 @@ def library(root: Path, base: Path, channels):
         ),
         None,
     )
-    identity = [str(base.resolve()), KEYS, inspect.getsource(library), inspect.getsource(fallback)]
+    identity = [
+        str(base.resolve()),
+        KEYS,
+        *(inspect.getsource(f) for f in (library, fallback, neutral_asphalt)),
+    ]
     if source:
         identity.extend(
             f"{p}:{p.stat().st_size}:{p.stat().st_mtime_ns}"
@@ -288,7 +301,7 @@ def library(root: Path, base: Path, channels):
                             "--layer",
                             str(channel),
                             "--level",
-                            "1" if slot == "albedo" else "2",
+                            "0" if slot == "albedo" else "1" if slot == "normal" else "2",
                             str(source / f"{slot}.array.ktx2"),
                             str(output),
                         ],
@@ -305,6 +318,10 @@ def library(root: Path, base: Path, channels):
                             np.uint8,
                         )
                     )
+                    Image.fromarray(pixels).save(output)
+                if slot == "albedo" and channel in (0, 1):
+                    with Image.open(output) as image:
+                        pixels = neutral_asphalt(np.asarray(image.convert("RGB")))
                     Image.fromarray(pixels).save(output)
             (stage / "material.json").write_text(
                 json.dumps(

@@ -4,8 +4,9 @@ import numpy as np
 import shapely
 from turku3d import config as C
 from turku3d.coarse.register import attributes
-from turku3d.coarse.surfaces import classify, fallback, slope_fallback, visuals
+from turku3d.coarse.surfaces import classify, fallback, neutral_asphalt, slope_fallback, visuals
 from turku3d.col.materials import mat_id
+from turku3d.ground.materials import surface_material
 
 
 def test_ground_sampler_uses_mesh_diagonal_and_exact_outer_edge():
@@ -165,6 +166,22 @@ def test_mapped_setts_keep_their_stone_material():
     assert mesh.extras["material_key"] == "draft_cobblestone"
 
 
+def test_city_paving_selects_physical_texture_on_paths_and_carriageways():
+    p = np.array([[0.0, 0, 0], [0, 0, 10], [10, 0, 0]])
+    for kind, paving, key in (
+        ("Jalkakäytävä", "Asfalttibetoni", "draft_asphalt_worn"),
+        ("Ajorata", "Betonilaatta", "draft_concrete_slabs"),
+    ):
+        mesh = visuals(
+            C.VisualTile(0, 0, 0),
+            p,
+            np.array([[0, 1, 2]], np.uint32),
+            np.array([mat_id(surface_material(kind, paving))]),
+            np.array([True]),
+        )[0]
+        assert mesh.extras["material_key"] == key
+
+
 def test_register_missing_fields_do_not_invent_recent_construction():
     assert attributes({}) == dict(material_class=None, levels=None, era="unknown")
     assert attributes(
@@ -176,6 +193,21 @@ def test_procedural_floor_is_repeatable_and_material_specific():
     assert np.array_equal(fallback(4), fallback(4))
     assert not np.array_equal(fallback(4), fallback(5))
     assert fallback(4).shape == (256, 256, 3)
+
+
+def test_asphalt_cast_removal_preserves_light_and_grain():
+    rgb = np.array([[[40, 35, 25], [180, 160, 130], [100, 110, 120]]], np.uint8)
+    neutral = neutral_asphalt(rgb)
+    assert np.array_equal(neutral[..., 0], neutral[..., 1])
+    assert np.array_equal(neutral[..., 1], neutral[..., 2])
+
+    def luminance(image):
+        s = image.astype(float) / 255
+        linear = np.where(s <= 0.04045, s / 12.92, ((s + 0.055) / 1.055) ** 2.4)
+        return linear @ [0.2126, 0.7152, 0.0722]
+
+    assert np.allclose(luminance(rgb), luminance(neutral), atol=0.003)
+    assert neutral[0, 0, 0] < neutral[0, 2, 0] < neutral[0, 1, 0]
 
 
 def test_paint_is_draped_on_road_plane_and_excludes_grass_and_water():

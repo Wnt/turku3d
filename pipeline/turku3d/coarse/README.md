@@ -26,16 +26,21 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
 - **Signs and bus stops**: the cached WFS sign, stop and centreline sources (plus OSM signs when available) feed the shared props reader. Each pole has the same stable `pole_id` as a published tile, and its base sits on the draft ground grid. They have runtime breakable colliders rather than baked primitives. Rebuild a draft after this producer changes with `bash pipeline/env/run.sh python -m turku3d.coarse build t0_2_0 --out "$TURKU3D_WORK/build/coarse/t0_2_0"`.
 - **Ground**: a 128 × 128 cell terrain grid (~2 m) interpolated from ground key points.
   City surface polygons override OSM ground-level road/path corridors and mapped land cover;
+  their explicit asphalt, concrete, stone and gravel paving overrides the road-use label,
+  so asphalt pedestrian routes do not acquire concrete slab joints.
   green orthophoto pixels only classify the remaining unlabelled ground. Visual material boundaries
   are cut exactly against those polygons, interpolating the original terrain plane and normals.
   Collision retains the original grid. Shared asphalt, paving, grass, gravel, stone and quay PBR
   maps repeat every 2 m; steep faces project onto a vertical plane to avoid stretched bank textures.
   Default paving on near-vertical terrain uses the neutral rock/gravel material in visual output.
-  The existing ground library arrays are extracted at 512 px albedo / 256 px normal and ORM and encoded once into
+  The existing ground library arrays are extracted at 1024 px albedo / 512 px normal / 256 px ORM and encoded once into
   content-addressed shared KTX2 maps. A deterministic procedural floor supports an absent library.
+  The albedo texel spacing is 1.95 mm; world-metre UVs retain the same phase on neighbouring tiles.
   Draft ground no longer displays aerial shadows, roofs, cars or blue-white patches as albedo.
   Object support heights use the actual grid triangle, including its diagonal, rather than a
   bilinear patch. The same sampler places vegetation, poles and barriers on visual/collision ground.
+  Asphalt removes the generated warm colour cast in linear light, preserving grain luminance;
+  stone, paving and vegetation retain their authored colour.
 - **Paint and kerbs**: explicit OSM crossing/lane/stop lines are draped on dry road triangles,
   clipped to their exact boundaries and offset 8 mm. Point-only crossings remain unresolved.
   Mapped kerb linework (deduplicated against polygon outlines) becomes an 18 cm wide strip with
@@ -453,6 +458,8 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_surfaces
 `views.json` is a local array of `{name,tile,position:[x,y,z],target:[x,y,z],fov,width,height}`
 (world-local engine metres, vertical FOV); top/oblique views instead use `{name,tile,target,radius,top}`.
 The renderer retains screenshots and frame/GPU/draw measurements under each phase directory.
+Append `--root /absolute/build/tree` to render another immutable draft tree with the same views;
+the tree contains the tile directories and their `shared/` resources.
 `--full` loads the three published office tiles with their ground bindings and water shader.
 Private reference comparisons and their calibration caveats are described in the task report;
 all reference renders and pairs stay outside the repository.

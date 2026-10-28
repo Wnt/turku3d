@@ -10,11 +10,12 @@ import { isolateBrowser, port, workRoot } from '../../tools/dev/environment.mjs'
 
 isolateBrowser();
 const phase = process.argv[2];
-const baseline = process.argv[3] ?? '312849f6';
+const baseline = process.argv[3] && !process.argv[3].startsWith('--') ? process.argv[3] : '312849f6';
 const full = process.argv.includes('--full');
 const performanceOnly = process.argv.includes('--perf');
 if (!['before', 'after'].includes(phase)) throw new Error('usage: node qa/render/texture-sanity.mjs before|after');
-const root = path.join(workRoot, 'reports/texture-sanity', phase);
+const rootArg = process.argv.indexOf('--root');
+const root = rootArg < 0 ? path.join(workRoot, 'reports/texture-sanity', phase) : path.resolve(process.argv[rootArg + 1]);
 const region = (full ? 'full' : 'textures') + (performanceOnly ? '-perf' : '');
 const tiles = full ? ['t0_0_0', 't0_0_1', 't0_1_0'] : fs.readdirSync(root).filter(t => /^t0_/.test(t) && fs.existsSync(path.join(root, t, 'manifest.json')));
 const sceneFile = 'game/__texture-sanity.js', pageFile = 'game/__texture-sanity.html';

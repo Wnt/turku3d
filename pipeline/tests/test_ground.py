@@ -300,7 +300,7 @@ def test_measured_wall_keeps_height_and_renders_collision_face(curb_cloud):
 
 def test_physical_paving_overrides_road_function():
     assert surface_material("Ajorata", "Nupukivi") == "cobblestone"
-    assert surface_material("Jalkakäytävä", "Asfaltti") == "sidewalk"
+    assert surface_material("Jalkakäytävä", "Asfaltti") == "road"
     assert surface_material("Ajorata", "Asfaltti") == "road"
 
 

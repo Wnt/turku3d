@@ -11,6 +11,7 @@ from turku3d.col.materials import mat_id
 def surface_material(kind, surface):
     """Physical paving overrides the road-use label; otherwise use functional class."""
     surface = surface.lower() if isinstance(surface, str) else ""
+    kind = kind if isinstance(kind, str) else ""
     for token, name in [
         ("noppakivi", "cobblestone"),
         ("nupukivi", "cobblestone"),
@@ -18,10 +19,18 @@ def surface_material(kind, surface):
         ("kenttäkivi", "cobblestone"),
         ("graniitti", "cobblestone"),
         ("sora", "gravel"),
+        ("kivituhka", "gravel"),
     ]:
         if token in surface:
             return name
-    kind = kind if isinstance(kind, str) else ""
+    # Bridge support uses this class to keep decks above water. Asphalt cycle
+    # lanes also retain their transport semantics while sharing the road map.
+    if "asfalt" in surface:
+        return {"Silta": "bridge_deck", "Pyöräkaista": "cycleway"}.get(kind, "road")
+    # Asphalt concrete (asfalttibetoni) was handled above. Concrete paving
+    # must not inherit asphalt just because the polygon is a carriageway.
+    if "betoni" in surface:
+        return {"Silta": "bridge_deck", "Jalkakäytävä": "sidewalk"}.get(kind, "paving_slab")
     return {
         "Ajorata": "road",
         "Jalkakäytävä": "sidewalk",
@@ -29,7 +38,7 @@ def surface_material(kind, surface):
         "Yhdistetty kevyen liikenteen väylä": "sidewalk",
         "Silta": "bridge_deck",
         "Portaat": "paving_slab",
-    }.get(kind, "road" if "asfalt" in surface else "paving_slab")
+    }.get(kind, "paving_slab")
 
 
 class Materials:

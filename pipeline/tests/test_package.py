@@ -104,8 +104,20 @@ def test_grid_mesh_faces_up():
     assert len(tris) == 8 and (n[:, 1] > 0).all()
 
 
+def test_explicit_paving_preserves_bridge_support_and_cycleway_semantics():
+    assert katualue_material("Yhdistetty kevyen liikenteen väylä", "Asfalttibetoni") == "road"
+    assert katualue_material("Ajorata", "Betonikivi") == "paving_slab"
+    assert katualue_material("Ajorata", "Betonilaatta") == "paving_slab"
+    assert katualue_material("Muu liikennealue", "Kivituhka") == "gravel"
+    assert katualue_material("Jalkakäytävä", None) == "sidewalk"
+    assert katualue_material("Silta", "Asfalttibetoni") == "bridge_deck"
+    assert katualue_material("Silta", "Betonilaatta") == "bridge_deck"
+    assert katualue_material("Pyöräkaista", "Asfalttibetoni") == "cycleway"
+
+
 def test_katualue_material_mapping():
     assert katualue_material("Ajorata", "Asfalttibetoni") == "road"
+    assert katualue_material("Jalkakäytävä", "Asfalttibetoni") == "road"
     assert katualue_material("Jalkakäytävä", "Betonilaatta") == "sidewalk"
     assert katualue_material("Välikaista", "Noppakivi") == "cobblestone"
     assert katualue_material("Muu liikennealue", "Sora") == "gravel"
@@ -271,3 +283,4 @@ def test_nullable_wfs_materials():
 
     assert katualue_material(pd.NA, pd.NA) == "paving_slab"
     assert katualue_material("Ajorata", pd.NA) == "road"
+    assert katualue_material(pd.NA, "Betoni") == "paving_slab"
