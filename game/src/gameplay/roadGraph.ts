@@ -79,14 +79,22 @@ export const EMPTY_ROAD_GRAPH: RoadGraph = { nodes: new Float64Array(), edges: [
 export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
   if (!parts.length) return EMPTY_ROAD_GRAPH;
   if (parts.length === 1) return parseRoadGraph(parts[0]);
-  const index = new Map<string, number>(), seen = new Set<string>();
+  const index = new Map<string, number[]>(), seen = new Set<string>();
   const nodes: number[] = [], edges: number[][] = [];
   const edgeHeights: (number[] | null)[] = [];
   const bbox: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   const node = (x: number, z: number) => {
-    const key = `${Math.round(x * 10)},${Math.round(z * 10)}`;
-    let k = index.get(key);
-    if (k === undefined) { k = nodes.length / 2; index.set(key, k); nodes.push(x, z); }
+    // Quantisation cells are an index, not an equality test: a seam point can
+    // straddle two rounding bins after independent tile clipping.
+    const cx = Math.floor(x * 10), cz = Math.floor(z * 10);
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+      for (const k of index.get(`${cx + dx},${cz + dz}`) ?? []) {
+        if (Math.hypot(nodes[2 * k] - x, nodes[2 * k + 1] - z) <= 0.11) return k;
+      }
+    }
+    const key = `${cx},${cz}`, k = nodes.length / 2;
+    const bucket = index.get(key) ?? [];
+    bucket.push(k); index.set(key, bucket); nodes.push(x, z);
     return k;
   };
   for (const part of parts) {

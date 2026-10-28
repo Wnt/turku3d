@@ -1,8 +1,8 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { REROUTE_M, RouteTracker, compassDeg, formatMoney, formatTimer, project } from '../../src/gameplay/minimap';
 import type { RouteTarget, Router, WorldPoint } from '../../src/gameplay/contract';
 
-test('route is recomputed on a new target, a mode change or after moving more than 5 m', () => {
+test('route progresses without replanning and recomputes for target or mode changes', () => {
   const calls: WorldPoint[] = [];
   const router: Router = {
     route: (from, to) => { calls.push(from); return [from, to]; },
@@ -16,7 +16,7 @@ test('route is recomputed on a new target, a mode change or after moving more th
   expect(tracker.update({ x: REROUTE_M + 0.1, z: 0 }, target, 'foot')).toBe(true);
   expect(tracker.update({ x: REROUTE_M + 0.1, z: 0 }, target, 'car')).toBe(true);
   expect(tracker.update({ x: REROUTE_M + 0.1, z: 0 }, { ...target, point: { x: 31, z: 40 } }, 'car')).toBe(true);
-  expect(calls).toHaveLength(4);
+  expect(calls).toHaveLength(3);
   expect(tracker.update({ x: 0, z: 0 }, null, 'car')).toBe(true);
   expect(tracker.route).toBeNull();
   expect(tracker.length).toBe(0);
@@ -42,4 +42,46 @@ test('timer and money formatting', () => {
   expect(formatTimer(9)).toBe('0:09');
   expect(formatTimer(-3)).toBe('0:00');
   expect(formatMoney(1250.4)).toBe('€1,250');
+});
+
+
+test('sustained off-route deviation replans; temporary street jitter does not', () => {
+  const clock = vi.spyOn(performance, 'now');
+  clock.mockReturnValue(0);
+  const route = vi.fn((from: WorldPoint, to: WorldPoint) => [from, to]);
+  const tracker = new RouteTracker({ route, distance: () => 100 });
+  const target: RouteTarget = { id: 'far', point: { x: 1000, z: 0 }, label: 'Far', kind: 'dropoff' };
+  tracker.update({ x: 0, z: 0 }, target, 'car');
+  clock.mockReturnValue(3000);
+  tracker.update({ x: 260, z: 5 }, target, 'car');
+  tracker.invalidate(); // a tile arriving must not replace a valid route
+  expect(tracker.route?.[0].x).toBe(260);
+  expect(route).toHaveBeenCalledTimes(1);
+  tracker.update({ x: 280, z: 40 }, target, 'car');
+  clock.mockReturnValue(3500);
+  tracker.update({ x: 285, z: 10 }, target, 'car');
+  tracker.update({ x: 290, z: 40 }, target, 'car');
+  clock.mockReturnValue(4600);
+  tracker.update({ x: 300, z: 45 }, target, 'car');
+  expect(route).toHaveBeenCalledTimes(2);
+  clock.mockRestore();
+});
+
+test('expanded map fits the complete distant route and the player', async () => {
+  const { routeView } = await import('../../src/gameplay/routeTracker');
+  const fit = routeView({ x: 0, z: 0 }, [{ x: -2000, z: 500 }, { x: 3000, z: -1000 }], 650);
+  expect(fit.centre).toEqual({ x: 500, z: -250 });
+  expect(fit.span).toBe(6000);
+});
+
+
+test('a newly available graph retries a missing route while stationary', () => {
+  const route = vi.fn().mockReturnValueOnce(null).mockReturnValue([{ x: 0, z: 0 }, { x: 3000, z: 0 }]);
+  const tracker = new RouteTracker({ route, distance: () => 3000 });
+  const target: RouteTarget = { id: 'unloaded', point: { x: 3000, z: 0 }, label: 'Unloaded', kind: 'dropoff' };
+  tracker.update({ x: 0, z: 0 }, target, 'car');
+  expect(tracker.route).toBeNull();
+  tracker.invalidate();
+  expect(tracker.update({ x: 0, z: 0 }, target, 'car')).toBe(true);
+  expect(tracker.route).toHaveLength(2);
 });

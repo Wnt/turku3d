@@ -1,15 +1,15 @@
 // GTA-style minimap: streets from the road graph, heading-up rotation, mission markers and the route
 // to the active target. A larger north-up view toggles with the map action (M / View).
-import type { MissionHudSource, MissionHudState, Router, RouteTarget, TargetKind, WorldPoint } from './contract';
+import type { MissionHudSource, MissionHudState, Router, TargetKind, WorldPoint } from './contract';
 import { EMPTY_HUD_STATE } from './contract';
 import { edgeClass, type RoadGraph, type TravelMode } from './roadGraph';
 import type { PlayableArea } from './recovery';
+import { RouteTracker, routeView } from './routeTracker';
+export { RouteTracker, REROUTE_M } from './routeTracker';
 import { COLLISION_TILE } from '../core/origin';
 
 /** Marker colour per target kind, shared with the world zones (zones.ts). */
 export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
-/** Recompute the route after the player moves this far from where it started. */
-export const REROUTE_M = 5;
 const SIZE = 240;
 const SPAN_M = { foot: 200, car: 320, expanded: 650 };
 const STATIC_PX_PER_M = 3;
@@ -29,30 +29,6 @@ interface MinimapView {
   mode: TravelMode;
   /** Within `RECOVERY.edgeWarning` of the edge of the built area: the edge line turns red. */
   nearEdge: boolean;
-}
-
-/** Keeps the route to the active target current without re-planning every frame. */
-export class RouteTracker {
-  route: WorldPoint[] | null = null;
-  length = 0;
-  computeMs = 0;
-  private origin: WorldPoint | null = null;
-  private key = '';
-  constructor(private readonly router: Router) {}
-
-  /** True when the route was recomputed. */
-  update(position: WorldPoint, target: RouteTarget | null, mode: TravelMode): boolean {
-    const key = target ? `${target.id}|${target.point.x}|${target.point.z}|${mode}` : '';
-    const moved = this.origin ? Math.hypot(position.x - this.origin.x, position.z - this.origin.z) : Infinity;
-    if (key === this.key && (!target || moved <= REROUTE_M)) return false;
-    this.key = key;
-    this.origin = { ...position };
-    const t0 = performance.now();
-    this.route = target ? this.router.route(position, target.point) : null;
-    this.computeMs = performance.now() - t0;
-    this.length = this.route ? this.router.distance(this.route) : 0;
-    return true;
-  }
 }
 
 /** World x/z to map pixels relative to the map centre: player at the origin, `rotation` turns the map. */
@@ -119,6 +95,7 @@ export class Minimap {
   /** Draws `graph` from now on (draft tiles' streets joined the map; gameplay/index.ts StreetMap). */
   setGraph(graph: RoadGraph) {
     this.graph = graph;
+    this.routes.invalidate();
     this.streets = this.renderStreets();
     this.dirty = true;
   }
@@ -205,9 +182,9 @@ export class Minimap {
   }
 
   /** Outside cells darkened, the boundary between inside and outside cells stroked (world units). */
-  private drawArea(area: PlayableArea, view: MinimapView, reach: number, k: number) {
+  private drawArea(area: PlayableArea, view: MinimapView, centre: WorldPoint, reach: number, k: number) {
     const { ctx } = this;
-    const x0 = view.position.x - reach, z0 = view.position.z - reach, x1 = view.position.x + reach, z1 = view.position.z + reach;
+    const x0 = centre.x - reach, z0 = centre.z - reach, x1 = centre.x + reach, z1 = centre.z + reach;
     const s = COLLISION_TILE;
     ctx.beginPath();
     ctx.rect(x0, z0, x1 - x0, z1 - z0);
@@ -228,7 +205,8 @@ export class Minimap {
 
   private draw(view: MinimapView) {
     const { ctx, cssSize: size } = this;
-    const span = this.expanded ? SPAN_M.expanded : SPAN_M[view.mode];
+    const fit = this.expanded ? routeView(view.position, this.routes.route, SPAN_M.expanded) : { centre: view.position, span: SPAN_M[view.mode] };
+    const { span, centre } = fit;
     const k = size / span;
     const rotation = this.expanded ? 0 : -view.headingDeg * Math.PI / 180;
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
@@ -243,13 +221,13 @@ export class Minimap {
     ctx.translate(size / 2, size / 2);
     ctx.rotate(rotation);
     ctx.scale(k, k);
-    ctx.translate(-view.position.x, -view.position.z);
+    ctx.translate(-centre.x, -centre.z);
     if (this.streets) {
       const [x0, z0] = this.graph.bbox;
       ctx.drawImage(this.streets, x0 - STATIC_PAD_M, z0 - STATIC_PAD_M,
         this.streets.width / this.pxPerM, this.streets.height / this.pxPerM);
     }
-    if (this.area) this.drawArea(this.area, view, span / Math.SQRT1_2 / 2, k);
+    if (this.area) this.drawArea(this.area, view, centre, span / Math.SQRT1_2 / 2, k);
     const route = this.routes.route;
     if (route && route.length > 1) {
       ctx.lineCap = ctx.lineJoin = 'round';
@@ -267,7 +245,7 @@ export class Minimap {
     ctx.restore();
     const inner = size / 2 - 12;
     for (const remote of this.remotes) {
-      let [sx, sy] = project({ x: remote.x, z: remote.z }, view.position, rotation, k);
+      let [sx, sy] = project({ x: remote.x, z: remote.z }, centre, rotation, k);
       const edge = Math.max(Math.abs(sx), Math.abs(sy)) / inner;
       if (edge > 1) { sx /= edge; sy /= edge; }
       ctx.beginPath(); ctx.arc(size / 2 + sx, size / 2 + sy, 5, 0, Math.PI * 2);
@@ -276,7 +254,7 @@ export class Minimap {
       ctx.fillText(remote.nick, size / 2 + sx, size / 2 + sy - 8);
     }
     for (const target of this.state.targets) {
-      let [sx, sy] = project(target.point, view.position, rotation, k);
+      let [sx, sy] = project(target.point, centre, rotation, k);
       const edge = Math.max(Math.abs(sx), Math.abs(sy)) / inner;
       if (edge > 1) { sx /= edge; sy /= edge; } // clamp off-map markers to the rim, GTA style
       const active = target.id === this.state.activeTargetId;
@@ -299,7 +277,8 @@ export class Minimap {
         ctx.fillText(number, size / 2 + sx + 11, size / 2 + sy);
       }
     }
-    ctx.translate(size / 2, size / 2);
+    const [playerX, playerZ] = project(view.position, centre, rotation, k);
+    ctx.translate(size / 2 + playerX, size / 2 + playerZ);
     ctx.rotate((view.facingDeg * Math.PI / 180) + rotation);
     ctx.beginPath();
     ctx.moveTo(0, -11);
