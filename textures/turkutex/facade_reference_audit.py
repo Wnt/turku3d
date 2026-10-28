@@ -105,8 +105,33 @@ def read(args, reviewer):
     return result
 
 
+def eligible(reading: dict) -> bool:
+    """A rejected first reading cannot become a paired usable reference."""
+    return (
+        reading["usable"]
+        and not reading["wrong_wall"]
+        and not reading["multiple_surfaces"]
+        and reading["occlusion_share"] <= 0.2
+    )
+
+
+def missing_readings(rows: list[dict], a: dict, b: dict) -> list[str]:
+    """The second reviewer is needed only for first-reviewer positives."""
+    return [
+        fid
+        for row in rows
+        if (fid := row["facade_id"]) not in a or (eligible(a[fid]) and fid not in b)
+    ]
+
+
 def label(args):
     rows = json.loads((args.output / "inputs.json").read_text())
+    if args.reviewer == "b" and args.only_a_eligible:
+        first = read(args, "a")
+        missing = [r["facade_id"] for r in rows if r["facade_id"] not in first]
+        if missing:
+            raise ValueError(f"first reviewer has not read {len(missing)} references")
+        rows = [r for r in rows if eligible(first[r["facade_id"]])]
     done = read(args, args.reviewer)
     rows = [r for r in rows if r["facade_id"] not in done]
     spec = args.output / "schema.json"
@@ -160,19 +185,10 @@ def collect(args):
     meta = json.loads((args.output / "inventory.json").read_text())
     rows = json.loads((args.output / "inputs.json").read_text())
     a, b = read(args, "a"), read(args, "b")
-    missing = [r["facade_id"] for r in rows if r["facade_id"] not in a or r["facade_id"] not in b]
+    missing = missing_readings(rows, a, b)
     if missing:
         raise ValueError(f"{len(missing)} presented references lack paired readings")
-    usable = sum(
-        all(
-            x[fid]["usable"]
-            and not x[fid]["wrong_wall"]
-            and not x[fid]["multiple_surfaces"]
-            and x[fid]["occlusion_share"] <= 0.2
-            for x in (a, b)
-        )
-        for fid in (r["facade_id"] for r in rows)
-    )
+    usable = sum(eligible(a[fid]) and eligible(b[fid]) for fid in (r["facade_id"] for r in rows))
     result = dict(**meta, usable=usable, usable_share=usable / meta["walls"])
     fast.write_json(args.output / "aggregate.json", result)
     print(json.dumps(result), flush=True)
@@ -185,6 +201,7 @@ def main():
     parser.add_argument("--refs", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--reviewer", choices=["a", "b"])
+    parser.add_argument("--only-a-eligible", action="store_true")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--parallel", type=int, default=1)
     args = parser.parse_args()
