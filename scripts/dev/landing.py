@@ -55,13 +55,6 @@ def behind(name):
     return sum(row.get("commit") in missing for row in ledger_rows()) if missing else 0
 
 
-def author(commit):
-    """The task whose landing produced commit."""
-    return next(
-        (row.get("name") for row in reversed(ledger_rows()) if row.get("commit") == commit), None
-    )
-
-
 def completed_at(meta):
     return meta.get("finished") if meta.get("state") == "done" else meta.get("finish_requested")
 
@@ -219,7 +212,8 @@ def land(name, keep_sandbox=False, note=None):
     ):
         return previous
     selected = delivery.plan(path, repo)
-    post_deploy.validate_fix(selected.get("fix_for"))
+    if not already:
+        post_deploy.validate_fix(selected.get("fix_for"))
     if selected.get("heads_up"):
         coord.send("all", "interface", f"{name}: shared change", selected["heads_up"], refs=(head,))
     if not already:
@@ -261,6 +255,9 @@ def land(name, keep_sandbox=False, note=None):
         print(f"source publication: {json.dumps(pushed)}", flush=True)
     if deployed["result"] != "deployed":
         raise ValueError(f"main remains merged; deploy failed: {deployed.get('error')}")
+    if keep_sandbox and meta.get("worker") == "external":
+        current = s.read_json(path / "meta.json", {})
+        s.write_json(path / "meta.json", {**current, "state": "external"})
     if not keep_sandbox:
         cleanup_landed(name)
     return {**previous, "deployment": deployed}

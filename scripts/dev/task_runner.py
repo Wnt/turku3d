@@ -335,15 +335,15 @@ def worker(name):
         land_at_turn_end(name, path)
 
 
-# Covers the wait for land.lock behind other landings; the lander's own budget is 180 s.
+# Compatibility runner envelope covers package/upload; selected checks have their own hard deadlines.
 LAND_TIMEOUT_SECONDS = 1800
 
 
 def land_at_turn_end(name, path):
-    """Land a DONE turn through main's current lander (`codex-task land`), log in land.log.
+    """Compatibility call for DONE turns; explicit finish uses the same direct delivery.
 
-    The runner leaves the sandbox first so the landing can remove it. A conflict or a red
-    gate leaves the task done and unlanded; the orchestrator resumes it to fix that.
+    The recorded selection must cover the current change. Conflicts or failed selected
+    checks leave main unchanged; upload/async failures are forward only.
     """
     os.chdir(path)
     result = s.run_group(
