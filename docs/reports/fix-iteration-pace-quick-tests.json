@@ -1,0 +1,2402 @@
+{
+  "numTotalTests": 399,
+  "numPassedTests": 398,
+  "numFailedTests": 0,
+  "cases": [
+    {
+      "file": "game/tests/unit/actorExchange.test.ts",
+      "test": "sleeping actor is published once and retained when later deltas omit it",
+      "status": "passed",
+      "milliseconds": 3.644291999999993
+    },
+    {
+      "file": "game/tests/unit/actorExchange.test.ts",
+      "test": "final pose, break edge and removal survive skipped snapshots until acknowledged",
+      "status": "passed",
+      "milliseconds": 0.608041
+    },
+    {
+      "file": "game/tests/unit/actorExchange.test.ts",
+      "test": "newest pose supersedes an unsampled pose; removals do not erase other cached actors",
+      "status": "passed",
+      "milliseconds": 0.321708000000001
+    },
+    {
+      "file": "game/tests/unit/actorExchange.test.ts",
+      "test": "hundreds of unchanged parked poses do not reappear in per-step payloads",
+      "status": "passed",
+      "milliseconds": 3.050124999999994
+    },
+    {
+      "file": "game/tests/unit/announcements.test.ts",
+      "test": "spoken announcements uses every phrase once before reshuffling, including after a save round trip",
+      "status": "passed",
+      "milliseconds": 22.515000000000015
+    },
+    {
+      "file": "game/tests/unit/announcements.test.ts",
+      "test": "spoken announcements assembles a double HUD sentence in the same order as its clips",
+      "status": "passed",
+      "milliseconds": 4.414708000000019
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "material contract maps five surfaces; sensors and silent boundaries never step",
+      "status": "passed",
+      "milliseconds": 1.2575840000000085
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "river fades with distance, engine follows RPM/throttle, rolling and slip are bounded",
+      "status": "passed",
+      "milliseconds": 0.710125000000005
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "engine rpm: the truck idles low and pulls four gears to 120 km/h within the car rev range",
+      "status": "passed",
+      "milliseconds": 0.1652909999999963
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded voices and teardown",
+      "status": "passed",
+      "milliseconds": 2.3526669999999967
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "asset failure is contained, and disposal during decode never starts voices",
+      "status": "passed",
+      "milliseconds": 0.7593339999999955
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "gameplay emits by travelled distance, suppresses duplicate ticks/airborne/pause and deduplicates impacts",
+      "status": "passed",
+      "milliseconds": 0.6617499999999978
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "gameplay: the scooter has no doors and revs its own engine loop higher than the car",
+      "status": "passed",
+      "milliseconds": 0.22637499999999022
+    },
+    {
+      "file": "game/tests/unit/audio.test.ts",
+      "test": "preload decodes while suspended; the start gesture only resumes and reuses buffers",
+      "status": "passed",
+      "milliseconds": 0.2317910000000012
+    },
+    {
+      "file": "game/tests/unit/character.test.ts",
+      "test": "interpolation advances evenly at 120 Hz and ignores duplicate ticks",
+      "status": "passed",
+      "milliseconds": 1.246875000000017
+    },
+    {
+      "file": "game/tests/unit/character.test.ts",
+      "test": "interpolation advances evenly at 240 Hz and ignores duplicate ticks",
+      "status": "passed",
+      "milliseconds": 0.20033300000000054
+    },
+    {
+      "file": "game/tests/unit/character.test.ts",
+      "test": "two-bone IK reaches both sides of a curb without changing bone lengths",
+      "status": "passed",
+      "milliseconds": 1.8593329999999924
+    },
+    {
+      "file": "game/tests/unit/character.test.ts",
+      "test": "foot IK places feet independently across a curb and lowers the pelvis on descent",
+      "status": "passed",
+      "milliseconds": 9.337041999999997
+    },
+    {
+      "file": "game/tests/unit/coarse-region.test.ts",
+      "test": "startup covers the collision radius of every start without waiting on far-LOD siblings",
+      "status": "passed",
+      "milliseconds": 2.1607500000000073
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "localhost drafts stay same-origin; Pages uses HTTPS remote drafts",
+      "status": "passed",
+      "milliseconds": 1.6448330000000055
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "wanted cells: 3x3 window minus published tiles, widened to whole published leaf parents, nearest first",
+      "status": "passed",
+      "milliseconds": 1.2723330000000033
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "streams a draft tile into the scene and the collision manifest, hides the covered parent, swaps on publish",
+      "status": "passed",
+      "milliseconds": 17.357166999999976
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "prefetch: the cells along the next 30 s of travel and a one-tile ring, nearest first; none when standing",
+      "status": "passed",
+      "milliseconds": 0.42904199999998127
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "a moving player gets builds ahead requested without loading them; they load once inside the window",
+      "status": "passed",
+      "milliseconds": 53.39729199999999
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "reports the player motion once a second and names the data a waiting tile needs",
+      "status": "passed",
+      "milliseconds": 6.722916999999995
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "a restarting service pauses the drafts: one console line, only status probes, then they resume",
+      "status": "passed",
+      "milliseconds": 177.284583
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "a finished build reaches the game at the next check, and the badge shows when the next tile is ready",
+      "status": "passed",
+      "milliseconds": 22.05941699999994
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "a drawn draft owns the collision of all its cells, also a published margin cell, and returns it when it leaves",
+      "status": "passed",
+      "milliseconds": 69.60670799999991
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "Pages retries offline and queue-full states, then draws remote drafts after collision checks",
+      "status": "passed",
+      "milliseconds": 65.97804199999996
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "Kaskenkatu requests actual southeast crossings before nearer lateral cells",
+      "status": "passed",
+      "milliseconds": 0.6027080000000069
+    },
+    {
+      "file": "game/tests/unit/coarse-tiles.test.ts",
+      "test": "a full draft upgrades geometry, changed collision and streets only after the replacement is ready",
+      "status": "passed",
+      "milliseconds": 29.099333
+    },
+    {
+      "file": "game/tests/unit/collision-coverage.test.ts",
+      "test": "stationary actors require actual resident collision, including outside the manifest",
+      "status": "passed",
+      "milliseconds": 0.9959589999999992
+    },
+    {
+      "file": "game/tests/unit/collision-coverage.test.ts",
+      "test": "checks the full swept footprint before a fast or diagonal crossing",
+      "status": "passed",
+      "milliseconds": 0.12599999999999056
+    },
+    {
+      "file": "game/tests/unit/collision-coverage.test.ts",
+      "test": "a capsule or car overlapping a cell boundary waits for both sides",
+      "status": "passed",
+      "milliseconds": 0.10975000000000534
+    },
+    {
+      "file": "game/tests/unit/collision-coverage.test.ts",
+      "test": "negative coordinates and exact corner contact need all touched cells",
+      "status": "passed",
+      "milliseconds": 0.10837499999999523
+    },
+    {
+      "file": "game/tests/unit/collision-coverage.test.ts",
+      "test": "coverage includes the next step before an actor crosses a loaded edge",
+      "status": "passed",
+      "milliseconds": 0.09095800000000054
+    },
+    {
+      "file": "game/tests/unit/collision-sweep.test.ts",
+      "test": "published spawn grid walking sweep",
+      "status": "skipped",
+      "milliseconds": null
+    },
+    {
+      "file": "game/tests/unit/compile-model.test.ts",
+      "test": "one-draw compilation preserves material arrays, children, visibility and renderer state across awaits",
+      "status": "passed",
+      "milliseconds": 4.185708000000034
+    },
+    {
+      "file": "game/tests/unit/core.test.ts",
+      "test": "origin round trip and office tile",
+      "status": "passed",
+      "milliseconds": 1.2801670000000058
+    },
+    {
+      "file": "game/tests/unit/core.test.ts",
+      "test": "heading <-> yaw",
+      "status": "passed",
+      "milliseconds": 0.24191600000000335
+    },
+    {
+      "file": "game/tests/unit/core.test.ts",
+      "test": "url params",
+      "status": "passed",
+      "milliseconds": 6.3352919999999955
+    },
+    {
+      "file": "game/tests/unit/core.test.ts",
+      "test": "sun position in Turku",
+      "status": "passed",
+      "milliseconds": 0.4197500000000076
+    },
+    {
+      "file": "game/tests/unit/core.test.ts",
+      "test": "sun direction is rotated from true to grid azimuth (meridian convergence)",
+      "status": "passed",
+      "milliseconds": 0.40866599999999664
+    },
+    {
+      "file": "game/tests/unit/core.test.ts",
+      "test": "Turku is the deployment-relative default; development requires an explicit scene",
+      "status": "passed",
+      "milliseconds": 0.7467910000000018
+    },
+    {
+      "file": "game/tests/unit/day-cycle.test.ts",
+      "test": "UTC phase agrees across cycles, including negative epochs; local date is fixed",
+      "status": "passed",
+      "milliseconds": 22.237208999999993
+    },
+    {
+      "file": "game/tests/unit/day-cycle.test.ts",
+      "test": "ten-second forward skip wraps the clock on the same date but never renders night",
+      "status": "passed",
+      "milliseconds": 8.678541999999993
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "gate on a local origin or with ?dev=1, never on GitHub Pages",
+      "status": "passed",
+      "milliseconds": 1.2250840000000096
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "fly controller a double tap of jump toggles flight; slow taps do not",
+      "status": "passed",
+      "milliseconds": 0.2581249999999784
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "fly controller three times walking speed, ten times with the fast modifier, in every direction",
+      "status": "passed",
+      "milliseconds": 0.7605829999999969
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "dev money goes to the local wallet, is marked devMoney in the mission save and survives a reload; no paid drop-off",
+      "status": "passed",
+      "milliseconds": 1.0697080000000199
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "dev money a save from before the tools reads as no dev money",
+      "status": "passed",
+      "milliseconds": 0.2002080000000035
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "dev money the save slot keeps stats.devMoney and its details show it",
+      "status": "passed",
+      "milliseconds": 16.746958000000006
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "time of day dawn, noon, dusk and the night after, in order, with the sun where it should be",
+      "status": "passed",
+      "milliseconds": 2.180291000000011
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "time of day deep winter: dawn and dusk fall back to three hours around noon when the sun stays low",
+      "status": "passed",
+      "milliseconds": 0.7590420000000222
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "teleport places the named places, in EPSG:3877 around Turku",
+      "status": "passed",
+      "milliseconds": 1.5352499999999623
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "teleport places Enter E,N reads E,N or E,N,heading",
+      "status": "passed",
+      "milliseconds": 0.3287910000000238
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "Developer pages money, fly mode, truck spawn, time of day and back",
+      "status": "passed",
+      "milliseconds": 2.821624999999983
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "Developer pages teleport: named places (unbuilt ones arrive flying) and Enter E,N",
+      "status": "passed",
+      "milliseconds": 0.31725000000000136
+    },
+    {
+      "file": "game/tests/unit/dev-tools.test.ts",
+      "test": "Developer pages the pause menu lists Developer before Quit only where the tools run",
+      "status": "passed",
+      "milliseconds": 0.57325000000003
+    },
+    {
+      "file": "game/tests/unit/dropoffs.test.ts",
+      "test": "scripted drop-offs fall back to sidewalk points outside every block, in front of their own building",
+      "status": "passed",
+      "milliseconds": 3.0751669999999933
+    },
+    {
+      "file": "game/tests/unit/dropoffs.test.ts",
+      "test": "scripted drop-offs resolve every scripted address through the pool: its drop-off, route distance and par",
+      "status": "passed",
+      "milliseconds": 8.902874999999995
+    },
+    {
+      "file": "game/tests/unit/dropoffs.test.ts",
+      "test": "scripted drop-offs use the fallback point when the pool lacks the address",
+      "status": "passed",
+      "milliseconds": 0.48179199999999867
+    },
+    {
+      "file": "game/tests/unit/dropoffs.test.ts",
+      "test": "drop-off ground check accepts the street, rejects roofs and spots off the street level, and waits for collision",
+      "status": "passed",
+      "milliseconds": 0.6670000000000016
+    },
+    {
+      "file": "game/tests/unit/dropoffs.test.ts",
+      "test": "drop-off ground check moves a drop-off off a roof to the next candidate and never marks the roof",
+      "status": "passed",
+      "milliseconds": 1.3065830000000034
+    },
+    {
+      "file": "game/tests/unit/dropoffs.test.ts",
+      "test": "drop-off ground check runs through the street candidates and gives up without a marker when every one is rejected",
+      "status": "passed",
+      "milliseconds": 2.510542000000001
+    },
+    {
+      "file": "game/tests/unit/edge-marker.test.ts",
+      "test": "built cells are the published and drafted L0 tiles; far LOD models get the unbuilt look and give it back",
+      "status": "passed",
+      "milliseconds": 3.7252079999999808
+    },
+    {
+      "file": "game/tests/unit/edge-marker.test.ts",
+      "test": "true edges are the sides of loaded tiles with no collision in any source",
+      "status": "passed",
+      "milliseconds": 0.31770899999997937
+    },
+    {
+      "file": "game/tests/unit/edge-marker.test.ts",
+      "test": "the marker band follows the ground along each true edge and leaves with it",
+      "status": "passed",
+      "milliseconds": 2.9814580000000035
+    },
+    {
+      "file": "game/tests/unit/edge-walls.test.ts",
+      "test": "open edges follow the loaded cells; a neighbour closes the shared edge and unloading reopens it",
+      "status": "passed",
+      "milliseconds": 9.974958000000015
+    },
+    {
+      "file": "game/tests/unit/edge-walls.test.ts",
+      "test": "no wall faces a neighbour whose collision exists but is not loaded; the wall returns when it is gone",
+      "status": "passed",
+      "milliseconds": 1.715582999999981
+    },
+    {
+      "file": "game/tests/unit/edge-walls.test.ts",
+      "test": "the character walking east stops at the edge of the loaded collision instead of falling off",
+      "status": "passed",
+      "milliseconds": 104.40341599999999
+    },
+    {
+      "file": "game/tests/unit/edge-walls.test.ts",
+      "test": "a car driven at speed into the edge stays on the tile; with the neighbour loaded it drives on",
+      "status": "passed",
+      "milliseconds": 69.861584
+    },
+    {
+      "file": "game/tests/unit/edge-walls.test.ts",
+      "test": "checkTile decodes without adding colliders and rejects a damaged tile",
+      "status": "passed",
+      "milliseconds": 1.3370419999999967
+    },
+    {
+      "file": "game/tests/unit/flags.test.ts",
+      "test": "A/B settings require an explicit 1 and default to off",
+      "status": "passed",
+      "milliseconds": 1.0899169999999856
+    },
+    {
+      "file": "game/tests/unit/ground-binding.test.ts",
+      "test": "uses assembler URLs, shares library, and changes only ground meshes",
+      "status": "passed",
+      "milliseconds": 4.365250000000003
+    },
+    {
+      "file": "game/tests/unit/ground-binding.test.ts",
+      "test": "disposes a late load after unload without mutating the removed mesh",
+      "status": "passed",
+      "milliseconds": 0.46545800000001236
+    },
+    {
+      "file": "game/tests/unit/ground-binding.test.ts",
+      "test": "binds one material through batched parent metadata and preserves object ranges",
+      "status": "passed",
+      "milliseconds": 0.6379589999999951
+    },
+    {
+      "file": "game/tests/unit/ground-binding.test.ts",
+      "test": "keeps the original ground visible until its maps finish uploading",
+      "status": "passed",
+      "milliseconds": 53.26400000000001
+    },
+    {
+      "file": "game/tests/unit/ground-binding.test.ts",
+      "test": "batches indexed and plain ground with local transforms and fallback normals",
+      "status": "passed",
+      "milliseconds": 1.5927079999999876
+    },
+    {
+      "file": "game/tests/unit/ground-material.test.ts",
+      "test": "ground material contract rejects mismatched library channel order before sampling the wrong surface",
+      "status": "passed",
+      "milliseconds": 1.333833999999996
+    },
+    {
+      "file": "game/tests/unit/ground-material.test.ts",
+      "test": "ground material contract rejects invalid bounds and gutter mappings",
+      "status": "passed",
+      "milliseconds": 0.1904999999999859
+    },
+    {
+      "file": "game/tests/unit/ground-material.test.ts",
+      "test": "new ground tiles reuse resident library arrays without invalidating their GPU contents",
+      "status": "passed",
+      "milliseconds": 2.1385830000000112
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "a kerb step is felt like the curb-strike module at the same speed and height; drops weaker; texture not",
+      "status": "passed",
+      "milliseconds": 3.5721249999999998
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "jolts map by compression speed and the stronger of step and jolt plays",
+      "status": "passed",
+      "milliseconds": 0.23220799999998576
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "collisions map by speed change, so the same impulse shakes a scooter harder than a car",
+      "status": "passed",
+      "milliseconds": 0.17766699999998536
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "landings rumble by fall speed: a jump does, a step down does not",
+      "status": "passed",
+      "milliseconds": 0.11370800000000258
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "engine: a car under throttle pulls hardest from rest, a ridden scooter always buzzes; weak motor only",
+      "status": "passed",
+      "milliseconds": 0.19695799999999508
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "each vehicle event plays once; a vehicle entered with old events never replays them",
+      "status": "passed",
+      "milliseconds": 0.9023750000000064
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "a stronger transient preempts a running one, a weaker one is dropped, and a later one plays",
+      "status": "passed",
+      "milliseconds": 0.28616699999997763
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "the engine rumble renews in overlapping pulses, steps aside for transients and stops without throttle",
+      "status": "passed",
+      "milliseconds": 0.46633299999999167
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "on foot: a landing rumbles by the fall speed before touchdown; stair footsteps tick, other footsteps do not",
+      "status": "passed",
+      "milliseconds": 0.5582919999999945
+    },
+    {
+      "file": "game/tests/unit/haptics.test.ts",
+      "test": "paused, menu and start-screen frames rumble nothing and never replay what happened meanwhile",
+      "status": "passed",
+      "milliseconds": 0.156833000000006
+    },
+    {
+      "file": "game/tests/unit/help-learning.test.ts",
+      "test": "minute boundary hides help, before the boundary keeps it visible",
+      "status": "passed",
+      "milliseconds": 1.0084169999999943
+    },
+    {
+      "file": "game/tests/unit/help-learning.test.ts",
+      "test": "75 percent must be used twice; duplicates in one sample count only once",
+      "status": "passed",
+      "milliseconds": 0.1935840000000013
+    },
+    {
+      "file": "game/tests/unit/help-learning.test.ts",
+      "test": "mode progress is independent and held-input samples never add uses",
+      "status": "passed",
+      "milliseconds": 0.5109580000000022
+    },
+    {
+      "file": "game/tests/unit/hot-state.test.ts",
+      "test": "hot swap state carries money, permit, phase, clock and camera into the new session",
+      "status": "passed",
+      "milliseconds": 4.2153749999999945
+    },
+    {
+      "file": "game/tests/unit/hot-state.test.ts",
+      "test": "hot swap state keeps the driven vehicle and leaves missions untouched when the start menu was open",
+      "status": "passed",
+      "milliseconds": 0.3181250000000091
+    },
+    {
+      "file": "game/tests/unit/hot-state.test.ts",
+      "test": "hot swap state the resume marker holds for exactly one page load",
+      "status": "passed",
+      "milliseconds": 0.18054200000000264
+    },
+    {
+      "file": "game/tests/unit/hot-state.test.ts",
+      "test": "build badge names main and the verdict, hidden without the localhost service",
+      "status": "passed",
+      "milliseconds": 0.20391600000000665
+    },
+    {
+      "file": "game/tests/unit/idPass.test.ts",
+      "test": "layer object, facade and material identities survive the ID pass",
+      "status": "passed",
+      "milliseconds": 2.6045000000000016
+    },
+    {
+      "file": "game/tests/unit/idPass.test.ts",
+      "test": "batched index ranges retain separate wall identities only in the QA pass",
+      "status": "passed",
+      "milliseconds": 0.642124999999993
+    },
+    {
+      "file": "game/tests/unit/input.test.ts",
+      "test": "action mapping radial dead zone is continuous, symmetric and preserves diagonal direction",
+      "status": "passed",
+      "milliseconds": 1.4946250000000134
+    },
+    {
+      "file": "game/tests/unit/input.test.ts",
+      "test": "action mapping fake Xbox covers every standard action and analog triggers",
+      "status": "passed",
+      "milliseconds": 0.8157920000000161
+    },
+    {
+      "file": "game/tests/unit/input.test.ts",
+      "test": "action mapping keyboard shares actions, normalizes diagonals, cancels opposites and ignores nonstandard pads",
+      "status": "passed",
+      "milliseconds": 0.28350000000000364
+    },
+    {
+      "file": "game/tests/unit/input.test.ts",
+      "test": "action mapping rebinding survives JSON serialization and glyphs track the binding",
+      "status": "passed",
+      "milliseconds": 0.37383400000001643
+    },
+    {
+      "file": "game/tests/unit/input.test.ts",
+      "test": "hot plug, edge actions, tap/hold sprint, focus clearing and unsupported rumble",
+      "status": "passed",
+      "milliseconds": 3.427375000000012
+    },
+    {
+      "file": "game/tests/unit/input.test.ts",
+      "test": "gameplay cannot read browser input outside src/input",
+      "status": "passed",
+      "milliseconds": 23.87462500000001
+    },
+    {
+      "file": "game/tests/unit/input.test.ts",
+      "test": "keyboard autorepeat does not activate audio or recreate input edges",
+      "status": "passed",
+      "milliseconds": 0.5970829999999978
+    },
+    {
+      "file": "game/tests/unit/isolation.test.ts",
+      "test": "isolated local hosts do not install a service worker",
+      "status": "passed",
+      "milliseconds": 2.4938339999999926
+    },
+    {
+      "file": "game/tests/unit/isolation.test.ts",
+      "test": "a controlled unsupported browser falls back without a reload loop",
+      "status": "passed",
+      "milliseconds": 0.2739169999999973
+    },
+    {
+      "file": "game/tests/unit/isolation.test.ts",
+      "test": "registration is subpath-relative and a control timeout does not block startup",
+      "status": "passed",
+      "milliseconds": 2.4712080000000043
+    },
+    {
+      "file": "game/tests/unit/isolation.test.ts",
+      "test": "a different controlling worker can be replaced without storage access",
+      "status": "passed",
+      "milliseconds": 0.3534580000000176
+    },
+    {
+      "file": "game/tests/unit/load-region.test.ts",
+      "test": "indexes the entire tileset before first traversal and waits for every ring leaf, including offscreen ones",
+      "status": "passed",
+      "milliseconds": 5.159833999999989
+    },
+    {
+      "file": "game/tests/unit/load-region.test.ts",
+      "test": "region masks frustum decisions and refines only the selected parents",
+      "status": "passed",
+      "milliseconds": 0.3346250000000168
+    },
+    {
+      "file": "game/tests/unit/load-region.test.ts",
+      "test": "cache admission always has headroom above resident ring bytes, then shrinks after moving away",
+      "status": "passed",
+      "milliseconds": 0.26175000000000637
+    },
+    {
+      "file": "game/tests/unit/load-region.test.ts",
+      "test": "retains a distant menu candidate through focus changes, then releases its visual region",
+      "status": "passed",
+      "milliseconds": 0.21750000000000114
+    },
+    {
+      "file": "game/tests/unit/minimap.test.ts",
+      "test": "route is recomputed on a new target, a mode change or after moving more than 5 m",
+      "status": "passed",
+      "milliseconds": 1.6066660000000041
+    },
+    {
+      "file": "game/tests/unit/minimap.test.ts",
+      "test": "heading-up projection puts the facing direction at the top of the map",
+      "status": "passed",
+      "milliseconds": 0.5115830000000017
+    },
+    {
+      "file": "game/tests/unit/minimap.test.ts",
+      "test": "timer and money formatting",
+      "status": "passed",
+      "milliseconds": 12.411708000000004
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "contract emptyHudSource reports the empty state once and unsubscribes",
+      "status": "passed",
+      "milliseconds": 1.1480829999999855
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "economy emits one protocol payout per paid drop-off, excluding permit spending",
+      "status": "passed",
+      "milliseconds": 2.86862499999998
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "economy pays the full tip up to 70 % of par and nothing from 130 %, linearly between",
+      "status": "passed",
+      "milliseconds": 1.0857090000000085
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "economy derives par time from route distance and the vehicle class",
+      "status": "passed",
+      "milliseconds": 0.17858400000000074
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "economy buys vehicles back at half price",
+      "status": "passed",
+      "milliseconds": 0.11445899999998232
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "dialogue content has unique well-formed ids and known speakers",
+      "status": "passed",
+      "milliseconds": 2.592667000000006
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "dialogue content references only existing lines from content",
+      "status": "passed",
+      "milliseconds": 0.5857079999999826
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "dialogue content gives every menu option, reason, zone label and prompt an unvoiced line, and voices the shopkeepers",
+      "status": "passed",
+      "milliseconds": 0.49566599999999994
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "dialogue content quotes the economy in the lines",
+      "status": "passed",
+      "milliseconds": 0.16191699999998832
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "dialogue content places every delivery at a distinct street distance",
+      "status": "passed",
+      "milliseconds": 0.16437500000000682
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine draws a new permit hint after a shop announcement interrupts it",
+      "status": "passed",
+      "milliseconds": 0.5136669999999981
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine starts idle and asks for a permit after begin()",
+      "status": "passed",
+      "milliseconds": 0.23099999999999454
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine opens the black market menu in its zone and rents a permit inside it",
+      "status": "passed",
+      "milliseconds": 0.7644169999999804
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine closes a menu on leave or when the player is moved away",
+      "status": "passed",
+      "milliseconds": 0.12483299999999531
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine quotes the order at the pizzeria, then times and pays the delivery at a drop-off without a menu",
+      "status": "passed",
+      "milliseconds": 1.4992499999999893
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine does nothing outside the interaction radius",
+      "status": "passed",
+      "milliseconds": 0.13270800000000804
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine uses one permit delivery per order and stops orders when it runs out",
+      "status": "passed",
+      "milliseconds": 1.1696660000000065
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine rents at most PERMIT_MAX deliveries ahead",
+      "status": "passed",
+      "milliseconds": 0.2522909999999854
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine speaks the bought-back expiry warning after hand-overs near the end of the permit",
+      "status": "passed",
+      "milliseconds": 0.7576249999999902
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine fails a delivery after twice the par time and moves on to the next address",
+      "status": "passed",
+      "milliseconds": 3.2530830000000037
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine pays no tip for a slow but completed delivery",
+      "status": "passed",
+      "milliseconds": 2.3773750000000007
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine repeats the deliveries in order after the last one",
+      "status": "passed",
+      "milliseconds": 1.0618340000000046
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine sells the kidney once for a permanent run penalty that a slice lifts for a while",
+      "status": "passed",
+      "milliseconds": 0.792917000000017
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine sells vehicles one at a time after the permit, and buys them back at half price",
+      "status": "passed",
+      "milliseconds": 0.8527920000000222
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine uses the owned vehicle for par time and allows only that vehicle while carrying",
+      "status": "passed",
+      "milliseconds": 0.4294170000000008
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine lets forged plates deliver with any car, at car par time",
+      "status": "passed",
+      "milliseconds": 0.1957920000000115
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine continues a saved game after a reload, including the running timer",
+      "status": "passed",
+      "milliseconds": 0.4176249999999868
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine restores over a running game: dialogue and the open shop are dropped, null starts a new game",
+      "status": "passed",
+      "milliseconds": 0.21641700000000696
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine reports a checkpoint after each purchase and each finished delivery, and nothing else",
+      "status": "passed",
+      "milliseconds": 1.630207999999982
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine summarises a save text for the slot list",
+      "status": "passed",
+      "milliseconds": 0.4361250000000041
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine migrates an owned bicycle in any save version to the scooter",
+      "status": "passed",
+      "milliseconds": 0.24404100000000994
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine migrates a save from main 2673ec0: an owned licence becomes a fresh permit rental",
+      "status": "passed",
+      "milliseconds": 0.35070799999999736
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine falls back to a new game on a corrupt save",
+      "status": "passed",
+      "milliseconds": 0.10491700000000037
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine notifies subscribers only on change and stops after unsubscribe",
+      "status": "passed",
+      "milliseconds": 0.20454200000000355
+    },
+    {
+      "file": "game/tests/unit/missions.test.ts",
+      "test": "mission state machine keeps the menu view object while nothing in it changes",
+      "status": "passed",
+      "milliseconds": 0.18333300000000463
+    },
+    {
+      "file": "game/tests/unit/motion.test.ts",
+      "test": "walking and driving sample adjacent physics ticks with one bounded render clock",
+      "status": "passed",
+      "milliseconds": 3.2590409999999963
+    },
+    {
+      "file": "game/tests/unit/motion.test.ts",
+      "test": "rotating chase camera keeps moving car centered while collision replies arrive late",
+      "status": "passed",
+      "milliseconds": 2.682707999999991
+    },
+    {
+      "file": "game/tests/unit/music-play.test.ts",
+      "test": "play contexts map to music states and muffling",
+      "status": "passed",
+      "milliseconds": 1.1445829999999972
+    },
+    {
+      "file": "game/tests/unit/music-play.test.ts",
+      "test": "delivery progress uses elapsed over par with safe bounds",
+      "status": "passed",
+      "milliseconds": 0.17295799999999417
+    },
+    {
+      "file": "game/tests/unit/music.test.ts",
+      "test": "five paired tracks have stable key and tempo",
+      "status": "passed",
+      "milliseconds": 1.5036249999999995
+    },
+    {
+      "file": "game/tests/unit/music.test.ts",
+      "test": "mission switch is bar quantised and crossfade lasts configured bars",
+      "status": "passed",
+      "milliseconds": 1.0330000000000013
+    },
+    {
+      "file": "game/tests/unit/music.test.ts",
+      "test": "hurry curve starts at threshold and rises smoothly to full lift",
+      "status": "passed",
+      "milliseconds": 0.2028749999999917
+    },
+    {
+      "file": "game/tests/unit/music.test.ts",
+      "test": "muffle cutoff and gain smooth over requested time",
+      "status": "passed",
+      "milliseconds": 0.2376250000000084
+    },
+    {
+      "file": "game/tests/unit/music.test.ts",
+      "test": "suspend and stale clock never schedule notes in the past",
+      "status": "passed",
+      "milliseconds": 0.20941700000000196
+    },
+    {
+      "file": "game/tests/unit/net-client.test.ts",
+      "test": "endpoint selection uses localhost for local pages and permits a WebSocket override",
+      "status": "passed",
+      "milliseconds": 1.5098749999999939
+    },
+    {
+      "file": "game/tests/unit/net-client.test.ts",
+      "test": "pose rate keeps within 20 messages per second and sends a stationary heartbeat",
+      "status": "passed",
+      "milliseconds": 0.26012499999998795
+    },
+    {
+      "file": "game/tests/unit/net-interpolation.test.ts",
+      "test": "network interpolation buffers 100 ms and extrapolates at most 200 ms",
+      "status": "passed",
+      "milliseconds": 1.0414170000000098
+    },
+    {
+      "file": "game/tests/unit/net-interpolation.test.ts",
+      "test": "a rejoin timestamp epoch resets interpolation and yaw takes the shortest turn",
+      "status": "passed",
+      "milliseconds": 0.16599999999999682
+    },
+    {
+      "file": "game/tests/unit/net-scoreboard.test.ts",
+      "test": "HUD keeps competition-rank podium and adds self once",
+      "status": "passed",
+      "milliseconds": 6.449375000000003
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "order generator climbs a capped distance ladder and makes every fifth order a double",
+      "status": "passed",
+      "milliseconds": 1.2389169999999865
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "order generator never repeats an address until the pool is exhausted, then starts over without the last order",
+      "status": "passed",
+      "milliseconds": 1.0776659999999936
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "order generator keeps the scripted addresses for last and is deterministic per seed and order number",
+      "status": "passed",
+      "milliseconds": 0.17433400000001598
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "order generator draws near orders first and farther ones later, with occasional short hops",
+      "status": "passed",
+      "milliseconds": 11.969625000000008
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "order generator pairs a double with the nearest other address within reach",
+      "status": "passed",
+      "milliseconds": 0.6580830000000049
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "address pool asset keeps addresses in published tiles and rejects another origin or format",
+      "status": "passed",
+      "milliseconds": 0.5708339999999907
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "address pool asset slugs like the pipeline and labels the big map with the house number",
+      "status": "passed",
+      "milliseconds": 0.18937499999998408
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "pool dialogue has twelve unique phrases in every active pool",
+      "status": "passed",
+      "milliseconds": 1.034374999999983
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "pool dialogue keeps static dialogue clips free of placeholders",
+      "status": "passed",
+      "milliseconds": 0.35566700000001106
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "pool orders in the mission system plays the scripted four, then pool addresses without repeats; a double pays two pizzas and the bonus",
+      "status": "passed",
+      "milliseconds": 5.848375000000004
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "pool orders in the mission system quotes par from the published distance for the vehicle class and names the address in the hints",
+      "status": "passed",
+      "milliseconds": 1.0035420000000101
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "pool orders in the mission system resumes a saved game with the delivered set and the carried pool order intact",
+      "status": "passed",
+      "milliseconds": 1.8680840000000103
+    },
+    {
+      "file": "game/tests/unit/orders.test.ts",
+      "test": "pool orders in the mission system migrates a v2 save text: the count carries over, a carried scripted order stays and the pool starts unused",
+      "status": "passed",
+      "milliseconds": 2.015708000000018
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": ".col reader all dev tiles parse, CRC ok, header matches manifest",
+      "status": "passed",
+      "milliseconds": 16.092083000000002
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": ".col reader crc mismatch is detected",
+      "status": "passed",
+      "milliseconds": 1.0714999999999009
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": ".col reader crc32 matches zlib",
+      "status": "passed",
+      "milliseconds": 0.9499580000000378
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles spawn is at the office in c_2_3 and ground ray hits road at H=2",
+      "status": "passed",
+      "milliseconds": 1.1910420000000386
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles ray materials: curb face, sidewalk top, pole primitive, building",
+      "status": "passed",
+      "milliseconds": 0.5610419999999294
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles character walks 5 m north and stays on the ground",
+      "status": "passed",
+      "milliseconds": 75.15520800000002
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles character steps up the 12 cm curb with autostep",
+      "status": "passed",
+      "milliseconds": 34.38104199999998
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles character climbs the 16 cm stair and reaches the 0.96 m platform",
+      "status": "passed",
+      "milliseconds": 44.03604199999995
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles feet query sees discrete treads while the KCC sees a smooth stair slope",
+      "status": "passed",
+      "milliseconds": 0.265041999999994
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles character climbs a 35 cm wall",
+      "status": "passed",
+      "milliseconds": 12.563499999999976
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles jump edge survives frames without a 60 Hz physics step",
+      "status": "passed",
+      "milliseconds": 1.500291999999945
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles character is blocked by the building wall",
+      "status": "passed",
+      "milliseconds": 22.430791999999883
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles jump goes up and lands",
+      "status": "passed",
+      "milliseconds": 4.429958999999826
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles fly mode: no gravity, the commanded climb, the building wall and its roof still collide",
+      "status": "passed",
+      "milliseconds": 49.481291000000056
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles car drives north on the road",
+      "status": "passed",
+      "milliseconds": 42.702792000000045
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles the water filter sees only the river surface, which other rays and the character pass through",
+      "status": "passed",
+      "milliseconds": 55.862750000000005
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles unload removes colliders",
+      "status": "passed",
+      "milliseconds": 1.3709160000000793
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "physics world on dev tiles seams: walking across four collision tiles does not fall or snag",
+      "status": "passed",
+      "milliseconds": 22.249083000000155
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "rapier trimesh featureId is still unusable (canary)",
+      "status": "passed",
+      "milliseconds": 0.3062919999999849
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "TriLocator finds triangles for hits just outside a tile edge / a 2 m cell edge (float error)",
+      "status": "passed",
+      "milliseconds": 0.11887499999988904
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "autostep handles 7.000000000000001 cm curb at all walking speeds",
+      "status": "passed",
+      "milliseconds": 58.57104099999992
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "autostep handles 15 cm curb at all walking speeds",
+      "status": "passed",
+      "milliseconds": 49.00262500000008
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "autostep handles 32 cm curb at all walking speeds",
+      "status": "passed",
+      "milliseconds": 11.886124999999993
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "autostep handles 35 cm curb at all walking speeds",
+      "status": "passed",
+      "milliseconds": 10.98091700000009
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "autostep handles 40 cm curb at all walking speeds",
+      "status": "passed",
+      "milliseconds": 17.91620899999998
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "runtime holds gravity after flight over missing collision and resumes when the cell arrives",
+      "status": "passed",
+      "milliseconds": 4.748499999999922
+    },
+    {
+      "file": "game/tests/unit/physics.test.ts",
+      "test": "runtime holds every car after collision eviction, then restores simulation when collision returns",
+      "status": "passed",
+      "milliseconds": 51.3834159999999
+    },
+    {
+      "file": "game/tests/unit/physicsClient.test.ts",
+      "test": "explicit steps do not depend on replies and worker errors are surfaced",
+      "status": "passed",
+      "milliseconds": 2.384083000000004
+    },
+    {
+      "file": "game/tests/unit/physicsClient.test.ts",
+      "test": "live fallback input keeps flowing without state replies, including pause",
+      "status": "passed",
+      "milliseconds": 0.6268330000000049
+    },
+    {
+      "file": "game/tests/unit/physicsClient.test.ts",
+      "test": "shared latest is read synchronously without any worker state message",
+      "status": "passed",
+      "milliseconds": 0.7909999999999968
+    },
+    {
+      "file": "game/tests/unit/physicsExchange.test.ts",
+      "test": "shared snapshots keep UTF-8 IDs, arrays and optional fields; latest write wins",
+      "status": "passed",
+      "milliseconds": 3.162707999999995
+    },
+    {
+      "file": "game/tests/unit/physicsExchange.test.ts",
+      "test": "incomplete writes are never decoded and overflow preserves the last snapshot",
+      "status": "passed",
+      "milliseconds": 0.62445799999999
+    },
+    {
+      "file": "game/tests/unit/physicsExchange.test.ts",
+      "test": "worker clock drops suspended time, caps catch-up and restarts without pause debt",
+      "status": "passed",
+      "milliseconds": 0.2150840000000045
+    },
+    {
+      "file": "game/tests/unit/physicsExchange.test.ts",
+      "test": "mailbox contention never waits or overwrites a snapshot being copied",
+      "status": "passed",
+      "milliseconds": 0.14204099999999187
+    },
+    {
+      "file": "game/tests/unit/physicsWorker.test.ts",
+      "test": "worker reports failed step sequence, continues its queue, and marks corrupt tiles permanent",
+      "status": "passed",
+      "milliseconds": 95.328125
+    },
+    {
+      "file": "game/tests/unit/poleExtraction.test.ts",
+      "test": "extracts individual draft nodes with their stable pole identity and world position",
+      "status": "passed",
+      "milliseconds": 2.844458000000003
+    },
+    {
+      "file": "game/tests/unit/poleExtraction.test.ts",
+      "test": "extracts packed full-tile ranges and detaches only the broken sign",
+      "status": "passed",
+      "milliseconds": 1.2679160000000138
+    },
+    {
+      "file": "game/tests/unit/poleExtraction.test.ts",
+      "test": "registers already loaded full poles and later draft poles, then removes evicted bodies",
+      "status": "passed",
+      "milliseconds": 1.296291999999994
+    },
+    {
+      "file": "game/tests/unit/poleFine.test.ts",
+      "test": "pole fine floors the wallet at zero",
+      "status": "passed",
+      "milliseconds": 1.1213329999999928
+    },
+    {
+      "file": "game/tests/unit/poleFine.test.ts",
+      "test": "pole fine uses every line before repeating and avoids a cycle boundary repeat",
+      "status": "passed",
+      "milliseconds": 0.3206660000000028
+    },
+    {
+      "file": "game/tests/unit/polePhysics.test.ts",
+      "test": "a vehicle strikes a solid pole, breaks it once above 10 km/h and leaves falling debris",
+      "status": "passed",
+      "milliseconds": 124.325875
+    },
+    {
+      "file": "game/tests/unit/polePhysics.test.ts",
+      "test": "walking into a pole remains blocked and never breaks it",
+      "status": "passed",
+      "milliseconds": 27.954499999999996
+    },
+    {
+      "file": "game/tests/unit/polePhysics.test.ts",
+      "test": "live actor snapshots omit standing poles and reuse sleeping vehicle poses",
+      "status": "passed",
+      "milliseconds": 3.534832999999992
+    },
+    {
+      "file": "game/tests/unit/preparation-budget.test.ts",
+      "test": "preparation yields between atomic draws and shares one pending frame",
+      "status": "passed",
+      "milliseconds": 0.9945000000000022
+    },
+    {
+      "file": "game/tests/unit/prepare-detached.test.ts",
+      "test": "preparing a detached tile includes parent transforms and leaves visibility insertion to the loader",
+      "status": "passed",
+      "milliseconds": 2.162125000000003
+    },
+    {
+      "file": "game/tests/unit/prepare-detached.test.ts",
+      "test": "aborted/failed preparation restores detached ownership",
+      "status": "passed",
+      "milliseconds": 0.943916999999999
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "playable area is the tile union with its bounding box",
+      "status": "passed",
+      "milliseconds": 1.2545419999999865
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "playable area edge distance covers the outer edge and the inner corner, capped at the warning distance",
+      "status": "passed",
+      "milliseconds": 0.21058299999999974
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "playable area inset moves a point 2 m inside every edge, corners included",
+      "status": "passed",
+      "milliseconds": 0.211915999999988
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "playable area tiles added at runtime join the area and grow its bounding box once reached",
+      "status": "passed",
+      "milliseconds": 0.14358399999998994
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "playable area lowest ground of the loaded tiles",
+      "status": "passed",
+      "milliseconds": 0.10858300000001009
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules below ground, outside the area, under water for 2 s, airborne for 3 s",
+      "status": "passed",
+      "milliseconds": 0.2044169999999923
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules a car driven off the east edge resets at the sample 3 s before it left the ground, inside the edge",
+      "status": "passed",
+      "milliseconds": 2.88516700000001
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules a loaded game or a teleport restarts sampling at the new place and drops a pending lost state",
+      "status": "passed",
+      "milliseconds": 0.8651669999999996
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules a player who never stood on safe ground is not lost: a spawn on the river bed",
+      "status": "passed",
+      "milliseconds": 1.9437080000000009
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules collision still streaming under the player is no fall; sinking below it once loaded is",
+      "status": "passed",
+      "milliseconds": 4.768332999999998
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules walking into the river: lost after 2 s under the surface, reset before the bank",
+      "status": "passed",
+      "milliseconds": 0.7665830000000113
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules a short fall that lands back on solid ground cancels the prompt",
+      "status": "passed",
+      "milliseconds": 0.33199999999999363
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "lost rules unsafe frames record no samples and do not arm the lost rules",
+      "status": "passed",
+      "milliseconds": 4.6565419999999875
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "developer fly mode hold: nobody is lost while flying; the rules re-arm at the first grounded contact with the old samples",
+      "status": "passed",
+      "milliseconds": 1.6658749999999998
+    },
+    {
+      "file": "game/tests/unit/recovery.test.ts",
+      "test": "developer fly mode a teleport (restart) ends the hold: the first safe frame arms as usual",
+      "status": "passed",
+      "milliseconds": 0.15433299999997985
+    },
+    {
+      "file": "game/tests/unit/reflections.test.ts",
+      "test": "river pass includes large static surfaces and excludes water, props and vegetation",
+      "status": "passed",
+      "milliseconds": 1.6061670000000277
+    },
+    {
+      "file": "game/tests/unit/reflections.test.ts",
+      "test": "reflection warmup uses its real target and layer mask without leaking state across awaits",
+      "status": "passed",
+      "milliseconds": 13.347541999999976
+    },
+    {
+      "file": "game/tests/unit/reflections.test.ts",
+      "test": "river reuse preserves explicit and automatic CSM update requests",
+      "status": "passed",
+      "milliseconds": 0.618707999999998
+    },
+    {
+      "file": "game/tests/unit/reflections.test.ts",
+      "test": "reflection restore leaves newly initialized cascades at their own defaults",
+      "status": "passed",
+      "milliseconds": 0.1311669999999765
+    },
+    {
+      "file": "game/tests/unit/release-swap.test.ts",
+      "test": "the delta names changed and added tiles, removed collision tiles and a changed tileset; drafts are ignored",
+      "status": "passed",
+      "milliseconds": 6.397500000000008
+    },
+    {
+      "file": "game/tests/unit/release-swap.test.ts",
+      "test": "a swap updates the shared manifest in place, reloads collision and the tileset, then retires drafts",
+      "status": "passed",
+      "milliseconds": 1.0001670000000047
+    },
+    {
+      "file": "game/tests/unit/release-swap.test.ts",
+      "test": "a cell a drawn draft holds keeps the draft collision; the draft gets the release entry to return later",
+      "status": "passed",
+      "milliseconds": 0.2898750000000234
+    },
+    {
+      "file": "game/tests/unit/release-swap.test.ts",
+      "test": "a collision-only release does not reload the visual tileset",
+      "status": "passed",
+      "milliseconds": 0.26900000000000546
+    },
+    {
+      "file": "game/tests/unit/release-swap.test.ts",
+      "test": "refresh reloads only loaded tiles, in place, and clears failures",
+      "status": "passed",
+      "milliseconds": 5.688040999999998
+    },
+    {
+      "file": "game/tests/unit/release-swap.test.ts",
+      "test": "visual reuse keeps equal hashes across URL changes, excluding changed, removed and new tiles",
+      "status": "passed",
+      "milliseconds": 0.20516699999998878
+    },
+    {
+      "file": "game/tests/unit/release-swap.test.ts",
+      "test": "retained models stay with the live renderer until transfer, then keep their resources",
+      "status": "passed",
+      "milliseconds": 1.085250000000002
+    },
+    {
+      "file": "game/tests/unit/remote-height.test.ts",
+      "test": "network height maps foot, car, scooter and truck poses to their visual and collider origins",
+      "status": "passed",
+      "milliseconds": 1.0551250000000039
+    },
+    {
+      "file": "game/tests/unit/remote-identity.test.ts",
+      "test": "vehicle identity follows the driven model and paint",
+      "status": "passed",
+      "milliseconds": 1.4153749999999974
+    },
+    {
+      "file": "game/tests/unit/render.test.ts",
+      "test": "nearest-rank percentiles handle small and empty windows without invented zero timings",
+      "status": "passed",
+      "milliseconds": 1.473875000000021
+    },
+    {
+      "file": "game/tests/unit/render.test.ts",
+      "test": "whole-frame timer keeps in-flight WebGL queries separate and rejects disjoint results",
+      "status": "passed",
+      "milliseconds": 5.463374999999985
+    },
+    {
+      "file": "game/tests/unit/render.test.ts",
+      "test": "HiDPI render budget and QA output sizes are explicit",
+      "status": "passed",
+      "milliseconds": 2.1797500000000127
+    },
+    {
+      "file": "game/tests/unit/render.test.ts",
+      "test": "material keys inherit glTF node extras; per-primitive material key takes precedence",
+      "status": "passed",
+      "milliseconds": 2.081457999999998
+    },
+    {
+      "file": "game/tests/unit/render.test.ts",
+      "test": "glTF material preservation and streamed ownership styling keeps albedo, normal, ORM and UV transforms, releases only its own material",
+      "status": "passed",
+      "milliseconds": 11.910916999999984
+    },
+    {
+      "file": "game/tests/unit/render.test.ts",
+      "test": "coplanar river tiles share a reflection and transfer ownership on unload",
+      "status": "passed",
+      "milliseconds": 11.391583000000026
+    },
+    {
+      "file": "game/tests/unit/renderScheduling.test.ts",
+      "test": "resolution falls under sustained missed refreshes, respects floor and recovers slowly",
+      "status": "passed",
+      "milliseconds": 4.053167000000002
+    },
+    {
+      "file": "game/tests/unit/renderScheduling.test.ts",
+      "test": "isolated load stalls and hidden-tab gaps do not lower resolution",
+      "status": "passed",
+      "milliseconds": 0.16012499999999363
+    },
+    {
+      "file": "game/tests/unit/renderScheduling.test.ts",
+      "test": "uploads prioritize largest jobs, bound bytes and run oversized textures alone",
+      "status": "passed",
+      "milliseconds": 0.5201250000000073
+    },
+    {
+      "file": "game/tests/unit/renderScheduling.test.ts",
+      "test": "elapsed upload budget yields after a slow job and propagates failures without stranding the queue",
+      "status": "passed",
+      "milliseconds": 0.7743750000000205
+    },
+    {
+      "file": "game/tests/unit/renderScheduling.test.ts",
+      "test": "glTF publication waits for uploads with final map settings and deduplicates shared maps",
+      "status": "passed",
+      "milliseconds": 1.5815409999999872
+    },
+    {
+      "file": "game/tests/unit/residency.test.ts",
+      "test": "distance to a visual tile footprint uses its level size",
+      "status": "passed",
+      "milliseconds": 1.0775839999999874
+    },
+    {
+      "file": "game/tests/unit/residency.test.ts",
+      "test": "the office block and a fifth tile east of it all refine at the office",
+      "status": "passed",
+      "milliseconds": 0.44908299999998746
+    },
+    {
+      "file": "game/tests/unit/residency.test.ts",
+      "test": "a large tile list keeps at most nine L0 tiles refined, nearest parents first",
+      "status": "passed",
+      "milliseconds": 1.1253750000000053
+    },
+    {
+      "file": "game/tests/unit/residency.test.ts",
+      "test": "partially covered parents still fill the remaining budget",
+      "status": "passed",
+      "milliseconds": 0.18962499999999238
+    },
+    {
+      "file": "game/tests/unit/residency.test.ts",
+      "test": "the 360-degree ring includes every intersecting child and its REPLACE siblings without a count cap",
+      "status": "passed",
+      "milliseconds": 8.132707999999994
+    },
+    {
+      "file": "game/tests/unit/residency.test.ts",
+      "test": "ring eviction has hysteresis, but a new far parent cannot enter through that margin",
+      "status": "passed",
+      "milliseconds": 0.18529100000000653
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "road graph router snaps by edge projection, not to the nearest node",
+      "status": "passed",
+      "milliseconds": 2.0227919999999955
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "road graph router walks the footway, drives around it, and includes both snapped endpoints and bends",
+      "status": "passed",
+      "milliseconds": 1.5573750000000075
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "road graph router car routes respect oneway edges and walkers ignore them",
+      "status": "passed",
+      "milliseconds": 0.9743329999999872
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "road graph router both ends on one edge go straight unless a oneway forbids that direction",
+      "status": "passed",
+      "milliseconds": 0.41345800000000565
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "road graph router off-graph ends and the empty graph give null",
+      "status": "passed",
+      "milliseconds": 0.3298329999999936
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "road graph router rejects other formats and broken edges; a manifest without roads has no graph",
+      "status": "passed",
+      "milliseconds": 0.7821250000000077
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "road graph router A* crosses a 60 x 60 street grid on a shortest path",
+      "status": "passed",
+      "milliseconds": 22.74862499999999
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "draft tiles join the map parts merge at their shared edge points and an edge both carry is kept once",
+      "status": "passed",
+      "milliseconds": 1.6076669999999922
+    },
+    {
+      "file": "game/tests/unit/router.test.ts",
+      "test": "draft tiles join the map the router routes from the published streets onto a draft tile once its graph arrives",
+      "status": "passed",
+      "milliseconds": 1.0274159999999881
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save slots writes, reads, lists and removes slots under one storage key",
+      "status": "passed",
+      "milliseconds": 1.951042000000001
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save slots drops malformed slots and survives corrupt or blocked storage",
+      "status": "passed",
+      "milliseconds": 0.37420900000000756
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save slots turns the unslotted mission save of main into slot 1 on the first run",
+      "status": "passed",
+      "milliseconds": 16.536125
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save slots labels a slot with the last delivery address and the Helsinki clock time",
+      "status": "passed",
+      "milliseconds": 0.5058750000000032
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "autosave writes the autosave slot while a game runs and records why",
+      "status": "passed",
+      "milliseconds": 0.21362499999997908
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "autosave saves on page hide and on a hidden tab until detached",
+      "status": "passed",
+      "milliseconds": 0.2308749999999975
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save menus starts a first game at once: no Continue, Load greyed",
+      "status": "passed",
+      "milliseconds": 0.8091660000000047
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save menus continues the latest save with its details and confirms a new game when saves exist",
+      "status": "passed",
+      "milliseconds": 0.6158749999999884
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save menus lists the autosave and three slots for loading, empty slots greyed, back to the caller",
+      "status": "passed",
+      "milliseconds": 1.089166999999975
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save menus saves into an empty slot at once and asks before overwriting a filled one",
+      "status": "passed",
+      "milliseconds": 0.7326659999999947
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save menus pause menu: back resumes, new game always confirms, quit leaves",
+      "status": "passed",
+      "milliseconds": 0.19054199999999355
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save menus respawn at the start asks first; Cancel and back return to the pause menu, the game is not reloaded",
+      "status": "passed",
+      "milliseconds": 0.22470900000001848
+    },
+    {
+      "file": "game/tests/unit/save.test.ts",
+      "test": "save menus a driven vehicle other than the own car waits at the kerb 5.5 m behind the start car",
+      "status": "passed",
+      "milliseconds": 0.21299999999999386
+    },
+    {
+      "file": "game/tests/unit/scooter.test.ts",
+      "test": "scooter parameters: a light narrow two-wheeler with outriggers, slower and tighter than the car",
+      "status": "passed",
+      "milliseconds": 1.9487909999999715
+    },
+    {
+      "file": "game/tests/unit/scooter.test.ts",
+      "test": "scooter lean: follows lateral acceleration, capped at 15 degrees",
+      "status": "passed",
+      "milliseconds": 0.1918749999999818
+    },
+    {
+      "file": "game/tests/unit/scooter.test.ts",
+      "test": "scooter physics: 45 km/h top speed, moped acceleration and braking, upright in a full-lock turn",
+      "status": "passed",
+      "milliseconds": 169.87516700000003
+    },
+    {
+      "file": "game/tests/unit/scooter.test.ts",
+      "test": "scooter turns tighter than the car at walking pace",
+      "status": "passed",
+      "milliseconds": 78.35891600000002
+    },
+    {
+      "file": "game/tests/unit/scooter.test.ts",
+      "test": "scooter curbs: a 12 cm kerb is felt but passable at 4 m/s, a 30 cm step blocks",
+      "status": "passed",
+      "milliseconds": 42.34195800000009
+    },
+    {
+      "file": "game/tests/unit/shadow-batch.test.ts",
+      "test": "shadow chunks preserve buildings and instanced props without ground or vegetation",
+      "status": "passed",
+      "milliseconds": 5.75520800000001
+    },
+    {
+      "file": "game/tests/unit/shadow-batch.test.ts",
+      "test": "spatial shadow chunks retain every triangle and bound all vertices, including long crossing triangles",
+      "status": "passed",
+      "milliseconds": 3.306207999999998
+    },
+    {
+      "file": "game/tests/unit/shadow-materials.test.ts",
+      "test": "opaque/cutout alternation computes shadow program keys once per caster",
+      "status": "passed",
+      "milliseconds": 4.950583000000023
+    },
+    {
+      "file": "game/tests/unit/shadow-materials.test.ts",
+      "test": "shadow variants follow explicit invalidation and dispose with their template",
+      "status": "passed",
+      "milliseconds": 0.8121659999999906
+    },
+    {
+      "file": "game/tests/unit/shops-ui.test.ts",
+      "test": "menu prices show payments, income with a plus sign, and nothing without a price",
+      "status": "passed",
+      "milliseconds": 1.0048749999999984
+    },
+    {
+      "file": "game/tests/unit/shops-ui.test.ts",
+      "test": "the order option shows address, rounded route length and par time instead of a static detail",
+      "status": "passed",
+      "milliseconds": 0.16833300000001827
+    },
+    {
+      "file": "game/tests/unit/shops-ui.test.ts",
+      "test": "zones are drawn just outside the interaction radius, pulse gently and fade out beyond label range",
+      "status": "passed",
+      "milliseconds": 0.25679099999999266
+    },
+    {
+      "file": "game/tests/unit/start-points.test.ts",
+      "test": "new, migrated, and every selectable save preload their player and owned vehicle in engine coordinates",
+      "status": "passed",
+      "milliseconds": 1.1890829999999966
+    },
+    {
+      "file": "game/tests/unit/start-points.test.ts",
+      "test": "multiplayer uses retained local pose before assigned spawn, with no EPSG offset applied twice",
+      "status": "passed",
+      "milliseconds": 0.1988330000000076
+    },
+    {
+      "file": "game/tests/unit/start-points.test.ts",
+      "test": "coincident starts share one region and unowned vehicles do not add a remote parking region",
+      "status": "passed",
+      "milliseconds": 0.10895800000000122
+    },
+    {
+      "file": "game/tests/unit/start-points.test.ts",
+      "test": "GPU warmup covers each selectable visual cell and deduplicates neighbouring parkings",
+      "status": "passed",
+      "milliseconds": 0.1436250000000001
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "requests the nearest tiles first (max 4 in flight), unloads beyond radius + hysteresis",
+      "status": "passed",
+      "milliseconds": 11.936124999999976
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "a city-sized manifest (84k collision tiles) updates without changing its bounded request capacity",
+      "status": "passed",
+      "milliseconds": 32.39012500000001
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "full request capacity still unloads distant tiles and resumes after requests finish",
+      "status": "passed",
+      "milliseconds": 1.9045419999999922
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "network/503 failures retry with exponential backoff and clear after success",
+      "status": "passed",
+      "milliseconds": 2.9451249999999902
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "size failures are permanent and surfaced",
+      "status": "passed",
+      "milliseconds": 1.2564580000000092
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "CRC failures are permanent and surfaced",
+      "status": "passed",
+      "milliseconds": 0.6848750000000052
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "a moving player gets the collision along the next 8 s of travel loaded, and keeps it beyond the radius",
+      "status": "passed",
+      "milliseconds": 16.720166999999975
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "the worker learns the neighbours of loaded tiles that exist; a tile that failed for good is not one",
+      "status": "passed",
+      "milliseconds": 1.3821670000000097
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "near a tile that exists but is not loaded the player is held to a speed that stops before it",
+      "status": "passed",
+      "milliseconds": 0.561791999999997
+    },
+    {
+      "file": "game/tests/unit/streaming.test.ts",
+      "test": "preloads the union of distant starts and does not evict either while the menu focus changes",
+      "status": "passed",
+      "milliseconds": 3.490791999999999
+    },
+    {
+      "file": "game/tests/unit/telemetry.test.ts",
+      "test": "telemetry runs on local origins only and never on GitHub Pages",
+      "status": "passed",
+      "milliseconds": 1.1073749999999905
+    },
+    {
+      "file": "game/tests/unit/telemetry.test.ts",
+      "test": "level-0 tile ids match the pipeline grid, including negative indices",
+      "status": "passed",
+      "milliseconds": 0.5060829999999896
+    },
+    {
+      "file": "game/tests/unit/telemetry.test.ts",
+      "test": "a session that starts after the page has loaded posts its first sample at once",
+      "status": "passed",
+      "milliseconds": 1.521082999999976
+    },
+    {
+      "file": "game/tests/unit/telemetry.test.ts",
+      "test": "walls are fitted from their index ranges and measured on screen",
+      "status": "passed",
+      "milliseconds": 1.7475000000000023
+    },
+    {
+      "file": "game/tests/unit/telemetry.test.ts",
+      "test": "samples once a second, batches lines every five seconds and names missing tiles",
+      "status": "passed",
+      "milliseconds": 1.2250840000000096
+    },
+    {
+      "file": "game/tests/unit/tile-preparation.test.ts",
+      "test": "prepares before native publication and retains original glTF resources after styling",
+      "status": "passed",
+      "milliseconds": 2.6425839999999994
+    },
+    {
+      "file": "game/tests/unit/tile-preparation.test.ts",
+      "test": "aborted preparation releases styled additions and original glTF resources without publication",
+      "status": "passed",
+      "milliseconds": 0.6492079999999874
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "touch pad the floating stick maps through the gamepad radial curve to move, steer, throttle and brake",
+      "status": "passed",
+      "milliseconds": 1.8799999999999955
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "touch pad look drags report pixel deltas once and a two-finger pinch zooms instead of looking",
+      "status": "passed",
+      "milliseconds": 0.2984160000000031
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "touch pad buttons hold until lifted and a tap between frames is still an edge",
+      "status": "passed",
+      "milliseconds": 0.1930409999999938
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "touch pad stick, look and a button work at once; extra fingers are ignored and pointer ids stay separate",
+      "status": "passed",
+      "milliseconds": 0.3123329999999953
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "touch pad every context but hidden has a pause or back button",
+      "status": "passed",
+      "milliseconds": 0.5923339999999939
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "Input merges touch into the same actions, edges, look and source",
+      "status": "passed",
+      "milliseconds": 1.4037910000000124
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "fullscreen policy only a touch player in the scene outside fullscreen is blocked",
+      "status": "passed",
+      "milliseconds": 0.16920900000000927
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "fullscreen policy blocking pauses; unblocking resumes only the policy's own pause",
+      "status": "passed",
+      "milliseconds": 0.1839999999999975
+    },
+    {
+      "file": "game/tests/unit/touch.test.ts",
+      "test": "fullscreen policy the Home Screen hint shows only on touch devices without element fullscreen",
+      "status": "passed",
+      "milliseconds": 0.13058300000000145
+    },
+    {
+      "file": "game/tests/unit/truck-dealer.test.ts",
+      "test": "trophy truck at the dealer sells the trophy truck for 1000 \u20ac: its own physics vehicle, its line, its par speed",
+      "status": "passed",
+      "milliseconds": 12.582290999999998
+    },
+    {
+      "file": "game/tests/unit/truck-dealer.test.ts",
+      "test": "trophy truck at the dealer keeps an owned truck in the save; every save version accepts the value",
+      "status": "passed",
+      "milliseconds": 0.5257080000000087
+    },
+    {
+      "file": "game/tests/unit/truck.test.ts",
+      "test": "truck tuning: heavy 4WD on big tyres and soft, strongly damped long-travel springs",
+      "status": "passed",
+      "milliseconds": 1.515041999999994
+    },
+    {
+      "file": "game/tests/unit/truck.test.ts",
+      "test": "truck drivetrain: 40/60 torque split over all four wheels, handbrake on the rear axle only",
+      "status": "passed",
+      "milliseconds": 58.349083000000064
+    },
+    {
+      "file": "game/tests/unit/truck.test.ts",
+      "test": "truck physics: high ride height, 0-100 km/h in about 6 s, 120 km/h top speed, upright at full lock",
+      "status": "passed",
+      "milliseconds": 233.13745800000004
+    },
+    {
+      "file": "game/tests/unit/truck.test.ts",
+      "test": "truck curbs: a 12 cm kerb at 40 km/h costs it no speed and barely tilts it; the car loses more",
+      "status": "passed",
+      "milliseconds": 109.81429200000002
+    },
+    {
+      "file": "game/tests/unit/truck.test.ts",
+      "test": "truck jump: a 1 m kicker at 43 km/h flies, lands on its wheels without a chassis strike and drives on",
+      "status": "passed",
+      "milliseconds": 11.263541999999916
+    },
+    {
+      "file": "game/tests/unit/truck.test.ts",
+      "test": "truck chase camera: higher and farther back than the car at every speed",
+      "status": "passed",
+      "milliseconds": 0.253624999999829
+    },
+    {
+      "file": "game/tests/unit/validator-fixtures.test.ts",
+      "test": "game KCC on validator fixtures meshopt fixture tiles read through the shared reader; per-triangle material lookup works",
+      "status": "passed",
+      "milliseconds": 1.8710000000000377
+    },
+    {
+      "file": "game/tests/unit/validator-fixtures.test.ts",
+      "test": "game KCC on validator fixtures curb_12cm at 1.5 m/s: climb",
+      "status": "passed",
+      "milliseconds": 25.454666999999972
+    },
+    {
+      "file": "game/tests/unit/validator-fixtures.test.ts",
+      "test": "game KCC on validator fixtures curb_25cm at 1.5 m/s: climb",
+      "status": "passed",
+      "milliseconds": 45.92845900000003
+    },
+    {
+      "file": "game/tests/unit/validator-fixtures.test.ts",
+      "test": "game KCC on validator fixtures step_40cm at 1.5 m/s: block",
+      "status": "passed",
+      "milliseconds": 15.764499999999998
+    },
+    {
+      "file": "game/tests/unit/validator-fixtures.test.ts",
+      "test": "game KCC on validator fixtures curb_12cm at 3.6 m/s: climb",
+      "status": "passed",
+      "milliseconds": 4.907291999999984
+    },
+    {
+      "file": "game/tests/unit/validator-fixtures.test.ts",
+      "test": "game KCC on validator fixtures curb_25cm at 3.6 m/s: climb",
+      "status": "passed",
+      "milliseconds": 6.306249999999977
+    },
+    {
+      "file": "game/tests/unit/validator-fixtures.test.ts",
+      "test": "game KCC on validator fixtures step_40cm at 3.6 m/s: block",
+      "status": "passed",
+      "milliseconds": 5.925583000000017
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "vegetation LOD derives cheaper geometry and a crossed silhouette from the prototype",
+      "status": "passed",
+      "milliseconds": 7.333250000000021
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "vegetation LOD culls cells while keeping at most three draws per prototype, and releases generated resources",
+      "status": "passed",
+      "milliseconds": 5.912583999999981
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "vegetation LOD uses smaller near-instance budgets at low quality",
+      "status": "passed",
+      "milliseconds": 6.129250000000013
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "vegetation LOD shares a cheap clustered crown between mid and far cells",
+      "status": "passed",
+      "milliseconds": 0.9437909999999761
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "vegetation LOD combines matching opaque bark/crown placements while preserving their colours",
+      "status": "passed",
+      "milliseconds": 2.767707999999999
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "vegetation LOD preserves authored draft tree colours and part batching",
+      "status": "passed",
+      "milliseconds": 1.675582999999989
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "vegetation LOD never expands vegetation instances into a static tile shadow mesh",
+      "status": "passed",
+      "milliseconds": 0.5945830000000001
+    },
+    {
+      "file": "game/tests/unit/vegetation-lod.test.ts",
+      "test": "moving past equal-distance cells preserves packed matrices and object identities",
+      "status": "passed",
+      "milliseconds": 0.5571250000000134
+    },
+    {
+      "file": "game/tests/unit/vehicle-fleet.test.ts",
+      "test": "a sleeping parked vehicle can be entered, driven 20 m, and left in place",
+      "status": "passed",
+      "milliseconds": 97.94908400000003
+    },
+    {
+      "file": "game/tests/unit/vehicle-world.test.ts",
+      "test": "real .col curb faces resolve by contact point, survive unloading, and do not change KCC topology",
+      "status": "passed",
+      "milliseconds": 108.24375
+    },
+    {
+      "file": "game/tests/unit/vehicle-world.test.ts",
+      "test": "camera sphere keeps the near plane away from a building, including off-centre obstacles",
+      "status": "passed",
+      "milliseconds": 1.311916999999994
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "curb maths: proportional impulse, bounded losses, semantic selection and high-step block",
+      "status": "passed",
+      "milliseconds": 2.102999999999952
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "handling: analog pedals, speed-sensitive steering, LT reverse and handbrake grip",
+      "status": "passed",
+      "milliseconds": 0.29966699999999946
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.07 m at 3 m/s",
+      "status": "passed",
+      "milliseconds": 160.59337500000004
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.07 m at 6 m/s",
+      "status": "passed",
+      "milliseconds": 36.198916000000054
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.07 m at 10 m/s",
+      "status": "passed",
+      "milliseconds": 26.798000000000002
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.12 m at 3 m/s",
+      "status": "passed",
+      "milliseconds": 9.6574999999998
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.12 m at 6 m/s",
+      "status": "passed",
+      "milliseconds": 6.171083999999837
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.12 m at 10 m/s",
+      "status": "passed",
+      "milliseconds": 3.8527910000000247
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.15 m at 3 m/s",
+      "status": "passed",
+      "milliseconds": 22.379916999999978
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.15 m at 6 m/s",
+      "status": "passed",
+      "milliseconds": 5.411832999999888
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.15 m at 10 m/s",
+      "status": "passed",
+      "milliseconds": 3.449374999999918
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.26 m at 2 m/s",
+      "status": "passed",
+      "milliseconds": 25.87799999999993
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.3 m at 2 m/s",
+      "status": "passed",
+      "milliseconds": 30.090000000000146
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "physical curb 0.4 m at 2 m/s",
+      "status": "passed",
+      "milliseconds": 25.87345899999991
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "CCD stops a car at 30 m/s at a thin building wall",
+      "status": "passed",
+      "milliseconds": 6.574334000000135
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "one wheel curb strike rolls the chassis and quay uses the same response",
+      "status": "passed",
+      "milliseconds": 4.844291999999996
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "geometry alone never creates a curb response (material 4)",
+      "status": "passed",
+      "milliseconds": 21.23608299999978
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "geometry alone never creates a curb response (material 2)",
+      "status": "passed",
+      "milliseconds": 3.543875000000071
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "full throttle settles at 20\u201330 m/s and analog brake stops before reversing",
+      "status": "passed",
+      "milliseconds": 66.81766700000003
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "full steering at road speed keeps the chassis upright",
+      "status": "passed",
+      "milliseconds": 4.100165999999945
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "solver collision impulses produce one bounded-rate impact event, with quiet resting contact",
+      "status": "passed",
+      "milliseconds": 3.647958000000017
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "car: a kerb slope reports one step per axle at 2\u201312 m/s; road texture and a steady hill report no kerb",
+      "status": "passed",
+      "milliseconds": 189.60237499999994
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "scooter: a kerb slope reports one step per axle at 2\u201312 m/s; road texture and a steady hill report no kerb",
+      "status": "passed",
+      "milliseconds": 135.0070830000002
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "the step measure ignores its own trailing lobe: no downward step follows a kerb within the lobe distance",
+      "status": "passed",
+      "milliseconds": 71.56729199999995
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "car at 8 m/s into a trimesh wall reports an impact of the momentum it loses",
+      "status": "passed",
+      "milliseconds": 74.62679200000002
+    },
+    {
+      "file": "game/tests/unit/vehicle.test.ts",
+      "test": "scooter at 2.5 m/s into a trimesh wall reports an impact of the momentum it loses",
+      "status": "passed",
+      "milliseconds": 6.196165999999948
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "plays the clip whose text equals the shown message, once per change",
+      "status": "passed",
+      "milliseconds": 8.787417000000005
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "a new line fades the previous out over 100 ms and starts after it; ducking spans both",
+      "status": "passed",
+      "milliseconds": 4.15258399999999
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "a double announcement speaks its phrase and both address clips in order",
+      "status": "passed",
+      "milliseconds": 5.1440000000000055
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "an address without a committed clip leaves its full HUD text visible",
+      "status": "passed",
+      "milliseconds": 1.5748749999999916
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "lines shown before unlock wait for it, unless replaced first",
+      "status": "passed",
+      "milliseconds": 5.479959000000008
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "only the newest of overlapping requests starts; a message shown before the manifest still plays",
+      "status": "passed",
+      "milliseconds": 6.848625000000027
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "narration plays in order, waits for unlock, survives prompts and is cut by a voiced line",
+      "status": "passed",
+      "milliseconds": 6.052666999999985
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "dialog callback follows the natural clip end and manual advance cancels it",
+      "status": "passed",
+      "milliseconds": 5.647041999999999
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "attach replaces the subscription; missing manifest is contained",
+      "status": "passed",
+      "milliseconds": 0.36316599999997834
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "GameAudio routes voice to its own bus and ducks ambience by 6 dB without touching its volume",
+      "status": "passed",
+      "milliseconds": 1.4930420000000026
+    },
+    {
+      "file": "game/tests/unit/voice.test.ts",
+      "test": "preload decodes voice clips while suspended and the first line reuses its buffer after unlock",
+      "status": "passed",
+      "milliseconds": 1.849332999999973
+    }
+  ],
+  "limitations": "One current synthetic game-unit execution. Per-test historical failures are not retained; stage history is reported separately."
+}

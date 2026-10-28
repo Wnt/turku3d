@@ -9,6 +9,7 @@ import re
 import statistics
 import subprocess
 import time
+import tomllib
 from pathlib import Path
 
 
@@ -97,6 +98,13 @@ def measure(registry, slots, tasks, repo, days=3, now=None):
             r"^(?:cached )?(PASS|FAIL)\s+(\S+)\s+([\d.]+)s", path.read_text(), re.M
         ):
             deep[name].append((float(seconds), status == "FAIL"))
+    config = tomllib.loads((repo / "scripts/dev/gate.toml").read_text())
+    quick_names = {
+        stage["name"]
+        for stage in config["stages"]
+        if stage.get("tier") != "deep" and not stage.get("browser") and stage.get("kind") != "e2e"
+    } | {"env-sync"}
+    quick = collections.defaultdict(list)
     event_waits = {}
     # Raw Codex events have no timestamps; report wait observations, never invented durations.
     for task in tasks.iterdir():
@@ -112,13 +120,22 @@ def measure(registry, slots, tasks, repo, days=3, now=None):
                         r"waiting for (?:build|browser) slot", item.get("aggregated_output", "")
                     )
                 )
+                output = item.get("aggregated_output", "")
+                if re.search(r"(?:^|[/\s])gate(?:\s|$)", item.get("command", "")) and re.search(
+                    r"^TOTAL\s+(GREEN|RED)", output, re.M
+                ):
+                    for cached, status, name, seconds in re.findall(
+                        r"^(cached )?(PASS|FAIL)\s+(\S+)\s+([\d.]+)s", output, re.M
+                    ):
+                        if name in quick_names:
+                            quick[name].append((float(seconds), status == "FAIL", bool(cached)))
         if count:
             event_waits[task.name] = count
     state = json.loads((slots / "state.json").read_text())
     state_waits = [
         {
             "sandbox": e["sandbox"],
-            "kind": e.get("lane", e["kind"]),
+            "kind": e.get("purpose", e.get("lane", e["kind"])),
             "seconds": round((time.time() if now is None else now) - e["since"], 3),
         }
         for e in state["entries"]
@@ -138,6 +155,28 @@ def measure(registry, slots, tasks, repo, days=3, now=None):
         "landing_to_pages": summary(latency),
         "code_landings_without_observed_publication": sum(r.get("class") == "code" for r in landed)
         - len(latency),
+        "finish": {
+            name: summary([r[name] for r in landed if name in r])
+            for name in ("merge_wall_seconds", "lock_wait_seconds", "fast_gate_seconds")
+        },
+        "source_upload": summary(
+            [r["push"]["seconds"] for r in landed if "seconds" in r.get("push", {})]
+        ),
+        "pages_upload": summary(
+            [r["pages"]["seconds"] for r in integrations if "seconds" in r.get("pages", {})]
+        ),
+        "publication": summary(
+            [r["publish_seconds"] for r in integrations if "publish_seconds" in r]
+        ),
+        "quick_stages_from_task_events": {
+            name: {
+                **summary([seconds for seconds, _, cached in entries if not cached]),
+                "executions": len(entries),
+                "cache_hits": sum(c for _, _, c in entries),
+                "failures": sum(f for _, f, _ in entries),
+            }
+            for name, entries in sorted(quick.items())
+        },
         "build_stages": {name: summary(values) for name, values in sorted(stages.items())},
         "slot_waits": {
             kind: summary([r["wait_seconds"] for r in waits if r["kind"] == kind])
@@ -153,7 +192,7 @@ def measure(registry, slots, tasks, repo, days=3, now=None):
             "Chrome runtime is the latest recorded test seconds, including retries, not suite wall time.",
             "Failure counts are observed executions, including repeats of known failures; missing/interrupted results are unknown.",
             "state.json is a current snapshot; no historical state archive exists.",
-            "Raw Codex events have no timestamps; they cannot establish command wall times.",
+            "Raw Codex events have no timestamps; quick-stage history covers event files modified in the window, not timestamped invocations. Reported stage durations are measured command output.",
         ],
     }
 
