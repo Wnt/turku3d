@@ -130,7 +130,13 @@ def completed(building: str, engine: str) -> bool:
         return False
 
 
-def upgrade(inventory: Path, building: str, root: Path, engine: str = "astra") -> dict:
+def upgrade(
+    inventory: Path,
+    building: str,
+    root: Path,
+    engine: str = "astra",
+    prechecked_usage: int | None = None,
+) -> dict:
     renderer()  # make the texture package available to a pipeline-only interpreter
     from turkutex import facade_fast as ff
     from turkutex.building_jobs import latest
@@ -139,7 +145,7 @@ def upgrade(inventory: Path, building: str, root: Path, engine: str = "astra") -
     from turkutex.streetview.facades import load_facades
 
     if engine == "astra":
-        quota = used_percent()
+        quota = prechecked_usage if prechecked_usage is not None else used_percent()
         if quota is None or quota >= 60:
             return dict(state="quota-paused", quota=quota)
     if completed(building, engine):
@@ -196,7 +202,12 @@ def upgrade(inventory: Path, building: str, root: Path, engine: str = "astra") -
     attempts = run / "describe/attempts.jsonl"
     offset = attempts.stat().st_size if attempts.exists() else 0
     result = Runner(
-        run / "describe", parallel=1, retries=0, max_pct=60, cache_dir=ff.call_cache()
+        run / "describe",
+        parallel=1,
+        retries=0,
+        max_pct=60,
+        cache_dir=ff.call_cache(),
+        allow_unknown_usage=prechecked_usage is not None,
     ).run(load_jobs(job_path))
     calls = 0
     if attempts.exists():
@@ -251,7 +262,7 @@ class DescribeQueue:
         with self.lock:
             self.state.update(state)
 
-    def _attempt(self) -> bool:
+    def _attempt(self) -> int | None:
         try:
             attempts = json.loads(self.budget.read_text())
         except (OSError, ValueError):
@@ -259,12 +270,18 @@ class DescribeQueue:
         recent = [t for t in attempts if t > time.time() - 3600]
         self._status(attempts_this_hour=len(recent))
         if len(recent) >= CALLS_PER_HOUR:
-            return False
+            return None
+        from turkutex.codex.usage import used_percent
+
+        quota = used_percent()
+        if quota is None or quota >= 60:
+            self._status(state="quota-paused", quota=quota)
+            return None
         self.budget.parent.mkdir(parents=True, exist_ok=True)
         temp = self.budget.with_suffix(".tmp")
         temp.write_text(json.dumps([*recent, time.time()]))
         temp.replace(self.budget)
-        return True
+        return quota
 
     def _candidate(self, engine="hybrid"):
         from .service import rank
@@ -302,7 +319,7 @@ class DescribeQueue:
                 choices.append((*order, ranked[1], key, tile, inventory))
         return min(choices) if choices else None
 
-    def _describe(self, inventory, key, engine):
+    def _describe(self, inventory, key, engine, prechecked_usage=None):
         with self.lock:
             if self.closed.is_set():
                 return dict(state="stopped")
@@ -326,7 +343,10 @@ class DescribeQueue:
                 )
             proc = self.proc
         proc.stdin.write(
-            json.dumps([str(inventory), key, str(self.root / ".facade-upgrades"), engine]) + "\n"
+            json.dumps(
+                [str(inventory), key, str(self.root / ".facade-upgrades"), engine, prechecked_usage]
+            )
+            + "\n"
         )
         proc.stdin.flush()
         if not select.select([proc.stdout], [], [], 900)[0]:
@@ -337,9 +357,11 @@ class DescribeQueue:
         while not self.closed.wait(1):
             engine = "hybrid"
             candidate = None
+            quota = None
             if self.prefer_astra and time.time() >= self.next_astra:
                 candidate = self._candidate("astra")
-                if candidate and self._attempt():
+                quota = self._attempt() if candidate else None
+                if candidate and quota is not None:
                     engine = "astra"
                 else:
                     candidate = None
@@ -356,7 +378,7 @@ class DescribeQueue:
             self._status(state="describing", building=key, engine=engine)
             started = time.time()
             try:
-                result = self._describe(inventory, key, engine)
+                result = self._describe(inventory, key, engine, quota)
                 self._record(started, key, engine, result)
                 self._status(**result)
                 if result["state"] == "upgraded":
@@ -403,21 +425,14 @@ class DescribeQueue:
 def worker():
     """Keep model loading off both the draft request and subsequent enrichment jobs."""
     import contextlib
-    import shlex
 
     os.nice(15)
-    # After Torch loads, the app-server RPC can fail in this long-lived process.
-    # Read quota from a clean, short-lived Python process for each Astra attempt.
-    os.environ.setdefault(
-        "TURKUTEX_USAGE_CMD",
-        shlex.join([sys.executable, "-m", "turkutex.codex.usage", "--percent"]),
-    )
     for line in sys.stdin:
         try:
-            inventory, building, root, engine = json.loads(line)
+            inventory, building, root, engine, quota = json.loads(line)
             started = time.monotonic()
             with contextlib.redirect_stdout(sys.stderr):
-                result = upgrade(Path(inventory), building, Path(root), engine)
+                result = upgrade(Path(inventory), building, Path(root), engine, quota)
             result["seconds"] = time.monotonic() - started
         except Exception as exc:
             result = dict(state="failed", error=str(exc)[-500:], calls=None)
