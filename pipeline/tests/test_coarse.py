@@ -372,6 +372,9 @@ def test_structural_job_completes_then_visual_job_uses_spare_worker(tmp_path, mo
     calls = []
 
     class Runner:
+        def close(self):
+            pass
+
         def __call__(self, tile, out, *, first_pass):
             calls.append(first_pass)
             out.mkdir(exist_ok=True)
