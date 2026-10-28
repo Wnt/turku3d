@@ -4,8 +4,7 @@ import { localhostGame } from '../tools/dev/localhost/vitePlugin.mjs';
 import path from 'node:path';
 import wasm from 'vite-plugin-wasm';
 
-// COOP/COEP for local servers (tools/dev/serve-dist.mjs sends the same). The game uses no SharedArrayBuffer and runs
-// without them, e.g. on GitHub Pages.
+// Local servers isolate directly; static hosts use public/isolation.js for the shared physics exchange.
 const isolation = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
 
 export default defineConfig({

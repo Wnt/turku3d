@@ -34,9 +34,16 @@ export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; br
 
 export interface TileStats { curbTris?: number; id: string; tris: number; prims: number; bytes: number; buildMs: number; colliders: number }
 
+/** Jump is an edge counter, so a pulse survives several render frames between worker reads. */
+export interface LiveInput { character: CharacterInput; vehicle: VehicleInput | null; running: boolean; jump: number; at: number }
+export type PhysicsState = Extract<FromWorker, { type: 'state' }>;
+
 export type ToWorker =
   /** Resets the world (the worker initialises itself on load and posts 'ready'). */
   | { type: 'init' }
+  | { type: 'exchange'; input: SharedArrayBuffer; state: SharedArrayBuffer }
+  | { type: 'input'; input: LiveInput }
+  | { type: 'stateAck' }
   | { type: 'loadTile'; id: string; buffer: ArrayBuffer }
   | { type: 'unloadTile'; id: string }
   /** Collision tiles that exist (published or draft) but may not be loaded: no edge wall faces them (edgeWalls.ts). */
@@ -63,7 +70,7 @@ export type FromWorker =
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }
   | { type: 'checkResult'; id: number; tris: number; error: string | null }
-  | { type: 'state'; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[] }
+  | { type: 'state'; publishedAt?: number; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[] }
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hit: RayHit | null }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }

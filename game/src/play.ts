@@ -451,7 +451,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       }
     }
     if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now, feet);
-    if (!paused) physics.step(dt, charIn, carIn);
+    physics.updateInput(charIn, carIn, !paused);
 
     const st = physics.latest;
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
@@ -570,6 +570,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId, audio,
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
         multiplayer: multiplayerPlaying };
+      physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
       remotePlayers.dispose();
