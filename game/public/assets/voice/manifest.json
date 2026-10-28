@@ -204,11 +204,11 @@
    "id": "long_unlocked",
    "speaker": "narrator",
    "file": "long_unlocked.ogg",
-   "seconds": 6.872,
-   "text": "Four delivery rounds complete. Long-range deliveries are now available at the pizzeria. Bigger pay, tighter times.",
-   "textSha256": "79a0befa6b2d007823ccfd1fd937c889ed5349285883b23e870a13f7f9340c62",
-   "key": "9732249192c454b6ec798959d9c1a9d3cbfaec005e99d6cb30c1d50d1735976d",
-   "fileSha256": "8840e90472f8e08c2644b82c852dc5324cdf384e3b26c28a4f3b9c9e91d7e1c2"
+   "seconds": 6.449,
+   "text": "Four deliveries complete. Long-range deliveries are now available at the pizzeria. Bigger pay, tighter times.",
+   "textSha256": "ad419bef273434e6480cfc843a58d2b92c9af2d950e2c3c852fea8bdf8c2c7b2",
+   "key": "bd76ad33342437309636c9151bbe2aa91e7125efc991819da4c9f784a088c5d4",
+   "fileSha256": "7cc4be46adc9c380ec29ac795ce45aa4a57e646d186d27f4551971eaf52e3c92"
   },
   {
    "id": "phrase_order_1",
