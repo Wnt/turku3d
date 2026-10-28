@@ -210,6 +210,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "kerbs",
         "appearance",
         "register",
+        "parking",
     )
     paths = {d: [source] for d in datasets}
     paths["wfs"] = [source, None, None, source]  # optional roof survey must wait
@@ -234,12 +235,15 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return {"bridge_ways": [{"id": "crossing"}]}
         if dataset == "tunnels":
             return [{"id": "passage"}]
+        if dataset == "parking":
+            return ((), ())
         raise AssertionError(f"first pass prepared decorative input {dataset}")
 
     monkeypatch.setattr(inputs, "_prepare_one", prepare)
     sources = SimpleNamespace(missing=lambda _: [], input_key=lambda _: "raw-key")
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
-    assert called == ["ground", "wfs", "roads", "tunnels"]
+    assert called == ["ground", "wfs", "roads", "tunnels", "parking"]
+    assert result.parking == ((), ())
     assert result.kerbs is None
     assert result.buildings[0].key == "solid"
     assert result.roads["bridge_ways"][0]["id"] == "crossing"
