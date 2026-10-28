@@ -32,6 +32,7 @@ from turku3d.col.materials import mat_id
 from turku3d.spatial import frame as spatial_frame
 
 from . import roofs
+from .register import district as register_district
 from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
 
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
@@ -273,6 +274,10 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
             year = value("yearOfConstruction", "valmistunut")[:4]
             year = int(year) if year.isdigit() else None
             building.attributes = dict(
+                construction_year=year,
+                use=value("käyttötarkoitus", "usage", "function") or "unknown",
+                footprint_m2=float(footprint.area),
+                district=register_district(value("kiinteistotunnus")),
                 levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
                 era="unknown"
                 if year is None
