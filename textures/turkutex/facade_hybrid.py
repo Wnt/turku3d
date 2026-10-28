@@ -87,6 +87,11 @@ def surface_discontinuity(rgb: np.ndarray, wall: np.ndarray) -> bool:
     )
 
 
+def semantic_foreground_mask(labels: np.ndarray) -> np.ndarray:
+    """ADE20K foreground objects; sky, road and sidewalk are not occluders."""
+    return np.isin(labels, [4, 12, 17, 20, 80, 83, 90, 102, 116, 127])
+
+
 class Evidence:
     """ADE20K semantic evidence mask on MPS; no network and no learned quality claims."""
 
@@ -113,7 +118,7 @@ class Evidence:
         wall = np.isin(labels, [0, 1, 25])
         facade = wall | np.isin(labels, [8, 14])
         excluded = np.isin(labels, [2, 4, 6, 9, 11, 12, 17, 20, 21, 80, 83, 90, 102, 116, 127])
-        foreground = np.isin(labels, [4, 12, 17, 20, 80, 83, 90, 102, 116, 127])
+        foreground = semantic_foreground_mask(labels)
         # Semantic classes cannot prove that a building is the intended building. Explicit
         # reference audits, when supplied, override these conservative pixel checks.
         return dict(

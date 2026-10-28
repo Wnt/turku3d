@@ -1,7 +1,13 @@
 """Pure synthetic fusion, evidence and independent-label agreement checks."""
 
 import numpy as np
-from turkutex.facade_hybrid import bay_spacing, field_outputs, merge_fields, surface_discontinuity
+from turkutex.facade_hybrid import (
+    bay_spacing,
+    field_outputs,
+    merge_fields,
+    semantic_foreground_mask,
+    surface_discontinuity,
+)
 from turkutex.facade_hybrid_research import fold, summary
 from turkutex.facade_hybrid_truth import agreement
 from turkutex.facade_priors import prior
@@ -55,6 +61,13 @@ def test_vertical_chromatic_boundary_not_plain_shadow():
     rgb[:, :30] = (210, 80, 60)
     assert surface_discontinuity(rgb, wall)
     assert not surface_discontinuity(rgb, np.zeros_like(wall))
+
+
+def test_semantic_foreground_excludes_road_sidewalk_and_sky():
+    labels = np.array([[2, 6, 9, 4, 12, 17, 20, 80]])
+    assert semantic_foreground_mask(labels).tolist() == [
+        [False, False, False, True, True, True, True, True]
+    ]
 
 
 def test_independent_agreement_and_building_grouping():
