@@ -85,3 +85,13 @@ def test_hybrid_record_provenance_invalidation_and_astra_eligibility(tmp_path, m
     write_description("b", d, "test", "hash")
     assert completed("b", "astra")
     assert completed("b", "hybrid")
+
+
+def test_mapped_blank_sheds_and_shopfronts_select_distinct_modules():
+    blank = parameters(
+        "shed", 3, 10, {"material_class": "wood", "blank": True, "wall_colour": "#89765a"}
+    )
+    shop = parameters("retail", 9, 18, {"ground_floor": "shops", "levels": 3})
+    assert blank["module"] == 45
+    assert blank["wall"] == "#89765a"
+    assert shop["module"] % 3 == 2

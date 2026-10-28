@@ -137,6 +137,8 @@ MATERIAL_OF_CLASS = {
     "concrete": "concrete",
     "metal": "metal",
     "render": "plaster",
+    "stone": "stone",
+    "glass": "glass",
 }
 
 
@@ -163,6 +165,8 @@ def register_description(
     )
     palette = PALETTES.get(key, PALETTES[("render", "1960+")])
     colour = palette[stable_index(building_id, len(palette))]
+    if HEX.match(str(attributes.get("wall_colour", ""))):
+        colour = attributes["wall_colour"]
     levels = attributes.get("levels") or max(1, round(height_m / DEFAULT_STOREY_M))
     bay = 2.6 if old or cls == "wood" else 3.0
     return {
@@ -173,11 +177,25 @@ def register_description(
         "wall_colour": colour,
         "trim_colour": TRIM.get(cls, TRIM["render"]),
         "storeys": int(levels),
-        "window_columns": max(0, round(width_m / bay)) if width_m >= 1.6 else 0,
+        "window_columns": max(0, round(width_m / bay))
+        if width_m >= 1.6 and not attributes.get("blank")
+        else 0,
         "window_width": 0.45,
         "window_height": 0.5,
-        "ground_floor": "windows" if cls == "wood" or width_m < 6 else "doors",
-        "ground_openings": 1 if width_m >= 6 else 0,
+        "ground_floor": "plain"
+        if attributes.get("blank")
+        else "shops"
+        if attributes.get("ground_floor") == "shops"
+        else "windows"
+        if cls == "wood" or width_m < 6
+        else "doors",
+        "ground_openings": 0
+        if attributes.get("blank")
+        else max(1, round(width_m / 4))
+        if attributes.get("ground_floor") == "shops"
+        else 1
+        if width_m >= 6
+        else 0,
         "roof_line": "eaves" if cls == "wood" else "cornice" if old else "parapet",
         "plinth": cls != "wood",
         "features": [],

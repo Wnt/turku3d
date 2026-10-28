@@ -39,7 +39,7 @@ from turku3d.ground.water import add_river_bed
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 
-from . import bridges, fences
+from . import bridges, fences, kerbs, surfaces
 from .inputs import CELLS, Building, Inputs, gather
 
 FORMAT = "turku3d-coarse-tile"
@@ -79,26 +79,6 @@ def grid_mesh(tile: C.VisualTile, heights: np.ndarray):
     # Two up-facing triangles per cell; triangle 2k and 2k+1 belong to cell k (row-major).
     indices = np.stack([np.c_[v00, v10, v01], np.c_[v01, v10, v11]], axis=1).reshape(-1, 3)
     return positions, indices.astype(np.uint32)
-
-
-def ground_materials(
-    centroids: np.ndarray, rgb: np.ndarray, tile: C.VisualTile, streets
-) -> np.ndarray:
-    """Street-area polygons win; otherwise green ortho pixels are grass, the rest paving."""
-    out = np.full(len(centroids), mat_id("paving_slab"), np.uint8)
-    px = rgb.shape[0]
-    col = np.clip(((centroids[:, 0] - tile.origin[0]) / tile.size * px).astype(int), 0, px - 1)
-    row = np.clip(((centroids[:, 2] - tile.origin[2]) / tile.size * px).astype(int), 0, px - 1)
-    r, g, b = (rgb[row, col, k].astype(float) for k in range(3))
-    out[(g > 1.08 * r) & (g > 1.08 * b) & (g > 25)] = mat_id("grass")
-    if streets:
-        geoms = [g for g, _ in streets]
-        ids = np.array([m for _, m in streets], np.uint8)
-        qi, pi = shapely.STRtree(geoms).query(
-            shapely.points(centroids[:, [0, 2]]), predicate="within"
-        )
-        out[qi] = ids[pi]
-    return out
 
 
 def water_mask(centroids: np.ndarray, water) -> np.ndarray:
@@ -463,7 +443,7 @@ def build(
     grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
     centroids = grid_pos[grid_idx].mean(axis=1)
     water = inputs.water
-    materials = ground_materials(centroids, inputs.ortho, tile, inputs.streets)
+    materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     # A bridge deck stays solid where a water polygon runs under it.
     separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
     wet = water_mask(centroids, water)
@@ -511,21 +491,36 @@ def build(
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
-    ground_meshes = [
-        GlbMesh(
-            f"ground_{tile.id}",
-            grid_pos - origin,
-            grid_idx[~wet & tunnels.keep],
-            uvs=ortho_uv(tile, grid_pos),
-            image=image,
-            extras=dict(
-                layer="ground",
-                object_id=f"ground_{tile.id}",
-                material_key="ortho",
-                texture_uv="normalized",
-            ),
-        )
-    ]
+    surface_pos, surface_idx, surface_ids, surface_normals = surfaces.split_boundaries(
+        grid_pos, grid_idx, materials, ~wet & tunnels.keep, [*inputs.surfaces, *inputs.streets]
+    )
+    ground_meshes = surfaces.visuals(
+        tile,
+        surface_pos,
+        surface_idx,
+        surface_ids,
+        np.ones(len(surface_idx), bool),
+        surface_normals,
+    )
+    paint = surfaces.paint_visual(
+        tile,
+        surface_pos,
+        surface_idx,
+        surface_ids,
+        np.ones(len(surface_idx), bool),
+        inputs.markings,
+    )
+    if paint is not None:
+        ground_meshes.append(paint)
+    kerb_meshes = kerbs.produce(
+        tile,
+        inputs.kerbs,
+        lambda x, z: grid_height(tile, grid_pos, x, z),
+        water,
+        blds,
+        inputs.markings,
+    )
+    ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
     if wet.any():
         # A visible water surface at the level; the game draws material_key water as a river.
         ids, inverse = np.unique(grid_idx[wet], return_inverse=True)
@@ -626,7 +621,13 @@ def build(
         lambda x, z: grid_height(tile, grid_pos, x, z),
     )
     seconds["fences"] = barrier_stats["seconds"]
-    vis, stats = package_visual(tile, layer_files, stage, out.parent, library or default_library())
+    surface_channels = {
+        surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))
+        for m in ground_meshes
+        if m.extras["material_key"].startswith("draft_")
+    }
+    surface_library = surfaces.library(out.parent, library or default_library(), surface_channels)
+    vis, stats = package_visual(tile, layer_files, stage, out.parent, surface_library)
     seconds["visual"] = time.perf_counter() - t
     if stats["brotli_bytes"] > WIRE_CAP:
         raise ValueError(
@@ -641,6 +642,7 @@ def build(
     ).items():
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
+        pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         data = write_col(col, encoding="meshopt", optimize=False)
@@ -692,6 +694,18 @@ def build(
             if roads is not None
             else None
         ),
+        kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
+        marking_triangles=len(paint.indices) if paint is not None else 0,
+        ground_surfaces={
+            surfaces.KEYS[c]: int(
+                sum(
+                    len(m.indices)
+                    for m in ground_meshes
+                    if m.extras["material_key"] == "draft_" + surfaces.KEYS[c]
+                )
+            )
+            for c in surface_channels
+        },
         buildings=len(blds),
         building_keys=[b.facade_key for b in blds],
         roof_heights=[

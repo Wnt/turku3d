@@ -112,6 +112,8 @@ def parameters(
         + int(d["window_width"] > 0.55) * 3
         + {"windows": 0, "plain": 0, "doors": 1, "shops": 2}[d["ground_floor"]]
     )
+    if d["window_columns"] == 0 and d["ground_floor"] == "plain":
+        module = 42 + MATERIALS.index(d["material"])
     return dict(
         module=module,
         wall=d["wall_colour"],
@@ -133,17 +135,17 @@ def ensure_kit(root: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="facade-kit-", dir=root) as tmp:
         stage = Path(tmp)
         maps = {s: np.zeros((2048, 1024, 3), np.uint8) for s in ("albedo", "normal", "orm")}
-        for module in range(42):
-            material, variant = divmod(module, 6)
+        for module in range(49):
+            material, variant = divmod(module, 6) if module < 42 else (module - 42, 0)
             d = fr.register_description("kit", "kit", {}, 3.0, 6.4)
             d.update(
                 material=MATERIALS[material],
                 wall_colour="#ffffff",
                 trim_colour="#b0b0b0",
                 storeys=2,
-                window_columns=1,
+                window_columns=1 if module < 42 else 0,
                 window_width=0.65 if variant // 3 else 0.45,
-                ground_floor=("windows", "doors", "shops")[variant % 3],
+                ground_floor=("windows", "doors", "shops")[variant % 3] if module < 42 else "plain",
                 ground_openings=1 if variant % 3 else 0,
                 roof_line="none",
                 plinth=False,

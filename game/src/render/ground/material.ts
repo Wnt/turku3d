@@ -127,7 +127,10 @@ export function createGroundMaterial(spec: GroundTileSpec, maps: GroundTileTextu
   const orm = blend(library.orm, vec3(1, .9, 0));
   const material = new THREE.MeshStandardNodeMaterial();
   material.name = 'ground-ortho-stochastic-v1';
-  material.colorNode = mix(ortho, mix(albedo, macro, .3), near);
+  // Baked shadows and blue/white aerial objects must not become street-level albedo.
+  // Retain only a bounded, low-frequency luminance modulation of the material.
+  const macroLight = macro.dot(vec3(.2126, .7152, .0722)).mul(.2).add(.96).clamp(.96, 1.06);
+  material.colorNode = mix(ortho, albedo.mul(macroLight), near);
   material.normalNode = normalMap(mix(vec3(.5, .5, 1), normal, near), vec2(.55));
   material.roughnessNode = clamp(mix(float(.9), orm.g, near), .45, 1);
   material.aoNode = mix(float(1), orm.r, near);
