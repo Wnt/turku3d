@@ -1,4 +1,4 @@
-import { compileModel } from './compileModel';
+import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { pass, mrt, sample, screenUV, normalView, velocity, packNormalToRGB, unpackRGBToNormal,
   builtinAOContext, context, mix, vec3, vec4, dot, renderOutput } from 'three/tsl';
@@ -20,6 +20,8 @@ export class PostProcessing {
   private beauty: ReturnType<typeof pass>;
   private beautyContext: THREE.WebGPURenderer['contextNode'];
   private baseContext: THREE.WebGPURenderer['contextNode'];
+  private preDepth = 2;
+  private beautyDepth = 2;
   private resources: { dispose(): void }[];
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa') {
@@ -27,6 +29,11 @@ export class PostProcessing {
     const pre = this.pre = pass(scene, camera);
     this.baseContext = renderer.contextNode;
     pre.transparent = false;
+    const updatePre = pre.updateBefore.bind(pre);
+    pre.updateBefore = frame => {
+      if (isPrecompiling(renderer)) return;
+      this.preDepth = nextRenderDepth(renderer); updatePre(frame);
+    };
     pre.setMRT(mrt({ output: packNormalToRGB(normalView), velocity }));
     pre.getTexture('output').type = THREE.UnsignedByteType;
     // PassNode lazily clones the output texture for new MRT attachments. Normals fit in
@@ -35,6 +42,8 @@ export class PostProcessing {
     const depth = pre.getTextureNode('depth');
     const normals = sample(uv => unpackRGBToNormal(pre.getTextureNode().sample(uv)));
     const ambient = ao(depth, normals, camera);
+    const updateAmbient = ambient.updateBefore.bind(ambient);
+    ambient.updateBefore = frame => { if (!isPrecompiling(renderer)) updateAmbient(frame); };
     ambient.resolutionScale = q.aoScale;
     ambient.samples.value = q.aoSamples;
     ambient.radius.value = 0.6;
@@ -46,6 +55,8 @@ export class PostProcessing {
       ...flowContext(builtinAOContext(mix(1, ambient.getTextureNode().sample(screenUV).r, q.aoStrength))) });
     const updateBeauty = beauty.updateBefore.bind(beauty);
     beauty.updateBefore = frame => {
+      if (isPrecompiling(renderer)) return;
+      this.beautyDepth = nextRenderDepth(renderer);
       const previous = renderer.contextNode;
       renderer.contextNode = this.beautyContext;
       try { updateBeauty(frame); } finally { renderer.contextNode = previous; }
@@ -69,8 +80,8 @@ export class PostProcessing {
   }
 
   async prepare(model: THREE.Object3D) {
-    await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true);
-    await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext);
+    await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true, this.preDepth);
+    await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext, false, this.beautyDepth);
   }
 
   render() {

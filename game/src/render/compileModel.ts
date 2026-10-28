@@ -1,12 +1,22 @@
 import type * as THREE from 'three/webgpu';
 import { PreparationBudget } from './preparationBudget';
 
+type RenderContexts = { get(target: THREE.RenderTarget | null, mrt: ReturnType<THREE.WebGPURenderer['getMRT']>, depth?: number): unknown };
+
+/** r186 increments this before rendering a scene. Capture a nested pass before its render() call. */
+export const nextRenderDepth = (renderer: THREE.WebGPURenderer) =>
+  (renderer as unknown as { _callDepth: number })._callDepth + 1;
+
+/** Image-producing nodes must not redraw the resident world from compileAsync's update callbacks. */
+export const isPrecompiling = (renderer: THREE.WebGPURenderer) =>
+  (renderer as unknown as { _isPreCompiling: boolean })._isPreCompiling === true;
+
 const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
 
 /** Compile hidden draws with stable pass state across r186's asynchronous shader stages. */
 export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene,
   camera: THREE.PerspectiveCamera, target: THREE.RenderTarget, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
-  context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false) {
+  context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false, passDepth = 0) {
   let budget = budgets.get(renderer);
   if (!budget) { budget = new PreparationBudget(); budgets.set(renderer, budget); }
   const pending = budget.checkpoint();
@@ -39,8 +49,13 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         previousBuilder?.(builder, value);
       };
       renderer.debug.onNodeBuilderCreated = onBuilder;
+      // r186 compileAsync selects depth zero. Nested post/reflection draws use other contexts,
+      // whose IDs are part of shader keys; use the depth observed by the actual pass.
+      const contexts = (renderer as unknown as { _renderContexts: RenderContexts })._renderContexts;
+      const getContext = contexts.get;
       let compiled: Promise<void>;
       try {
+        contexts.get = function (target, mrt, depth = passDepth) { return getContext.call(this, target, mrt, depth); };
         renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context;
         mesh.material = material; mesh.children = []; mesh.visible = true; mesh.frustumCulled = false;
         compiled = renderer.compileAsync(mesh, camera, scene);
@@ -48,6 +63,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         renderer.debug.onNodeBuilderCreated = previousBuilder;
         throw error;
       } finally {
+        contexts.get = getContext;
         renderer.setRenderTarget(oldTarget); renderer.setMRT(oldMrt); renderer.contextNode = oldContext;
         mesh.material = oldMaterial; mesh.children = children; mesh.visible = visible; mesh.frustumCulled = culled;
       }

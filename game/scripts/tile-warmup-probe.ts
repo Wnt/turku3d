@@ -15,7 +15,7 @@ camera.position.set(0, 5, 12); camera.lookAt(0, 1, 0); camera.updateMatrixWorld(
 const environment = new Environment(scene, renderer, 'medium');
 environment.setTime(new Date('2026-10-15T11:00:00Z')); environment.follow(new THREE.Vector3()); environment.updateIBL();
 const floor = new THREE.Mesh(new THREE.BoxGeometry(40, 0.1, 40), new THREE.MeshStandardMaterial());
-floor.receiveShadow = floor.castShadow = true; scene.add(floor);
+floor.name = 'resident-floor'; floor.receiveShadow = floor.castShadow = true; scene.add(floor);
 const post = new PostProcessing(renderer, scene, camera, 'medium');
 const styler = new MaterialStyler(renderer, environment, 'medium', true), tiles = new VisualTiles();
 for (let i = 0; i < 3; i++) { post.render(); await new Promise(requestAnimationFrame); }
@@ -24,7 +24,8 @@ let phase = 'prepare';
 renderer.debug.onNodeBuilderCreated = (builder, object) => {
   builds.push({ phase, mesh: object.object.name, receiveShadow: object.object.receiveShadow,
     key: object.initialCacheKey, currentKey: object.getCacheKey(), materialKey: object.getMaterialCacheKey(),
-    dynamicKey: object.getDynamicCacheKey(), context: object.context.id, camera: object.camera.uuid });
+    dynamicKey: object.getDynamicCacheKey(), context: object.context.id, camera: object.camera.uuid,
+    callDepth: renderer._callDepth, contextKeys: Object.entries(renderer._renderContexts._renderContexts).filter(([, value]: any) => value.id === object.context.id).map(([key]) => key) });
   const flow = builder.flowNode.bind(builder);
   builder.flowNode = (...args) => {
     stages.push({ phase, mesh: object.object.name, pass: builder.renderer.getMRT()?.uuid ?? null,

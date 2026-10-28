@@ -1,4 +1,4 @@
-import { compileModel } from './compileModel';
+import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { cameraPosition, dot, float, max, mix, normalize, positionWorld, pow, reflect, reflector,
   texture, time, uniform, vec2, vec3 } from 'three/tsl';
@@ -34,6 +34,7 @@ export class RiverMaterial {
   private normals = waveNormalTexture();
   private context: THREE.WebGPURenderer['contextNode'];
   private prepared = false;
+  private reflectionDepth = 3;
   private reflection = reflector({ bounces: false, samples: 0 });
 
   constructor(mesh: THREE.Mesh, env: Environment, tier: QualityTier, deterministic: boolean, renderer: THREE.WebGPURenderer) {
@@ -51,6 +52,8 @@ export class RiverMaterial {
     const shadows = new ReflectionShadows();
     let last = -Infinity;
     reflector.updateBefore = frame => {
+      if (isPrecompiling(renderer)) return;
+      this.reflectionDepth = nextRenderDepth(renderer);
       const now = performance.now();
       if (!deterministic && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
       const previous = renderer.contextNode;
@@ -81,7 +84,7 @@ export class RiverMaterial {
     const reflected = this.reflection.reflector.getVirtualCamera(camera);
     const target = this.reflection.reflector.getRenderTarget(reflected);
     if (!this.prepared && model !== scene) await this.prepare(renderer, scene, scene, camera);
-    await compileModel(renderer, model, scene, reflected as THREE.PerspectiveCamera, target, null, this.context);
+    await compileModel(renderer, model, scene, reflected as THREE.PerspectiveCamera, target, null, this.context, false, this.reflectionDepth);
     this.prepared = true;
   }
 

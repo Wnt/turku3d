@@ -4,7 +4,7 @@ import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../dev
 import { isolateBrowser } from '../../dev/environment.mjs';
 import fs from 'node:fs';
 isolateBrowser();
-const [base, output] = process.argv.slice(2);
+const [base, output, expectedBuilds = '0'] = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: chromeExecutable(), headless: true,
   ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 try {
@@ -17,6 +17,7 @@ try {
   await page.waitForFunction(() => window.__warmupResult, null, { timeout: 120000 });
   const result = { ...await page.evaluate(() => window.__warmupResult), errors };
   fs.writeFileSync(output, JSON.stringify(result, null, 2));
-  console.log(JSON.stringify(result));
+  console.log(JSON.stringify({ preparedMs: result.preparedMs, firstDrawMs: result.firstDrawMs, publicationBuilds: result.publicationBuilds, warmedReceiveShadow: result.warmedReceiveShadow, errors }));
   if (errors.length) throw new Error(errors.join('\n'));
+  if (result.publicationBuilds !== Number(expectedBuilds)) throw new Error(`Expected ${expectedBuilds} publication shader builds, got ${result.publicationBuilds}`);
 } finally { await browser.close(); }
