@@ -24,7 +24,7 @@
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { LoadingKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 import { isLocalHost } from '../core/localOnly';
@@ -242,7 +242,7 @@ export class CoarseTiles {
   }
 
   private gltfLoader() {
-    const ktx2 = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
+    const ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
     const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     return async (url: string) => (await loader.loadAsync(url)).scene;
   }

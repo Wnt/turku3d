@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { FootIK, type FootRaycast } from './footIK';
 import { MAT } from '../shared/col/materials';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { LoadingKtx } from '../world/loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 /** Ground-speed anchors (m/s) for blending the synchronized locomotion clips. */
@@ -40,7 +40,7 @@ export class PlayerVisual {
   }
 
   async load(url: string, renderer: THREE.WebGPURenderer) {
-    const ktx2 = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
+    const ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
     const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     const gltf = await loader.loadAsync(url).finally(() => ktx2.dispose());
     const model = gltf.scene;

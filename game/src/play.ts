@@ -11,7 +11,7 @@ import { deadlineProgress, musicMuffle, musicScene } from './audio/music/playSta
 import { GameplayAudio } from './audio/gameplay';
 import { Haptics } from './input/haptics';
 import { VoicePlayer } from './audio/voice';
-import { controlsHelp } from './ui/controlsHelp';
+import { ControlsHelp, controlsHelp } from './ui/controlsHelp';
 import { loading } from './core/loading';
 import type { LoadingScreen } from './ui/loadingScreen';
 import { PlayerVisual, SPEED } from './actors/player';
@@ -144,6 +144,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const introDialog = new IntroDialog(document.body, voice);
   if (!hot?.audio) audio.setMusicState('menu');
   const hud = new Hud(hudEl);
+  const helpLearning = new ControlsHelp();
   if (hot ? hot.hudVisible !== hud.visible : !params.hud && hud.visible) hud.toggle();
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
@@ -332,6 +333,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     frameEma += (dt * 1000 - frameEma) * 0.05;
 
     input.update(dt);
+    helpLearning.update(input, mode, !!fly?.active, !startScreen.active && !paused && !saveGame.loading && !shopMenu.open && !fullscreen.blocking, now);
     if (input.consume('hud')) hud.toggle();
     if (startScreen.active) {
       startScreen.update(input);
@@ -557,6 +559,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden'
       : menuOpen || missions.shop || pauseMenu.open ? 'menu' : paused ? 'paused' : recovery.lost ? 'lost' : mode);
     const help = document.getElementById('help')!;
+    help.hidden = startScreen.active || helpLearning.hidden(mode, !!fly?.active);
     help.textContent = controlsHelp(input, mode, !!fly?.active, paused, !!recovery.lost);
     world.loadingScreen.update(!startScreen.active, !paused && !saveGame.loading, tiles.settled && !materials?.ground?.pending, coarse?.status);
     perf.end();

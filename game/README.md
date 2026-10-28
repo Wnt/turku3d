@@ -301,3 +301,5 @@ Public live/Pages builds set `VITE_PUBLIC_RELEASE=1` at build time. Their start 
 The play clock repeats 08:45–17:30 Europe/Helsinki over 30 real minutes, followed by a ten-second fast-forward, always on 15 October 2027. Phase is `(UTC milliseconds - 2027-10-15T05:45:00Z) mod 1810000`, so clients agree without server state. During the skip the sky and shadows smoothly return through daylight (smoothstep), never sampling night. The time slider is removed. `?time=ISO` and QA cameras remain fixed; saves never change the live cycle or explicit QA time. F3 diagnostics are available in releases.
 
 Sun direction updates each frame using existing shadow passes; there is no extra shadow render. Sky IBL is reused for 30 seconds and throughout the transition. `window.__game.dayClock.snapshot()` reports measured CPU and IBL update cost.
+
+Controls help learns foot, fly and car separately. It disappears after one active minute in that mode or two uses of at least 75% of the shown controls, and remembers learned modes per browser. Switching to an unlearned mode shows its prompts.

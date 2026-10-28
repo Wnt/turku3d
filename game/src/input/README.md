@@ -99,3 +99,5 @@ TILE_DIST="$TURKU3D_DATA/dist/tiles" make playtest PLAYTEST_ARGS='--project webg
 
 `tests/e2e/touch.spec.ts` runs at 844×390 with `hasTouch` and `isMobile`, sends multi-finger touches through
 CDP (`Input.dispatchTouchEvent`) and writes screenshots to `$TURKU3D_WORK/reports/gameplay-touch-controls/`.
+
+`Input.activity` is a non-consuming per-update set of press starts (either axis sign, taps, buttons and mouse-look starts). Controls help samples it before gameplay consumes actions. Held input counts once until released.
