@@ -54,8 +54,9 @@ from turku3d.facade_kit import parameter_hash
 
 from .build import code_hash
 from .prefetch import Prefetcher
-from .request_journal import MAX_AGE, RequestJournal, complete_tile
+from .request_journal import MAX_AGE, RequestJournal, complete_tile, request_tile
 from .sources import NoCoverage, Sources, Unit
+from .upgrade_queue import next_job, next_upgrade
 from .worker_pool import Workers
 
 REPO = Path(__file__).resolve().parents[3]
@@ -163,6 +164,7 @@ class Builder:
         self.run = run or Workers()
         self.upgrade_queue: set[str] = set()
         self.upgrading: set[str] = set()
+        self.upgrade_requested: dict[str, float] = {}
         self.lock = threading.Condition()
         self.priority: dict[str, float] = {}  # queued tile -> distance the game reported
         self.requested: dict[str, float] = {}
@@ -225,20 +227,7 @@ class Builder:
         return complete_tile(self.root, tile, FILE)
 
     def request(self, tile: str, distance: float) -> dict:
-        """Persist unfinished demand and serve complete old bytes while revalidating them."""
-        with self.lock:
-            self.journal.record(tile, distance)
-            state = self._request(tile, distance)
-            if (
-                state["state"] == "built"
-                and tile not in self.building
-                and tile not in self.upgrade_queue
-            ):
-                self.journal.discard(tile)
-            if state["state"] != "built" and self.cached(tile):
-                self.servable = self.servable | {tile}
-                return {"state": "built", "stale": True, "refresh": state}
-            return state
+        return request_tile(self, tile, distance)
 
     def _request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
@@ -260,6 +249,7 @@ class Builder:
                         and time.time() - self.failed.get(tile, ("", 0))[1] >= RETRY_SECONDS
                     ):
                         self.upgrade_queue.add(tile)
+                        self.upgrade_requested[tile] = time.time()
                         self.lock.notify_all()
                 self.pending.pop(tile, None)
                 self.servable = self.servable | {tile}
@@ -375,35 +365,18 @@ class Builder:
         return None
 
     def _next_upgrade(self):
-        if self.draining or any(
-            (r := rank(t, d, self.motion)) is not None and r[0] == 0
-            for t, d in self.priority.items()
-        ):
-            return None
-        for tile in sorted(
-            self.upgrade_queue, key=lambda t: (rank(t, 0, self.motion) or (9, 0), t)
-        ):
-            if tile in self.building:
-                continue
-            self.upgrade_queue.discard(tile)
-            if (
-                rank(tile, 0, self.motion) is not None
-                and time.time() - self.requested.get(tile, 0) < 30
-            ):
-                self.upgrading.add(tile)
-                return tile, 0.0
-        return None
+        return next_upgrade(self)
 
-    def _run(self, upgrade=False):
+    def _run(self, upgrade_only=False):
         while True:
             with self.lock:
-                job = self._next_upgrade() if upgrade else self._next()
-                while job is None and not self.stopped:
-                    self.lock.wait()
-                    job = self._next_upgrade() if upgrade else self._next()
+                selected = next_job(self, upgrade_only)
+                while selected is None and not self.stopped:
+                    self.lock.wait(timeout=1)
+                    selected = next_job(self, upgrade_only)
                 if self.stopped:
                     return
-                tile, distance = job
+                (tile, distance), upgrade = selected
                 self.building[tile] = time.time()
             started = time.perf_counter()
             out = self.root / tile
@@ -448,6 +421,7 @@ class Builder:
                     if not self.two_pass or m.get("pass_kind") != "first":
                         self.journal.discard(tile)
                         self.replay_until.pop(tile, None)
+                        self.upgrade_requested.pop(tile, None)
                     self.servable = self.servable | {tile}
                     outcome = "built"
                     if self.two_pass and m.get("pass_kind") == "first":
@@ -467,6 +441,8 @@ class Builder:
                     ]
                     self.failed[tile] = (tail[0][:500], time.time())
                     self.failure_codes[tile] = self.code()
+                    if upgrade:
+                        self.upgrade_queue.add(tile)
                 if (
                     tile not in self.pending
                     and outcome != "stale"

@@ -264,3 +264,21 @@ test('runtime holds every car after collision eviction, then restores simulation
   expect(pw.vehicle!.body.isDynamic()).toBe(true);
   pw.world.free();
 });
+
+test('a failed draft decode holds character and car until actual collision arrives', async () => {
+  const pw = new PhysicsWorld(RAPIER);
+  pw.spawnCharacter({ x: 168, y: 10, z: 246 });
+  pw.spawnVehicle({ x: 174, y: 10, z: 245 }, 0);
+  await expect(pw.loadTile('c_2_3', new ArrayBuffer(8))).rejects.toThrow();
+  const idle = { vx: 0, vz: 0, jump: false };
+  const characterBefore = pw.characterState()!.pos;
+  const vehicleBefore = pw.vehicleState()!.pos;
+  for (let i = 0; i < 60; i++) pw.step(1 / 60, idle, null);
+  expect(pw.characterState()!.pos).toEqual(characterBefore);
+  expect(pw.vehicleState()!.pos).toEqual(vehicleBefore);
+  await pw.loadTile('c_2_3', load('c_2_3'));
+  for (let i = 0; i < 60; i++) pw.step(1 / 60, idle, null);
+  expect(pw.characterState()!.pos.y).toBeLessThan(10);
+  expect(pw.vehicleState()!.pos.y).toBeLessThan(10);
+  pw.world.free();
+});

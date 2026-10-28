@@ -404,3 +404,30 @@ test('a full draft upgrades geometry, changed collision and streets only after t
   expect(coarse.roadGraphs()[0].nodes).toEqual([500, 101, 700, 101]);
   expect(refreshed).toEqual(['c_8_0']);
 });
+
+test('failed drafts under a start or retained car stay required and recover on a later request', async () => {
+  const manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  const service = fakeService(manifest);
+  let recovered = false;
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest,
+    pageUrl: 'https://wnt.github.io/turku-game/game/', renderer: {} as THREE.WebGPURenderer,
+    fetch: (async (url: string) => {
+      if (!recovered && url.includes('/manifest.json')) return new Response('{"error":"draft unavailable"}', { status: 404 });
+      return service.fetch(url);
+    }) as typeof fetch,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2,
+    loadModel: async () => new THREE.Group(),
+  });
+  const settle = async () => { for (let k = 0; k < 6; k++) await new Promise(r => setTimeout(r, 0)); };
+  coarse.retainedStarts = [{ x: 700, z: 300 }];
+  coarse.update(600, 100, 0); await settle();
+  const waiting = coarse.progressAt(600, 100);
+  expect(waiting).toMatchObject({ loaded: 0, total: 2 });
+  expect(coarse.entries.get('t0_2_0')?.state).toBe('failed');
+  recovered = true;
+  coarse.update(600, 100, 6000); await settle();
+  coarse.update(600, 100, 9000); await settle();
+  expect(coarse.entries.get('t0_2_0')?.state).toBe('draft');
+  expect(coarse.entries.get('t0_2_1')?.state).toBe('draft');
+  expect(coarse.progressAt(600, 100).loaded).toBeGreaterThanOrEqual(2);
+});

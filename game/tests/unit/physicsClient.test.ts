@@ -24,6 +24,10 @@ test('explicit steps do not depend on replies and worker errors are surfaced', a
     client.step(1/60,{vx:0,vz:0,jump:false},null);
     expect(worker.postMessage).toHaveBeenCalledTimes(3);
     expect(worker.postMessage.mock.calls[2][0]).toMatchObject({type:'step',seq:3,dt:1/60});
+    worker.onmessage!({ data: { type: 'tileLoaded', stats: { id: 'c_2_3', tris: 1, prims: 0, bytes: 4, buildMs: 1, colliders: 1 } } });
+    expect(client.loaded.has('c_2_3')).toBe(true);
+    worker.onmessage!({ data: { type: 'tileError', id: 'c_2_3', error: 'decode failed', permanent: true } });
+    expect(client.loaded.has('c_2_3')).toBe(false);
   } finally { vi.unstubAllGlobals(); }
 });
 

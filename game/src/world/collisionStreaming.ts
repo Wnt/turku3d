@@ -123,9 +123,8 @@ export class CollisionStreamer {
     const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
     try {
       const res = await fetch(new URL(e.url, this.manifest.baseUrl), { signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), {
-        permanent: res.status < 500 && res.status !== 408 && res.status !== 429,
-      });
+      // A failed/in-progress draft can temporarily answer 404 during repair; retry its payload.
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = await res.arrayBuffer();
       if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
       await this.physics.loadTile(id, buf);

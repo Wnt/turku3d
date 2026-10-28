@@ -65,7 +65,7 @@ export class PhysicsClient {
           this.send({ type: 'stateAck', revision: m.revision ?? 0 });
           break;
         case 'tileLoaded': this.loaded.set(m.stats.id, m.stats); this.tileWaiters.get(m.stats.id)?.resolve(m.stats); this.tileWaiters.delete(m.stats.id); break;
-        case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
+        case 'tileError': this.loaded.delete(m.id); this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
         case 'cameraCastResult': case 'raycastResult': case 'statsResult': case 'checkResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
         case 'stepError':

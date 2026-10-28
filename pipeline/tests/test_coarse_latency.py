@@ -41,8 +41,12 @@ def test_upgrade_yields_to_new_first_pass(tmp_path):
     builder.upgrade_queue.add("t0_1_0")
     builder.requested["t0_1_0"] = time.time()
     builder.priority["t0_2_0"] = 10
-    assert builder._next_upgrade() is None
-    assert builder.upgrade_queue == {"t0_1_0"}
+    builder.requested["t0_2_0"] = time.time()
+    from turku3d.coarse.upgrade_queue import next_job
+
+    assert next_job(builder) == (("t0_2_0", 10), False)
+    assert builder._next_upgrade() == ("t0_1_0", 0)
+    assert not builder.upgrade_queue
     builder.stop()
 
 
@@ -247,3 +251,19 @@ def test_missing_first_pass_inputs_do_not_start_full_preparation(tmp_path, monke
     with pytest.raises(inputs.MissingInputs) as error:
         inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
     assert error.value.units == ["wfs/source"]
+
+
+def test_idle_foreground_workers_upgrade_old_served_tiles_in_request_order(tmp_path):
+    from turku3d.coarse.upgrade_queue import next_job
+
+    builder = Builder(tmp_path, code="test", workers=0)
+    builder.upgrade_queue.update(("t0_0_0", "t0_5_5", "t0_3_-2"))
+    builder.requested = {tile: time.time() - 300 for tile in builder.upgrade_queue}
+    builder.upgrade_requested["t0_5_5"] = time.time()
+    job = next_job(builder)
+    assert job == (("t0_5_5", 0), True)
+    builder.building["t0_5_5"] = time.time()
+    assert next_job(builder) == (("t0_0_0", 0), True)
+    assert next_job(builder) == (("t0_3_-2", 0), True)
+    builder.building.clear()
+    builder.stop()
