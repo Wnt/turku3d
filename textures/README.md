@@ -189,8 +189,8 @@ $PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --asse
   zoom 2, 768 px crops, at most two views), so keep them in their own directory (`fast-refs`): the
   reference key includes these parameters. The usual black and sharpness screen applies; small
   walls fail it more often at this resolution and take a fallback description.
-- **Calls are cached** in `$TURKU3D_DATA/textures/codex-cache` by prompt and crop hash, so a rerun
-  in any sandbox makes no new call; the runner stops below `--max-pct` (default 90).
+- **Calls are cached** in `$TURKU3D_WORK/textures/codex-cache` by prompt and crop hash, so a rerun
+  in the same sandbox makes no new call; the runner stops below `--max-pct` (default 90).
 - **Maps** are 16 px/m (the top of the packager's density ladder) with `min_pixels_per_metre` 0,
   so the packager scales them down before any generated or derived map. Rendering is keyed by
   the description, code and encoding settings; an unchanged wall is not re-encoded. Fast maps
@@ -498,7 +498,12 @@ Reference geometry must still match the input; a material/index change alone doe
 
 Default sources: `google,lookaround,mapillary,photospheres`. `--sources` selects available providers.
 Selection ranks angle, distance, resolution, depth-proxy occlusion and recency, then adds viewpoint
-and facade-section diversity. It retains at least one full view when available and up to four views.
+and facade-section diversity. LOD2 rays check the target plane, both edges and intervening
+neighbours; a wrong-facing or blocked panorama is skipped. A local ADE20K/DINO screen rejects
+foreground occluders, interiors, mixed walls and crop-edge windows/doors and tries another
+panorama or source. An overestimated roof/gable height is trimmed to the LOD2-supported eaves
+before cropping; the visible height is passed into the description job. The crop covers only
+the target wall plane. It retains at least one full view when available and up to four views.
 Each chosen view has a perspective crop, outlined crop, approximate occlusion mask, **wall-plane
 rectified** crop and rectified mask, with pose/date/panorama provenance and its covered u interval.
 Cached successful reference sets do not refetch or rewrite images.
@@ -506,9 +511,10 @@ Transient provider failures are recorded by provider and exception type, without
 Other available providers and replacement views remain usable; a partially failed source search
 is retried on the next reference run.
 
-Google depth is flipped horizontally; camera heights follow the verified campaign table. Apple
-camera height and panorama pitch/roll remain approximate. Masks catch nearer depth planes, not
-all trees or vehicles. Label jobs judge visual usability; entirely rejected references are never
+Google depth is flipped horizontally; camera heights follow the verified campaign table.
+Look Around pose uses provider pitch/roll and true-to-grid convergence; its camera height still
+depends on local N2000 ground support. Depth masks catch nearer planes, while local segmentation
+estimates trees and vehicles. Label jobs judge visual usability; entirely rejected references are never
 silently promoted into usable inputs. Photospheres use the same third-party discovery RPC as
 `tools/refs/gmaps_photospheres.py`.
 

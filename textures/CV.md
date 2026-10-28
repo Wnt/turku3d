@@ -118,7 +118,10 @@ Raw provider heights remain in `pano.elevation`; the effective height and source
 in `camera.pos_EN_H` and `camera_height_source`. Reference cache keys include nearby ground
 file identities, so new ground data invalidates an earlier uncalibrated crop. Re-run the
 normal `facade-batch refs` command to regenerate older references. This fixes observed
-19.5 m vertical errors; it does not resolve horizontal pose or foreground-building occlusion.
+19.5 m vertical errors. Current references also apply provider pitch/roll and true-to-grid
+convergence, check LOD2 neighbour visibility and target-plane support, screen semantic
+foreground and crop-edge openings, and trim excessive roof/gable height to the supported
+wall eaves. The reference key includes these geometry and screen versions.
 Verify without imagery: `PYTHONPATH=textures:pipeline .venv/bin/python -m pytest -q
 textures/tests/test_streetview_height.py textures/tests/test_streetview_geometry.py`.
 
@@ -143,9 +146,10 @@ vertical chromatic boundaries cause abstention. These are evidence heuristics, n
 probabilities or proof of target identity. Explicit wrong-wall/multiple-surface audits can
 also be passed to `Engine.measure(..., audit=...)`. `facade_fast descriptions()` preserves
 the resolved fields as `source=hybrid` and does not propagate them as building donors.
-All records retain `needs_review`; the background queue is **unchanged**. The requested
-100-wall validation is blocked; the six-wall pilot ties register storeys and improves colour.
-See [the report](../docs/research/facade-cv-hybrid.md).
+All records retain `needs_review`. The background queue currently applies measured
+appearance from the hybrid and then spends Astra calls on the most observed nearby walls.
+The six-wall pilot tied register storeys and improved colour; it did not establish other
+deployment fields. See [the pilot report](../docs/research/facade-cv-hybrid.md).
 
 All truth images, labels, rejected attempts and call logs stay under the local research root.
 The two high-effort reviewers never see one another's labels. Acceptance requires both to
