@@ -15,6 +15,8 @@ from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh
 from turku3d.structures.geometry import Faces, profile_wall
 
+from .geometry import clip_mesh
+
 
 @lru_cache(maxsize=8)
 def _keypoints(path, size, mtime):
@@ -104,6 +106,11 @@ def floor_profile(heights, distance):
 def cut_required(ground, floor, clearance):
     """Cut only ground that obstructs the clear box; retain walkable overburden."""
     return (ground > floor - 0.25) & (ground < floor + clearance + 0.35)
+
+
+def passage_footprint(polygon):
+    """Remove submillimetre cut slivers before roof triangulation and float32 collision."""
+    return polygon.simplify(0.0005, preserve_topology=True)
 
 
 def _polygon_faces(faces, polygon, height):
@@ -214,7 +221,6 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         terrain = np.array([sample(x, z) for x, z in xz])
         floor = floor_profile(terrain, distances)
-        profiles.append((line, distances, floor, width))
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
         if tags.get("tunnel") == "building_passage":
             passages.append((corridor, float(np.max(floor) + clearance + 0.35)))
@@ -273,6 +279,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                 )
         if not road.indices:
             continue
+        profiles.append((line, distances, floor, width))
         meshes.extend(
             [
                 tube.mesh(f"tunnel:{key}:roof", "wall"),
@@ -289,15 +296,23 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
             lamp.metadata["lamp"] = True
             meshes.append(lamp)
         for side, name in ((left, "left"), (right, "right")):
-            meshes.append(
-                profile_wall(
+            # Offset curves can reverse at tight OSM corners. Emit each measured section
+            # into one mesh instead of mitering the already-mitered side a second time.
+            wall = Faces()
+            for i in range(len(side) - 1):
+                if np.linalg.norm(side[i + 1] - side[i]) < 1e-6:
+                    continue
+                section = profile_wall(
                     f"tunnel:{key}:{name}",
-                    side,
-                    floor - 0.2,
-                    floor + clearance + 0.3,
+                    side[i : i + 2],
+                    floor[i : i + 2] - 0.2,
+                    floor[i : i + 2] + clearance + 0.3,
                     thickness=0.4,
                 )
-            )
+                for tri in section.indices:
+                    wall.face(section.positions[tri], section.uvs[tri])
+            if wall.indices:
+                meshes.append(wall.mesh(f"tunnel:{key}:{name}", "wall"))
         for end in (0, -1):
             # Portal wing walls leave the whole clear box open.
             for sign, side in ((1, left), (-1, right)):
@@ -342,7 +357,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                     if poly.geom_type == "Polygon" and poly.area > 0.01 and base < b.top:
                         part = Building(
                             b.key,
-                            shapely.geometry.polygon.orient(poly, 1),
+                            shapely.geometry.polygon.orient(passage_footprint(poly), 1),
                             base,
                             b.top,
                             b.material_key,
@@ -351,4 +366,5 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample):
                         part.attributes = b.attributes.copy()
                         updated.append((part, extrude(part)))
         shells = updated
+    meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
     return Tunnels(keep, meshes, profiles, shells, len(profiles))

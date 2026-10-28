@@ -23,7 +23,7 @@ from turku3d.structures.geometry import profile_wall
 DEFAULTS = {
     "fence": 1.6,
     "wall": 1.8,
-    "retaining_wall": 1.8,
+    "retaining_wall": 0.0,
     "city_wall": 1.8,
     "hedge": 1.4,
     "guard_rail": 0.8,
@@ -74,14 +74,27 @@ def prepare(tile, path):
 
     rows = []
     roads = []
+    obstacles, bridge_outlines = [], []
+    from .bridges import footprint
+
     window = shapely.box(*tile.bbox.as_tuple())
     for row in pq.read_table(path, columns=["tags", "geometry_local"]).to_pylist():
         tags = json.loads(row["tags"]) if row["tags"] else {}
-        if not tags.get("highway") and tags.get("barrier") not in DEFAULTS:
+        if (
+            not tags.get("highway")
+            and tags.get("barrier") not in DEFAULTS
+            and not tags.get("building")
+            and tags.get("man_made") != "bridge"
+        ):
             continue
         geom = shapely.force_2d(shapely.from_wkb(row["geometry_local"]))
         if not geom.intersects(window):
             continue
+        poly = footprint(geom)
+        if tags.get("building") not in (None, "no") and not poly.is_empty:
+            obstacles.append(poly)
+        if tags.get("man_made") == "bridge" and not poly.is_empty:
+            bridge_outlines.append(poly)
         if tags.get("highway") and geom.geom_type in ("LineString", "MultiLineString"):
             roads.append(geom)
         if tags.get("barrier") in DEFAULTS:
@@ -90,7 +103,19 @@ def prepare(tile, path):
             rows.append((geom, tags))
     road = shapely.union_all(roads)
     result = []
+    blocked = shapely.union_all(obstacles).buffer(0.2)
+    decks = shapely.union_all(bridge_outlines).buffer(0.5)
+    seen = set()
     for geom, tags in rows:
+        identity = (geom.normalize().wkb, json.dumps(tags, sort_keys=True))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        geom = geom.difference(blocked)
+        if tags.get("layer") not in (None, "0", "-1"):
+            geom = geom.difference(decks)
+        if geom.is_empty:
+            continue
         on_road = bool(tags.get("highway"))
         if geom.geom_type == "Point":
             on_road |= not road.is_empty and road.distance(geom) < 0.15
@@ -151,8 +176,8 @@ class Segment:
     yaw: float
 
 
-def place(tile, records, streets, sample):
-    window = shapely.box(*tile.bbox.as_tuple())
+def place(tile, records, streets, sample, water=()):
+    window = shapely.box(*tile.bbox.as_tuple()).difference(shapely.union_all(water).buffer(0.35))
     roads = shapely.union_all([g for g, _ in streets])
     openings = shapely.union_all(
         [
@@ -166,8 +191,14 @@ def place(tile, records, streets, sample):
         if tags["barrier"] == "gate":
             continue
         kind, h = style(tags), height(tags)
+        # A retaining edge is the bank face below grade, not a free-standing fence.
+        # Only an explicit height/parapet tag justifies a barrier above the bank.
+        if tags["barrier"] == "retaining_wall" and "height" not in tags:
+            if tags.get("wall") != "parapet":
+                continue
+            h = 0.5
         if geom.geom_type == "Point":
-            if not tile.bbox.contains(geom.x, geom.y) or (not on_road and roads.covers(geom)):
+            if not window.covers(geom) or (not on_road and roads.covers(geom)):
                 continue
             out.append(Segment(kind, geom.x, sample(geom.x, geom.y), geom.y, 0.22, h, 0))
             continue
@@ -344,7 +375,7 @@ def produce(tile, inputs, stage, layer_files, sample):
     import time
 
     started = time.perf_counter()
-    batch = place(tile, inputs.barriers, inputs.streets, sample)
+    batch = place(tile, inputs.barriers, inputs.streets, sample, inputs.water)
     if batch:
         path = stage / "fences.vis.glb"
         write_instances(path, tile, batch)
