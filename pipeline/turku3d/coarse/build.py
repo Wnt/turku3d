@@ -329,6 +329,7 @@ def build(
             Path(bridges.__file__),
             Path(__file__).with_name("tunnels.py"),
             Path(__file__).with_name("bridge_details.py"),
+            Path(__file__).with_name("bridge_join.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             base / "structures/layer.py",

@@ -29,6 +29,7 @@ PRODUCERS = (
     "surfaces",
     "bridges",
     "bridge_details",
+    "bridge_join",
     "bridge_survey",
     "kerbs",
     "stairs",
