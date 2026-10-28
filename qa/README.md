@@ -36,7 +36,7 @@ Reports: `$QA_DATA/runs/<run>/report.html`, `issues.jsonl`, `run.json`, `judge/*
 `renders/*`. Cross-run records: `$QA_DATA/history.jsonl`, `$QA_DATA/issues.jsonl`.
 Run IDs are immutable: choose a fresh ID, rather than overwriting old evidence. A run
 records full git SHA, dirty state, exact reference image/pose hashes, prompt/schema hash,
-model, browser channel, backend and package manifest hash/content. Partial rendering,
+model, browser resolver hash/override, backend and package manifest hash/content. Partial rendering,
 missing IDs, missing photos, judge errors and quota stops exit nonzero. A no-judge run
 is never a regression baseline.
 

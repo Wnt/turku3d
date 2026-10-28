@@ -128,6 +128,7 @@ def main(argv=None):
         {
             "views": view_hashes,
             "backend": a.backend,
+            "browser_resolver": file_digest(QA_DIR.parent / "tools/dev/chrome-args.mjs"),
             "browser_executable_override": os.environ.get("TURKU3D_CHROME"),
             "model": DEFAULT_MODEL,
             "prompt": file_digest(PROMPT),

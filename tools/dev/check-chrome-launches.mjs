@@ -63,7 +63,7 @@ export function checkChromeLaunches(name, source) {
         check(node.arguments[node.expression.name.text === 'launchPersistentContext' ? 1 : 0], node);
       }
       if (ts.isCallExpression(node) && /^(?:spawn|execFile|execFileSync)$/.test(node.expression.getText(tree))
-        && node.arguments[0] && (safe(node.arguments[1]) || /(?:Google Chrome|chromium|chrome)(?:$|\/)/i.test(node.arguments[0].getText(tree)))
+        && node.arguments[0] && (safe(node.arguments[1]) || /(?:Google Chrome(?: for Testing)?|chromium|chrome)(?:$|\/)/i.test(ts.isStringLiteral(node.arguments[0]) ? node.arguments[0].text : node.arguments[0].getText(tree)))
         && (!safe(node.arguments[1]) || !resolver || node.arguments[0].getText(tree) !== 'chromeExecutable()')) {
         errors.push(`${name}: native Chrome launch must use chromeExecutable() and chromeArgs()`);
       }
@@ -77,9 +77,8 @@ export function checkChromeLaunches(name, source) {
   }
   // Native CDP launchers must also use the shared merger (or its literal flag in Python/shell).
   if (/--remote-debugging-port|chrome-launcher|puppeteer\.launch|\/Google Chrome\.app\/Contents\/MacOS/.test(source)
-    && !name.includes('/tests/') && !source.includes('chromeArgs(')
-    && !source.includes('--disable-features=MacAppCodeSignClone')) {
-    errors.push(`${name}: native Chrome launcher lacks MacAppCodeSignClone protection`);
+    && !name.includes('/tests/') && !source.includes('chromeExecutable(')) {
+    errors.push(`${name}: native Chrome launcher must use the shared automation browser resolver`);
   }
   if (/channel\s*:\s*['"]chrome['"]|\/Applications\/Google Chrome\.app/.test(source)) {
     errors.push(`${name}: desktop Chrome path/channel is forbidden`);
