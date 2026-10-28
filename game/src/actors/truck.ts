@@ -83,7 +83,7 @@ export class TruckVisual {
     for (let i = 0; i < index.count; i += 3) { const a = index.getX(i + 1); index.setX(i + 1, index.getX(i + 2)); index.setX(i + 2, a); }
     mirrored.computeVertexNormals();
     for (const at of TRUCK.wheels) {
-      const steering = new THREE.Group();
+      const steering = new THREE.Group(); steering.name = `vehicle-wheel-${this.wheels.length}`;
       steering.add(new THREE.Mesh(at.z < 0 ? tyre : mirrored, wheel.material));
       this.root.add(steering);
       this.wheels.push(steering);

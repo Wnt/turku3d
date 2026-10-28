@@ -138,3 +138,18 @@ test('20 Hz traffic tolerates alternating 49/51 ms packet jitter without rejecti
   assert.equal(f.room.stats.rejected, 0);
   assert.equal(a.closes.length, 0);
 });
+
+test('vehicle quaternion and wheel state relay unchanged; malformed transforms are rejected', () => {
+  const f = fixture(), a = f.connect(), b = f.connect();
+  b.messages.length = 0;
+  const rot = { x: 0.6, y: 0, z: 0, w: 0.8 };
+  const wheels = [{ pos: { x: 1, y: -0.3, z: 1 }, steer: 0.2, rotation: 12, contact: true, suspension: 0.1 }];
+  const car = { ...pose, mode: 'car', vehicle: 'player', rot, wheels };
+  a.send(car); f.room.flushPoses();
+  assert.deepEqual(b.messages[0].poses[0].rot, rot);
+  assert.deepEqual(b.messages[0].poses[0].wheels, wheels);
+  const accepted = f.room.stats.poses;
+  for (const invalid of [{ rot: null }, { rot: { ...rot, w: 0 } }, { rot: { ...rot, x: Infinity } },
+    { wheels: [null] }, { wheels: Array(5).fill(wheels[0]) }, { wheels: [{ ...wheels[0], steer: Infinity }] }]) a.send({ ...car, ...invalid });
+  assert.equal(f.room.stats.poses, accepted);
+});

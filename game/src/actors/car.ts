@@ -52,7 +52,7 @@ export class CarVisual {
       wheel.geometry = geometry;
       wheel.position.set(0, 0, 0);
       wheel.rotation.set(0, 0, 0);
-      const steering = new THREE.Group(); steering.add(wheel);
+      const steering = new THREE.Group(); steering.name = `vehicle-wheel-${this.wheels.length}`; steering.add(wheel);
       this.root.add(steering); this.wheels.push(steering);
     }
     this.root.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });

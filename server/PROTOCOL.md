@@ -52,6 +52,17 @@ replaces any earlier socket using that token (old socket closes with code 4001).
 An unknown but well-formed token starts a new player; malformed tokens are rejected.
 The token is a bearer credential; retain it privately, never put it in a URL.
 
+### Vehicle orientation
+
+Vehicle poses may include `rot:{x,y,z,w}`, a unit chassis quaternion in engine
+axes, and `wheels:[{pos:{x,y,z},steer,rotation,contact,suspension}]` (up to four).
+Wheel positions are chassis-local metres; steering and unwrapped wheel rotation
+are radians. The server validates and relays these fields unchanged. Missing
+rotation falls back to legacy yaw. Receivers slerp the chassis along the shortest
+arc and interpolate wheel transforms in the same 100 ms buffer. Model corrections
+are applied after chassis rotation: parked meshes need +π/2 about local Y;
+starter car, scooter and truck roots already use the chassis frame.
+
 ### pose
 
 ```json

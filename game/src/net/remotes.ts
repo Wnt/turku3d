@@ -3,12 +3,14 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { collisionTileAt } from '../core/origin';
 import type { V3 } from '../core/origin';
+import type { RemoteBody } from '../physics/protocol';
 import type { PhysicsClient } from '../physics/client';
 import type { PlayerVisual } from '../actors/player';
 import type { CarVisual, ParkedCarVisuals } from '../actors/car';
 import type { ScooterVisual } from '../actors/scooter';
 import type { TruckVisual } from '../actors/truck';
 import type { MultiplayerClient, NetPlayer, NetPose } from './client';
+import { vehicleRotation } from './orientation';
 import { PoseBuffer } from './interpolation';
 import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
 
@@ -79,7 +81,7 @@ export class RemotePlayers {
       (remote.label.material as THREE.SpriteMaterial).map?.dispose(); remote.label.material.dispose();
       this.remotes.delete(id);
     }
-    const bodies: { id: string; pos: { x: number; y: number; z: number }; yaw: number; mode: NetPose['mode'] }[] = [];
+    const bodies: RemoteBody[] = [];
     for (const p of players) {
       let remote = this.remotes.get(p.id);
       if (!remote) {
@@ -125,12 +127,20 @@ export class RemotePlayers {
       for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model.position.set(pos.x, pos.y, pos.z);
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
-      remote.car.rotation.y = pose.yaw + Math.PI / 2;
+      remote.car.quaternion.copy(vehicleRotation(pose, remote.vehicleKey !== 'player'));
       if (remote.vehicleKey !== 'player') remote.car.position.y -= 0.75;
-      remote.scooter.rotation.y = pose.yaw + Math.PI / 2;
-      remote.truck.rotation.y = pose.yaw + Math.PI / 2;
+      remote.scooter.quaternion.copy(vehicleRotation(pose, false));
+      remote.truck.quaternion.copy(vehicleRotation(pose, false));
+      const wheeled = pose.mode === 'truck' ? remote.truck : remote.vehicleKey === 'player' ? remote.car : null;
+      pose.wheels?.forEach((w, i) => {
+        const wheel = wheeled?.getObjectByName(`vehicle-wheel-${i}`);
+        if (!wheel) return;
+        wheel.position.set(w.pos.x, w.pos.y, w.pos.z);
+        wheel.rotation.set(0, w.steer, 0);
+        wheel.children[0].rotation.z = -w.rotation;
+      });
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
-      bodies.push({ id: p.id, pos, yaw: pose.yaw, mode: pose.mode });
+      bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });
     }
     this.physics.setRemotes(bodies);
     this.frameMs += (performance.now() - t0 - this.frameMs) * 0.1;
@@ -144,7 +154,7 @@ export class RemotePlayers {
   }
 
   visualBounds(): { id: string; mode: NetPose['mode']; vehicle: string | null; paint: string | null;
-    x: number; z: number; bottom: number; rootY: number }[] {
+    x: number; z: number; bottom: number; rootY: number; rotation: number[]; wheels: { pos: number[]; rotation: number[] }[] }[] {
     const bounds = new THREE.Box3();
     return [...this.remotes.entries()].flatMap(([id, remote]) => {
       const model = remote.foot?.visible ? remote.foot : remote.distant.visible ? remote.distant
@@ -157,7 +167,9 @@ export class RemotePlayers {
       const paint = !Array.isArray(material) && (material as THREE.MeshStandardMaterial | undefined)?.color
         ? (material as THREE.MeshStandardMaterial).color.getHexString() : null;
       return [{ id, mode, vehicle: mode === 'car' ? remote.vehicleKey : mode === 'foot' ? null : mode, paint,
-        x: model.position.x, z: model.position.z, bottom: bounds.min.y, rootY: model.position.y }];
+        x: model.position.x, z: model.position.z, bottom: bounds.min.y, rootY: model.position.y, rotation: model.quaternion.toArray(),
+        wheels: [0, 1, 2, 3].flatMap(i => { const w = model.getObjectByName(`vehicle-wheel-${i}`);
+          return w ? [{ pos: w.position.toArray(), rotation: w.quaternion.toArray() }] : []; }) }];
     });
   }
 

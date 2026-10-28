@@ -23,3 +23,10 @@ test('pose rate keeps within 20 messages per second and sends a stationary heart
   expect(shouldSendPose(55, { ...pose, mode: 'car', vehicle: 'fixture/blue' }, 0,
     { ...pose, mode: 'car', vehicle: 'fixture/red' })).toBe(true);
 });
+
+
+test('pitch, roll and wheel changes send a pose even without movement or heading change', () => {
+  const car = { ...pose, mode: 'car' as const, vehicle: 'player', rot: { x: 0, y: 0, z: 0, w: 1 } };
+  expect(shouldSendPose(55, car, 0, { ...car, rot: { x: 0.1, y: 0, z: 0, w: Math.sqrt(0.99) } })).toBe(true);
+  expect(shouldSendPose(55, car, 0, { ...car, wheels: [{ pos: { x: 1, y: 0, z: 1 }, steer: 0.2, rotation: 1, suspension: 0.2, contact: true }] })).toBe(true);
+});

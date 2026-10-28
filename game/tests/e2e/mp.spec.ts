@@ -2,8 +2,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isolatedTest as test, expect } from './fixtures';
+import { cells, routeCoarse } from './coarseFake';
 import { frames, open } from './waits';
-import { reportsRoot, workRoot } from '../../../tools/dev/environment.mjs';
+import { reportsRoot, workRoot, port } from '../../../tools/dev/environment.mjs';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { Document, NodeIO } from '@gltf-transform/core';
 
@@ -23,7 +24,7 @@ async function startServer() {
   `;
   const child = spawn(process.execPath, ['--input-type=module', '-e', fixture], {
     cwd: path.resolve(import.meta.dirname, '../../..'),
-    env: { ...process.env, TURKU_MP_PORT: '0', TURKU_MP_SCORES: scores },
+    env: { ...process.env, TURKU_MP_PORT: String(port(3)), TURKU_MP_SCORES: scores },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
@@ -206,4 +207,104 @@ test('two pages collide and share a paid delivery', { tag: ['@gameplay', '@synth
     await contextB.close();
     server.kill('SIGTERM');
   }
+});
+
+test('remote car follows chassis and wheels while driving, turning, reversing and climbing a banked ramp', async ({ page, browser }, info) => {
+  test.setTimeout(120_000);
+  const { child: server, ws } = await startServer();
+  const context = await browser.newContext({ baseURL: info.project.use.baseURL });
+  const observer = await context.newPage();
+  try {
+    for (const p of [page, observer]) {
+      await routeCoarse(p, {
+        ...Object.fromEntries([-1, 0, 1].flatMap(i => [-1, 0, 1].map(j => [`t0_${i}_${j}`, { cells: cells(i, j) }]))),
+        t0_0_0: { cells: cells(0, 0), roads: { nodes: 2, edges: 1, json: {
+        format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', area: 'orientation',
+        bbox: [0, 0, 250, 250], nodes: [140, 245, 220, 245], edges: [[0, 1, 19, 80]],
+      } } } });
+      p.on('pageerror', e => console.log('[orientation pageerror]', e.message));
+      p.on('console', m => { if (['error', 'warn'].includes(m.type())) console.log('[orientation]', m.text()); });
+    }
+    const url = `/?scene=dev&backend=webgpu&mp=${encodeURIComponent(ws)}`;
+    await Promise.all([open(page, url), observer.goto(url)]);
+    for (const p of [page, observer]) await p.getByRole('option', { name: /Multiplayer/ }).click({ timeout: 30000 });
+    for (const p of [page, observer]) await p.waitForFunction(() => {
+      const s = (window.__game!.state as () => any)();
+      return s.multiplayer?.connected && s.multiplayer.players === 2 && !s.startScreen && !s.loading && s.grounded;
+    });
+    console.log('[orientation] joined');
+    await observer.evaluate(() => (window.__game!.physics as any).setCharacterEnabled(true, { x: 150, y: 2, z: 245 }));
+    await page.evaluate(() => {
+      const physics = window.__game!.physics as any;
+      physics.setCharacterEnabled(true, { x: 163, y: 2, z: 245 });
+      physics.resetVehicle({ x: 165, y: 2.75, z: 245 }, 0);
+    });
+    await frames(page, 30);
+    await page.keyboard.press('KeyF');
+    await page.waitForFunction(() => (window.__game!.state as () => any)().mode === 'car');
+    await observer.waitForFunction(() => (window.__game!.state as () => any)().multiplayer.remoteVisuals.some((v: any) => v.mode === 'car'));
+    const assertPose = async () => {
+      await frames(page, 25);
+      // Compare the observer's latest received pose to its delayed visual.
+      const result = await observer.evaluate(() => {
+        const game = window.__game as any, state = game.state(), client = game.multiplayerClient();
+        const p = client.state.players.find((v: any) => v.id !== client.state.you.id).pose;
+        const visual = state.multiplayer.remoteVisuals.find((v: any) => v.mode === 'car');
+        return { pose: p, visual };
+      });
+      const q = result.pose.rot, v = result.visual.rotation;
+      expect(Math.abs(q.x * v[0] + q.y * v[1] + q.z * v[2] + q.w * v[3])).toBeGreaterThan(0.995);
+      expect(result.visual.wheels).toHaveLength(4);
+      result.pose.wheels.forEach((w: any, i: number) => {
+        expect(Math.abs(result.visual.wheels[i].pos[1] - w.pos.y)).toBeLessThan(0.15);
+      });
+      return result;
+    };
+    await assertPose();
+    console.log('[orientation] entered');
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('KeyA');
+    await frames(page, 55);
+    await page.keyboard.up('KeyA');
+    await page.keyboard.up('KeyW');
+    const turned = await assertPose();
+    console.log('[orientation] turned');
+    expect(Math.abs(turned.pose.rot.y)).toBeGreaterThan(0.02);
+    await page.keyboard.down('KeyS');
+    await frames(page, 150);
+    await page.keyboard.up('KeyS');
+    const reversed = await assertPose();
+    console.log('[orientation] reversed');
+    expect(reversed.pose.wheels.some((w: any) => w.rotation !== turned.pose.wheels[0].rotation)).toBe(true);
+
+    // A long banked ramp exercises simultaneous chassis pitch and roll using real Rapier wheel contacts.
+    const { writeCol } = await import('../../scripts/colWriter.mjs');
+    const ramp = writeCol({ i: 2, j: 3,
+      positions: new Float32Array([50, 2, 52.5, 65, 5, 52.5, 65, 5.8, 62, 50, 2, 62,
+        80, 5, 52.5, 80, 5.8, 62]),
+      indices: new Uint32Array([0, 2, 1, 0, 3, 2, 1, 5, 4, 1, 2, 5]),
+      materials: new Uint8Array([1, 1, 1, 1]), prims: [], flags: 0, meta: {} });
+    await page.evaluate(async bytes => {
+      const physics = window.__game!.physics as any;
+      await physics.loadTile('orientation-ramp', new Uint8Array(bytes).buffer);
+      physics.resetVehicle({ x: 171, y: 2.8, z: 245 }, 0);
+      (window as any).slopeSamples = [];
+      const capture = () => {
+        const v = (window.__game!.state as () => any)().vehicle;
+        (window as any).slopeSamples.push(v);
+        if ((window as any).captureSlope) requestAnimationFrame(capture);
+      };
+      (window as any).captureSlope = true; capture();
+    }, [...ramp]);
+    await frames(page, 30);
+    await page.keyboard.down('KeyW');
+    await page.waitForFunction(() => (window.__game!.state as () => any)().vehicle.pos[0] > 184);
+    await page.keyboard.up('KeyW');
+    const sloped = await assertPose();
+    expect(Math.abs(sloped.pose.rot.z)).toBeGreaterThan(0.025);
+    const samples = await page.evaluate(() => { (window as any).captureSlope = false; return (window as any).slopeSamples; });
+    expect(samples.some((s: any) => s.pos[1] > 3.5 && Math.abs(s.rot.x) > 0.01 && Math.abs(s.rot.z) > 0.025)).toBe(true);
+    await info.attach('orientation-evidence', { body: JSON.stringify({ turned, reversed, sloped, samples }), contentType: 'application/json' });
+    await info.attach('remote-ramp', { body: await observer.screenshot(), contentType: 'image/png' });
+  } finally { await context.close(); server.kill('SIGTERM'); }
 });
