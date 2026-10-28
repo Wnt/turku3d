@@ -1,6 +1,5 @@
 """Freeze current OCI bytes while holding one nonurgent scorer demand lease."""
 import hashlib
-import json
 import os
 from pathlib import Path
 import threading
@@ -26,14 +25,15 @@ def freeze_current(tile, destination, timeout=600):
     errors = []
 
     def heartbeat():
-        while not stopped.is_set():
+        while not stopped.wait(2):
             try:
                 lease = requests.get(urljoin(oci.BASE, 'demand'), params=params, timeout=5)
                 lease.raise_for_status()
             except requests.RequestException as error:
                 errors.append(str(error))
-            stopped.wait(2)
 
+    initial = requests.get(urljoin(oci.BASE, 'demand'), params=params, timeout=5)
+    initial.raise_for_status()
     thread = threading.Thread(target=heartbeat, daemon=True)
     thread.start()
     started = time.monotonic()

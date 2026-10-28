@@ -194,3 +194,32 @@ bridges, retaining the same OSM exclusions and seeded order. It writes private
 for the runner; the original forty remain its prefix. Existing eligible captures
 and completed scores are reused. Milestone notices retain their previous count
 across restarts.
+
+### Completed round-3 result
+
+All **60** quarter references qualified: the unchanged original forty plus twenty
+additional urban quarters in their existing parents. **57 scored** against frozen
+OCI drafts, covering **0.890625 km² of nominal new scored footprints**; **1,807 m²**
+of accepted missing-node footprints were excluded from calibration and scores.
+The original forty produced 37 scores and three calibration abstentions
+(`t0_2_-3_q11`, `t0_2_0_q11`, `t0_0_-1_q11`); all twenty extension quarters scored.
+
+Successful synthetic capture including native initialization averaged about
+**15.93 s/quarter** across the sixty. Core per-quarter work excluding initialization
+and final catalogue flushes averaged **15.41 s**. Total task browser use, including
+the stopped camera sweep and proof/setup failures, was **26.069/120 minutes**.
+All capture browsers are closed. Scoring completed with four independent workers;
+renewable OCI leases and physical-file quota accounting avoid the legacy demand
+pruning and repeated hard-link scans.
+
+Milestone handoffs were sent at 10, 20, 30, 40 and 50 measured quarters, followed
+by the final handoff. Final confirmed counts are **textures 0, bridges 0,
+ground/wall/object geometry 0, roofs/heights 18**. High-priority reference-only
+appearance and bridge candidates remain review inputs, not confirmed defects.
+The facade-characterization task received the read-only paired-colour contract.
+
+Private final evidence is under
+`$TURKU3D_WORK/gmaps-round3/synthetic/{coverage.json,summary.json,findings.md,findings.json}`.
+The reports retain exact own/reference/scorer identities and all abstention reasons.
+`bash pipeline/env/run.sh python tools/refs/gmaps_summary.py` refreshes the area and
+timing summary without opening a browser or issuing provider requests.
