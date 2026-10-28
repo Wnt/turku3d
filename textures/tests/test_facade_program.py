@@ -25,6 +25,7 @@ def test_storeys_come_only_from_register_and_unknown_is_preserved():
     b = fp.merge_building("a", {"levels": 7}, [w])
     assert b["storeys"] == fp.value(7, "register", 1)
     assert w["split"]["middle_repeats"] == 5
+    assert w["observation"]["register_height_conflict"]
     assert fp.merge_building("a", {}, [facade(None)])["storeys"]["value"] is None
     assert w["trim"]["cornice"]["value"] is None
     with pytest.raises(ValueError, match="register floors"):
@@ -79,3 +80,34 @@ def test_merge_keeps_wall_differences_without_mutating_inputs():
         "#123456",
     }
     assert fp.paint(a, 3).size == (512, 256)
+
+
+def test_detector_filters_duplicates_and_foreground_before_grid_fitting():
+    labels = np.ones((100, 200), dtype=np.uint8)
+    foreground = np.zeros_like(labels, dtype=bool)
+    foreground[:, 100:] = True
+    boxes = [
+        dict(box=[10, 10, 30, 40], score=0.8, label="window"),
+        dict(box=[11, 11, 31, 41], score=0.7, label="window"),
+        dict(box=[120, 10, 140, 40], score=0.9, label="window"),
+    ]
+    out, count = fp.opening_labels(labels, boxes, foreground, 20, 10)
+    assert count == 1
+    assert (out[10:40, 10:30] == 2).all()
+    assert (out[:, 100:] == 1).all()
+
+
+def test_sample_never_inherits_a_donors_photo_or_world_geometry():
+    wall = facade()
+    wall["evidence"] = {"photo": "private-donor.png"}
+    wall["geometry"] = {"p0": [100, 200]}
+    b = fp.merge_building("donor", {"levels": 3}, [wall])
+    target = fp.sample_building(
+        "target",
+        {"levels": 2},
+        [dict(wall_id="target_0", width_m=10, height_m=8)],
+        fp.fit_rules([b]),
+    )
+    assert "evidence" not in target["walls"][0]
+    assert "geometry" not in target["walls"][0]
+    assert target["storeys"]["value"] == 2

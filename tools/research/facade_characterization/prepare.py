@@ -13,7 +13,7 @@ from turku3d import config
 from turkutex.facade_derive import building_attributes
 from turkutex.streetview.facades import load_facades, save_facades
 from turkutex.streetview.panos import PanoMeta
-from turkutex.streetview.refs import SelectParams, evaluate
+from turkutex.streetview.refs import SelectParams, equirect_model, evaluate
 
 
 class NoDepth:

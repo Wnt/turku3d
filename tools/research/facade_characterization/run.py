@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import os
 import time
@@ -31,6 +32,19 @@ def digest(path):
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def content_key(*values):
+    return hashlib.sha256(json.dumps(values, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def cache_matches(path, key, files=()):
+    try:
+        return json.loads(path.read_text()).get("input_key") == key and all(
+            p.is_file() for p in files
+        )
+    except (OSError, ValueError):
+        return False
 
 
 def enrich(root):
@@ -75,6 +89,10 @@ def enrich(root):
         groups[w.props["building_id"]].append(w)
     for bid, ww in groups.items():
         a = attrs[bid]
+        if not a.get("material"):
+            a["material_class"] = None
+        if not a.get("levels") or a["levels"] <= 0:
+            a["levels"] = None
         shape = shapes.get(bid)
         a.update(
             height_m=float(np.median([w.height_m for w in ww])),
@@ -108,6 +126,20 @@ def enrich(root):
                     if str(text).isdigit():
                         a["year"] = int(text)
                 a["district"] = tags.get("addr:suburb")
+    # The cadastral district is a location proxy, not an inferred style label.
+    import pyarrow.parquet as pq
+
+    registry_path = C.raw_dir("wfs/work-3x3") / "bldg_Building_LOD2.parquet"
+    for r in pq.read_table(
+        registry_path, columns=["pysyvarakennustunnus", "kiinteistotunnus", "usage"]
+    ).to_pylist():
+        bid = str(r["pysyvarakennustunnus"])
+        if bid not in attrs:
+            continue
+        if r["kiinteistotunnus"]:
+            attrs[bid]["district"] = str(r["kiinteistotunnus"])[:6]
+        if r["usage"]:
+            attrs[bid]["use"] = str(r["usage"])
     for bid, a in attrs.items():
         near = [
             (np.hypot(a["E"] - b["E"], a["N"] - b["N"]), b["height_m"])
@@ -173,16 +205,28 @@ def extract(root):
     for row in rows:
         for index, view in enumerate(row["views"]):
             grouped[view["panorama"]].append((row, index, view))
+    extractor_key = content_key(
+        inspect.getsource(extract),
+        inspect.getsource(rectified_points),
+        inspect.getsource(sample_wall),
+        MODELS["cmp"],
+        MODEL_REVISION,
+        torch.__version__,
+    )
     done = 0
     for pano, items in sorted(grouped.items()):
         source = root / "panoramas" / pano
-        pending = [
-            r for r in items if not (root / "raw" / f"{r[0]['facade_id']}.{r[1]}.json").exists()
-        ]
-        if not pending:
-            continue
         start = time.monotonic()
         sha = digest(source)
+        pending = []
+        for row, index, view in items:
+            name = f"{row['facade_id']}.{index}"
+            key = content_key(sha, view, extractor_key)
+            files = [root / "raw" / f"{name}.png", root / "raw" / f"{name}.npz"]
+            if not cache_matches(root / "raw" / f"{name}.json", key, files):
+                pending.append((row, index, view))
+        if not pending:
+            continue
         with Image.open(source) as image:
             rgb = np.array(image.convert("RGB"))
         decode = time.monotonic() - start
@@ -230,6 +274,7 @@ def extract(root):
             write(
                 root / "raw" / f"{name}.json",
                 dict(
+                    input_key=content_key(sha, view, extractor_key),
                     panorama_sha256=sha,
                     view=view,
                     crop_sha256=digest(root / "raw" / f"{name}.png"),
@@ -308,10 +353,15 @@ def doors(root):
     start = time.monotonic()
     model = Engine("grounding-dino-openings", device="mps", size=800)
     load = time.monotonic() - start
+    refine_seconds = 0.0
     for b in programs:
         for w in b["walls"]:
             out = root / "doors" / f"{w['wall_id']}.json"
-            if not out.exists():
+            crop_hash = digest(Path(w["evidence"]["photo"]))
+            detector_key = content_key(
+                crop_hash, MODELS["grounding-dino"], inspect.getsource(Engine.detect), model.size
+            )
+            if not cache_matches(out, detector_key):
                 with Image.open(w["evidence"]["photo"]) as im:
                     rgb = np.array(im)
                 start = time.monotonic()
@@ -319,16 +369,31 @@ def doors(root):
                 elapsed = time.monotonic() - start
                 write(
                     out,
-                    dict(boxes=boxes, seconds=elapsed, model_revision=MODELS["grounding-dino"][1]),
+                    dict(
+                        input_key=detector_key,
+                        crop_sha256=crop_hash,
+                        boxes=boxes,
+                        seconds=elapsed,
+                        model_revision=MODELS["grounding-dino"][1],
+                    ),
                 )
+            refine_start = time.monotonic()
             d = json.loads(out.read_text())
             name = w["evidence"]["selected_view"]
             with Image.open(w["evidence"]["photo"]) as im:
                 rgb = np.array(im)
             with np.load(root / "raw" / f"{name}.npz") as m:
-                detected = fp.fit_wall(
+                labels, count = fp.opening_labels(
+                    m["labels"], d["boxes"], m["excluded"], w["width_m"], w["height_m"]
+                )
+                entrances = [
+                    dict(u_m=e["u_m"], id=e["osm_id"], entrance=e.get("type"))
+                    for e in w["doors"]["candidates"]
+                    if e["source"] == "OSM entrance"
+                ]
+                refined = fp.fit_wall(
                     rgb,
-                    m["labels"],
+                    labels,
                     m["excluded"],
                     coverage=m["coverage"],
                     wall_id=w["wall_id"],
@@ -336,15 +401,29 @@ def doors(root):
                     height=w["height_m"],
                     floors=b["storeys"]["value"],
                     doors=d["boxes"],
-                )["doors"]["candidates"]
-            w["doors"]["candidates"].extend(detected)
+                    entrances=entrances,
+                )
+            for field in ("size_m", "aspect", "sill_fraction"):
+                refined["windows"][field]["source"] = "DINO boxes / registered bands"
+            refined["bays"]["source"] = "DINO opening mask"
+            evidence, geometry = w["evidence"], w["geometry"]
+            w.update(refined)
+            w.update(
+                evidence=evidence,
+                geometry=geometry,
+                opening_source="DINO metric/NMS boxes",
+                detector_window_count=count,
+            )
+            refine_seconds += time.monotonic() - refine_start
+
         if len(list((root / "doors").glob("*.json"))) % 20 == 0:
             print(
                 json.dumps(dict(stage="doors", buildings_completed=programs.index(b) + 1)),
                 flush=True,
             )
+    programs = [fp.merge_building(b["building_id"], b["attributes"], b["walls"]) for b in programs]
     write(root / "programs.json", programs)
-    write(root / "detector-run.json", dict(model_load_seconds=load))
+    write(root / "detector-run.json", dict(model_load_seconds=load, refine_seconds=refine_seconds))
 
 
 def rules(root):

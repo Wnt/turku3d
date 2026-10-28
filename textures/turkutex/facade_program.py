@@ -152,6 +152,7 @@ def fit_wall(
             visible_share=round(float(visible.mean()), 4),
             wall_share=round(float(wall_mask.mean()), 4),
             needs_review=True,
+            register_height_conflict=bool(floors and not 1.8 <= height / floors <= 6.5),
         ),
         split=dict(
             base_height_m=value(base_h, "register equal-height prior", 0.2)
@@ -264,7 +265,11 @@ def fit_rules(buildings):
         if b["source"] != "photographed" or b["representative_wall"] is None:
             continue
         wall = next(w for w in b["walls"] if w["wall_id"] == b["representative_wall"])
-        if wall["observation"]["visible_share"] < 0.55 or wall["bays"]["count"] < 2:
+        if (
+            wall["observation"]["visible_share"] < 0.55
+            or wall["bays"]["count"] < 2
+            or wall["observation"].get("register_height_conflict", False)
+        ):
             continue
         exemplars.append(dict(building_id=b["building_id"], attributes=b["attributes"], wall=wall))
     return dict(
@@ -299,6 +304,8 @@ def sample_building(building_id, attributes, geometry, rules, *, conditional=Tru
     floors = attributes.get("levels")
     for g in sorted(geometry, key=lambda g: g["wall_id"]):
         wall = copy.deepcopy(donor["wall"])
+        for key in ("evidence", "geometry", "opening_source", "detector_window_count"):
+            wall.pop(key, None)
         wall.update(g)
         pitch = wall["bays"]["pitch_m"] or 3
         count = max(1, round(g["width_m"] / pitch))
@@ -308,7 +315,12 @@ def sample_building(building_id, attributes, geometry, rules, *, conditional=Tru
         wall["base"]["openings_m"] = []
         wall["doors"]["candidates"] = []
         wall["balconies"] = unknown()
-        wall["observation"] = dict(visible_share=0, wall_share=0, needs_review=True)
+        wall["observation"] = dict(
+            visible_share=0,
+            wall_share=0,
+            needs_review=True,
+            register_height_conflict=bool(floors and not 1.8 <= g["height_m"] / floors <= 6.5),
+        )
         wall["split"]["base_height_m"] = value(
             g["height_m"] / floors if floors else None, "register equal-height prior", 0.2
         )
@@ -369,3 +381,40 @@ def paint(wall, floors, size=512):
             x, y, bw, bh = box
             d.rectangle((x * sx, h - (y + bh) * sy, (x + bw) * sx, h - y * sy), fill="#514a40")
     return image
+
+
+def opening_labels(labels, detections, excluded, width, height):
+    """Replace collapsed CMP windows with NMS-filtered, metric DINO boxes.
+
+    CMP supplies wall/ground/balcony classes; DINO supplies opening extents.
+    Occluded boxes and image-sized detections cannot create a facade grid.
+    """
+    h, w = labels.shape
+    accepted = []
+    for d in sorted(detections, key=lambda d: -d["score"]):
+        if "window" not in d["label"] or d["score"] < 0.25:
+            continue
+        x0, y0, x1, y1 = np.clip(d["box"], [0, 0, 0, 0], [w, h, w, h])
+        bw, bh = (x1 - x0) * width / w, (y1 - y0) * height / h
+        if not (0.35 <= bw <= 5 and 0.35 <= bh <= 4.5):
+            continue
+        if (x1 - x0) * (y1 - y0) > w * h * 0.2:
+            continue
+        a, b, c, e = map(int, (x0, y0, x1, y1))
+        if c <= a or e <= b or excluded[b:e, a:c].mean() > 0.4:
+            continue
+        area = (x1 - x0) * (y1 - y0)
+        duplicate = False
+        for xx0, yy0, xx1, yy1 in accepted:
+            inter = max(0, min(x1, xx1) - max(x0, xx0)) * max(0, min(y1, yy1) - max(y0, yy0))
+            if inter / max(1, area + (xx1 - xx0) * (yy1 - yy0) - inter) > 0.4:
+                duplicate = True
+                break
+        if not duplicate:
+            accepted.append((x0, y0, x1, y1))
+    result = labels.copy()
+    result[result == 2] = 1
+    for x0, y0, x1, y1 in accepted:
+        a, b, c, d = map(int, (x0, y0, x1, y1))
+        result[b:d, a:c] = 2
+    return result, len(accepted)
