@@ -30,14 +30,14 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   game.physics.worker.addEventListener('message', onPhysics);
   const previousBuilder = renderer.debug.onNodeBuilderCreated;
   const restoreWork = [];
-  function instrument(owner, name, kind) {
+  function instrument(owner, name, kind, restore = true) {
     const original = owner[name];
     owner[name] = function (...args) {
       const start = performance.now();
       try { return original.apply(this, args); }
       finally { state.work.push({ start, ms: performance.now() - start, kind, phase: state.phase }); }
     };
-    restoreWork.push(() => { owner[name] = original; });
+    if (restore) restoreWork.push(() => { owner[name] = original; });
   }
   instrument(renderer, 'initTexture', 'texture-upload');
   instrument(game.tiles, 'trackModel', 'shadow-batch-and-publication');
@@ -52,7 +52,7 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   perf.end = () => { afterFrame(); state.inFrame = false; };
   renderer.debug.onNodeBuilderCreated = (builder, object) => {
     previousBuilder?.(builder, object);
-    instrument(builder, 'build', 'synchronous-node-build');
+    instrument(builder, 'build', 'synchronous-node-build', false);
     state.builders.push({ now: performance.now(), inFrame: state.inFrame, phase: state.phase,
       object: object.object.name, material: object.material.name, receiveShadow: object.object.receiveShadow,
       target: renderer.getRenderTarget()?.uuid, mrt: renderer.getMRT()?.uuid,
