@@ -1,6 +1,5 @@
-// L0 residency: the playable area is a growing tile list, so at most RESIDENT_L0 full-detail tiles may be
-// refined at once. Refinement is decided per 500 m parent (REPLACE swaps a parent for all its L0 children):
-// parents are taken nearest first while their children still fit the cap; the rest stay coarse.
+// Play residency follows a distance ring; QA retains its nearest-parent count budget for camera/SSE renders.
+// REPLACE swaps a 500 m parent for all its L0 children, so both policies select complete sibling groups.
 import { VISUAL_L0 } from '../core/origin';
 
 export const RESIDENT_L0 = 9;

@@ -3,6 +3,7 @@ import { chromium } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { isolateBrowser, reportsRoot, port } from '../../tools/dev/environment.mjs';
 
 isolateBrowser();
@@ -12,6 +13,14 @@ fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ channel: 'chrome', headless: true,
   args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'] });
 try {
+  const browserCdp = await browser.newBrowserCDPSession();
+  const memory = async () => {
+    const { processInfo } = await browserCdp.send('SystemInfo.getProcessInfo');
+    const pids = processInfo.map(p => p.id).filter(Number.isInteger);
+    const rssKB = execFileSync('ps', ['-o', 'rss=', '-p', pids.join(',')], { encoding: 'utf8' })
+      .trim().split(/\s+/).map(Number).reduce((sum, n) => sum + n, 0);
+    return { browserRssBytes: rssKB * 1024, processes: pids.length };
+  };
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Network.enable');
@@ -25,7 +34,7 @@ try {
     performance.setResourceTimingBufferSize(10000);
   });
   const requests = [], errors = [];
-  page.on('console', m => { if (m.type() === 'error') console.log(m.text()); });
+  page.on('console', m => { if (m.type() === 'error') { errors.push(m.text()); console.log(m.text()); } });
   page.on('request', r => requests.push({ at: Date.now(), url: r.url() }));
   page.on('pageerror', e => errors.push(e.message));
   const started = Date.now();
@@ -33,9 +42,11 @@ try {
   await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 600000 });
   if (await page.evaluate(() => window.__qaError)) throw new Error(await page.evaluate(() => window.__qaError));
   const readyMs = Date.now() - started;
+  const preloadMemory = await memory();
   // The old start path releases controls before streaming. Record both that instant and its idle view.
   await page.screenshot({ path: path.join(out, 'ready.png') });
   if (label === 'before') await page.waitForTimeout(20000);
+  if (label === 'before-settled') await page.waitForFunction(() => window.__game.state().tilesSettled, null, { timeout: 300000 });
   const snapshot = () => page.evaluate(() => ({ state: window.__game.state(),
     progress: window.__game.loadProgress?.(), memory: performance.memory && {
       usedJSHeapSize: performance.memory.usedJSHeapSize, totalJSHeapSize: performance.memory.totalJSHeapSize },
@@ -43,6 +54,7 @@ try {
     tileCacheBytes: window.__game.tiles.tiles.lruCache.cachedBytes,
     loaded: [...window.__game.tiles.tiles.activeTiles].map(t => t.extras?.id) }));
   const initial = await snapshot();
+  const initialMemory = await memory();
   // Select New game through its normal menu. Public releases already have player control.
   if (await page.locator('[data-id="new"]').count()) await page.locator('[data-id="new"]').click();
   else if (await page.evaluate(() => window.__game.state().startScreen)) await page.keyboard.press('Enter');
@@ -65,7 +77,7 @@ try {
   const after = await snapshot();
   const turnRequests = requests.filter(r => r.at >= turnStart && /\.(?:glb|ktx2|col)(?:\?|$)|\/ground\//.test(r.url));
   const sorted = [...frames].sort((a, b) => a - b);
-  const report = { label, backend, hostLoad: os.loadavg(), networkMbps: 10, latencyMs: 40, cpuThrottle: 4,
+  const report = { label, backend, hostLoad: os.loadavg(), networkMbps: 10, latencyMs: 40, cpuThrottle: 4, preloadMemory, initialMemory,
     readyMs, initial, after, errors, turnRequests, turnMs: turnEnd - turnStart,
     frameMs: { p50: sorted[Math.floor(sorted.length * .5)], p95: sorted[Math.floor(sorted.length * .95)],
       max: sorted.at(-1), mean: frames.reduce((a, b) => a + b, 0) / frames.length }, requests };
@@ -74,4 +86,5 @@ try {
   console.log(JSON.stringify({ ...report, initial: { loaded: initial.loaded, memory: initial.memory,
     renderer: initial.renderer, tileCacheBytes: initial.tileCacheBytes }, after: { loaded: after.loaded },
     turnRequests: turnRequests.length, requests: requests.length }, null, 2));
+  if (!label.startsWith('before') && (turnRequests.length || errors.length)) throw new Error('first-turn asset requests or page errors; see report.json');
 } finally { await browser.close(); }

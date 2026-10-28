@@ -1,7 +1,7 @@
 // Visual tiles via 3DTilesRendererJS. tileset.json is in the 3D Tiles Z-up frame (docs/specs/tiles.md §1);
 // the renderer rotates Y-up glTF content to Z-up, so the group gets rotation.x = -PI/2 to return to engine axes.
 // `reload` swaps in a new tile release (localhost game): the new tileset loads hidden beside the current one and
-// replaces it once it has settled for the current view. Listeners subscribe to `events`, which carries the models
+// replaces it once it has settled for the player's ring (or the QA view). Listeners subscribe to `events`, which carries the models
 // of both, so styling, telemetry and draft tiles follow the swap.
 import * as THREE from 'three/webgpu';
 import { TilesRenderer, type Tile } from '3d-tiles-renderer';
@@ -75,8 +75,7 @@ export class VisualTiles {
     // The KTX2 loader (its transcoder workers) is shared by a swapped-in release: disposing the old tileset keeps it.
     renderer.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: this.ktx2, meshoptDecoder: MeshoptDecoder, autoDispose: false }));
     renderer.errorTarget = 8;
-    // A parent outside the nearest-L0 budget reports no error, so it stays coarse and its L0 children go
-    // unused; the LRU cache's byte cap then evicts them, keeping memory bounded as the tile list grows.
+    // QA retains the nearest-L0 budget. In play the region plugin owns refinement and masks camera error.
     const viewer = renderer as unknown as { calculateTileViewError: ViewError };
     const viewError = viewer.calculateTileViewError.bind(renderer);
     viewer.calculateTileViewError = (tile, target) => {
@@ -89,7 +88,7 @@ export class VisualTiles {
           .filter((c): c is string => !!c && c.startsWith('t0_'));
         if (children.length) set.l0Parents.set(id, children);
       }
-      if (!set.region && set.l0Parents.has(id) && !set.refinable.has(id)) target.error = 0;
+      if (set.l0Parents.has(id) && !set.refinable.has(id)) target.error = 0;
     };
     renderer.group.rotation.x = -Math.PI / 2;
     renderer.setCamera(this.camera);
@@ -192,7 +191,7 @@ export class VisualTiles {
     }
   }
 
-  /** True when the tileset has loaded something and nothing is pending for the current view. */
+  /** Required ring models are resident in play; QA keeps its current-view settled contract. */
   get settled(): boolean {
     if (this.current.region) return this.current.region.settled;
     return this.tiles.root !== null && this.loadedModels > 0 && this.tiles.loadProgress >= 1;

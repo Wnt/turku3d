@@ -19,6 +19,7 @@ export class PlayerLoadRegion {
   private loaded = new Set<Tile>();
   private x = NaN;
   private z = NaN;
+  private plannedRadius = NaN;
   radius = VISUAL_RING_RADIUS;
 
   init(renderer: TilesRenderer) {
@@ -44,8 +45,9 @@ export class PlayerLoadRegion {
   }
 
   move(x: number, z: number) {
-    if (x !== this.x || z !== this.z) {
+    if (x !== this.x || z !== this.z || this.radius !== this.plannedRadius) {
       this.x = x; this.z = z;
+      this.plannedRadius = this.radius;
       this.plan();
     }
     // The library's byte cap is an admission cap, including used tiles. A fixed 430 MB cap can silently

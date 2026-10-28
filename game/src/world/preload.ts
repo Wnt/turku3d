@@ -6,6 +6,26 @@ import { worldLoad } from './loadProgress';
 
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
+/** r186 removed Renderer.waitForGPU; wait for the actual submitted work on each backend. */
+async function drainGpu(renderer: THREE.WebGPURenderer) {
+  const backend = renderer.backend as unknown as {
+    device?: { queue: { onSubmittedWorkDone(): Promise<void> } }; gl?: WebGL2RenderingContext;
+  };
+  if (backend.device) return backend.device.queue.onSubmittedWorkDone();
+  const gl = backend.gl!;
+  const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  if (!fence) throw new Error('preload GPU fence could not be created');
+  gl.flush();
+  try {
+    for (;;) {
+      const status = gl.clientWaitSync(fence, 0, 0);
+      if (status === gl.WAIT_FAILED) throw new Error('preload GPU fence failed');
+      if (status !== gl.TIMEOUT_EXPIRED) return;
+      await frame();
+    }
+  } finally { gl.deleteSync(fence); }
+}
+
 /** Include TSL texture nodes as well as ordinary PBR map slots. Ground's array textures live in node graphs. */
 function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
   const textures = new Set<THREE.Texture>();
@@ -45,7 +65,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     worldLoad.update({ visual: { loaded: visual.loaded + drafts.loaded, total: visual.total + drafts.total },
       collision: { loaded: collision.loaded, total: collision.total }, textures: { loaded: 0, pending: materials?.ground?.pending ?? 0 }, errors });
     if (errors.length) throw new Error(`world preload: ${errors.join('; ')}`);
-    if (performance.now() - started > 180_000) throw new Error(`world preload timed out: ${JSON.stringify(worldLoad.snapshot())}`);
+    if (performance.now() - started > 300_000) throw new Error(`world preload timed out: ${JSON.stringify(worldLoad.snapshot())}`);
     stable = tiles.settled && !materials?.ground?.pending && drafts.loaded === drafts.total && collision.loaded === collision.total
       ? stable + 1 : 0;
   }
@@ -64,6 +84,8 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   const rotation = camera.quaternion.clone();
   try {
     await renderer.compileAsync(scene, camera);
+    for (const [object, value] of culled) object.frustumCulled = value;
+    culled.clear();
     // Real draws warm the MRT, shadow, GTAO and temporal variants that compileAsync's default target cannot
     // cover. Six views also exercise vegetation's view-dependent instance buffers before control is released.
     const directions = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 1, 0], [0, -1, 0]];
@@ -71,8 +93,9 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
       camera.lookAt(camera.position.clone().add(new THREE.Vector3(...direction)));
       camera.updateMatrixWorld();
       renderFrame();
-      await renderer.waitForGPU();
-      worldLoad.update({ compile: { done: i + 1, total: directions.length } });
+      await drainGpu(renderer);
+      worldLoad.update({ compile: { done: i + 1, total: directions.length },
+        textures: { loaded: renderer.info.memory.textures, pending: 0 } });
       await frame();
     }
   } finally {
@@ -82,6 +105,6 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   }
   // Restore the initial view and flush temporal history from the warmup before showing the world.
   for (let i = 0; i < 8; i++) { renderFrame(); await frame(); }
-  await renderer.waitForGPU();
+  await drainGpu(renderer);
   worldLoad.update({ phase: 'ready' });
 }
