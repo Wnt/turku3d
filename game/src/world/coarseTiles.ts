@@ -472,7 +472,8 @@ export class CoarseTiles {
   private takeVehicles(e: Entry, fragment: CoarseFragment, base: URL) {
     const old = new Set(e.vehicles ?? []);
     e.vehicles = fragment.vehicles ?? [];
-    this.host.manifest.vehicles = [...(this.host.manifest.vehicles ?? []).filter(v => !old.has(v)), ...e.vehicles];
+    const incoming = new Set(e.vehicles.map(v => v.object_id));
+    this.host.manifest.vehicles = [...(this.host.manifest.vehicles ?? []).filter(v => !old.has(v) && !incoming.has(v.object_id)), ...e.vehicles];
     this.host.manifest.vehicle_models ??= {};
     for (const [key, asset] of Object.entries(fragment.vehicle_models ?? {})) {
       this.host.manifest.vehicle_models[key] = { ...asset, url: new URL(asset.url, base).href };

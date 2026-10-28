@@ -604,8 +604,8 @@ Placement reuses the full generator's seeded bay candidates and access exclusion
 adds surveyed buildings, water margins, bridge/tunnel/layer exclusions, barriers,
 trunks and poles, checks all four support corners (15 cm maximum variation), and
 requires a clear forward or reverse manoeuvre. Whole footprints stay 30 cm inside
-the tile so neighbouring builds do not overlap. Slots use `draft:<tile>:<source/bay>`
-identities. A SHA-256 draw per viable tile/slot selects the larger trophy truck with
+the tile so neighbouring builds do not overlap. Slots retain the existing `<source/bay>` identities, including vehicles saved before
+the draft-only transition. A SHA-256 draw per viable tile/slot selects the larger trophy truck with
 probability 1/1000; an unfitting truck waits for the next fitting bay while ordinary
 cars keep filling valid slots. No runtime rarity override is shipped. Tests can inject
 `parked.truck_slot`; the existing Developer menu can spawn a truck for a drive check.

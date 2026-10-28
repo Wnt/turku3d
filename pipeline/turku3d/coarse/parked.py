@@ -159,7 +159,7 @@ def place(tile, prepared, heights, water=(), barriers=(), trees=(), poles=(), de
             shape, ys = fitted
             accepted.append(
                 dict(
-                    object_id=f"draft:{tile.id}:{key}",
+                    object_id=key,
                     source=f.id,
                     x=float(x),
                     y=float(max(ys)),
