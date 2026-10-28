@@ -17,8 +17,9 @@ if (label === 'before') {
   fs.writeFileSync(file,source);
  }
 }
-const browser = await chromium.launch({ channel: 'chrome', headless: true, args: [`--remote-debugging-port=${port + 8}`, '--enable-unsafe-webgpu', '--use-angle=metal'] });
+let browser;
 try {
+browser = await chromium.launch({ channel: 'chrome', headless: true, args: [`--remote-debugging-port=${port + 8}`, '--enable-unsafe-webgpu', '--use-angle=metal'] });
 const page = await browser.newPage();
 await page.addInitScript(() => {
  window.keyCosts = [];
@@ -67,7 +68,7 @@ const perSecond = Object.values(rows.reduce((groups,r) => {
 fs.writeFileSync(`${out}/state-seconds.json`,JSON.stringify(perSecond,null,2));
 console.log(label,JSON.stringify({frames:rows.length,maxAge:Math.max(...rows.map(r=>r.age)),maxStep:Math.max(...rows.map(r=>r.stepMs??0)),transport:rows.at(-1)?.transport}));
 if (label === 'after') {
- const root=`${process.env.TURKU3D_DATA}/live/tiles`;
+ const root=fs.realpathSync(`${process.env.TURKU3D_DATA}/live/tiles`);
  const manifest=JSON.parse(fs.readFileSync(`${root}/manifest.json`));
  const pos=manifest.spawn.vehicle.position;
  await page.evaluate(async ({pos,yaw,known}) => {
@@ -96,8 +97,24 @@ if (label === 'after') {
  });
  await page.waitForTimeout(12500);
  const manoeuvre=await page.evaluate(()=>window.manoeuvre.rows);
- fs.writeFileSync(`${out}/steered-start-real-tiles.json`,JSON.stringify(manoeuvre));
+ fs.writeFileSync(`${out}/steered-start-real-tiles.json`,JSON.stringify({root,pos,rows:manoeuvre}));
  console.log('steered start',JSON.stringify({samples:manoeuvre.length,maxStep:Math.max(...manoeuvre.map(r=>r.stepMs)),maxSpeed:Math.max(...manoeuvre.map(r=>r.speed??0))}));
 }
+if (label === 'after' && fs.existsSync(`${process.env.TURKU3D_WORK}/build/game/index.html`)) {
+ const pages=await browser.newPage();
+ const errors=[]; pages.on('pageerror',e=>errors.push(e.message));
+ await pages.goto(`http://127.0.0.1:${port+4}/turku-game/game/?scene=dev&test&quality=low&aa=off`);
+ await pages.waitForFunction(()=>window.crossOriginIsolated && window.__game?.ready,null,{timeout:180000});
+ const result=await pages.evaluate(async()=>({
+  isolated:crossOriginIsolated,transport:window.__game.physics.transport,
+  scope:(await navigator.serviceWorker.getRegistration()).scope,
+  url:location.href,manifest:await (await fetch('./manifest.webmanifest')).json(),
+  workerReady:await window.__game.physics.ready,
+ }));
+ result.errors=errors;
+ fs.writeFileSync(`${out}/pages-isolation.json`,JSON.stringify(result,null,2));
+ console.log('Pages isolation',JSON.stringify(result));
+ await pages.close();
+}
 if (recorder.exitCode === null) await new Promise(r=>recorder.on('exit',r));
-} finally { await browser.close(); for (const [file,content] of originals) fs.writeFileSync(file,content); }
+} finally { await browser?.close(); for (const [file,content] of originals) fs.writeFileSync(file,content); }

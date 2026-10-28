@@ -1,3 +1,5 @@
+import { DT, MAX_SUBSTEPS } from './constants';
+
 /** Single-writer shared mailbox. Odd sequence = being written; readers retry on the next frame rather than wait.
  * UTF-8 snapshots retain the full protocol (variable vehicle/pole lists and stable string IDs). */
 export class SharedMailbox<T> {
@@ -36,7 +38,7 @@ export class SharedMailbox<T> {
 export class PhysicsClock {
   private last: number | null = null;
   advance(now: number, running: boolean) {
-    const dt = this.last === null || !running ? 0 : Math.min(5 / 60, Math.max(0, (now - this.last) / 1000));
+    const dt = this.last === null || !running ? 0 : Math.min(MAX_SUBSTEPS * DT, Math.max(0, (now - this.last) / 1000));
     this.last = running ? now : null;
     return dt;
   }

@@ -3,7 +3,8 @@
 export async function isolatePage(): Promise<void> {
   if (globalThis.crossOriginIsolated || !('serviceWorker' in navigator) || !globalThis.isSecureContext) return;
   // A controlling worker already tried isolation. Unsupported browsers keep the self-clocked transport.
-  if (navigator.serviceWorker.controller) return;
+  const script = new URL('isolation.js', document.baseURI);
+  if (navigator.serviceWorker.controller?.scriptURL === script.href) return;
   try {
     const controlled = await new Promise<boolean>((resolve) => {
       const finish = (ok: boolean) => {
@@ -11,11 +12,11 @@ export async function isolatePage(): Promise<void> {
         navigator.serviceWorker.removeEventListener('controllerchange', changed);
         resolve(ok);
       };
-      const changed = () => finish(true);
+      const changed = () => { if (navigator.serviceWorker.controller?.scriptURL === script.href) finish(true); };
       const timer = setTimeout(() => finish(false), 4000);
       navigator.serviceWorker.addEventListener('controllerchange', changed);
-      void navigator.serviceWorker.register(new URL('isolation.js', document.baseURI), { scope: './', updateViaCache: 'none' })
-        .then(() => { if (navigator.serviceWorker.controller) finish(true); })
+      void navigator.serviceWorker.register(script, { scope: './', updateViaCache: 'none' })
+        .then(changed)
         .catch(error => { console.warn('[physics] isolation unavailable', error); finish(false); });
     });
     if (controlled) {

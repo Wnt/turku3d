@@ -6,7 +6,7 @@ import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
-import { CHARACTER, DT, VEHICLES } from './constants';
+import { CHARACTER, DT, MAX_SUBSTEPS, VEHICLES } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { remoteColliderHeight } from '../net/height';
@@ -15,7 +15,6 @@ export { CHARACTER, DT };
 import type { CharacterInput, CharacterState, PoleSpec, PoleState, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
 
 type R = typeof RAPIER_NS;
-const MAX_SUBSTEPS = 5;
 
 /** Rapier interaction groups: high 16 bits membership, low 16 bits filter. */
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);

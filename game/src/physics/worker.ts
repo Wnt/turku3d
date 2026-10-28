@@ -1,6 +1,7 @@
 // Physics Web Worker: owns the Rapier world. Protocol in ./protocol.ts.
 import * as RAPIER from '@dimforge/rapier3d';
 import { PhysicsWorld } from './world';
+import { DT } from './constants';
 import { colReaderName } from './colTile';
 import { ColFormatError } from '../shared/col/colFormat';
 import { PhysicsClock, SharedMailbox } from './exchange';
@@ -43,14 +44,14 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
   if (stateMailbox) stateMailbox.write(state);
   else if (!statePending) { statePending = true; post(state); }
 }
-let nextWake = performance.now() + 1000 / 60;
+let nextWake = performance.now() + DT * 1000;
 function schedule() {
   setTimeout(() => {
     // Join the same chain as tile decode and actor commands. Only one timer may be queued.
     chain = chain.then(() => {
       input = inputMailbox?.read() ?? input;
       const now = performance.now();
-      nextWake = now + 1000 / 60;
+      nextWake = now + DT * 1000;
       const running = !!input?.running && performance.timeOrigin + now - input.at < 500;
       const dt = clock.advance(now, running);
       if (input && dt > 0) {

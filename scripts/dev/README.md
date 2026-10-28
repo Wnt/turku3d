@@ -424,7 +424,7 @@ Validator Node tests remain Node tests, preserving their cross-language round-tr
 
 `game-e2e` runs a browser pick, by default the selector's proposal (`spec_selection.select`: related rows
 and spec `@tags`) with its estimated browser-minutes; `--specs smoke.spec.ts --project webgl` picks yourself.
-Each task's budget (`[browser] budget_minutes` = 5, or a brief line `BROWSER_BUDGET_MIN = N`) is debited
+Each task's budget (`[browser] budget_minutes` = 5, or a brief assignment `BROWSER_BUDGET_MIN = N`, on its own line or after prose) is debited
 by every `host_slots.py browser` run (wall s x workers) in `~/turku3d/tasks/<task>/browser-budget.json`
 (`codex-task status`; ledger `browser_minutes`); a spent budget refuses further runs. The pipeline browser fixture publishes four synthetic ground layers with a deterministic RGB texture,
 then runs the production assembler into `.cache/gate-tiles`. Its separate empty input root prevents
