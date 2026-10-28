@@ -32,7 +32,7 @@ try {
   if (await skip.isVisible()) await skip.click();
   await page.waitForFunction(() => !window.__game.state().paused, null, { timeout: 60000 });
   await pause(3000);
-  const flight = selection !== 'drive' ? record('flight', 'trace') : null;
+  const flight = selection !== 'drive' ? record('flight', process.env.TURKU3D_RENDER_TRACE === '0' ? null : 'trace') : null;
   if (flight) await pause(1500);
   const installed = await page.evaluate(installScenario, { flightSeconds: flight ? 75 : 0 });
   if (flight) {

@@ -34,3 +34,22 @@ Stop the owned Air session even after a failure. See `renderer.md` for the exter
 `String.raw` probe correction and the `TURKU3D_RENDER_RECORDER` override. Preserve that same recorder
 and scenario instrumentation for the matched pair. Build/serve mode, input identity, frame percentiles,
 physics age and heap growth belong in the result; a flight is not evidence of successful normal driving.
+
+The focused local regression needs only Vite, with no draft service or city data:
+
+```sh
+python3 scripts/dev/host_slots.py browser -- node tools/perf/air-scenarios/local-warmup.mjs \
+  "http://localhost:$TURKU3D_PORT_BASE/" "$TURKU3D_WORK/reports/tile-hitches/local-warmup.json"
+```
+
+It exercises the real WebGPU backend, CSM, post passes, material styling and tile ownership. It fails
+if publication rebuilds the warmed surface or shared GTAO shader. Its 640x480 synthetic timing is
+a diagnostic for shader cache reuse, not an Air performance result. An optional final integer sets
+the expected publication surface-builder count when demonstrating an archived baseline (2 on the
+original path). The capture-only entry is `game/scripts/tile-warmup-probe.ts`.
+
+`local-flight.mjs GAME_URL OWN_CDP_PORT OUTPUT` launches the same 75-second scenario on the Mac's
+sandbox automation Chrome. Run it through the browser slot wrapper. Use frozen source when capturing:
+Vite hot reload interrupts the scenario. `TURKU3D_RENDER_TRACE=0` keeps light recording for exploratory
+local repeats; omit it for Air captures requiring trace/allocation attribution. Light and traced runs
+have different overhead and are not an allocation comparison.

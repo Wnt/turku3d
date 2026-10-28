@@ -132,6 +132,9 @@ export class CoarseTiles {
   }
 
   private gltfLoader() {
+    // Without workers, decodeGltfBufferAsync runs WASM in a main-thread microtask. The singleton
+    // shares two decoder workers across tile loads and the character instead of accumulating decode bursts.
+    MeshoptDecoder.useWorkers(2);
     const ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
     const loader = new GLTFLoader().register(() => textureUploads(this.host.renderer).plugin()).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     return async (url: string) => (await loader.loadAsync(url)).scene;
