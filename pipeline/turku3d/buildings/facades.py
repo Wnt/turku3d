@@ -203,13 +203,20 @@ def roof_samples(building, paths):
             valid = inside & ~np.ma.getmaskarray(rgb).any(axis=0)
             if valid.any():
                 samples.extend(rgb.data[:, valid].T.tolist())
-    if not samples:
-        raise ValueError(f"{building.id}: no valid true-ortho roof pixels")
-    return np.asarray(samples)
+    return np.asarray(samples, dtype=np.uint8).reshape((-1, 3))
 
 
 def ortho_roof_key(building, paths):
     samples = roof_samples(building, paths)
+    if not len(samples):
+        rgb = [145, 145, 145]
+        return "roof_metal_gray", {
+            "rgb_median": rgb,
+            "pixels": 0,
+            "retained_pixels": 0,
+            "edge_inset_m": 0.0,
+            "source": "no_valid_true_ortho_pixels",
+        }
     rgb, retained = roof_colour(samples)
     return roof_material(rgb), {
         "rgb_median": rgb.tolist(),
