@@ -17,6 +17,9 @@ def match_wall(points, facades):
     direction = (b - a) / length
     matches = []
     for f in facades:
+        outward = np.array([direction[1], -direction[0]])
+        if f.get("normal") is not None and np.dot(outward, np.asarray(f["normal"])[[0, 2]]) < 0.95:
+            continue
         en = np.asarray(f["coordinates"], float)[:, :2]
         segment = np.c_[en[:, 0] - C.ORIGIN_E, C.ORIGIN_N - en[:, 1]]
         p, q = segment[0], segment[-1]
@@ -36,7 +39,14 @@ def match_wall(points, facades):
     if not matches:
         return None
     _, facade, along = min(matches, key=lambda row: row[0])
-    return facade, np.c_[along, np.asarray(points)[:, 1] - facade["base_height"]]
+    uv = np.c_[along, np.asarray(points)[:, 1] - facade["base_height"]]
+    transform = facade["metadata"].get("uv")
+    if transform:
+        scale, offset = np.asarray(transform["scale"]), np.asarray(transform["offset"])
+        # Unique maps originally clamp at the wall boundary. Preserve that behavior before
+        # atlas packing, where sampling past an edge would instead leak into another wall.
+        uv = (np.clip(uv * scale + offset, 0, 1) - offset) / scale
+    return facade, uv
 
 
 def wall_meshes(b, walls, wuv, widx, origin, params):

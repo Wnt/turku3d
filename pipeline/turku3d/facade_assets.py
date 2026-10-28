@@ -89,6 +89,7 @@ def _legacy(directory, stamp):
                 metadata={k: meta[k] for k in META_FIELDS if k in meta},
                 coordinates=feature["geometry"]["coordinates"],
                 base_height=feature["properties"]["base_height"],
+                normal=feature["properties"].get("normal"),
             )
         )
     return result
