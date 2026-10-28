@@ -95,6 +95,8 @@ under narration; the final mix is normalized around −14 LUFS with a −1.5 dBT
 Subtitles follow Kokoro's synthesized token durations and prefer phrase boundaries.
 The city name has an explicit Finnish phoneme override; the full street address
 remains on screen while narration describes its riverbank location in English.
+`compose.py thumbnail` refreshes only the thumbnail, from the clear aerial portion
+of the closing game shot, with the same attribution strip as the video.
 
 ## Review and delivery
 

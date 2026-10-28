@@ -278,7 +278,12 @@ def finish(story):
          '-b:v','630k','-maxrate','690k','-bufsize','1260k','-threads','3','-c:a','aac','-b:a','64k',
          '-movflags','+faststart',str(OUT/'turku3d-pipeline-v2-preview-720p.mp4')])
     assert (OUT/'turku3d-pipeline-v2-preview-720p.mp4').stat().st_size < 25_000_000
-    run(['ffmpeg','-v','error','-y','-ss','2','-i',str(ROOT/'shots/river_open.mp4'),'-frames:v','1',str(ROOT/'edit/thumbnail-frame.png')])
+    thumbnail()
+    print(final,flush=True)
+
+
+def thumbnail():
+    run(['ffmpeg','-v','error','-y','-ss','6.2','-i',str(ROOT/'shots/closing_pullback.mp4'),'-frames:v','1',str(ROOT/'edit/thumbnail-frame.png')])
     im=Image.open(ROOT/'edit/thumbnail-frame.png').convert('RGBA');d=ImageDraw.Draw(im)
     d.rounded_rectangle((55,66,990,456),25,fill=(5,15,27,222))
     text(d,(90,96),'TURKU3D',52,TEAL,True)
@@ -287,14 +292,14 @@ def finish(story):
     d.rectangle((0,1028,W,H),fill=(6,16,25,220))
     text(d,(50,1042),'Game frame · © City of Turku · CC BY 4.0 · © OpenStreetMap contributors · ODbL',23)
     im.convert('RGB').save(OUT/'thumbnail-v2.png')
-    print(final,flush=True)
 
 
 if __name__=='__main__':
-    ap=argparse.ArgumentParser();ap.add_argument('mode',choices=['timeline','render','finish']);ap.add_argument('--scene');args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('mode',choices=['timeline','render','finish','thumbnail']);ap.add_argument('--scene');args=ap.parse_args()
     story=timeline()
     if args.mode=='render':
         for scene in story:
             if not args.scene or scene['id'] in args.scene.split(','):render_scene(scene)
         if not args.scene:finish(story)
     if args.mode=='finish':finish(story)
+    if args.mode=='thumbnail':thumbnail()
