@@ -54,7 +54,7 @@ from turku3d.facade_kit import parameter_hash
 
 from .build import code_hash
 from .prefetch import Prefetcher
-from .request_journal import MAX_AGE, RequestJournal, complete_tile
+from .request_journal import MAX_AGE, RequestJournal, complete_tile, request_tile
 from .sources import NoCoverage, Sources, Unit
 from .worker_pool import Workers
 
@@ -225,20 +225,7 @@ class Builder:
         return complete_tile(self.root, tile, FILE)
 
     def request(self, tile: str, distance: float) -> dict:
-        """Persist unfinished demand and serve complete old bytes while revalidating them."""
-        with self.lock:
-            self.journal.record(tile, distance)
-            state = self._request(tile, distance)
-            if (
-                state["state"] == "built"
-                and tile not in self.building
-                and tile not in self.upgrade_queue
-            ):
-                self.journal.discard(tile)
-            if state["state"] != "built" and self.cached(tile):
-                self.servable = self.servable | {tile}
-                return {"state": "built", "stale": True, "refresh": state}
-            return state
+        return request_tile(self, tile, distance)
 
     def _request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""

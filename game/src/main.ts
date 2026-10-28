@@ -6,7 +6,7 @@ import { loading } from './core/loading';
 import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
-import { enToEngine, collisionTileAt, headingToYaw } from './core/origin';
+import { enToEngine, headingToYaw } from './core/origin';
 import { createRenderer, defaultBackend } from './render/renderer';
 import { DayClock } from './render/dayClock';
 import { dayCycle } from './core/dayCycle';
@@ -18,6 +18,7 @@ import { renderPixelRatio } from './render/quality';
 import { VegetationLod } from './world/vegetationLod';
 import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
+import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
 import { CollisionStreamer } from './world/collisionStreaming';
 import { CoarseTiles } from './world/coarseTiles';
@@ -244,29 +245,29 @@ async function runPlay() {
   }
   const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
-  const spawn = enToEngine(params.spawn.E, params.spawn.N, 0);
-  const yaw0 = headingToYaw(params.spawn.headingDeg);
-  const carPos = { x: spawn.x + 6 * Math.cos(yaw0), z: spawn.z - 6 * Math.sin(yaw0) };
-  const carCell = collisionTileAt(carPos.x, carPos.z);
-  const carId = `c_${carCell.i}_${carCell.j}`;
-  const spawnId = (() => { const t = collisionTileAt(spawn.x, spawn.z); return `c_${t.i}_${t.j}`; })();
+  const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   const tWait = performance.now();
-  while (!physics.loaded.has(spawnId) || !physics.loaded.has(carId)) {
-    if (performance.now() - tWait > 600_000) throw new Error(`World generation timed out after 10 minutes at ${spawnId}: ${coarse.status}`);
-    coarse.update(spawn.x, spawn.z);
-    streamer.update(spawn.x, spawn.z);
-    const progress = coarse.progressAt(spawn.x, spawn.z);
+  let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
+  while (!placed) {
+    if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
+    coarse.update(requested.x, requested.z);
+    streamer.update(requested.x, requested.z);
+    const progress = coarse.progressAt(requested.x, requested.z);
     worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total } });
     loadingScreen.update(false, coarse.status);
-    await new Promise(r => setTimeout(r, 20));
+    if (streamer.supports(requested.x, requested.z)) {
+      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      placed = await findInitialGround(requested, coarse.roadGraphs(),
+        (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
+        (x, z, radius) => streamer.supports(x, z, radius));
+    }
+    if (!placed) await new Promise(r => setTimeout(r, 100));
   }
-  // the worker needs one world step before queries see new colliders
-  physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
-  const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? manifest.collision[spawnId]?.h[1] ?? 0;
-  spawn.y = await groundAt(spawn.x, spawn.z);
+  const { spawn, car: parking } = placed;
+  const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
   physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
-  const carGround = await groundAt(carPos.x, carPos.z);
-  const carYaw = yaw0 + Math.PI / 2;
+  const yaw0 = headingToYaw(params.spawn.headingDeg);
+  const carPos = parking, carGround = parking.y, carYaw = parking.yaw;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, groundAt,

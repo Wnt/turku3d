@@ -51,12 +51,12 @@ test('full request capacity still unloads distant tiles and resumes after reques
   expect(s.update(900, 900, true)).toHaveLength(4);
 });
 
-test('network/503 failures retry with exponential backoff and clear after success', async () => {
+test.each([404, 503])('network/HTTP %s failures retry with exponential backoff and clear after success', async status => {
   const { manifest, physics } = fakes(1, 1);
   const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const fetcher = vi.mocked(fetch).mockRejectedValueOnce(new TypeError('offline'))
-    .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+    .mockResolvedValueOnce({ ok: false, status } as Response)
     .mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) } as Response);
   const s = new CollisionStreamer(manifest, physics as never, 10);
   try {
@@ -107,8 +107,10 @@ test('a moving player gets the collision along the next 8 s of travel loaded, an
 
 test('the worker learns the neighbours of loaded tiles that exist; a tile that failed for good is not one', async () => {
   const { manifest, physics } = fakes(4, 4);
-  vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith('c_1_0.col')
-    ? { ok: false, status: 404 } as Response : { ok: true, arrayBuffer: async () => new ArrayBuffer(4) } as Response);
+  physics.loadTile.mockImplementation(async id => {
+    if (id === 'c_1_0') throw Object.assign(new Error('CRC mismatch'), { permanent: true });
+    physics.loaded.set(id, {});
+  });
   const s = new CollisionStreamer(manifest, physics as never, 40);
   Object.assign(physics, { onError: () => {} });
   await settle(s, 30, 10);
