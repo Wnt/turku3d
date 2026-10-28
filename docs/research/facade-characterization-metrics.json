@@ -1,0 +1,165 @@
+{
+  "prototype": "detector-assisted offline baseline, before Linnankatu agent-read pilot",
+  "coverage": {
+    "requested_buildings": 340,
+    "walls": 488,
+    "selected_walls": 295,
+    "photographed_buildings": 237,
+    "unique_panoramas": 388,
+    "seconds": 28.314157415996306,
+    "all_metadata": 5632
+  },
+  "timing": {
+    "views": 490,
+    "walls": 295,
+    "stages_seconds": {
+      "decode_share": 26.169444042025134,
+      "rectify": 12.288620610939688,
+      "inference": 30.661840798034973,
+      "detector": 160.76821799605386,
+      "fit": 7.596470874996157,
+      "opening_refinement": 6.126072341008694
+    },
+    "seconds_per_wall": 0.8257988700442661,
+    "walls_per_second": 1.2109486174840565,
+    "estimates": {
+      "3079": {
+        "2": {
+          "walls": 6158,
+          "mac_hours": 1.4125748449257198,
+          "rented_gpu_hours_scenario": {
+            "1": 1.4125748449257194,
+            "2": 0.857571877856982,
+            "4": 0.580070394322613
+          }
+        },
+        "4": {
+          "walls": 12316,
+          "mac_hours": 2.8251496898514397,
+          "rented_gpu_hours_scenario": {
+            "1": 2.8251496898514388,
+            "2": 1.715143755713964,
+            "4": 1.160140788645226
+          }
+        },
+        "8": {
+          "walls": 24632,
+          "mac_hours": 5.650299379702879,
+          "rented_gpu_hours_scenario": {
+            "1": 5.6502993797028775,
+            "2": 3.430287511427928,
+            "4": 2.320281577290452
+          }
+        }
+      },
+      "5664": {
+        "2": {
+          "walls": 11328,
+          "mac_hours": 2.598513777739291,
+          "rented_gpu_hours_scenario": {
+            "1": 2.598513777739291,
+            "2": 1.577553464170817,
+            "4": 1.0670733073865801
+          }
+        },
+        "4": {
+          "walls": 22656,
+          "mac_hours": 5.197027555478582,
+          "rented_gpu_hours_scenario": {
+            "1": 5.197027555478582,
+            "2": 3.155106928341634,
+            "4": 2.1341466147731603
+          }
+        },
+        "8": {
+          "walls": 45312,
+          "mac_hours": 10.394055110957163,
+          "rented_gpu_hours_scenario": {
+            "1": 10.394055110957163,
+            "2": 6.310213856683268,
+            "4": 4.2682932295463205
+          }
+        }
+      }
+    },
+    "painter": {
+      "walls": 30,
+      "seconds": 0.002778664027573541,
+      "seconds_per_wall": 9.262213425245135e-05,
+      "resolution": 512,
+      "excludes": "contact layout, PNG/JPEG/KTX encoding"
+    },
+    "limitations": "Serial shared-host timings exclude weight loading, network copy, host-slot waits and output compression. GPU scenarios are assumptions, not rented-hardware benchmarks; decode/rectify/fit unchanged. Panorama-to-unique-wall ratio is unknown."
+  },
+  "reviewed20": {
+    "walls": 20,
+    "measured_colour": 19,
+    "median_colour_delta": 17.89057731628418,
+    "seconds": 15.973139955996885,
+    "original_input_hash_verified": false,
+    "reconstruction": "Original IDs and colour.json targets from facade-cv-describe events item_12; highest-score retained full view, same 768px JPEG transform. Original deleted input hashes unavailable.",
+    "truth": "Accepted generated-map wall colour, not calibrated photographic albedo"
+  },
+  "manual": {
+    "visible_windows": {
+      "n": 9,
+      "exact": 0,
+      "mae": 6.333333333333333
+    },
+    "visible_doors": {
+      "n": 6,
+      "exact": 3,
+      "mae": 0.8333333333333334
+    },
+    "bays": {
+      "n": 8,
+      "exact": 5,
+      "mae": 0.875
+    }
+  },
+  "reference_comparison": {
+    "2": {
+      "groups": 3,
+      "buildings": 1,
+      "median": {
+        "wall_colour_delta": 29.192262649536133,
+        "rendered_delta": 29.192262649536133,
+        "baseline_delta": 16.010942459106445
+      },
+      "building_balanced_median": {
+        "wall_colour_delta": 29.192262649536133,
+        "rendered_delta": 29.192262649536133,
+        "baseline_delta": 16.010942459106445
+      }
+    },
+    "3": {
+      "groups": 25,
+      "buildings": 12,
+      "median": {
+        "wall_colour_delta": 21.50165367126465,
+        "rendered_delta": 25.627788543701172,
+        "baseline_delta": 22.459716796875
+      },
+      "building_balanced_median": {
+        "wall_colour_delta": 18.603403210639954,
+        "rendered_delta": 20.324061393737793,
+        "baseline_delta": 19.700705647468567
+      }
+    }
+  },
+  "rules": {
+    "n": 183,
+    "interpretation": "Held-out agreement with noisy automatically characterized buildings, not human accuracy",
+    "summary": {
+      "conditional": {
+        "colour_delta": 22.802011489868164,
+        "bay_count_error": 2.0
+      },
+      "unconditional": {
+        "colour_delta": 27.718387603759766,
+        "bay_count_error": 2.0
+      }
+    }
+  },
+  "no_photo_buildings": 103
+}
