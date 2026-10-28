@@ -48,11 +48,15 @@ def capture(rows, lane, seconds):
 
 def score_one(row):
     from detail import metadata, audit
+    import mesh
     from mesh import decode_capture
     import loop
     from storage import ROOT as PRIVATE_ROOT, configured_limit, evict
     # The scorer may compact only this sandbox's disposable products.
     loop.evict = lambda **kwargs: evict(root=ROOT, **kwargs)
+    mesh.evict = loop.evict
+    from storage import usage
+    mesh.usage = lambda: usage(ROOT)
     score = loop.score
     import round2_oci as oci
     oci.DEST = ROOT / 'oci'
