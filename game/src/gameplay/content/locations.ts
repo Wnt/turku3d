@@ -5,7 +5,7 @@ import type { RouteTarget } from '../contract';
 export const PIZZERIA: RouteTarget = { id: 'pizzeria', kind: 'pickup', label: 'Pizzeria Linnanportti, Linnankatu 17',
   point: { x: 77.1, z: 187.6 } };
 export const MARKET: RouteTarget = { id: 'market', kind: 'market', label: 'Black market under Auransilta',
-  point: { x: 297, z: 205.5 } };
+  point: { x: 291.32, y: 1.12, z: 210.84 } };
 export const DEALER: RouteTarget = { id: 'dealer', kind: 'shop', label: 'Rantakadun Kulkine, Kristiinankatu',
   point: { x: 101.5, z: 290.5 } };
 /** Where a bought vehicle waits: the player's car is moved to this kerb on Läntinen Rantakatu. */

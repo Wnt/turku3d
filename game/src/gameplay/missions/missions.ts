@@ -290,6 +290,9 @@ export class MissionSystem implements MissionHudSource {
     }
     let best: Action | null = null, bestDistance = INTERACT_RADIUS;
     for (const c of candidates) {
+      // A quay stall cannot be entered from the bridge deck above it.
+      if (c.target.point.y !== undefined && frame.position.y !== undefined
+        && Math.abs(c.target.point.y - frame.position.y) > 1.5) continue;
       const d = distance(frame.position, c.target.point);
       if (d <= bestDistance) { best = c; bestDistance = d; }
     }

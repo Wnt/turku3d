@@ -38,11 +38,17 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # not decode classified roof/bridge lidar again for every surrounding tile.
 DEPENDENCIES = {
     "wfs": ("roofs.py", "../buildings/source_surfaces.py", "../ground/materials.py"),
-    "roads": ("bridges.py", "bridge_survey.py"),
+    "roads": (
+        "bridges.py",
+        "bridge_survey.py",
+        "tunnels.py",
+        "bridge_details.py",
+        "underpasses.py",
+    ),
     "parking": ("parked.py", "../parked/placement.py"),
     "barriers": ("fences.py",),
     "forests": ("forests.py",),
-    "tunnels": ("tunnels.py",),
+    "tunnels": ("tunnels.py", "bridge_details.py", "underpasses.py"),
     "stairs": ("stairs.py",),
     "surfaces": ("surfaces.py",),
     "markings": ("surfaces.py",),

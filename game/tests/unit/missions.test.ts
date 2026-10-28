@@ -129,6 +129,13 @@ describe('mission state machine', () => {
     expect(h.last().targets.map(t => t.id)).toEqual([PIZZERIA.id, DEALER.id, MARKET.id]);
   });
 
+  it('keeps the tunnel shop inaccessible from the bridge deck above it', () => {
+    const h = harness();
+    h.missions.begin();
+    expect(h.press({ ...MARKET.point, y: 6 }).opened).toBe(false);
+    expect(h.press({ ...MARKET.point, y: 1.12 }).opened).toBe(true);
+  });
+
   it('opens the black market menu in its zone and rents a permit inside it', () => {
     const h = harness();
     h.missions.begin();

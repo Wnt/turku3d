@@ -76,18 +76,34 @@ def produce(tile, prepared, sample):
         count = min(count, 2000)
         faces = Faces()
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
-        for i in range(count):
-            p, q = [
-                np.asarray(line.interpolate(t).coords[0])[:2]
-                for t in (line.length * i / count, line.length * (i + 1) / count)
-            ]
-            direction = q - p
-            length = np.linalg.norm(direction)
-            if length < 1e-8:
-                continue
-            offset = np.array([-direction[1], direction[0]]) / length * width / 2
-            low, high = bottom + rise * i / count, bottom + rise * (i + 1) / count
-            corners = [p + offset, q + offset, q - offset, p - offset]
+        # Preserve every mapped bend and share mitered tread edges. Independent
+        # rectangular steps leave triangular holes inside the cut corridor.
+        original = np.asarray(line.coords)[:, :2]
+        bends = np.r_[0, np.cumsum(np.linalg.norm(np.diff(original, axis=0), axis=1))]
+        distances = np.unique(np.r_[np.linspace(0, line.length, count + 1), bends])
+        centres = np.array([line.interpolate(float(d)).coords[0] for d in distances])
+        directions = np.diff(centres, axis=0)
+        directions /= np.linalg.norm(directions, axis=1)[:, None]
+        normals = np.c_[-directions[:, 1], directions[:, 0]]
+        offsets = (
+            np.vstack(
+                [
+                    normals[0],
+                    (normals[:-1] + normals[1:])
+                    / np.maximum(1 + (normals[:-1] * normals[1:]).sum(axis=1), 0.1)[:, None],
+                    normals[-1],
+                ]
+            )
+            * width
+            / 2
+        )
+        previous = bottom
+        for i, (p, q) in enumerate(zip(centres[:-1], centres[1:], strict=True)):
+            step = min(count, int((distances[i] + distances[i + 1]) / 2 / line.length * count) + 1)
+            low, high = previous, bottom + rise * step / count
+            previous = high
+            corners = [p + offsets[i], q + offsets[i + 1], q - offsets[i + 1], p - offsets[i]]
+            offset = offsets[i]
             tread = np.array([[x, high, z] for x, z in corners])
             faces.face(tread, tread[:, [0, 2]])
             riser = np.array(
@@ -108,6 +124,24 @@ def produce(tile, prepared, sample):
                         [u[0], high, u[1]],
                     ]
                 )
+        from .inputs import CELLS
+        from .kerbs import terrain_patches
+
+        aprons = []
+        for end, outward, height in ((0, -directions[0], bottom), (-1, directions[-1], top)):
+            inner = np.array([centres[end] + offsets[end], centres[end] - offsets[end]])
+            outer = inner + outward
+            apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
+            aprons.append(apron)
+            for patch in terrain_patches(
+                np.asarray(apron.exterior.coords)[:-1], tile.size / CELLS, tile.bbox.as_tuple()
+            ):
+                blend = np.clip((patch - centres[end]) @ outward, 0, 1)
+                ground = np.array([sample(x, z) for x, z in patch])
+                yy = height + (ground - height) * blend
+                points = np.c_[patch[:, 0], yy, patch[:, 1]]
+                faces.face(points[::-1], patch[::-1])
+        corridor = shapely.union_all([corridor, *aprons])
         if faces.indices:
             mesh = clip_mesh(faces.mesh(f"stairs:{key}", "curb"), tile.bbox)
             if mesh is not None:
