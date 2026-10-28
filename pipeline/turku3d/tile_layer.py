@@ -16,8 +16,8 @@ envelope reaches into it). A producer's `key(tile)` must name everything its bui
 
 from __future__ import annotations
 
-import hashlib
 import fcntl
+import hashlib
 import json
 import os
 import tempfile

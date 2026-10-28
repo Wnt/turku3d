@@ -74,6 +74,7 @@ def read_osm(tile, path):
 
     import shapely
     from PIL import ImageColor
+
     from turku3d.spatial import rows
 
     buildings, shops = [], []

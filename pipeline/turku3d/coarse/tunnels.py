@@ -84,8 +84,10 @@ def selected(tags):
 def prepare(tile, path):
     """Keep full way extents for stable portals; clip only the emitted geometry to the tile."""
     from pathlib import Path
-    from .area import cached, passages
+
     from turku3d.spatial import rows
+
+    from .area import cached, passages
 
     window = shapely.box(*tile.bbox.as_tuple()).buffer(100)
 
