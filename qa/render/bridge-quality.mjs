@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isolateBrowser, port, workRoot } from '../../tools/dev/environment.mjs';
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 
 isolateBrowser();
 const phase = process.argv[2];
@@ -95,7 +96,7 @@ try {
   fs.writeFileSync(sceneFile,source,{flag:'wx'});
   fs.writeFileSync(pageFile,'<link rel="icon" href="data:,"><script type="module" src="/__bridge-quality.js"></script>',{flag:'wx'});
   fs.symlinkSync(root,link);
-  browser=await chromium.launch({channel:'chrome',headless:true,args:['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist','--disable-background-timer-throttling']});
+  browser=await chromium.launch({ignoreDefaultArgs:chromeIgnoreDefaultArgs,channel:'chrome',headless:true,args:chromeArgs(['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist','--disable-background-timer-throttling'])});
   const page=await browser.newPage({viewport:{width:1280,height:720}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   page.on('response',r=>{if(r.status()>=400)errors.push(`${r.status()} ${r.url()}`);});
