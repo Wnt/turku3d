@@ -8,11 +8,16 @@ through 2026-11-04. Other source services were left running.
 
 ## Source and environment
 
-The measured current-main snapshot was `c5d0fb6` (full identity in the host's
-`SOURCE_COMMIT` and deployment record). It contains structural first passes,
+The measured current-main snapshot was
+`c5d0fb67c4f24b137f18bf702b52bc3b5df050cd`. It contains structural first passes,
 forward scheduling and prepared-input caching. A final refresh to main
 `0c43828` includes the host-slot arrival-order fix; its draft pipeline, package
-code, textures and multiplayer sources are byte-identical to the measured tree.
+code, textures and multiplayer sources are byte-identical to the measured tree. OCI serves archive
+`201c26ea7c2b53c486ddfcc34c70f3ba4348abd3` (that main plus migration tooling),
+recorded in `SOURCE_COMMIT`. All 92 ring cache entries remained current after
+the refresh, both public tile probes passed SHA-256 and size checks for all
+payloads, and two-client public presence passed again. Multiplayer and the
+tunnel were not restarted for this producer-only refresh.
 
 Reused Jonni's existing ARM64 toolchain and XFS volume setup. Added his explicit
 conda lock to `pipeline/env/linux-aarch64.lock.txt` and a reusable bootstrap at
@@ -51,7 +56,7 @@ separate from structural HTTP availability.
 | `t0_7_7` | 26.526 s | 11.496 s | 25.431 s |
 | `t0_8_7` | 10.504 s | 9.823 s | 24.835 s |
 
-All eight builds passed; four-way batch: **31.230 s**. ARM64 forwarder
+[Machine-readable benchmark](oci-draft-benchmark.json). All eight builds passed; four-way batch: **31.230 s**. ARM64 forwarder
 compilation overlapped part of that batch, so its concurrency numbers are
 conservative. Singles preceded that compilation. Numbers were sent to the
 orchestrator inbox before cutover.
@@ -106,3 +111,6 @@ Source host:
 [Operations](../../tools/remote-drafts/README.md) includes start, stop, update,
 cache clearing, logs, prebuild and rollback commands. Source rollback retention
 ends 2026-11-04; removal is a separate operator action after that date.
+
+Final fast gate: `scripts/dev/gate --fast --base main`, **GREEN, 3.197 s**,
+after rebasing onto `0c43828`. No deep or Chrome stages were run.

@@ -8,8 +8,9 @@ public application listener or new inbound firewall rule is needed.
 Caddy binds `127.0.0.1:7764`, sends `/coarse/*` to `127.0.0.1:7765`, and everything
 else, including WebSockets, to multiplayer on `127.0.0.1:7700`.
 
-The deployed pipeline is current published main `c5d0fb6`, with structural first
-passes, forward scheduling and prepared-input caching. The old osgallery-dev
+The deployed pipeline is current published main `0c43828`, with structural first
+passes, forward scheduling and prepared-input caching. The source snapshot also
+includes the migration installer; `SOURCE_COMMIT` records its full commit. The old osgallery-dev
 `38e57aff` deployment is retained for rollback through **2026-11-04**. Its files
 and data must remain intact until then. Its four service units are disabled.
 Historical measurements remain in [baseline-38e57aff.json](baseline-38e57aff.json)
