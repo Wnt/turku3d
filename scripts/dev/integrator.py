@@ -1,7 +1,7 @@
 """Build and publish live and Pages for each landed batch.
 
 The code lane builds main's game with served tiles; the data lane rebuilds changed tiles
-with their live builder and carries the live game. Inert batches repoint without building.
+with main's tile code and carries the live game. Inert batches repoint without building.
 Only build failures trigger base checks and bisection; advisory failures never revert.
 Chrome, audits and the deep gate run after publication and yield to newer landings.
 
@@ -564,21 +564,9 @@ def data_due(published):
     )
 
 
-def tile_builders(main_repo, live, refresh_stale):
-    """The commits whose tile code a data run tries in turn: the live tiles' builder (only the
-    data changed), then main when its tile code differs; main alone to refresh stale tiles."""
-    main = s.git("rev-parse", "main", cwd=main_repo)
-    if refresh_stale:
-        return [main]
-    builder = served.builder(served.record(live))
-    if served.tile_code(main_repo, builder) == served.tile_code(main_repo, main):
-        return [builder]
-    return [builder, main]
-
-
 def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
     """Data lane: rebuild the tiles the changed data root affects (refresh_stale: the live
-    tiles whose tile code is older than main's, with main's) and publish them with the live
+    tiles whose tile code is older than main's), using main's tile code. Publish with the live
     game as release <G>-<data key>. When the code lane published a newer game on the same
     tiles meanwhile, the release ships that game; when it changed the tiles, it is superseded."""
     import live_build
@@ -592,7 +580,7 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
     stale = served.record(live).get("stale_by_code", [])
     if not (stale if refresh_stale else delta):
         return None
-    builders = tile_builders(main_repo, live, refresh_stale)
+    builder = s.git("rev-parse", "main", cwd=main_repo)
     landing = landing_class.classify(main_repo, start, start, delta, published)
     run = Run(published, main_repo, name, start, landing, lane=DATA_NAME)
     run.chrome = chrome.data_plan(published, main_repo)
@@ -603,10 +591,7 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
         base["refresh_stale"] = stale
     with reserved(DATA_NAME):
         try:
-            for builder in builders:
-                report, failure = run.build(start, builder)
-                if report is not None:
-                    break
+            report, failure = run.build(start, builder)
             if report is None:
                 return data_red(run, base, failure, failure)
             row = {

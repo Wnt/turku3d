@@ -2,7 +2,7 @@
 
 The code lane builds main's game bundle and ships the tile set the localhost game serves
 (served.py): no refresh, tile-build or validators. The data lane rebuilds the tiles a changed
-data root affects with the tile code that built the live tiles and carries the live game
+data root affects with main's tile code and carries the live game
 bundle. Only the build stages decide whether a release is published: a batch whose layers,
 tiles, tile format and seams or game bundle cannot be built is red. Every other stage (car
 report, facade ground audit, the buildings and curbs checks of tile-validate, the facade
@@ -45,7 +45,7 @@ STAGES = {
     "code": ("game-build",),
     # Full runs build the same bundle; Chrome is selected only after publication.
     "full": ("game-build", "chrome"),
-    # The data lane: the tiles a changed data root affects, with the live tiles' tile code; the
+    # The data lane: the tiles a changed data root affects, with main's tile code; the
     # live game bundle is carried. Chrome runs what spec_selection picks: nothing unless the
     # playable tile list changed.
     "data": (
