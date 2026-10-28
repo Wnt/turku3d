@@ -477,7 +477,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     if (multiplayerPlaying && !startScreen.active && !saveGame.loading) {
       const yaw = mode === 'car' && vs ? yawOf(vs.rot) - Math.PI / 2 : player.root.rotation.y - Math.PI;
-      const poseMode = mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : vs?.kind === 'truck' ? 'truck' : 'car';
+      const poseMode = mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : seated.of(drivenId) ? 'truck' : 'car';
       multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
         ...(poseMode !== 'foot' && vs ? { rot: vs.rot, wheels: vs.wheels } : {}),

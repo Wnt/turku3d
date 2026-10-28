@@ -70,7 +70,7 @@ export class SeatedVehicles {
     return {
       scooter: { visible: this.scooter.root.visible, lean: this.scooter.leanAngle, rider: riding,
         riderPos: player.root.position.toArray(), seatPos: this.scooter.seat.getWorldPosition(new THREE.Vector3()).toArray() },
-      truck: { visible: this.truck.root.visible, driver: riding && drivenId === TRUCK_ID,
+      truck: { visible: this.truck.root.visible, driver: riding && !!drivenId && (drivenId === TRUCK_ID || this.extraTrucks.has(drivenId)),
         seatPos: this.truck.seat.getWorldPosition(new THREE.Vector3()).toArray() },
     };
   }
