@@ -39,15 +39,14 @@ fig=plt.figure(figsize=(14,8),dpi=140); ax=fig.add_subplot(111,projection='3d')
 ax.scatter(p[:,0],p[:,1],p[:,2],c=p[:,2],cmap='turbo',s=.17,alpha=.85,rasterized=True)
 ax.view_init(32,-70);ax.set_box_aspect((1,1,.34));ax.set_axis_off();fig.subplots_adjust(0,0,1,1)
 fig.savefig(root/'lidar.png',facecolor=fig.get_facecolor());plt.close(fig)
-fig,axs=plt.subplots(1,2,figsize=(14,7),dpi=140,gridspec_kw={'width_ratios':[1.2,1]})
 ground=p[np.isin(p[:,3],[2,12])]
-axs[0].scatter(ground[:,0],ground[:,1],c=ground[:,2],cmap='terrain',s=.4,vmin=0,vmax=14)
-axs[0].set_aspect('equal');axs[0].set_title('Class 2 + 12 candidate returns');axs[0].set_xlabel('Local east / metres');axs[0].set_ylabel('Local north / metres')
 # A real narrow lidar section across the riverfront, not invented curb heights.
 near=ground[np.abs(ground[:,0]-168)<1.5]
-axs[1].scatter(near[:,1],near[:,2],s=4,c='#66ddc5');axs[1].set_ylim(-1,15);axs[1].set_xlim(-350,-100)
-axs[1].set_title('Candidate return cross section');axs[1].set_xlabel('Local north / metres');axs[1].set_ylabel('N2000 height / metres');axs[1].grid(alpha=.15)
-fig.tight_layout(pad=2);fig.savefig(root/'relief.png');plt.close(fig)
+fig,ax=plt.subplots(figsize=(10,6),dpi=140)
+ax.scatter(near[:,1],near[:,2],s=14,c='#75e7cf');ax.set_ylim(-1,15);ax.set_xlim(-350,-100)
+ax.set_xlabel('North from origin / m',fontsize=24);ax.set_ylabel('Height / m',fontsize=24)
+ax.tick_params(labelsize=24);ax.grid(alpha=.15)
+fig.tight_layout();fig.savefig(root/'relief.png');plt.close(fig)
 print('lidar',flush=True)
 
 lod=gpd.read_parquet(raw/'wfs/work-3x3/bldg_Building_LOD2.parquet')
