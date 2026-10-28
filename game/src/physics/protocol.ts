@@ -58,7 +58,7 @@ export type ToWorker =
   | { type: 'stats'; id: number };
 
 export type FromWorker =
-  | { type: 'ready'; rapier: string; colReader: string }
+  | { type: 'ready'; rapier: string; colReader: string; wasmBytes?: number }
   | { type: 'tileLoaded'; stats: TileStats }
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }

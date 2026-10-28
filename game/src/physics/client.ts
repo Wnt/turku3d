@@ -1,4 +1,5 @@
 // Main-thread side of the physics worker.
+import { loading, loadBytes } from '../core/loading';
 import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
 import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, VehicleInput, VehicleSpec } from './protocol';
@@ -28,13 +29,14 @@ export class PhysicsClient {
   private queue: { m: ToWorker; transfer: Transferable[] }[] = [];
 
   constructor() {
+    const ready = loading.begin('Physics worker · Rapier WASM');
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name: 'physics' });
     let resolveReady!: (v: string) => void;
     this.ready = new Promise((r) => (resolveReady = r));
     this.worker.onmessage = (ev: MessageEvent<FromWorker>) => {
       const m = ev.data;
       switch (m.type) {
-        case 'ready': this.colReader = m.colReader; this.isReady = true; for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
+        case 'ready': ready(`Rapier ${m.rapier} · ${m.wasmBytes ? loadBytes(m.wasmBytes) : 'WASM ready'} · ${m.colReader}`); this.colReader = m.colReader; this.isReady = true; for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
         case 'state':
           this.latest = m; this.inFlight = false;
           this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, performance.now() / 1000);

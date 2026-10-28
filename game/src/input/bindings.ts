@@ -24,7 +24,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   steer: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
   pause: [button(9), key('Escape')], mute: [button(13), key('KeyK')], nextTrack: [key('KeyN')],
-  vehicleReset: [key('KeyR')], hud: [key('KeyH')],
+  vehicleReset: [key('KeyR')], hud: [key('F3'), key('KeyH')],
   // Safe reset (gameplay/recovery.ts): read only while the player is lost, when Y does not enter or exit a car.
   respawn: [button(3), key('KeyR')],
   map: [button(8), key('KeyM')],

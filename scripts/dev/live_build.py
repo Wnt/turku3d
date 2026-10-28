@@ -10,7 +10,6 @@ its failure is recorded in report["advisory"] and the release is published anywa
 """
 
 import contextlib
-import filecmp
 import hashlib
 import json
 import os
@@ -30,6 +29,7 @@ import tile_store
 from host_slots import integration_jobs, phase
 from integration_chrome import browser_load, load_summary
 from landing_class import C, data_parts
+from live_cache import same_tree
 from live_layers import affected_collision_files, affected_tiles
 from turku3d.region import quality
 
@@ -121,18 +121,6 @@ def approval_manifests(published):
     }
 
 
-def same_tree(old, new):
-    if not old.is_dir() or not new.is_dir():
-        return False
-    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
-        return False
-    before = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
-    after = {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
-    return before == after and all(
-        filecmp.cmp(old / name, new / name, shallow=False) for name in before
-    )
-
-
 def _clone(source, target):
     if target.exists() or target.is_symlink():
         return
@@ -167,6 +155,10 @@ def seed(work, published):
     missing (refresh updates them in place), the tiles and the game bundle every time (a
     build starts from the live tiles and ships the live game unless it builds its own), and
     the facade approvals."""
+    _replace(
+        published / "live" / ("check-game" if (published / "live/check-game").is_dir() else "game"),
+        work / "build/check-game",
+    )
     for relative in ("build/layers", "textures"):
         _clone(published / relative, work / relative)
     for relative in ("dist/tiles", "build/game"):
@@ -388,7 +380,6 @@ def build(
             repo,
         ),
         ("game-build", ["make", "game-build"], repo),
-        # The command line is logged by spec_selection.run once the selection is known.
         ("chrome", ["playwright", "test", "-c", spec_selection.TILE_CONFIG], repo / "game"),
     ]
     scopes = {}
@@ -493,6 +484,8 @@ def build(
                         checks,
                     )
             run_env = {**env, "TILE_DIST": str(work / "dist/tiles")}
+            run_env["VITE_PUBLIC_RELEASE"] = "1" if stage == "game-build" else ""
+            run_env["E2E_GAME_DIST"] = str(work / "build/check-game")
             load_rows = work / "reports/browser-load" / f"{stage}.jsonl"
             load_before = os.getloadavg()
             if stage in ("tile-validate", "collision-checks"):
@@ -509,7 +502,7 @@ def build(
                         chrome,
                         root=repo,
                         env=run_env,
-                        bundle_dir=work / "build/game",
+                        bundle_dir=work / "build/check-game",
                         tiles_manifest=work / "dist/tiles/manifest.json",
                         runner=lambda command, cwd, env: advisory_chrome.run(
                             command, cwd=cwd, env=env, cancelled=cancelled
@@ -646,6 +639,7 @@ def prepare(work, published, commit, report, release_id=None):
             raise ValueError(f"release is already live: {release}")
         shutil.rmtree(release)
     release.mkdir()
+    _clone(work / "build/check-game", release / "check-game")
     artifacts = (
         (work / "build/game", "game"),
         (work / "dist/tiles", "tiles"),
@@ -708,7 +702,10 @@ def prepared(published, commit, release_id=None):
         raise ValueError("prepared release commit does not match landing")
     if "car_validation" in record and not (release / record["car_validation"]["report"]).is_file():
         raise ValueError("prepared release car report is missing")
-    for name in ("game", "tiles", "layers", "textures"):
+    names = ["game", "tiles", "layers", "textures"]
+    if (release / "check-game").exists():
+        names.append("check-game")
+    for name in names:
         directory = release / name
         if not directory.is_dir() or directory.is_symlink():
             raise ValueError(f"prepared release directory is missing or linked: {directory}")

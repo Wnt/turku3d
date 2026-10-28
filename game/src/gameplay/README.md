@@ -249,3 +249,5 @@ Draft bridge graph edges can include optional `edgeHeights` Y arrays parallel to
 edge polyline (including its endpoints); null means no surveyed elevation. `parseRoadGraph` and
 `mergeRoadGraphs` preserve them as `RoadEdge.heights`, and `StreetRouter` returns optional
 `WorldPoint.y` on snaps and route vertices. Existing X/Z-only graph assets remain valid.
+
+Mission speech helpers live in `missions/speech.ts`; `lineSeconds` remains re-exported from `missions.ts`. The dispatcher keeps 30 seconds of silence after the queued order announcement before repeating its address. Verify the delay with `npm --prefix game test -- tests/unit/missions.test.ts tests/unit/orders.test.ts` (synthetic state-machine fixtures).

@@ -24,7 +24,7 @@
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { LoadingKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 import { isLocalHost } from '../core/localOnly';
@@ -227,7 +227,7 @@ export class CoarseTiles {
     this.load = host.loadModel ?? this.gltfLoader();
     this.page = host.pageUrl ?? location.href;
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
-    if (parent) this.badge = parent.appendChild(document.createElement('div'));
+    if (parent) this.badge = parent.appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { position: 'fixed', top: '8px', left: '50%', transform: 'translateX(-50%)',
       padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
       font: '12px/1.4 system-ui, sans-serif', pointerEvents: 'none', zIndex: '20', display: 'none' });
@@ -242,7 +242,7 @@ export class CoarseTiles {
   }
 
   private gltfLoader() {
-    const ktx2 = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
+    const ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
     const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     return async (url: string) => (await loader.loadAsync(url)).scene;
   }

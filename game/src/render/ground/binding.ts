@@ -1,17 +1,17 @@
 import * as THREE from 'three/webgpu';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { LoadingKtx } from '../../world/loadingKtx';
 import { loadGroundLibrary, loadGroundTile } from './material';
 
 /** Only assembler-declared URLs are requested; unbound tiles retain their source materials. */
 export class GroundBindings {
   pending = 0;
   readonly errors: string[] = [];
-  private loader: KTX2Loader;
+  private loader: LoadingKtx;
   private libraries = new Map<string, ReturnType<typeof loadGroundLibrary>>();
   private tiles = new Map<THREE.Object3D, Awaited<ReturnType<typeof loadGroundTile>> | null>();
   private batches = new Map<THREE.Object3D, { mesh: THREE.Mesh; sources: THREE.Mesh[] }>();
   constructor(renderer: THREE.WebGPURenderer, private base: string) {
-    this.loader = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
+    this.loader = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
   }
   async apply(model: THREE.Object3D) {
     let binding: { spec: string; library: string } | undefined;

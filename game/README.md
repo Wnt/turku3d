@@ -93,7 +93,7 @@ Chrome on macOS exposes Xbox Elite Series 2 as **Xbox Wireless Controller**, sta
 | Mute / unmute | D-pad down | D-pad down | N |
 | Reset car upright | — | — | R |
 | Return to solid ground (only when off the map or in the river; also automatic after 5 s) | Y | Y | R (touch: Reset) |
-| Toggle debug HUD | — | — | H |
+| Toggle debug HUD | — | — | F3 / H |
 
 Full stick = 3.6 m/s jog; sprint = 6 m/s; keyboard slow walk = 1.5 m/s. Input magnitude is preserved after a radial dead zone (left 0.16, right 0.12) and power response curves (1.35 / 1.6). Acceleration and deceleration are smoothed. Jump is a press edge, retained across worker latency and frames without a physics tick. Holding jump does not auto-jump on landing. Blur clears held input. Dual-rumble is feature-detected and used on landing and curb strikes; unsupported actuators fail silently. Trigger rumble is not required.
 
@@ -295,3 +295,22 @@ from the repository root to run the walk/drive subset with its synthetic pipelin
 Ground texture material API and isolated Chrome QA: [src/render/ground/README.md](src/render/ground/README.md).
 From the repo root, source the sandbox environment and run `make ground-render-test` (port 5310
 by default; override `GROUND_QA_PORT` outside the W1-10 sandbox).
+
+Public live/Pages builds set `VITE_PUBLIC_RELEASE=1` at build time. Their start menu offers Multiplayer only; local dev and ordinary `npm run build` keep all start options. This is a build target, not a runtime URL option. A public `make game-build` also writes a local production companion to `$TURKU3D_WORK/build/check-game`. The integrator uses that companion for the existing New game gameplay checks (`E2E_GAME_DIST`), while live and Pages publish `build/game`. Both variants are cached and carried together; manual Pages builds also select the public target.
+
+The play clock repeats 08:45–17:30 Europe/Helsinki over 30 real minutes, followed by a ten-second fast-forward, always on 15 October 2027. Phase is `(UTC milliseconds - 2027-10-15T05:45:00Z) mod 1810000`, so clients agree without server state. During the skip the sky and shadows smoothly return through daylight (smoothstep), never sampling night. The visible sun disc fades during the middle of the skip to prevent a bloom flash; directional daylight and shadows remain active. The time slider is removed. `?time=ISO` and QA cameras remain fixed; saves never change the live cycle or explicit QA time. F3 diagnostics are available in releases.
+
+Sun direction updates each frame using existing shadow passes; there is no extra shadow render. Sky IBL is reused for 30 seconds and throughout the transition. `window.__game.dayClock.snapshot()` reports measured CPU and IBL update cost.
+
+Controls help learns foot, fly and car separately. It disappears after one active minute in that mode or two uses of at least 75% of the shown controls, and remembers learned modes per browser. Switching to an unlearned mode shows its prompts.
+
+Manual real-tile release UX evidence (isolated local multiplayer server; no public scores are touched):
+
+```sh
+source ../sandbox.env
+npm ci --prefix server --ignore-scripts
+VITE_PUBLIC_RELEASE=1 make game-build
+python3 scripts/dev/host_slots.py browser -- node game/scripts/release-ux-qa.mjs
+```
+
+Set `UX_QA_BACKEND=webgl` for the fallback (separate `release-ux-webgl` report). This writes local/release start/loading/HUD/daylight/transition/help screenshots and frame-cost measurements under `$TURKU3D_WORK/reports/release-ux/`. It reads `$TURKU3D_DATA/live/tiles` by default (`TILE_DIST` overrides), uses sandbox ports +1 and +3, and stops only its own browser and servers.

@@ -19,6 +19,9 @@ export class Input {
   private keys = new Set<string>();
   private tapped = new Set<string>();
   private edges = new Set<Action>();
+  /** Non-consuming press activity for help learning, including either axis direction and mouse look starts. */
+  readonly activity = new Set<Action>();
+  private mouseLooking = false;
   private mouseX = 0;
   private mouseY = 0;
   private wheel = 0;
@@ -108,6 +111,12 @@ export class Input {
     const taps = mapActions(null, this.tapped, this.bindings);
     this.tapped.clear();
     this.edges.clear();
+    this.activity.clear();
+    for (const a of ACTIONS) if (Math.abs(taps[a]) > 0.5 || touch.taps.has(a) ||
+      (Math.abs(next[a]) > 0.5 && Math.abs(this.actions[a]) <= 0.5)) this.activity.add(a);
+    const mouseLooking = !!(this.mouseX || this.mouseY || touch.lookX || touch.lookY);
+    if (mouseLooking && !this.mouseLooking) this.activity.add('lookX');
+    this.mouseLooking = mouseLooking;
     // A full key press/release (or button tap) can happen between frames. Its next press is a new edge
     // even if the previous frame still recorded the key as held.
     for (const a of ACTIONS) if (taps[a] > 0.5 || touch.taps.has(a) || (next[a] > 0.5 && this.actions[a] <= 0.5)) this.edges.add(a);
@@ -134,7 +143,7 @@ export class Input {
   rebind(action: Action, bindings: Binding[]) { this.bindings[action] = structuredClone(bindings); }
   /** Touch buttons carry the gamepad glyphs, so touch prompts use them too. */
   prompt(action: Action) { return glyph(action, this.bindings, this.source !== 'keyboard'); }
-  private clear() { this.keys.clear(); this.tapped.clear(); this.actions = emptyActions(); this.edges.clear(); this.mouseX = this.mouseY = this.wheel = this.sprintUntil = 0; }
+  private clear() { this.keys.clear(); this.tapped.clear(); this.actions = emptyActions(); this.edges.clear(); this.activity.clear(); this.mouseLooking = false; this.mouseX = this.mouseY = this.wheel = this.sprintUntil = 0; }
   async rumble(duration = 100, strong = 0.35, weak = 0.15): Promise<boolean> {
     const actuator = this.pad?.vibrationActuator;
     if (!actuator?.playEffect) return false;

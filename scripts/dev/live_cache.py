@@ -1,5 +1,6 @@
 """Shared verified live-stage artifacts, keyed by declared source and manifest inputs."""
 
+import filecmp
 import fnmatch
 import hashlib
 import json
@@ -11,7 +12,7 @@ import sandbox as s
 OUTPUTS = {
     "refresh": ("build/layers", "textures"),
     "tile-build": ("dist/tiles",),
-    "game-build": ("build/game",),
+    "game-build": ("build/game", "build/check-game"),
 }
 
 INPUTS = {
@@ -34,7 +35,13 @@ INPUTS = {
         "mk/tile.mk",
         "scripts/dev/live*",
     ),
-    "game-build": ("game/*", "Makefile", "scripts/dev/live*"),
+    "game-build": (
+        "game/*",
+        "mk/game.mk",
+        "tools/dev/environment.mjs",
+        "Makefile",
+        "scripts/dev/live*",
+    ),
 }
 
 
@@ -150,3 +157,15 @@ def _store(published, work, stage, key, report):
     finally:
         if temp.exists():
             shutil.rmtree(temp)
+
+
+def same_tree(old, new):
+    if not old.is_dir() or not new.is_dir():
+        return False
+    if any(path.is_symlink() for root in (old, new) for path in root.rglob("*")):
+        return False
+    before = {p.relative_to(old) for p in old.rglob("*") if p.is_file()}
+    after = {p.relative_to(new) for p in new.rglob("*") if p.is_file()}
+    return before == after and all(
+        filecmp.cmp(old / name, new / name, shallow=False) for name in before
+    )

@@ -26,8 +26,15 @@ class LiveBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             work = root / "work"
-            for relative in ("build/game", "dist/tiles", "build/layers", "textures"):
+            for relative in (
+                "build/game",
+                "build/check-game",
+                "dist/tiles",
+                "build/layers",
+                "textures",
+            ):
                 (work / relative).mkdir(parents=True)
+            (work / "build/check-game/local.bin").write_bytes(b"local menu")
             (work / "textures/asset.bin").write_bytes(b"stable")
             (work / "textures/link.bin").symlink_to("asset.bin")
             (work / "reports").mkdir()
@@ -39,6 +46,7 @@ class LiveBuildTests(unittest.TestCase):
                 {"car_validation": {"report": "reports/validate-cars.json"}},
                 "key",
             )
+            self.assertEqual((release / "check-game/local.bin").read_bytes(), b"local menu")
             self.assertFalse((release / "textures/link.bin").is_symlink())
             self.assertEqual((release / "textures/link.bin").read_bytes(), b"stable")
             self.assertEqual((release / "reports/validate-cars.json").read_text(), '{"pass":false}')
@@ -230,6 +238,10 @@ class LiveBuildTests(unittest.TestCase):
         checks = checks or {"format": "pass", "seams": "pass", "buildings": "pass", "curbs": "pass"}
 
         def run(command, **kwargs):
+            if command == ["make", "game-build"]:
+                self.assertEqual(kwargs["env"]["VITE_PUBLIC_RELEASE"], "1")
+            if "playwright.tile.config.ts" in command:
+                self.assertEqual(kwargs["env"]["E2E_GAME_DIST"], str(work / "build/check-game"))
             load_log = kwargs["env"].get("TURKU3D_BROWSER_LOAD_LOG")
             if load_log:
                 Path(load_log).write_text(

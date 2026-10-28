@@ -1,6 +1,7 @@
 // Game menus: the list/option component every menu uses (shop, start screen, pause), a titled menu page, the pause
 // overlay, and the save/load/new-game flow over core/save.ts. Navigation is the menu input actions: D-pad / left
 // stick, A selects, B goes back; arrows or W/S, Enter or E, Escape; a tap or click on a row selects and chooses it.
+import { PUBLIC_RELEASE } from '../core/release';
 import type { Input } from '../input';
 import { MANUAL_SLOTS, SLOT_IDS, SLOT_NAMES, formatDetails, type SaveGame, type SaveStore, type SlotId } from '../core/save';
 
@@ -197,6 +198,9 @@ export class SaveMenuFlow {
 
   /** Start screen: Continue (latest save, with its details), New game, Load game. */
   start(): MenuPage {
+    if (PUBLIC_RELEASE && this.multiplayer) return { id: 'start', title: 'Main menu', text: null, back: null, items: [
+      { id: 'multiplayer', label: 'Multiplayer', detail: 'Join the live city', enabled: true, run: this.multiplayer },
+    ] };
     const latest = this.store.latest();
     const items: MenuItem[] = [];
     if (latest) {

@@ -5,7 +5,6 @@ import { collisionTileAt, enToEngine, engineToEN, headingToYaw, type V3 } from '
 import { Autosave, formatLabel, type SaveGame, type SaveStore } from '../core/save';
 import type { Input } from '../input';
 import type { PhysicsClient } from '../physics/client';
-import type { TimeControl } from '../render/debug';
 import type { PauseMenu } from '../ui/menu';
 import { SaveMenuFlow, type GameHooks } from '../ui/menu';
 import type { StartScreen } from '../ui/startScreen';
@@ -46,11 +45,8 @@ export function kerbBehind(car: Pose): Pose {
 
 interface SaveGameOptions {
   physics: PhysicsClient; streamer: CollisionStreamer; manifest: Manifest; missions: MissionSystem; recovery: SafeReset;
-  saves: SaveStore; startScreen: StartScreen; pauseMenu: PauseMenu; clockControl: TimeControl;
-  /** The ?time= start, used by a new game. */
-  defaultTime: Date;
+  saves: SaveStore; startScreen: StartScreen; pauseMenu: PauseMenu;
   clock: () => Date;
-  setClock: (date: Date) => void;
   /** Where a new game starts, and the own car's spawn parking. */
   spawn: Pose; car: Pose;
   /** The live player: mode, driven vehicle, feet and camera yaw. */
@@ -181,8 +177,6 @@ export class SaveGameController {
     const { physics, missions, spawn } = this.o;
     if (this.o.view().mode === 'car') this.o.leaveCar();
     missions.restore(game?.mission ?? null);
-    this.o.setClock(game?.clock ? new Date(game.clock.timeOfDay) : this.o.defaultTime);
-    this.o.clockControl.set(this.o.clock());
     const saved = game?.vehicle?.owned ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
     const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;

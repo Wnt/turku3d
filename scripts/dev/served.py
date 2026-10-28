@@ -162,6 +162,7 @@ def compose(target, game, shipped, published, repo, commit):
     target.mkdir(parents=True)
     live = (published / "live").resolve()
     _clone(Path(game), target / "game")
+    _clone(Path(game).parent / "check-game", target / "check-game")
     _clone(Path(shipped["dir"]), target / "tiles")
     (target / "tiles/STORE.json").unlink(missing_ok=True)
     # The layers let the Pages region measure a tile set that predates its quality ledger.
@@ -194,7 +195,7 @@ def release(published, main_repo):
         return live
     repo = integrator.checkout(head, PAGES_SANDBOX, published)
     env = integrator.environment(repo, published)
-    built = s.run_group(["make", "game-build"], cwd=repo, env=env)
+    built = s.run_group(["make", "game-build"], cwd=repo, env={**env, "VITE_PUBLIC_RELEASE": "1"})
     if built.returncode:
         raise ValueError(f"game-build of {head[:12]} failed: {s.failure_detail(built.stdout)}")
     work = Path(env["TURKU3D_WORK"])
@@ -206,6 +207,10 @@ def carry_game(release, work):
     from live_build import _replace
 
     _replace(release / "game", work / "build/game")
+    _replace(
+        release / ("check-game" if (release / "check-game").is_dir() else "game"),
+        work / "build/check-game",
+    )
 
 
 def ship(repo, work, published):
@@ -221,6 +226,7 @@ def ship(repo, work, published):
         (live / "layers", "build/layers"),
         (live / "textures", "textures"),
         (live / "game", "build/game"),
+        (live / ("check-game" if (live / "check-game").is_dir() else "game"), "build/check-game"),
         (Path(shipped["dir"]), "dist/tiles"),
     ):
         _replace(source, work / relative)

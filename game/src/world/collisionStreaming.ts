@@ -3,6 +3,7 @@
 // which neighbours of the loaded tiles have collision somewhere (the manifest, drafts included, minus tiles that failed
 // for good): edge walls stand only where none does (physics/edgeWalls.ts). Near a tile that exists but is not loaded
 // yet, `speedLimit` holds the player gently instead.
+import { loading, loadBytes } from '../core/loading';
 import { COLLISION_TILE, collisionTileId, distToCollisionTile, parseCollisionId } from '../core/origin';
 import type { Manifest } from './manifest';
 import type { PhysicsClient } from '../physics/client';
@@ -115,6 +116,7 @@ export class CollisionStreamer {
 
   private async fetchAndLoad(id: string) {
     const e = this.manifest.collision[id];
+    const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
     try {
       const res = await fetch(new URL(e.url, this.manifest.baseUrl), { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), {
@@ -124,7 +126,9 @@ export class CollisionStreamer {
       if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
       await this.physics.loadTile(id, buf);
       this.retries.delete(id);
+      done('Rapier collider ready');
     } catch (err) {
+      done(`FAILED: ${String(err)}`);
       const error = err as Error & { permanent?: boolean };
       if (error.permanent) {
         this.failed.add(id);

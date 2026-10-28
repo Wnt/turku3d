@@ -1,3 +1,4 @@
+import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
 import { ENGINE_SOUND, SOUNDS, ambience, carMix, clamp, duckGain, oneShot, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
@@ -86,12 +87,15 @@ export class GameAudio {
       // Do not await asset downloads before resume: the activation would already have expired.
       const resume = ctx.state === 'running' ? Promise.resolve() : ctx.resume();
       this.loading ??= Promise.all(SOUNDS.map(async sound => {
+        const done = loading.begin(`Audio ${sound}.ogg`);
         try {
           const response = await this.fetcher(`${this.base}${sound}.ogg`);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const buffer = await ctx.decodeAudioData(await response.arrayBuffer());
+          const bytes = await response.arrayBuffer();
+          const buffer = await ctx.decodeAudioData(bytes);
+          done(`${loadBytes(bytes.byteLength)} decoded`);
           if (!this.disposed) this.buffers.set(sound, buffer);
-        } catch (error) { this.errors.push(`${sound}: ${String(error)}`); }
+        } catch (error) { done(`unavailable: ${String(error)}`); this.errors.push(`${sound}: ${String(error)}`); }
       })).then(() => {
         if (this.disposed) return;
         this.refreshLoops();

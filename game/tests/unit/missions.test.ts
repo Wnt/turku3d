@@ -205,7 +205,11 @@ describe('mission state machine', () => {
     expect(h.last()).toMatchObject({ activeTargetId: d.id, message: expect.stringContaining(d.address),
       timerSeconds: Math.ceil(2 * par) });
     expect(h.last().targets.find(t => t.id === d.id)).toMatchObject({ kind: 'dropoff', point: d.point });
-    h.wait(far, 15);
+    h.at(far, lineSeconds(h.last().message!));
+    expect(h.last().message).toBeNull();
+    h.at(far, 29.9);
+    expect(h.last().message).toBeNull();
+    h.at(far, 0.2);
     expect(h.last().message).toContain(d.address);
 
     // The pizzeria will not hand out a second order meanwhile.
