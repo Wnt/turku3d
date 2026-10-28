@@ -192,6 +192,8 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
 
     frame = classify_surfaces(gpd.read_parquet(path))
     frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
+    if frame.empty:
+        return []
     bbox = tile.bbox.buffered(100.0)
     window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
     local = frame.geometry_local.apply(shapely.force_2d)
