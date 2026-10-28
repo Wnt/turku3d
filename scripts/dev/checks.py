@@ -87,6 +87,14 @@ def check_published_images(root, files):
     path, source, licence and a one-line reason; an entry admits a marked or large image.
     """
     errors, listed = [], {}
+    # Google aerial comparisons are local-only, even outside the usual image roots
+    # or when someone mistakenly adds an allowlist entry.
+    for path in files:
+        folded = re.sub(r"[_\s]+", "-", path.lower())
+        if Path(path).suffix.lower() in IMAGE_SUFFIXES and any(
+            marker in folded for marker in ("gmaps-compare", "google-maps", "googlemaps")
+        ):
+            errors.append(f"{path}: Google Maps comparison imagery must remain local-only")
     allowlist = root / IMAGE_ALLOWLIST
     entries = tomllib.loads(allowlist.read_text()).get("images", []) if allowlist.is_file() else []
     present = set(files)

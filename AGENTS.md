@@ -60,6 +60,7 @@ reason. The rules below are the ones that stay hard.
     top-down and oblique headless renders of every instance in at least two tiles, using your sandbox ports.
     Compare counts and placement against the source (one deck per real bridge, no barrier crossing water),
     retain the screenshots and fix anomalies before landing. Synthetic unit tests alone are not enough.
+    Compare a few affected spots with `make gmaps-compare` (local screenshots only); check its calibration status before treating views as pose-aligned.
 
 ## Isolated work and task tools
 
