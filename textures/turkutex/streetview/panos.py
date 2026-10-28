@@ -19,7 +19,7 @@ Research gotchas applied (docs/research/streetview.md, Verification):
 
 from __future__ import annotations
 
-import hashlib
+import contextlib
 import json
 import math
 import os
@@ -34,8 +34,9 @@ from turku3d import config
 from turku3d.region.cache import (
     atomic_target,
     build_lock,
-    cache_lock,
+    entry_lock,
     import_cache,
+    pin_entry,
     synchronized,
 )
 
@@ -164,7 +165,6 @@ class PanoCache:
         legacy = config.work_root() / "cache/streetlevel"
         if root is None and legacy.is_dir() and legacy.resolve() != self.root.resolve():
             import_cache(legacy, self.root)
-        self.decoded_root = self.root / "decoded"
         self.read_roots = [config.cache_dir("streetview"), config.raw_dir("streetview")]
         self.read_roots += [
             Path(p).expanduser()
@@ -178,14 +178,18 @@ class PanoCache:
     def read_path(self, relative: str | Path) -> Path:
         """Read through shared caches; all new data is written under self.root."""
         own = self.root / relative
+        pin_entry(self.root, own)
         if own.exists():
             os.utime(own, None)
             return own
         return next((r / relative for r in self.read_roots if (r / relative).is_file()), own)
 
+    @synchronized
     def read_json(self, relative: str | Path):
         for root in [self.root, *self.read_roots]:
             path = root / relative
+            if root == self.root:
+                pin_entry(root, path)
             if path.is_file():
                 try:
                     if root == self.root:
@@ -198,22 +202,16 @@ class PanoCache:
         return None
 
     def decoded_image(self, source: Path) -> np.ndarray:
-        """Memory-map decoded pixels in the shared content-addressed cache."""
-        digest = hashlib.sha256()
-        with source.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        key = digest.hexdigest()
-        target = self.decoded_root / f"{key}.npy"
-        if not target.is_file():
-            with cache_lock(self.decoded_root, key):
-                if not target.is_file():
-                    with Image.open(source) as image:
-                        pixels = np.asarray(image.convert("RGB"))
-                    with atomic_target(target, self.root) as temporary:
-                        with temporary.open("wb") as stream:
-                            np.save(stream, pixels, allow_pickle=False)
-        return np.load(target, mmap_mode="r", allow_pickle=False)
+        """Decode compressed source pixels on demand; do not persist giant derived arrays."""
+        with (
+            entry_lock(self.root, source)
+            if source.is_relative_to(self.root)
+            else contextlib.nullcontext()
+        ):
+            with Image.open(source) as image:
+                pixels = np.array(image.convert("RGB"))
+                pixels.flags.writeable = False
+                return pixels
 
     # ------------------------------ Google ------------------------------
     @synchronized
@@ -322,6 +320,7 @@ class PanoCache:
         date, nid = max(cands)
         return m if nid == m.id else (self.google_meta(nid) or m)
 
+    @synchronized
     def load_depth(self, pid: str) -> np.ndarray | None:
         f = self.read_path(Path("google") / pid / "depth.npy")
         return np.fliplr(np.load(f)) if f.exists() else None

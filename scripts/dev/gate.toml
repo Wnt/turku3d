@@ -402,3 +402,10 @@ name = "playtest-tools"
 kind = "command"
 triggers = ["tools/dev/play*", "tools/dev/environment.*", "game/tools/*", "game/tests/e2e-playtest/*", "game/playwright.playtest.config.ts", "mk/play.mk"]
 commands = [["node", "--test", "tools/dev/play.test.mjs"]]
+
+
+[[stages]]
+name = "disk-retention-tests"
+kind = "command"
+triggers = ["scripts/dev/live_build.py", "scripts/dev/live_cache.py", "scripts/dev/live_retention.py", "scripts/dev/integrator.py", "scripts/dev/sandbox.py", "scripts/dev/task_runner.py", "scripts/dev/tests/test_disk_retention.py"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_disk_retention.py"]]

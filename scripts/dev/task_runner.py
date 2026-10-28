@@ -362,6 +362,7 @@ def status(name):
     print(
         f"{name}: {state}, {elapsed:.1f}s, last event={last[-1].get('type') if last else 'none'}, "
         f"commit={commit}, {unread_status(name, state)}"
+        + (f", {s.cache_warning(Path(meta['repo']).parent)}" if present else "")
         + (f", idle {idle} min" if idle is not None else "")
         + (f", behind main by {behind} landings since your last rebase" if behind else "")
         + (

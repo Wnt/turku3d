@@ -203,3 +203,74 @@ def test_landed_layer_adapter_and_assembler_area(tmp_path, monkeypatch):
     assert "office-block" in steps["assemble"].commands[0]
     assert "work-3x3" not in steps["assemble"].commands[0]
     assert len(steps["validate"].commands) == 4
+
+
+def test_eviction_skips_busy_keys_while_cache_readers_remain_active(tmp_path, monkeypatch):
+    from turku3d.region import cache
+    from turku3d.region.cache import cache_lock, entry_lock
+
+    monkeypatch.setattr(cache, "cache_limit", lambda root=None: 0)
+
+    busy = tmp_path / "google/busy/pano.jpg"
+    idle = tmp_path / "google/idle/pano.jpg"
+    for path in (busy, idle):
+        with atomic_target(path, tmp_path) as temp:
+            temp.write_bytes(b"pixels")
+    with cache_lock(tmp_path, shared=True), entry_lock(tmp_path, busy):
+        cache._try_enforce(tmp_path)
+        assert busy.read_bytes() == b"pixels"
+        assert not idle.exists()
+    enforce_limit(tmp_path, 0)
+    assert not busy.exists()
+    assert not list((tmp_path / ".objects").iterdir())
+
+
+def test_eviction_reclaims_legacy_decoded_arrays_before_compressed_sources(tmp_path):
+    source = tmp_path / "google/a/pano.jpg"
+    decoded = tmp_path / "decoded/a.npy"
+    for path in (source, decoded):
+        with atomic_target(path, tmp_path) as temp:
+            temp.write_bytes(b"pixels")
+    os.utime(source, (1, 1))
+    enforce_limit(tmp_path, 6)
+    assert source.exists() and not decoded.exists()
+
+
+def test_nested_cache_calls_pin_paths_until_outer_reader_finishes(tmp_path):
+    from turku3d.region.cache import pin_entry, synchronized
+
+    path = tmp_path / "google/a/pano.jpg"
+    with atomic_target(path, tmp_path) as temp:
+        temp.write_bytes(b"pixels")
+
+    class Reader:
+        root = tmp_path
+
+        @synchronized
+        def inner(self):
+            pin_entry(self.root, path)
+            return path
+
+        @synchronized
+        def outer(self):
+            held = self.inner()
+            enforce_limit(self.root, 0)
+            assert held.read_bytes() == b"pixels"
+
+    Reader().outer()
+    enforce_limit(tmp_path, 0)
+    assert not path.exists()
+
+
+def test_sandbox_streetlevel_cache_has_a_smaller_default_limit(tmp_path, monkeypatch):
+    from turku3d.region.cache import cache_limit
+
+    data, work = tmp_path / "data", tmp_path / "sandbox/work"
+    monkeypatch.setenv("TURKU3D_DATA", str(data))
+    monkeypatch.setenv("TURKU3D_WORK", str(work))
+    monkeypatch.delenv("TURKU3D_STREETLEVEL_CACHE_GB", raising=False)
+    assert cache_limit(data / "cache/streetlevel") == 60 * 1024**3
+    assert cache_limit(work / "cache/streetview") == 5 * 1024**3
+    monkeypatch.setenv("TURKU3D_STREETLEVEL_CACHE_GB", "2")
+    assert cache_limit(work / "cache/streetview") == 2 * 1024**3
+    assert cache_limit(data / "cache/streetlevel") == 2 * 1024**3

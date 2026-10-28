@@ -95,11 +95,13 @@ raw/streetview and colon-separated TURKUTEX_READ_CACHE roots are reused read-onl
 uses content-addressed hardlinks to deduplicate imported images. Conflicting existing keys
 are retained. Downloads use SHA256 object storage, per-key publication locks and atomic
 links. Panorama cache calls share the cache lock across threads and processes and build each
-key under its own lock; only eviction takes the cache lock exclusively, and skips a round when
-readers hold it. `TURKU3D_STREETLEVEL_CACHE_GB` sets the LRU limit (default 60 GiB); the cache evicts
+key under its own lock. Eviction takes nonblocking exclusive entry locks and skips only busy
+keys, so continuously active readers cannot starve cleanup. `TURKU3D_STREETLEVEL_CACHE_GB` sets the
+LRU limit (default 60 GiB shared, 5 GiB for explicit caches under the sandbox work root); the cache evicts
 oldest complete keys after imports and, from the panorama cache calls, at most every five minutes
-per process (`ENFORCE_INTERVAL_S`; the scan walks the whole tree under the cache lock, so it no
-longer runs on every call). Metadata JSON is retained with imported keys.
+per process (`ENFORCE_INTERVAL_S`; the scan walks the whole tree, so it does not run on every
+call). Legacy decoded arrays are evicted first; new panorama reads decode compressed sources
+on demand without persisting arrays. Metadata JSON is retained with imported keys.
 `make cache-gc APPLY=1` removes only stale partials. Size reports count unique inodes
 separately from logical paths.
 

@@ -5,9 +5,8 @@ The code lane builds main's game bundle and ships the tile set the localhost gam
 data root affects with main's tile code and carries the live game
 bundle. Only the build stages decide whether a release is published: a batch whose layers,
 tiles, tile format and seams or game bundle cannot be built is red. Every other stage (car
-report, facade ground audit, the buildings and curbs checks of tile-validate, the facade
-baseline and Chrome) is advisory: its failure is recorded in report["advisory"] and the
-release is published anyway.
+report, facade ground audit, tile-validate, facade baseline and Chrome) is advisory:
+its failure is recorded in report["advisory"] and the release is published anyway.
 """
 
 import contextlib
@@ -23,6 +22,7 @@ from pathlib import Path
 import advisory as advisory_check
 import advisory_chrome
 import live_cache
+import live_retention
 import sandbox as s
 import served
 import spec_selection
@@ -796,3 +796,4 @@ def publish(published, commit, release_id=None):
     if (release / "tiles" / quality.DIST_LEDGER).is_file():
         # The data root's tile-quality.json: every tile this verified release ships, history kept.
         quality.publish(published, release, commit)
+    live_retention.after_publish(published, release, previous)

@@ -35,6 +35,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from requests.exceptions import RequestException
 from turku3d import config
+from turku3d.region.cache import synchronized
 
 from . import camera as C
 from .facades import Facade, load_facades
@@ -364,6 +365,7 @@ def select(evals: list[dict], P: SelectParams) -> list[dict]:
     return chosen
 
 
+@synchronized
 def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: SelectParams) -> dict:
     m: PanoMeta = e["meta"]
     if m.source == "google":

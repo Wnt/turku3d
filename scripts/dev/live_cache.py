@@ -71,7 +71,31 @@ def directory(published, stage, key):
     return published / "cache/tool-stages/live" / stage / key
 
 
+def prune(published, stage, keep=3):
+    """Keep the three most recently stored/used keys; serialize with clones and restores."""
+    root = directory(published, stage, "")
+    with s.lock(root / ".retention.lock"):
+        _prune(root, keep)
+
+
+def _prune(root, keep):
+    entries = [p for p in root.iterdir() if p.is_dir() and not p.is_symlink()]
+    complete = sorted(
+        (p for p in entries if (p / "result.json").is_file() and not p.name.endswith(".tmp")),
+        key=lambda p: (p.stat().st_mtime_ns, p.name),
+        reverse=True,
+    )
+    for path in entries:
+        if path not in complete[:keep]:
+            shutil.rmtree(path)
+
+
 def restore(published, work, stage, key):
+    with s.lock(directory(published, stage, "") / ".retention.lock"):
+        return _restore(published, work, stage, key)
+
+
+def _restore(published, work, stage, key):
     source = directory(published, stage, key)
     result = source / "result.json"
     if not result.is_file():
@@ -91,12 +115,20 @@ def restore(published, work, stage, key):
         from live_build import _clone
 
         _clone(source / relative, target)
+    os.utime(source, None)
     return report
 
 
 def store(published, work, stage, key, report):
+    with s.lock(directory(published, stage, "") / ".retention.lock"):
+        _store(published, work, stage, key, report)
+        _prune(directory(published, stage, ""), 3)
+
+
+def _store(published, work, stage, key, report):
     target = directory(published, stage, key)
     if target.exists():
+        os.utime(target, None)
         return
     temp = target.with_name(key + f".{os.getpid()}.tmp")
     temp.parent.mkdir(parents=True, exist_ok=True)

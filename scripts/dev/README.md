@@ -797,4 +797,4 @@ configuration. Environment model/effort overrides also apply to texture and QA r
 Set `TURKU3D_JOBS=3` to bound tooling tests to three workers; the shared resource helper
 controls the default and all worker pools.
 
-For tile-only publication, see [localhost commands](../../tools/dev/localhost/README.md).
+For tile-only publication, see [localhost commands](../../tools/dev/localhost/README.md). Cache and release cleanup: [disk retention](DISK_RETENTION.md).
