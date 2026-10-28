@@ -54,7 +54,7 @@ name = "python-lint"
 kind = "python-lint"
 configs = ["ruff.toml", "*/pyproject.toml", "scripts/dev/gate.toml"]
 triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
-sources = ["tools/validator/*.py", "tools/compare/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
+sources = ["tools/validator/*.py", "tools/compare/*.py", "tools/remote-drafts/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
 
 [[stages]]
 name = "gmaps-compare-unit"
