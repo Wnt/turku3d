@@ -48,12 +48,24 @@ sweep was run to compensate for the failure.
 | Truth-labelled walls assessed | **0 / 20** |
 | Wall/roof colour errors and storey accuracy | **Not measured** |
 
-Neither `$TURKU3D_DATA/research/facade-cv/truth100/` nor the fallback research/labels directory
-was available in the shared data root. The truth-set owner was asked for the current paths and
-parameter records. Missing data must not be counted as a zero-error study. Once supplied,
-select 20 wall IDs, record truth and current parameters, judge aerial visibility (including
+The brief's data-root paths were absent. The truth owner subsequently supplied the actual
+research root, `/Users/wnt/turku3d/research/facade-cv/`. Its `truth100/agreed.json` is empty;
+`truth100/whole/agreed.json` contains six agreed labels, not 100. The corrected collection
+is still being reconstructed. The current parameter file is
+`textures/turkutex/facade_hybrid_parameters.json`.
+
+The allowed fallback `labels/*/descriptions.json` contains **425** rows, of which **278** have
+`source=reference`, a visible wall, wall colour and storeys. Counts by tile are 125, 21, 70,
+62 for t0_0_0, t0_0_1, t0_1_0, t0_1_1 respectively. A deterministic selection of the first
+five sorted eligible facade IDs per tile (**20 walls**) is saved locally at
+`$TURKU3D_WORK/qa/gmaps-compare/study-selection.json`. No aerial observations are filled in.
+The fallback labels do not supply roof-colour ground truth for these walls, so that metric
+also needs an independent reference. Input selection is no longer blocked; aerial capture is.
+
+After 3D capture works, record current parameters, judge aerial visibility (including
 occlusion), and report paired colour error/storey accuracy with explicit usable denominators.
-No aerial-derived parameter, texture, or geometry is shipped by this work.
+Missing observations must not be counted as zero error. No aerial-derived parameter, texture,
+or geometry is shipped by this work.
 
 The sanity-rule owner will leave the mandatory `make gmaps-compare` hook out until this tool
 produces verified comparisons. Add that one-line hook after rebasing the completed tool slice.
