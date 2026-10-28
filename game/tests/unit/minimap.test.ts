@@ -85,3 +85,17 @@ test('a newly available graph retries a missing route while stationary', () => {
   expect(tracker.update({ x: 0, z: 0 }, target, 'car')).toBe(true);
   expect(tracker.route).toHaveLength(2);
 });
+
+
+test('nearby return streets do not make progress jump over an untravelled loop', () => {
+  const points = [{ x: 0, z: 0 }, { x: 100, z: 0 }, { x: 100, z: 20 }, { x: 0, z: 20 }];
+  const distance = (path: WorldPoint[]) => path.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - path[i].x, p.z - path[i].z), 0);
+  const route = vi.fn(() => points);
+  const tracker = new RouteTracker({ route, distance });
+  const target: RouteTarget = { id: 'return', point: points.at(-1)!, label: 'Return', kind: 'dropoff' };
+  tracker.update(points[0], target, 'car');
+  tracker.update({ x: 6, z: 12 }, target, 'car');
+  expect(tracker.route?.[0]).toEqual({ x: 6, z: 0 });
+  expect(tracker.length).toBe(214);
+  expect(route).toHaveBeenCalledTimes(1);
+});
