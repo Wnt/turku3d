@@ -3,6 +3,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { isolateBrowser, port, workRoot } from '../../tools/dev/environment.mjs';
 
@@ -76,6 +77,16 @@ try {
     if (!fs.existsSync(frozen)) fs.writeFileSync(frozen, JSON.stringify({ root: fs.realpathSync(path.join(process.env.TURKU3D_DATA, 'live/tiles')) }));
     fs.symlinkSync(JSON.parse(fs.readFileSync(frozen, 'utf8')).root, fullLink);
   }
+  const evidence = {
+    phase, tiles, baseline, full, performanceOnly,
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    inputs: Object.fromEntries(tiles.map(tile => {
+      const file = full ? path.join(fullLink, 'visual/0', `${tile}.glb`) : path.join(root, tile, 'vis.glb');
+      return [tile, createHash('sha256').update(fs.readFileSync(file)).digest('hex')];
+    })),
+  };
+  const report = path.join(root, `render-${region}.json`);
+  fs.writeFileSync(report, JSON.stringify({ ...evidence, complete: false, errors: [], results: [] }, null, 2));
   fs.writeFileSync(sceneFile, source, { flag: 'wx' });
   fs.writeFileSync(pageFile, '<link rel="icon" href="data:,"><script type="module" src="/__texture-sanity.js"></script>', { flag: 'wx' });
   fs.symlinkSync(root, link);
@@ -95,10 +106,11 @@ try {
     const stats = await page.evaluate(v => window.probe.view(v), { ...view, top });
     await page.screenshot({ path: path.join(root, `${name}.png`) });
     results.push({ ...view, top, stats });
-    fs.writeFileSync(path.join(root, `render-${region}.json`), JSON.stringify({ phase, tiles, errors, results }, null, 2));
+    fs.writeFileSync(report, JSON.stringify({ ...evidence, browser: browser.version(), complete: false, errors, results }, null, 2));
     console.log(name, stats.drawCalls, stats.triangles);
   }
   if (errors.length) throw new Error(JSON.stringify(errors));
+  fs.writeFileSync(report, JSON.stringify({ ...evidence, browser: browser.version(), complete: true, errors, results }, null, 2));
 } finally {
   await browser?.close();
   for (const file of [sceneFile, pageFile, link, snapshot, materialSnapshot, bindingSnapshot, fullLink]) if (fs.existsSync(file)) fs.unlinkSync(file);
