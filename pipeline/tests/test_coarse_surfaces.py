@@ -368,3 +368,14 @@ def test_monumental_fallback_preserves_explicit_material_and_stored_description(
     params = facade_kit.parameters("m", 15, 40, attrs)
     assert params["module"] // 6 == facade_kit.MATERIALS.index("brick")
     assert not params["plinth"]
+
+
+def test_stair_ground_cut_preserves_vertical_bank_faces():
+    from turku3d.coarse.stairs import cut_ground
+    from turku3d.ground.mesh import Mesh
+
+    p = np.array([[0.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 4.0]])
+    mesh = Mesh(p, np.array([[0, 1, 2]], np.uint32), np.array([mat_id("quay")], np.uint8))
+    result = cut_ground(mesh, [shapely.box(-1, 1, 1, 3)])
+    np.testing.assert_array_equal(result.positions[result.indices], p[mesh.indices])
+    np.testing.assert_array_equal(result.material, mesh.material)

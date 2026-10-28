@@ -120,14 +120,22 @@ def cut_ground(mesh, openings):
     if not openings or not len(mesh.indices):
         return mesh
     opening = shapely.union_all(openings)
-    centres = mesh.positions[mesh.indices].mean(axis=1)
+    triangles = mesh.positions[mesh.indices]
+    normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    terrain = np.abs(normal[:, 1]) > 1e-9
+    centres = triangles.mean(axis=1)
     material = mesh.material.copy()
     material[shapely.contains_xy(opening, centres[:, 0], centres[:, 2])] = 255
     p, ix, ids, _ = split_boundaries(
         mesh.positions,
         mesh.indices,
         material,
-        np.ones(len(mesh.indices), bool),
+        terrain,
         [(opening, 255)],
     )
-    return Mesh(p, ix[ids != 255], ids[ids != 255]).compact()
+    # River banks are vertical solid faces; they have no invertible X/Z plane.
+    return Mesh(
+        p,
+        np.concatenate([ix[ids != 255], mesh.indices[~terrain]]),
+        np.concatenate([ids[ids != 255], mesh.material[~terrain]]),
+    ).compact()
