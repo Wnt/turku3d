@@ -10,20 +10,33 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const material = renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial;
   // GLTFLoader exposes custom semantics in lowercase on both renderer backends.
   // Retain v1 support for published tiles until their next rebuild.
-  const layout = p.version === 2 ? attribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1);
-  const origin = p.version === 2 ? attribute('_kit_origin', 'vec2') : vec2(0);
-  const bays = uv().sub(origin).div(layout.yz);
-  const cell = vec2(layout.x.mod(7), layout.x.div(7).floor().mul(2)).add(vec2(0, float(1).sub(step(1, bays.y))));
+  const layout = (p.version ?? 1) >= 2 ? attribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1);
+  const origin = (p.version ?? 1) >= 2 ? attribute('_kit_origin', 'vec2') : vec2(0);
+  const metres = uv().sub(origin);
+  const floors = p.version === 3 ? attribute('_kit_floors', 'vec3') : vec3(layout.z, layout.z, 0);
+  const upper = step(floors.x, metres.y);
+  const bays = vec2(metres.x.div(layout.y), mix(metres.y.div(floors.x), metres.y.sub(floors.x).div(floors.y).add(1), upper));
+  // The entrance module contains one door; use the window module in the other bays.
+  const entrance = layout.x.lessThan(42).and(layout.x.mod(3).equal(1));
+  const otherBay = bays.x.floor().notEqual(floors.z);
+  const module = p.version === 3 ? entrance.and(otherBay).and(upper.lessThan(1)).select(layout.x.sub(1), layout.x) : layout.x;
+  const cell = vec2(module.mod(7), module.div(7).floor().mul(2)).add(vec2(0, float(1).sub(upper)));
   // Four-pixel wrapped gutters isolate modules from neighbouring atlas cells and mip levels.
   const local = vec2(fract(bays.x), float(1).sub(fract(bays.y))).mul(120).add(4);
   const coord = cell.mul(128).add(local).div(vec2(1024, 2048));
-  const albedo = texture(original.map, coord).rgb;
-  const orm = texture(original.roughnessMap, coord);
-  const wall = p.version === 2 ? attribute('_kit_wall', 'vec3') : color(p.wall!);
-  const trim = p.version === 2 ? attribute('_kit_trim', 'vec3') : color(p.trim!);
-  const tint = mix(mix(vec3(1), trim, step(0.25, albedo.r)), wall, step(0.72, albedo.r));
+  // Derive mip footprints before fract: a bay edge is not a jump across the atlas.
+  const continuous = bays.mul(vec2(120 / 1024, -120 / 2048));
+  const dx = continuous.dFdx(), dy = continuous.dFdy();
+  const sample = texture(original.map, coord).grad(dx, dy);
+  const albedo = sample.rgb;
+  const orm = texture(original.roughnessMap, coord).grad(dx, dy);
+  const wall = (p.version ?? 1) >= 2 ? attribute('_kit_wall', 'vec3') : color(p.wall!);
+  const trim = (p.version ?? 1) >= 2 ? attribute('_kit_trim', 'vec3') : color(p.trim!);
+  const tint = p.version === 3
+    ? vec3(1).add(wall.sub(1).mul(float(1).sub(sample.a.mul(2)).clamp(0, 1))).add(trim.sub(1).mul(sample.a.mul(2).sub(1).clamp(0, 1)))
+    : mix(mix(vec3(1), trim, step(0.25, albedo.r)), wall, step(0.72, albedo.r));
   material.colorNode = albedo.mul(tint);
-  material.normalNode = normalMap(texture(original.normalMap, coord).xyz, vec2(0.65));
+  material.normalNode = normalMap(texture(original.normalMap, coord).grad(dx, dy).xyz, vec2(0.65));
   material.roughnessNode = orm.g;
   material.metalnessNode = orm.b;
   material.aoNode = orm.r;

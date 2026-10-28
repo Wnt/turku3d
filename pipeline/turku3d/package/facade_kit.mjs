@@ -34,6 +34,8 @@ export function bindFacadeKit(doc, request, material, prim, e, texture) {
     wall: ['#d4d1c9', '#b8b5ae', '#cfc8b8', '#d8bf7a', '#c99a86'][hash % 5], trim:'#e4ddd0',
     bay: width / Math.max(1, Math.round(width / 3)), storey: height / Math.max(1, Math.round(height / 3.2)),
   };
+  // Blank modules still represent three metres of cladding, never the whole wall.
+  if (p.module >= 42) p.bay = 3;
   // Keep TEXCOORD_0 in metres. Each primitive owns its kit attributes before batching.
   const buffer = pos.getBuffer();
   const attribute = (semantic, type, values) => {
@@ -49,7 +51,14 @@ export function bindFacadeKit(doc, request, material, prim, e, texture) {
   attribute('_KIT_WALL', 'VEC3', linear(p.wall));
   attribute('_KIT_TRIM', 'VEC3', linear(p.trim));
   attribute('_KIT_ORIGIN', 'VEC2', [u0, v0]);
-  material.setName(`facade-kit:${e.layer}`).setExtras({ material_key:'facade_kit', facade_kit: { version: 2 } })
+  const version = request.facadeKit.version ?? 2;
+  if (version >= 3) {
+    const floors = Math.max(1, Math.round(height / p.storey));
+    const ground = p.ground ?? (floors > 1 && p.module < 42 && p.module % 3 === 2 ? Math.min(Math.max(p.storey * 1.25, 2.8), 5, height * .6) : p.storey);
+    const upper = p.upper ?? (floors > 1 ? (height - ground) / (floors - 1) : ground);
+    attribute('_KIT_FLOORS', 'VEC3', [ground, upper, Math.floor(width / p.bay / 2)]);
+  }
+  material.setName(`facade-kit:${e.layer}`).setExtras({ material_key:'facade_kit', facade_kit: { version } })
     .setBaseColorFactor([1, 1, 1, 1]).setMetallicFactor(1).setRoughnessFactor(1);
   const maps = request.facadeKit.maps;
   material.setBaseColorTexture(texture(maps.albedo, true, 'albedo'));

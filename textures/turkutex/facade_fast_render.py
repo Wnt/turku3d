@@ -165,7 +165,25 @@ def register_description(
     )
     palette = PALETTES.get(key, PALETTES[("render", "1960+")])
     colour = palette[stable_index(building_id, len(palette))]
-    if HEX.match(str(attributes.get("wall_colour", ""))):
+    # Named paint is a family, not a measured screen primary. Resolve ochre through
+    # the same material/era palettes as untagged buildings. Explicit hex has no name.
+    if attributes.get("wall_colour_name") == "yellow" and cls in (
+        "render",
+        "concrete",
+        "stone",
+        "wood",
+        "brick",
+    ):
+        colour = (
+            PALETTES[("wood", "old")][2]
+            if cls == "wood"
+            else PALETTES[("brick", "any")][3]
+            if cls == "brick"
+            else PALETTES[("render", "old")][1]
+            if old
+            else PALETTES[("render", "1920-1959")][2]
+        )
+    elif HEX.match(str(attributes.get("wall_colour", ""))):
         colour = attributes["wall_colour"]
     levels = attributes.get("levels") or max(1, round(height_m / DEFAULT_STOREY_M))
     bay = 2.6 if old or cls == "wood" else 3.0
