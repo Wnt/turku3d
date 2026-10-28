@@ -97,7 +97,14 @@ def run(args):
                 if r["engine"] == "hybrid" and r["state"] == "upgraded"
             }
             calls = sum(r.get("calls") or 0 for r in events if r["engine"] == "astra")
-            if len(hybrid) >= args.buildings and calls >= args.astra_calls:
+            astra_upgraded = sum(
+                r["engine"] == "astra" and r["state"] == "upgraded" for r in events
+            )
+            if (
+                len(hybrid) >= args.buildings
+                and calls >= args.astra_calls
+                and astra_upgraded >= args.astra_calls
+            ):
                 break
             time.sleep(1)
     finally:
@@ -116,6 +123,7 @@ def run(args):
         observation_seconds=round(elapsed, 3),
         actual_hybrid_buildings_per_minute=60 * len(hybrid) / elapsed,
         actual_astra_calls=calls,
+        astra_upgrades=sum(r["engine"] == "astra" and r["state"] == "upgraded" for r in events),
         actual_calls_last_hour=sum(
             r.get("calls") or 0
             for r in events
@@ -128,7 +136,11 @@ def run(args):
     )
     (args.output / "aggregate.json").write_text(json.dumps(result, indent=2))
     print(json.dumps(result), flush=True)
-    if len(hybrid) < args.buildings or result["actual_astra_calls"] < args.astra_calls:
+    if (
+        len(hybrid) < args.buildings
+        or result["actual_astra_calls"] < args.astra_calls
+        or result["astra_upgrades"] < args.astra_calls
+    ):
         raise TimeoutError("queue did not complete its requested hybrid/Astra observation")
 
 

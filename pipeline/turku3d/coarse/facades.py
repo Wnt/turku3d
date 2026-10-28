@@ -320,6 +320,30 @@ class DescribeQueue:
         return min(choices) if choices else None
 
     def _describe(self, inventory, key, engine, prechecked_usage=None):
+        if engine == "astra":
+            self.root.mkdir(parents=True, exist_ok=True)
+            with (self.root / ".facade-astra.log").open("a") as log:
+                done = subprocess.run(
+                    [
+                        str(C.REPO_ROOT / ".venv/bin/python"),
+                        "-m",
+                        "turku3d.coarse.facades",
+                        "--once",
+                        str(inventory),
+                        key,
+                        str(self.root / ".facade-upgrades"),
+                        engine,
+                        str(prechecked_usage),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=log,
+                    text=True,
+                    timeout=900,
+                    start_new_session=True,
+                )
+            if done.returncode:
+                raise RuntimeError(f"Astra facade worker exited {done.returncode}")
+            return json.loads(done.stdout)
         with self.lock:
             if self.closed.is_set():
                 return dict(state="stopped")
@@ -387,7 +411,7 @@ class DescribeQueue:
                     self.builder.request(tile, 0)
                 elif result["state"] == "quota-paused":
                     self.next_astra = time.time() + 300
-            except (OSError, ValueError, TimeoutError) as exc:
+            except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
                 self.stop_child()
                 result = dict(state="failed", error=str(exc)[-500:], calls=None)
                 self._record(started, key, engine, result)
@@ -442,6 +466,18 @@ def worker():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--worker"]:
         worker()
+    elif sys.argv[1:2] == ["--once"]:
+        import contextlib
+
+        with contextlib.redirect_stdout(sys.stderr):
+            result = upgrade(
+                Path(sys.argv[2]),
+                sys.argv[3],
+                Path(sys.argv[4]),
+                sys.argv[5],
+                int(sys.argv[6]),
+            )
+        print(json.dumps(result))
     else:
         os.nice(15)
         print(
