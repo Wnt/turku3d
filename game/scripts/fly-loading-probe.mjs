@@ -1,6 +1,6 @@
 // Manual real-data measurement, outside the gate; run with host_slots.py browser.
 import { chromium } from '@playwright/test';
-import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
+import { chromeArgs, chromeExecutable, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 import { isolateBrowser, reportsRoot, port } from '../../tools/dev/environment.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,9 +9,9 @@ isolateBrowser();
 const [label = 'before', base = `http://127.0.0.1:${port()}/`, action = 'startup', gameRoot] = process.argv.slice(2);
 const out = path.join(reportsRoot, 'fly-fallthrough', label);
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ executablePath: path.join(os.homedir(), 'turku3d/browsers/156.0.8078.73/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
+const browser = await chromium.launch({ executablePath: chromeExecutable(),
   ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true,
-  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--use-mock-keychain', '--password-store=basic']) });
+  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, serviceWorkers: gameRoot ? 'block' : 'allow' });
   // Compare a local production bundle against the actual Pages origin and its unchanged hosted tiles.
@@ -128,5 +128,8 @@ try {
     await sample('drove');
     await page.screenshot({ path: path.join(out, 'drove.png') });
     fs.writeFileSync(path.join(out, 'flight.json'), JSON.stringify(samples, null, 2));
+    if (!label.startsWith('before') && samples.some(s => s.state.feet[1] < -20 || s.state.vehicle?.pos[1] < -20)) {
+      throw new Error('Actor fell below the real route; see flight.json');
+    }
   }
 } finally { await browser.close(); }
