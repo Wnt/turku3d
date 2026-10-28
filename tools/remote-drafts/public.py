@@ -55,6 +55,7 @@ def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
 
 def public_handler(builder, prefetcher, settings):
     base = handler(builder, prefetcher)
+    instance = os.urandom(8).hex()
 
     class PublicHandler(base):
         server_version = "TurkuDrafts"
@@ -127,7 +128,7 @@ def public_handler(builder, prefetcher, settings):
                     return self._json(200, {"version": builder.version, "queued": len(builder.priority),
                                             "building": sorted(builder.building)})
             if route == "health":
-                return self._json(200, {"state": "online"})
+                return self._json(200, {"state": "online", "instance": instance})
             if route == "invalid":
                 return self._json(404, {"error": "route"})
             name = urlparse(self.path).path.removeprefix("/coarse/").split("/", 1)[1]

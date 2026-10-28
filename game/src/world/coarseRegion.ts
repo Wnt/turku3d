@@ -76,13 +76,59 @@ export function startupDraftTiles(points: readonly { x: number; z: number }[], r
 }
 
 /** Anonymous demand order: swept crossings, visible neighbours, then the background ring. */
-export function draftDemand(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number) {
+export function draftDemand(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number, path?: readonly string[]) {
+  const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
   const ordered = [...new Set([...visible, ...ahead])].sort((a, b) => {
+    if (a === here || b === here) return a === here ? -1 : 1;
+    if (path) {
+      const aa = path.indexOf(a), bb = path.indexOf(b);
+      if (aa >= 0 || bb >= 0) return (aa < 0 ? Infinity : aa) - (bb < 0 ? Infinity : bb);
+    }
     const aa = arrivalToL0(a, x, z, vx, vz), bb = arrivalToL0(b, x, z, vx, vz);
     return aa - bb || Number(visible.includes(b)) - Number(visible.includes(a))
       || distToL0(a, x, z) - distToL0(b, x, z) || a.localeCompare(b);
   }).slice(0, 128);
-  const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
-  const urgent = ordered.filter(id => id === here || Number.isFinite(arrivalToL0(id, x, z, vx, vz)));
+  const urgent = ordered.filter(id => id === here || (path ? path.includes(id) : Number.isFinite(arrivalToL0(id, x, z, vx, vz))));
   return { tiles: ordered, urgent, visible: ordered.filter(id => visible.includes(id)) };
+}
+
+/** Remaining route corridor within 30 s; ignores stale/off-route hints and never sends the polyline. */
+export function routeAheadTiles(points: readonly { x: number; z: number }[], x: number, z: number, speed: number) {
+  if (speed < 1 || points.length < 2) return null;
+  let nearest = Infinity, index = 0, fraction = 0;
+  for (let k = 0; k + 1 < points.length; k++) {
+    const a = points[k], b = points[k + 1], dx = b.x - a.x, dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+    const distance = Math.hypot(a.x + t * dx - x, a.z + t * dz - z);
+    if (distance < nearest) { nearest = distance; index = k; fraction = t; }
+  }
+  if (nearest > 80) return null;
+  let left = speed * PREFETCH_SECONDS;
+  let a = { x: points[index].x + fraction * (points[index + 1].x - points[index].x),
+    z: points[index].z + fraction * (points[index + 1].z - points[index].z) };
+  const path = new Set<string>();
+  for (let k = index + 1; k < points.length && left > 0; k++) {
+    const end = points[k], length = Math.hypot(end.x - a.x, end.z - a.z);
+    const portion = Math.min(1, left / (length || 1));
+    const b = { x: a.x + portion * (end.x - a.x), z: a.z + portion * (end.z - a.z) };
+    const cuts = [0, 1];
+    for (const axis of ['x', 'z'] as const) {
+      const delta = b[axis] - a[axis];
+      if (Math.abs(delta) < 1e-9) continue;
+      for (let edge = (Math.floor(Math.min(a[axis], b[axis]) / VISUAL_L0) + 1) * VISUAL_L0;
+        edge < Math.max(a[axis], b[axis]); edge += VISUAL_L0) cuts.push((edge - a[axis]) / delta);
+    }
+    cuts.sort((aa, bb) => aa - bb);
+    for (let c = 0; c + 1 < cuts.length; c++) {
+      const t = (cuts[c] + cuts[c + 1]) / 2;
+      path.add(l0(Math.floor((a.x + t * (b.x - a.x)) / VISUAL_L0), Math.floor((a.z + t * (b.z - a.z)) / VISUAL_L0)));
+    }
+    left -= length * portion; a = b;
+  }
+  const tiles = new Set<string>();
+  for (const id of path) {
+    const tile = parse(id)!;
+    for (let i = tile.i - 1; i <= tile.i + 1; i++) for (let j = tile.j - 1; j <= tile.j + 1; j++) tiles.add(l0(i, j));
+  }
+  return path.size ? { tiles: [...tiles], urgent: [...path] } : null;
 }

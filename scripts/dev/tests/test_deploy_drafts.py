@@ -1,5 +1,6 @@
 """A standby serves cached textures before a graceful proxy switch stops the old writer."""
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,8 @@ class DeploymentTests(unittest.TestCase):
                     return '7765'
                 if 'ACTIVE_UNIT' in command and command.startswith('cat '):
                     return 'turku-drafts'
+                if "standby draft producer did not become ready" in command:
+                    return 'standby-instance'
                 if 'date -u' in command:
                     return '2026-10-28T19:31:08Z'
                 return ''
@@ -44,6 +47,7 @@ class DeploymentTests(unittest.TestCase):
             self.assertLess(health, switch)
             self.assertLess(switch, confirm)
             self.assertLess(confirm, stop)
+            self.assertIn("json.load(r).get('instance') == 'standby-instance'", shlex.split(calls[confirm])[2])
             self.assertIn('TURKU3D_DRAFT_STANDBY=1', calls[start])
             self.assertIn('TURKU3D_DRAFT_STANDBY=0', calls[stop])
             self.assertIn('--signal=USR1 turku-drafts-slot@7766', calls[stop])
