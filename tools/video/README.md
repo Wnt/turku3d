@@ -1,7 +1,7 @@
 # Turku3D pipeline video
 
 The second cut is a 1920×1080, 30 fps explainer with moving game footage throughout,
-28 unique camera paths, physics-driven car shots, compact source overlays, and local
+29 distinct shots, physics-driven car shots, compact source overlays, and local
 Kokoro `bf_emma` narration. The first cut remains available in Git history at `bff2d9e3`.
 Final files are outside the repository in `~/turku3d/media/pipeline-video/`.
 
@@ -83,12 +83,18 @@ restricted to this task's sandbox. Capture rejects requests to every origin exce
 its own dist port. `capture.mjs probe <shot,shot>` and `capture.mjs capture <shot,shot>`
 allow selective framing and capture. Per-shot JSON records renderer, camera poses,
 vehicle states and page errors. No shot is reused, and no final-frame hold is added.
+The office marker is projected through the actual game camera. The draft/core
+comparison uses contiguous halves of the same camera spline with different tile
+inputs, and is explicitly labelled as matched captures rather than a live swap.
 
 `compose.py render --scene <id,id>` re-encodes selected scenes; `compose.py finish`
 remixes and rebuilds the final files. Titles fade after four seconds. Source panels
 leave most of the moving game frame visible. The original Harbour Glass track is
 rendered offline by the game's music engine, normalized quietly and sidechain-ducked
 under narration; the final mix is normalized around −14 LUFS with a −1.5 dBTP target.
+Subtitles follow Kokoro's synthesized token durations and prefer phrase boundaries.
+The city name has an explicit Finnish phoneme override; the full street address
+remains on screen while narration describes its riverbank location in English.
 
 ## Review and delivery
 
@@ -101,7 +107,9 @@ scripts/dev/gate --fast --base main
 ```
 
 `review.py` checks delivery codecs, subtitles, black frames, silence, loudness and
-motion, and creates contact sheets every two seconds. Independent accuracy,
+motion, and creates `v2-contact-*.jpg` sheets every two seconds. It records the
+exact input path and SHA-256 and rejects a duration mismatch with the timeline.
+Independent accuracy,
 picture/editing, sound/narration and audience reviewers must inspect the full cut,
 the transcript and the evidence. Default to not ready when unsure, fix major issues,
 and repeat until all pass or four rounds. A frame/transcript and ASR review cannot

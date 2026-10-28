@@ -63,7 +63,8 @@ try {
   if(mode==='capture')encoder=spawn('ffmpeg',['-v','error','-y','-f','image2pipe','-vcodec','mjpeg','-r','30','-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf','17','-pix_fmt','yuv420p','-profile:v','high','-threads','3',path.join(root,'shots',`${shot.id}.mp4`)],{stdio:['pipe','inherit','inherit']});
   const motion=[];
   for(let f=0;f<frames;f++) {
-   const u=f/(frames-1);
+   const range=shot.range??[0,1];
+   const u=range[0]+f/(frames-1)*(range[1]-range[0]);
    const state=await page.evaluate(async ({u,drive,probe})=>{
     let pose=window.__pose(u),state=null;
     if(drive){
@@ -78,6 +79,17 @@ try {
     return {pose,vehicle:state};
    },{u,drive:!!shot.drive,probe:mode==='probe'});
    await page.waitForFunction(()=>window.__videoDone,null,{polling:'raf'});
+   if(shot.marker)await page.evaluate(marker=>{
+    // Project the surveyed office point through the actual game camera.
+    const camera=window.__render.camera;
+    const mul=(m,v)=>[0,1,2,3].map(r=>v.reduce((s,x,c)=>s+m[c*4+r]*x,0));
+    const q=mul(camera.projectionMatrix.elements,mul(camera.matrixWorldInverse.elements,[...marker.point,1]));
+    let el=document.getElementById('video-survey-marker');
+    if(!el){el=document.createElement('div');el.id='video-survey-marker';document.body.append(el);}
+    el.style.cssText=`position:fixed;left:${(q[0]/q[3]+1)*960-24}px;top:${(1-q[1]/q[3])*540-24}px;width:48px;height:48px;border:4px solid #75e7cf;border-radius:50%;z-index:9999;pointer-events:none`;
+    el.textContent='';const label=document.createElement('span');label.textContent=marker.label;
+    label.style.cssText='position:absolute;left:58px;top:3px;padding:7px 12px;background:#061019e8;color:#75e7cf;font:bold 23px Arial;white-space:nowrap';el.append(label);
+   },shot.marker);
    if(f%30===0||mode==='probe')motion.push({frame:f,...state});
    if(mode==='probe')await page.screenshot({path:path.join(root,'shots',`${shot.id}-probe-${f}.png`)});
    else {

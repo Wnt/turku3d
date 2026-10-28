@@ -1,4 +1,5 @@
 """Repeatable local checks and 2-second contact sheets for independent reviewers."""
+import hashlib
 import json
 import os
 import re
@@ -7,7 +8,7 @@ from pathlib import Path
 
 root=Path(os.environ['TURKU3D_WORK'])/'video/review'
 root.mkdir(exist_ok=True)
-final=Path.home()/'turku3d/media/pipeline-video/turku3d-pipeline.mp4'
+final=Path.home()/'turku3d/media/pipeline-video/turku3d-pipeline-v2.mp4'
 if not final.exists():raise SystemExit(f'Missing {final}')
 
 def run(command,**kwargs):return subprocess.run(command,check=True,**kwargs)
@@ -19,9 +20,20 @@ assert (video['width'],video['height'])==(1920,1080)
 assert video['codec_name']=='h264' and video['profile']=='High'
 assert audio['codec_name']=='aac' and audio['sample_rate']=='48000'
 assert 180<=float(probe['format']['duration'])<=300
+timeline=json.loads((root.parent/'timeline.json').read_text())
+assert abs(sum(s['duration'] for s in timeline)-float(probe['format']['duration'])) < 1/30, 'Export does not match the current timeline'
+identity={'path':str(final),'sha256':hashlib.file_digest(final.open('rb'),'sha256').hexdigest()}
+(root/'review-input.json').write_text(json.dumps(identity,indent=2)+'\n')
+preview=final.with_name('turku3d-pipeline-v2-preview-720p.mp4')
+preview_info=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(preview)]))
+pv=next(s for s in preview_info['streams'] if s['codec_type']=='video')
+assert (pv['width'],pv['height'])==(1280,720)
+assert preview.stat().st_size<25_000_000
+assert abs(float(preview_info['format']['duration'])-float(probe['format']['duration']))<1/30
 
 # Exhaustive 2-second sampling; four or five 6x6 sheets, without raw captures in repo.
-run(['ffmpeg','-v','error','-y','-i',str(final),'-vf','fps=1/2,scale=320:180,tile=6x6:nb_frames=36:margin=2:padding=2','-fps_mode','vfr',str(root/'contact-%02d.jpg')])
+for stale in root.glob('*contact-*.jpg'):stale.unlink()
+run(['ffmpeg','-v','error','-y','-i',str(final),'-vf','fps=1/2,scale=320:180,tile=6x6:nb_frames=36:margin=2:padding=2','-fps_mode','vfr',str(root/'v2-contact-%02d.jpg')])
 # Detect wholly black samples, clipping and silence quantitatively; visual/audio reviewers adjudicate.
 metrics=run(['ffmpeg','-hide_banner','-i',str(final),'-af','ebur128=peak=true','-f','null','-'],capture_output=True,text=True).stderr
 (root/'ebur128.txt').write_text(metrics)
@@ -36,16 +48,16 @@ def seconds(t):
 intervals=[tuple(map(seconds,p)) for p in re.findall(r'(\d\d:\d\d:\d\d,\d\d\d) --> (\d\d:\d\d:\d\d,\d\d\d)',srt)]
 assert intervals and all(0<=a<b<=float(probe['format']['duration'])+0.1 for a,b in intervals)
 assert all(intervals[i][1]<=intervals[i+1][0]+0.01 for i in range(len(intervals)-1))
-summary={'duration_s':float(probe['format']['duration']),'size_bytes':final.stat().st_size,
+summary={**identity,'duration_s':float(probe['format']['duration']),'size_bytes':final.stat().st_size,
+    'preview_size_bytes':preview.stat().st_size,
     'video':{k:video[k] for k in ('codec_name','profile','width','height','r_frame_rate')},
     'audio':{k:audio[k] for k in ('codec_name','sample_rate')},'subtitle_intervals':len(intervals),
-    'contact_sheets':len(list(root.glob('contact-*.jpg'))),
+    'contact_sheets':len(list(root.glob('v2-contact-*.jpg'))),
     'black_segments':len([x for x in (root/'blackdetect.txt').read_text().splitlines() if 'black_start' in x])}
 (root/'technical.json').write_text(json.dumps(summary,indent=2))
 print(json.dumps(summary,indent=2))
 
 # Verify the edit's footage inventory and actual camera movement, not only its labels.
-timeline=json.loads((root.parent/'timeline.json').read_text())
 shot_ids=[shot for scene in timeline for shot in scene['shots']]
 assert len(shot_ids)==len(set(shot_ids)), 'A captured shot was reused'
 shots=[]
@@ -64,6 +76,7 @@ motion=run(['ffmpeg','-hide_banner','-i',str(final),'-vf','freezedetect=n=-50dB:
 (root/'freezedetect.txt').write_text('\n'.join(x for x in motion.splitlines() if 'freeze_' in x)+'\n')
 (root/'footage.json').write_text(json.dumps({'moving_game_seconds':sum(s['duration'] for s in timeline),
     'runtime_seconds':float(probe['format']['duration']),'unique_shots':len(shot_ids),'shots':shots,
+    'game_seconds_excluding_source_panel_scenes':sum(s['duration'] for s in timeline if not s.get('asset')),
     'max_source_panel_fraction':1080*495/(1920*1080),'reused_shots':0},indent=2)+'\n')
 print(f'{len(shot_ids)} unique moving game shots; no repeated shots; freeze audit saved')
 

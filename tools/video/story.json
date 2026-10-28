@@ -16,12 +16,12 @@
   },
   {
     "id": "goal",
-    "title": "Two speeds of city building",
+    "title": "Läntinen Rantakatu 15: the starting point",
     "label": "DETAILED CORE + PROCEDURAL DRAFTS",
     "shots": [
       "pullback"
     ],
-    "text": "The goal is a Grand Theft Auto style city, starting around Läntinen Rantakatu fifteen. Three dot J S draws it through Web G P U. Rapier handles physics in a worker.",
+    "text": "The goal is a Grand Theft Auto style city, starting at number fifteen, on the western riverbank. Three dot J S draws it through Web G P U. Rapier handles physics in a worker.",
     "sources": [
       "docs/ARCHITECTURE.md",
       "game/package.json"
@@ -48,7 +48,7 @@
       "street_track"
     ],
     "asset": "relief",
-    "text": "Those ground samples become a surface. Cross sections help locate changes beside mapped street edges. Curbs and stairs need geometry and validation: a painted line cannot tell the physics engine where a step belongs.",
+    "text": "Ground returns become a surface. This measured cross section reveals changes in height. Turning curbs and stairs into reliable collision geometry still requires validation.",
     "sources": [
       "pipeline/turku3d/ground/README.md",
       "docs/ARCHITECTURE.md"
@@ -62,7 +62,7 @@
       "ortho_top"
     ],
     "asset": "ortho",
-    "text": "The twenty twenty two true orthophoto supplies ground colour. Here, the source image and the rendered office block share the same location. The image anchors the terrain to the real city.",
+    "text": "The city’s twenty twenty two aerial photograph supplies ground colour. The source image and game show the same office block. The image anchors the terrain to the real city.",
     "sources": [
       "docs/ARCHITECTURE.md",
       "game/src/render/ground/README.md"
@@ -76,7 +76,7 @@
       "roof_orbit"
     ],
     "asset": "lod2",
-    "text": "City building models supply roof shapes. The detailed pipeline compares shells and reconstructed roofs against lidar. Building records give them persistent identities. Where evidence is insufficient, an explicit footprint extrusion provides a simpler fallback.",
+    "text": "City models supply roof shapes. Lidar checks the reconstructed geometry. Building records provide persistent identities; footprint extrusions fill gaps in the evidence.",
     "sources": [
       "pipeline/turku3d/buildings/README.md",
       "docs/reports/buildings.md"
@@ -104,7 +104,7 @@
       "drive_core",
       "quay_track"
     ],
-    "text": "The detailed blocks combine separate ground, structure, and building layers. Visual meshes describe what you see. Collision meshes describe what stops you. Both come from the source data, with accuracy checked independently.",
+    "text": "The detailed blocks combine separate ground, structure, and building layers. Visual meshes describe what you see. Collision meshes describe what stops you. Both use the source data, with separate checks for mesh integrity and collision behaviour.",
     "sources": [
       "docs/briefs/COMMON.md",
       "pipeline/turku3d/package/README.md"
@@ -126,7 +126,7 @@
   {
     "id": "parameters",
     "title": "Local reference → parameters → facade",
-    "label": "FAST PARAMETRIC PASS",
+    "label": "GENERATED FACADE / FAST PROCEDURAL EXAMPLE INSET",
     "shots": [
       "facade_close"
     ],
@@ -215,12 +215,13 @@
   },
   {
     "id": "swap",
-    "title": "Keep the world visible",
-    "label": "LOAD → REPLACE",
+    "title": "The same bridge, at two levels of detail",
+    "label": "MATCHED VIEWS / DRAFT → PUBLISHED CORE",
     "shots": [
+      "swap_draft",
       "river_sweep"
     ],
-    "text": "A ready replacement can swap into the running game while the current world stays visible during loading. Published detailed tiles replace drafts. Local development releases can update the scene without restarting the session.",
+    "text": "Here is the same bridge area as a procedural draft, then as the published core. The running game keeps current tiles visible until replacements are ready.",
     "sources": [
       "game/src/world/coarseTiles.ts",
       "game/src/world/releaseSwap.ts",
@@ -234,7 +235,7 @@
     "shots": [
       "sunset_street"
     ],
-    "text": "Behind the scenes, Codex tasks work in isolated sandboxes. Small commits pass the fast gate and land on main. The integrator builds and publishes; deeper browser and visual checks then report advisory failures.",
+    "text": "Small sandbox commits pass the fast gate. The integrator builds and publishes them, then deeper checks report failures.",
     "sources": [
       "scripts/dev/README.md"
     ]
@@ -246,7 +247,7 @@
     "shots": [
       "closing_pullback"
     ],
-    "text": "Measure the city. Build its structure. Add character. Then stream and refine it. A detailed core and a faster outer world, meeting in one browser. Turku three D is still taking shape.",
+    "text": "Measured structure. Generated character. A detailed core, and a faster outer world. Turku three D is still taking shape.",
     "sources": [
       "docs/ARCHITECTURE.md"
     ]
@@ -258,7 +259,7 @@
     "shots": [
       "blue_hour"
     ],
-    "text": "City data, copyright City of Turku, Creative Commons Attribution four point zero. Map data, copyright OpenStreetMap contributors, under the Open Database License. Voice, Kokoro. Music, Turku three D.",
+    "text": "Built from open city data, with local voice and music. Sources and licences are on screen.",
     "sources": [
       "docs/research/turku-data.md",
       "audio/voice/README.md",

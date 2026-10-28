@@ -65,16 +65,43 @@ def timeline():
                 display = display.replace(spoken, caption)
             words = display.split()
             parts = max(1, math.ceil(len(display)/76))
-            cuts = [round(len(words)*i/parts) for i in range(parts+1)]
+            cuts=[0]
+            weak={'a','an','the','and','from','to','of','as','their','its','through','at','in','for','with','Auto'}
+            for j in range(1,parts):
+                target=len(display)*j/parts
+                candidates=range(cuts[-1]+1,len(words)-(parts-j)+1)
+                def score(k):
+                    balance=abs(len(' '.join(words[:k]))-target)
+                    penalty=28 if words[k-1] in weak else 0
+                    penalty+=25 if words[k] in {'style','J','S'} else 0
+                    return balance+penalty-(8 if words[k-1].endswith((',',';')) else 0)
+                cuts.append(min(candidates,key=score))
+            cuts.append(len(words))
             for j in range(parts):
                 cue = ' '.join(words[cuts[j]:cuts[j+1]])
-                start = a + (b-a)*cuts[j]/len(words)
-                end = a + (b-a)*cuts[j+1]/len(words)
+                # Align caption boundaries to the model's synthesized token durations.
+                # Caption spelling can differ (e.g. "three point four" → "3.4").
+                import difflib
+                norm=lambda value:re.sub(r'[^a-z0-9]','',value.lower())
+                source=[norm(t['text']) for t in row['tokens']]
+                target=[norm(t) for t in words]
+                anchors={}
+                for match in difflib.SequenceMatcher(None,target,source,autojunk=False).get_matching_blocks():
+                    for k in range(match.size):anchors[match.a+k]=row['tokens'][match.b+k]
+                for lo,hi in zip([-1,*sorted(anchors)],[*sorted(anchors),len(words)]):
+                    if hi-lo<=1:continue
+                    left=anchors[lo]['end'] if lo>=0 else 0
+                    right=anchors[hi]['start'] if hi<len(words) else b-a
+                    for k in range(lo+1,hi):
+                        anchors[k]={'start':left+(right-left)*(k-lo-1)/(hi-lo-1),
+                                    'end':left+(right-left)*(k-lo)/(hi-lo-1)}
+                start = a + anchors[cuts[j]]['start']
+                end = min(b,a+anchors[cuts[j+1]-1]['end'])
                 cues.append(f'{len(cues)+1}\n{stamp(start)} --> {stamp(end)}\n{textwrap.fill(cue,43)}\n')
             samples.append(data)
             if i < len(seq)-1:
                 samples.append(np.zeros(2400))
-        samples.append(np.zeros(4800))
+        samples.append(np.zeros(48000 if scene['id']=='credits' else 4800))
         data = np.concatenate(samples)
         # Equal shot lengths in integer frames, with no repeated shot or last-frame hold.
         frames = math.ceil(len(data)/800/len(scene['shots']))*len(scene['shots'])
@@ -123,7 +150,7 @@ def overlay(scene, kind):
             if asset == 'parameters':
                 desc=json.loads((ROOT/'assets/parameters.json').read_text())['description']
                 d.rounded_rectangle((x,y,x+1080,y+495),18,fill=(6,16,25,235))
-                text(d,(x+26,y+24),'LOCAL DESCRIPTION  →  PROCEDURAL ALBEDO',25,TEAL,True)
+                text(d,(x+26,y+24),'FAST PROCEDURAL EXAMPLE / PARAMETERS → ALBEDO',25,TEAL,True)
                 lines=['{',f'  material: {desc["material"]}',f'  wall_colour: {desc["wall_colour"]}',
                        f'  ground_floor: {desc["ground_floor"]}','}']
                 for i,line in enumerate(lines):text(d,(x+27,y+100+i*48),line,26)
@@ -134,6 +161,14 @@ def overlay(scene, kind):
                 text(d,(x+26,y+436),'Actual local render / layout fitted to wall dimensions / no reference pixels',25,TEAL)
             else:
                 source=Image.open(ROOT/'assets'/f'{asset}.png').convert('RGBA')
+                if asset == 'ortho':
+                    # EPSG:3877 office point, using the exact source crop bounds.
+                    sd=ImageDraw.Draw(source)
+                    mx=(23459668-23459500)/330*source.width
+                    my=(6704430-6704254)/330*source.height
+                    sd.ellipse((mx-38,my-38,mx+38,my+38),outline=TEAL,width=12)
+                    sd.rectangle((mx+48,my-25,mx+298,my+38),fill='#061019')
+                    sd.text((mx+56,my-20),'OFFICE / 15',font=font(36,True),fill=TEAL)
                 if asset in ('lidar','lod2'):
                     rgb=np.asarray(source.convert('RGB')).astype(int)
                     mask=np.max(np.abs(rgb-np.array([12,23,37])),axis=2)>40
@@ -161,7 +196,7 @@ def overlay(scene, kind):
                 'package':['VISUAL TILE: 250 m     WIRE BUDGET: 8 MB'],
                 'prefetch':['500 m ring  +  forward cone up to 1.5 km','Request geometry shown schematically; this is a camera capture'],
                 'timings':['Westbound: 3.4 s mean build','Southeast: missing downloads delayed tiles · recorded 27 Oct 2026'],
-                'swap':['CURRENT WORLD  →  LOAD REPLACEMENT  →  SWAP'],
+                'swap':['MATCHED CAPTURES / COMPARISON, NOT A LIVE SWAP'],
                 'tools':['SANDBOX  →  FAST GATE  →  MAIN  →  BUILD & PUBLISH'],
                 'credits':['City data © City of Turku · CC BY 4.0','Map data © OpenStreetMap contributors · ODbL',
                            'Local voice: Kokoro bf_emma · Music: Turku3D / Harbour Glass']}
@@ -180,6 +215,9 @@ def overlay(scene, kind):
                 d.polygon([(cx+13,cy-16),(cx-12,cy-2),(cx+2,cy+12)],fill=WHITE)
                 text(d,(1395,650),'500 m ring · cone grows with speed',23)
 
+    elif kind in ['phaseA','phaseB']:
+        d.rounded_rectangle((1220,250,1865,336),16,fill=(6,16,25,235))
+        text(d,(1245,277),'PROCEDURAL DRAFT' if kind=='phaseA' else 'PUBLISHED DETAILED CORE',30,TEAL,True)
     target=ROOT/'edit'/f"{scene['id']}-{kind}.png"
     im.save(target)
     return target
@@ -198,11 +236,16 @@ def render_scene(scene):
     filters.append(''.join(f'[v{i}]' for i in range(count))+f'concat=n={count}:v=1:a=0,eq=contrast=1.045:saturation=1.055:brightness=-0.008[base]')
     for kind in ['title','credit','data']:
         inputs += ['-loop','1','-i',str(overlay(scene,kind))]
+    panel_end=min(7.0,scene['duration']-0.5) if scene.get('asset')=='parameters' else scene['duration']-0.5
     filters += [f'[{count}:v]format=rgba,fade=t=out:st=3.6:d=0.45:alpha=1[title]',
                 f'[base][title]overlay=0:0:shortest=1[a]',
                 f'[a][{count+1}:v]overlay=0:0:shortest=1[b]',
-                f'[b][{count+2}:v]overlay=0:0:shortest=1:enable=\'between(t,1.3,{scene["duration"]-0.5})\'[v]']
-    run(['ffmpeg','-v','error','-y',*inputs,'-filter_complex',';'.join(filters),'-map','[v]',
+                f'[b][{count+2}:v]overlay=0:0:shortest=1:enable=\'between(t,1.3,{panel_end})\'[v]']
+    if scene['id']=='swap':
+        for kind in ['phaseA','phaseB']:inputs+=['-loop','1','-i',str(overlay(scene,kind))]
+        filters += [f'[v][{count+3}:v]overlay=0:0:shortest=1:enable=\'lt(t,{scene["duration"]/2})\'[c]',
+                    f'[c][{count+4}:v]overlay=0:0:shortest=1:enable=\'gte(t,{scene["duration"]/2})\'[final]']
+    run(['ffmpeg','-v','error','-y',*inputs,'-filter_complex',';'.join(filters),'-map','[final]' if scene['id']=='swap' else '[v]',
          '-frames:v',str(scene['frames']),'-an','-c:v','libx264','-profile:v','high','-crf','18',
          '-preset','fast','-pix_fmt','yuv420p','-threads','3',str(ROOT/'edit'/f"{scene['id']}.mp4")])
     print('Rendered',scene['id'],flush=True)
@@ -222,8 +265,8 @@ def finish(story):
     listing=ROOT/'edit/concat.txt'
     listing.write_text(''.join(f"file '{ROOT/'edit'/s['id']}.mp4'\n" for s in story))
     normalize(ROOT/'audio/narration-raw.wav',ROOT/'audio/narration.wav')
-    normalize(ROOT/'audio/music.wav',ROOT/'audio/music-quiet.wav',-29,-10)
-    graph=f'[0:a]asplit=2[voice][key];[1:a]atrim=duration={duration},afade=t=in:d=1.5,afade=t=out:st={duration-3}:d=3[bed];[bed][key]sidechaincompress=threshold=0.015:ratio=8:attack=15:release=500[duck];[voice][duck]amix=inputs=2:normalize=0[mix]'
+    normalize(ROOT/'audio/music.wav',ROOT/'audio/music-quiet.wav',-29,-3)
+    graph=f'[0:a]asplit=2[voice][key];[1:a]atrim=duration={duration},afade=t=in:d=1.5,afade=t=out:st={duration-3}:d=3[bed];[bed][key]sidechaincompress=threshold=0.12:ratio=3:attack=20:release=400[duck];[voice][duck]amix=inputs=2:normalize=0[mix]'
     run(['ffmpeg','-v','error','-y','-i',str(ROOT/'audio/narration.wav'),'-i',str(ROOT/'audio/music-quiet.wav'),
          '-filter_complex',graph,'-map','[mix]','-ar','48000',str(ROOT/'audio/mix.wav')])
     metrics=normalize(ROOT/'audio/mix.wav',ROOT/'audio/final.wav')
@@ -241,6 +284,8 @@ def finish(story):
     text(d,(90,96),'TURKU3D',52,TEAL,True)
     text(d,(85,186),'FROM REAL DATA',78,WHITE,True)
     text(d,(85,291),'TO A WORLD',90,WHITE,True)
+    d.rectangle((0,1028,W,H),fill=(6,16,25,220))
+    text(d,(50,1042),'Game frame · © City of Turku · CC BY 4.0 · © OpenStreetMap contributors · ODbL',23)
     im.convert('RGB').save(OUT/'thumbnail-v2.png')
     print(final,flush=True)
 
