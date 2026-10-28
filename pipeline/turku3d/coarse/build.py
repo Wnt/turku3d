@@ -426,27 +426,15 @@ def build(
     )
     from . import stairs
 
-    stair_meshes, stair_openings = cache.run(
-        "stairs",
-        source_key(
-            Path(stairs.__file__),
-            Path(kerbs.__file__),
-            Path(__file__).with_name("geometry.py"),
-            *common,
-        ),
-        [
-            tile,
-            inputs.stairs,
-            grid_pos,
-            kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
-        ],
-        lambda: stairs.produce(tile, inputs.stairs, surface_sample),
-    )
-    dry, solid = cache.run(
-        "stair_ground",
-        source_key(stairs.cut_ground, surfaces.split_boundaries, *common),
-        [dry, solid, stair_openings],
-        lambda: (stairs.cut_ground(dry, stair_openings), stairs.cut_ground(solid, stair_openings)),
+    stair_meshes, dry, solid = stairs.stage(
+        cache,
+        tile,
+        inputs.stairs,
+        grid_pos,
+        surface_sample,
+        dry,
+        solid,
+        kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
     )
     dry_keep = np.ones(len(dry.indices), bool)
     visual_materials = surfaces.slope_fallback(dry.positions, dry.indices, dry.material)

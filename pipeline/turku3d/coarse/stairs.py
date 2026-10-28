@@ -139,3 +139,35 @@ def cut_ground(mesh, openings):
         np.concatenate([ix[ids != 255], mesh.indices[~terrain]]),
         np.concatenate([ids[ids != 255], mesh.material[~terrain]]),
     ).compact()
+
+
+def stage(cache, tile, prepared, grid_pos, sample, dry, solid, neighbours):
+    from pathlib import Path
+
+    from turku3d import config as C
+    from turku3d.stage_cache import source_key
+
+    from . import kerbs
+
+    base = Path(__file__).parents[1]
+    dependencies = [
+        Path(__file__),
+        Path(kerbs.__file__),
+        Path(__file__).with_name("geometry.py"),
+        Path(C.__file__),
+        base / "structures/geometry.py",
+        base / "col/materials_v1.json",
+    ]
+    meshes, openings = cache.run(
+        "stairs",
+        source_key(*dependencies),
+        [tile, prepared, grid_pos, neighbours],
+        lambda: produce(tile, prepared, sample),
+    )
+    dry, solid = cache.run(
+        "stair_ground",
+        source_key(cut_ground, split_boundaries, *dependencies),
+        [dry, solid, openings],
+        lambda: (cut_ground(dry, openings), cut_ground(solid, openings)),
+    )
+    return meshes, dry, solid
