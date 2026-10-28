@@ -50,6 +50,7 @@ def code_hash() -> str:
             Path(__file__).parents[1] / "stage_cache.py",
             *BRIDGE.parent.glob("*.mjs"),
             Path(__file__).parents[1] / "buildings/source_surfaces.py",
+            Path(__file__).parents[1] / "ground/materials.py",
             props / "__init__.py",
             props / "models.py",
             props / "orientation.py",

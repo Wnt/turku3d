@@ -243,7 +243,7 @@ def fallback(channel, size=256):
 
 
 def library(root: Path, base: Path, channels):
-    """Reuse the full ground library at 512 px/2 m; cache once, share all encoded maps across tiles."""
+    """Retain native albedo detail at 1024 px/2 m; cache and share maps across tiles."""
     sources = [C.work_root() / "textures/library", C.data_root() / "textures/library"]
     source = next(
         (
@@ -288,7 +288,7 @@ def library(root: Path, base: Path, channels):
                             "--layer",
                             str(channel),
                             "--level",
-                            "1" if slot == "albedo" else "2",
+                            "0" if slot == "albedo" else "1" if slot == "normal" else "2",
                             str(source / f"{slot}.array.ktx2"),
                             str(output),
                         ],

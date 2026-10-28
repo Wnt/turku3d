@@ -37,7 +37,7 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
 # not decode classified roof/bridge lidar again for every surrounding tile.
 DEPENDENCIES = {
-    "wfs": ("roofs.py", "../buildings/source_surfaces.py"),
+    "wfs": ("roofs.py", "../buildings/source_surfaces.py", "../ground/materials.py"),
     "roads": ("bridges.py", "bridge_survey.py"),
     "barriers": ("fences.py",),
     "forests": ("forests.py",),

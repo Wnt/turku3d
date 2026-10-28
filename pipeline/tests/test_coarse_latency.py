@@ -65,6 +65,22 @@ def test_surface_code_does_not_invalidate_roof_or_ground_cache(monkeypatch):
     assert inputs._key([], "surfaces") != first["surfaces"]
 
 
+def test_paving_rule_change_invalidates_streets_without_repreparing_ground(monkeypatch):
+    original = Path.read_bytes
+    first = {d: inputs._key([], d) for d in ("wfs", "ground", "roads")}
+
+    def changed(path):
+        return original(path) + (
+            b"\n# changed paving rule\n" if path.name == "materials.py" else b""
+        )
+
+    monkeypatch.setattr(Path, "read_bytes", changed)
+    assert inputs._key([], "wfs") != first["wfs"]
+    assert inputs._key([], "wfs-first") == inputs._key([], "wfs")
+    assert inputs._key([], "ground") == first["ground"]
+    assert inputs._key([], "roads") == first["roads"]
+
+
 def test_immutable_payload_urls_keep_shared_textures_relative():
     digest = "a" * 64
     assert FILE.fullmatch(f"vis.{digest}.glb")

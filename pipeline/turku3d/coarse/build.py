@@ -6,8 +6,7 @@ that terrain plane. Orthophoto supplies fallback vegetation classification and r
 Water polygons become a sensor over a synthetic bed and a separate visible water surface.
 OSM bridges become separate drivable slabs with clear underpasses and ground-blended approaches;
 without OSM, street-area water bridges retain the abutment lift (``bridge_decks``).
-OSM ``natural=tree`` points become GPU-instanced
-vegetation prototypes (unmeasured, 10 m unless tagged) with trunk cylinders in the collision. The
+OSM ``natural=tree`` points become GPU-instanced vegetation (10 m unless tagged) with trunk colliders. The
 tile has mapped kerbs/paint but no surveyed curb profiles, stairs, unique facade maps or LOD parents: the full pipeline
 replaces it when the tile is published.
 """
