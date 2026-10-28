@@ -59,7 +59,7 @@ bytes, so the tab swaps nothing again (`tools/dev/localhost/README.md`, "Tile re
 `make tile-add` installs the validator Node dependencies before refresh, since the structures
 producer runs Rapier acceptance while building the layer.
 
-`add-tile` accepts an L0 tile that touches a listed tile at an edge or corner and whose input area lies in
+`add-tile` accepts any L0 tile whose input area lies in
 the city lidar coverage (`data-manifests/laz-tiles.csv`). A tile's input area,
 `config.tile_input_area(tile)` (named `tile-<id>`), is its ground envelope: the tile plus 112.5 m,
 which is one ring of collision tiles and the 50 m margin. `config.source_area(tile)` is
