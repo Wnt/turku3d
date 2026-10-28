@@ -42,13 +42,13 @@ Existing clones were only read; none were deleted by this task. A deliberate
 unprotected-launcher edit was also rejected by a previously green fast gate;
 the original was restored. Evidence: `reports/chrome-clone/policy-negative.log`.
 
-Earlier attempts observed global clone creation while other unprotected launchers
-were active. The final probe rejects any new directory, including transient ones;
+Earlier attempts observed global clone creation that was not attributed to a
+specific process. The final probe rejects any new directory, including transient ones;
 it does not filter out directories attributed to other processes.
 
 ## Gate output
 
-Fast gate **GREEN**, 12.453 s after the final rebase and launcher changes (21
+Fast gate **GREEN**, 12.495 s after the final rebase and launcher changes (21
 passing stages, including the uncached launch policy and three synthetic merger /
 default compatibility tests). Browser and deep stages were skipped as required.
 Lint, types, Python/JS units and tooling passed. The earlier README line-budget
