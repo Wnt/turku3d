@@ -4,6 +4,7 @@ import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { sunDirection } from '../core/sun';
 import { QUALITY, type QualityTier } from './quality';
+import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
 
 export class Environment {
   readonly sky = new SkyMesh();
@@ -41,6 +42,8 @@ export class Environment {
     this.sun.shadow.mapSize.set(q.shadowSize, q.shadowSize);
     this.sun.shadow.camera.near = 0.5;
     this.sun.shadow.camera.far = 600;
+    // CSM clones this camera into every cascade, retaining the shadow-only tile batches.
+    this.sun.shadow.camera.layers.enable(TILE_SHADOW_LAYER);
     this.sun.shadow.bias = -0.00015;
     this.sun.shadow.normalBias = 0.025;
     const far = q.splits[q.splits.length - 1];

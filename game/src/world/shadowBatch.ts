@@ -1,6 +1,9 @@
 import * as THREE from 'three/webgpu';
 import { vegetationOwner } from './vegetationLod';
 
+// Colour, normal and reflection cameras use layer 0; sun shadow cameras also enable this layer.
+export const TILE_SHADOW_LAYER = 1;
+
 // The tile materials must stay separate for facades and object IDs. Shadows only
 // need their geometry, so one mesh can cast the same silhouette for the tile.
 export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
@@ -56,6 +59,7 @@ export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
   const proxy = new THREE.Mesh(geometry, material);
   proxy.name = 'tile-shadow-batch';
   proxy.castShadow = true;
+  proxy.layers.set(TILE_SHADOW_LAYER);
   proxy.frustumCulled = true;
   proxy.userData.shadowBatch = true;
   model.add(proxy);
