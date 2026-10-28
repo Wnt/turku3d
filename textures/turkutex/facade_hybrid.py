@@ -12,7 +12,7 @@ import numpy as np
 from . import facade_cv as cv
 from . import facade_priors as p
 
-VERSION = "facade-hybrid-v1"
+VERSION = "facade-hybrid-v2"
 PARAMETERS = Path(__file__).with_name("facade_hybrid_parameters.json")
 FIELDS = ("storeys", "window_columns", "material", "wall_colour")
 
@@ -92,6 +92,15 @@ def semantic_foreground_mask(labels: np.ndarray) -> np.ndarray:
     return np.isin(labels, [4, 12, 17, 20, 80, 83, 90, 102, 116, 127])
 
 
+def foreground_evidence(evidence: dict) -> dict:
+    """Use actual occluders for field abstention while retaining off-wall diagnostics."""
+    return {
+        **evidence,
+        "off_wall_share": evidence["occlusion_share"],
+        "occlusion_share": evidence["foreground_share"],
+    }
+
+
 class Evidence:
     """ADE20K semantic evidence mask on MPS; no network and no learned quality claims."""
 
@@ -143,7 +152,7 @@ class FeatureExtractor:
         """Reusable features; fitting and evaluation can reuse them without more inference."""
         from .streetview.refs import screen_pixels, screen_problem
 
-        evidence = self.evidence.measure(rgb)
+        evidence = foreground_evidence(self.evidence.measure(rgb))
         evidence.update(
             width_m=width,
             minimum_pixels=min(rgb.shape[:2]),

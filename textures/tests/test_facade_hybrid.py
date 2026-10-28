@@ -4,6 +4,7 @@ import numpy as np
 from turkutex.facade_hybrid import (
     bay_spacing,
     field_outputs,
+    foreground_evidence,
     merge_fields,
     semantic_foreground_mask,
     surface_discontinuity,
@@ -68,6 +69,9 @@ def test_semantic_foreground_excludes_road_sidewalk_and_sky():
     assert semantic_foreground_mask(labels).tolist() == [
         [False, False, False, True, True, True, True, True]
     ]
+    e = foreground_evidence({"occlusion_share": 0.4, "foreground_share": 0.1})
+    assert e["occlusion_share"] == 0.1
+    assert e["off_wall_share"] == 0.4
 
 
 def test_independent_agreement_and_building_grouping():
