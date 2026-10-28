@@ -28,7 +28,7 @@ increased from 46.129 Hz to 60.002 Hz. Rendering still has separate stalls.
 
 Fresh matched Air captures used native 1600x913 CSS pixels at DPR 2, headed Chrome
 156, default quality, the same published real tiles and Vite serving on both sides.
-The baseline temporarily restored current main's game files and added only a worker
+The baseline temporarily restored main `4e9f3574`'s game files and added only a worker
 publication timestamp. All source was restored afterward. The phases were idle,
 20 s W, reset/settle, 20 s W+A from standstill, 20 s W+D, and release. Autorepeat was
 30 Hz. The recorder ran in light mode before worker construction.
@@ -108,8 +108,11 @@ explicitly. Final production bundle compiled successfully in 1.25 s after all
 transport/actor/locking changes. After rebasing onto startup landing `537d39f1`, the combined fast gate passed
 in 7.389 s (7.7 s wrapper), including game types, lint and fast unit tests.
 Startup retained-region/prepared-placement behavior and the shared bootstrap entry
-were preserved during the rebase. The combined production rebuild is queued for
-a host slot; its outcome will be recorded before finishing.
+were preserved during the rebase. The combined production build also passed:
+170 modules, Vite 726 ms, identical physics-worker bundle `worker-BF5anXMZ.js`.
+Its build-slot reservation waited 404 s and was cancelled without starting work;
+this small compile then ran directly with npm. No heavy data build or Chrome
+suite bypassed admission.
 No gate was weakened and no slow/browser test was added to the gate.
 
 ## Follow-ups
