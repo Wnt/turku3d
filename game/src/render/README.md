@@ -69,7 +69,16 @@ vegetation and small props. They use the default lighting context rather than sa
 `MaterialStyler.prepare` serializes `compileAsync` work in each river's actual target and virtual-camera context;
 new published/draft models remain uncommitted to the scene until their final ground bindings, uploads and programs
 are ready. Published parse promises retain the existing REPLACE parent during preparation. Prepass, beauty and
-reflection use one-draw `compileAsync` calls with stable matching contexts; renderer state is restored before yielding.
+reflection use one-draw `compileAsync` calls with stable matching contexts. Final shadow flags and
+proxy geometry are prepared before compilation; publication does not change warmed shader keys. Vegetation
+then selects its final per-LOD flags. r186's asynchronous node builder receives a view of the captured target,
+MRT and flow context across shader-stage yields while live renderer state is restored immediately. A scoped
+r186 context-manager adapter selects each pass's observed nesting depth (also part of shader cache identity).
+GTAO, normal/beauty passes and river reflections skip image updates during native precompilation, avoiding
+unnecessary whole-scene draws at different nesting depths. The shared GTAO effect retains its first
+setup graph for this renderer/camera instead of replacing its fullscreen material whenever a streamed
+surface references AO; native sample-count updates still rebuild that graph when needed. `game/scripts/tile-warmup-probe.ts` is a development-only
+synthetic reproduction; it is never imported by the game entry.
 Startup uploads every map, then warms the complete 360° ring with a real draw without frustum culling and six views per selectable spawn. It skips per-model async compilation until Ready; real prepass, beauty, reflection and shadow draws create their actual pipelines without repeating one async yield per material. QA updates reflections every rendered frame.
 `GameRenderer` separates opaque/cutout shadow overrides and keeps their depth context stable across colour and
 reflection passes: alternating the shared override's alpha-test state otherwise invalidates all caster keys per draw.

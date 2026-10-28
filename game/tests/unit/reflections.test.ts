@@ -21,6 +21,8 @@ test('river pass includes large static surfaces and excludes water, props and ve
 test('reflection warmup uses its real target and layer mask without leaking state across awaits', async () => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
   const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const getContext = vi.fn((_target?: THREE.RenderTarget | null, _mrt?: unknown, _depth?: number) => ({}));
+  const contexts = { get: getContext }; Object.assign(renderer, { _renderContexts: contexts });
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   const env = new Environment(scene, renderer, 'medium');
   env.sky.layers.disable(REFLECTION_LAYER);
@@ -33,10 +35,12 @@ test('reflection warmup uses its real target and layer mask without leaking stat
   const compile = vi.spyOn(renderer, 'compileAsync').mockImplementation((object, reflected, targetScene) => {
     expect(object).toBe(surface); expect(surface.visible).toBe(true); expect(surface.frustumCulled).toBe(false);
     expect(reflected.layers.mask).toBe(1 << REFLECTION_LAYER); expect(targetScene).toBe(scene);
-    expect(renderer.getRenderTarget()).not.toBeNull(); return compilation;
+    expect(renderer.getRenderTarget()).not.toBeNull();
+    contexts.get(renderer.getRenderTarget(), null); return compilation;
   });
   const prepared = river.prepare(renderer, scene, scene, camera);
   expect(compile).toHaveBeenCalledOnce();
+  expect(getContext).toHaveBeenCalledWith(expect.any(THREE.RenderTarget), null, 3);
   expect(renderer.getRenderTarget()).toBeNull(); expect(renderer.getMRT()).toBeNull();
   expect(model.visible).toBe(false); expect(surface.frustumCulled).toBe(true);
   complete(); await prepared;

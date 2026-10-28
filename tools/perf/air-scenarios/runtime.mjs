@@ -1,7 +1,7 @@
 // Injected through CDP only. No gameplay import, query flag or production entry references this module.
 export function installScenario({ flightSeconds = 75 } = {}) {
   const game = window.__game, camera = window.__render.camera;
-  const scene = game.tiles.tiles.group.parent;
+  const scene = game.tiles.models.values().next().value.parent;
   const previousRender = scene.onBeforeRender, previousInput = game.input.update.bind(game.input);
   const initialCar = game.state().vehicles.find(vehicle => vehicle.id === 'player');
   const points = [[180, 8, 270], [20, 8, 340], [-100, 8, 410], [-230, 8, 485], [-390, 8, 550],
@@ -15,7 +15,7 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     return points[i - 1].map((v, axis) => v + (points[i][axis] - v) * t);
   }
   const state = window.__air = { phase: flightSeconds > 0 ? 'flight' : 'prepare-drive', started: performance.now(), frames: [], poses: [], points,
-    flightSeconds, physics: [], materialKeys: 0, shadowKeys: 0, inFrame: false, builders: [], enterPending: false, target: 1, route: [], active: true, driveStart: null, driveEnd: null };
+    flightSeconds, work: [], physics: [], materialKeys: 0, shadowKeys: 0, inFrame: false, builders: [], enterPending: false, target: 1, route: [], active: true, driveStart: null, driveEnd: null };
   const perf = window.__render.perf, renderer = window.__render.renderer;
   const beforeFrame = perf.begin.bind(perf), afterFrame = perf.end.bind(perf);
   let lastPhysics = performance.now();
@@ -29,6 +29,18 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   };
   game.physics.worker.addEventListener('message', onPhysics);
   const previousBuilder = renderer.debug.onNodeBuilderCreated;
+  const restoreWork = [];
+  function instrument(owner, name, kind, restore = true) {
+    const original = owner[name];
+    owner[name] = function (...args) {
+      const start = performance.now();
+      try { return original.apply(this, args); }
+      finally { state.work.push({ start, ms: performance.now() - start, kind, phase: state.phase }); }
+    };
+    if (restore) restoreWork.push(() => { owner[name] = original; });
+  }
+  instrument(renderer, 'initTexture', 'texture-upload');
+  instrument(game.tiles, 'trackModel', 'shadow-batch-and-publication');
   const sample = renderer._objects._renderObjects.values().next().value;
   const renderObjectPrototype = Object.getPrototypeOf(sample);
   const materialKey = renderObjectPrototype.getMaterialCacheKey;
@@ -40,8 +52,10 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   perf.end = () => { afterFrame(); state.inFrame = false; };
   renderer.debug.onNodeBuilderCreated = (builder, object) => {
     previousBuilder?.(builder, object);
+    instrument(builder, 'build', 'synchronous-node-build', false);
     state.builders.push({ now: performance.now(), inFrame: state.inFrame, phase: state.phase,
-      object: object.object.name, material: object.material.name,
+      object: object.object.name, material: object.material.name, receiveShadow: object.object.receiveShadow,
+      target: renderer.getRenderTarget()?.uuid, mrt: renderer.getMRT()?.uuid,
       reflection: object.camera.layers.mask === 4 && !object.material.isShadowPassMaterial });
   };
   let pose = at(0), aim = at(0.025), lastTeleport = -Infinity, previous = null, lastPose = 0, lastEnter = -Infinity;
@@ -117,6 +131,6 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     state.driveStart = performance.now(); state.phase = 'drive';
     return { route: state.route, state: game.state() };
   };
-  state.stop = () => { state.driveEnd = performance.now(); state.active = false; scene.onBeforeRender = previousRender; game.input.update = previousInput; perf.begin = beforeFrame; perf.end = afterFrame; renderer.debug.onNodeBuilderCreated = previousBuilder; renderObjectPrototype.getMaterialCacheKey = materialKey; game.physics.worker.removeEventListener('message', onPhysics); };
+  state.stop = () => { state.driveEnd = performance.now(); state.active = false; for (const restore of restoreWork) restore(); scene.onBeforeRender = previousRender; game.input.update = previousInput; perf.begin = beforeFrame; perf.end = afterFrame; renderer.debug.onNodeBuilderCreated = previousBuilder; renderObjectPrototype.getMaterialCacheKey = materialKey; game.physics.worker.removeEventListener('message', onPhysics); };
   return { points, initialCar, flightSeconds, started: state.started };
 }

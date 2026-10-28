@@ -158,8 +158,8 @@ async function draftWorld() {
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
-    style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); materials?.release(m); },
-    styled: async m => { vegetation?.add(m); await prepareGraphics(m); } });
+    style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
+    styled: async m => { tiles.prepareModel(m); vegetation?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   return { physics, rapier, manifest, streamer, coarse };
 }

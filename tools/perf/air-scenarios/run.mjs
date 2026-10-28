@@ -32,14 +32,14 @@ try {
   if (await skip.isVisible()) await skip.click();
   await page.waitForFunction(() => !window.__game.state().paused, null, { timeout: 60000 });
   await pause(3000);
-  const flight = selection !== 'drive' ? record('flight', 'trace') : null;
+  const flight = selection !== 'drive' ? record('flight', process.env.TURKU3D_RENDER_TRACE === '0' ? null : 'trace') : null;
   if (flight) await pause(1500);
   const installed = await page.evaluate(installScenario, { flightSeconds: flight ? 75 : 0 });
   if (flight) {
     console.log('FLIGHT STARTED', JSON.stringify(installed));
     await page.waitForFunction(() => window.__air.phase === 'prepare-drive', null, { timeout: 180000 });
     await page.screenshot({ path: path.join(output, 'flight-end.png') });
-    fs.writeFileSync(path.join(output, 'flight-state.json'), JSON.stringify(await page.evaluate(() => ({ frames: window.__air.frames, poses: window.__air.poses, points: window.__air.points, builders: window.__air.builders, physics: window.__air.physics }))));
+    fs.writeFileSync(path.join(output, 'flight-state.json'), JSON.stringify(await page.evaluate(() => ({ work: window.__air.work, frames: window.__air.frames, poses: window.__air.poses, points: window.__air.points, builders: window.__air.builders, physics: window.__air.physics }))));
     await flight.stop(); console.log('FLIGHT RECORDED');
   }
   if (selection !== 'flight') {
@@ -53,7 +53,7 @@ try {
     await page.screenshot({ path: path.join(output, 'drive-end.png') });
     await car.stop();
   } else await page.evaluate(() => window.__air.stop());
-  const result = await page.evaluate(() => ({ frames: window.__air.frames, poses: window.__air.poses, builders: window.__air.builders, physics: window.__air.physics, route: window.__air.route,
+  const result = await page.evaluate(() => ({ work: window.__air.work, frames: window.__air.frames, poses: window.__air.poses, builders: window.__air.builders, physics: window.__air.physics, route: window.__air.route,
     points: window.__air.points, driveStart: window.__air.driveStart, driveEnd: window.__air.driveEnd,
     perf: window.__perf, final: window.__game.state(), agent: navigator.userAgent }));
   fs.writeFileSync(path.join(output, 'scenario.json'), JSON.stringify({ url, selection, driveSeconds: Number(driveSeconds), installed, errors, ...result }));

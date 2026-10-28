@@ -29,6 +29,7 @@ import { PauseMenu } from './ui/menu';
 import { DevMenuFlow } from './ui/devMenu';
 import { FlyMode } from './gameplay/flyMode';
 import { SaveStore, SLOT_IDS } from './core/save';
+import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
 import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
@@ -37,7 +38,7 @@ import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
 import { DropoffGuard } from './gameplay/missions/dropoffs';
 import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
-import { applyHot, markResume, takeResume, type HotPlay } from './gameplay/hotState';
+import { applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
@@ -98,13 +99,6 @@ export interface PlayWorld {
   car: Pose;
 }
 
-interface PlaySession {
-  /** Stops the session and returns what the next one continues from. */
-  dispose(): HotPlay;
-  /** Autosaves and reloads the page, which continues from the autosave (dev server only). */
-  reload(): void;
-}
-
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
@@ -132,15 +126,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const voicePreload = audioPreload.then(() => voice.preload());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true, signal: listeners.signal });
   const saves = new SaveStore(browserStorage(), missionSummary);
-  // A borrowed vehicle can outlive the draft tile that originally supplied its model and identity.
-  for (const id of SLOT_IDS) {
-    const last = saves.get(id)?.lastVehicle;
-    if (!last?.appearance || !last.modelAsset) continue;
-    manifest.vehicles ??= [];
-    if (!manifest.vehicles.some(v => v.object_id === last.id)) manifest.vehicles.push(last.appearance);
-    manifest.vehicle_models ??= {};
-    manifest.vehicle_models[`${last.appearance.model}/${last.appearance.color}`] ??= last.modelAsset;
-  }
+  for (const id of SLOT_IDS) keepSavedVehicle(manifest, saves.get(id)?.lastVehicle);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
   const resume = !hot && import.meta.hot && takeResume(sessionStore()) ? saves.get('auto') : null;
   const fullscreen = new FullscreenPolicy();

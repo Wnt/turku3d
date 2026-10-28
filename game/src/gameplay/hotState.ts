@@ -56,3 +56,11 @@ export function takeResume(storage: Pick<KeyValueStore, 'getItem' | 'removeItem'
     return marked;
   } catch { return false; }
 }
+
+/** A running play session (play.ts startPlay). */
+export interface PlaySession {
+  /** Stops the session and returns what the next one continues from. */
+  dispose(): HotPlay;
+  /** Autosaves and reloads the page, which continues from the autosave (dev server only). */
+  reload(): void;
+}
