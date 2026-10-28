@@ -71,7 +71,11 @@ test('v3 carries the mapped ground floor and one entrance bay without changing o
   const pos = doc.createAccessor().setBuffer(buffer).setType('VEC3').setArray(new Float32Array([0, 0, 0, 18, 0, 0, 0, 12.8, 0]));
   const prim = doc.createPrimitive().setAttribute('POSITION', pos).setAttribute('TEXCOORD_0', uv);
   const material = doc.createMaterial();
-  const request = { facadeKit: { version:3, maps: { albedo:'albedo', normal:'normal', orm:'orm' } } };
+  // A stored description must not recompute the original grid from the shorter
+  // window-bearing geometry, or turn a blank frieze back into window rows.
+  const request = { facadeKit: { version:3, maps: { albedo:'albedo', normal:'normal', orm:'orm' },
+    descriptions: { shop: { material:'brick', window_columns:6, ground_floor:'shops',
+      window_width:.65, wall_colour:'#ffffff', trim_colour:'#ffffff', storeys:6 } } } };
   const extras = { layer:'buildings', material_key:'facade_kit', object_id:'shop',
     facade_kit: { module:2, wall:'#808080', trim:'#ffffff', bay:3, storey:3.2, ground:4, upper:8.8 / 3 } };
   bindFacadeKit(doc, request, material, prim, extras, name => doc.createTexture(name));
@@ -81,4 +85,7 @@ test('v3 carries the mapped ground floor and one entrance bay without changing o
   assert.equal(floors[2], 3);
   assert.equal(material.getExtras().facade_kit.version, 3);
   assert.equal(material.getAlphaMode(), 'OPAQUE');
+  extras.facade_kit = { ...extras.facade_kit, module:43 };
+  bindFacadeKit(doc, request, material, prim, extras, name => doc.createTexture(name));
+  assert.equal(prim.getAttribute('_KIT_LAYOUT').getElement(0, [])[0], 43);
 });

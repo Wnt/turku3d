@@ -29,7 +29,9 @@ export function bindFacadeKit(doc, request, material, prim, e, texture) {
     bay: sourceBay >= .9 && sourceBay <= 8 ? sourceBay : 3,
     storey: height / Math.max(1, height / d.storeys >= 2.4 && height / d.storeys <= 5.5 ? d.storeys : Math.round(height / 3.2)),
   } : null;
-  const p = described ?? e.facade_kit ?? {
+  // Draft geometry carries the resolved description and its original floor grid.
+  // Recomputing from a shortened window section would stretch its top row.
+  const p = e.facade_kit ?? described ?? {
     module: cls * 6 + (width >= 6 ? 1 : 0),
     wall: ['#d4d1c9', '#b8b5ae', '#cfc8b8', '#d8bf7a', '#c99a86'][hash % 5], trim:'#e4ddd0',
     bay: width / Math.max(1, Math.round(width / 3)), storey: height / Math.max(1, Math.round(height / 3.2)),
