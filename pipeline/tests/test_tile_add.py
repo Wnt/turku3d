@@ -88,12 +88,33 @@ def test_ensure_inputs_fetches_only_outside_work_3x3(monkeypatch):
     assert result["missing"] == 1 and "fetch_seconds" in result
 
 
-def test_list_tile_appends_to_the_data_root_list_only(roots):
+def test_list_tile_appends_to_the_data_root_list_only(roots, monkeypatch):
     data, work = roots
+    calls = []
+    monkeypatch.setattr(T, "facade_fast", lambda step, args, log: calls.append((step, args)))
     record = T.list_tile("t0_2_0")
     assert record["tiles"] == [*CORE, "t0_2_0"]
     assert json.loads((data / C.PLAYABLE_TILES_FILE).read_text())["tiles"][-1] == "t0_2_0"
     assert not (work / C.PLAYABLE_TILES_FILE).exists()
+    # Inventory registration is required even without staged maps. The texture
+    # command is a separate environment, not part of this synthetic pipeline test.
+    expected = (
+        "inventory",
+        [
+            "--run",
+            str(work / "textures/fast/t0_2_0"),
+            "--inventory",
+            str(work / "build/layers/buildings/facades.geojson"),
+            "--assembly",
+            str(data / "facade-approvals/assembly"),
+            "--tiles",
+            "t0_2_0",
+        ],
+    )
+    assert calls == [expected]
+    # Retrying an already listed tile still registers its inventory, without duplicates.
+    assert T.list_tile("t0_2_0") == record
+    assert calls == [expected, expected]
 
 
 def test_add_tile_refuses_the_published_data_root(monkeypatch, roots):

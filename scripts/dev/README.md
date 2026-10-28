@@ -533,7 +533,7 @@ required planted failures: unused export, unregistered/expired flag, 2 MiB PNG, 
 They use the real installed linters and knip; no mock-success lint commands are involved.
 Tooling tests land a trivial documentation commit through the real production gate in a temporary
 repository. An oversized PNG makes the real policy stage red and leaves that repository’s main unchanged.
-The test runner accepts file patterns, for example:
+Use `SERIAL = True` to isolate shared API mocks (e.g. stop signals). File patterns:
 
 ```sh
 .venv/bin/python scripts/dev/tests/run.py test_tooling.py test_environment.py
