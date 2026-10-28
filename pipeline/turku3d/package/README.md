@@ -270,11 +270,14 @@ The manifest records `ground_texture_bytes` and `wire_bytes`; L0 geometry plus t
 fit 8,000,000 bytes. The shared array library is fetched once across tiles. See
 [ground rendering](../../../../game/src/render/ground/README.md) for complete scene capture commands.
 
-Unmapped building facades use the same cached 42-module procedural atlas as drafts. The binder
+Unmapped building facades use the same cached 49-module procedural atlas as drafts. The binder
 keeps approved per-wall maps first, exports shared KTX2 images, and records `facade_kit` material
-version 2 for the game's WebGPU/WebGL2 node material. One material per layer batches all kit
+version 3 for the game's WebGPU/WebGL2 node material. One material per layer batches all kit
 walls: `_KIT_LAYOUT` carries module/bay/storey, `_KIT_WALL` and `_KIT_TRIM` carry linear RGB,
-and `_KIT_ORIGIN` carries the UV origin. `TEXCOORD_0` stays in metres. Draft packaging uses
+and `_KIT_ORIGIN` carries the UV origin. `_KIT_FLOORS` carries ground/upper floor heights and
+the entrance bay. Albedo alpha is an opaque pigment mask (0 wall, 0.5 untinted, 1 trim), so
+white frames receive their authored tint once and mortar/glass retain their own colour.
+The shader retains version 1/2 support for existing builds. `TEXCOORD_0` stays in metres. Draft packaging uses
 this same binder; roof bindings remain independent.
 
 Facade atlas extraction uses unique temporary paths per request and atomically renames the

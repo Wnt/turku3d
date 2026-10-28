@@ -18,6 +18,39 @@ def test_parameter_key_is_stable_and_cannot_escape(tmp_path):
     assert path != store_path("unsafe/id", tmp_path)
 
 
+def test_shop_ground_floor_is_taller_without_repeating_upper_floor_at_roof():
+    p = parameters("shop", 12.8, 18, {"levels": 4, "ground_floor": "shops"})
+    assert p["ground"] == 4
+    assert p["upper"] < p["ground"]
+    assert abs(p["ground"] + 3 * p["upper"] - 12.8) < 1e-8
+
+
+def test_atlas_mask_separates_white_frames_wall_and_unpainted_mortar():
+    import numpy as np
+    from turku3d.facade_kit import module_maps, renderer
+
+    d = renderer().register_description("test", "test", {}, 3, 6.4)
+    d.update(material="brick", roof_line="none", plinth=False, features=[])
+    image = module_maps(d, 6, size=(60, 128))["albedo"]
+    alpha = image[:, :, 3]
+    assert np.count_nonzero(alpha < 5) > 100  # painted brick
+    assert np.count_nonzero(alpha > 250) > 10  # neutral white frames, tinted only once
+    assert np.count_nonzero(abs(alpha.astype(float) - 127.5) < 2) > 100  # glass and mortar
+    assert image[:, :, :3][alpha > 250].mean() > 230
+
+
+def test_pigment_alpha_does_not_erase_wall_rgb_when_resizing():
+    import numpy as np
+    from turku3d.facade_kit import resize_map
+
+    image = np.full((4, 4, 4), 255, np.uint8)
+    image[:, :2, 3] = 0
+    resized = resize_map(image, (7, 7))
+    assert np.all(resized[:, :, :3] == 255)
+    assert resized[:, 0, 3].max() == 0
+    assert resized[:, -1, 3].min() == 255
+
+
 def test_default_parameter_store_is_sandboxed(monkeypatch, tmp_path):
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "shared"))
     monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "own"))
@@ -100,6 +133,9 @@ def test_mapped_blank_sheds_and_shopfronts_select_distinct_modules():
     shop = parameters("retail", 9, 18, {"ground_floor": "shops", "levels": 3})
     assert blank["module"] == 45
     assert blank["wall"] == "#89765a"
+    assert blank["bay"] == 3
+    wide_blank = parameters("shed", 3, 45, {"material_class": "wood", "blank": True})
+    assert wide_blank["bay"] == blank["bay"]
     assert shop["module"] % 3 == 2
 
 

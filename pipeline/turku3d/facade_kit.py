@@ -110,7 +110,8 @@ def parameters(
         or read_description(key, width=width)
         or fr.register_description(str(key), str(key), attributes or {}, width, height)
     )
-    plan = fr.layout(d, max(width, 1.0), max(height, 1.0))
+    # The shared atlas has no roof band/plinth: the shell supplies the full wall height.
+    plan = fr.layout({**d, "roof_line": "none", "plinth": False}, max(width, 1.0), max(height, 1.0))
     module = (
         MATERIALS.index(d["material"]) * 6
         + int(d["window_width"] > 0.55) * 3
@@ -122,8 +123,43 @@ def parameters(
         module=module,
         wall=d["wall_colour"],
         trim=d["trim_colour"],
-        bay=plan["bay_m"],
+        bay=3.0 if module >= 42 else plan["bay_m"],
         storey=max(1.0, height / plan["storeys"]),
+        ground=plan["ground_m"],
+        upper=plan["upper_m"] or plan["ground_m"],
+    )
+
+
+def module_maps(description: dict, module: int, size=(120, 240)) -> dict:
+    """Neutral atlas with a colour-independent tint mask in opaque albedo alpha.
+
+    Alpha 0 is wall, 1 is trim and 0.5 is untinted glass/mortar. Paired procedural
+    renders isolate each pigment, including antialiasing, without guessing from brightness.
+    """
+    fr = renderer()
+    description = {**description, "wall_colour": "#ffffff", "trim_colour": "#ffffff"}
+    result = fr.render(description, 3.0, 6.4, size, f"kit-{module}")
+    base = result["albedo"].astype(np.float32)
+    weights = []
+    for field in ("wall_colour", "trim_colour"):
+        probe = fr.render({**description, field: "#000000"}, 3.0, 6.4, size, f"kit-{module}")
+        delta = base - probe["albedo"].astype(np.float32)
+        weights.append(np.clip(delta.sum(axis=2) / np.maximum(base.sum(axis=2), 1), 0, 1))
+    alpha = np.rint(127.5 * (1 + weights[1] - weights[0])).astype(np.uint8)
+    result["albedo"] = np.dstack([result["albedo"], alpha])
+    return result
+
+
+def resize_map(image: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    """Filter channels independently: pigment alpha must never premultiply wall RGB."""
+    return np.stack(
+        [
+            np.asarray(
+                Image.fromarray(image[:, :, channel]).resize(size, Image.Resampling.BILINEAR)
+            )
+            for channel in range(image.shape[2])
+        ],
+        axis=2,
     )
 
 
@@ -138,7 +174,10 @@ def ensure_kit(root: Path) -> dict:
     fr = renderer()
     with tempfile.TemporaryDirectory(prefix="facade-kit-", dir=root) as tmp:
         stage = Path(tmp)
-        maps = {s: np.zeros((2048, 1024, 3), np.uint8) for s in ("albedo", "normal", "orm")}
+        maps = {
+            s: np.zeros((2048, 1024, 4 if s == "albedo" else 3), np.uint8)
+            for s in ("albedo", "normal", "orm")
+        }
         for module in range(49):
             material, variant = divmod(module, 6) if module < 42 else (module - 42, 0)
             d = fr.register_description("kit", "kit", {}, 3.0, 6.4)
@@ -155,17 +194,13 @@ def ensure_kit(root: Path) -> dict:
                 plinth=False,
                 features=[],
             )
-            rendered = fr.render(
-                d, 3.0, 6.4, (CELL - 2 * GUTTER, 2 * (CELL - 2 * GUTTER)), f"kit-{module}"
-            )
+            rendered = module_maps(d, module)
             col, row = module % 7, module // 7
             split = round(240 * (6.4 - rendered["layout"]["ground_m"]) / 6.4)
             for slot, atlas in maps.items():
                 for floor in range(2):
                     image = rendered[slot][:split] if floor == 0 else rendered[slot][split:]
-                    image = np.asarray(
-                        Image.fromarray(image).resize((120, 120), Image.Resampling.BILINEAR)
-                    )
+                    image = resize_map(image, (120, 120))
                     atlas[
                         (row * 2 + floor) * CELL : (row * 2 + floor + 1) * CELL,
                         col * CELL : (col + 1) * CELL,
@@ -193,7 +228,7 @@ def ensure_kit(root: Path) -> dict:
             subprocess.run(command, check=True, capture_output=True)
             src.unlink()
             paths[slot] = str(target / dest.name)
-        result = dict(key=key, maps=paths)
+        result = dict(key=key, maps=paths, version=3)
         (stage / "kit.json").write_text(json.dumps(result))
         try:
             os.rename(stage, target)

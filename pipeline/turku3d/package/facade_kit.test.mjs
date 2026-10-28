@@ -64,3 +64,21 @@ test('orthophoto roof RGB survives linear conversion and batches across roof cla
   const colours = batches[0].getMesh().listPrimitives()[0].getAttribute('COLOR_0');
   assert.ok(colours.getElement(0, [])[0] > colours.getElement(3, [])[0] * 10);
 });
+
+test('v3 carries the mapped ground floor and one entrance bay without changing opaque mode', () => {
+  const doc = new Document(), buffer = doc.createBuffer();
+  const uv = doc.createAccessor().setBuffer(buffer).setType('VEC2').setArray(new Float32Array([0, 0, 18, 0, 0, 12.8]));
+  const pos = doc.createAccessor().setBuffer(buffer).setType('VEC3').setArray(new Float32Array([0, 0, 0, 18, 0, 0, 0, 12.8, 0]));
+  const prim = doc.createPrimitive().setAttribute('POSITION', pos).setAttribute('TEXCOORD_0', uv);
+  const material = doc.createMaterial();
+  const request = { facadeKit: { version:3, maps: { albedo:'albedo', normal:'normal', orm:'orm' } } };
+  const extras = { layer:'buildings', material_key:'facade_kit', object_id:'shop',
+    facade_kit: { module:2, wall:'#808080', trim:'#ffffff', bay:3, storey:3.2, ground:4, upper:8.8 / 3 } };
+  bindFacadeKit(doc, request, material, prim, extras, name => doc.createTexture(name));
+  const floors = prim.getAttribute('_KIT_FLOORS').getElement(0, []);
+  assert.equal(floors[0], 4);
+  assert.ok(Math.abs(floors[1] * 3 + floors[0] - 12.8) < 1e-6);
+  assert.equal(floors[2], 3);
+  assert.equal(material.getExtras().facade_kit.version, 3);
+  assert.equal(material.getAlphaMode(), 'OPAQUE');
+});

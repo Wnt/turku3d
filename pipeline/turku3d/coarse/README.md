@@ -243,8 +243,15 @@ fetched or planned, and blocks under a listed playable tile's input area are nev
 
 ## Shared facade floor
 
-Draft walls use a 49-module, content-addressed procedural facade atlas (albedo, normal and ORM),
-rendered once with `turkutex.facade_fast_render` and reused through `shared/`. Per-building colour,
+Draft walls use a 49-module, content-addressed procedural facade atlas (albedo, normal and ORM)
+with an explicit pigment mask in albedo alpha (material remains opaque). Painted wall, trim,
+glass and mortar no longer depend on brightness thresholds; neutral white trim is tinted once.
+Version 3 keeps separate ground/upper floor heights, including taller mapped shopfronts,
+and places one entrance bay per wall instead of repeating a door in every bay. Shop modules
+retain glazing in each bay. Rebuild using the commands below; old version 1/2 tiles remain readable.
+Atlas samples use gradients from continuous metre UVs before wrapping, preventing coarse mip
+stripes at bay boundaries. Blank modules retain a three-metre horizontal scale on wide sheds.
+The atlas is rendered once with `turkutex.facade_fast_render` and reused through `shared/`. Per-building colour,
 bay spacing and storey height travel in per-vertex kit attributes, with one shared kit material
 per tile/layer (the same package binder as published tiles); roofs retain the ortho. Seven blank modules preserve mapped sheds and garages without cloning residential windows. The game samples the
 upper bay repeatedly and the ground-floor row only at the base on both renderer backends. Published
