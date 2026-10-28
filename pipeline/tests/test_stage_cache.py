@@ -68,7 +68,7 @@ def test_service_requests_optional_osm_without_motion_prefetch(monkeypatch):
 
     sources, tile = Sources(), C.VisualTile(0, 0, 0)
     missing = [Unit("wfs", block_of(tile))]
-    monkeypatch.setattr(sources, "missing", lambda _: list(missing))
+    monkeypatch.setattr(sources, "missing", lambda _, **kw: list(missing))
     monkeypatch.setattr(sources, "osm_source", lambda _: None)
     assert sources.missing_for_service(tile) == [*missing, Unit("osm", block_of(tile))]
     monkeypatch.setattr(sources, "osm_source", lambda _: "present")
