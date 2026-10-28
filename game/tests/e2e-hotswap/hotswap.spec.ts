@@ -124,7 +124,7 @@ test('a physics worker change autosaves, reloads and continues in place', async 
 test('a new tile release behind /tiles swaps in place: tileset, changed collision, same position', async ({ page }) => {
   let loads = 0;
   page.on('load', () => { loads++; });
-  await open(page, '/?tiles=/tiles/tileset.json');
+  await open(page, '/');
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   await placed(page);

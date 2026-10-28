@@ -21,7 +21,7 @@ test('a car at full throttle meets no wall until the true edge of the collision,
   await routeCoarse(page, { t0_1_0: { cells: cells(1, 0) } });
   await installPad(page);
   // x 30, z 30 facing east; the debug spawn parks the car 6 m south of the player, facing east.
-  await page.goto(`/?backend=${info.project.name}&spawn=23459530,6704470,90&colRadius=60`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}&spawn=23459530,6704470,90&colRadius=60`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.locator('#intro-dialog').getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });

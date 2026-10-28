@@ -3,7 +3,7 @@ import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 
 test('WebGPU first order switches to mission music and advances the deadline', { tag: ['@audio', '@gameplay'] }, async ({ page }, info) => {
   test.skip(info.project.name !== 'webgpu', 'Music state is independent of the render backend');
-  await page.goto(`/?backend=${info.project.name}`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready);
   await expect.poll(() => page.evaluate(() => (window as any).__game.audio.snapshot().music.state)).toBe('menu');
   await page.getByRole('option', { name: 'New game' }).click();

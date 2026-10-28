@@ -36,7 +36,7 @@ function defaultManifest(tileset: string): string {
   // A page-relative tileset (e.g. the Pages build's `../tiles/tileset.json`) keeps its own directory.
   if (!/^([a-z][a-z\d+.-]*:|\/)/i.test(tileset)) return tileset.replace(/[^/]*$/, 'manifest.json');
   const u = new URL('manifest.json', new URL(tileset, 'http://x/'));
-  return u.origin === 'http://x' ? u.pathname.replace(/^\//, '') : u.href;
+  return u.origin === 'http://x' ? u.pathname : u.href;
 }
 
 export function parseParams(search: string): Params {
@@ -57,7 +57,8 @@ export function parseParams(search: string): Params {
   const time = new Date(timeStr ?? DEFAULT_TIME);
   if (Number.isNaN(time.getTime())) throw new Error(`bad ?time= (want ISO-8601): ${timeStr}`);
   const sp = nums(p.get('spawn'));
-  const tileset = p.get('tiles') ?? 'dev-tiles/tileset.json';
+  // One relative default works at / (local servers) and /turku-game/game/ (Pages).
+  const tileset = p.get('tiles') ?? (p.get('scene') === 'dev' ? 'dev-tiles/tileset.json' : '../tiles/tileset.json');
   const colRadius = Number(p.get('colRadius') ?? 200);
   if (!(colRadius > 0)) throw new Error(`bad ?colRadius= (metres > 0): ${p.get('colRadius')}`);
   const backend = (p.get('backend') ?? '').toLowerCase() === 'webgl' || p.has('webgl') ? 'webgl' : 'webgpu';

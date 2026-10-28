@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('New game plays the three-line intro before handing control to the player', { tag: ['@gameplay', '@input', '@synthetic'] }, async ({ page }, info) => {
-  await page.goto(`/?backend=${info.project.name}`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}`);
   await page.getByRole('option', { name: 'New game' }).click();
   const dialog = page.locator('#intro-dialog');
   await expect(dialog).toBeVisible();

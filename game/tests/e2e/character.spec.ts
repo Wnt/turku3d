@@ -19,7 +19,7 @@ test('textured player stays framed in third person', { tag: ['@walk'] }, async (
   const height = Math.max(...json.meshes.flatMap((mesh: any) => mesh.primitives.map((p: any) => json.accessors[p.attributes.POSITION].max[1])));
   expect(height).toBeGreaterThan(1.7);
   expect(height).toBeLessThan(1.9);
-  await page.goto(`/?backend=${info.project.name}`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}`);
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
   await settled(page);
   // Project the actual bind-pose body height from the default orbit camera using its actual pose.

@@ -26,6 +26,11 @@ try {
     await page.setViewportSize({ width: view.width, height: view.height });
     const url = new URL(base), p = view.pose;
     url.searchParams.set('backend', backend);
+    if (view.id === 'dev_street') {
+      url.searchParams.delete('tiles');
+      url.searchParams.delete('manifest');
+      url.searchParams.set('scene', 'dev');
+    }
     url.searchParams.set('cam', [p.E, p.N, p.H, p.yaw, p.pitch, p.fov].join(','));
     url.searchParams.set('roll', p.roll);
     url.searchParams.set('time', '2026-10-15T14:00:00+03:00');

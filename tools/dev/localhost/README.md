@@ -5,7 +5,7 @@ arrives later on a badge. `live` and GitHub Pages get every batch that builds (i
 along); only localhost shows builds the integrator has not built yet.
 
 ```bash
-tools/dev/localhost-game                 # main: http://127.0.0.1:5171/?tiles=/tiles/tileset.json
+tools/dev/localhost-game                 # main: http://127.0.0.1:5171/
 tools/dev/localhost-game --port 5211 --worktree "$TURKU3D_WORK/lh/repo" --no-build   # a sandbox instance
 curl -s localhost:5171/__localhost/status          # {service, commit, verification, tiles, coarse}
 tail -f "$TURKU3D_WORK/localhost-game/events.jsonl" # checkouts, verdicts, tile releases, coarse states, page loads, hot swaps

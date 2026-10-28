@@ -33,6 +33,10 @@ mission payout expression. Spawn derivation and coordinate conversion are record
 in `spawns.json`; points have 3 m spacing and were checked against the published
 building footprints. Client ground snapping and obstacle handling are still needed.
 
+Open [Turku on Pages](https://wnt.github.io/turku-game/game/) or the localhost game URL
+to join the default multiplayer room. Turku is the default scene; add `?scene=dev` only
+for the synthetic test world (`?mp=<websocket-url>` still overrides the multiplayer endpoint).
+
 ## Load and public probe
 
 ```sh

@@ -38,7 +38,7 @@ test('taken parked car stays visible after driving away on both backends', { tag
   const button = (index: number, value: number) => page.evaluate(([i, v]) => {
     (window as any).pad.buttons[i] = { value: v, pressed: v > 0.5, touched: v > 0 };
   }, [index, value]);
-  await open(page, `/?backend=${info.project.name}`);
+  await open(page, `/?scene=dev&backend=${info.project.name}`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => (window as any).__game?.state?.().grounded);

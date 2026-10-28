@@ -284,7 +284,7 @@ async function runPlay() {
     const onStatus = (status: BuildStatus) => {
       badge.set(status);
       const key = status.tiles?.key ?? null;
-      if (release === undefined || key === release || !params.tileset.startsWith('/tiles/')) { release ??= key; return; }
+      if (release === undefined || key === release || new URL(params.tileset, location.href).href !== new URL('/tiles/tileset.json', location.href).href) { release ??= key; return; }
       release = key;
       releases = releases.then(() => swapRelease({ manifest, manifestUrl: params.manifest, tilesetUrl: params.tileset, tiles,
         streamer, unloadCollision: id => physics.unloadTile(id), coarse })).then(delta => {

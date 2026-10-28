@@ -119,7 +119,7 @@ matching is not used. Cache/registration artifacts live in `$QA_DATA/registratio
 
 ```sh
 node qa/render/render.mjs --views qa/views/views.jsonl \
-  --url "http://localhost:$((TURKU3D_PORT_BASE + 1))/?tiles=/tiles/tileset.json" --out "$TURKU3D_WORK/qa/renders" \
+  --url "http://localhost:$((TURKU3D_PORT_BASE + 1))/" --out "$TURKU3D_WORK/qa/renders" \
   --backend webgpu --channel chrome
 ```
 

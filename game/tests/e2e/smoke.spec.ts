@@ -24,7 +24,7 @@ function watchConsole(page: Page) {
 test('loads, walks 5 m forward on the dummy tile, no console errors', { tag: ['@walk', '@ground', '@character', '@streaming'] }, async ({ page }, info) => {
   const backend = info.project.name; // 'webgpu' | 'webgl'
   const con = watchConsole(page);
-  const { scale } = await open(page, `/?backend=${backend}`);
+  const { scale } = await open(page, `/?scene=dev&backend=${backend}`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   // Loading precedes the game clock, so this bound stays wall-clock, scaled by the measured frame time.
@@ -86,7 +86,7 @@ test('QA camera mode renders the requested view and sets __qaReady', { tag: ['@q
   const backend = info.project.name;
   const con = watchConsole(page);
   // looking north-east from the SW part of the tile towards the NE marker, 1.7 m eye height above the 2 m ground
-  await open(page, `/?backend=${backend}&cam=23459540,6704290,3.7,40,2,75&time=2026-07-01T09:00:00Z`);
+  await open(page, `/?scene=dev&backend=${backend}&cam=23459540,6704290,3.7,40,2,75&time=2026-07-01T09:00:00Z`);
   await untilSim(page, () => (window as any).__qaReady === true || (window as any).__qaError, null, 60);
   const qa = await page.evaluate(() => ({ ready: (window as any).__qaReady, err: (window as any).__qaError, info: (window as any).__game.qa, hud: getComputedStyle(document.getElementById('hud')!).display }));
   expect(qa.err).toBeFalsy();
@@ -100,7 +100,7 @@ test('QA camera mode renders the requested view and sets __qaReady', { tag: ['@q
 test('enter the car with F, drive forward, exit with F', { tag: ['@drive', '@vehicle', '@input'] }, async ({ page }, info) => {
   const backend = info.project.name;
   const con = watchConsole(page);
-  await open(page, `/?backend=${backend}`);
+  await open(page, `/?scene=dev&backend=${backend}`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   await untilSim(page, () => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; }, null, 60);
@@ -151,7 +151,7 @@ test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json:
   }
   let n = 0;
   for (const { pose, cases } of byPose.values()) {
-    await page.goto(`/?backend=${backend}&cam=${pose.E},${pose.N},${pose.H},${pose.yaw},${pose.pitch},${pose.fov}&roll=${pose.roll}`);
+    await page.goto(`/?scene=dev&backend=${backend}&cam=${pose.E},${pose.N},${pose.H},${pose.yaw},${pose.pitch},${pose.fov}&roll=${pose.roll}`);
     await pace(page);
     await untilSim(page, () => typeof (window as any).__qaProject === 'function' || (window as any).__qaError, null, 30);
     for (const c of cases) {
@@ -169,7 +169,7 @@ test('QA __qaProject matches the Python camera (qa/tests/golden_projection.json:
 
 test('QA pose outside the tileset reports __qaError quickly (not the 120 s timeout)', { tag: ['@qa', '@render'] }, async ({ page }, info) => {
   const backend = info.project.name;
-  await open(page, `/?backend=${backend}&cam=23469668,6714254,5,0,-10,60&qa=1`); // 10 km NE of the dev tiles
+  await open(page, `/?scene=dev&backend=${backend}&cam=23469668,6714254,5,0,-10,60&qa=1`); // 10 km NE of the dev tiles
   await untilSim(page, () => (window as any).__qaReady === true || (window as any).__qaError, null, 30);
   const r = await page.evaluate(() => ({ ready: (window as any).__qaReady, err: (window as any).__qaError }));
   expect(r.ready).toBeFalsy();

@@ -15,7 +15,7 @@ test('player idle, walk and run remain grounded on both backends', { tag: ['@wal
       axes: pad.axes, buttons: pad.buttons.map(value => ({ value, pressed: value > 0.5, touched: value > 0 })),
     }] });
   });
-  await page.goto(`/?backend=${info.project.name}`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready && (window as any).__game.state().grounded);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();

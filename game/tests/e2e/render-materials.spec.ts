@@ -22,7 +22,7 @@ for (const quality of ['low', 'medium', 'high']) {
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.setViewportSize({ width: 1280, height: 720 });
-    const url = `/?backend=${info.project.name}&quality=${quality}&tiles=render-fixture/tileset.json` +
+    const url = `/?scene=dev&backend=${info.project.name}&quality=${quality}&tiles=render-fixture/tileset.json` +
       '&cam=23459668,6704252,7,0,-12,60&time=2026-10-15T11:00:00Z';
     await page.goto(url);
     await page.waitForFunction(() => window.__qaReady || window.__qaError);

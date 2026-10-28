@@ -14,7 +14,7 @@ const missionState = (s: any) => ({ phase: s.missions.phase, money: s.missions.m
 
 async function start(page: Page, backend: string, spawn: string) {
   await installPad(page);
-  await page.goto(`/?backend=${backend}&spawn=${spawn}`);
+  await page.goto(`/?scene=dev&backend=${backend}&spawn=${spawn}`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });

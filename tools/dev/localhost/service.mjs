@@ -243,6 +243,6 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(new 
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exit(0));
   // Never leave the dev server or the coarse service behind: also on an uncaught error.
   process.on('exit', () => service.stop());
-  service.start().then(() => console.log(`localhost-game: http://${service.o.host}:${service.o.port}/?tiles=/tiles/tileset.json`
+  service.start().then(() => console.log(`localhost-game: http://${service.o.host}:${service.o.port}/`
     + ` follows ${service.o.branch} in ${service.o.worktree}`), (e) => { console.error(e); process.exit(1); });
 }
