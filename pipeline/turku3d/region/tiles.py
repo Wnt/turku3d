@@ -253,7 +253,8 @@ def fast_facades(tile_id: str, work: Path, log) -> dict:
 
 def list_tile(tile_id: str) -> dict:
     path = C.playable_tiles_path(C.data_root())
-    listed = C.write_playable_tiles(path, plan(tile_id, C.read_playable_tiles(path)))
+    current = C.read_playable_tiles(path)
+    listed = C.write_playable_tiles(path, current if tile_id in current else plan(tile_id, current))
     run, common = fast_run(tile_id, C.work_root())
     if (run / "staging/fast.json").exists():
         approvals = C.data_root() / "facade-approvals/assembly"

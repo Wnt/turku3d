@@ -62,6 +62,25 @@ def digest(files: list[Path], extra=None) -> str:
     return h.hexdigest()
 
 
+def collision_cells(published, available, layers):
+    """Cells requiring cache validation, including unrequested retained neighbours."""
+    cells = published | {C.CollisionTile.parse(cid) for cid in available}
+    return sorted(
+        (c for c in cells if any(c.id in layer for layer in layers.values())),
+        key=lambda c: c.id,
+    )
+
+
+def collision_cache_key(tile_id, manifests, code, layer_ids):
+    """Hash the cell's current source inputs, including retained neighbour cells."""
+    files = {
+        name: m["tiles"][f"{tile_id}.col.npz"]["sha256"]
+        for name, m in manifests.items()
+        if f"{tile_id}.col.npz" in m["tiles"]
+    }
+    return digest([], [code, tile_id, files, layer_ids])
+
+
 def _continuous(name, manifest):
     return (
         manifest["params"].get("seams", "continuous" if name == "ground" else "objects")
@@ -535,13 +554,10 @@ def assemble(
         # Every listed tile's collision tiles, and the meshing margin the ground layer covers
         # too, so bridges crossing an L0 edge have a supported shore. Each collision tile is
         # rebuilt only when one of its layer files changed; border flags are refreshed below.
-        for c in sorted(published_cells, key=lambda c: c.id):
-            files = {
-                name: m["tiles"][f"{c.id}.col.npz"]["sha256"]
-                for name, m in manifests.items()
-                if f"{c.id}.col.npz" in m["tiles"]
-            }
-            key = digest([], [code, c.id, files, layer_ids])
+        # Retained cells must be checked too: a refresh can change a neighbour's
+        # layer bytes even when its visual tile was not requested in this build.
+        for c in collision_cells(published_cells, available, collision):
+            key = collision_cache_key(c.id, manifests, code, layer_ids)
             keys[f"collision:{c.id}"] = key
             if cache.get(f"collision:{c.id}") == key and c.id in tree.collision and tree_valid:
                 continue

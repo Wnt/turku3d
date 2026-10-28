@@ -503,15 +503,53 @@ def render_all(
 # ------------------------------------------------------------------------------------------
 
 
+def extend_inventory(inventory: Path, assembly: Path, ids: set[str]) -> int:
+    """Append new walls without changing approved geometry. Caller holds export_lock."""
+    approved = assembly / "APPROVED_INVENTORY.geojson"
+    manifest_path = assembly / "MANIFEST.json"
+    previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    if previous and previous.get("inventory_sha256") != sha(approved):
+        raise ValueError("shared export inventory changed; repair it before extending")
+    target = (
+        json.loads(approved.read_text())
+        if approved.exists()
+        else {"type": "FeatureCollection", "features": []}
+    )
+    existing = {
+        f"{f['properties']['building_id']}_{f['properties']['facade_index']}"
+        for f in target["features"]
+    }
+    added = []
+    for feature in json.loads(inventory.read_text())["features"]:
+        props = feature["properties"]
+        fid = f"{props['building_id']}_{props['facade_index']}"
+        if fid in ids and fid not in existing:
+            added.append(feature)
+            existing.add(fid)
+    if added or not approved.exists():
+        target["features"].extend(added)
+        write_json(approved, target)
+        write_json(
+            manifest_path,
+            {
+                **previous,
+                "inventory_sha256": sha(approved),
+                "bound": previous.get("bound", []),
+                "library": previous.get("library", []),
+            },
+        )
+    return len(added)
+
+
 def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
     """Bind the staged fast maps under the export lock, against the approval root's own
-    inventory: a staged wall binds only where that inventory has the same wall (same ID and
-    geometry), and never where a generated or derived map is bound by then."""
+    inventory, extending it with missing walls from the planned tiles. Existing geometry
+    stays authoritative; generated and derived maps are preserved."""
     from types import SimpleNamespace
 
     from .export import export_assets, export_lock, matches
 
-    planned_facades(run, inventory)
+    plan, facades = planned_facades(run, inventory)
     staged = [
         r["facade_id"]
         for r in json.loads((staging / "fast.json").read_text())["rows"]
@@ -519,6 +557,9 @@ def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
     ]
     approved = assembly / "APPROVED_INVENTORY.geojson"
     with export_lock(assembly):
+        tiles = set(plan["tiles"])
+        listed = {f.id for f in load_facades(inventory) if tile_of(f) in tiles}
+        added = extend_inventory(inventory, assembly, listed | {f.id for f in facades})
         target = {f.id: f for f in load_facades(approved)}
         source = {f.id: f for f in load_facades(inventory) if f.id in set(staged)}
         unmatched = sorted(
@@ -548,6 +589,7 @@ def publish(run: Path, staging: Path, inventory: Path, assembly: Path) -> dict:
             )
     return {
         "published": len(ids),
+        "inventory_added": added,
         "kept_better": kept,
         "not_in_approved_inventory": unmatched,
         "bound_before": len(before["bound"]),
