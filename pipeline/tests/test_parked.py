@@ -133,8 +133,9 @@ def test_published_boxes_stop_player_and_vehicle_shapes(tmp_path):
         (out / f"{tid}.col").write_bytes(data)
     script = C.REPO_ROOT / "tools/validator/parked.mjs"
     result = subprocess.run(
-        ["node", str(script), str(out)], capture_output=True, text=True, check=True
+        ["node", str(script), str(out)], capture_output=True, text=True, check=False
     )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert report["pass"] is True
     assert report["boxes"] == 4 and report["shapeSweeps"] == 8
