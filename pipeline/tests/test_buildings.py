@@ -9,6 +9,7 @@ import shapely
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from turku3d.buildings import roofer
+from turku3d.buildings.build import merged_source
 from turku3d.buildings.facades import make_visuals, roof_material
 from turku3d.buildings.inputs import Building, read_playable_footprints
 from turku3d.buildings.select import choose, residuals
@@ -16,6 +17,25 @@ from turku3d.buildings.shells import Surface, make_shell, triangulate
 from turku3d.buildings.tiles import collision_tiles
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import accessor_array, build_glb, read_glb
+
+
+def test_merge_overlapping_wfs_areas_keeps_distinct_surfaces(tmp_path):
+    import geopandas as gpd
+
+    a, b = shapely.box(0, 0, 2, 2), shapely.box(2, 0, 4, 2)
+    paths = [tmp_path / "west.parquet", tmp_path / "east.parquet"]
+    gpd.GeoDataFrame(
+        {"feature_key": ["building", "building"]}, geometry=[a, b], crs="EPSG:3877"
+    ).to_parquet(paths[0])
+    gpd.GeoDataFrame(
+        {"feature_key": ["building", "next"]},
+        geometry=[b, shapely.box(5, 0, 7, 2)],
+        crs="EPSG:3877",
+    ).to_parquet(paths[1])
+
+    result = gpd.read_parquet(merged_source(paths, tmp_path / "merged.parquet"))
+    assert len(result) == 3
+    assert list(result.feature_key) == ["building", "building", "next"]
 
 
 def extrusion(poly, height=8.0, base=0.0):
