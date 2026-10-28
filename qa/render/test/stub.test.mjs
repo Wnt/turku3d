@@ -1,3 +1,4 @@
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../../tools/dev/chrome-args.mjs';
 // Contract tests against the stub page: URL building, pose echo, viewport size, ID pass, projection.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +12,7 @@ import { contractUrl, parseArgs, main } from '../render.mjs';
 
 let browser;
 before(async () => {
-  browser = await chromium.launch({ channel: 'chrome' });
+  browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', args: chromeArgs() });
 });
 after(async () => { await browser?.close(); });
 

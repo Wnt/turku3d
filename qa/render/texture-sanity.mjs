@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Manual real-data generator inspection, deliberately outside the test gate.
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -90,7 +91,7 @@ try {
   fs.writeFileSync(sceneFile, source, { flag: 'wx' });
   fs.writeFileSync(pageFile, '<link rel="icon" href="data:,"><script type="module" src="/__texture-sanity.js"></script>', { flag: 'wx' });
   fs.symlinkSync(root, link);
-  browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', ...(performanceOnly ? ['--disable-gpu-vsync', '--disable-frame-rate-limit'] : [])] });
+  browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', ...(performanceOnly ? ['--disable-gpu-vsync', '--disable-frame-rate-limit'] : [])]) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));

@@ -1,3 +1,4 @@
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 // Small final-backend check for the native GPU completion waits; real-data timing uses preload-probe.mjs.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,8 +9,8 @@ import { isolateBrowser, port, reportsRoot } from '../../tools/dev/environment.m
 isolateBrowser();
 const out = path.join(reportsRoot, 'preload', 'gpu-smoke');
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ channel: 'chrome', headless: true,
-  args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'] });
+const browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true,
+  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
   const errors = [];

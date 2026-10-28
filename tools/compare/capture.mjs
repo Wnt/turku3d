@@ -1,3 +1,4 @@
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../dev/chrome-args.mjs';
 // Local reference viewing only: no response interception, tile export or network archive.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,7 +10,7 @@ import { isolateBrowser } from '../dev/environment.mjs';
 const require = createRequire(new URL('../../qa/render/package.json', import.meta.url));
 const { chromium } = require('playwright');
 isolateBrowser();
-const args = ['--window-size=1280,980', '--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu', '--enable-webgl', '--enable-unsafe-webgpu', '--disk-cache-size=1', '--media-cache-size=1'];
+const args = chromeArgs(['--window-size=1280,980', '--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu', '--enable-webgl', '--enable-unsafe-webgpu', '--disk-cache-size=1', '--media-cache-size=1']);
 
 async function disableCache(context, page) {
   const cdp = await context.newCDPSession(page);
@@ -62,7 +63,7 @@ export async function main(file, shared = {}) {
     if (!context) {
       const profile = path.join(process.env.TURKU3D_BROWSER_DIR, 'gmaps-compare');
       context = await chromium.launchPersistentContext(profile, {
-        channel: 'chrome', headless: false, viewport: { width: record.width, height: record.height },
+        ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: false, viewport: { width: record.width, height: record.height },
         deviceScaleFactor: 1, locale: 'en-US', serviceWorkers: 'block', args,
       });
     }

@@ -1,3 +1,4 @@
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 // Manual diagnostic, run through host_slots.py browser. Output stays in the sandbox.
 import { chromium } from '@playwright/test';
 import { execFileSync, spawn } from 'node:child_process';
@@ -19,7 +20,7 @@ if (label === 'before') {
 }
 let browser;
 try {
-browser = await chromium.launch({ channel: 'chrome', headless: true, args: [`--remote-debugging-port=${port + 8}`, '--enable-unsafe-webgpu', '--use-angle=metal'] });
+browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true, args: chromeArgs([`--remote-debugging-port=${port + 8}`, '--enable-unsafe-webgpu', '--use-angle=metal']) });
 const context = await browser.newContext(label === 'fallback' ? { serviceWorkers: 'block' } : {});
 const page = await context.newPage();
 await page.addInitScript(() => {

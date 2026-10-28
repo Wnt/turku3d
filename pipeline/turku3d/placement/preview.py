@@ -74,8 +74,8 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     script = r"""
 const {chromium}=require(process.argv[1]);
-(async()=>{const context=await chromium.launchPersistentContext(process.argv[2],{
-channel:'chrome',headless:true,viewport:{width:1400,height:950},args:['--use-angle=metal']});
+(async()=>{const {chromeArgs,chromeIgnoreDefaultArgs}=await import(process.argv[5]);const context=await chromium.launchPersistentContext(process.argv[2],{
+ignoreDefaultArgs:chromeIgnoreDefaultArgs,channel:'chrome',headless:true,viewport:{width:1400,height:950},args:chromeArgs(['--use-angle=metal'])});
 try{for(const phase of ['before','after'])for(const view of ['aurasilta','rantakatu','teatterisilta']){
 const page=await context.newPage();await page.goto(process.argv[3]+'/preview.html?phase='+phase+'&view='+view);
 await page.waitForFunction(()=>window.__placementReady,{},{timeout:120000});
@@ -92,6 +92,7 @@ await page.screenshot({path:process.argv[4]+'/'+view+'-'+phase+'.png'});await pa
                 str(Path(os.environ["TURKU3D_BROWSER_DIR"]) / "placement"),
                 f"http://127.0.0.1:{port}",
                 str(out),
+                (C.REPO_ROOT / "tools/dev/chrome-args.mjs").as_uri(),
             ],
             check=True,
         )

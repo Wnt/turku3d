@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 // Manual Kupittaa performance experiment; no browser test or timing gate.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -96,10 +97,10 @@ try {
   const link = path.join(repo, 'game/public/__kupittaa');
   fs.symlinkSync(path.resolve(drafts), link); generated.push(link);
   fs.mkdirSync(out, { recursive: true });
-  browser = await chromium.launch({ channel: 'chrome', headless: true, args: [
+  browser = await chromium.launch({ ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true, args: chromeArgs([
     '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist',
     '--disable-gpu-vsync', '--disable-frame-rate-limit', '--disable-background-timer-throttling',
-  ] });
+  ]) });
   const page = await browser.newPage({ viewport: { width: 2560, height: 1440 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

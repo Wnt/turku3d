@@ -1,3 +1,4 @@
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../tools/dev/chrome-args.mjs';
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
 import { port, reportsRoot, isolateBrowser } from '../tools/dev/environment.mjs';
@@ -20,7 +21,7 @@ export default defineConfig({
     channel: 'chrome',
     headless: true,
     viewport: { width: 960, height: 540 },
-    launchOptions: { args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist'] },
+    launchOptions: { ignoreDefaultArgs: chromeIgnoreDefaultArgs, args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist']) },
   },
   projects: [{ name: 'webgpu' }],
 });

@@ -1,3 +1,4 @@
+import { chromeArgs, chromeIgnoreDefaultArgs } from '../../tools/dev/chrome-args.mjs';
 // Real Metal GPU material compilation + optional before/after captures. Own server/profile only.
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
@@ -33,8 +34,8 @@ try {
   assert(ready, `Vite did not start: ${serverLog}`);
   for (const backend of ['webgpu', 'webgl']) {
     const context = await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR, `ground-${backend}`), {
-      channel: 'chrome', headless: true, viewport: { width: 1280, height: 960 },
-      args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'],
+      ignoreDefaultArgs: chromeIgnoreDefaultArgs, channel: 'chrome', headless: true, viewport: { width: 1280, height: 960 },
+      args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
     });
     try {
       for (const view of real ? [0, 1, 2] : [0]) {
