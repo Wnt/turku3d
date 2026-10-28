@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { batchTileShadows } from '../../src/world/shadowBatch';
+import { batchTileShadows, TILE_SHADOW_LAYER } from '../../src/world/shadowBatch';
 
 const triangle = () => {
   const geometry = new THREE.BufferGeometry();
@@ -29,6 +29,12 @@ test('one shadow mesh preserves buildings and instanced props without ground or 
   expect(shadow.geometry.getIndex()!.count).toBe(9);
   expect(shadow.geometry.getAttribute('position').count).toBe(9);
   expect(shadow.castShadow).toBe(true);
+  const camera = new THREE.PerspectiveCamera();
+  expect(shadow.layers.test(camera.layers)).toBe(false);
+  const shadowCamera = new THREE.OrthographicCamera();
+  shadowCamera.layers.enable(TILE_SHADOW_LAYER);
+  expect(shadow.layers.test(shadowCamera.clone().layers)).toBe(true);
+  expect(building.layers.test(shadowCamera.layers)).toBe(true);
   expect([building, props, trees, ground].map(mesh => mesh.castShadow)).toEqual([false, false, false, false]);
   const pos = shadow.geometry.getAttribute('position');
   expect([0, 3, 6].map(i => [pos.getX(i), pos.getY(i), pos.getZ(i)])).toEqual([

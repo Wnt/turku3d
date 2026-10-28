@@ -3,7 +3,9 @@
 Streaming of the published tiles (`docs/specs/tiles.md`): `manifest.ts` loads and checks `manifest.json`, `tiles.ts`
 streams the visual tileset with 3DTilesRendererJS, `residency.ts` caps refined L0 tiles at nine (nearest 500 m
 parents first), `collisionStreaming.ts` keeps the `.col` tiles within the collision radius in the physics worker,
-`shadowBatch.ts` merges non-vegetation shadow casters, and `coarseTiles.ts` streams localhost draft tiles for cells the
+`shadowBatch.ts` merges non-vegetation shadow casters on layer 1, enabled only on sun shadow cameras
+(including the cloned CSM cascades). Colour, normal and reflection cameras retain layer 0, so the
+shadow proxies never submit duplicate geometry to those passes. `coarseTiles.ts` streams localhost draft tiles for cells the
 tileset lacks (`tools/dev/coarse-tiles`).
 The draft badge's building count comes from `/coarse/want` (`queued` plus the running `building` ids), so retained
 client entries outside the requested area do not count as work. Verify locally with `scripts/dev/gate --fast --base main`.
