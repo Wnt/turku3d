@@ -147,7 +147,7 @@ def main():
     builder = Builder(
         root,
         workers=settings["workers"],
-        inputs=lambda tile: [u.key for u in sources.missing(C.VisualTile.parse(tile))],
+        inputs=lambda tile: [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))],
         input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
         on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
     )

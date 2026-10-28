@@ -60,3 +60,33 @@ def test_prepared_raw_key_uses_bytes_not_location_or_mtime(tmp_path, monkeypatch
     assert key == _key([a], "ground")
     a.write_bytes(b"other")
     assert key != _key([a], "ground")
+
+
+def test_service_requests_optional_osm_without_motion_prefetch(monkeypatch):
+    from turku3d import config as C
+    from turku3d.coarse.sources import Sources, Unit, block_of
+
+    sources, tile = Sources(), C.VisualTile(0, 0, 0)
+    missing = [Unit("wfs", block_of(tile))]
+    monkeypatch.setattr(sources, "missing", lambda _: list(missing))
+    monkeypatch.setattr(sources, "osm_source", lambda _: None)
+    assert sources.missing_for_service(tile) == [*missing, Unit("osm", block_of(tile))]
+    monkeypatch.setattr(sources, "osm_source", lambda _: "present")
+    assert sources.missing_for_service(tile) == missing
+
+
+def test_new_generator_is_not_served_from_old_manifest_during_rebuild(tmp_path):
+    import json
+
+    from turku3d.coarse.service import Builder
+
+    builder = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
+    path = builder.manifest("t0_0_0")
+    path.parent.mkdir()
+    path.write_text(json.dumps({"code": "old"}))
+    builder.servable = frozenset({"t0_0_0"})
+    builder.building["t0_0_0"] = 0
+    assert builder.request("t0_0_0", 0)["state"] == "building"
+    path.write_text(json.dumps({"code": "new"}))
+    assert builder.request("t0_0_0", 0)["state"] == "built"
+    builder.stop()

@@ -308,6 +308,13 @@ class Sources:
             out.append(Unit("wfs", block_of(tile)))
         return out
 
+    def missing_for_service(self, tile: C.VisualTile) -> list[Unit]:
+        """Public clients have no motion-prefetch route: request OSM with the required datasets."""
+        missing = self.missing(tile)
+        if self.osm_source(tile) is None:
+            missing.append(Unit("osm", block_of(tile)))
+        return missing
+
     def input_key(self, tile: C.VisualTile) -> str | None:
         """Identity (path, size, mtime) of every raw file the tile's build reads, and whether OSM is
         there; None while a required unit is missing. A draft built from other files is stale."""

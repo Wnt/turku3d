@@ -30,6 +30,7 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
+from turku3d.facade_assets import stored_request
 from turku3d.facade_kit import candidates, ensure_kit, parameter_hash, parameters
 from turku3d.facade_kit import code_hash as kit_hash
 from turku3d.ground.mesh import Mesh
@@ -43,6 +44,7 @@ from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
 from .packaging import package_visual
 from .sources import Sources
+from .stored_facades import wall_meshes
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
@@ -63,6 +65,17 @@ def code_hash() -> str:
             props / "__init__.py",
             props / "models.py",
             props / "orientation.py",
+            Path(C.__file__),
+            Path(__file__).parents[1] / "layers.py",
+            Path(__file__).parents[1] / "facade_assets.py",
+            Path(__file__).parents[1] / "package/gltf.py",
+            Path(__file__).parents[1] / "ground/water.py",
+            *sorted((Path(__file__).parents[1] / "col").glob("*.py")),
+            *sorted((Path(__file__).parents[1] / "col").glob("*.mjs")),
+            Path(__file__).parents[1] / "col/materials_v1.json",
+            *sorted((Path(__file__).parents[1] / "vegetation").glob("*.py")),
+            *sorted((Path(__file__).parents[1] / "structures").glob("*.py")),
+            C.REPO_ROOT / "pipeline/env/package-lock.json",
         ]
     ):
         h.update(p.name.encode())
@@ -307,6 +320,7 @@ def _package_visual(
     library: Path,
     *,
     first_pass: bool = False,
+    building_keys=(),
 ) -> tuple[bytes, dict]:
     request = dict(
         tile=tile.id,
@@ -325,6 +339,7 @@ def _package_visual(
         facadeKit=None if first_pass else ensure_kit(work / "shared"),
         firstPass=first_pass,
     )
+    request.update(stored_request(building_keys))
     (stage / "out").mkdir(parents=True, exist_ok=True)
     req = stage / "requests.json"
     req.write_text(json.dumps([request]))
@@ -616,24 +631,7 @@ def build(
         for b, (_, _, _, _, walls, wuv, widx) in shells:
             width = max(float(wuv[:, 0].max()), 1.0)
             params = parameters(b.facade_key, b.top - b.base, width, getattr(b, "attributes", {}))
-            meshes.append(
-                GlbMesh(
-                    f"walls_{b.key}",
-                    walls - origin,
-                    widx,
-                    uvs=wuv,
-                    color=(1, 1, 1, 1),
-                    extras=dict(
-                        layer="buildings",
-                        object_id=f"walls_{b.key}",
-                        building_id=b.facade_key,
-                        material_key="facade_kit",
-                        base_height=b.base,
-                        top_height=b.top,
-                        facade_kit=params,
-                    ),
-                )
-            )
+            meshes.extend(wall_meshes(b, walls, wuv, widx, origin, params))
         write_visual(stage / "buildings.vis.glb", meshes, root_translation=tile.origin)
         layer_files.append(stage / "buildings.vis.glb")
     barrier_cols, barrier_stats = fences.produce(

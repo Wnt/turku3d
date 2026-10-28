@@ -712,7 +712,7 @@ def serve(
         prefetcher = Prefetcher(sources, root=root)
 
         def inputs(tile: str) -> list[str]:
-            return [u.key for u in sources.missing(C.VisualTile.parse(tile))]
+            return [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))]
 
         builder = Builder(
             root,

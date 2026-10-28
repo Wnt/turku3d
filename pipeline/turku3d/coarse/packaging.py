@@ -1,10 +1,13 @@
 """Content-addressed draft visual packaging, independent of generator source versions."""
 
+import json
 import os
 from pathlib import Path
 
 from turku3d import config as C
-from turku3d.facade_kit import ensure_kit
+from turku3d.facade_assets import stored_request
+from turku3d.facade_kit import ensure_kit, parameter_hash
+from turku3d.package.facades import glb_buildings
 from turku3d.stage_cache import StageCache, source_key
 
 
@@ -19,6 +22,15 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
         for name in sorted(names):
             path = Path(directory) / name
             files["library/" + str(path.relative_to(library))] = path
+    building_keys = set().union(*(glb_buildings(p.read_bytes()) for p in layer_files))
+    stored = stored_request(building_keys)
+    for identity in stored["facadeBindings"]:
+        building, side = identity.rsplit("_", 1)
+        directory = Path(stored["facades"]) / building
+        sidecar = directory / f"{side}.json"
+        files["facades/" + identity] = sidecar
+        for name in json.loads(sidecar.read_text())["files"].values():
+            files[f"facades/{building}/{name}"] = directory / name
     kit = None if first_pass else ensure_kit(work / "shared")
     if kit:
         for slot, path in kit["maps"].items():
@@ -28,7 +40,13 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
 
     def package():
         visual, stats = _package_visual(
-            tile, layer_files, stage, work, library, first_pass=first_pass
+            tile,
+            layer_files,
+            stage,
+            work,
+            library,
+            first_pass=first_pass,
+            building_keys=building_keys,
         )
         assets = {
             name: (stage / "shared" / name).read_bytes() for name in stats.get("shared_images", [])
@@ -43,7 +61,7 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
             C.REPO_ROOT / "pipeline/env/package-lock.json",
             _package_visual,
         ),
-        [tile.id, first_pass, identities(files), kit],
+        [tile.id, first_pass, identities(files), kit, parameter_hash(building_keys)],
         package,
     )
     for name, data in assets.items():
