@@ -56,7 +56,9 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   profile, and meshes are clipped to the tile instead of repeating entire decks. Only transverse interior
   crossings of lower transport ways request headroom; their elevation is interpolated from outside
   the deck footprint so deck samples cannot be mistaken for railway ground. Boat gangways retain their mapped span and endpoint
-  levels; ordinary approaches blend over at most 3 m. Outline branches blend back to measured ground.
+  levels. Ordinary approaches seek a mapped continuation-road join within 30 m and 8% overall
+  grade, independently on each bank; without that evidence they retain the short blend.
+  Lower-route corridors remain unmodified beneath approaches. Outline branches blend back to measured ground.
   Source ship/building footprints cut holes in decks; rails follow the outline with open traffic entrances.
   Mapped branch paths blend toward ground; widened observation bays retain the deck profile.
   Collision clips the detailed railings and deck to each 62.5 m cell instead of repeating a full
@@ -317,6 +319,8 @@ Mapped pedestrian member ways become raised pavements; lane tags place paint, ga
 place rails/sleepers, and mapped `highway=street_lamp` nodes place poles. `lit=yes` alone does
 not invent lamp locations. Meshes batch by material; paint has no duplicate collider, while
 decks, pavement, structural members and visible railing bars supply collision.
+Longitudinal crown stations split the top and soffit for triangulation. Only the physical
+outline and hole boundaries get vertical slab walls; station cuts do not add internal bulkheads.
 
 `bridge_survey.py` optionally reads existing full city lidar through `turku3d.lidar.TileStore`
 into the sandbox cache. It never fetches. Classes 1/2/10/12/17 contribute robust deck profiles;
@@ -332,6 +336,22 @@ Fallback headroom remains 4.5 m road / 6 m rail / 2.5 m path. `manifest.seconds.
 producer time. `roads.json.edgeHeights` follows the shared deck for parallel carriageways and
 sidewalks while leaving transverse lower ways at their own elevations. The existing 8 MB visual
 budget remains unchanged.
+
+When the full lidar cannot supply a profile, optional cached `kanta:Korkeuspiste` N2000 heights
+can anchor the deck interior. The catalogue creation year must not precede the mapped construction year; this is a
+freshness filter, not an independently verified survey date. Points must
+lie away from edges/ends and mapped lower routes, and have position uncertainty at
+most 20 cm. Conflicting heights at one station and profiles steeper than 15% are rejected.
+Points within 50 cm of the raw terrain/water height are excluded: map positions alone do not
+distinguish water below a bridge from its deck.
+Ground approaches stay fixed. These sparse anchors do not certify the whole deck; the audit
+reports their stations and source separately from held-out lidar errors. The small spot-height
+files also participate in the initial structural pass and both prepared/served cache identities.
+Nearby source areas are read together so adjacent tiles use the same bridge anchors.
+Generation never fetches them; the WFS prefetcher attempts this optional layer after required
+layers, including enrichment of cached blocks whose structural inputs are already ready.
+Missing spot heights do not block a build. The input owner can also populate a tile's source with
+`bash pipeline/env/run.sh python -m turku3d.fetch wfs --area tile-t0_3_-5 --layers kanta:Korkeuspiste`.
 
 
 Area vegetation (`forests.py`) uses OSM forest/wood, scrub/heath, parks/gardens and tree rows,
@@ -452,6 +472,20 @@ the actual supporting mesh, and before reuses those exact camera positions. For 
 with shared inputs linked read-only and newly downloaded layers kept in the sandbox.
 Private reference pairs/scores require the comparison tool's own coverage and
 calibration checks and remain outside this repository. No reference values feed generation.
+
+For a current-generator baseline, pass `before --baseline-ref HEAD` explicitly; the default
+baseline is the historical pre-quality producer. Audit the initial structural pass separately
+with `--first-pass --out "$TURKU3D_WORK/reports/bridge-first/before"`. Use a separate output
+parent to audit cold preparation. Initial and full passes use identical bridge survey inputs
+and share the prepared road cache, so a mixed-pass crossing retains one deck profile.
+Optional full-resolution roof refinement still waits for the full pass. Full-pass and initial-pass output
+must not overwrite each other. Pass that audit parent as the renderer's optional third argument,
+for example `node qa/render/bridge-quality.mjs after "$TURKU3D_WORK/reports/bridge-first"`.
+For a standalone current-build inspection, use
+`node qa/render/bridge-quality.mjs current "$TURKU3D_WORK/reports/bridge-quality/before"`;
+it reads that build's inventory and grounds cameras without requiring an after build.
+The renderer serves the immutable audit files on sandbox port base +3 while running;
+the game development server uses port base +0. HTTP or page errors stop the render immediately.
 
 ## Latency diagnostics
 

@@ -208,6 +208,120 @@ def test_bridge_slab_separates_surface_from_structural_thickness():
     assert mesh[1].material == "wall"
 
 
+def test_crown_station_cuts_do_not_add_paired_internal_bulkheads():
+    _, body = slab(
+        "deck",
+        shapely.box(0, -3, 20, 3),
+        shapely.LineString([(0, 0), (20, 0)]),
+        np.array([0, 5, 10, 15, 20]),
+        np.array([5, 5.3, 5.5, 5.3, 5]),
+        "road",
+    )
+    triangles = body.positions[body.indices]
+    vertical = np.ptp(triangles[:, :, 1], axis=1) > 0.1
+    # Only the two physical ends may span the width of this straight slab.
+    across = vertical & (np.ptp(triangles[:, :, 0], axis=1) == 0)
+    assert set(triangles[across, :, 0].ravel()) == {0, 20}
+    # Crown stations still break the longitudinal outer walls at their measured heights.
+    assert any(np.allclose(p, [10, 5.5, 3]) for p in body.positions)
+
+
+def test_crown_cuts_keep_vertical_walls_around_physical_openings():
+    _, body = slab(
+        "deck",
+        shapely.box(0, -3, 20, 3).difference(shapely.box(8, -1, 12, 1)),
+        shapely.LineString([(0, 0), (20, 0)]),
+        np.array([0, 5, 10, 15, 20]),
+        np.full(5, 5.0),
+        "road",
+    )
+    triangles = body.positions[body.indices]
+    across = (np.ptp(triangles[:, :, 1], axis=1) > 0.1) & (np.ptp(triangles[:, :, 0], axis=1) == 0)
+    assert set(triangles[across, :, 0].ravel()) == {0, 8, 12, 20}
+
+
+def test_slab_ignores_line_remainders_from_outline_clipping():
+    polygon = shapely.GeometryCollection(
+        [shapely.box(0, -3, 20, 3), shapely.LineString([(0, -3), (-2, -3)])]
+    )
+    top, _ = slab(
+        "deck",
+        polygon,
+        shapely.LineString([(0, 0), (20, 0)]),
+        np.array([0, 10, 20]),
+        np.full(3, 5.0),
+        "road",
+    )
+    triangles = top.positions[top.indices]
+    area = (
+        np.linalg.norm(
+            np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]), axis=1
+        ).sum()
+        / 2
+    )
+    assert np.isclose(area, 120)
+    assert top.positions[:, 0].min() == 0
+
+
+def test_spot_anchors_exclude_old_points_lower_routes_and_parapets():
+    from turku3d.coarse.bridge_survey import height_anchors
+
+    deck = way("new", [(0, 0), (100, 0)], width=8)
+    deck["tags"]["construction_year"] = "2024"
+    deck["under"] = [way("lower", [(30, -20), (30, 20)], layer=0, bridge=False)]
+    points = [
+        (shapely.Point(50, 0), 9, 2025),
+        (shapely.Point(60, 0), 8, 2021),
+        (shapely.Point(30, 0), 3, 2025),
+        (shapely.Point(70, 3.8), 10, 2025),
+        (shapely.Point(5, 0), 7, 2025),
+    ]
+    assert height_anchors(deck, points) == [(50, 9)]
+    assert height_anchors(deck, [*points, (shapely.Point(50, 0), 12, 2025)]) == []
+
+
+def test_spot_profile_preserves_approaches_and_rejects_impossible_grades():
+    from turku3d.coarse.bridge_survey import anchored_profile
+
+    stations = np.array([0, 25, 50, 75, 100])
+    profile = anchored_profile(stations, np.array([8, 8, 8, 8, 8]), [(50, 9)])
+    assert np.allclose(profile, [8, 8.5, 9, 8.5, 8])
+    assert anchored_profile(stations, np.full(5, 8), [(50, 30)]) is None
+    assert anchored_profile(stations, np.full(5, 8), []) is None
+
+
+def test_height_points_on_water_below_a_bridge_are_not_deck_anchors():
+    from turku3d.coarse.bridge_survey import above_ground_anchors
+
+    axis = shapely.LineString([(0, 0), (100, 0)])
+    assert above_ground_anchors(axis, [(30, 0.19), (60, 9.1)], lambda x, z: 0.2) == [(60, 9.1)]
+
+
+def test_approach_join_reaches_mapped_road_level_on_each_bank_independently():
+    from turku3d.coarse.bridges import approach_lengths, extended
+
+    deck = way("deck", [(0, 0), (20, 0)], width=8)
+    deck["approaches"] = [
+        way("left", [(-40, 0), (0, 0)], bridge=False, width=8),
+        way("right", [(20, 0), (60, 0)], bridge=False, width=8),
+    ]
+
+    def ground(x, z):
+        return -1 if -10 <= x < 0 else 1
+
+    distances = approach_lengths(deck, [1, 1], ground, shapely.GeometryCollection())
+    assert distances == (12, 2)
+    line = extended(deck["line"], distances)
+    assert line.coords[0] == (-12, 0)
+    assert line.coords[-1] == (22, 0)
+    # Unmapped land and a barrier cannot become a speculative long approach.
+    deck["approaches"] = []
+    assert approach_lengths(deck, [1, 1], ground, shapely.GeometryCollection()) == (2, 2)
+    deck["approaches"] = [way("left", [(-40, 0), (0, 0)], bridge=False, width=8)]
+    assert approach_lengths(deck, [1, 1], ground, shapely.box(-40, -5, -6, 5)) == (2, 2)
+    assert approach_lengths(deck, [1, 1], lambda x, z: -20, shapely.GeometryCollection()) == (2, 2)
+
+
 def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
     from turku3d.coarse.bridge_details import surfaces
 

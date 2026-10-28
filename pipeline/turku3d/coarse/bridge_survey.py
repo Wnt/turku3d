@@ -7,6 +7,110 @@ from turku3d import config as C
 from turku3d.lidar import TileStore
 
 
+def spot_sources(tile, sources):
+    """Optional nearby city vectors, including both ends of cross-tile bridges."""
+    window = tile.bbox.buffered(500)
+    paths = []
+    for summary, state in sources.wfs.items():
+        if summary.name != "kanta_Korkeuspiste.summary.json" or state.get("status") != "ok":
+            continue
+        if "bbox_en" not in state:
+            continue
+        bbox = C.BBoxEN(*state["bbox_en"]).to_local()
+        path = summary.with_suffix("").with_suffix(".parquet")
+        if (
+            bbox.xmin <= window.xmax
+            and bbox.xmax >= window.xmin
+            and bbox.zmin <= window.zmax
+            and bbox.zmax >= window.zmin
+            and path.exists()
+        ):
+            paths.append(path)
+    return sorted(set(paths))
+
+
+def spot_heights(paths):
+    """Published N2000 spot heights; source geometry itself is two-dimensional."""
+    if not paths:
+        return []
+    import pyarrow.parquet as pq
+
+    result = []
+    rows = [row for path in paths for row in pq.read_table(path).to_pylist()]
+    seen = set()
+    for row in rows:
+        try:
+            height = float(row["korkeus"])
+            uncertainty = float(row["sijaintiepavarmuus"])
+            # Feature creation is only a freshness filter, not a survey date.
+            year = int(str(row["alkuPvm"])[:4])
+        except (KeyError, TypeError, ValueError):
+            continue
+        point = shapely.from_wkb(row["geometry_local"])
+        if point.geom_type == "Point" and np.isfinite(height) and 0 <= uncertainty <= 0.2:
+            key = (point.x, point.y, height, year)
+            if key not in seen:
+                seen.add(key)
+                result.append((point, height, year))
+    return result
+
+
+def height_anchors(way, spots):
+    """Use deck-interior catalogue heights, excluding lower routes and parapets."""
+    if way.get("landing"):
+        return []
+    axis = way["line"]
+    year = str(way["tags"].get("start_date", way["tags"].get("construction_year", "")))[:4]
+    earliest = int(year) if year.isdigit() else 0
+    polygon = way.get("outline", axis.buffer(way["width"] / 2))
+    lower = shapely.union_all([w["line"].buffer(w["width"] / 2 + 1) for w in way.get("under", [])])
+    anchors = []
+    for point, height, date in spots:
+        station = axis.project(point)
+        if (
+            date >= earliest
+            and axis.length * 0.1 < station < axis.length * 0.9
+            and polygon.contains(point)
+            and polygon.boundary.distance(point) > 0.5
+            and axis.distance(point) < way["width"] * 0.3
+            and not lower.covers(point)
+        ):
+            anchors.append((station, height))
+    # Multiple catalogue points at one station must agree before defining a profile.
+    groups = {}
+    for station, height in anchors:
+        groups.setdefault(round(station), []).append((station, height))
+    return [
+        tuple(np.median(group, axis=0))
+        for _, group in sorted(groups.items())
+        if np.ptp(np.asarray(group)[:, 1]) <= 0.3
+    ]
+
+
+def anchored_profile(stations, fallback, anchors):
+    """Measured interior heights with unchanged approaches; reject implausible grades."""
+    if not anchors:
+        return None
+    positions = np.r_[stations[0], [a[0] for a in anchors], stations[-1]]
+    heights = np.r_[fallback[0], [a[1] for a in anchors], fallback[-1]]
+    if (
+        np.any(np.diff(positions) <= 0)
+        or np.max(np.abs(np.diff(heights) / np.diff(positions))) > 0.15
+    ):
+        return None
+    return np.interp(stations, positions, heights)
+
+
+def above_ground_anchors(axis, anchors, sample):
+    """A plan-view height point can describe water or terrain beneath the bridge."""
+    result = []
+    for station, height in anchors:
+        point = axis.interpolate(float(station))
+        if height > sample(point.x, point.y) + 0.5:
+            result.append((station, height))
+    return result
+
+
 def source_paths(tile):
     """Include optional survey identities in both prepared and served draft caches."""
     result = []

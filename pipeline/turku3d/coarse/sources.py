@@ -46,6 +46,7 @@ WFS_LAYERS = (
     "kanta:Pysakki",
     "GIS:Keskilinjat",
 )
+OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste",)
 BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"
 
@@ -326,7 +327,7 @@ class Sources:
         ]
         if missing or ortho is None or not all(found for found, _ in wfs):
             return None
-        from .bridge_survey import source_paths
+        from .bridge_survey import source_paths, spot_sources
 
         laz = [*laz, *source_paths(tile)]
         chunks = ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")
@@ -340,6 +341,7 @@ class Sources:
             chunks,
             *(p for _, p in wfs if p),
             *(p for p in registers if p),
+            *spot_sources(tile, self),
             *([osm] if osm else []),
         ]:
             try:
@@ -360,7 +362,11 @@ class Sources:
             return True  # fetched: the city has no imagery there
         if unit.dataset == "osm":
             return all(self.osm_source(t) is not None for t in tiles)
-        return all(self.wfs_source(name, t)[0] for t in tiles for name in WFS_LAYERS)
+        return all(
+            self.wfs_source(name, t)[0]
+            for t in tiles
+            for name in (*WFS_LAYERS, *OPTIONAL_WFS_LAYERS)
+        )
 
 
 def fetch(unit: Unit, log=print) -> None:
@@ -391,6 +397,16 @@ def fetch(unit: Unit, log=print) -> None:
             s = wfs.fetch_layer(layer, block_area(unit.block), log=log)
             if s.get("status") not in ("ok", "empty"):
                 raise RuntimeError(f"WFS {name} {unit.key}: {s}")
+        # Height anchors enrich new bridges without making the structural pass
+        # wait for another required dataset or downloading during generation.
+        for name in OPTIONAL_WFS_LAYERS:
+            layer = next(layer for layer in ALL if layer.name == name)
+            try:
+                s = wfs.fetch_layer(layer, block_area(unit.block), log=log)
+                if s.get("status") not in ("ok", "empty"):
+                    log(f"WFS optional {layer.name} {unit.key}: {s}")
+            except Exception as error:
+                log(f"WFS optional {layer.name} {unit.key}: {error}")
 
 
 def size(paths: list[Path]) -> int:

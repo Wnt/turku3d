@@ -165,7 +165,7 @@ def passes_under(bridge, way):
     return False
 
 
-def prepare(tile, osm, survey_paths=()):
+def prepare(tile, osm, survey_paths=(), spot_paths=()):
     """Resolve physical crossings with full source ways before selecting this tile."""
     import pyarrow.parquet as pq
 
@@ -212,7 +212,11 @@ def prepare(tile, osm, survey_paths=()):
                 width=way_width(tags),
             )
         )
+    from .bridge_survey import height_anchors, spot_heights
+
+    spots = spot_heights(spot_paths)
     bridges = merge_crossings([w for w in ways if w["bridge"]], list(outlines.values()))
+    road_tree = shapely.STRtree([w["line"] for w in ways])
     obstacle = shapely.union_all(obstacles)
     pier = shapely.union_all(piers)
     result = []
@@ -223,7 +227,35 @@ def prepare(tile, osm, survey_paths=()):
             b["line"].length < 8 and b["tags"].get("highway") in PATHS
         )
         b["obstacles"] = obstacle
-        b["under"] = [] if b["landing"] else [w for w in ways if passes_under(b, w)]
+        b["under"] = (
+            []
+            if b["landing"]
+            else [
+                ways[i]
+                for i in sorted(road_tree.query(b["line"], predicate="intersects"))
+                if passes_under(b, ways[i])
+            ]
+        )
+        members = b.get("member_ways", [b])
+        endpoints = shapely.union_all([member["line"].boundary for member in members])
+        rail = b["tags"].get("railway") in RAILS
+        foot = b["tags"].get("highway") in PATHS
+        b["approaches"] = [
+            w
+            for i in sorted(road_tree.query(endpoints.buffer(0.05), predicate="intersects"))
+            for w in [ways[i]]
+            if not w["bridge"]
+            and (w["tags"].get("railway") in RAILS) == rail
+            and (w["tags"].get("highway") in PATHS) == foot
+            and w["line"].boundary.distance(endpoints) < 0.05
+        ]
+        extended_way = {**b, "line": extended(b["line"], 30)}
+        under_ids = {w["id"] for w in b["under"]}
+        b["approach_under"] = [
+            ways[i]
+            for i in sorted(road_tree.query(extended_way["line"], predicate="intersects"))
+            if ways[i]["id"] not in under_ids and passes_under(extended_way, ways[i])
+        ]
         from .bridge_survey import survey
 
         b["lamps"] = [
@@ -234,6 +266,8 @@ def prepare(tile, osm, survey_paths=()):
             .covers(shapely.Point(p))
         ]
         b["survey"] = survey(b, survey_paths)
+        if "heights" not in b["survey"]:
+            b["survey"]["height_anchors"] = height_anchors(b, spots)
         result.append(b)
     return result
 
@@ -294,7 +328,43 @@ def extended(line, distance):
     coords = np.asarray(line.coords)
     a = (coords[1] - coords[0]) / np.linalg.norm(coords[1] - coords[0])
     b = (coords[-1] - coords[-2]) / np.linalg.norm(coords[-1] - coords[-2])
-    return shapely.LineString([coords[0] - a * distance, *coords, coords[-1] + b * distance])
+    start, end = np.broadcast_to(distance, (2,))
+    return shapely.LineString(
+        [
+            *([coords[0] - a * start] if start else []),
+            *coords,
+            *([coords[-1] + b * end] if end else []),
+        ]
+    )
+
+
+def approach_lengths(way, ends, sample, obstacles):
+    """Find a gentle ground join within a mapped continuation road."""
+    axis = way["line"]
+    if way.get("landing"):
+        return 0.0, 0.0
+    minimum = min(3.0, axis.length * 0.1)
+    corridor = shapely.union_all(
+        [w["line"].buffer(w["width"] / 2 + 2) for w in way.get("approaches", [])]
+    )
+    coords = np.asarray(axis.coords)
+    result = []
+    for endpoint, other, height in (
+        (coords[0], coords[1], ends[0]),
+        (coords[-1], coords[-2], ends[-1]),
+    ):
+        direction = (endpoint - other) / np.linalg.norm(endpoint - other)
+        length = minimum
+        for distance in np.r_[minimum, np.arange(4, 32, 2)]:
+            point = endpoint + direction * distance
+            p = shapely.Point(point)
+            if not corridor.covers(p) or obstacles.covers(p):
+                break
+            if abs(height - sample(*point)) <= distance * 0.08:
+                length = float(distance)
+                break
+        result.append(length)
+    return tuple(result)
 
 
 def slab(key, polygon, line, stations, heights, material, height_at=None, thickness=THICKNESS):
@@ -305,6 +375,11 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
     from shapely.ops import split
 
     pieces = list(shapely.get_parts(polygon))
+    # Station cuts triangulate the crown; they are not physical slab edges.
+    # Allow the ring simplification below without retaining paired internal walls.
+    exterior = shapely.union_all(
+        [part.boundary for part in pieces if part.geom_type == "Polygon"]
+    ).buffer(0.0006)
     for station in stations[1:-1]:
         a = np.asarray(line.interpolate(max(0, station - 0.01)).coords[0])
         b = np.asarray(line.interpolate(min(line.length, station + 0.01)).coords[0])
@@ -339,6 +414,8 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
             body.face(top[::-1] - [0, thickness, 0], top[::-1][:, [0, 2]])
         for ring in rings:
             for a, b in zip(ring, np.roll(ring, -1, axis=0), strict=True):
+                if not exterior.covers(shapely.LineString([a, b])):
+                    continue
                 h = (
                     height_at(np.asarray([a, b]))
                     if height_at
@@ -412,6 +489,13 @@ def produce(tile, grid_pos, inputs):
         axis, width = way["line"], way["width"]
         spec = details.style(way)
         s, xz = samples(axis)
+        survey = way.get("survey", {})
+        anchors = survey.get("height_anchors", [])
+        if anchors:
+            from .bridge_survey import above_ground_anchors
+
+            anchors = above_ground_anchors(axis, anchors, full_ground)
+            survey["height_anchors"] = anchors
         delta = np.diff(xz, axis=0)
         normals = np.c_[-delta[:, 1], delta[:, 0]] / np.linalg.norm(delta, axis=1)[:, None]
         normals = np.vstack([normals, normals[-1]])
@@ -464,27 +548,45 @@ def produce(tile, grid_pos, inputs):
                         np.interp(lower.line.project(point), lower.stations, lower.heights)
                     )
                     requirements.append((axis.project(point), height, clearance(lower.way["tags"])))
+        blocked.extend(
+            w["line"].buffer(w["width"] / 2 + 1.5) for w in way.get("approach_under", [])
+        )
         heights = (
             np.interp(s, [0, axis.length], ends)
             if landing
             else deck_profile(s, terrain, ends, requirements, spec["thickness"])
         )
-        survey = way.get("survey", {})
         if "heights" in survey:
             heights = np.interp(s, survey["stations"], survey["heights"])
-        # A small blend joins the mapped span; a clearance error must never create a viaduct.
-        ramp = min(3.0, axis.length * 0.1) if not landing else 0.0
-        line = extended(axis, ramp) if ramp else axis
+        elif anchors:
+            from .bridge_survey import anchored_profile
+
+            measured_s = np.unique(np.r_[s, [a[0] for a in anchors]])
+            measured = anchored_profile(measured_s, np.interp(measured_s, s, heights), anchors)
+            if measured is not None:
+                s, heights = measured_s, measured
+                survey["profile_source"] = "city spot-height anchors with ground approaches"
+            else:
+                anchors = []
+        # Preserve measured crown stations in the slab's piecewise-linear surface.
+        start_ramp, end_ramp = approach_lengths(
+            way, (heights[0], heights[-1]), full_ground, obstacles
+        )
+        has_ramp = bool(start_ramp or end_ramp)
+        line = extended(axis, (start_ramp, end_ramp)) if has_ramp else axis
         ss, xx = samples(line, 2)
+        if anchors:
+            ss = np.unique(np.r_[ss, start_ramp + s])
+            xx = np.asarray([line.interpolate(float(t)).coords[0] for t in ss])
         hh = np.interp(
             ss,
-            np.r_[0, ramp + s, line.length],
+            np.r_[0, start_ramp + s, line.length],
             np.r_[float(sample_ground(xx[:1])[0]), heights, float(sample_ground(xx[-1:])[0])],
         )
         hh = np.maximum(hh, sample_ground(xx)) + 0.02
         # Preserve a straight span, including the highest ground across the deck width.
-        inside = (ss >= ramp) & (ss <= ramp + axis.length)
-        hh[inside] = np.interp(ss[inside] - ramp, s, heights) + 0.02
+        inside = (ss >= start_ramp) & (ss <= start_ramp + axis.length)
+        hh[inside] = np.interp(ss[inside] - start_ramp, s, heights) + 0.02
         key = f"draft-bridge:{way['id']}"
         rail = way["tags"].get("railway") in RAILS
         material = (
@@ -494,7 +596,7 @@ def produce(tile, grid_pos, inputs):
         footprint_poly = way.get(
             "outline", axis.buffer(width / 2, cap_style="flat", join_style="mitre")
         )
-        if ramp:
+        if has_ramp:
             footprint_poly = footprint_poly.union(
                 line.buffer(width / 2, cap_style="flat", join_style="mitre").difference(
                     axis.buffer(width / 2, cap_style="flat", join_style="mitre")
@@ -549,7 +651,7 @@ def produce(tile, grid_pos, inputs):
             p = shapely.Point(grid_pos[i, [0, 2]])
             t = line.project(p)
             if (
-                ramp <= t <= ramp + axis.length
+                start_ramp <= t <= start_ramp + axis.length
                 or blocked_approaches.covers(p)
                 or any(g.covers(p) for g in blocked)
             ):

@@ -192,6 +192,8 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
 
     frame = classify_surfaces(gpd.read_parquet(path))
     frame = frame[frame.surface_type.isin(["RoofSurface", "GroundSurface"])]
+    if frame.empty:
+        return []
     bbox = tile.bbox.buffered(100.0)
     window = shapely.box(bbox.xmin, bbox.zmin, bbox.xmax, bbox.zmax)
     local = frame.geometry_local.apply(shapely.force_2d)
@@ -287,7 +289,7 @@ def prepare_wfs(
 # -- roads ----------------------------------------------------------------------------------------
 
 
-def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=()) -> dict:
+def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=()) -> dict:
     """``roads.json`` bytes of the tile's street graph with its node and edge counts."""
     from turku3d.roads import build_graph, encode, osm_ways
 
@@ -300,7 +302,7 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=()) -> dict:
         "json": encode(graph),
         "nodes": len(graph["nodes"]) // 2,
         "edges": len(graph["edges"]),
-        "bridge_ways": prepare_bridges(tile, osm, survey_paths),
+        "bridge_ways": prepare_bridges(tile, osm, survey_paths, spot_paths),
     }
 
 
@@ -392,7 +394,13 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs)
         else None,
-        "roads": [osm, *bridge_survey.source_paths(tile)] if osm else None,
+        "roads": [
+            osm,
+            *bridge_survey.source_paths(tile),
+            *bridge_survey.spot_sources(tile, sources),
+        ]
+        if osm
+        else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
@@ -449,7 +457,12 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
     if dataset == "ortho":
         return read_ortho(paths[0], tile)
     if dataset == "roads":
-        return prepare_roads(tile, paths[0], paths[1:])
+        return prepare_roads(
+            tile,
+            paths[0],
+            [p for p in paths[1:] if p.suffix == ".laz"],
+            [p for p in paths[1:] if p.suffix == ".parquet"],
+        )
     if dataset == "barriers":
         from .fences import prepare as prepare_barriers
 
@@ -551,18 +564,18 @@ def gather(
             seconds[dataset] = 0.0
             continue
         full_paths = paths
-        if first_pass and paths and dataset in ("wfs", "roads"):
-            paths = paths[:3] if dataset == "wfs" else paths[:1]
+        if first_pass and paths and dataset == "wfs":
+            paths = paths[:3]
+        # Bridge geometry is structural: neighboring initial/full drafts must use
+        # the same optional survey inputs and the same prepared road cache.
         if paths is None:  # only the optional roads and trees: no OSM clip yet
             values[dataset] = None
             continue
         t = time.perf_counter()
-        cache_dataset = (
-            dataset + "-first" if first_pass and dataset in ("wfs", "roads") else dataset
-        )
+        cache_dataset = dataset + "-first" if first_pass and dataset == "wfs" else dataset
         path, key = _entry(root, tile, cache_dataset, paths)
         value = _ABSENT
-        if first_pass and dataset in ("wfs", "roads"):
+        if first_pass and dataset == "wfs":
             full_path, full_key = _entry(root, tile, dataset, full_paths)
             value = _load(full_path, full_key)
         if value is _ABSENT:

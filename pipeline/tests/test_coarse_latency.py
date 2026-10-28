@@ -197,7 +197,11 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     )
     paths = {d: [source] for d in datasets}
     paths["wfs"] = [source, None, None, source]  # optional roof survey must wait
-    paths["roads"] = [source, source]  # optional bridge survey must wait
+    spot = tmp_path / "spot.parquet"
+    spot.touch()
+    lidar = tmp_path / "bridge.laz"
+    lidar.touch()
+    paths["roads"] = [source, lidar, spot]  # bridge elevations are structural in both passes
     monkeypatch.setattr(inputs, "_sources", lambda *_: paths)
     building = inputs.Building("solid", shapely.box(0, 0, 10, 10), 0, 10, "facade_plaster")
     called = []
@@ -210,7 +214,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             assert len(sources) == 3
             return {"buildings": [building], "streets": [], "water": []}
         if dataset == "roads":
-            assert len(sources) == 1
+            assert sources == [source, lidar, spot]
             return {"bridge_ways": [{"id": "crossing"}]}
         if dataset == "tunnels":
             return [{"id": "passage"}]
@@ -224,6 +228,9 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     assert result.buildings[0].key == "solid"
     assert result.roads["bridge_ways"][0]["id"] == "crossing"
     assert result.tunnels[0]["id"] == "passage"
+    # Full preparation must reuse the identical structural bridge cache.
+    roads_path, roads_key = inputs._entry(tmp_path, C.VisualTile(0, 0, 0), "roads", paths["roads"])
+    assert inputs._load(roads_path, roads_key)["bridge_ways"][0]["id"] == "crossing"
 
 
 def test_fixed_producer_retries_a_failed_tile_without_old_backoff(tmp_path):
