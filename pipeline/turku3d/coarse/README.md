@@ -483,3 +483,11 @@ PYTHONPATH=pipeline:textures .venv/bin/python -m pytest -q pipeline/tests/test_f
 # OCI's systemd path watcher runs this after an existing source asset changes:
 python -m turku3d.facade_assets --export /srv/turku3d/data/facade-assets
 ```
+
+Approved `gis-<registry-id>` facade records and draft registry ids resolve to the
+same building. Mapped wall primitives keep the original asset id when binding its
+sidecar; the draft's collision/building ownership is unchanged. The effective base
+material library and own ground arrays participate in the memoized content hash,
+so a changed mirrored texture invalidates cached drafts even without a source edit.
+Material lookup uses the sandbox assembly, shared facade store or shared texture
+assembly; it does not require a full-tile `live` release.
