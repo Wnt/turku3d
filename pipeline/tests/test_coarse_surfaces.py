@@ -163,3 +163,19 @@ def test_kerb_width_and_profile_continue_across_visual_tile_edge():
         edges.append(np.unique(mesh.positions[mesh.positions[:, 0] == 250], axis=0))
     assert np.array_equal(*edges)
     assert np.ptp(edges[0][:, 2]) > 0.18
+
+
+def test_kerb_collision_keeps_world_coordinates_until_col_encoding():
+    from turku3d.coarse.kerbs import collision, produce
+    from turku3d.col import ColTile
+
+    tile = C.VisualTile(0, 1, 1)
+    cell = C.CollisionTile(4, 4)
+    meshes = produce(tile, shapely.LineString([(260, 270), (265, 270)]), lambda x, z: 3, [], [], [])
+    p, ix, mat = collision(
+        cell, meshes, np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8)
+    )
+    col = ColTile.for_tile(cell.i, cell.j, p, ix, mat)
+    assert np.allclose(col.world_positions(), p)
+    assert col.world_positions()[:, 0].min() >= 260
+    assert col.world_positions()[:, 2].min() > 269

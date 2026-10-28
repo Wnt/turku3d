@@ -164,7 +164,7 @@ def collision(cell, meshes, pos, idx, mat):
         piece = clip_mesh(mesh, cell.bbox)
         if piece is None:
             continue
-        positions.append(piece.positions - cell.origin)
+        positions.append(piece.positions)
         indices.append(piece.indices + count)
         materials.append(np.full(len(piece.indices), mat_id("curb"), np.uint8))
         count += len(piece.positions)
