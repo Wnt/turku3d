@@ -48,10 +48,16 @@ and limits separately. Small props, wall geometry, bridge undersides and tunnel
 interiors remain explicitly unmeasured where independent semantic scoring is
 unavailable.
 
+After the browser lanes close, an offline reconciliation can reuse original,
+hash-identical response bodies observed by either browser. Each extent receives
+another independent epoch/completeness check. This performs no new provider
+requests and does not exempt missing nodes. Original inventories remain private.
+
 ## Local tools and evidence
 
 Tools: `~/turku3d/private/gmaps-extract/` (`round2_select.py`, `capture.mjs`,
-`round2_oci.py`, `round2_process.py`, `round2_summary.py`, `round2_map.py`).
+`round2_oci.py`, `round2_process.py`, `round2_reconcile.py`,
+`round2_summary.py`, `round2_map.py`).
 
 Evidence root: `~/turku3d/private/gmaps-data/round2/`:
 
