@@ -53,6 +53,13 @@ hash-identical response bodies observed by either browser. Each extent receives
 another independent epoch/completeness check. This performs no new provider
 requests and does not exempt missing nodes. Original inventories remain private.
 
+An explicit round-2 review authorization also permits at most 5% missing required
+terminal nodes when metadata is resolved and nonempty. The missing-node projected
+footprints are excluded from both calibration and every score mask. The report
+labels this partial qualification; empty captures and unresolved metadata remain
+unmeasured. The round ends by scoring eligible extents with four processes and
+handing off remaining capture work separately.
+
 ## Local tools and evidence
 
 Tools: `~/turku3d/private/gmaps-extract/` (`round2_select.py`, `capture.mjs`,
