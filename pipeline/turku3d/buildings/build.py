@@ -203,12 +203,33 @@ def publish(
     """Prepare the complete layer before replacing any existing artifact.
 
     `store` holds the per-building reconstruction files the next build reuses."""
+    from turku3d.ground.curb_coverage import TileQuery
+
+    from .grounding import ground_contact
+
+    terrain = TileQuery(output.parent / "ground")
+
+    def sample(point):
+        try:
+            return terrain.sample(point)
+        except FileNotFoundError:
+            return None  # Buildings may be prepared before their ground layer.
+
+    fitted = {}
+    for bid, shell in selected.items():
+        fitted[bid], drop = ground_contact(shell, sample)
+        if drop:
+            next(r for r in records if r["building_id"] == bid)["ground_extension_m"] = drop
+    inputs = dict(inputs)
+    ground_manifest = terrain.directory / "MANIFEST.json"
+    if ground_manifest.exists():
+        inputs[str(ground_manifest.absolute())] = sha256(ground_manifest)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".buildings-", dir=output.parent) as temporary:
         stage = Path(temporary) / "buildings"
         report = _publish(
             buildings,
-            selected,
+            fitted,
             records,
             stage,
             streets,

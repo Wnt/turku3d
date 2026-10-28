@@ -15,3 +15,15 @@ pose. It writes `$TURKU3D_WORK/reports/tile-area-{webgpu,webgl}.json`, including
 draws and rendered triangles at each view and the worst street location. Every
 street view must stay below 500 draws. Four distributed ID views also require
 visible facade pixels. The full landing suite runs all e2e tile specs.
+
+The coarse-terrain ID check accepts the `t1_1_1` parent or its coarse L0
+quadrants. After the t0_2_2 expansion, REPLACE refinement draws those quadrants
+instead of the parent; playable L0 ground cannot satisfy this check.
+To run only this check on a sandbox tile tree:
+
+```sh
+cd game
+E2E_TILE_DEV=1 TURKU3D_JOBS=1 python3 ../scripts/dev/host_slots.py browser -- \
+  ./node_modules/.bin/playwright test -c playwright.tile.config.ts --project webgpu \
+  --workers 1 -g 'coarse terrain remains visible'
+```

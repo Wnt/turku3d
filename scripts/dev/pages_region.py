@@ -7,10 +7,10 @@
                 "ground": ["ortho-splats"]}}
 
 A listed (playable) tile of the release ships when its centre lies within `radius_m` of `centre_en`
-(Läntinen Rantakatu 15), its street-facing wall area covered by generated-style facade maps is at least
+(Läntinen Rantakatu 15), its street-facing wall area covered by generated, derived or fast facade maps is at least
 `min_facade_coverage` (a tile without street-facing walls passes), its ground texture kind is one of `ground`
 (never `draft`), its validator verdict is not `fail` (a live release exists only after its tile-validate stage
-passed) and it connects edge to edge with the centre's tile through other shipped tiles. Per-tile figures come
+passed) and it connects at an edge or corner with the centre's tile through other shipped tiles. Per-tile figures come
 from the release's quality ledger (`tiles/quality.json`, `turku3d.region.quality`).
 
 The Pages tile tree keeps the selected tiles playable: their collision (and the meshing-margin cells beside them
@@ -88,6 +88,11 @@ def distance(tile, settings):
     return math.hypot((box.xmin + box.xmax) / 2 - x, (box.zmin + box.zmax) / 2 - z)
 
 
+def coverage(record):
+    """Shippable street-wall coverage; older ledgers predate the separate fast-map metric."""
+    return record.get("rough_coverage", record.get("facade_coverage"))
+
+
 def reasons(tile, record, settings):
     """Why a tile does not ship (empty: it meets every threshold)."""
     found = []
@@ -96,9 +101,9 @@ def reasons(tile, record, settings):
         found.append(f"outside the radius ({far:.0f} m > {settings['radius_m']:.0f} m)")
     if record is None:
         return [*found, "no quality record"]
-    coverage = record.get("facade_coverage")
-    if coverage is not None and coverage < settings["min_facade_coverage"]:
-        found.append(f"facade coverage {coverage:.0%} < {settings['min_facade_coverage']:.0%}")
+    covered = coverage(record)
+    if covered is not None and covered < settings["min_facade_coverage"]:
+        found.append(f"facade coverage {covered:.0%} < {settings['min_facade_coverage']:.0%}")
     if record.get("ground") not in settings["ground"]:
         found.append(f"ground {record.get('ground')}")
     if record.get("validator", {}).get("status") == "fail":
@@ -120,7 +125,7 @@ def select(manifest, tiles, settings):
     connected, frontier = {centre}, [C.VisualTile.parse(centre)]
     while frontier:
         tile = frontier.pop()
-        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        for di, dj in ((i, j) for i in (-1, 0, 1) for j in (-1, 0, 1) if i or j):
             near = C.VisualTile(0, tile.i + di, tile.j + dj)
             if near.id in passing and near.id not in connected:
                 connected.add(near.id)
@@ -274,15 +279,15 @@ def notes(result):
 
     def figures(tile):
         record = tiles.get(tile, {})
-        coverage = record.get("facade_coverage")
+        covered = coverage(record)
         return (
-            f"facades {'-' if coverage is None else f'{coverage:.0%}'}, "
+            f"facades {'-' if covered is None else f'{covered:.0%}'}, "
             f"ground {record.get('ground', '-')}, {record.get('buildings', '-')} buildings"
         )
 
     lines = [
         f"Region: listed tiles within {settings['radius_m']:.0f} m of E {e:.0f} N {n:.0f} with at least "
-        f"{settings['min_facade_coverage']:.0%} generated-style street facades, "
+        f"{settings['min_facade_coverage']:.0%} generated, derived or fast street facades, "
         f"{' or '.join(settings['ground'])} ground and a passing validator, connected to {result['centre']}",
         f"Shipped tiles ({len(result['selected'])}):",
         *(f"  {tile}: {figures(tile)}" for tile in result["selected"]),

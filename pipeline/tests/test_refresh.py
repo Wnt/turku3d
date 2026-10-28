@@ -58,7 +58,7 @@ def test_refresh_refuses_published_root_without_detaching_links(tmp_path, monkey
     assert (data / "textures").is_symlink()
 
 
-def test_parallel_rebuilds_detach_shared_layers_ancestor_once(tmp_path, monkeypatch):
+def test_rebuilds_detach_shared_layers_ancestor_once(tmp_path, monkeypatch):
     shared = tmp_path / "data/layers"
     for name in ("ground", "buildings"):
         (shared / name).mkdir(parents=True)
@@ -192,7 +192,7 @@ def test_refresh_graph_is_noop_after_first_run(monkeypatch, tmp_path):
         return execute
 
     monkeypatch.setattr(refresh, "ground", node("ground"))
-    monkeypatch.setattr(refresh, "buildings", node("buildings"))
+    monkeypatch.setattr(refresh, "buildings", node("buildings", ("ground",)))
     monkeypatch.setattr(refresh, "ground_textures", node("ground-textures", ("ground",)))
     monkeypatch.setattr(refresh, "facades", node("facades", ("buildings",)))
     surfaces = ("ground", "buildings", "structures", "bridges")
@@ -243,16 +243,16 @@ def test_stage_ground_library_uses_shared_assets_without_replacing_local_build(
     assert (local / "orm.array.ktx2").read_bytes() == b"orm"
 
 
-def test_facade_target_runs_buildings_before_migration(monkeypatch, tmp_path):
+def test_facade_target_finishes_ground_and_buildings_before_migration(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(refresh, "buildings", lambda layers: calls.append("buildings") or "cached")
     monkeypatch.setattr(
         refresh, "facades", lambda layers, textures: calls.append("facades") or "rebuilt"
     )
-    monkeypatch.setattr(refresh, "ground", lambda layers: pytest.fail("ground ran"))
+    monkeypatch.setattr(refresh, "ground", lambda layers: calls.append("ground") or "cached")
     result = refresh.refresh(tmp_path, "facades")
-    assert calls == ["buildings", "facades"]
-    assert result == {"buildings": "cached", "facades": "rebuilt"}
+    assert calls == ["ground", "buildings", "facades"]
+    assert result == {"ground": "cached", "buildings": "cached", "facades": "rebuilt"}
 
 
 def test_per_tile_layers_rebuild_only_when_a_tile_is_stale(tmp_path, monkeypatch):

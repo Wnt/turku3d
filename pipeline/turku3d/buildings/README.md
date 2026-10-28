@@ -174,3 +174,20 @@ Outer LOD2 massing exports separate wall and roof nodes. Walls carry the shared 
 parameters (register levels/era or height defaults, upgraded by the parameter store); roofs keep
 their roof material. Both surfaces retain the original `outer-lod2-<id>` object id; the
 `surface` field distinguishes them. The permanent register id, when present in LOD2, is the shared facade key.
+
+At publication, walls sharing vertices with a `GroundSurface` are sampled against
+adjacent published ground triangles, 0.4 m outside the wall and at most 2 m apart.
+A floating footing is extended downward by at most 0.75 m (the facade rebind's
+base-correction range). All shared footing vertices move together, preserving a
+closed collider and the roof heights. Elevated wall surfaces without ground
+contact stay in place. Larger offsets remain model-review issues. The ground
+manifest is recorded as an input so terrain changes invalidate publication; the
+cached reconstruction is retained, and the normal facade refresh rebinds maps
+to the corrected dimensions. Both full and facade-only refresh finish ground
+before publishing buildings so the fit cannot sample a superseded mesh.
+
+```sh
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_buildings_grounding.py
+make refresh
+bash pipeline/env/run.sh python -m turku3d.package.facade_ground_audit
+```

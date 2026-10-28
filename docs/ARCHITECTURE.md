@@ -105,7 +105,7 @@ Not used: NLS (coarser, hosts unreachable today [U]); Apple Flyover (no Turku co
   merges it into `$TURKU3D_DATA/tile-quality.json`. The playable list only grows, a live build fails rather than
   ship without a listed tile, and the tile store keeps an entry for every listed tile. The GitHub Pages release
   ships the listed tiles within a radius of a centre (default 1 km around Läntinen Rantakatu 15) that meet the
-  `region` thresholds of `publish/pages.json` (facade coverage, no draft ground, validator green) and connect to
+  `region` thresholds of `publish/pages.json` (facade coverage, no draft ground, validator green) and connect at an edge or corner to
   the centre tile; excluded siblings stay visual-only scenery and the release notes name each exclusion's reason
   (`scripts/dev/pages_region.py`, `publish-pages --plan`).
 
