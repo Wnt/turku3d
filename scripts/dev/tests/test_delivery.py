@@ -61,6 +61,24 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(result["result"], "deploy-failed")
         self.assertEqual(result["commit"], "a" * 40)
 
+    def test_server_only_changes_deploy_oci(self):
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.object(delivery, "deploy", return_value={}),
+            patch("deploy_drafts.deploy", return_value={"multiplayer": "presence ok"}) as deploy,
+            patch("deploy_drafts.prewarm", return_value=None),
+            patch.object(delivery, "smoke", return_value={"ok": True}),
+            patch.object(delivery, "environment", return_value={}),
+            patch.object(post_deploy, "start", return_value={}),
+            patch.object(delivery, "ledger"),
+        ):
+            result = delivery.after_merge(
+                "test", Path(temp), "a" * 40,
+                {"changed_paths": ["server/economy.js"]}, Path(temp),
+            )
+        deploy.assert_called_once_with(Path(temp), "a" * 40)
+        self.assertEqual(result["generator"]["multiplayer"], "presence ok")
+
     def test_active_agent_finish_keeps_its_running_state_and_sandbox(self):
         import external_worker
 

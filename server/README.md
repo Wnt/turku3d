@@ -83,7 +83,8 @@ same source snapshot into `~/turku3d-mp/repo/server/`. It deletes obsolete code,
 excludes `server/data/` and `server/node_modules/`, installs dependencies when the
 package manifests change, and restarts `turku-mp-server` only if server files
 changed. Every deployment (including a repeated commit) runs the existing
-two-client presence probe through the local proxy. The service keeps its existing
+two-client presence probe through the local proxy. Server-only changes also trigger
+this OCI source deployment during `codex-task finish`. The service keeps its existing
 working directory and Node override; the tunnel stays running.
 
 Completed hourly data lives in `server/data`; unfinished-hour scores and sessions
