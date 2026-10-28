@@ -37,6 +37,7 @@ No translation is commanded. “After” counts include all visual/collision/gro
 | Before WebGPU, 20 s idle | 10.5 s | 112 | 133 / 800 / 3033 ms | 36 |
 | Before WebGPU, initial view settled | 11.3 s | 98 | 117 / 783 / 1983 ms | 191 |
 | After WebGPU | 134.8 s | **0** | 100 / 150 / 150 ms | 251 |
+| After WebGPU, final UI/native GPU wait | 150.7 s | **0** | 100 / 133 / 150 ms | 100 |
 | After WebGL2 | 462.0 s | **0** | 133 / 183 / 367 ms | 392 |
 
 After preload both backends report 37/37 required models, 46/46 decoded collision cells and 6/6 compile directions.
@@ -48,10 +49,10 @@ cost remains large under that load and throttle.
 
 | Memory immediately after preload | WebGPU | WebGL2 |
 | --- | ---: | ---: |
-| Sum of Chrome process RSS | 2.14 GB | 1.78 GB |
-| JavaScript used heap | 452 MB | 552 MB |
+| Sum of Chrome process RSS | 2.87 GB | 1.78 GB |
+| JavaScript used heap | 590 MB | 552 MB |
 | TilesRenderer decoded cache estimate | 410 MB | 410 MB |
-| Renderer tracked GPU allocations | 259 MB | 274 MB |
+| Renderer tracked GPU allocations | 258 MB | 274 MB |
 | Physics estimated WASM collision allocation | 65 MB | 65 MB |
 
 RSS sums can double-count shared pages; renderer/cache/heap figures overlap and must not be added together.
@@ -60,9 +61,16 @@ request lists, initial/turned screenshots, resident ids, memory breakdowns, prog
 
 The first full-data runs also exposed r186's removed `waitForGPU()` stub. It was replaced with WebGPU queue
 completion and WebGL sync fences; normal frustum culling is restored immediately after offscreen compilation.
-Final verification of those backend waits is recorded with the final task result.
+The final real-data WebGPU run rechecked the native queue wait and integrated loading screen: 37/37 models,
+46/46 cells, 328 GPU textures, 6/6 views, zero console/page errors and zero turn asset requests. The final WebGL
+fence check uses the small dev fixture (`preload-gpu-smoke.mjs`), keeping the complete browser work under the
+brief’s 25-minute budget. The full WebGL cold-cache numbers above precede that backend-wait cleanup; they
+validate the same asset selection, texture upload and panorama warmup, but are not a new full-data timing of the fence.
 
 ## Reproduce
+
+The loading screen was visually checked in the final real-data WebGPU capture; its compact dock shows all
+required counts and completed GPU work before the menu becomes usable.
 
 Use the exact sandbox build/server/probe commands in `game/src/world/README.md`. For a baseline retain its game
 build separately and pass its sandbox URL as the probe's third argument. `before-settled` waits for the old

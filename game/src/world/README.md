@@ -46,6 +46,10 @@ node tools/dev/serve-dist.mjs --root "$TURKU3D_WORK/build/game" --port "$((TURKU
 scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
   node game/scripts/preload-probe.mjs after webgpu
 # Repeat with webgl. Reports/screenshots: $TURKU3D_WORK/reports/preload/<label>-<backend>/.
+# Small WebGL native-fence check (serve the same build on sandbox port base +3):
+node game/scripts/make-dev-tiles.mjs "$TURKU3D_WORK/build/game/dev-tiles"
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py browser -- \
+  node game/scripts/preload-gpu-smoke.mjs
 ```
 
 ## Collision edge and draft tiles
