@@ -307,7 +307,7 @@ export class MissionSystem implements MissionHudSource {
         if (next) { this.s.order = [next.id]; this.s.stop = 0; return [this.stops.resolve(next.id)!]; }
       }
       const n = this.s.shortDeliveries - DELIVERIES.length;
-      const draw = n >= 0 ? drawOrder(this.stops.pool.filter(a => a.foot <= 1200), n, this.s.seed, new Set(this.s.delivered), SCRIPTED_IDS,
+      const draw = n >= 0 ? drawOrder(this.stops.pool.filter(a => !a.landmark && a.foot <= 1200), n, this.s.seed, new Set(this.s.delivered), SCRIPTED_IDS,
         this.s.delivered.slice(-2)) : null;
       if (draw?.exhausted) this.s.delivered = [];
       if (!this.s.order.length) this.s.order = draw ? draw.stops : [DELIVERIES[this.s.shortDeliveries % DELIVERIES.length].id];

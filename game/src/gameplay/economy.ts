@@ -40,7 +40,6 @@ const FAIL_AFTER_PAR = 2;
 
 export type DeliveryJob = 'short' | 'long';
 export const LONG_UNLOCK_ROUNDS = 4;
-export const LONG_MIN_METRES = 2500;
 export const LONG_MAX_METRES = 7000;
 /** A long run pays 24 euros plus 12 per road kilometre, even when its tip is gone. */
 export const basePay = (metres: number, job: DeliveryJob = 'short') =>

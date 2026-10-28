@@ -8,7 +8,7 @@ import type { PoolAddress } from '../../src/gameplay/content/addresses';
 import { lRouter } from './missionHarness';
 
 const pool: PoolAddress[] = [100, 3000, 5000].map((m, i) => ({ id: `district-${i}`, address: `District ${i}`,
-  tile: `t0_${i}_0`, point: { x: m, z: 0 }, street: { x: m, z: 1 }, foot: m, car: m }));
+  tile: `t0_${i}_0`, point: { x: m, z: 0 }, street: { x: m, z: 1 }, foot: m, car: m, landmark: i > 0 }));
 const frame = (extra: Partial<MissionFrame> = {}): MissionFrame => ({ position: PIZZERIA.point,
   interact: false, vehicleId: 'player', input: 'keyboard', ...extra });
 function game(shortDeliveries = 39) {

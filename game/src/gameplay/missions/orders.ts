@@ -2,7 +2,7 @@
 // address pool without repeats until it is exhausted, on a distance ladder that grows with the orders served, with
 // an occasional short hop and every fifth order a double (two pizzas, two addresses, one run). Pure and seeded:
 // the same seed, order number and delivered set always give the same order.
-import { LONG_MIN_METRES, LONG_MAX_METRES } from '../economy';
+import { LONG_MAX_METRES } from '../economy';
 import type { PoolAddress } from '../content/addresses';
 
 /** Route metres the ladder aims at for the first pool order, the step per order and the cap. */
@@ -87,7 +87,7 @@ export function drawOrder(pool: readonly PoolAddress[], n: number, seed: number,
 /** Long jobs never fall back to a nearby or undrivable address. */
 export function drawLongOrder(pool: readonly PoolAddress[], n: number, seed: number,
   delivered: ReadonlySet<string>): PoolAddress | null {
-  const eligible = pool.filter(a => a.car !== null && a.car >= LONG_MIN_METRES && a.car <= LONG_MAX_METRES)
+  const eligible = pool.filter(a => a.landmark && a.car !== null && a.car > 60 && a.car <= LONG_MAX_METRES)
     .sort((a, b) => a.id.localeCompare(b.id));
   const unused = eligible.filter(a => !delivered.has(a.id));
   const choices = unused.length ? unused : eligible;

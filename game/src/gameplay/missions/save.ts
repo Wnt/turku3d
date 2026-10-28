@@ -1,5 +1,5 @@
-// The mission save text (format 3) inside a save slot (core/save.ts keeps it opaque) and the migrations of formats
-// 1 and 2 (docs/design/story.md, "Mission state machine").
+// The mission save text (format 4) inside a save slot (core/save.ts keeps it opaque) and migrations of formats
+// 1–3 (docs/design/story.md, "Mission state machine").
 import type { VehicleOwnership } from '../economy';
 import { PERMIT_DELIVERIES, START_MONEY } from '../economy';
 import { DELIVERIES } from '../content/deliveries';
