@@ -70,6 +70,7 @@ def rectify_record(view: dict, panorama: Path, *, pixels_per_metre=32.0, max_sid
     The panorama must have the same camera/layout as the recorded source; changing
     its resolution is supported. Provider pose conventions remain owned by refs.
     """
+    from .camera import EquirectModel
     from .panos import PanoMeta
     from .refs import equirect_model
 
@@ -85,10 +86,22 @@ def rectify_record(view: dict, panorama: Path, *, pixels_per_metre=32.0, max_sid
     points = rectified_points(
         view["facade_corners_EN_H"], pixels_per_metre=pixels_per_metre, max_side=max_side
     )
+    model = equirect_model(meta)
+    if view.get("image_to_grid") is not None:
+        model = EquirectModel(0, rotation=np.asarray(view["image_to_grid"], float))
+    elif (
+        "reference_version" not in view
+        and "upright panorama pose" not in view.get("notes", "")
+        and isinstance(model, EquirectModel)
+    ):
+        # Historical experiment records explicitly omitted pitch/roll/convergence.
+        # Reproduce their recorded crop rather than silently changing the baseline.
+        heading = -meta.heading_rad + np.pi if meta.source == "lookaround" else meta.heading_rad
+        model = EquirectModel(heading)
     with Image.open(panorama) as source:
         rgb, valid = sample_wall(
             np.asarray(source.convert("RGB")),
-            equirect_model(meta),
+            model,
             points,
             view["camera"]["pos_EN_H"],
         )

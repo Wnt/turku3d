@@ -44,6 +44,28 @@ def test_render_centres_target():
     assert out[10, 10, 0] < 50
 
 
+def test_provider_pose_centres_and_grid_convergence():
+    for apple in (False, True):
+        model = C.EquirectModel(0, rotation=C.panorama_pose(0.4, 0, 0, 0.02, lookaround=apple))
+        azimuth = (math.pi - 0.4 if apple else 0.4) + 0.02
+        assert np.allclose(
+            model.dir_from_uv(500, 250, 1000, 500), [math.sin(azimuth), math.cos(azimuth), 0]
+        )
+        tilted = C.EquirectModel(0, rotation=C.panorama_pose(0, 0.1, 0, lookaround=apple))
+        assert abs(tilted.dir_from_uv(500, 250, 1000, 500)[2] - math.sin(0.1)) < 1e-12
+
+
+def test_upright_pose_sampling_round_trip_with_roll():
+    for apple in (False, True):
+        model = C.EquirectModel(
+            0, rotation=C.panorama_pose(1.2, 0.1, -0.07, 0.01, lookaround=apple)
+        )
+        pixels = np.array([[30, 50], [500, 250], [970, 440]])
+        directions = model.dir_from_uv(pixels[:, 0], pixels[:, 1], 1000, 500)
+        u, v = model.uv_from_dir(directions, 1000, 500)
+        assert np.allclose(np.column_stack([u, v]), pixels)
+
+
 def test_project_matches_rays():
     cam = C.PerspectiveCam(np.array([10.0, 20.0, 2.0]), 123.0, -5.0, 70.0, 320, 200)
     rays = cam.rays()
@@ -137,8 +159,8 @@ def test_camera_height_by_campaign():
     assert z17_tile(60.44839, 22.26726) == (73643, 37734)
 
 
-def _ev(pid, E, N, part, ang, score, sec=(0, 10)):
-    m = PanoMeta("google", pid, 0, 0, E, N, 7.0, 0, 0, 0, "2026-07", {})
+def _ev(pid, E, N, part, ang, score, sec=(0, 10), source="google"):
+    m = PanoMeta(source, pid, 0, 0, E, N, 7.0, 0, 0, 0, "2026-07", {})
     return {
         "meta": m,
         "part": part,
@@ -160,6 +182,18 @@ def test_select_diversity_and_full_view():
     ch = [e["meta"].id for e in select(evs, P)]
     assert ch[0] == "d"  # a full view is always included when one exists
     assert "a" in ch and "c" in ch and "b" not in ch and "e" not in ch
+
+
+def test_select_full_wall_from_each_available_source_before_detail():
+    P = SelectParams(max_views=3)
+    evs = [
+        _ev("m", 0, -20, "full", 15, 0.9, source="mapillary"),
+        _ev("g", 0, -25, "full", 15, 0.8),
+        _ev("l", 0, -30, "full", 15, 0.7, source="lookaround"),
+        _ev("p", 0, -10, "partial", 5, 0.99),
+    ]
+    assert [e["meta"].id for e in select(evs, P)] == ["l", "g", "m"]
+    assert [e["meta"].id for e in select(evs, SelectParams(max_views=2))] == ["l", "g"]
 
 
 def test_sub_facade_centred_on_camera():

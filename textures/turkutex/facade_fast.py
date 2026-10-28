@@ -178,6 +178,7 @@ def crop_for_call(facade, view: dict, refs: Path, inputs: Path) -> Path:
 
 def describe_jobs(facades, refs: Path, run: Path) -> tuple[list[dict], dict]:
     """One strict-schema job per wall with a screened full-wall view; the others' reasons."""
+    from .building_jobs import view_height
     from .paths import PROMPTS_DIR
 
     jobs, reasons = [], {}
@@ -187,6 +188,7 @@ def describe_jobs(facades, refs: Path, run: Path) -> tuple[list[dict], dict]:
             reasons[f.id] = reason
             continue
         crop = crop_for_call(f, view, refs, run / "inputs")
+        height = view_height(view, f.height_m)
         jobs.append(
             {
                 "id": f"{f.id}.fast",
@@ -194,8 +196,8 @@ def describe_jobs(facades, refs: Path, run: Path) -> tuple[list[dict], dict]:
                 "vars": {
                     "facade_id": f.id,
                     "width_m": f"{f.length:.1f}",
-                    "height_m": f"{f.height_m:.1f}",
-                    "aspect": f"{f.length / f.height_m:.2f}:1",
+                    "height_m": f"{height:.1f}",
+                    "aspect": f"{f.length / height:.2f}:1",
                 },
                 "images": [str(crop)],
                 "schema": str(fr.SCHEMA),
@@ -205,6 +207,7 @@ def describe_jobs(facades, refs: Path, run: Path) -> tuple[list[dict], dict]:
                 "meta": {
                     "kind": "fast_describe",
                     "facade_id": f.id,
+                    "height_m": height,
                     "views": [view["view_id"]],
                     "reference": {
                         "source": view["source"],
@@ -218,9 +221,8 @@ def describe_jobs(facades, refs: Path, run: Path) -> tuple[list[dict], dict]:
 
 
 def call_cache() -> Path:
-    """Descriptions are cached in the shared data root, keyed by prompt and crop hash, so a
-    rerun in any sandbox (or a later content task) makes no new call for the same crop."""
-    return config.data_root() / "textures/codex-cache"
+    """Cache calls by prompt and crop hash within the active work sandbox."""
+    return config.work_root() / "textures/codex-cache"
 
 
 def describe(
@@ -672,7 +674,7 @@ def main(argv=None) -> int:
         if name == "refs":
             p.add_argument("--sources", default="lookaround,google,mapillary")
             p.add_argument("--ref-workers", type=int, default=8)
-            p.add_argument("--max-views", type=int, default=2)
+            p.add_argument("--max-views", type=int, default=4)
         if name == "describe":
             p.add_argument("-j", type=int, default=16)
             p.add_argument("--max-pct", type=float, default=90)

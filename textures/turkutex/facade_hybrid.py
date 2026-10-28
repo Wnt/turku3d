@@ -12,7 +12,7 @@ import numpy as np
 from . import facade_cv as cv
 from . import facade_priors as p
 
-VERSION = "facade-hybrid-v1"
+VERSION = "facade-hybrid-v2"
 PARAMETERS = Path(__file__).with_name("facade_hybrid_parameters.json")
 FIELDS = ("storeys", "window_columns", "material", "wall_colour")
 
@@ -87,6 +87,20 @@ def surface_discontinuity(rgb: np.ndarray, wall: np.ndarray) -> bool:
     )
 
 
+def semantic_foreground_mask(labels: np.ndarray) -> np.ndarray:
+    """ADE20K foreground objects; sky, road and sidewalk are not occluders."""
+    return np.isin(labels, [4, 12, 17, 20, 80, 83, 90, 102, 116, 127])
+
+
+def foreground_evidence(evidence: dict) -> dict:
+    """Use actual occluders for field abstention while retaining off-wall diagnostics."""
+    return {
+        **evidence,
+        "off_wall_share": evidence["occlusion_share"],
+        "occlusion_share": evidence["foreground_share"],
+    }
+
+
 class Evidence:
     """ADE20K semantic evidence mask on MPS; no network and no learned quality claims."""
 
@@ -113,12 +127,15 @@ class Evidence:
         wall = np.isin(labels, [0, 1, 25])
         facade = wall | np.isin(labels, [8, 14])
         excluded = np.isin(labels, [2, 4, 6, 9, 11, 12, 17, 20, 21, 80, 83, 90, 102, 116, 127])
+        foreground = semantic_foreground_mask(labels)
         # Semantic classes cannot prove that a building is the intended building. Explicit
         # reference audits, when supplied, override these conservative pixel checks.
         return dict(
             facade_share=float(facade.mean()),
             wall_share=float(wall.mean()),
+            interior_share=float(np.isin(labels, [3, 5]).mean()),
             occlusion_share=float(excluded.mean()),
+            foreground_share=float(foreground.mean()),
             multiple_surfaces=surface_discontinuity(rgb, wall),
         )
 
@@ -135,7 +152,7 @@ class FeatureExtractor:
         """Reusable features; fitting and evaluation can reuse them without more inference."""
         from .streetview.refs import screen_pixels, screen_problem
 
-        evidence = self.evidence.measure(rgb)
+        evidence = foreground_evidence(self.evidence.measure(rgb))
         evidence.update(
             width_m=width,
             minimum_pixels=min(rgb.shape[:2]),

@@ -9,7 +9,8 @@ For each facade:
  3. score = cos(theta)^0.8 * exp(-((d - d_opt)/d_sigma)^2) * (1 - 0.8 occ) * res_factor (+ recency tie-break);
     greedy pick with diversity (signed angle differs by >= min_sep_deg, or spot >= 6 m apart).
  4. render: pinhole crop aimed at the facade centre (mid-height), FOV fitted to the 4 corners.
-    Each rectified view is screened (black fraction, sharpness); with no valid full view, more
+    LOD2 rays check the full extent and target support. Rectified views are screened for
+    semantic occluders, off-wall pixels, black fraction and sharpness; with no valid full view, more
     full views are rendered in SOURCE_ORDER until one passes.
     Outputs per view: <view>.jpg (plain crop), <view>_outline.jpg (target facade outlined in red),
     <view>_mask.png (255 facade visible, 128 facade but occluded by depth proxy, 0 not facade),
@@ -42,7 +43,7 @@ from .facades import Facade, load_facades
 from .panos import PanoCache, PanoMeta, atomic_json, z17_tile
 from .rectify import rectified_points, sample_wall
 
-REFS_VERSION = "5-n2000-camera-height"
+REFS_VERSION = "12-source-diverse-full-views"
 
 # Reference fallback order when the best-scored full view fails screening.
 SOURCE_ORDER = ("lookaround", "google", "mapillary", "photospheres")
@@ -85,6 +86,18 @@ def screen_problem(screen: dict) -> str | None:
     return None
 
 
+def view_problem(view: dict, pixels: np.ndarray | None = None) -> str | None:
+    """Shared acceptance for generation, description and fallback selection."""
+    from .evidence import problem
+
+    pixel_problem = screen_problem(screen_pixels(pixels) if pixels is not None else view["screen"])
+    if pixel_problem:
+        return pixel_problem
+    if "semantic" in view:
+        return problem(view["semantic"])
+    return None  # Legacy records keep their recorded screen until refs regenerates them.
+
+
 def source_rank(source: str) -> int:
     return SOURCE_ORDER.index(source) if source in SOURCE_ORDER else len(SOURCE_ORDER)
 
@@ -94,7 +107,7 @@ class SelectParams:
     radius: float = 45.0
     max_dist: float = 40.0
     min_front: float = 1.5
-    max_angle: float = 72.0
+    max_angle: float = 60.0
     d_opt: float = 14.0
     d_sigma: float = 14.0
     max_views: int = 4
@@ -103,7 +116,7 @@ class SelectParams:
     long_side: int = 1536
     zoom: int = 5
     la_zoom: int = 0
-    max_occluded: float = 0.5  # reject views whose facade is mostly behind a nearer depth plane
+    max_occluded: float = 0.2  # reject views with over 20% behind a nearer depth plane
     fallback_per_source: int = 4  # extra full views rendered per source when none passes screening
 
 
@@ -125,13 +138,21 @@ def equirect_model(m: PanoMeta) -> C.EquirectModel:
         from .mapillary_camera import MapillaryCamera
 
         return MapillaryCamera(m)
-    if m.source in ("google", "mapillary"):
-        return C.EquirectModel(m.heading_rad, 1.0)
     # Look Around: streetlevel's stitch puts face yaw 0 at column W/2 + ... ; equirect centre is the
     # inverse travel direction; heading is CCW (0 = N, 90 = W) -> centre azimuth = -heading + pi.
     # VERIFIED 2026-10-25: LA 17922395357700297309 vs Google de5igFTgjff1c9FgktKFXQ (1.2 m apart):
     # gradient-profile cross-correlation over 360 deg gives a 2.1 deg offset (incl. parallax).
-    return C.EquirectModel((-m.heading_rad + math.pi) % (2 * math.pi), 1.0)
+    convergence = math.radians(config.true_to_grid_bearing(m.E, m.N, 0))
+    return C.EquirectModel(
+        0.0,
+        rotation=C.panorama_pose(
+            m.heading_rad,
+            m.pitch_rad,
+            m.roll_rad,
+            convergence,
+            lookaround=m.source == "lookaround",
+        ),
+    )
 
 
 def network_result(call, errors: list, source: str, fallback):
@@ -207,6 +228,31 @@ def base_height(f: Facade, cands: list[PanoMeta]) -> tuple[float, str]:
             np.median(la)
         ), f"median(lookaround elevation - {cands[0].cam_height} m), n={len(la)}"
     return 3.0, "default 3.0 m (no pano elevation)"
+
+
+def supported_wall(f: Facade, base_h: float, measure=None) -> tuple[Facade, dict]:
+    """Trim an overestimated roof/gable height to the LOD2 wall plane beneath it."""
+    from .visibility import wall_visibility
+
+    measure = measure or wall_visibility
+    camera = np.array([*(f.centre + 15 * f.normal), base_h + min(f.height_m / 2, 8)])
+    original = measure(camera, f.corners(base_h))
+    if original.get("state") != "measured" or original["target_support"] >= 0.85:
+        return f, original
+    for fraction in (0.9, 0.8, 0.7, 0.6, 0.5):
+        height = f.height_m * fraction
+        if height < 3:
+            break
+        candidate = Facade(f.id, f.p0, f.p1, height, f.base_h, f.props, f.normal_side)
+        support = measure(camera, candidate.corners(base_h))
+        if (
+            support.get("state") == "measured"
+            and support["target_support"] >= 0.85
+            and support["visible_fraction"] >= 0.9
+            and support["edge_visible_fraction"] >= 0.85
+        ):
+            return candidate, support
+    return f, original
 
 
 def occlusion_fraction(
@@ -285,6 +331,15 @@ def evaluate(
             continue
         if cam.hfov_deg > P.max_hfov:
             continue
+        from .visibility import wall_visibility
+
+        visibility = wall_visibility(pos, corners)
+        if visibility.get("state") == "measured" and (
+            visibility["visible_fraction"] < 0.9
+            or visibility["edge_visible_fraction"] < 0.85
+            or visibility["target_support"] < 0.85
+        ):
+            continue
         occ = occlusion_fraction(cache, m, cam, corners)
         if occ is not None and occ > P.max_occluded:
             continue
@@ -307,6 +362,7 @@ def evaluate(
                 "meta": m,
                 "cam": cam,
                 "camera_height_source": elevation_source,
+                "lod2_visibility": visibility,
                 "corners": corners,
                 "part": part,
                 "source_visible_fraction": visible_fraction,
@@ -327,12 +383,19 @@ def evaluate(
 
 
 def select(evals: list[dict], P: SelectParams) -> list[dict]:
-    """Greedy by score with diversity; at least one full view when one exists; 2..max_views."""
+    """Try one full wall from each available source before detail or near-duplicate views."""
     pool = sorted([e for e in evals if e], key=lambda e: -e["score"])
     chosen: list[dict] = []
-    fulls = [e for e in pool if e["part"] == "full"]
-    if fulls:
-        chosen.append(fulls[0])
+    for source in SOURCE_ORDER:
+        if len(chosen) >= P.max_views:
+            break
+        full = next((e for e in pool if e["part"] == "full" and e["meta"].source == source), None)
+        if full is not None:
+            chosen.append(full)
+    if not chosen:
+        full = next((e for e in pool if e["part"] == "full"), None)
+        if full is not None:
+            chosen.append(full)
     for e in pool:
         if len(chosen) >= P.max_views:
             break
@@ -414,7 +477,14 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
             width=max(3, cam.width // 300),
         )
     ol.save(out_dir / f"{view_id}_outline.jpg", quality=90)
+    from .evidence import measure
+
+    semantic = measure(rectified.astype(np.uint8))
     rec = {
+        "reference_version": REFS_VERSION,
+        "image_to_grid": model.rotation.tolist() if isinstance(model, C.EquirectModel) else None,
+        "semantic": semantic,
+        "lod2_visibility": e.get("lod2_visibility"),
         "view_id": view_id,
         "source": m.source,
         "pano_id": m.id,
@@ -470,7 +540,7 @@ def render_view(cache: PanoCache, e: dict, out_dir: Path, view_id: str, P: Selec
         "notes": (
             "calibrated Mapillary camera rotation; approximate camera height; "
             if hasattr(model, "project")
-            else "pinhole crop, no roll; pano pitch/roll not applied; depth fliplr-ed; "
+            else "upright panorama pose and true-to-grid heading; depth fliplr-ed; "
         )
         + "attribution: imagery (c) Google / Apple / Mapillary contributors, reference use only, never shipped",
     }
@@ -499,7 +569,14 @@ def facade_refs(
     from .height import ground_fingerprint
 
     P = scaled_params(f, P)
-    terrain = ground_fingerprint(*f.centre, P.radius) if "lookaround" in sources else None
+    from .visibility import fingerprint
+
+    terrain = (
+        ground_fingerprint(*f.centre, P.radius)
+        if set(sources) & {"lookaround", "mapillary"}
+        else None
+    )
+    scene = fingerprint()
 
     def geometry(feature):
         p = feature["properties"]
@@ -507,7 +584,8 @@ def facade_refs(
 
     key = hashlib.sha256(
         json.dumps(
-            [REFS_VERSION, geometry(f.to_feature()), P.__dict__, sources, terrain], sort_keys=True
+            [REFS_VERSION, geometry(f.to_feature()), P.__dict__, sources, terrain, scene],
+            sort_keys=True,
         ).encode()
     ).hexdigest()
     summary_path = out_root / f.id / "refs.json"
@@ -526,6 +604,7 @@ def facade_refs(
             (old.get("key") == key or (old.get("key") == old_key and same_geometry))
             and isinstance(old.get("views"), list)
             and not old.get("source_errors")
+            and old.get("lod2_fingerprint") == scene
         ):
             records = [summary_path.parent / f"{v}.json" for v in old["views"]]
             if all(
@@ -539,7 +618,8 @@ def facade_refs(
     errors = []
     cands = candidates(cache, f, P, sources, errors)
     bh, bh_src = base_height(f, cands)
-    evals = [x for m in cands for x in evaluate(cache, f, m, bh, P)]
+    target, wall_support = supported_wall(f, bh)
+    evals = [x for m in cands for x in evaluate(cache, target, m, bh, P)]
     chosen = select(evals, P)
     out = out_root / f.id
     views = []
@@ -565,7 +645,12 @@ def facade_refs(
         if len(views) == P.max_views or (len(views) == len(chosen) and not errors):
             break
     fallback = {"needed": False, "tried": [], "found": None}
-    if not any(v["part"] == "full" and screen_problem(v["screen"]) is None for v in views):
+    if not any(
+        v["part"] == "full"
+        and view_problem(v) is None
+        and v.get("semantic", {}).get("occlusion_share", 0) <= 0.05
+        for v in views
+    ):
         fallback["needed"] = True
         rendered = {(v["source"], v["pano_id"], v["part"]) for v in views}
         pending = [
@@ -593,14 +678,20 @@ def facade_refs(
                 continue
             views.append(view)
             fallback["tried"].append(view["view_id"])
-            if screen_problem(view["screen"]) is None:
+            if (
+                view_problem(view) is None
+                and view.get("semantic", {}).get("occlusion_share", 0) <= 0.05
+            ):
                 fallback["found"] = view["view_id"]
                 break
     summary = {
         "key": key,
+        "lod2_fingerprint": scene,
         "facade": f.to_feature(),
         "base_h": round(bh, 3),
         "base_h_source": bh_src,
+        "effective_height_m": round(target.height_m, 3),
+        "wall_support": wall_support,
         "n_candidates": len(cands),
         "n_valid": len(evals),
         "candidates": sorted(

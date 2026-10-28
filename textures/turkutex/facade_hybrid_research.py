@@ -68,6 +68,8 @@ def extract(args):
             cached
             and cached["crop_sha256"] == digest
             and cached.get("extractor_sha") == extractor_sha
+            and cached.get("width_m") == row["width_m"]
+            and cached.get("height_m") == row["height_m"]
         ):
             cached.update(row, attributes=attrs.get(row["building_id"], {}))
             continue
@@ -183,6 +185,29 @@ def summary(rows):
     return result
 
 
+def winning_fields(metrics):
+    """Field-wise deployment evidence; ties keep the register and small pilots cannot qualify."""
+    if metrics["walls"] < 100:
+        return []
+    baseline, candidate = metrics["register"], metrics["hybrid"]
+    fields = [
+        field
+        for field, score in (
+            ("storeys", "storeys"),
+            ("window_columns", "columns"),
+            ("material", "material"),
+        )
+        if candidate[score]["total"] == baseline[score]["total"]
+        and candidate[score]["correct"] > baseline[score]["correct"]
+    ]
+    if (
+        candidate["colour_coverage"] == baseline["colour_coverage"] == metrics["walls"]
+        and candidate["colour_median_de76"] < baseline["colour_median_de76"]
+    ):
+        fields.append("wall_colour")
+    return fields
+
+
 def evaluate(args):
     records = list(json.loads((args.output / "features.json").read_text()).values())
     old = [r for r in records if r["old"] and clean(r)]
@@ -197,6 +222,8 @@ def evaluate(args):
     ):
         raise ValueError("truth inputs changed; extract again before evaluation")
     low = read_labels(args.truth, "low")
+    if len(low) != len(expected):
+        raise ValueError(f"Astra-low labels incomplete: {len(low)}/{len(expected)}")
     results, sources = [], []
     # Each held-out building is absent from both fitting and material-source selection.
     for i in range(5):
@@ -232,11 +259,8 @@ def evaluate(args):
             f: sum(r["fields"][f]["state"] == "abstain" for r in results) for f in hybrid.FIELDS
         },
     )
-    metrics["eligible_for_queue"] = bool(
-        len(truth) >= 100
-        and metrics["hybrid"]["storeys"]["correct"] > metrics["register"]["storeys"]["correct"]
-        and metrics["hybrid"]["colour_median_de76"] < metrics["register"]["colour_median_de76"]
-    )
+    metrics["winning_fields"] = winning_fields(metrics)
+    metrics["eligible_for_queue"] = bool(metrics["winning_fields"])
     ff.write_json(args.output / "predictions.json", results)
     ff.write_json(args.output / "metrics.json", metrics)
     source, scores = select_material(old + truth)

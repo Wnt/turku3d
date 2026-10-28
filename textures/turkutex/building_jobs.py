@@ -42,6 +42,16 @@ def reference_matches(facade, root: Path) -> bool:
     )
 
 
+def view_height(view: dict, fallback: float) -> float:
+    """Use the physical wall plane shown in the crop, not an overestimated roof height."""
+    corners = view.get("facade_corners_EN_H")
+    if corners and len(corners) == 4:
+        height = abs(float(corners[2][2]) - float(corners[0][2]))
+        if height >= 3:
+            return height
+    return float(fallback)
+
+
 def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     """Valid full-wall views, best first in fallback source order, or the reason there is none.
 
@@ -51,7 +61,7 @@ def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     import numpy as np
     from PIL import Image
 
-    from .streetview.refs import screen_pixels, screen_problem, source_rank
+    from .streetview.refs import view_problem
 
     if not reference_matches(facade, root):
         return [], "no current reference set"
@@ -62,15 +72,23 @@ def screened_full_views(facade, root: Path) -> tuple[list[dict], str | None]:
     valid, problems = [], []
     for v in full:
         with Image.open(d / v["files"]["rectified"]) as image:
-            problem = screen_problem(screen_pixels(np.asarray(image.convert("RGB"))))
+            problem = view_problem(v, np.asarray(image.convert("RGB")))
         if problem:
             problems.append(f"{v['source']} {v['view_id']}: {problem}")
         else:
             valid.append(v)
-    valid.sort(key=lambda v: (source_rank(v["source"]), -(v.get("score") or 0)))
+    valid.sort(key=reference_quality_key)
     if not valid:
         return [], "no valid full-wall view: " + "; ".join(problems)
     return valid, None
+
+
+def reference_quality_key(view: dict) -> tuple:
+    """Distinguish clear views, then trust geometry over small proxy-occlusion differences."""
+    from .streetview.refs import source_rank
+
+    occlusion = view.get("semantic", {}).get("occlusion_share", 0)
+    return (occlusion >= 0.1, source_rank(view["source"]), -(view.get("score") or 0), occlusion)
 
 
 def reference_status(

@@ -72,14 +72,24 @@ textures/.venv/bin/python -m turkutex.facade_generated_qa --facades "$FACADES" -
   --output "$RUN/acceptance.json" --min-ppm 16
 ```
 
-Every rendered view is screened: more than 20% pure black (a Look Around crop
-outside panorama coverage) or a contrast-normalised Laplacian variance below 0.065
-at 512 px (motion blur) makes it invalid. When no rendered full view is valid,
-`refs` renders up to four more full views per source in the order Look Around →
-Google Street View → Mapillary and stops at the first valid one (`fallback` in
-`refs.json`). Generate jobs use the valid full views in that source order, best
-score first within a source; a wall with no valid view in any source gets no job,
-and `building_jobs.screened_full_views` returns the reason.
+Every rendered view is screened. Reference version 7 casts rays across the whole wall,
+including its edges, through the cached LOD2 wall/roof triangles (including wings of the same
+building). It requires 90% clear samples, 85% clear edge samples and 85% support on the target
+wall surface. View angles above 60 degrees and Google depth occlusion above 20% are rejected.
+The direct wall-plane sampler uses only the wall's supplied extent; it does not enlarge the
+crop or synthesise hidden areas. Local pinned ADE20K segmentation and Grounding DINO foreground boxes reject a coverage
+proxy above 20%, less than 65% facade support or a strong multiple-surface boundary. The
+box union is conservative foreground support, not a pixel-accurate occluder mask.
+These are conservative evidence checks, not proof of identity or calibrated probabilities.
+More than 20% pure black or normalized sharpness below 0.065 also rejects a crop. With no valid
+full-wall view with at most 5% foreground coverage, `refs` tries up to four more full views
+per source in Look Around → Google → Mapillary order. Accepted views are ordered by foreground
+coverage, then source preference and geometric score. All rejected images, scores and fallback attempts remain local. Description and
+generation use the same acceptance function. Geometry, nearby terrain and LOD2 file changes
+invalidate the reference cache; regenerate legacy records to apply the new checks.
+The semantic screen uses the existing `cv-models` extra and pinned ADE20K and Grounding DINO caches described in
+[CV.md](CV.md). No inference call accesses a paid service.
+
 Before `generate`, the `refgrid` stage (same arguments as `visualqa`, reviewer route
 `reference_grid`, gpt-6-astra/low) reads each wall's valid references into
 `facade_reference_grid.schema.json`: whether they show the outlined wall at all, and its
@@ -179,8 +189,8 @@ $PY -m turkutex.facade_fast publish "${COMMON[@]}" --staging "$R/staging" --asse
   zoom 2, 768 px crops, at most two views), so keep them in their own directory (`fast-refs`): the
   reference key includes these parameters. The usual black and sharpness screen applies; small
   walls fail it more often at this resolution and take a fallback description.
-- **Calls are cached** in `$TURKU3D_DATA/textures/codex-cache` by prompt and crop hash, so a rerun
-  in any sandbox makes no new call; the runner stops below `--max-pct` (default 90).
+- **Calls are cached** in `$TURKU3D_WORK/textures/codex-cache` by prompt and crop hash, so a rerun
+  in the same sandbox makes no new call; the runner stops below `--max-pct` (default 90).
 - **Maps** are 16 px/m (the top of the packager's density ladder) with `min_pixels_per_metre` 0,
   so the packager scales them down before any generated or derived map. Rendering is keyed by
   the description, code and encoding settings; an unchanged wall is not re-encoded. Fast maps
@@ -488,7 +498,12 @@ Reference geometry must still match the input; a material/index change alone doe
 
 Default sources: `google,lookaround,mapillary,photospheres`. `--sources` selects available providers.
 Selection ranks angle, distance, resolution, depth-proxy occlusion and recency, then adds viewpoint
-and facade-section diversity. It retains at least one full view when available and up to four views.
+and facade-section diversity. LOD2 rays check the target plane, both edges and intervening
+neighbours; a wrong-facing or blocked panorama is skipped. A local ADE20K/DINO screen rejects
+foreground occluders, interiors, mixed walls and crop-edge windows/doors and tries another
+panorama or source. An overestimated roof/gable height is trimmed to the LOD2-supported eaves
+before cropping; the visible height is passed into the description job. The crop covers only
+the target wall plane. It retains at least one full view when available and up to four views.
 Each chosen view has a perspective crop, outlined crop, approximate occlusion mask, **wall-plane
 rectified** crop and rectified mask, with pose/date/panorama provenance and its covered u interval.
 Cached successful reference sets do not refetch or rewrite images.
@@ -496,9 +511,10 @@ Transient provider failures are recorded by provider and exception type, without
 Other available providers and replacement views remain usable; a partially failed source search
 is retried on the next reference run.
 
-Google depth is flipped horizontally; camera heights follow the verified campaign table. Apple
-camera height and panorama pitch/roll remain approximate. Masks catch nearer depth planes, not
-all trees or vehicles. Label jobs judge visual usability; entirely rejected references are never
+Google depth is flipped horizontally; camera heights follow the verified campaign table.
+Look Around pose uses provider pitch/roll and true-to-grid convergence; its camera height still
+depends on local N2000 ground support. Depth masks catch nearer planes, while local segmentation
+estimates trees and vehicles. Label jobs judge visual usability; entirely rejected references are never
 silently promoted into usable inputs. Photospheres use the same third-party discovery RPC as
 `tools/refs/gmaps_photospheres.py`.
 

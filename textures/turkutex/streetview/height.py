@@ -76,12 +76,12 @@ def ground_fingerprint(e: float, n: float, radius: float) -> str:
 
 
 def camera_elevation(meta, base_h: float) -> tuple[float, str]:
-    if meta.source == "lookaround":
+    if meta.source == "lookaround" or meta.elevation is None:
         ground = ground_height(meta.E, meta.N)
         if ground is not None:
             return (
                 ground + meta.cam_height,
-                "N2000 ground key-point plane + assumed Look Around camera height",
+                f"N2000 ground key-point plane + assumed {meta.source} camera height",
             )
     if meta.elevation is not None:
         return meta.elevation, "provider elevation (uncalibrated for Look Around)"

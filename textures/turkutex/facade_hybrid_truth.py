@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
@@ -14,43 +15,66 @@ from . import facade_fast as ff
 from . import facade_priors as priors
 from .building_jobs import latest
 from .facade_fast_render import MATERIALS
-from .streetview.facades import Facade, load_facades, merge_edges, save_facades
-
-
-def edge_heights(points: np.ndarray, start: np.ndarray, end: np.ndarray) -> np.ndarray:
-    tangent = end - start
-    length = np.linalg.norm(tangent)
-    tangent = tangent / length
-    delta = points[:, :2] - start
-    along = delta @ tangent
-    across = np.abs(delta[:, 0] * tangent[1] - delta[:, 1] * tangent[0])
-    keep = (across <= 0.6) & (along >= -0.5) & (along <= length + 0.5)
-    if keep.sum() < 2 or np.ptp(along[keep]) < length * 0.6:
-        return np.empty(0)
-    return points[keep, 2]
+from .streetview.facades import Facade, load_facades, save_facades
 
 
 def inventory(args):
-    """Whole street-facing footprint runs across the cached 3x3 WFS area, with LOD2 heights."""
+    """Whole street-facing LOD2 wall surfaces across the cached 3x3 WFS area."""
     import geopandas as gpd
     import shapely
     from shapely.geometry import LineString
-    from shapely.geometry.polygon import orient
     from turku3d import config
 
+    from .streetview.height import ground_height
+    from .streetview.walls import wall_rectangles
+
     wfs = config.raw_dir("wfs/work-3x3")
-    frame = gpd.read_parquet(wfs / "bldg_Building_LOD2.parquet")
+    if args.radius:
+        import pandas as pd
+
+        from .streetview.visibility import file_bounds, overlaps, source_files
+
+        bounds = (
+            config.ORIGIN_E - args.radius,
+            config.ORIGIN_N - args.radius,
+            config.ORIGIN_E + args.radius,
+            config.ORIGIN_N + args.radius,
+        )
+        files = [r[0] for r in source_files() if (b := file_bounds(r)) and overlaps(b, bounds)]
+        frames = [
+            gpd.read_parquet(
+                path,
+                columns=[
+                    "feature_key",
+                    "geom_index",
+                    "geometry",
+                    "geom_type",
+                    "surface_type",
+                    "pysyvarakennustunnus",
+                ],
+            )
+            for path in files
+        ]
+        frame = gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs=frames[0].crs)
+        frame = frame.drop_duplicates(["feature_key", "geom_index"])
+    else:
+        frame = gpd.read_parquet(wfs / "bldg_Building_LOD2.parquet")
     frame = frame[
-        (frame.geom_type == "Polygon") & frame.surface_type.isin(["GroundSurface", "RoofSurface"])
+        (frame.geom_type == "Polygon") & frame.surface_type.isin(["GroundSurface", "WallSurface"])
     ]
     buildings = []
+    excluded = (
+        {f.props["building_id"] for f in load_facades(args.exclude_inventory)}
+        if args.exclude_inventory
+        else set()
+    )
     for key, group in frame.groupby("feature_key", sort=True):
         bid = str(group.pysyvarakennustunnus.iloc[0])
-        if bid in ("", "None", "nan", "0", "<NA>"):
+        if bid in ("", "None", "nan", "0", "<NA>") or bid in excluded:
             continue
         ground = group[group.surface_type == "GroundSurface"]
-        roofs = group[group.surface_type == "RoofSurface"]
-        if ground.empty or roofs.empty:
+        surfaces = group[group.surface_type == "WallSurface"]
+        if ground.empty or surfaces.empty:
             continue
         footprint = shapely.make_valid(
             shapely.union_all([shapely.force_2d(g) for g in ground.geometry])
@@ -58,50 +82,85 @@ def inventory(args):
         polygons = [p for p in getattr(footprint, "geoms", [footprint]) if p.geom_type == "Polygon"]
         if not polygons:
             continue
-        footprint = orient(max(polygons, key=lambda p: p.area), 1)
-        ground_points = np.concatenate([np.asarray(g.exterior.coords) for g in ground.geometry])
-        roof_points = np.concatenate([np.asarray(g.exterior.coords) for g in roofs.geometry])
-        buildings.append((bid, key, footprint, ground_points, roof_points))
+        buildings.append((bid, key, footprint, list(surfaces.geometry)))
     shapes = [r[2] for r in buildings]
     tree = shapely.STRtree(shapes)
-    roads = gpd.read_parquet(wfs / "GIS_Keskilinjat.parquet").geometry
-    roads = shapely.union_all([shapely.force_2d(g) for g in roads])
+    roads = None
+    if not args.radius:
+        roads = gpd.read_parquet(wfs / "GIS_Keskilinjat.parquet").geometry
+        roads = shapely.union_all([shapely.force_2d(g) for g in roads])
     walls = []
-    for bi, (bid, key, shape, ground_points, roof_points) in enumerate(buildings):
-        ring = np.asarray(shape.exterior.coords)[:-1, :2]
-        for index, (a, b) in enumerate(merge_edges(ring, max_turn_deg=5, max_dev=0.3)):
-            bottom = edge_heights(ground_points, ring[a], ring[b])
-            upper = edge_heights(roof_points, ring[a], ring[b])
-            if not len(bottom) or not len(upper) or np.ptp(np.quantile(upper, [0.1, 0.9])) > 2:
+    for bi, (bid, key, shape, surfaces) in enumerate(buildings):
+        rectangles = wall_rectangles(surfaces)
+        for p0, p1, base, top, normal in rectangles:
+            centre = (p0 + p1) / 2
+            if (
+                args.radius
+                and np.max(np.abs(centre - [config.ORIGIN_E, config.ORIGIN_N])) > args.radius
+            ):
                 continue
-            base, top = float(np.median(bottom)), float(np.median(upper))
+            if shape.boundary.distance(shapely.Point(centre)) > 0.5:
+                continue  # A recessed upper wall does not include the ground storey.
+            tangent = (p1 - p0) / np.linalg.norm(p1 - p0)
+            if any(
+                other_top > top + 3
+                and abs(other_normal @ normal) > 0.99
+                and abs(((a + b) / 2 - centre) @ normal) < 5
+                and min(max((a - p0) @ tangent, (b - p0) @ tangent), np.linalg.norm(p1 - p0))
+                - max(min((a - p0) @ tangent, (b - p0) @ tangent), 0)
+                > np.linalg.norm(p1 - p0) * 0.8
+                for a, b, _, other_top, other_normal in rectangles
+            ):
+                continue  # A low podium in front of the taller facade is not a whole facade.
+            # Select the side facing an unobstructed street. Recessed upper walls
+            # may lie inside the ground footprint on both sides; a centroid test
+            # cannot determine their outward side reliably.
+            choices = []
+            for sign in (1, -1):
+                start = centre + sign * normal * 0.5
+                if shape.contains(shapely.Point(start)):
+                    continue
+                if roads is None:
+                    choices.append((0, sign))
+                    continue
+                ray = LineString([start, start + sign * normal * 60])
+                hit = ray.intersection(roads)
+                if hit.is_empty:
+                    continue
+                distance = shapely.Point(start).distance(hit)
+                if any(
+                    i != bi
+                    and shapely.Point(start).distance(ray.intersection(shapes[i])) < distance
+                    for i in tree.query(ray, predicate="intersects")
+                ):
+                    continue
+                choices.append((distance, sign))
+            if not choices:
+                continue
+            _, sign = min(choices)
+            terrain = ground_height(*(centre + sign * normal * 0.75))
+            if terrain is not None:
+                if base - terrain > 2:  # Upper-only surfaces cannot label the building's storeys.
+                    continue
+                base = max(base, terrain)
             if top - base < 3:
                 continue
-            fid = bid + "_" + hashlib.sha256((key + ":" + str(index)).encode()).hexdigest()[:10]
+            signature = np.round(np.r_[p0, p1, base, top], 3).tolist()
+            fid = bid + "_" + hashlib.sha256((key + repr(signature)).encode()).hexdigest()[:10]
             wall = Facade(
                 fid,
-                ring[a],
-                ring[b],
+                p0,
+                p1,
                 top - base,
                 base,
                 dict(
                     building_id=bid,
                     street_facing=True,
-                    height_source="LOD2 edge ground/eaves vertices",
+                    height_source="connected coplanar LOD2 WallSurface extent",
                 ),
+                "right" if sign == 1 else "left",
             )
             if not 8 <= wall.length <= 65:
-                continue
-            start = wall.centre + wall.normal * 0.5
-            ray = LineString([start, start + wall.normal * 45])
-            hit = ray.intersection(roads)
-            if hit.is_empty:
-                continue
-            distance = shapely.Point(start).distance(hit)
-            if any(
-                i != bi and shapely.Point(start).distance(ray.intersection(shapes[i])) < distance
-                for i in tree.query(ray, predicate="intersects")
-            ):
                 continue
             walls.append(wall)
     args.root.mkdir(parents=True, exist_ok=True)
@@ -173,11 +232,35 @@ def prepare(args):
             independent_buildings=len({priors.building_group(f.id) for f in selected}),
         ),
     )
-    errors = ff.make_refs(selected, args.root / "refs", ("lookaround", "google", "mapillary"), 3, 1)
+    errors = {}
+    start = time.monotonic()
+    for index in range(0, len(selected), 10):
+        errors.update(
+            ff.make_refs(
+                selected[index : index + 10],
+                args.root / "refs",
+                ("lookaround", "google", "mapillary"),
+                workers=3,
+                max_views=4,
+            )
+        )
+        print(
+            json.dumps(
+                dict(
+                    stage="refs",
+                    processed=min(index + 10, len(selected)),
+                    total=len(selected),
+                    seconds=round(time.monotonic() - start, 1),
+                )
+            ),
+            flush=True,
+        )
     screen(args, errors)
 
 
 def screen(args, errors=None):
+    from .building_jobs import view_height
+
     errors = dict(errors or {})
     rows = []
     for f in load_facades(args.root / "candidates.geojson"):
@@ -193,10 +276,11 @@ def screen(args, errors=None):
                 facade_id=f.id,
                 building_id=f.props["building_id"],
                 width_m=f.length,
-                height_m=f.height_m,
+                height_m=view_height(view, f.height_m),
                 crop=str(crop),
                 context=str(context),
                 crop_sha256=ff.sha(crop),
+                context_sha256=ff.sha(context),
                 view_id=view["view_id"],
                 source=view["source"],
             )
@@ -204,6 +288,37 @@ def screen(args, errors=None):
     ff.write_json(args.root / "screened.json", rows)
     ff.write_json(args.root / "rejected-refs.json", errors)
     print(json.dumps(dict(screened=len(rows), rejected=len(errors))))
+
+
+def refresh(args):
+    """Regenerate selected local references with the current geometry and screen versions."""
+    facades = load_facades(args.root / "candidates.geojson")
+    errors = {}
+    start = time.monotonic()
+    for index in range(0, len(facades), 10):
+        errors.update(
+            ff.make_refs(
+                facades[index : index + 10],
+                args.root / "refs",
+                ("lookaround", "google", "mapillary"),
+                workers=3,
+                max_views=4,
+            )
+        )
+        ff.write_json(args.root / "errors.json", errors)
+        print(
+            json.dumps(
+                dict(
+                    stage="refs",
+                    processed=min(index + 10, len(facades)),
+                    total=len(facades),
+                    seconds=round(time.monotonic() - start, 1),
+                    errors=len(errors),
+                )
+            ),
+            flush=True,
+        )
+    screen(args, errors)
 
 
 def label_schema():
@@ -261,13 +376,14 @@ def label(args):
 
     rows = json.loads((args.root / "screened.json").read_text())
     completed = read_labels(args.root, args.reviewer)
-    rows = [r for r in rows if r["facade_id"] not in completed][: args.label_limit]
+    rows = [r for r in rows if r["facade_id"] not in completed]
     schema = args.root / f"{args.reviewer}.schema.json"
     structure = label_schema()
     if args.reviewer == "low":
         structure["properties"]["walls"]["items"] = ff.fr.schema()
         kept = json.loads((args.root / "agreed.json").read_text())
         rows = [r for r in rows if r["facade_id"] in kept]
+    rows = rows[: args.label_limit]
     ff.write_json(schema, structure)
     jobs = []
     for start in range(0, len(rows), args.batch_size):
@@ -329,11 +445,12 @@ def label(args):
                 timeout=360,
                 model="gpt-6-astra",
                 effort="low" if args.reviewer == "low" else "high",
-                prompt_version="hybrid-truth-v2-" + args.reviewer,
+                prompt_version="hybrid-truth-v3-" + args.reviewer,
                 meta=dict(
                     kind="fast_describe" if args.reviewer == "low" else "facade_truth",
                     ids=[r["facade_id"] for r in batch],
                     crop_hashes={r["facade_id"]: r["crop_sha256"] for r in batch},
+                    context_hashes={r["facade_id"]: r.get("context_sha256") for r in batch},
                 ),
             )
         )
@@ -341,8 +458,8 @@ def label(args):
     path.write_text("".join(json.dumps(job) + "\n" for job in jobs))
     code = Runner(
         args.root / args.reviewer,
-        parallel=3,
-        max_pct=min(80, args.max_pct),
+        parallel=args.parallel,
+        max_pct=args.max_pct,
         retries=0,
         cache_dir=args.root / "call-cache",
     ).run(load_jobs(path))
@@ -364,6 +481,8 @@ def read_labels(root: Path, reviewer: str) -> dict:
             if (
                 fid in rows
                 and record["meta"].get("crop_hashes", {}).get(fid) == rows[fid]["crop_sha256"]
+                and record["meta"].get("context_hashes", {}).get(fid)
+                == rows[fid].get("context_sha256")
             ):
                 result[fid] = wall
     return result
@@ -389,20 +508,166 @@ def collect(args):
     print(json.dumps(dict(agreed=len(kept), rejected=dict(Counter(rejected.values())))))
 
 
+def combine(args):
+    """Select independently agreed, unique-building walls from local collections."""
+    if not args.source_root:
+        raise ValueError("combine requires --source-root")
+    candidates = []
+    for root in args.source_root:
+        root = root.resolve()
+        agreed = json.loads((root / "agreed.json").read_text())
+        readings = [read_labels(root, reviewer) for reviewer in ("a", "b")]
+        for fid, row in agreed.items():
+            if not all(fid in reading for reading in readings):
+                continue
+            label, _ = agreement(*(reading[fid] for reading in readings))
+            if label == row["label"] and row["width_m"] >= args.min_width:
+                candidates.append(row)
+    candidates.sort(key=lambda row: (-row["width_m"], row["facade_id"]))
+    selected, buildings = [], set()
+    for row in candidates:
+        if row["building_id"] in buildings:
+            continue
+        selected.append(row)
+        buildings.add(row["building_id"])
+        if len(selected) == args.limit:
+            break
+    if len(selected) < args.limit:
+        raise ValueError(f"only {len(selected)} agreed unique-building walls; need {args.limit}")
+    args.root.mkdir(parents=True, exist_ok=True)
+    selected_ids = {row["facade_id"] for row in selected}
+    facades = {
+        facade.id: facade
+        for root in args.source_root
+        for facade in load_facades(root / "candidates.geojson")
+        if facade.id in selected_ids
+    }
+    if set(facades) != selected_ids:
+        raise ValueError("selected wall geometry missing from source inventories")
+    save_facades([facades[row["facade_id"]] for row in selected], args.root / "candidates.geojson")
+    refs = args.root / "refs"
+    refs.mkdir(exist_ok=True)
+    for fid in selected_ids:
+        sources = [
+            root / "refs" / fid for root in args.source_root if (root / "refs" / fid).is_dir()
+        ]
+        if len(sources) != 1:
+            raise ValueError(f"expected one source reference set for {fid}; found {len(sources)}")
+        link = refs / fid
+        target = sources[0].resolve()
+        if link.is_symlink():
+            if link.resolve() == target:
+                continue
+            link.unlink()
+        elif link.exists():
+            raise ValueError(f"refuse to overwrite reference directory: {link}")
+        link.symlink_to(target, target_is_directory=True)
+    for reviewer in ("a", "b"):
+        records = args.root / reviewer / "out.jsonl"
+        records.parent.mkdir(parents=True, exist_ok=True)
+        with records.open("w") as output:
+            for root in args.source_root:
+                source = root / reviewer / "out.jsonl"
+                if source.exists():
+                    with source.open() as stream:
+                        shutil.copyfileobj(stream, output)
+    ff.write_json(
+        args.root / "screened.json",
+        [{k: v for k, v in r.items() if k != "label"} for r in selected],
+    )
+    ff.write_json(args.root / "agreed.json", {r["facade_id"]: r for r in selected})
+    ff.write_json(
+        args.root / "selection.json",
+        dict(
+            source_roots=[str(root.resolve()) for root in args.source_root],
+            agreed_candidates=len(candidates),
+            minimum_width_m=args.min_width,
+            selected=len(selected),
+            independent_buildings=len(buildings),
+        ),
+    )
+    print(json.dumps(dict(selected=len(selected), independent_buildings=len(buildings))))
+
+
+def reserve(args):
+    """Select unreviewed wide walls from other buildings for a fresh reference pass."""
+    if not args.source_root or not args.exclude_inventory:
+        raise ValueError("reserve requires --source-root and --exclude-inventory")
+    excluded = {f.props["building_id"] for f in load_facades(args.exclude_inventory)}
+    candidates = []
+    for root in args.source_root:
+        rows = json.loads((root / "screened.json").read_text())
+        rejected = json.loads((root / "rejected-labels.json").read_text())
+        facades = {f.id: f for f in load_facades(root / "candidates.geojson")}
+        candidates.extend(
+            facades[row["facade_id"]]
+            for row in rows
+            if row["width_m"] >= args.min_width
+            and row["building_id"] not in excluded
+            and rejected.get(row["facade_id"]) == "missing independent reading"
+        )
+    candidates.sort(key=lambda f: (-f.length, f.id))
+    selected = []
+    for f in candidates:
+        building = f.props["building_id"]
+        if building in excluded:
+            continue
+        selected.append(f)
+        excluded.add(building)
+        if len(selected) == args.limit:
+            break
+    if len(selected) < args.limit:
+        raise ValueError(f"only {len(selected)} unreviewed buildings; need {args.limit}")
+    args.root.mkdir(parents=True, exist_ok=True)
+    save_facades(selected, args.root / "candidates.geojson")
+    ff.write_json(
+        args.root / "selection.json",
+        dict(
+            source_roots=[str(root.resolve()) for root in args.source_root],
+            exclude_inventory=str(args.exclude_inventory.resolve()),
+            minimum_width_m=args.min_width,
+            selected=len(selected),
+            independent_buildings=len({f.props["building_id"] for f in selected}),
+        ),
+    )
+    print(json.dumps(dict(selected=len(selected), independent_buildings=len(selected))))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=["inventory", "prepare", "screen", "prescreen", "label", "collect"]
+        "command",
+        choices=[
+            "inventory",
+            "prepare",
+            "screen",
+            "refresh",
+            "prescreen",
+            "label",
+            "collect",
+            "combine",
+            "reserve",
+        ],
     )
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--inventory", type=Path)
+    parser.add_argument(
+        "--radius", type=float, default=0, help="regional WFS radius around origin in metres"
+    )
+    parser.add_argument(
+        "--exclude-inventory", type=Path, help="exclude every building in this local inventory"
+    )
     parser.add_argument("--labels", type=Path)
     parser.add_argument("--limit", type=int, default=240)
     parser.add_argument("--reviewer", choices=["a", "b", "low"])
-    parser.add_argument("--max-pct", type=float, default=80)
+    parser.add_argument("--max-pct", type=float, default=100)
     parser.add_argument("--batch-size", type=int, default=12)
+    parser.add_argument("--parallel", type=int, default=3)
     parser.add_argument("--label-limit", type=int, default=1000)
+    parser.add_argument("--source-root", type=Path, action="append")
+    parser.add_argument("--min-width", type=float, default=8)
     args = parser.parse_args()
+    args.root = args.root.resolve()
     globals()[args.command](args)
 
 
