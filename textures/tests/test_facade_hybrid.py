@@ -1,5 +1,7 @@
 """Pure synthetic fusion, evidence and independent-label agreement checks."""
 
+from types import SimpleNamespace
+
 import numpy as np
 from turkutex.facade_hybrid import (
     bay_spacing,
@@ -12,6 +14,7 @@ from turkutex.facade_hybrid import (
 from turkutex.facade_hybrid_research import fold, summary
 from turkutex.facade_hybrid_truth import agreement
 from turkutex.facade_priors import prior
+from turkutex.facade_wide_reserve import select as select_wide_reserve
 
 
 def evidence(**updates):
@@ -24,6 +27,30 @@ def evidence(**updates):
         occlusion_share=0.1,
         **updates,
     )
+
+
+def test_wide_reserve_selects_unique_visible_buildings_near_the_office():
+    def wall(fid, east, width=20, height=8, facing=True):
+        return SimpleNamespace(
+            id=fid,
+            centre=(east, 0),
+            length=width,
+            height_m=height,
+            props={"street_facing": facing},
+        )
+
+    walls = [
+        wall("excluded_0", 1),
+        wall("near_0", 2),
+        wall("near_1", 3),
+        wall("narrow_0", 4, width=14),
+        wall("hidden_0", 5, facing=False),
+        wall("far_0", 6),
+    ]
+    assert [w.id for w in select_wide_reserve(walls, {"excluded"}, (0, 0), 2)] == [
+        "near_0",
+        "far_0",
+    ]
 
 
 def test_field_abstention_preserves_only_unsupported_register_fields():
