@@ -38,6 +38,7 @@ CODE = hashlib.sha256(
     + Path(roofs.__file__).read_bytes()
     + Path(__file__).with_name("fences.py").read_bytes()
     + Path(__file__).with_name("bridges.py").read_bytes()
+    + Path(__file__).with_name("bridge_survey.py").read_bytes()
     + Path(__file__).with_name("forests.py").read_bytes()
     + Path(__file__).with_name("tunnels.py").read_bytes()
     + (Path(__file__).parents[1] / "props" / "__init__.py").read_bytes()
@@ -277,7 +278,7 @@ def prepare_wfs(
 # -- roads ----------------------------------------------------------------------------------------
 
 
-def prepare_roads(tile: C.VisualTile, osm: Path) -> dict:
+def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=()) -> dict:
     """``roads.json`` bytes of the tile's street graph with its node and edge counts."""
     from turku3d.roads import build_graph, encode, osm_ways
 
@@ -290,7 +291,7 @@ def prepare_roads(tile: C.VisualTile, osm: Path) -> dict:
         "json": encode(graph),
         "nodes": len(graph["nodes"]) // 2,
         "edges": len(graph["edges"]),
-        "bridge_ways": prepare_bridges(tile, osm),
+        "bridge_ways": prepare_bridges(tile, osm, survey_paths),
     }
 
 
@@ -361,6 +362,8 @@ def _save(path: Path, key: str, value) -> None:
 
 def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
+    from . import bridge_survey
+
     laz, missing = sources.lidar_paths(tile)
     ortho = sources.ortho_source(tile)
     wfs = [sources.wfs_source(name, tile) for name in WFS_LAYERS]
@@ -371,7 +374,7 @@ def _sources(tile: C.VisualTile, sources: Sources) -> dict[str, list | None]:
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs)
         else None,
-        "roads": [osm] if osm else None,
+        "roads": [osm, *bridge_survey.source_paths(tile)] if osm else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
@@ -424,7 +427,7 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
     if dataset == "ortho":
         return read_ortho(paths[0], tile)
     if dataset == "roads":
-        return prepare_roads(tile, paths[0])
+        return prepare_roads(tile, paths[0], paths[1:])
     if dataset == "barriers":
         from .fences import prepare as prepare_barriers
 

@@ -319,6 +319,9 @@ class Sources:
         ]
         if missing or ortho is None or not all(found for found, _ in wfs):
             return None
+        from .bridge_survey import source_paths
+
+        laz = [*laz, *source_paths(tile)]
         chunks = ortho.with_name(ortho.name.removesuffix(".vrt") + ".chunks.json")
         h = hashlib.sha256(b"osm" if osm else b"no-osm")
         from .roofs import lidar_paths

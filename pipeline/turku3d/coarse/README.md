@@ -247,8 +247,28 @@ models remain visible until the replacement is ready. `/coarse/status` includes 
 worker state and last-job seconds under `facades`. Published assembly reads the same parameters.
 
 
-Resolved OSM crossings use a 0.4 m slab with 4.5 m road / 6 m rail / 2.5 m path headroom,
-outline rails and supports outside crossed-way corridors. `manifest.seconds.bridges` records
+Resolved OSM crossings use `bridge_details.py` for type-dependent deck bodies, edge beams,
+open steel balusters (or explicitly tagged stone/concrete parapets), bank abutments and broad
+supports outside crossed-way corridors. `bridge:structure` distinguishes beams, arches and
+humpbacks; absent underside measurements, thickness and span spacing remain documented type
+estimates. The surface uses OSM surface tags; asphalt binds the street's `ground_asphalt`
+library, and concrete, stone, steel, wood and ballast have deterministic procedural albedos.
+Mapped pedestrian member ways become raised pavements; lane tags place paint, gauge tags
+place rails/sleepers, and mapped `highway=street_lamp` nodes place poles. `lit=yes` alone does
+not invent lamp locations. Meshes batch by material; paint has no duplicate collider, while
+decks, pavement, structural members and visible railing bars supply collision.
+
+`bridge_survey.py` optionally reads existing full city lidar through `turku3d.lidar.TileStore`
+into the sandbox cache. It never fetches. Classes 1/2/10/12/17 contribute robust deck profiles;
+class 10 is used for bridges in the city source. At least 80% of 3 m stations and both endpoints
+must have a narrow dominant height band. Every fifth return is withheld for QA. Measured
+crowns replace flat ground-key-point spans; missing coverage and bridges newer than the 2021
+flight explicitly retain the fallback. Cross-section occupancy reports a separate width check;
+OSM outlines retain ownership. Optional source identities invalidate prepared and served drafts.
+Vertical sub-deck lidar clusters supply positive pier evidence; missing clusters retain the
+type-based span layout, and mapped lower ways exclude supports. Airborne coverage does not
+measure an underside everywhere, so structural thickness is explicitly a type-based estimate.
+Fallback headroom remains 4.5 m road / 6 m rail / 2.5 m path. `manifest.seconds.bridges` records
 producer time. `roads.json.edgeHeights` follows the shared deck for parallel carriageways and
 sidewalks while leaving transverse lower ways at their own elevations. The existing 8 MB visual
 budget remains unchanged.
@@ -344,3 +364,26 @@ The renderer retains screenshots and frame/GPU/draw measurements under each phas
 `--full` loads the three published office tiles with their ground bindings and water shader.
 Private reference comparisons and their calibration caveats are described in the task report;
 all reference renders and pairs stay outside the repository.
+## Bridge appearance and profile audit
+
+The manual audit includes Teatterisilta, Myllysilta, Martinsilta, Auransilta, Kirjastosilta,
+Tuomiokirkkosilta, Hämeensilta, Aurajoen ratasilta, Raunistulansilta, Betanianpolku and incidental
+landings in their tiles. It retains before/after GLBs, collision, source membership, held-out
+height/width evidence and top/oblique/street/bank/deck renders in the sandbox. It is outside
+the gate. Before changes only the bridge producer to the pinned pre-quality implementation;
+other tile layers use the checkout being audited.
+
+```sh
+source ../sandbox.env
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.bridge_quality after
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python -m turku3d.coarse.bridge_quality before
+npm --prefix game run dev -- --host 127.0.0.1 --port "$TURKU3D_PORT_BASE" --strictPort
+# In a second sandbox-sourced shell:
+python3 scripts/dev/host_slots.py browser -- node qa/render/bridge-quality.mjs after
+python3 scripts/dev/host_slots.py browser -- node qa/render/bridge-quality.mjs before
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_bridges.py
+```
+
+Output: `$TURKU3D_WORK/reports/bridge-quality/{before,after}/{inventory.json,render.json}`
+and local PNGs. Private reference pairs/scores require the comparison tool's own coverage and
+calibration checks and remain outside this repository. No reference values feed generation.
