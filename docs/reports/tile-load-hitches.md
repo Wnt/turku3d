@@ -83,7 +83,8 @@ documented String.raw probe correction; external shared recorder files are untou
 
 ## Gate output
 
-Ten affected unit files: 46 tests passed. Typecheck and diff whitespace checks passed. The real-WebGPU
+Ten affected unit files: 46 tests passed. The final rebased unit/type selections ran in parallel
+within a hard 30-second budget and finished in 2.513 seconds. Diff whitespace checks passed. The real-WebGPU
 fixture passes both surface and AO publication cache assertions. Final real-tile local flight completes
 with no page errors. No assertions were weakened. The reflection unit fixture now supplies initialized
 render-context state and additionally asserts the observed depth selection.
