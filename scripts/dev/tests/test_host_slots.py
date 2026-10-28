@@ -120,6 +120,26 @@ class HostSlotsTest(unittest.TestCase):
         self.assertTrue(host_slots.admissible(entries, browser))
         self.assertFalse(host_slots.admissible(entries, {**build, "state": "waiting", "since": 4}))
 
+    def test_build_waiters_are_fifo_when_only_one_fits(self):
+        integration = {"kind": "integration", "state": "running", "since": 0}
+        running = {"kind": "build", "state": "running", "since": 1}
+        older = {"kind": "build", "state": "waiting", "since": 2}
+        newer = {"kind": "build", "state": "waiting", "since": 3}
+        entries = [integration, running, older, newer]
+        self.assertTrue(host_slots.admissible(entries, older))
+        self.assertFalse(host_slots.admissible(entries, newer))
+        self.assertTrue(host_slots.admissible([integration, running, newer], newer))
+        # Waiting CPU builds do not hold the independent browser resource.
+        browser = {"kind": "browser", "state": "waiting", "since": 4}
+        self.assertTrue(host_slots.admissible(entries, browser))
+
+    def test_fifo_keeps_integration_headroom(self):
+        running = [{"kind": "build", "state": "running", "since": i} for i in (0, 1)]
+        integration = {"kind": "integration", "state": "waiting", "since": 2}
+        oldest = {"kind": "build", "state": "waiting", "since": 3}
+        self.assertFalse(host_slots.admissible([*running, integration, oldest], oldest))
+        self.assertTrue(host_slots.admissible([*running, integration, oldest], integration))
+
     def test_dead_owner_reclaimed_and_browser_cap(self):
         # At most LIMITS["browser"] (3) agent Chrome suites per host; the fourth waits.
         browsers = [self.start("browser") for _ in range(4)]
