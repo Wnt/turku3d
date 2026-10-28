@@ -8,7 +8,16 @@ from turku3d.structures.geometry import Faces
 def clip_mesh(mesh, bbox):
     """Clip each triangle to the tile, so neighbours never draw a complete duplicate."""
     faces = Faces()
-    for triangle in mesh.indices:
+    triangles = mesh.positions[mesh.indices]
+    low, high = triangles.min(axis=1)[:, [0, 2]], triangles.max(axis=1)[:, [0, 2]]
+    lo, hi = np.array([bbox.xmin, bbox.zmin]), np.array([bbox.xmax, bbox.zmax])
+    overlap = np.all(high >= lo, axis=1) & np.all(low <= hi, axis=1)
+    inside = np.all(low >= lo, axis=1) & np.all(high <= hi, axis=1)
+    for index in np.flatnonzero(overlap):
+        triangle = mesh.indices[index]
+        if inside[index]:
+            faces.face(mesh.positions[triangle], mesh.uvs[triangle])
+            continue
         vertices = np.c_[mesh.positions[triangle], mesh.uvs[triangle]]
         for axis, edge, sign in (
             (0, bbox.xmin, 1),

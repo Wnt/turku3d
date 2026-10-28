@@ -9,13 +9,13 @@ import numpy as np
 import shapely
 from scipy.spatial import cKDTree
 
-from turku3d.bridges.build import _box
 from turku3d.col.materials import mat_id
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
-from turku3d.structures.geometry import Faces, profile_wall
+from turku3d.structures.geometry import Faces
 from turku3d.structures.layer import tile_cells
 
+from . import bridge_details as details
 from .geometry import clip_mesh
 
 PATHS = {"footway", "cycleway", "path", "steps", "pedestrian", "bridleway"}
@@ -165,7 +165,7 @@ def passes_under(bridge, way):
     return False
 
 
-def prepare(tile, osm):
+def prepare(tile, osm, survey_paths=()):
     """Resolve physical crossings with full source ways before selecting this tile."""
     import pyarrow.parquet as pq
 
@@ -174,7 +174,7 @@ def prepare(tile, osm):
         osm, columns=[c for c in ("osm_id", "tags", "geometry_local") if c in names]
     )
     window = shapely.box(*tile.bbox.buffered(500).as_tuple())
-    ways, outlines, obstacles, piers = [], {}, [], []
+    ways, outlines, obstacles, piers, lamps = [], {}, [], [], []
     for row_index, row in enumerate(table.to_pylist()):
         tags = json.loads(row["tags"] or "{}")
         if not (
@@ -188,6 +188,8 @@ def prepare(tile, osm):
         if not line.intersects(window):
             continue
         key = str(row.get("osm_id", row_index))
+        if tags.get("highway") == "street_lamp" and line.geom_type == "Point":
+            lamps.append((list(line.coords[0]), tags))
         poly = footprint(line)
         if tags.get("building") not in (None, "no") and not poly.is_empty:
             obstacles.append(poly)
@@ -222,6 +224,16 @@ def prepare(tile, osm):
         )
         b["obstacles"] = obstacle
         b["under"] = [] if b["landing"] else [w for w in ways if passes_under(b, w)]
+        from .bridge_survey import survey
+
+        b["lamps"] = [
+            (p, tags)
+            for p, tags in lamps
+            if b.get("outline", b["line"].buffer(b["width"] / 2))
+            .buffer(0.5)
+            .covers(shapely.Point(p))
+        ]
+        b["survey"] = survey(b, survey_paths)
         result.append(b)
     return result
 
@@ -285,11 +297,11 @@ def extended(line, distance):
     return shapely.LineString([coords[0] - a * distance, *coords, coords[-1] + b * distance])
 
 
-def slab(key, polygon, line, stations, heights, material, height_at=None):
+def slab(key, polygon, line, stations, heights, material, height_at=None, thickness=THICKNESS):
     """Closed deck over the source outline, with holes for ships and building footprints."""
     import mapbox_earcut
 
-    faces = Faces()
+    faces, body = Faces(), Faces()
     from shapely.ops import split
 
     pieces = list(shapely.get_parts(polygon))
@@ -304,7 +316,10 @@ def slab(key, polygon, line, stations, heights, material, height_at=None):
     for poly in pieces:
         if poly.geom_type != "Polygon" or poly.area < 0.01:
             continue
-        poly = shapely.geometry.polygon.orient(poly, 1)
+        # Intersected sidewalk strips can leave submillimetre ears that collapse
+        # after collision-cell float32 export. Keep top, soffit and walls on one
+        # simplified ring, rather than dropping mismatched triangles afterwards.
+        poly = shapely.geometry.polygon.orient(poly.simplify(0.0005, preserve_topology=True), 1)
         rings = [np.asarray(r.coords)[:-1] for r in [poly.exterior, *poly.interiors]]
         xz = np.concatenate(rings)
         yy = (
@@ -321,7 +336,7 @@ def slab(key, polygon, line, stations, heights, material, height_at=None):
             if np.cross(top[1] - top[0], top[2] - top[0])[1] < 0:
                 top = top[::-1]
             faces.face(top, top[:, [0, 2]])
-            faces.face(top[::-1] - [0, THICKNESS, 0], top[::-1][:, [0, 2]])
+            body.face(top[::-1] - [0, thickness, 0], top[::-1][:, [0, 2]])
         for ring in rings:
             for a, b in zip(ring, np.roll(ring, -1, axis=0), strict=True):
                 h = (
@@ -333,15 +348,22 @@ def slab(key, polygon, line, stations, heights, material, height_at=None):
                         heights,
                     )
                 )
-                faces.face(
+                body.face(
                     [
                         [a[0], h[0], a[1]],
                         [b[0], h[1], b[1]],
-                        [b[0], h[1] - THICKNESS, b[1]],
-                        [a[0], h[0] - THICKNESS, a[1]],
+                        [b[0], h[1] - thickness, b[1]],
+                        [a[0], h[0] - thickness, a[1]],
                     ]
                 )
-    return [faces.mesh(key, material)] if faces.indices else []
+    return (
+        [
+            faces.mesh(key, material),
+            details.appearance(body.mesh(key + ":body", "wall"), "concrete"),
+        ]
+        if faces.indices
+        else []
+    )
 
 
 @dataclass
@@ -352,6 +374,18 @@ class Deck:
     heights: np.ndarray
     meshes: list
     height_at: object = None
+
+
+def approach_branches(way):
+    """Only mapped paths leaving the main axis are ramps; widened bays remain level."""
+    axis = way["line"]
+    branches = []
+    for member in way.get("member_ways", []):
+        line = member["line"]
+        along = shapely.line_locate_point(axis, shapely.points(np.asarray(line.coords)))
+        if np.abs(np.diff(along)).sum() < line.length * 0.85:
+            branches.append(line.buffer(member["width"] / 2 + 1, cap_style="square"))
+    return shapely.union_all(branches)
 
 
 def produce(tile, grid_pos, inputs):
@@ -376,6 +410,7 @@ def produce(tile, grid_pos, inputs):
     decks = []
     for way in sorted(ways, key=lambda w: (w["layer"], w["id"])):
         axis, width = way["line"], way["width"]
+        spec = details.style(way)
         s, xz = samples(axis)
         delta = np.diff(xz, axis=0)
         normals = np.c_[-delta[:, 1], delta[:, 0]] / np.linalg.norm(delta, axis=1)[:, None]
@@ -432,8 +467,11 @@ def produce(tile, grid_pos, inputs):
         heights = (
             np.interp(s, [0, axis.length], ends)
             if landing
-            else deck_profile(s, terrain, ends, requirements)
+            else deck_profile(s, terrain, ends, requirements, spec["thickness"])
         )
+        survey = way.get("survey", {})
+        if "heights" in survey:
+            heights = np.interp(s, survey["stations"], survey["heights"])
         # A small blend joins the mapped span; a clearance error must never create a viaduct.
         ramp = min(3.0, axis.length * 0.1) if not landing else 0.0
         line = extended(axis, ramp) if ramp else axis
@@ -464,15 +502,24 @@ def produce(tile, grid_pos, inputs):
             )
         footprint_poly = footprint_poly.difference(obstacles.buffer(0.15))
 
-        def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width):
+        ramps = approach_branches(way)
+
+        def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps):
             points = shapely.points(xz)
             base = np.interp(shapely.line_locate_point(line, points), ss, hh)
             # Outline branches are mapped approach ramps. Join the deck to measured ground
             # across the branch instead of extending the main span's elevation to its tip.
             blend = np.clip((shapely.distance(axis, points) - width / 2) / 10, 0, 1)
+            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
             return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend
 
-        meshes = slab(key + ":deck", footprint_poly, line, ss, hh, material, height_at)
+        meshes = slab(
+            key + ":deck", footprint_poly, line, ss, hh, material, height_at, spec["thickness"]
+        )
+        if meshes:
+            details.appearance(meshes[0], spec["surface"])
+            details.appearance(meshes[1], spec["body"])
+        meshes.extend(details.surfaces(way, footprint_poly, height_at))
         outline = way.get("outline", axis.buffer(width / 2, cap_style="flat", join_style="mitre"))
         member_ways = way.get("member_ways", [way])
         openings = shapely.union_all(
@@ -484,53 +531,26 @@ def produce(tile, grid_pos, inputs):
         )
         # Abutments are open to traffic. Rails follow the actual outline, including branches.
         rail_lines = outline.boundary.difference(openings).difference(obstacles.buffer(0.25))
-        rail_faces = Faces()
-        for part in shapely.get_parts(rail_lines):
-            if part.geom_type not in ("LineString", "LinearRing") or part.length < 0.5:
-                continue
-            _, side = samples(part, 2)
-            base = height_at(side)
-            for i in range(len(side) - 1):
-                section = profile_wall(
-                    key + ":rail",
-                    side[i : i + 2],
-                    base[i : i + 2],
-                    base[i : i + 2] + (1.6 if rail else 1.2),
-                    thickness=0.18 if rail else 0.10,
-                    material="railing",
-                )
-                for tri in section.indices:
-                    rail_faces.face(section.positions[tri], section.uvs[tri])
-        if rail_faces.indices:
-            meshes.append(rail_faces.mesh(key + ":rail", "railing"))
-        for k, station in enumerate(np.arange(15, axis.length - 8, 20)):
-            p = axis.interpolate(float(station))
-            top = float(np.interp(station, s, heights)) - THICKNESS
-            bottom = float(sample_ground(np.array([[p.x, p.y]]))[0])
-            # Never place a pier in the crossed road's corridor.
-            if (
-                not landing
-                and top - bottom > 2
-                and not obstacles.buffer(0.6).covers(p)
-                and not any(g.covers(p) for g in blocked)
-            ):
-                meshes.append(
-                    _box(
-                        key + f":pier:{k}",
-                        (p.x, (top + bottom) / 2, p.y),
-                        (0.45, (top - bottom) / 2, 0.45),
-                        "wall",
-                    )
-                )
+        meshes.extend(
+            details.furniture(
+                way,
+                rail_lines,
+                height_at,
+                sample_ground,
+                [*blocked, obstacles.buffer(0.6)],
+                footprint_poly,
+            )
+        )
         # Blend only the approaches into the ground. The entire span below stays traversable.
         corridor = line.buffer(width / 2 + 2, cap_style="flat")
         candidates = np.flatnonzero(shapely.contains_xy(corridor, grid_pos[:, 0], grid_pos[:, 2]))
+        blocked_approaches = obstacles.buffer(width / 2)
         for i in candidates:
             p = shapely.Point(grid_pos[i, [0, 2]])
             t = line.project(p)
             if (
                 ramp <= t <= ramp + axis.length
-                or obstacles.buffer(width / 2).covers(p)
+                or blocked_approaches.covers(p)
                 or any(g.covers(p) for g in blocked)
             ):
                 continue
@@ -549,13 +569,6 @@ def visual(decks, tile, stage, layer_files):
     meshes = [m for d in decks for m in d.meshes]
     if not meshes:
         return
-    keys = {
-        "road": "bridge_asphalt",
-        "sidewalk": "bridge_stone",
-        "gravel": "gravel",
-        "railing": "metal_railing",
-        "wall": "concrete_wall",
-    }
     path = stage / "bridges.vis.glb"
     write_visual(
         path,
@@ -565,7 +578,17 @@ def visual(decks, tile, stage, layer_files):
                 m.positions - tile.origin,
                 m.indices,
                 uvs=m.uvs,
-                extras=dict(layer="bridges", object_id=m.object_id, material_key=keys[m.material]),
+                image=details.texture(m.metadata.get("surface", "concrete")),
+                color=(1, 1, 1, 1),
+                repeat=True,
+                roughness=0.48 if m.metadata.get("surface") == "steel" else 0.92,
+                extras=dict(
+                    layer="bridges",
+                    object_id=m.object_id,
+                    material_key="ground_asphalt"
+                    if m.metadata.get("surface") == "asphalt"
+                    else "draft_bridge_" + m.metadata.get("surface", "concrete"),
+                ),
             )
             for m in meshes
         ],
@@ -579,12 +602,29 @@ def collision(decks, tile, ct, pos, idx, mat):
     count = len(pos)
     for deck in decks:
         for mesh in deck.meshes:
-            if ct not in tile_cells(mesh, tile):
+            if not mesh.metadata.get("collision", True) or ct not in tile_cells(mesh, tile):
                 continue
-            positions.append(mesh.positions)
-            indices.append(mesh.indices + count)
-            materials.append(np.full(len(mesh.indices), mat_id(mesh.material), np.uint8))
-            count += len(mesh.positions)
+            clipped = clip_mesh(mesh, ct.bbox)
+            if clipped is None:
+                continue
+            # Tiny boundary ears can collapse at the final cell-local precision.
+            # Use the same area calculation as the COL validator before exporting.
+            local = (clipped.positions - ct.origin).astype(np.float32).astype(np.float64)
+            triangles = local[clipped.indices]
+            area = (
+                np.linalg.norm(
+                    np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]),
+                    axis=1,
+                )
+                / 2
+            )
+            idx = clipped.indices[area >= 1e-6]
+            if not len(idx):
+                continue
+            positions.append(clipped.positions)
+            indices.append(idx + count)
+            materials.append(np.full(len(idx), mat_id(mesh.material), np.uint8))
+            count += len(clipped.positions)
     return np.concatenate(positions), np.concatenate(indices), np.concatenate(materials)
 
 

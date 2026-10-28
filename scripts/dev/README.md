@@ -592,9 +592,10 @@ single `integration` reservation (the integrator's code lane) 6 job units plus 2
 workers, and the single `integration-data` reservation (its data lane, no Chrome; stored as kind
 `integration` with `lane`, so older tooling counts it) 4 job units (`COST`). Builds and browser suites keep being admitted beside a running integration within the
 remaining capacity. A waiting `integration` is not starved: later admissions are taken only if
-it still fits after them, so at most the builds already running finish first. The integration
-and every build or browser command nested in it (`TURKU3D_INTEGRATION_OWNER`) use its lane's
-budget: `TURKU3D_JOBS` = 6 (code) or 4 (data) for builds. Nested commands are not admissions.
+it still fits after them, so at most the builds already running finish first. A queued code integration
+replaces the running one in reservation checks; later tasks enter only if they do not increase its
+CPU/GPU deficit, so Chrome may enter during an existing CPU shortfall. Current limits still apply.
+Integration-owned children (`TURKU3D_INTEGRATION_OWNER`) use their lane's `TURKU3D_JOBS` budget: 6 (code) or 4 (data) for builds; they are not admissions.
 Refresh divides its job budget between independent steps and passes it to Roofer.
 Dead owner PIDs are removed on the next admission or status read. Waiting appears
 in `codex-task ls` and `watch`, and the command prints when a slot is acquired.

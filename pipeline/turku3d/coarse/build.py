@@ -202,7 +202,20 @@ def extrude(b: Building):
 
 def _extrude(b: Building, height, collision_origin):
     """Closed shell: walls (with metre UVs), roof and floor. Returns parts in world-local metres."""
-    rings = [np.asarray(r.coords)[:-1, :2] for r in [b.footprint.exterior, *b.footprint.interiors]]
+    # Roof-plane intersections can retain consecutive micrometre edges even after
+    # topology-preserving simplification. Weld them before making any faces, so
+    # walls, roof and floor share a ring that survives float32 tile export.
+    rings = []
+    for ring in [b.footprint.exterior, *b.footprint.interiors]:
+        points = np.asarray(ring.coords)[:-1, :2]
+        kept = [points[0]]
+        for point in points[1:]:
+            if np.linalg.norm(point - kept[-1]) >= 1e-4:
+                kept.append(point)
+        if len(kept) > 1 and np.linalg.norm(kept[-1] - kept[0]) < 1e-4:
+            kept.pop()
+        if len(kept) >= 3:
+            rings.append(np.asarray(kept))
     flat = np.concatenate(rings)
     ends = np.cumsum([len(r) for r in rings]).astype(np.uint32)
     tri = mapbox_earcut.triangulate_float64(flat, ends).reshape(-1, 3).astype(np.uint32)
