@@ -15,6 +15,17 @@ MATERIALS = {
 }
 
 
+def district(cadastral_id):
+    """Finnish cadastral district, only when the municipal parcel ID is present."""
+    value = str(cadastral_id or "")
+    if re.fullmatch(r"\d{14}", value):
+        return value[:6]
+    parts = value.split("-")
+    if len(parts) == 4 and all(part.isdigit() for part in parts):
+        return f"{int(parts[0]):03d}{int(parts[1]):03d}"
+    return "unknown"
+
+
 def attributes(row):
     def value(*keys):
         return next((row[k] for k in keys if row.get(k) not in (None, "", "0")), None)
@@ -24,6 +35,7 @@ def attributes(row):
     year = int(year[0]) if year else None
     levels = str(value("kerrosluku", "Kerrosluku") or "")
     return dict(
+        construction_year=year,
         material_class=MATERIALS.get(material),
         levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
         era="unknown"
