@@ -1,3 +1,4 @@
+import { chromeArgs } from '../../tools/dev/chrome-args.mjs';
 // Manual real-data startup proof, outside the gate. Run through host_slots.py browser.
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';
@@ -26,7 +27,7 @@ async function seedSession() {
   });
 }
 const browser = await chromium.launch({ channel: 'chrome', headless: true,
-  args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'] });
+  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 try {
   for (const scenario of ['multiplayer', 'continue', 'retained-multiplayer']) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });

@@ -1,3 +1,4 @@
+import { chromeArgs } from '../../tools/dev/chrome-args.mjs';
 // Capture the registry poses and a synthetic street view on both backends.
 // Usage: npm run render-qa -- [preview-url] [output-directory]; defaults to sandbox preview and reports.
 import { port, reportsRoot, isolateBrowser } from '../../tools/dev/environment.mjs';
@@ -14,7 +15,7 @@ const views = (await fs.readFile(new URL('../../qa/views/views.jsonl', import.me
 views.push({ id: 'dev_street', width: 1280, height: 960,
   pose: { E: 23459540, N: 6704290, H: 3.7, yaw: 40, pitch: 2, fov: 75, roll: 0 } });
 const browser = await chromium.launch( { channel: 'chrome', headless: true,
-  args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'] });
+  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 const context = await browser.newContext({ deviceScaleFactor: 1 });
 const results = [];
 try {

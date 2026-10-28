@@ -1,3 +1,4 @@
+import { chromeArgs } from '../../tools/dev/chrome-args.mjs';
 // Manual release UX evidence on real served tiles; not part of the gate or browser specs.
 // Build with VITE_PUBLIC_RELEASE=1 make game-build, then run through host_slots.py browser.
 import assert from 'node:assert/strict';
@@ -52,7 +53,7 @@ try {
   const origin = `http://localhost:${port(1)}`;
   await Promise.all([available(origin), available(`http://127.0.0.1:${port(3)}/healthz`)]);
   browser = await chromium.launch({ channel: 'chrome', headless: true,
-    args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'] });
+    args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   await context.addInitScript(utc => {
     window.__wallUtc = utc; window.__wallRuns = false; window.__wallStart = performance.now();

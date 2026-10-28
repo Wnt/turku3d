@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { chromeArgs } from '../../tools/dev/chrome-args.mjs';
 // Manual real-tile roof inspection; no external map imagery or browser test added.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -47,7 +48,7 @@ try {
   fs.writeFileSync(sceneFile, source, { flag:'wx' });
   fs.writeFileSync(pageFile, '<script type="module" src="/__roof-sanity.js"></script>', { flag:'wx' });
   fs.symlinkSync(root, link);
-  browser = await chromium.launch({ channel:'chrome', headless:true, args:['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist'] });
+  browser = await chromium.launch({ channel:'chrome', headless:true, args:chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
   const page = await browser.newPage({ viewport:{ width:1100, height:850 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));

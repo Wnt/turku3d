@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { chromeArgs } from '../../tools/dev/chrome-args.mjs';
 // Render the game from the poses in a view registry (qa/views/views.jsonl) via the QA URL contract
 // (qa/README.md). For each view it writes, into --out:
 //   <id>.png            colour pass at the reference's exact width x height
@@ -123,7 +124,7 @@ export async function main(argv = process.argv.slice(2), sharedBrowser = null) {
   }
   const browser = sharedBrowser ?? await chromium.launch({
     channel: a.channel === 'chrome' ? 'chrome' : undefined, headless: !a.headed,
-    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist', '--hide-scrollbars'],
+    args: chromeArgs(['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist', '--hide-scrollbars']),
   });
   const summary = [];
   let failed = 0;

@@ -36,6 +36,12 @@ kind = "policy"
 always = true
 
 [[stages]]
+name = "chrome-launch-policy"
+kind = "command"
+always = true
+commands = [["node", "tools/dev/check-chrome-launches.mjs"], ["node", "--test", "tools/dev/chrome-args.test.mjs"]]
+
+[[stages]]
 name = "generated"
 inputs = ["pipeline/turku3d/col/*", "docs/specs/materials.md", "game/src/shared/col/materials.ts"]
 kind = "command"
