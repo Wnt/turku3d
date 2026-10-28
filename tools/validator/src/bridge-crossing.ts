@@ -26,7 +26,7 @@ export function crossing(world: any, a: number[], b: number[]) {
     return hit ? 60 - hit.timeOfImpact : NaN;
   };
   world.step();
-  const profile = [];
+  const profile: { s: number; y: number }[] = [];
   for (let s = -14; s <= length + 14; s += 0.5) profile.push({ s, y: surface(a[0] + dx * s, a[1] + dz * s) });
   const x = a[0] - dx * 12, z = a[1] - dz * 12;
   const car = new Vehicle(R, world, { x, y: surface(x, z) + 0.8, z }, Math.atan2(-dz, dx), { castWheel: () => null });

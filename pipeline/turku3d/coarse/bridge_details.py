@@ -243,10 +243,14 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                     p = np.asarray(axis.interpolate(float(station)).coords[0]) + normal * offset
                     post = np.asarray([p - direction * 0.15, p + direction * 0.15])
                     yy = height_at(post) - spec["thickness"]
-                    drop = 0.25 + min(3.0, axis.length * 0.065) * (2 * station / axis.length - 1) ** 2
+                    drop = (
+                        0.25 + min(3.0, axis.length * 0.065) * (2 * station / axis.length - 1) ** 2
+                    )
                     meshes.append(wall(key, post, yy - drop, yy, 0.4, spec["body"]))
             else:
-                meshes.append(wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"]))
+                meshes.append(
+                    wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"])
+                )
     if spec["body"] == "steel" and spec["structure"] == "beam" and not way.get("landing"):
         # Exposed transverse floor beams and edge stiffeners under steel decks.
         # These remain below the surveyed road, with no extra road collision skin.

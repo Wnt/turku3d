@@ -361,7 +361,7 @@ def test_approach_join_reaches_mapped_road_level_on_each_bank_independently():
 
 def test_join_sampler_matches_ground_tin_across_visual_tile_seam():
     from turku3d.coarse.bridge_join import terrain_sampler
-    from turku3d.coarse.build import grid_mesh, grid_height
+    from turku3d.coarse.build import grid_height, grid_mesh
     from turku3d.coarse.inputs import grid_axes, grid_heights
 
     # A sparse bank keypoint is high while the interpolated road triangle is low.
@@ -379,8 +379,10 @@ def test_join_does_not_end_on_a_bank_lip_before_a_depression():
 
     deck = way("deck", [(0, 0), (40, 0)], width=8)
     deck["approaches"] = [way("road", [(40, 0), (70, 0)], bridge=False, width=8)]
+
     def ground(x, z):
         return 6 if x < 45 or x >= 52 else 4
+
     assert approach_lengths(deck, [6, 6], ground, shapely.GeometryCollection())[1] == 12
 
 
@@ -389,8 +391,14 @@ def test_cathedral_arch_has_open_spandrels_between_rib_and_deck():
 
     deck = way("cathedral", [(0, 0), (48, 0)], width=25.9)
     deck["tags"] = {"highway": "secondary", "bridge:structure": "arch", "wikidata": "Q11898665"}
-    meshes = furniture(deck, shapely.GeometryCollection(), lambda p: np.full(len(p), 7.2),
-                       lambda p: np.zeros(len(p)), [], shapely.box(0, -13, 48, 13))
+    meshes = furniture(
+        deck,
+        shapely.GeometryCollection(),
+        lambda p: np.full(len(p), 7.2),
+        lambda p: np.zeros(len(p)),
+        [],
+        shapely.box(0, -13, 48, 13),
+    )
     concrete = next(m for m in meshes if m.metadata["surface"] == "concrete")
     # At x=11 (between posts), a transverse ray through the spandrel is clear.
     # Project each structural triangle onto X/Y and test the ray's section point.

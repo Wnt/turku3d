@@ -607,11 +607,19 @@ def produce(tile, grid_pos, inputs):
             "outline", axis.buffer(width / 2, cap_style="flat", join_style="mitre")
         )
         if has_ramp:
-            footprint_poly = footprint_poly.union(
-                line.buffer(width / 2, cap_style="flat", join_style="mitre").difference(
-                    axis.buffer(width / 2, cap_style="flat", join_style="mitre")
-                )
+            corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
+            # Skew abutments end each carriageway at a different axis station.
+            # The rectangular extension alone leaves wedges between those road
+            # ends and the outline. Fill only the mapped continuation corridors.
+            continuations = shapely.union_all(
+                [
+                    w["line"].buffer(w["width"] / 2, cap_style="flat", join_style="mitre")
+                    for w in way.get("approaches", [])
+                ]
             )
+            footprint_poly = footprint_poly.union(
+                corridor.difference(axis.buffer(width / 2, cap_style="flat", join_style="mitre"))
+            ).union(continuations.intersection(corridor))
         footprint_poly = footprint_poly.difference(obstacles.buffer(0.15))
 
         ramps = approach_branches(way)

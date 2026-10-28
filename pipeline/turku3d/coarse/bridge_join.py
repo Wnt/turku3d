@@ -41,4 +41,3 @@ def terrain_sampler(points):
         )
 
     return sample
-

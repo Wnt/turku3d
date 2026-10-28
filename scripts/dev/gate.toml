@@ -69,6 +69,12 @@ triggers = ["pipeline/turku3d/coarse/*", "pipeline/tests/test_coarse_surfaces.py
 commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_surfaces.py", "pipeline/tests/test_coarse_tunnels.py"]]
 
 [[stages]]
+name = "coarse-bridge-crossing"
+kind = "command"
+triggers = ["pipeline/turku3d/coarse/bridge*.py", "pipeline/tests/test_coarse_bridges.py", "tools/validator/src/bridge-crossing.ts", "tools/validator/test/bridge-crossing.test.ts"]
+commands = [["bash", "pipeline/env/run.sh", "python", "-m", "pytest", "-q", "pipeline/tests/test_coarse_bridges.py"], ["node", "--test", "tools/validator/test/bridge-crossing.test.ts"]]
+
+[[stages]]
 name = "gmaps-compare-unit"
 kind = "command"
 triggers = ["tools/compare/*.py", "pipeline/turku3d/config.py"]
