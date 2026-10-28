@@ -4,7 +4,6 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
-
 from turku3d import config as C
 from turku3d.coarse.stored_facades import match_wall, wall_meshes
 from turku3d.facade_assets import export, opaque
