@@ -6,7 +6,15 @@ packages are needed for these commands. Policy: [AGENTS.md](../../AGENTS.md).
 ## Automation browser
 
 Use the pinned Chrome for Testing executable for all project automation.
-[Install, override, launch contract and verification](browser.md).
+Install the pinned stable macOS ARM64 release once:
+
+```bash
+mkdir -p "$TURKU3D_WORK/cache" "$HOME/turku3d/browsers/156.0.8078.73"
+curl -fL --retry 2 https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.73/mac-arm64/chrome-mac-arm64.zip -o "$TURKU3D_WORK/cache/chrome-mac-arm64.zip"
+ditto -x -k "$TURKU3D_WORK/cache/chrome-mac-arm64.zip" "$HOME/turku3d/browsers/156.0.8078.73"
+```
+
+[Override, launch contract and verification](browser.md).
 The fast gate rejects desktop Chrome launch paths and channels.
 
 ## Worktrees
