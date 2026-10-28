@@ -13,11 +13,9 @@ def clip_mesh(mesh, bbox):
     lo, hi = np.array([bbox.xmin, bbox.zmin]), np.array([bbox.xmax, bbox.zmax])
     overlap = np.all(high >= lo, axis=1) & np.all(low <= hi, axis=1)
     inside = np.all(low >= lo, axis=1) & np.all(high <= hi, axis=1)
-    for index in np.flatnonzero(overlap):
+    faces.triangles(mesh.positions, mesh.indices[inside], mesh.uvs)
+    for index in np.flatnonzero(overlap & ~inside):
         triangle = mesh.indices[index]
-        if inside[index]:
-            faces.face(mesh.positions[triangle], mesh.uvs[triangle])
-            continue
         vertices = np.c_[mesh.positions[triangle], mesh.uvs[triangle]]
         for axis, edge, sign in (
             (0, bbox.xmin, 1),

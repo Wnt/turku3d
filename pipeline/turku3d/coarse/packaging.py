@@ -58,6 +58,7 @@ def producer_paths():
             *BRIDGE.parent.glob("*.mjs"),
             Path(__file__).parents[1] / "buildings/source_surfaces.py",
             Path(__file__).parents[1] / "ground/materials.py",
+            Path(__file__).parents[1] / "bridges/build.py",
             *sorted((Path(__file__).parents[1] / "parked").glob("*.py")),
             *sorted((Path(__file__).parents[1] / "parked/assets").glob("*")),
             props / "__init__.py",

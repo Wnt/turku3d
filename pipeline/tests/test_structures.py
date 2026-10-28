@@ -12,6 +12,34 @@ from turku3d.structures.layer import omit_failed, write_tile
 from turku3d.structures.survey import Lidar, group_flights
 
 
+def test_batched_faces_keep_metric_uvs_winding_and_degenerate_rejection():
+    from turku3d.structures.geometry import Faces
+
+    panels = np.array(
+        [
+            [[1, 2, 3], [4, 2, 5], [4, 7, 5], [1, 7, 3]],
+            [[1, 2, 3], [1, 7, 3], [4, 7, 5], [4, 2, 5]],
+            [[1, 2, 3], [4, 2, 5], [5, 2, 3], [2, 2, 1]],
+            [[1, 2, 3]] * 4,
+        ],
+        dtype=float,
+    )
+    reference, batched = Faces(), Faces()
+    for panel in panels:
+        reference.face(panel)
+    batched.quads(panels)
+    assert np.array_equal(reference.positions, batched.positions)
+    assert np.array_equal(reference.indices, batched.indices)
+    assert np.allclose(reference.uvs, batched.uvs, atol=1e-14)
+    tri = Faces()
+    tri.triangles(
+        np.asarray(batched.positions), np.asarray(batched.indices), np.asarray(batched.uvs)
+    )
+    assert np.array_equal(
+        np.asarray(reference.positions)[reference.indices], np.asarray(tri.positions)[tri.indices]
+    )
+
+
 def test_stair_endpoints_and_helpers():
     meshes, meta = stairs("flight", [60, 2, 60], [66, 3.6, 66], 2)
     assert meta["risers"] == 10

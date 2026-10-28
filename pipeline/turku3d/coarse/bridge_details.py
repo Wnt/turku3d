@@ -97,8 +97,7 @@ def combine(meshes, key):
             mesh.metadata.get("collision", True),
         )
         faces = groups.setdefault(group, Faces())
-        for tri in mesh.indices:
-            faces.face(mesh.positions[tri], mesh.uvs[tri])
+        faces.triangles(mesh.positions, mesh.indices, mesh.uvs)
     return [
         appearance(f.mesh(f"{key}:{surface}:{i}", material), surface, collision=solid)
         for i, ((material, surface, solid), f) in enumerate(groups.items())

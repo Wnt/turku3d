@@ -23,6 +23,9 @@ def main():
     parser.add_argument("--tiles", nargs="+", default=["t0_1_2"])
     parser.add_argument("--profile", action="store_true")
     parser.add_argument(
+        "--phases", nargs="+", choices=("first", "full", "structural"), default=["first", "full"]
+    )
+    parser.add_argument(
         "--assets", type=Path, help="reuse prepared shared texture assets, as the live service does"
     )
     args = parser.parse_args()
@@ -30,7 +33,7 @@ def main():
     report = dict(platform=platform.platform(), profiled=args.profile, runs=[])
     sources = Sources()
     for tile in args.tiles:
-        for phase in ("first", "full"):
+        for phase in args.phases:
             out = args.root / tile / phase / tile
             if args.assets:
                 out.parent.mkdir(parents=True, exist_ok=True)
@@ -44,7 +47,13 @@ def main():
                 started = time.perf_counter()
                 if profiler:
                     profiler.enable()
-                manifest = build(tile, out, first_pass=phase == "first", sources=sources)
+                manifest = build(
+                    tile,
+                    out,
+                    first_pass=phase != "full",
+                    sources=sources,
+                    collision_only=phase == "structural",
+                )
                 if profiler:
                     profiler.disable()
                     profiler.dump_stats(str(args.root / (name + ".prof")))
