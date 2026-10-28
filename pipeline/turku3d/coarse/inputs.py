@@ -17,6 +17,7 @@ the tiles near the player, so the build itself starts from the small cached file
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pickle
 import time
@@ -343,9 +344,12 @@ def _key(paths: list[Path], dataset: str = "") -> str:
             if "/" not in name
             else (Path(__file__).parent / name).read_bytes()
         )
-    for p in paths:
-        st = p.stat()
-        h.update(f"{p}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+    from turku3d.tile_layer import identities
+
+    # Size/mtime memoize the expensive read; only bytes identify a prepared input.
+    h.update(
+        json.dumps(identities({str(i): p for i, p in enumerate(paths)}), sort_keys=True).encode()
+    )
     return h.hexdigest()[:24]
 
 

@@ -347,7 +347,6 @@ def assemble(
     requested = {C.VisualTile.parse(tid) for tid in tile_ids}
     if any(t.level != 0 for t in requested):
         raise ValueError("request L0 tiles; 500 m and 1 km parents are built automatically")
-    manifests, collision = load_layers(root)
     structure_keys = {}
     if "structures" in collision:
         collision["structures"] = collision_faces(
@@ -469,6 +468,22 @@ def assemble(
         ]
     )
     code = digest(code_files)
+    # Source generator versions are not packaging inputs: the emitted layer bytes are.
+    # A visual-only edit must not invalidate the collision encoder (or vice versa).
+    collision_code = digest(
+        [
+            Path(__file__),
+            Path(C.__file__),
+            Path(__file__).parents[1] / "layers.py",
+            Path(__file__).with_name("structures.py"),
+            *[
+                p
+                for p in (Path(__file__).parents[1] / "col").iterdir()
+                if p.suffix in (".py", ".mjs", ".json")
+            ],
+            C.REPO_ROOT / "pipeline/env/package-lock.json",
+        ]
+    )
     # Shared maps only. A tile's own ground maps enter its key through its binding, and the
     # facade maps of its own buildings through facade_inputs.
     textures = [
@@ -481,7 +496,7 @@ def assemble(
     texture_hash = digest(textures)
     replaced = replaced_buildings(manifests)
     layer_ids = {
-        name: [m.get("code"), m["params"].get("seams")]
+        name: m["params"].get("seams", "continuous" if name == "ground" else "objects")
         for name, m in manifests.items()
         if name != "roads"
     }
@@ -541,7 +556,7 @@ def assemble(
                     ranked,
                     tile.id,
                     role,
-                    layer_ids,
+                    replaced,
                     ground_bindings.get(tile.id),
                 ],
             )
@@ -566,7 +581,10 @@ def assemble(
         # layer bytes even when its visual tile was not requested in this build.
         for c in collision_cells(published_cells, available, collision):
             key = collision_cache_key(
-                c.id, manifests, code, {**layer_ids, "structures_cell": structure_keys.get(c.id)}
+                c.id,
+                manifests,
+                collision_code,
+                {**layer_ids, "structures_cell": structure_keys.get(c.id)},
             )
             keys[f"collision:{c.id}"] = key
             if cache.get(f"collision:{c.id}") == key and c.id in tree.collision and tree_valid:
