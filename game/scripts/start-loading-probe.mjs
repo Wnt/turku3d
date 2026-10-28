@@ -46,8 +46,8 @@ try {
       } }));
       performance.setResourceTimingBufferSize(10000);
       window.__startupProbe = { samples: [], entered: null, enabled: null };
-      document.addEventListener('click', event => {
-        if (!event.target.closest('[data-id="multiplayer"], [data-id="continue"]')) return;
+      document.addEventListener('pointerup', event => {
+        if (!event.target.closest('[data-option="multiplayer"], [data-option="continue"]')) return;
         const probe = window.__startupProbe;
         probe.entered = performance.now();
         const sample = () => {
@@ -75,7 +75,7 @@ try {
     const ready = await page.evaluate(() => ({ state: window.__game.state(), progress: window.__game.loadProgress(),
       audio: window.__game.audio.snapshot(), voice: window.__game.voice.snapshot() }));
     await page.screenshot({ path: path.join(out, `${scenario}-ready.png`) });
-    await page.locator(`[data-id="${scenario === 'continue' ? 'continue' : 'multiplayer'}"]`).click();
+    await page.locator(`[data-option="${scenario === 'continue' ? 'continue' : 'multiplayer'}"]`).click();
     await page.waitForFunction(() => window.__startupProbe.enabled !== null, null, { timeout: 30000, polling: 'raf' });
     const result = await page.evaluate(() => ({ ...window.__startupProbe, origin: performance.timeOrigin, state: window.__game.state() }));
     const transitionRequests = requests.filter(r => r.at >= result.origin + result.entered && r.at <= result.origin + result.enabled);
@@ -85,6 +85,7 @@ try {
     await page.keyboard.up('w');
     const moved = await page.evaluate(() => window.__game.state());
     await page.screenshot({ path: path.join(out, `${scenario}-playing.png`) });
+    errors.push(...result.state.errors);
     const report = { scenario, label, url: url.href, ready, ...result, movementAfter500ms: moved.feet,
       latencyMs: result.enabled - result.entered, transitionRequests, assetRequests, requests, errors };
     fs.writeFileSync(path.join(out, `${scenario}.json`), JSON.stringify(report, null, 2));
