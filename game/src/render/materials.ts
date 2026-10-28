@@ -122,12 +122,16 @@ export class MaterialStyler {
     return this.ground?.apply(model);
   }
 
-  prepare(model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera): Promise<void> {
+  prepare(model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera, signal?: AbortSignal): Promise<void> {
     // Initial residency precedes CSM setup; preloadWorld prepares the complete ring after its main compile.
     if (!this.env.csm.camera) return Promise.resolve();
     const prepared = this.preparing.then(async () => {
+      if (signal?.aborted) return;
       await Promise.all([...modelTextures(model)].map(map => textureUploads(this.renderer).enqueue(map)));
-      for (const { river } of this.rivers.values()) await river.prepare(this.renderer, model, scene, camera);
+      for (const { river } of this.rivers.values()) {
+        if (signal?.aborted) return;
+        await river.prepare(this.renderer, model, scene, camera);
+      }
     });
     this.preparing = prepared.catch(() => {});
     return prepared;

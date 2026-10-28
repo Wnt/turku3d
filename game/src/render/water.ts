@@ -1,3 +1,4 @@
+import { compileModel } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { cameraPosition, dot, float, max, mix, normalize, positionWorld, pow, reflect, reflector,
   texture, time, uniform, vec2, vec3 } from 'three/tsl';
@@ -31,12 +32,14 @@ function waveNormalTexture() {
 export class RiverMaterial {
   readonly material = new THREE.NodeMaterial();
   private normals = waveNormalTexture();
+  private context: THREE.WebGPURenderer['contextNode'];
+  private prepared = false;
   private reflection = reflector({ bounces: false, samples: 0 });
 
   constructor(mesh: THREE.Mesh, env: Environment, tier: QualityTier, deterministic: boolean, renderer: THREE.WebGPURenderer) {
     this.reflection.reflector.resolutionScale = QUALITY[tier].reflectionScale;
     // Reflections do not sample the main camera's screen-space GTAO context.
-    const context = renderer.contextNode;
+    const context = this.context = renderer.contextNode;
     const reflector = this.reflection.reflector;
     const virtualCamera = reflector.getVirtualCamera.bind(reflector);
     reflector.getVirtualCamera = camera => {
@@ -74,22 +77,9 @@ export class RiverMaterial {
   async prepare(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
     const reflected = this.reflection.reflector.getVirtualCamera(camera);
     const target = this.reflection.reflector.getRenderTarget(reflected);
-    const oldTarget = renderer.getRenderTarget(), oldMrt = renderer.getMRT();
-    const culled = new Map<THREE.Object3D, boolean>();
-    model.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
-    const visible = model.visible;
-    model.visible = true;
-    let compiled: Promise<void>;
-    try {
-      renderer.setRenderTarget(target); renderer.setMRT(null);
-      compiled = renderer.compileAsync(model, reflected, scene);
-    } finally {
-      // compileAsync collects draw items synchronously before its first yield; never leak renderer state across awaits.
-      renderer.setRenderTarget(oldTarget); renderer.setMRT(oldMrt);
-      model.visible = visible;
-      for (const [object, value] of culled) object.frustumCulled = value;
-    }
-    await compiled;
+    if (!this.prepared && model !== scene) await this.prepare(renderer, scene, scene, camera);
+    await compileModel(renderer, model, scene, reflected as THREE.PerspectiveCamera, target, null, this.context);
+    this.prepared = true;
   }
 
   /** Transfer the shared reflection plane when its original tile unloads. */

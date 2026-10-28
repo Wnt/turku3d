@@ -67,7 +67,9 @@ provide the surface. The small periodic normal map is generated locally; there i
 Reflections render static terrain, buildings, structures and the sky on a dedicated layer, excluding actors,
 vegetation and small props. They use the default lighting context rather than sampling the main camera's GTAO.
 `MaterialStyler.prepare` serializes `compileAsync` work in each river's actual target and virtual-camera context;
-new published/draft models stay hidden until their final ground bindings, uploads and reflection programs are ready.
+new published/draft models remain uncommitted to the scene until their final ground bindings, uploads and programs
+are ready. Published parse promises retain the existing REPLACE parent during preparation. Prepass, beauty and
+reflection use one-draw `compileAsync` calls with stable matching contexts; renderer state is restored before yielding.
 Startup prepares the complete 360° ring after the main compile. QA updates reflections every rendered frame.
 `GameRenderer` separates opaque/cutout shadow overrides and keeps their depth context stable across colour and
 reflection passes: alternating the shared override's alpha-test state otherwise invalidates all caster keys per draw.

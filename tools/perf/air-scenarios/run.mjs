@@ -10,12 +10,13 @@ const browser = await chromium.connectOverCDP(cdp);
 const page = browser.contexts()[0].pages()[0];
 const session = await page.context().newCDPSession(page);
 await session.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 913, deviceScaleFactor: 2, mobile: false });
+const recorderPath = process.env.TURKU3D_RENDER_RECORDER ?? path.join(process.env.HOME, 'turku3d/profiling/record.mjs');
 const errors = []; page.on('pageerror', error => errors.push(error.message));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 let recorder;
 function record(stage, mode) {
   const dir = path.join(output, stage); fs.mkdirSync(dir, { recursive: true }); fs.rmSync(path.join(dir, 'STOP'), { force: true });
-  recorder = spawn(process.execPath, [path.join(process.env.HOME, 'turku3d/profiling/record.mjs'), cdp, 'current', '180', dir, ...(mode ? [mode] : [])], { stdio: 'inherit' });
+  recorder = spawn(process.execPath, [recorderPath, cdp, 'current', '180', dir, ...(mode ? [mode] : [])], { stdio: 'inherit' });
   return { stop: async () => { fs.writeFileSync(path.join(dir, 'STOP'), ''); await new Promise(resolve => recorder.on('exit', resolve)); recorder = null; } };
 }
 try {

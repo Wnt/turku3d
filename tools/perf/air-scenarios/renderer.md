@@ -38,7 +38,11 @@ node tools/perf/air-scenarios/run.mjs http://127.0.0.1:5248 \
 
 Never stop another task's session. Always stop this session after capture, including a failed scenario.
 `run.mjs` runs the external recorder with a trace/allocation profile for the flight and light logging for the drive.
-It also retains every RAF interval, phase, per-second pose/heap data and node-builder creation events, including
+It also retains every RAF interval, phase, per-second pose/heap/key-check data and node-builder creation events, including
 whether a builder was created inside the animation callback. `flight-state.json` survives a later drive failure;
 `last-state.json` retains diagnostic state on failure. `scenario.json` is the complete successful run.
 Report nearest-rank p50/p95/max, >100 ms frames per measured minute, allocation/heap growth and actual drive progress.
+
+If the external recorder's injected probe fails to compile, use a compile-checked sandbox copy via
+`TURKU3D_RENDER_RECORDER=/absolute/path/record.mjs`; record the correction in the result. The observed outer-template
+escaping bug is corrected by making its `probe` template `String.raw`. Do not edit another task’s recorder/profile.

@@ -15,10 +15,17 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     return points[i - 1].map((v, axis) => v + (points[i][axis] - v) * t);
   }
   const state = window.__air = { phase: 'flight', started: performance.now(), frames: [], poses: [], points,
-    flightSeconds, inFrame: false, builders: [], enterPending: false, target: 1, route: [], active: true, driveStart: null, driveEnd: null };
+    flightSeconds, materialKeys: 0, shadowKeys: 0, inFrame: false, builders: [], enterPending: false, target: 1, route: [], active: true, driveStart: null, driveEnd: null };
   const perf = window.__render.perf, renderer = window.__render.renderer;
   const beforeFrame = perf.begin.bind(perf), afterFrame = perf.end.bind(perf);
   const previousBuilder = renderer.debug.onNodeBuilderCreated;
+  const sample = renderer._objects._renderObjects.values().next().value;
+  const renderObjectPrototype = Object.getPrototypeOf(sample);
+  const materialKey = renderObjectPrototype.getMaterialCacheKey;
+  renderObjectPrototype.getMaterialCacheKey = function () {
+    state.materialKeys++; if (this.material.isShadowPassMaterial) state.shadowKeys++;
+    return materialKey.call(this);
+  };
   perf.begin = () => { state.inFrame = true; beforeFrame(); };
   perf.end = () => { afterFrame(); state.inFrame = false; };
   renderer.debug.onNodeBuilderCreated = (builder, object) => {
@@ -30,7 +37,7 @@ export function installScenario({ flightSeconds = 75 } = {}) {
   let pose = at(0), aim = at(0.025), lastTeleport = -Infinity, previous = null, lastPose = 0, lastEnter = -Infinity;
   scene.onBeforeRender = function (...args) {
     previousRender.apply(this, args);
-    if (state.phase !== 'flight' || args[2] !== camera) return;
+    if ((state.phase !== 'flight' && state.phase !== 'inspection') || args[2] !== camera) return;
     camera.position.set(...pose); camera.lookAt(aim[0], 4, aim[2]); camera.updateMatrixWorld();
   };
   game.input.update = dt => {
@@ -61,18 +68,18 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     if (state.phase === 'flight') {
       const u = Math.min(1, (now - state.started) / (flightSeconds * 1000));
       pose = at(u); aim = at(Math.min(1, u + 0.025));
-      if (now - lastTeleport >= 300) { game.physics.spawnCharacter({ x: pose[0], y: 8, z: pose[2] }); lastTeleport = now; }
+      if (now - lastTeleport >= 300) { game.physics.setCharacterEnabled(true, { x: pose[0], y: 8, z: pose[2] }); lastTeleport = now; }
       if (u === 1) state.phase = 'prepare-drive';
     }
     if (now - lastPose >= 1000) { state.poses.push({ now, phase: state.phase, heap: performance.memory?.usedJSHeapSize,
-      scale: game.resolution?.scale, canvas: [camera.aspect, window.__render.renderer.domElement.width, window.__render.renderer.domElement.height], state: game.state() }); lastPose = now; }
+      materialKeys: state.materialKeys, shadowKeys: state.shadowKeys, scale: game.resolution?.scale, canvas: [camera.aspect, window.__render.renderer.domElement.width, window.__render.renderer.domElement.height], state: game.state() }); lastPose = now; }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
   state.prepareDrive = () => {
     state.phase = 'prepare-drive';
     const pos = initialCar.pos;
-    game.physics.spawnCharacter({ x: pos[0] + 1, y: pos[1] - 0.5, z: pos[2] });
+    game.physics.setCharacterEnabled(true, { x: pos[0] - 2, y: pos[1] - 0.7, z: pos[2] });
     state.tryEntering = true;
   };
   state.beginDrive = () => {
@@ -87,6 +94,6 @@ export function installScenario({ flightSeconds = 75 } = {}) {
     state.driveStart = performance.now(); state.phase = 'drive';
     return { route: state.route, state: game.state() };
   };
-  state.stop = () => { state.driveEnd = performance.now(); state.active = false; scene.onBeforeRender = previousRender; game.input.update = previousInput; perf.begin = beforeFrame; perf.end = afterFrame; renderer.debug.onNodeBuilderCreated = previousBuilder; };
+  state.stop = () => { state.driveEnd = performance.now(); state.active = false; scene.onBeforeRender = previousRender; game.input.update = previousInput; perf.begin = beforeFrame; perf.end = afterFrame; renderer.debug.onNodeBuilderCreated = previousBuilder; renderObjectPrototype.getMaterialCacheKey = materialKey; };
   return { points, initialCar, flightSeconds, started: state.started };
 }
