@@ -3,14 +3,23 @@ import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { CoarseTiles, RESTARTING, aheadTiles, cellsOf, leafParents, parentCovered, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
 import { isLocalHost } from '../../src/core/localOnly';
+import { draftsUrl } from '../../src/net/config';
 import type { Manifest } from '../../src/world/manifest';
 
 const published = ['t0_0_0', 't0_1_0', 't0_0_1', 't0_1_1', 't1_0_0', 't1_1_0', 't1_0_-1'];
 
-test('only localhost pages use draft tiles', () => {
+test('localhost drafts stay same-origin; Pages uses HTTPS remote drafts', () => {
   expect(isLocalHost('127.0.0.1')).toBe(true);
   expect(isLocalHost('localhost')).toBe(true);
   expect(isLocalHost('wnt.github.io')).toBe(false);
+  expect(draftsUrl({ hostname: 'localhost' })).toBe('/coarse/');
+  expect(draftsUrl({ hostname: 'wnt.github.io' })).toBe('https://turku.lab.madekivi.fi/coarse/');
+  expect(draftsUrl({ hostname: 'example.com' })).toBeNull();
+  vi.stubEnv('VITE_DRAFT_URL', 'https://drafts.example.com/coarse');
+  expect(draftsUrl({ hostname: 'wnt.github.io' })).toBe('https://drafts.example.com/coarse/');
+  vi.stubEnv('VITE_DRAFT_URL', 'http://drafts.example.com/coarse');
+  expect(() => draftsUrl({ hostname: 'wnt.github.io' })).toThrow('HTTPS');
+  vi.unstubAllEnvs();
 });
 
 test('wanted cells: 3x3 window minus published tiles, widened to whole published leaf parents, nearest first', () => {
@@ -37,7 +46,7 @@ function fakeService(manifest: Manifest) {
   const serve = (async (url: string) => {
     const u = new URL(url);
     const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
-    if (u.pathname === '/coarse/status') return json(200, { state: 'idle' });
+    if (u.pathname === '/coarse/status' || u.pathname === '/coarse/health') return json(200, { state: 'idle' });
     if (u.pathname === '/coarse/want') return json(200, {});
     if (u.pathname === '/tiles/manifest.json') return json(200, freshManifest ?? manifest);
     if (u.pathname === '/coarse/t0_2_0/roads.json') return json(200, { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
@@ -83,7 +92,7 @@ test('streams a draft tile into the scene and the collision manifest, hides the 
       if (tile && cellsOf(tile).some(cid => !checked.has(`/coarse/${tile}/col/${cid}.col`))) shownBeforeCheck.push(tile);
       const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())); return g; },
   };
-  expect(await CoarseTiles.start({ ...host, pageUrl: 'https://wnt.github.io/turku-game/' })).toBeNull();
+  expect(await CoarseTiles.start({ ...host, pageUrl: 'https://example.com/' })).toBeNull();
   const offline = (async () => ({ ok: true, status: 200, json: async () => ({ state: 'offline' }) })) as unknown as typeof globalThis.fetch;
   expect(await CoarseTiles.start({ ...host, fetch: offline })).toBeNull();
   const html = (async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('<!doctype'); } })) as unknown as typeof globalThis.fetch;
@@ -358,4 +367,52 @@ test('a drawn draft owns the collision of all its cells, also a published margin
   expect(unloaded).not.toContain('c_8_0');
   expect(unloaded).toContain('c_9_0');
   expect(manifest.collision.c_9_0).toBeUndefined();
+});
+
+test('Pages retries offline and queue-full states, then draws remote drafts after collision checks', async () => {
+  const manifest = { visual: { t0_0_0: { url: 'vis.glb' } }, collision: {} } as unknown as Manifest;
+  const service = fakeService(manifest);
+  const requests: string[] = [];
+  let state: 'offline' | 'full' | 'online' = 'offline';
+  let checks = 0;
+  let loads = 0;
+  const host: CoarseHost = {
+    scene: new THREE.Scene(), tiles: new THREE.EventDispatcher() as CoarseHost['tiles'], manifest,
+    manifestUrl: '/tiles/manifest.json', pageUrl: 'https://wnt.github.io/turku-game/',
+    renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
+    unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => { checks++; },
+    loadModel: async url => {
+      expect(url).toMatch(/^https:\/\/turku.lab.madekivi.fi\/coarse\//);
+      expect(checks).toBeGreaterThanOrEqual(16);
+      loads++;
+      return new THREE.Group();
+    },
+    fetch: (async (url: string) => {
+      requests.push(url);
+      if (state === 'offline') throw new TypeError('offline');
+      if (state === 'full' && url.includes('/manifest.json')) return new Response('{"state":"queue-full"}', { status: 429 });
+      return service.fetch(url);
+    }) as typeof globalThis.fetch,
+  };
+  const coarse = (await CoarseTiles.start(host))!;
+  expect(coarse.progressAt(100, 100)).toEqual({ loaded: 0, total: 0, errors: [] });
+  expect(coarse.progressAt(600, 100)).toEqual({ loaded: 0, total: 1, errors: [] });
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0)); };
+  coarse.update(600, 100, 0);
+  expect(coarse.status).toBe('drafts: remote service offline');
+  state = 'full';
+  coarse.update(600, 100, 3000); await settle();
+  coarse.update(600, 100, 4000); await settle();
+  coarse.update(600, 100, 5000);
+  expect(coarse.status).toContain('remote queue full');
+  expect(loads).toBe(0);
+  state = 'online';
+  coarse.update(600, 100, 10_000); await settle();
+  expect(coarse.status).toContain('building');
+  coarse.update(600, 100, 13_000); await settle();
+  expect(coarse.drawn()).toContain('t0_2_0');
+  expect(loads).toBeGreaterThan(0);
+  expect(requests.some(url => /\/coarse\/(status|want)/.test(url))).toBe(false);
+  expect(requests.filter(url => url.includes('/coarse/')).every(url => url.startsWith('https://turku.lab.madekivi.fi/'))).toBe(true);
 });

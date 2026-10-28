@@ -54,7 +54,7 @@ name = "python-lint"
 kind = "python-lint"
 configs = ["ruff.toml", "*/pyproject.toml", "scripts/dev/gate.toml"]
 triggers = ["*.py", "ruff.toml", "*/pyproject.toml", "scripts/dev/*"]
-sources = ["tools/validator/*.py", "tools/compare/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
+sources = ["tools/validator/*.py", "tools/compare/*.py", "tools/remote-drafts/*.py", "pipeline/*.py", "qa/*.py", "textures/*.py", "audio/*.py", "bench/*.py", "scripts/*.py", "scripts/dev/*"]
 
 [[stages]]
 name = "gmaps-compare-unit"
@@ -67,6 +67,12 @@ name = "gmaps-compare-js-lint"
 kind = "command"
 triggers = ["tools/compare/*.mjs"]
 commands = [["node_modules/.bin/eslint", "tools/compare/capture.mjs"]]
+
+[[stages]]
+name = "remote-drafts-tests"
+kind = "command"
+triggers = ["tools/remote-drafts/*.py", "tools/remote-drafts/config.json", "pipeline/turku3d/coarse/service.py"]
+commands = [["{python}", "-m", "unittest", "discover", "-s", "tools/remote-drafts", "-p", "test_public.py"]]
 
 [[stages]]
 name = "pipeline-tests"
