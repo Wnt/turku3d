@@ -121,9 +121,34 @@ normal `facade-batch refs` command to regenerate older references. This fixes ob
 19.5 m vertical errors. Current references also apply provider pitch/roll and true-to-grid
 convergence, check LOD2 neighbour visibility and target-plane support, screen semantic
 foreground and crop-edge openings, and trim excessive roof/gable height to the supported
-wall eaves. The reference key includes these geometry and screen versions.
+wall eaves. Full-wall views are sampled across available imagery sources before detail
+views, with up to four stored views; a high geometric score in one source no longer
+crowds out a complete wall in another source. The reference key includes these geometry,
+selection and screen versions.
 Verify without imagery: `PYTHONPATH=textures:pipeline .venv/bin/python -m pytest -q
 textures/tests/test_streetview_height.py textures/tests/test_streetview_geometry.py`.
+
+For an independently reviewed local reference rate on a fixed inventory, run the
+following after acquiring references. Repeat with the old reference root for a paired
+before/after comparison; only `aggregate.json` may be published.
+
+```sh
+source ../sandbox.env
+source ~/turku3d/envs/pipeline.env
+PY=.venv/bin/python
+INV="$TURKU3D_WORK/reports/references/source-diverse425/candidates.geojson"
+REFS="$TURKU3D_WORK/reports/references/source-diverse425/refs"
+AUDIT="$TURKU3D_WORK/reports/references/audit425-v12"
+$PY -m turkutex.facade_reference_audit prepare --inventory "$INV" --refs "$REFS" --output "$AUDIT"
+scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_reference_audit label \
+  --output "$AUDIT" --reviewer a --batch-size 12 --parallel 1
+scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_reference_audit label \
+  --output "$AUDIT" --reviewer b --only-a-eligible --batch-size 8 --parallel 1
+$PY -m turkutex.facade_reference_audit collect --output "$AUDIT"
+```
+
+The label commands resume by exact crop/context hash after a transient 429; finish
+reviewer A before starting the `--only-a-eligible` second pass.
 
 ### Field-wise hybrid and independent truth collection
 
@@ -146,48 +171,113 @@ vertical chromatic boundaries cause abstention. These are evidence heuristics, n
 probabilities or proof of target identity. Explicit wrong-wall/multiple-surface audits can
 also be passed to `Engine.measure(..., audit=...)`. `facade_fast descriptions()` preserves
 the resolved fields as `source=hybrid` and does not propagate them as building donors.
-All records retain `needs_review`. The background queue currently applies measured
-appearance from the hybrid and then spends Astra calls on the most observed nearby walls.
-The six-wall pilot tied register storeys and improved colour; it did not establish other
-deployment fields. See [the pilot report](../docs/research/facade-cv-hybrid.md).
+All records retain `needs_review`. The background queue applies only fields supported by
+the held-out comparison, then spends Astra calls on walls with the most player exposure,
+using distance to the wall when exposure is unavailable. See
+[the reference and truth report](../docs/research/facade-cv-reference-truth.md) for the
+current comparison and [the pilot report](../docs/research/facade-cv-hybrid.md) for the
+initial six-wall result.
 
 All truth images, labels, rejected attempts and call logs stay under the local research root.
 The two high-effort reviewers never see one another's labels. Acceptance requires both to
 find usable single-wall evidence with at most 20% foreground occlusion, exact count/material
 agreement and colour distance at most 8 ΔE76. Only agreed labels enter fitting/evaluation.
 Both high and low passes batch at most 12 walls per call; low uses the existing fast prompt's
-field definitions. These are model-consensus labels, not human ground truth.
+field definitions. These are model-consensus labels, not human ground truth. The two high
+passes must be repeated whenever a selected crop changes; the collector verifies crop hashes.
 
 ```sh
 source ../sandbox.env
 source ~/turku3d/envs/pipeline.env
-ROOT="$HOME/turku3d/research/facade-cv/truth100"
+ROOT="$TURKU3D_WORK/reports/truth100"
 BULK="$HOME/turku3d/research/facade-cv"
-OUT="$TURKU3D_WORK/reports/hybrid"
+OUT="$TURKU3D_WORK/reports/hybrid-evaluation-final"
+OSM_OUT="$TURKU3D_WORK/reports/hybrid-evaluation-osm"
 PY=.venv/bin/python
-# Local inventory: connected footprint runs, edge-specific N2000 eaves, unobstructed street rays.
-$PY -m turkutex.facade_hybrid_truth inventory --root "$ROOT"
-scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth prepare \
-  --root "$ROOT/whole" --inventory "$ROOT/whole-walls.geojson" --labels "$BULK/labels" --limit 260
-$PY -m turkutex.facade_hybrid_truth prescreen --root "$ROOT/whole"
-# Annotation spends quota: choose a cap within the remaining task allocation, never above 80.
+# The inventory derives connected LOD2 wall planes and excludes the existing labelled set.
+$PY -m turkutex.facade_hybrid_truth inventory --root "$ROOT/surfaces"
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- $PY -m turkutex.facade_hybrid_truth prepare \
+  --root "$ROOT/surfaces/collection" --inventory "$ROOT/surfaces/whole-walls.geojson" \
+  --labels "$BULK/labels" --limit 900
+$PY -m turkutex.facade_hybrid_truth prescreen --root "$ROOT/surfaces/collection"
+# Acquire and independently review another regional pool when fewer than 100 agree.
+$PY -m turkutex.facade_hybrid_truth inventory --root "$ROOT/region" --radius 3000
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- $PY -m turkutex.facade_hybrid_truth prepare \
+  --root "$ROOT/region/collection" --inventory "$ROOT/region/whole-walls.geojson" \
+  --labels "$BULK/labels" --limit 700
+$PY -m turkutex.facade_hybrid_truth prescreen --root "$ROOT/region/collection"
+# Run label a and b separately on each screened collection; use --parallel 1 when the
+# model service throttles. Collect each before selecting unique wide walls.
 scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
-  --root "$ROOT/whole" --reviewer a --max-pct 80
+  --root "$ROOT/surfaces/collection" --reviewer a --parallel 1 --max-pct 100
 scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
-  --root "$ROOT/whole" --reviewer b --max-pct 80
-$PY -m turkutex.facade_hybrid_truth collect --root "$ROOT/whole"
+  --root "$ROOT/surfaces/collection" --reviewer b --parallel 1 --max-pct 100
+$PY -m turkutex.facade_hybrid_truth collect --root "$ROOT/surfaces/collection"
 scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
-  --root "$ROOT/whole" --reviewer low --max-pct 80
-scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_research extract \
-  --truth "$ROOT/whole" --labels "$BULK/labels" --refs "$BULK/refs" --output "$OUT"
-$PY -m turkutex.facade_hybrid_research evaluate --truth "$ROOT/whole" --output "$OUT"
-scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_research smoke \
-  --truth "$ROOT/whole" --output "$OUT"
+  --root "$ROOT/region/collection" --reviewer a --parallel 1 --max-pct 100
+scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
+  --root "$ROOT/region/collection" --reviewer b --parallel 1 --max-pct 100
+$PY -m turkutex.facade_hybrid_truth collect --root "$ROOT/region/collection"
+$PY -m turkutex.facade_hybrid_truth combine --root "$ROOT/refresh" --limit 103 \
+  --source-root "$ROOT/surfaces/collection" --source-root "$ROOT/region/collection"
+# Refresh the selected references and re-review every crop whose hash changed.
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- $PY -m turkutex.facade_hybrid_truth refresh --root "$ROOT/refresh"
+for reviewer in a b; do
+  scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
+    --root "$ROOT/refresh" --reviewer "$reviewer" --parallel 1 --max-pct 100
+done
+$PY -m turkutex.facade_hybrid_truth collect --root "$ROOT/refresh"
+# Add independently reviewed reserve walls if fewer than 100 remain. The reserve
+# selector chooses unreviewed walls from buildings absent from the first selection.
+$PY -m turkutex.facade_hybrid_truth reserve --root "$ROOT/reserve" \
+  --source-root "$ROOT/surfaces/collection" --source-root "$ROOT/region/collection" \
+  --exclude-inventory "$ROOT/refresh/candidates.geojson" --limit 80 --min-width 8
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- $PY -m turkutex.facade_hybrid_truth refresh --root "$ROOT/reserve"
+for reviewer in a b; do
+  scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
+    --root "$ROOT/reserve" --reviewer "$reviewer" --parallel 1 --max-pct 100
+done
+$PY -m turkutex.facade_hybrid_truth collect --root "$ROOT/reserve"
+# If the first reserve falls short, select additional unreviewed regional walls from
+# distinct buildings. Add --exclude-inventory for every other candidate pool already
+# examined; this run also excluded an exploratory reserve-extra pool.
+$PY -m turkutex.facade_wide_reserve \
+  --inventory "$ROOT/region/whole-walls.geojson" \
+  --exclude-inventory "$TURKU3D_WORK/reports/references/foreground425/candidates.geojson" \
+  --exclude-inventory "$ROOT/refresh/candidates.geojson" \
+  --exclude-inventory "$ROOT/reserve/candidates.geojson" \
+  --exclude-inventory "$ROOT/surfaces/collection/candidates.geojson" \
+  --exclude-inventory "$ROOT/region/collection/candidates.geojson" \
+  --output "$ROOT/reserve-wide-new/candidates.geojson" --limit 120
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- $PY -m turkutex.facade_hybrid_truth refresh \
+  --root "$ROOT/reserve-wide-new"
+for reviewer in a b; do
+  scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
+    --root "$ROOT/reserve-wide-new" --reviewer "$reviewer" --parallel 1 \
+    --label-limit 20 --max-pct 100
+done
+$PY -m turkutex.facade_hybrid_truth collect --root "$ROOT/reserve-wide-new"
+# Combine exactly 100 current-hash agreements, one wide wall per building.
+$PY -m turkutex.facade_hybrid_truth combine --root "$ROOT/final" --limit 100 \
+  --source-root "$ROOT/refresh" --source-root "$ROOT/reserve" \
+  --source-root "$ROOT/reserve-wide-new"
+scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_hybrid_truth label \
+  --root "$ROOT/final" --reviewer low --parallel 1 --max-pct 100
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- $PY -m turkutex.facade_hybrid_research extract \
+  --truth "$ROOT/final" --labels "$BULK/labels" --refs "$BULK/refs" --output "$OUT"
+scripts/dev/codex-task wait-cmd -- $PY -m turkutex.facade_register_eval \
+  --truth "$ROOT/final" --features "$OUT/features.json" --output "$OSM_OUT"
+$PY -m turkutex.facade_hybrid_research evaluate --truth "$ROOT/final" --output "$OSM_OUT"
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- $PY -m turkutex.facade_hybrid_research smoke \
+  --truth "$ROOT/final" --output "$OUT"
 $PY -m pytest -q textures/tests/test_facade_hybrid.py textures/tests/test_streetview_height.py
 scripts/dev/codex-task wait-cmd -- scripts/dev/gate --fast --base main
 ```
 
-Extraction is resumable by crop and extractor hashes. Label reuse checks exact IDs and input
+Extraction is resumable by crop and extractor hashes. The register-enrichment stage uses
+the draft's optional OSM and register sources and must write to a different output directory.
+Copy its `parameters.json` into `textures/turkutex/facade_hybrid_parameters.json` only after
+reviewing the field scores and running the gate. Label reuse checks exact IDs and input
 crop hashes; interrupted batches are not accepted. Evaluation rejects missing/stale features,
 holds out entire buildings and selects material sources inside the training folds. It writes
 local `parameters.json` refitted on all retained training labels after scoring; it never

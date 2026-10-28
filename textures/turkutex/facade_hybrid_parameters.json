@@ -12320,13 +12320,13 @@
   "material_validation": {
     "embedding": 139,
     "classic": 101,
-    "register": 105
+    "register": 115
   },
   "evaluation": {
     "walls": 100,
     "register": {
       "storeys": {
-        "correct": 65,
+        "correct": 66,
         "total": 100
       },
       "columns": {
@@ -12334,10 +12334,10 @@
         "total": 64
       },
       "material": {
-        "correct": 53,
+        "correct": 63,
         "total": 100
       },
-      "colour_median_de76": 15.827037811279297,
+      "colour_median_de76": 15.917495727539062,
       "colour_coverage": 100
     },
     "hybrid": {
@@ -12381,7 +12381,7 @@
         "validation_scores": {
           "embedding": 129,
           "classic": 95,
-          "register": 99
+          "register": 107
         }
       },
       {
@@ -12390,7 +12390,7 @@
         "validation_scores": {
           "embedding": 119,
           "classic": 89,
-          "register": 93
+          "register": 100
         }
       },
       {
@@ -12399,7 +12399,7 @@
         "validation_scores": {
           "embedding": 120,
           "classic": 91,
-          "register": 89
+          "register": 97
         }
       },
       {
@@ -12408,7 +12408,7 @@
         "validation_scores": {
           "embedding": 118,
           "classic": 90,
-          "register": 92
+          "register": 102
         }
       },
       {
@@ -12417,7 +12417,7 @@
         "validation_scores": {
           "embedding": 126,
           "classic": 94,
-          "register": 99
+          "register": 106
         }
       }
     ],

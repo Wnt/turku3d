@@ -267,12 +267,17 @@ admission budget remains a ceiling, not a measured call rate. Published assembly
 Measure the real local lane without building tiles with:
 
 ```sh
-PYTHONPATH=pipeline:textures .venv/bin/python -m turkutex.facade_queue_benchmark \
+source ../sandbox.env
+source ~/turku3d/envs/pipeline.env
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- \
+  env PYTHONPATH=pipeline:textures .venv/bin/python -m turkutex.facade_queue_benchmark \
   --inventory "$FACADES" --refs "$REFS" \
-  --output "$TURKU3D_WORK/reports/queue-benchmark" --buildings 3 --astra-calls 1
+  --output "$TURKU3D_WORK/reports/queue-benchmark-new" --buildings 3 --astra-calls 0
 ```
 
-The benchmark writes only inside its output directory;
+Use a fresh output directory for each run so completed building records do not mask
+throughput. Set `--astra-calls 1` when weekly usage is below the queue's 60% pause
+threshold and an actual invocation is wanted. The benchmark writes only inside its output directory;
 `aggregate.json` reports observed buildings per minute, completed Astra calls in the trailing
 hour, successful Astra upgrades and the configured hourly admission cap.
 
