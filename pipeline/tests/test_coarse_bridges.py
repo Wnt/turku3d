@@ -170,6 +170,43 @@ def test_lidar_profile_preserves_crown_and_rejects_sparse_or_steep_support():
     assert "heights" not in measure(deck, points, np.full(len(points), 12))
 
 
+def test_named_crossing_profiles_separate_steel_decks_from_stone_supports():
+    from turku3d.coarse.bridge_details import furniture, style
+
+    deck = way("auransilta", [(0, 0), (46, 0)], width=12.6)
+    deck["tags"] = {
+        "highway": "secondary",
+        "bridge:structure": "beam",
+        "wikidata": "Q11853512",
+    }
+    deck["survey"] = {"pier_stations": [23], "pier_bases": [0]}
+    spec = style(deck)
+    assert spec["body"] == "steel"
+    assert spec["support"] == "stone"
+    rails = shapely.MultiLineString([[(0, -6.3), (46, -6.3)], [(0, 6.3), (46, 6.3)]])
+    meshes = furniture(
+        deck,
+        rails,
+        lambda p: np.full(len(p), 6.0),
+        lambda p: np.zeros(len(p)),
+        [],
+        shapely.box(0, -6.3, 46, 6.3),
+    )
+    assert {m.metadata["surface"] for m in meshes} == {"stone", "steel", "paint"}
+    stone = [m for m in meshes if m.metadata["surface"] == "stone"]
+    assert any(np.min(m.positions[:, 1]) < 0 for m in stone)
+    # Structural detail cannot protrude into the surveyed driving surface.
+    steel = [m for m in meshes if m.metadata["surface"] == "steel"]
+    assert all(m.positions[:, 1].max() <= 6.14 + 1e-9 for m in steel)
+    deck["tags"] = {"highway": "secondary", "bridge:structure": "arch", "wikidata": "Q11898665"}
+    assert style(deck)["arch_edge"]
+    assert style(deck)["body"] == "concrete"
+    for identity in ("Q11871663", None):
+        deck["tags"]["wikidata"] = identity
+        assert not style(deck)["arch_edge"]
+        assert style(deck)["support"] == "concrete"
+
+
 def test_railing_is_open_geometry_with_blocking_balusters_and_batched_materials():
     from turku3d.coarse.bridge_details import furniture
 

@@ -465,6 +465,18 @@ Private reference comparisons and their calibration caveats are described in the
 all reference renders and pairs stay outside the repository.
 ## Bridge appearance and profile audit
 
+Permanent crossing profiles supplement incomplete OSM material tags without changing
+the mapped outline or surveyed road heights. Auransilta retains its mapped beam
+structure: steel deck/floor beams, stone supports and light painted railings, as
+shown in [Yle's bridge photographs](https://yle.fi/a/3-7357934). Tuomiokirkkosilta
+uses stone abutments and exposed concrete arch fascia along the outer deck edges;
+the [2025 bridge inventory](https://turunraitiotie.fi/wp-content/uploads/2026/02/Turun-raitiotie_Turun-Tuomiokirkkosillan-vedenalainen-tarkkuusinventointi-1.pdf)
+describes the single opening and historical widening. Its internal historic steel
+structure is not replaced with invented river piers. Detail dimensions remain
+estimates; the city-lidar deck and OSM widths remain authoritative. Profiles use
+permanent Wikidata crossing identities and apply in every tile and draft pass.
+Other bridges retain their existing profiles. Photos and private references stay local.
+
 The manual audit includes Teatterisilta, Myllysilta, Martinsilta, Auransilta, Kirjastosilta,
 Tuomiokirkkosilta, Hämeensilta, Aurajoen ratasilta, Raunistulansilta, Betanianpolku and incidental
 landings in their tiles. It retains before/after GLBs, collision, source membership, held-out

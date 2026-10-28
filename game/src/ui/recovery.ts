@@ -31,6 +31,11 @@ export class RecoveryHud {
     this.line.textContent = `${LOST_TEXT[reason]}. Press ${button} to return to solid ground · ${Math.ceil(seconds)}`;
   }
 
+  /** Hides the lost prompt once nothing is lost; the fading reset confirmation stays. */
+  clearLost() {
+    if (!this.line.hidden && !this.line.classList.contains('fading')) this.line.hidden = true;
+  }
+
   /** After a reset: a short confirmation that fades out. */
   recovered() {
     this.line.hidden = false;

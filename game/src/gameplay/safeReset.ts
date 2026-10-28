@@ -97,7 +97,9 @@ export class SafeReset {
     const lost = this.monitor.lost;
     const nearEdge = !lost && this.area.edgeDistance(feet.x, feet.z) <= RECOVERY.edgeWarning;
     this.hud.setEdge(nearEdge);
+    // A fall that resolved without a reset (landed safely, or a restart) removes its countdown prompt.
     if (lost) this.hud.lost(lost.reason, this.monitor.countdown(this.time) ?? 0, button);
+    else this.hud.clearLost();
     return nearEdge;
   }
 

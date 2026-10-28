@@ -12,6 +12,13 @@ from turku3d.structures.geometry import Faces, profile_wall
 
 PATHS = {"footway", "cycleway", "path", "steps", "pedestrian", "bridleway"}
 
+# Permanent crossing identities, not tile-specific meshes. Public photo sources and
+# the distinction between surveyed decks and estimated details are in the README.
+PROFILES = {
+    "Q11853512": dict(body="steel", support="stone", rail_surface="paint"),
+    "Q11898665": dict(body="concrete", support="stone", arch_edge=True),
+}
+
 
 def style(way):
     tags = way["tags"]
@@ -58,7 +65,7 @@ def style(way):
         "concrete": "concrete",
         "asphalt": "asphalt",
     }.get(surface, "asphalt")
-    return dict(
+    result = dict(
         structure=structure,
         body=body,
         surface="ballast" if rail else surface,
@@ -67,7 +74,12 @@ def style(way):
         rail_height=1.6 if rail else 1.2,
         foot=foot,
         railway=rail,
+        support=body,
+        rail_surface="steel",
+        arch_edge=False,
     )
+    result.update(PROFILES.get(tags.get("wikidata"), {}))
+    return result
 
 
 def appearance(mesh, key, *, collision=True):
@@ -134,7 +146,15 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
             else:
                 for lift, depth in ((0.25, 0.05), (0.65, 0.04), (spec["rail_height"], 0.065)):
                     meshes.append(
-                        wall(key, line, hh + lift, hh + lift + depth, depth, "steel", "railing")
+                        wall(
+                            key,
+                            line,
+                            hh + lift,
+                            hh + lift + depth,
+                            depth,
+                            spec["rail_surface"],
+                            "railing",
+                        )
                     )
         if spec["railing"] not in ("stone", "concrete", "wall", "parapet"):
             # Baluster gaps are below capsule radius: the visible bars also block cars/players.
@@ -145,7 +165,7 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                     meshes.append(
                         appearance(
                             _box(key, (p[0], y + 0.68, p[1]), (half, 0.54, half), "railing"),
-                            "steel",
+                            spec["rail_surface"],
                         )
                     )
     axis, width = way["line"], way["width"]
@@ -163,7 +183,7 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                 continue
             top = height_at(line) - spec["thickness"]
             bottom = np.minimum(sample_ground(line) - 0.6, top - 1.0)
-            meshes.append(wall(key, line, bottom, top, 1.6, spec["body"]))
+            meshes.append(wall(key, line, bottom, top, 1.6, spec["support"]))
     # Type-based supports are explicitly fallback dimensions, not claimed lidar measurements.
     stations = []
     if not way.get("landing") and spec["structure"] not in (
@@ -198,17 +218,45 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                 bottom = np.minimum(bottom, measured_base)
         if np.min(top - bottom) < 1:
             continue
-        meshes.append(wall(key, line, bottom, top, 1.2 if spec["foot"] else 1.8, spec["body"]))
-        meshes.append(wall(key, line, top - 0.45, top, 1.8 if spec["foot"] else 2.4, spec["body"]))
+        meshes.append(wall(key, line, bottom, top, 1.2 if spec["foot"] else 1.8, spec["support"]))
+        meshes.append(
+            wall(key, line, top - 0.45, top, 1.8 if spec["foot"] else 2.4, spec["support"])
+        )
     if spec["structure"] in ("arch", "humpback") and not way.get("landing"):
         # A shallow arch soffit follows the surveyed crown without raising the driving surface.
         _, centres = samples(axis, 2)
         s = np.array([axis.project(shapely.Point(p)) for p in centres])
-        for offset in (-width * 0.36, width * 0.36):
+        # Widened concrete arches have exposed fascia at the deck edges, not
+        # hidden several metres inside the carriageways. Keep other arch types.
+        rib_offset = width / 2 - 0.5 if spec["arch_edge"] else width * 0.36
+        for offset in (-rib_offset, rib_offset):
             line = centres + normal * offset
             top = height_at(line) - spec["thickness"]
             depth = 0.2 + min(2.5, axis.length * 0.035) * (2 * s / axis.length - 1) ** 2
+            if spec["arch_edge"]:
+                depth = 0.45 + min(3.0, axis.length * 0.065) * (2 * s / axis.length - 1) ** 2
             meshes.append(wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"]))
+    if spec["body"] == "steel" and spec["structure"] == "beam" and not way.get("landing"):
+        # Exposed transverse floor beams and edge stiffeners under steel decks.
+        # These remain below the surveyed road, with no extra road collision skin.
+        for station in np.arange(1.0, axis.length - 0.5, 2.0):
+            p = np.asarray(axis.interpolate(float(station)).coords[0])
+            line = np.array([p - normal * (width / 2 - 0.2), p + normal * (width / 2 - 0.2)])
+            top = height_at(line) - spec["thickness"]
+            meshes.append(wall(key, line, top - 0.25, top, 0.14, "steel"))
+            for edge in line:
+                y = float(height_at(np.array([edge]))[0])
+                meshes.append(
+                    appearance(
+                        _box(
+                            key,
+                            (edge[0], y - spec["thickness"] / 2, edge[1]),
+                            (0.06, spec["thickness"] / 2, 0.06),
+                            "wall",
+                        ),
+                        "steel",
+                    )
+                )
     for point, tags in way.get("lamps", []):
         p = np.asarray(point)
         y = float(height_at(np.array([p]))[0])
