@@ -99,3 +99,60 @@ The private test runner creates its own QA parent directories before selecting a
 pytest temporary directory. This also works in a fresh frozen post-deploy
 workspace; an absent QA directory must not turn unrelated fixture setup into a
 false regression.
+
+## Round 3: native-point proof and live scoring
+
+The repository runner is `tools/refs/gmaps_round3.py`. It reads the same private
+round-2 plan (40 quarters, seed 20261101) and installed private decoder/scorer
+modules without editing their source. Products live under
+`$TURKU3D_WORK/gmaps-round3/`, outside the published tree.
+
+The capture checks the native **2D** control, which indicates an active tilted
+3D view, and measures the point at the drag location through Maps' coordinate
+context menu. Pan corrections use those observations; the URL supplies only
+orientation and zoom. A visit requires less than 5 m observed error. Planner
+history uses the observed point transformed to EPSG:3877, including visits whose
+network loading has not become quiet. Rejected targeting never establishes a
+verified visit. Menu dismissal is awaited before the next gesture.
+
+Each persistent browser profile has one content-addressed response catalogue.
+Every new or resumed quarter receives hard links to all originally observed
+bodies. Each extent independently resolves metadata and audits the required
+nodes. There is no provider-request replay. The explicit inventory advances from
+planned to native-verified visited, metadata resolved, eligible and scored;
+scoring is a transient state. An empty denominator never qualifies.
+
+The browser stops a quarter at resolved, nonempty metadata with at most 5%
+required nodes missing, or after 120 seconds without terminal-node gain. The
+latter retains an incomplete result. A loading wait is not a quarter deadline.
+The shared 120 browser-minute allowance includes both lanes and rejected proof
+attempts. Missing-node footprints remain masked in calibration and all scores.
+
+The first quarter (`t0_-2_-6_q10`) proved the complete path in one headless
+browser: maximum accepted target error **3.423 m**, **417/435** terminal nodes,
+**4.138%** masked required nodes missing, resolved metadata and an accepted
+calibration. The successful capture took **128.351 s**, **205.568 s** through
+scoring against a frozen current full-quality OCI draft. An earlier rejected
+8.20 m targeting attempt adds 120.453 browser-seconds; total capture time for
+this quarter was **248.804 s**. The own GLB hash and complete report are retained
+in private `proof.json` and its linked score report. A second browser starts
+only after this scored proof passes.
+
+During a sweep, independent scoring processes freeze current OCI GLB and texture
+bytes and score eligible quarters while capture continues. `findings.md` and
+`findings.json` update continuously, ranking textures and bridges first, ground,
+wall and object geometry second, and roofs/heights last. Each ten scored
+quarters triggers a board note with the local findings path. Unavailable semantic
+observations remain explicit abstentions.
+
+Run from the assigned checkout with its sandbox sourced:
+
+```sh
+scripts/dev/codex-task wait-cmd -- bash pipeline/env/run.sh python tools/refs/gmaps_round3.py proof
+scripts/dev/codex-task wait-cmd -- bash pipeline/env/run.sh python tools/refs/gmaps_round3.py sweep
+node --test tools/refs/test_gmaps_capture_state.mjs
+```
+
+`GMAPS_TOOLS` may name the installed private decoder directory; its default is
+`~/turku3d/private/gmaps-extract`. Chrome uses the sandbox's browser profiles and
+host admission/budget accounting. The runner never builds a local world tile.
