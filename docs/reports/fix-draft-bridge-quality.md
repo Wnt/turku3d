@@ -32,6 +32,9 @@ Local output root: `$TURKU3D_WORK/reports/bridge-quality/{before,after}`. Both c
 succeeded for all 13 tiles: 27 clipped instances representing 24 distinct OSM crossing identities.
 The baseline replaces only the bridge producer with `d78eb3c7bc45`; other layers use the audited
 checkout. Supplementary WFS layers are in the sandbox cache, with shared inputs linked read-only.
+The paired GLBs predate the independent draft-texture landing. After rebasing that producer,
+the combined bridge, tunnel and surface tests pass (35 tests); its changed ground/material
+appearance will be rebuilt by the integrator. No post-texture screenshot claim is made here.
 
 Height residuals use the same held-out city-lidar returns in both builds. They include outliers
 from furniture/other surfaces; robust medians are not maximum-error guarantees.
@@ -113,8 +116,9 @@ The renderer samples street/bank/deck eye positions 1.7 m above the supporting a
 reuses the exact positions for before. It records top/oblique views of every crossing and
 street/bank/deck views of all named crossings, plus per-view performance counters.
 
-The focused bridge/tunnel tests passed (22 tests, 12.81 s at measured host load); host-slot tests
-passed (13 tests, 8.23 s). The fast gate passed in 2.664 s before this report was added.
+The combined bridge/tunnel/surface tests passed after the texture rebase (35 tests, 1.66 s);
+host-slot tests passed (14 tests, 8.295 s). The fast gate passed in 1.295 s after the
+clone-safe Chrome launcher update.
 
 ## Admission fix and private reference status
 
