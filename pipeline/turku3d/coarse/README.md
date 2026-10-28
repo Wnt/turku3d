@@ -374,6 +374,11 @@ Missing spot heights do not block a build. The input owner can also populate a t
 Area vegetation (`forests.py`) uses OSM forest/wood, scrub/heath, parks/gardens and tree rows,
 with seeded Poisson-disc fallback (5 m trunk spacing; 180/ha woodland, 40/ha park).
 Buildings, city street polygons, OSM road/path corridors and water exclude new trunks.
+OSM sports tracks, pitches, stadiums, outdoor sports centres, playgrounds, recreation
+grounds, BMX/cycling tracks and raceways exclude area-generated trees and bushes,
+including canopy candidates. Closed outlines exclude their interior; open lines and
+area boundaries have a 3 m margin applied before tile clipping. Explicit mapped
+trees and tree rows retain their existing placement rules.
 Classes 3–5, when present in the existing ground LAZ, supply canopy positions/heights above
 that same ground grid; ground-only `maanpinta` normally needs the fallback. No extra LAZ is fetched.
 The budget is 768 trees plus 24 low edge-bush instances per 250 m tile, using the shared
