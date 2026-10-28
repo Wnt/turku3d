@@ -37,11 +37,14 @@ describe('trophy truck at the dealer', () => {
       vehicle: 'truck', delivery: 4, elapsed: 0, par: 0 };
     const h = harness(JSON.stringify(v2));
     expect(h.missions).toMatchObject({ vehicle: 'truck', money: 40, permit: 3 });
-    const v3 = JSON.parse(h.missions.serialize());
-    expect(v3).toMatchObject({ version: 3, vehicle: 'truck' });
-    expect(harness(JSON.stringify(v3)).missions.vehicle).toBe('truck');
-    expect(parseSave(JSON.stringify(v3), 1).vehicle).toBe('truck');
-    expect(parseSave(JSON.stringify({ ...v3, vehicle: 'monster-truck' }), 1).vehicle).toBe('none');
+    const current = JSON.parse(h.missions.serialize());
+    expect(current).toMatchObject({ version: 4, vehicle: 'truck' });
+    for (const version of [1, 2, 3, 4]) {
+      const text = JSON.stringify({ ...current, version, licence: true });
+      expect(harness(text).missions.vehicle).toBe('truck');
+      expect(parseSave(text, 1)).toMatchObject({ version: 4, vehicle: 'truck' });
+    }
+    expect(parseSave(JSON.stringify({ ...current, vehicle: 'monster-truck' }), 1).vehicle).toBe('none');
   });
 
 });

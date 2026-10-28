@@ -28,7 +28,8 @@ class DeliveryTests(unittest.TestCase):
                 cwd=temp,
                 env=dict(os.environ),
                 directory=Path(temp),
-                seconds=0.15,
+                # Allow interpreter startup while the other gate stages run in parallel.
+                seconds=0.5,
             )
         self.assertFalse(result["ok"])
         self.assertEqual([r["exit"] for r in result["checks"]], [124, 0])
@@ -87,8 +88,11 @@ class DeliveryTests(unittest.TestCase):
             patch.object(delivery, "ledger"),
         ):
             result = delivery.after_merge(
-                "test", Path(temp), "a" * 40,
-                {"changed_paths": ["server/economy.js"]}, Path(temp),
+                "test",
+                Path(temp),
+                "a" * 40,
+                {"changed_paths": ["server/economy.js"]},
+                Path(temp),
             )
         deploy.assert_called_once_with(Path(temp), "a" * 40)
         self.assertEqual(result["generator"]["multiplayer"], "presence ok")

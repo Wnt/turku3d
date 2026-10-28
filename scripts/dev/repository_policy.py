@@ -15,8 +15,7 @@ def main():
     files, env = inventory(root), environment(root, config)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
         futures = [
-            pool.submit(execute, root, stages[name], [], files, True, env, config)
-            for name in names
+            pool.submit(execute, root, stages[name], [], files, True, env, config) for name in names
         ]
         results = [future.result() for future in futures]
     for result in results:
