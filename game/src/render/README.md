@@ -210,3 +210,9 @@ same river reflection and shadow cascades again. Assembler material batches reta
 object index ranges; the ID pass restores those ranges for per-facade QA colors.
 
 Air reproduction and validation use the capture-only [renderer scenario](../../../tools/perf/air-scenarios/renderer.md).
+
+
+`make render-perf-dev` runs the same four acceptance specs and unchanged backend budgets against Vite dev,
+using the normal browser slot. It matches dev-served Air captures without requesting a production build slot.
+`make render-perf` remains the production-build command. Both write per-commit measurements under
+`$TURKU3D_WORK/reports/perf/`.
