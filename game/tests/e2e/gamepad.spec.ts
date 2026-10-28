@@ -8,7 +8,7 @@ import { reportsRoot } from '../../../tools/dev/environment.mjs';
 
 async function start(page: Page, backend: string, spawn: string) {
   await installPad(page);
-  await page.goto(`/?backend=${backend}&spawn=${spawn}`);
+  await page.goto(`/?scene=dev&backend=${backend}&spawn=${spawn}`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(() => (window as any).__game?.ready && (window as any).__game.state().grounded);

@@ -81,7 +81,7 @@ test('two pages collide and share a paid delivery', { tag: ['@gameplay', '@synth
       await p.route('**/{dev-tiles,tiles}/remote-test.glb', route => route.fulfill({ body: glb, contentType: 'model/gltf-binary' }));
     }
     fs.mkdirSync(shots, { recursive: true });
-    const url = `/?backend=webgpu&mp=${encodeURIComponent(ws)}${realTiles ? '&tiles=/tiles/tileset.json' : ''}`;
+    const url = `/?scene=dev&backend=webgpu&mp=${encodeURIComponent(ws)}${realTiles ? '&tiles=/tiles/tileset.json' : ''}`;
     await Promise.all([open(page, url), pageB.goto(url)]);
     test.setTimeout(realTiles ? 180_000 : 90_000);
     console.log('[mp] pages loaded');

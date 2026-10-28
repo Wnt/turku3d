@@ -44,7 +44,7 @@ const shot = async (page: Page, backend: string, name: string) => {
 };
 
 async function start(page: Page, backend: string, spawn: string) {
-  await page.goto(`/?backend=${backend}&spawn=${spawn}`);
+  await page.goto(`/?scene=dev&backend=${backend}&spawn=${spawn}`);
   const button = page.getByRole('option', { name: 'New game' });
   await expect(button).toBeEnabled();
   expect(await fullscreen(page), 'the start screen runs in the normal browser view').toBe(false);

@@ -116,7 +116,7 @@ async function main() {
     process.stdout.write(data);
     if (!announced && data.toString().includes('serve-dist:')) {
       announced = true;
-      console.log(`\nPlay Turku: http://127.0.0.1:${s.port}/?tiles=/tiles/tileset.json\nPress Ctrl-C to stop this server.`);
+      console.log(`\nPlay Turku: http://127.0.0.1:${s.port}/\nPress Ctrl-C to stop this server.`);
     }
   });
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.kill(signal));

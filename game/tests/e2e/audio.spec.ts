@@ -4,7 +4,7 @@ test('audio unlocks, decodes the CC0 bank and builds spatial graph without error
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await installPad(page);
-  await page.goto(`/?backend=${info.project.name}`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready);
   expect(await page.evaluate(() => (window as any).__game.audio.snapshot().state)).toBe('locked');
   await page.getByRole('option', { name: 'New game' }).click();

@@ -6,14 +6,13 @@
     <title>Turku3D</title>
     <link rel="icon" href="data:," />
     <script>
-      // The game reads its tileset from ?tiles=; extra parameters such as ?backend=webgl pass through.
+      // Turku is the game default; preserve explicit scene, tiles and backend requests.
       const query = new URLSearchParams(location.search);
-      if (!query.has('tiles')) query.set('tiles', '../tiles/tileset.json');
       location.replace(`game/?${query}`);
     </script>
   </head>
   <body style="background:#06151c;color:#edf4f3;font:16px system-ui,sans-serif;padding:24px">
-    <a style="color:#a1ebd3" href="game/?tiles=../tiles/tileset.json">Start Turku3D</a>
+    <a style="color:#a1ebd3" href="game/">Start Turku3D</a>
     (desktop Chrome with WebGPU or WebGL2). <a style="color:#a1ebd3" href="https://github.com/{{repo}}/blob/{{branch}}/ATTRIBUTION.md">Data sources and licences</a>.
   </body>
 </html>

@@ -18,7 +18,7 @@ test('turning around a moving car and walker keeps actor edges in one screen pos
   const button = (index: number, value: number) => page.evaluate(([i, v]) => {
     (window as any).pad.buttons[i] = { value: v, pressed: v > 0.5, touched: v > 0 };
   }, [index, value]);
-  await page.goto(`/?backend=${info.project.name}&aa=taa&hud=0`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}&aa=taa&hud=0`);
   await page.waitForFunction(() => { const g = (window as any).__game; return g?.ready && g.state().grounded && g.state().tilesSettled; });
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();

@@ -28,7 +28,7 @@ test('Developer page: money, fly 20 m up and land, teleport', { tag: ['@gameplay
   fs.mkdirSync(shots, { recursive: true });
   const shot = async (name: string) => fs.writeFileSync(path.join(shots, `${backend}-${name}.png`), await page.screenshot());
 
-  await open(page, `/?backend=${backend}`);
+  await open(page, `/?scene=dev&backend=${backend}`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   await untilSim(page, () => {

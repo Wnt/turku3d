@@ -63,7 +63,7 @@ test('buys the trophy truck, drives it over a kerb at 40 km/h, to 120 km/h and o
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await installPad(page);
   await page.addInitScript(save => localStorage.setItem('turku3d.missions', save), JSON.stringify(SAVE));
-  await open(page, `/?backend=${info.project.name}`);
+  await open(page, `/?scene=dev&backend=${info.project.name}`);
   await page.getByRole('option', { name: /^Continue/ }).click();
   await page.waitForFunction(() => { const g = (window as any).__game, s = g?.ready && g.state(); return s && !s.loading && s.grounded && s.tilesSettled; });
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -177,7 +177,7 @@ test('buys the trophy truck, drives it over a kerb at 40 km/h, to 120 km/h and o
 test('the Developer page spawns the trophy truck in front of the player, unbought and drivable', { tag: ['@truck', '@synthetic'] }, async ({ page }, info) => {
   test.skip(info.project.name !== 'webgpu', 'the truck route runs on WebGPU');
   await installPad(page);
-  await open(page, `/?backend=${info.project.name}`);
+  await open(page, `/?scene=dev&backend=${info.project.name}`);
   await page.getByRole('option', { name: 'New game' }).click();
   await page.getByRole('button', { name: 'Skip' }).click();
   await untilSim(page, () => { const s = (window as any).__game.state(); return !s.loading && !s.startScreen && s.grounded; }, null, 20);

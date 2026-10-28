@@ -11,7 +11,7 @@ test('car history follows signed motion at driving speed', { tag: ['@drive', '@r
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`/?backend=${info.project.name}&hud=0`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}&hud=0`);
   await page.waitForFunction(() => {
     const g = window.__game as any;
     return g?.ready && g.state().grounded && g.state().tilesSettled;

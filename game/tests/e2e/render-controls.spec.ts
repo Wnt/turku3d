@@ -10,7 +10,7 @@ test('@render HiDPI SSE follows output pixels after resize and the debug time sl
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   try {
-    await page.goto(`/?backend=${info.project.name}`);
+    await page.goto(`/?scene=dev&backend=${info.project.name}`);
     await page.getByRole('option', { name: 'New game' }).click();
     await page.getByRole('button', { name: 'Skip' }).click();
     await page.waitForFunction(() => window.__game?.ready);
@@ -42,7 +42,7 @@ for (const aa of ['off', 'taa', 'fxaa']) {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(`/?backend=${info.project.name}&aa=${aa}&cam=23459668,6704254,8,0,-15,60`);
+    await page.goto(`/?scene=dev&backend=${info.project.name}&aa=${aa}&cam=23459668,6704254,8,0,-15,60`);
     await page.waitForFunction(() => window.__qaReady || window.__qaError);
     expect(await page.evaluate(() => window.__qaError)).toBeUndefined();
     expect(await page.evaluate(() => (window.__game!.params as any).aa)).toBe(aa);

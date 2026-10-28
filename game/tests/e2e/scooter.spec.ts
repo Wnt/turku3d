@@ -17,7 +17,7 @@ test('buys the scooter, rides it over the kerb to 45 km/h and dismounts', { tag:
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await installPad(page);
   await page.addInitScript(save => localStorage.setItem('turku3d.missions', save), JSON.stringify(SAVE));
-  await open(page, `/?backend=${info.project.name}`);
+  await open(page, `/?scene=dev&backend=${info.project.name}`);
   // The pre-slot mission save migrates to slot 1, which Continue loads.
   await page.getByRole('option', { name: /^Continue/ }).click();
   await page.waitForFunction(() => { const g = (window as any).__game, s = g?.ready && g.state(); return s && !s.loading && s.grounded && s.tilesSettled; });

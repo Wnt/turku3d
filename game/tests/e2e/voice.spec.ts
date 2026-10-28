@@ -7,7 +7,7 @@ import { expect, test } from './fixtures';
 test('intro narration plays; a voiced HUD message starts its clip, ducks ambience and a new line cuts it', { tag: ['@audio', '@voice'] }, async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(`/?backend=${info.project.name}`);
+  await page.goto(`/?scene=dev&backend=${info.project.name}`);
   await page.waitForFunction(() => (window as any).__game?.ready);
   const manifest = await (await page.request.get('assets/voice/manifest.json')).json();
   const lines = manifest.lines as { id: string; speaker: string; text: string; seconds: number }[];

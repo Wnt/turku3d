@@ -60,7 +60,7 @@ test('save to slot 2, quit, load slot 2 restores money, permit and position; New
   fs.mkdirSync(shots, { recursive: true });
   const shot = async (name: string) => fs.writeFileSync(path.join(shots, `${backend}-${name}.png`), await page.screenshot());
 
-  await open(page, `/?backend=${backend}`);
+  await open(page, `/?scene=dev&backend=${backend}`);
   const newGame = page.getByRole('option', { name: 'New game' });
   await expect(newGame).toBeEnabled();
   await expect(page.getByRole('option', { name: 'Load game' })).toHaveAttribute('aria-disabled', 'true');

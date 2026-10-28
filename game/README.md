@@ -59,6 +59,8 @@ npm run probe -- "http://localhost:${TURKU3D_PORT_BASE:-5170}/?backend=webgl" ou
 ```
 The build uses a relative base and needs no COOP/COEP headers, so the integrator's live release is also
 published to [GitHub Pages](https://wnt.github.io/turku-game/) (`scripts/dev/README.md`, "GitHub Pages").
+Turku loads by default on local servers and Pages; use `?scene=dev` for the synthetic test world.
+The home-screen manifest starts at `./` within scope `./`, so it keeps the deployment path and loads Turku.
 A page-relative `?tiles=` (e.g. `../tiles/tileset.json`) reads `manifest.json` from the same directory.
 The same commands are available from the repo root through `mk/game.mk`: `make game-dev`, `make game-build`, `make game-test`, `make game-e2e`, `make game-dev-tiles`, `make game-preview`, `make game-serve-dist` and `make game-test-all`.
 
@@ -128,7 +130,8 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | Param | Meaning |
 |---|---|
 | `backend=webgl` (or `webgl`) | Force the WebGL2 backend of `WebGPURenderer`. The default is WebGPU. |
-| `tiles=<url>` | tileset.json to load. The default is `dev-tiles/tileset.json`. For real tiles use e.g. `tiles=/tiles/tileset.json` with `make game-preview`. |
+| `scene=dev` | Explicitly load the synthetic development world. Without it, load Turku. |
+| `tiles=<url>` | Override the scene tileset (also overrides `scene=dev`). Default: `../tiles/tileset.json`, resolving to sibling `tiles/` on Pages and `/tiles/` on local servers. |
 | `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles` (an absolute `tiles` URL on another origin, e.g. `make game-serve-dist` on :8081, keeps that origin). |
 | `spawn=E,N[,heading]` | Spawn point in EPSG:3877 (default: the office, E 23459668 N 6704254, heading 0 = north). |
 | `time=<ISO-8601>` | Sun and sky IBL (NOAA formula, Turku lat/lon). Default: `2026-10-15T14:00:00+03:00`; play mode also has a time slider. |
@@ -151,7 +154,7 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 - QA mode: no HUD, help, player, car or physics worker; pixel ratio 1 so the canvas is 1:1 with the viewport.
 - Globals: `__qaReady` (tileset settled for 32 consecutive frames), `__qaError` (bad params, tile load error, camera outside the tileset footprint with nothing loaded after ~2 s, timeout after 120 s of frame time, each frame counting at most 0.1 s like the play loop's dt), `__qaPose` `{E,N,H,yaw,pitch,roll,fov}`, `__qaInfo` `{renderer, backend, pass, time, effectiveTime, quality, sseUnits, three, tiles[], tileset}`, `__qaProject(E,N,H)` → `[px,py]` CSS pixels or `null` behind the camera. `window.__game.qa` holds `{loadMs, visTris, models, sunElevation, sunAzimuth}`.
 - `pass=id` (`src/render/idPass.ts`): every mesh unlit (`MeshBasicNodeMaterial`), no antialiasing, no tone mapping, linear output (no sRGB encode), no sky/fog/shadows; id = `R<<16|G<<8|B`, 0 = sky. Ids come from glTF node extras `{kind, id, tile, material}` (docs/specs/tiles.md §3.1); `__qaIdTable` maps id → entry.
-- Driver: `node qa/render/render.mjs --views qa/views/views.jsonl --url "http://localhost:8080/?tiles=/tiles/tileset.json" --out DIR`, or `make tile-qa` (serves `dist/` + the synced tiles and runs `qa/loop.py --no-judge`).
+- Driver: `node qa/render/render.mjs --views qa/views/views.jsonl --url "http://localhost:8080/" --out DIR`, or `make tile-qa` (serves `dist/` + the synced tiles and runs `qa/loop.py --no-judge`).
 - Tested by `tests/e2e-tile/tile.spec.ts` on the pipeline stub tile (pose echo, canvas size, `__qaProject` centre and behind-camera, colour pass not blank, ID pass pixels all in the table) and by `tests/e2e/smoke.spec.ts` on the dev tiles (`__qaProject` against `qa/tests/golden_projection.json` incl. roll and vertical fov; out-of-tileset pose errors fast).
 
 ## Test hooks (play mode)

@@ -24,7 +24,7 @@ Node 22, `uv`):
 make help                      # every target
 make fetch-aoi AREA=work-3x3   # download the open data once into ~/turku3d/data/raw
 make refresh && make tile-build T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'
-make game-preview             # built game + local tiles; open the URL with ?tiles=/tiles/tileset.json
+make game-preview             # built game + local Turku tiles (default); ?scene=dev for the test world
 cd game && npm install && npm run dev     # the dev server alone runs on the synthetic dev tiles
 ```
 
