@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 FILE = "browser-budget.json"
-_OVERRIDE = re.compile(r"^\s*`?BROWSER_BUDGET_MIN\s*=\s*(\d+(?:\.\d+)?)", re.M)
+_OVERRIDE = re.compile(r"\bBROWSER_BUDGET_MIN\s*=\s*(\d+(?:\.\d+)?)")
 
 
 def tasks_root():
