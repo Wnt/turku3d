@@ -219,8 +219,8 @@ commands = [["{python}", "-m", "unittest", "scripts/dev/tests/test_caches.py", "
 [[stages]]
 name = "publish-tests"
 kind = "command"
-triggers = ["scripts/dev/served.py", "scripts/dev/tile_store.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/integrator.py", "scripts/dev/live_build.py", "scripts/dev/landing_class.py", "scripts/dev/tests/test_served.py", "scripts/dev/tests/test_integration_ensure.py"]
-commands = [["{python}", "scripts/dev/tests/run.py", "test_served.py", "test_integration_ensure.py"]]
+triggers = ["scripts/dev/served.py", "scripts/dev/tile_store.py", "scripts/dev/pages.py", "scripts/dev/publish-pages", "scripts/dev/integrator.py", "scripts/dev/live_build.py", "scripts/dev/landing_class.py", "scripts/dev/tests/test_served.py", "scripts/dev/tests/test_integration_ensure.py", "scripts/dev/integration_data.py", "scripts/dev/tests/test_integration_data.py"]
+commands = [["{python}", "scripts/dev/tests/run.py", "test_served.py", "test_integration_ensure.py", "test_integration_data.py"]]
 
 [[stages]]
 name = "watch-tests"

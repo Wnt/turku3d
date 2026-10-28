@@ -30,6 +30,7 @@ import coordination as coord
 import host_slots
 import integration_advisory
 import integration_chrome as chrome
+import integration_data
 import integration_messages as messages
 import landing
 import landing_class
@@ -558,10 +559,9 @@ def data_due(published):
     if start is None or running(DATA_NAME) or not release_delta(published):
         return False
     key = data_key(published)
-    return not any(
-        row.get("lane") == "data" and row.get("from") == start and row.get("data_key") == key
-        for row in read_rows(ledger_path())
-        if row.get("published") == str(published)
+    live = (published / "live").resolve()
+    return not integration_data.already_live(live.name, served.record(live), start, key) and not (
+        integration_data.taken(read_rows(ledger_path()), published, start, key)
     )
 
 
@@ -582,10 +582,14 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
     if not (stale if refresh_stale else delta):
         return None
     builder = s.git("rev-parse", "main", cwd=main_repo)
+    key = data_key(published)
+    if integration_data.already_live(
+        live.name, served.record(live), start, key, builder if refresh_stale else None
+    ):
+        return None
     landing = landing_class.classify(main_repo, start, start, delta, published)
     run = Run(published, main_repo, name, start, landing, lane=DATA_NAME)
     run.chrome = chrome.data_plan(published, main_repo)
-    key = data_key(published)
     begin(DATA_NAME, start, start, landing, data_key=key, previous_release=str(run.previous))
     base = {"lane": "data", "from": start, "to": start, "data_key": key, **landing}
     if refresh_stale:
@@ -608,6 +612,14 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
             shipped = served.built(builder, live, report["tiles"], report.pop("tiles_built"))
             with publish_lock():
                 current = (published / "live").resolve()
+                if integration_data.already_live(
+                    current.name,
+                    served.record(current),
+                    live_commit(published),
+                    key,
+                    builder if refresh_stale else None,
+                ):
+                    return record(run, {**row, "to": live_commit(published), "result": "skipped"})
                 if current != live:
                     if landing_class.release_parts(current) != run.live_parts:
                         # New tiles were published first; the next round rebuilds on them.
@@ -616,10 +628,14 @@ def run_data(published, main_repo=s.REPO, name=DATA_NAME, refresh_stale=False):
                     start = live_commit(published)
                     served.carry_game(current, work)
                     row["to"] = start
-                release = f"{start}-{key[:12]}" + (f"-{builder[:12]}" if refresh_stale else "")
+                release = integration_data.release_id(
+                    start, key, builder if refresh_stale else None
+                )
                 fields = {
                     **report,
                     **served.provenance(main_repo, start, shipped),
+                    "data_key": key,
+                    "tiles_commit": builder,
                     "from": start,
                     "advisory_pending": True,
                 }
@@ -770,7 +786,7 @@ def main():
     # run now (a manual run in its own sandbox or against another clone chains nothing).
     if row is not None and args.sandbox is None and args.main_repo.resolve() == s.REPO:
         print(json.dumps({"started": ensure(args.published.resolve(), args.main_repo)}))
-    return 0 if row is None or row["result"] == "green" else 1
+    return 0 if row is None or row["result"] in ("green", "skipped") else 1
 
 
 if __name__ == "__main__":
