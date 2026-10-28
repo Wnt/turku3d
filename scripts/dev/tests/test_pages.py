@@ -301,14 +301,25 @@ class PagesTests(unittest.TestCase):
         )
         _, result = self.plan({"t0_1_0": {"ground": "draft"}})
         self.assertEqual(result["excluded"]["t0_1_0"], ["ground draft"])
-        self.assertEqual(
-            result["excluded"]["t0_2_0"], ["not connected to the centre tile through shipped tiles"]
-        )
+        self.assertIn("t0_2_0", result["selected"])
         _, result = self.plan(
             {"t0_1_0": {"validator": {"status": "fail"}}, "t0_0_1": {"facades": {"other": 2}}}
         )
         self.assertEqual(result["excluded"]["t0_1_0"], ["validator failed"])
         self.assertEqual(result["excluded"]["t0_0_1"], ["2 facade maps are not generated-style"])
+
+    def test_region_counts_fast_maps_and_connects_corner_expansions(self):
+        _, result = self.plan(
+            {
+                "t0_0_1": {"facade_coverage": 0, "rough_coverage": 0.85},
+                "t0_1_0": {"facade_coverage": 0, "rough_coverage": 0.01},
+                "t0_1_1": {"facade_coverage": 0, "rough_coverage": 0.66},
+                "t0_2_0": {"facade_coverage": 0, "rough_coverage": 0.7},
+            }
+        )
+        self.assertEqual(result["selected"], ["t0_0_0", "t0_0_1", "t0_1_1", "t0_2_0"])
+        self.assertEqual(result["excluded"]["t0_1_0"], ["facade coverage 1% < 20%"])
+        self.assertIn("facades 85%", pages_region.notes(result))
 
     def test_region_refuses_without_the_centre_or_the_spawn(self):
         with self.assertRaisesRegex(pages_region.Refused, "centre tile t0_0_0.*ground untextured"):
