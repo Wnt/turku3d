@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MissionSystem, type MissionFrame } from '../../src/gameplay/missions/missions';
+import { MissionSystem, type MissionFrame, type PaidDropoff } from '../../src/gameplay/missions/missions';
 import { freshSave, parseSave } from '../../src/gameplay/missions/save';
 import { drawLongOrder } from '../../src/gameplay/missions/orders';
 import { basePay, parSeconds, tip, deliveryDeadline } from '../../src/gameplay/economy';
@@ -85,6 +85,16 @@ describe('long-range deliveries', () => {
     expect(m.phase).toBe('at_pizzeria');
     expect(m.permit).toBe(20);
     expect(m.shop!.options.find(o => o.id === 'take_long_order')!.reason).toContain('four rounds');
+  });
+
+  it('emits the long job and exact road distance for multiplayer payout validation', () => {
+    const paid: PaidDropoff[] = [];
+    const m = new MissionSystem({ router: lRouter, addresses: pool, onPaid: drop => paid.push(drop) });
+    m.restore(game(40).serialize()); pickup(m, true);
+    const metres = m.currentStop.pool!.car!;
+    finish(m);
+    expect(paid).toHaveLength(1);
+    expect(paid[0]).toMatchObject({ job: 'long', routeMeters: metres, payout: basePay(metres, 'long'), tip: 8 });
   });
 
   it('scales salary with kilometres and requires a faster drive for the full tip', () => {

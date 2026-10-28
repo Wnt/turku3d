@@ -46,7 +46,7 @@ await page.evaluate(async()=>{
 await page.waitForTimeout(1000);await page.keyboard.press('KeyF');
 await page.waitForFunction(()=>window.__game.state().mode==='car',{},{timeout:5000});
 await page.evaluate(()=>{
- const g=window.__game; const original=g.input.update.bind(g.input);
+ const g=window.__game; const original=g.input.update.bind(g.input); let stuck=0,reverse=0;
  g.driveEvidence={samples:[],start:g.state().feet,travelled:0};
  g.input.update=function(dt){
   original(dt);const s=g.state(),r=g.minimap.routes.route;
@@ -60,9 +60,17 @@ await page.evaluate(()=>{
   const q=s.vehicle.rot;const yaw=Math.atan2(2*(q.w*q.y+q.x*q.z),1-2*(q.y*q.y+q.z*q.z));
   const desired=Math.atan2(-(goal.z-s.feet[2]),goal.x-s.feet[0]);
   const error=Math.atan2(Math.sin(desired-yaw),Math.cos(desired-yaw));
-  const speed=Math.abs(s.vehicle.forwardSpeed); const target=Math.abs(error)>.5?4:Math.abs(error)>.2?7:13;
+  const speed=Math.abs(s.vehicle.forwardSpeed); let at=0,corner=false;
+  for(let i=1;i+1<r.length;i++){
+   at+=Math.hypot(r[i].x-r[i-1].x,r[i].z-r[i-1].z);if(at>35)break;
+   const a=Math.atan2(r[i].z-r[i-1].z,r[i].x-r[i-1].x),b=Math.atan2(r[i+1].z-r[i].z,r[i+1].x-r[i].x);
+   if(Math.abs(Math.atan2(Math.sin(b-a),Math.cos(b-a)))>.5){corner=true;break;}
+  }
+  const target=corner||Math.abs(error)>.5?4:Math.abs(error)>.2?7:10;
   this.actions.steer=Math.max(-1,Math.min(1,-error*3));this.actions.throttle=speed<target?0.8:0;
   this.actions.brake=speed>target+1?.4:0;
+  stuck=speed<.5?stuck+dt:0;if(stuck>5){reverse=3;stuck=0;}
+  if(reverse>0){reverse-=dt;this.actions.throttle=0;this.actions.brake=.6;this.actions.steer=-.3;}
   const e=g.driveEvidence,last=e.last;if(last)e.travelled+=Math.hypot(last[0]-s.feet[0],last[2]-s.feet[2]);e.last=s.feet;
  };
 });
