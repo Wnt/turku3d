@@ -197,7 +197,9 @@ not leave stale browser assets. There is no public cache-clear endpoint.
 The persistent cache is `~/turku3d-drafts/work/coarse/`. Prebuild uses the same
 HTTP admission queue and four polling jobs; it never writes tiles concurrently
 with the producer. It warms the listed playable tiles plus a 3x3 ring, expanded
-to whole replacement-parent siblings. The initial list contains 84 tiles.
+to whole replacement-parent siblings. The initial handover list produced 84 tiles. The current Pages manifest has
+16 full L0 tiles whose replacement-expanded ring contains 76; both warmups
+completed without failures after the source backport.
 
 ```sh
 systemd-run --user --unit=turku-drafts-prebuild --property=Nice=15 \
@@ -212,8 +214,21 @@ cat ~/turku3d-drafts/work/prebuild.json
 Use `systemctl --user stop turku-drafts-prebuild` before replacing its list.
 After a failed transient run, `systemctl --user reset-failed turku-drafts-prebuild`
 releases its unit name before the next `systemd-run`.
-`prebuild-tiles.json` uses the repository playable-list shape `{"tiles":[...]}`;
-sync the published playable list when expanding the Pages region. The bounds
+`prebuild-tiles.json` uses the repository playable-list shape `{"tiles":[...]}`.
+Refresh it from the actual published manifest before each warmup:
+
+```sh
+python3 - <<'PYCODE'
+import json
+import urllib.request
+from pathlib import Path
+manifest = json.load(urllib.request.urlopen('https://wnt.github.io/turku-game/tiles/manifest.json'))
+path = Path.home() / 'turku3d-drafts/work/prebuild-tiles.json'
+path.write_text(json.dumps({'tiles': sorted(t for t in manifest['visual'] if t.startswith('t0_'))}, indent=2) + '\n')
+PYCODE
+```
+
+Sync the list again when expanding the Pages region. The bounds
 also permit uncached travel farther out; those tiles build on demand.
 
 To clear cached tiles, stop prebuild and the producer, preserve any evidence,
