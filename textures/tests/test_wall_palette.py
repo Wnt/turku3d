@@ -4,20 +4,26 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
-
 from turkutex.wall_palette import group_keys, lab, rgb, sample
 
 
 def model():
-    return {"spread_scale": .25, "groups": {"[]": {
-        "mean_lab": [65, 3, 8], "covariance_lab": [[20, 1, 0], [1, 8, 0], [0, 0, 9]],
-        "lower_lab": [45, -5, -5], "upper_lab": [85, 15, 20],
-    }}}
+    return {
+        "spread_scale": 0.25,
+        "groups": {
+            "[]": {
+                "mean_lab": [65, 3, 8],
+                "covariance_lab": [[20, 1, 0], [1, 8, 0], [0, 0, 9]],
+                "lower_lab": [45, -5, -5],
+                "upper_lab": [85, 15, 20],
+            }
+        },
+    }
 
 
 def test_colour_space_roundtrip_and_stable_building_draw():
     colours = np.array([[0, 0, 0], [255, 255, 255], [180, 80, 20], [35, 90, 170]])
-    assert np.allclose(rgb(lab(colours)), colours, atol=.001)
+    assert np.allclose(rgb(lab(colours)), colours, atol=0.001)
     first = sample("stable-register-id", {}, model())
     assert first == sample("stable-register-id", {"levels": 8, "footprint_m2": 400}, model())
     assert len({sample(str(i), {}, model()) for i in range(20)}) > 15
@@ -38,8 +44,9 @@ def test_holdout_colours_never_enter_fit():
     spec = importlib.util.spec_from_file_location("fit_wall_palette", path)
     fit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fit)
-    rows = [dict(attributes={}, reference_rgb=[150+i, 140, 130], held_out=False)
-            for i in range(12)]
+    rows = [
+        dict(attributes={}, reference_rgb=[150 + i, 140, 130], held_out=False) for i in range(12)
+    ]
     rows += [dict(attributes={}, reference_rgb=[255, 0, 0], held_out=True)]
     first = fit.fit(rows)
     rows[-1]["reference_rgb"] = [0, 255, 0]
