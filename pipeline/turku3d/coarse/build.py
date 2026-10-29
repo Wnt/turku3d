@@ -729,7 +729,7 @@ def build(
             else None
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
-        stairs=stairs.stats(stair_meshes),
+        stairs=stairs.stats(stair_meshes, inputs.stairs),
         walkable=walkable.stats(tile, inputs.walkable),
         gardens=gardens.stats(tile, inputs.gardens),
         boats=boats.stats(tile, inputs.boats, boat_meshes),

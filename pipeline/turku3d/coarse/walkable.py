@@ -124,6 +124,7 @@ def prepare(tile, osm, water_path, paths):
             or tags.get("tunnel", "no") not in ("no", "building_passage")
             or tags.get("layer", "0") not in ("0", "")
             or tags.get("footway") == "crossing"
+            or tags.get("step_count", "0") not in ("0", "")
             or geom.geom_type not in ("LineString", "Polygon", "MultiPolygon")
             or geom.length < 8
             or geom.distance(water) > 25
@@ -174,6 +175,11 @@ def prepare(tile, osm, water_path, paths):
         )
     exclude = shapely.union_all([water, *blocked])
     points = points[~shapely.intersects_xy(exclude, points[:, 0], points[:, 2])]
+    # Equal horizontal support prevents dense scan strips from outweighing the
+    # rest of the paving. Keep separate height bands for robust outlier rejection.
+    voxel = np.floor(points[:, [0, 2, 1]] / [0.25, 0.25, 0.1]).astype(np.int64)
+    _, first = np.unique(voxel, axis=0, return_index=True)
+    points = points[first]
     result = [measure(key, line, width, points, window) for key, line, width in ways]
     return sorted((r for r in result if r is not None), key=lambda r: r["key"])
 
@@ -193,13 +199,23 @@ def grade(positions, scene, *, inner_only=False):
             continue
         station, lateral = coordinates(line, result[selection][:, [0, 2]])
         knots, cross, values = patch["knots"], patch["cross"], patch["heights"]
+        # Vector overlay roundoff must not move an exact paving edge into an
+        # unsupported slope band (NaN * zero would otherwise dent that vertex).
+        for edge in cross:
+            lateral[np.abs(lateral - edge) < 1e-7] = edge
         k = np.clip(np.searchsorted(knots, station, side="right") - 1, 0, len(knots) - 2)
         u = (station - knots[k]) / (knots[k + 1] - knots[k])
         j = np.clip(np.searchsorted(cross, lateral, side="right") - 1, 0, len(cross) - 2)
         v = np.clip((lateral - cross[j]) / (cross[j + 1] - cross[j]), 0, 1)
-        a = values[k, j] * (1 - v) + values[k, j + 1] * v
-        b = values[k + 1, j] * (1 - v) + values[k + 1, j + 1] * v
-        target = a * (1 - u) + b * u
+
+        def mix(a, b, weight):
+            return np.where(
+                weight <= 1e-10, a, np.where(weight >= 1 - 1e-10, b, a * (1 - weight) + b * weight)
+            )
+
+        a = mix(values[k, j], values[k, j + 1], v)
+        b = mix(values[k + 1, j], values[k + 1, j + 1], v)
+        target = mix(a, b, u)
         valid = np.isfinite(target) & (u >= 0) & (u <= 1)
         # Unsupported outer cross sections keep the original terrain, while
         # supported paving always receives its fitted plane all the way to its edge.

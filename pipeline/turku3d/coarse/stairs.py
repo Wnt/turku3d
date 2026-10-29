@@ -26,7 +26,10 @@ def prepare(tile, path, survey_paths=()):
             and geom.geom_type == "LineString"
         ):
             (bridges if tags.get("bridge", "no") != "no" else footways).append(geom)
-        if tags.get("highway") != "steps" and tags.get("area:highway") != "steps":
+        counted = tags.get("highway") in ("footway", "path", "pedestrian") and tags.get(
+            "step_count", "0"
+        ) not in ("0", "")
+        if tags.get("highway") != "steps" and tags.get("area:highway") != "steps" and not counted:
             continue
         if not geom.intersects(window):
             continue
@@ -327,10 +330,12 @@ def visuals(tile, meshes):
     ]
 
 
-def stats(meshes):
+def stats(meshes, prepared=None):
+    emitted = {m.object_id.split(":")[1] for m in meshes if m.object_id.startswith("stairs:")}
     return dict(
-        flights=len(
-            {m.object_id.split(":")[1] for m in meshes if m.object_id.startswith("stairs:")}
+        flights=len(emitted),
+        lidar_flights=sum(
+            key in emitted and "_profile" in tags for key, _, tags in (prepared or ((), ()))[0]
         ),
         retaining_walls=sum(m.object_id.startswith("retaining:") for m in meshes),
         triangles=sum(len(m.indices) for m in meshes),
@@ -397,11 +402,23 @@ def from_inputs(cache, tile, inputs, grid_pos, sample, dry, solid, sources, deck
         decks,
         inputs.barriers,
         inputs.water,
+        inputs.walkable,
     )
 
 
 def stage(
-    cache, tile, prepared, grid_pos, sample, dry, solid, neighbours, decks=(), barriers=(), water=()
+    cache,
+    tile,
+    prepared,
+    grid_pos,
+    sample,
+    dry,
+    solid,
+    neighbours,
+    decks=(),
+    barriers=(),
+    water=(),
+    walks=(),
 ):
     from pathlib import Path
 
@@ -417,6 +434,7 @@ def stage(
         Path(__file__).with_name("geometry.py"),
         Path(__file__).with_name("bridge_details.py"),
         Path(__file__).with_name("stair_survey.py"),
+        Path(__file__).with_name("walkable.py"),
         Path(retaining.__file__),
         Path(__file__).with_name("gardens.py"),
         base / "bridges/build.py",
@@ -441,6 +459,7 @@ def stage(
             [(d.way, d.line, d.stations, d.heights) for d in decks],
             barriers,
             water,
+            walks,
         ],
         geometry,
     )

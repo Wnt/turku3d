@@ -90,3 +90,12 @@ def test_vector_cut_keeps_submillimetre_surface_remainders():
     )
     cover = shapely.union_all(shapely.polygons(pos[idx][:, :, [0, 2]]))
     assert shapely.Polygon(p[:, [0, 2]]).difference(cover).area < 1e-12
+
+
+def test_exact_paving_edge_does_not_inherit_missing_slope_samples():
+    line = shapely.LineString([(-20, 20), (520, 20)])
+    patch = walkable.measure("walk", line, 3, surveyed(), shapely.box(0, 0, 250, 250))
+    patch["heights"][:, [0, 1, 5, 6]] = np.nan
+    query = np.array([[100, -2, z] for z in (18.5 - 1e-12, 18.5, 20, 21.5, 21.5 + 1e-12)])
+    result = walkable.grade(query, [patch])
+    np.testing.assert_allclose(result[:, 1], 2.3, atol=0.02)
