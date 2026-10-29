@@ -52,6 +52,10 @@ def wall_parts(vertices, wall, style):
     x0, x1 = max(0, ends[0]), min(width, ends[1])
     y0 = float(geometry.get("base_h", a[1]))
     y1 = y0 + mh
+    blank = {
+        **style,
+        "module": 42 + style["module"] // 6 if style["module"] < 42 else style["module"],
+    }
     # Retain sampled/AI layouts outside the observed rectangle, especially above shop strips.
     for bounds in [
         (0, x0, a[1], max(vertices[:, 1])),
@@ -61,13 +65,10 @@ def wall_parts(vertices, wall, style):
     ]:
         part = quad(*bounds)
         if part:
-            yield *part, style
+            above_full_wall = bounds[2] == y1 and wall.get("observation", {}).get("scope") == "full-wall"
+            yield *part, blank if above_full_wall else style
     part = quad(x0, x1, y0, y1)
     if part:
-        blank = {
-            **style,
-            "module": 42 + style["module"] // 6 if style["module"] < 42 else style["module"],
-        }
         yield *part, blank
     # Occluded regions have no measured negative: retain their existing/rule treatment.
     for x, y, w, h in wall.get("observation", {}).get("excluded_rectangles_m", []):
@@ -116,3 +117,20 @@ def wall_parts(vertices, wall, style):
             detail=[0, 0, 0, kind],
         )
         yield points, uv, patch
+    # Reviewed balcony rails are positioned rectangles, not a repeated bay pattern.
+    balconies = wall.get("balconies", {}).get("value") or []
+    rail_style = {
+        **blank,
+        "wall": style["trim"],
+        "base": style["trim"],
+        "bands": [0, 0, 0, 0],
+        "detail": [0, 0, 0, 0],
+    }
+    for x, y, w, h in balconies:
+        strips = [(x, y, w, min(0.15, h)), (x, y + h - 0.06, w, 0.06)]
+        strips += [(bar, y, 0.04, h) for bar in np.arange(x, x + w, 0.22)]
+        for left, bottom, rw, rh in strips:
+            left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
+            part = quad(max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh))
+            if part:
+                yield part[0] + normal * 0.004, part[1], rail_style

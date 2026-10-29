@@ -2,8 +2,8 @@
 
 The ordered assignment table is ``archetype`` below. Distributions are architectural
 priors constrained by the 132 photo-supported descriptions in the 320-row OCI store
-(2026-10-29). Register-derived rows are not counted as observations. Round 3 colours
-remain comparison evidence, not albedo training data (see docs/reports/facade-archetypes.md).
+(2026-10-29). Register-derived rows are not counted as observations. The compiler
+retains the separately calibrated register palette (docs/reports/facade-archetypes.md).
 All ranges are metres except window width/height/sill, which are fractions of a bay/floor.
 """
 

@@ -85,6 +85,9 @@ def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     blank = [row for row in parts if row[2]["module"] >= 42]
     assert len(blank) == 1 and blank[0][0][:, 1].max() == 6
     assert any(row[0][:, 1].min() == 6 and row[2]["module"] < 42 for row in parts)
+    wall["observation"]["scope"] = "full-wall"
+    full = list(wall_parts(vertices, wall, style))
+    assert all(row[2]["module"] >= 42 for row in full if row[0][:, 1].min() >= 6)
 
 
 def test_measurement_cannot_bind_another_orientation_or_unreviewed_wall():
