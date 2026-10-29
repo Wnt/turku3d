@@ -31,7 +31,10 @@ def save(path, value):
 
 
 def summary(row):
-    return json.dumps({k: row[k] for k in ("commit", "code", "coverage", "disk_free", "timings")})
+    result = {k: row[k] for k in ("commit", "code", "coverage", "disk_free", "memory", "timings")}
+    if "observed_progress" in row:
+        result["observed_progress"] = row["observed_progress"]
+    return json.dumps(result)
 
 
 def watch(output, deadline):
@@ -68,6 +71,25 @@ def watch(output, deadline):
                     save(state_path, state)
                 if time.time() >= next_snapshot:
                     row = snapshot()
+                    wider = row["coverage"]["wider"]
+                    baseline = state.setdefault(
+                        "coverage_baseline", dict(at=row["at"], cached=wider["cached"])
+                    )
+                    elapsed, gained = (
+                        row["at"] - baseline["at"],
+                        wider["cached"] - baseline["cached"],
+                    )
+                    if elapsed >= 120 and gained >= 4:
+                        row["observed_progress"] = dict(
+                            tiles_per_minute=round(60 * gained / elapsed, 3),
+                            elapsed_seconds=round(elapsed),
+                            eta_seconds={
+                                phase: round(
+                                    (c["total"] - c["cached"] - c["unavailable"]) * elapsed / gained
+                                )
+                                for phase, c in row["coverage"].items()
+                            },
+                        )
                     save(output / "latest.json", row)
                     with (output / "coverage.jsonl").open("a") as stream:
                         stream.write(json.dumps(row) + "\n")

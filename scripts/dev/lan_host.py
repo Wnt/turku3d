@@ -119,6 +119,7 @@ def snapshot():
         line.split(":")[0]: int(line.split()[1]) * 1024
         for line in Path("/proc/meminfo").read_text().splitlines()
     }
+    memory["SwapUsed"] = memory["SwapTotal"] - memory["SwapFree"]
     return dict(
         at=time.time(),
         commit=(home / "SOURCE_COMMIT").read_text().strip(),
@@ -136,7 +137,9 @@ def snapshot():
         broken=broken,
         unavailable=sorted(unavailable),
         disk_free={p: shutil.disk_usage(p).free for p in ("/", "/srv/turku3d")},
-        memory={k: memory[k] for k in ("MemTotal", "MemAvailable")},
+        memory={
+            k: memory[k] for k in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree", "SwapUsed")
+        },
         cpu=Path("/proc/stat").read_text().splitlines()[0],
         load=Path("/proc/loadavg").read_text().strip(),
         timings=timings,

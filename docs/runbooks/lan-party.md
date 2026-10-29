@@ -47,7 +47,10 @@ The snapshot validates generator, raw-input and facade identities and referenced
 payload lengths. Coverage uses the complete planned denominator; unavailable tiles
 are never counted as built. ETA is an optimistic four-worker estimate from recent
 successful first/full worker means; player interruptions, ring barriers and long
-tails add time. Keep **5 GiB free on `/` and 15 GiB on `/srv/turku3d`**. Retention
+tails add time.
+The watch also reports an ETA from observed frozen-cache coverage growth once
+four more tiles and two minutes have elapsed, including player interruptions.
+Keep **5 GiB free on `/` and 15 GiB on `/srv/turku3d`**. Retention
 protects current full/first manifests and their payloads, including `last-full.json`;
 do not delete warmed tile directories, shared assets, raw inputs or facade stores.
 
@@ -60,6 +63,8 @@ ssh -o IdentitiesOnly=yes -i ~/.ssh/oci_cuttlefish ubuntu@82.70.50.61
 # On OCI, use the recorded active slot; do not start the retired turku-drafts unit.
 systemctl --user start "$(cat ~/turku3d-drafts/ACTIVE_UNIT)" turku-mp-server turku-drafts-proxy turku-forwarder-agent
 df -h / /srv/turku3d
+free -h                       # available RAM and swap used
+swapon --show --bytes          # expected: 2 GiB zstd zram, no boot-disk swap
 curl --max-time 2 -fsS http://127.0.0.1:7764/coarse/health
 curl --max-time 2 -fsS http://127.0.0.1:7700/healthz
 tail -n 20 ~/turku3d-drafts/reports/service.log
@@ -80,6 +85,10 @@ only. Inspect `prebuild` progress/failures and `visual_audits` too. Multiplayer
 must have `ok: true`; compare rejection/pose counters over the test, not their
 lifetime totals. The ten-player receipt reports latency, accepted/rejected poses,
 CPU/RAM samples, payload readiness and rendered arrival/frame times.
+OCI has persistent 2 GiB zstd zram swap with `vm.swappiness=10`. During the
+ten-player test, **swap used above about 1 GiB means too many workers**; the
+readiness receipt records peak swap and stays red above that threshold. Report
+the pressure to the orchestrator before changing the frozen worker configuration.
 
 ```sh
 # This command owns a hard 600 s wall budget, including host/browser slot waits.
