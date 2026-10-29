@@ -4,9 +4,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
-import { isolateBrowser, reportsRoot } from '../../tools/dev/environment.mjs';
+import { isolateBrowser, reportsRoot, workRoot } from '../../tools/dev/environment.mjs';
 isolateBrowser();
 const out = path.join(reportsRoot, 'reflection-deployed'); fs.mkdirSync(out, { recursive: true });
+// Upload completion precedes Pages/CDN propagation. Wait outside Chrome for the exact
+// packaged entry point, within the enclosing async command's deadline.
+const gameUrl = 'https://wnt.github.io/turku-game/game/';
+const expected = fs.readFileSync(path.join(workRoot, 'build/game/index.html'), 'utf8').match(/assets\/main-[\w-]+\.js/)[0];
+const deadline = Date.now() + 240000;
+let served;
+do {
+  const response = await fetch(`${gameUrl}?reflection-release=${Date.now()}`, { signal: AbortSignal.timeout(5000), cache: 'no-store' });
+  const html = await response.text(); served = html.match(/assets\/main-[\w-]+\.js/)?.[0];
+  if (served === expected) break;
+  console.log(JSON.stringify({ stage: 'await-pages', expected, served }));
+  await new Promise(resolve => setTimeout(resolve, 5000));
+} while (Date.now() < deadline);
+assert.equal(served, expected, 'Pages must serve the uploaded bundle before measuring it');
+console.log(JSON.stringify({ stage: 'pages-ready', bundle: served }));
 const browser = await chromium.launch({ executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs,
   headless: true, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 try {
@@ -14,7 +29,8 @@ try {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await (await page.context().newCDPSession(page)).send('Emulation.setFocusEmulationEnabled', { enabled: true });
-  await page.goto('https://wnt.github.io/turku-game/game/?dev=1&backend=webgpu&quality=medium');
+  await page.goto(`${gameUrl}?dev=1&backend=webgpu&quality=medium&reflection-release=${Date.now()}`);
+  assert.ok((await page.content()).includes(expected), 'browser loaded the uploaded entry point');
   await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 75000 });
   assert.equal(await page.evaluate(() => window.__qaError ?? null), null);
   if (await page.locator('[data-option="new"]').count()) {
@@ -57,7 +73,7 @@ try {
   const result = await page.evaluate(() => ({ ...window.__reflectionProbe,
     seconds: (performance.now() - window.__reflectionProbe.start) / 1000,
     backend: window.__game.backend, gameErrors: window.__game.state().errors }));
-  result.pageErrors = errors;
+  result.pageErrors = errors; result.bundle = expected;
   fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(result, null, 2));
   await page.screenshot({ path: path.join(out, 'river.png') });
   console.log(JSON.stringify({ ...result, memory: result.memory.slice(-1), report: out }));

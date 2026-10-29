@@ -76,7 +76,7 @@ npm --prefix game run typecheck
 npm --prefix game test -- tests/unit/reflections.test.ts tests/unit/node-attributes.test.ts tests/unit/render.test.ts tests/unit/streaming-resources.test.ts
 PROBE_QUALITY=medium PROBE_MOVING=1 MATERIAL_BASELINE=fa89bb2b86c5 scripts/dev/codex-task wait-cmd --timeout 150 -- python3 scripts/dev/host_slots.py browser -- node game/scripts/probe-material-stream.mjs reflection-before-matched 18
 PROBE_QUALITY=medium PROBE_MOVING=1 scripts/dev/codex-task wait-cmd --timeout 150 -- python3 scripts/dev/host_slots.py browser -- node game/scripts/probe-material-stream.mjs reflection-after 18
-scripts/dev/codex-task wait-cmd --timeout 120 -- python3 scripts/dev/host_slots.py browser -- node game/scripts/probe-reflections-deployed.mjs
+scripts/dev/codex-task wait-cmd --timeout 350 -- python3 scripts/dev/host_slots.py browser -- node game/scripts/probe-reflections-deployed.mjs
 ```
 
 The baseline command intentionally fails the added leak assertion. Raw per-frame counts,
@@ -85,3 +85,13 @@ The selected post-deploy check exercises the live Pages medium-quality river in 
 headless browser, asserting reflection presence, its slow-motion rate, zero reflected
 transparencies and no GPU/page errors; evidence goes to `reports/reflection-deployed/`.
 No automation connects to Jonni's devices. No raw city data or screenshots are committed.
+
+## Deployment verification correction
+
+The first async check ran before Pages propagated the upload: it loaded
+`main-Bj4yx3DW.js`, while the uploaded package contained `main-BIUXxnqJ.js`.
+It reported 634 reflections per plane in 634 frames and correctly failed the 12 Hz
+assertion; there were no GPU or page errors. The one forward fix is to wait for the
+exact packaged entry point before opening the browser, then assert the browser loaded
+that entry point. Waiting is bounded at 240 seconds within a 350-second async command;
+no deployment queue, build gate or rollback is involved. Rendering assertions are unchanged.
