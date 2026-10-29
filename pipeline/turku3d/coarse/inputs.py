@@ -70,6 +70,7 @@ DEPENDENCIES = {
     ),
     "stairs": ("stairs.py", "stair_survey.py", "../lidar/cache.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
+    "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
     "ortho_canopy": ("ortho_cleanup.py", "../vegetation/trees.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
@@ -126,6 +127,7 @@ class Inputs:
     stairs: tuple = ((), ())
     parking: tuple = ((), ())
     poles: list = ()  # sign and bus-stop props with full-tile source identities
+    gardens: dict = field(default_factory=dict)
     wall_context: list = ()  # neighbouring complete buildings for deterministic wall ownership
 
 
@@ -438,6 +440,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     osm = sources.osm_source(tile)
     return {
         "ground": None if missing else laz,
+        "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
         "ortho_canopy": [] if first_pass else roofs.lidar_paths(tile),
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
@@ -484,6 +487,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
     pyarrow.set_cpu_count(1)
     pyarrow.set_io_thread_count(1)
+    if dataset == "gardens":
+        from .garden_inputs import prepare as prepare_gardens
+
+        return prepare_gardens(tile, paths[0], paths[2:], paths[1]) if paths else {}
     if dataset == "ortho_canopy":
         from .ortho_cleanup import canopy_points
 
@@ -616,7 +623,6 @@ def gather(
             "ortho_canopy",
             "trees",
             "forests",
-            "barriers",
             "poles",
             "surfaces",
             "markings",
@@ -671,6 +677,10 @@ def gather(
         provenance[dataset] = [str(p) if p else None for p in paths]
         seconds[dataset] = time.perf_counter() - t
     ground, wfs = values["ground"], values["wfs"]
+    pool_mask = shapely.union_all([g for g, _, _ in (values["gardens"] or {}).get("pools", ())])
+    water = (
+        [g.difference(pool_mask) for g in wfs["water"]] if not pool_mask.is_empty else wfs["water"]
+    )
     from .register import enrich, period_evidence
 
     for building in wfs["buildings"]:
@@ -690,11 +700,12 @@ def gather(
         values["ortho"],
         wfs["buildings"],
         wfs["streets"],
-        wfs["water"],
+        water,
         values["roads"],
         provenance,
         seconds,
         sources.input_key(tile, first_pass=first_pass) or "",
+        gardens=values["gardens"] or {},
         kerbs=values["kerbs"],
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),

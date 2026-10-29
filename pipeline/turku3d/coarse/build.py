@@ -30,7 +30,7 @@ from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 from turku3d.wall_surfaces import paint_partition, trapezoids
 
-from . import banks, bridges, fences, kerbs, parked, road_top, surfaces
+from . import banks, bridges, fences, gardens, kerbs, parked, road_top, surfaces
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
@@ -41,6 +41,7 @@ from .retention import managed_build
 from .sources import Sources
 from .stages import (
     building_visual,
+    cached_terrain,
     kerb_inputs,
     props_visual,
     roof_crop,
@@ -194,6 +195,7 @@ def _write(path: Path, data: bytes) -> None:
 def terrain_stage(tile, inputs):
     """Terrain and deck outputs, including the approaches that mutate the ground grid."""
     grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
+    grid_pos = gardens.grade(grid_pos, inputs.gardens)
     centroids = grid_pos[grid_idx].mean(axis=1)
     water = inputs.water
     materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
@@ -238,21 +240,7 @@ def build(
     base = Path(__file__).parents[1]
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
-    grid_pos, grid_idx, materials, wet, level = cache.run(
-        "terrain",
-        source_key(terrain_stage, grid_mesh, water_mask, water_level, surfaces.classify, *common),
-        [
-            tile,
-            inputs.heights,
-            inputs.points,
-            inputs.ortho,
-            inputs.streets,
-            inputs.surfaces,
-            inputs.water,
-            bool(inputs.roads and inputs.roads.get("bridge_ways")),
-        ],
-        lambda: terrain_stage(tile, inputs),
-    )
+    grid_pos, grid_idx, materials, wet, level = cached_terrain(cache, tile, inputs, common)
     from .bridge_access import cached_stage
 
     grid_pos, osm_decks, decks, bridge_roads = cached_stage(
@@ -281,6 +269,7 @@ def build(
     tunnels, grid_pos, surface_sample, carried_mask = road_top.stage(
         cache, tile, inputs, grid_pos, grid_idx, shells, ground_sources, out.parent
     )
+    surface_sample = gardens.sampler(tile, surface_sample, inputs.gardens)
     own_keys = {b.key for b in blds}
     wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
     shells = [(b, shell) for b, shell in tunnels.shells if b.key in own_keys]
@@ -295,6 +284,12 @@ def build(
         cache, tile, grid_pos, grid_idx, inputs, tunnels.keep, level, bool(osm_decks)
     )
     seconds["river_banks"] = cache.metrics["river_banks"]["seconds"]
+    dry, river, bank, solid = cache.run(
+        "gardens",
+        source_key(Path(gardens.__file__), Path(__file__).with_name("stairs.py")),
+        [tile, inputs.gardens, dry, river, bank, solid],
+        lambda: gardens.produce(tile, inputs.gardens, dry, river, bank, solid),
+    )
     from . import stairs
 
     stair_meshes, dry, solid = stairs.stage(
@@ -308,6 +303,7 @@ def build(
         kerb_inputs(tile, ground_sources) if inputs.stairs[0] or inputs.barriers else None,
         osm_decks,
         inputs.barriers,
+        inputs.water,
     )
     seconds.update(
         stairs_geometry=cache.metrics["stairs"]["seconds"],
@@ -315,6 +311,7 @@ def build(
     )
     # Keep later terrain enrichment outside the tunnel's walkable volume.
     from .openings import stage as opening_stage
+
     dry, river, bank, solid, stair_meshes = opening_stage(
         cache, tunnels.openings, dry, river, bank, solid, stair_meshes
     )
@@ -486,6 +483,7 @@ def build(
             shells,
             wall_context,
             cache=cache,
+            gardens=gardens.stats(tile, inputs.gardens),
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -661,6 +659,7 @@ def build(
         "building_visual",
         source_key(
             building_visual,
+            cached_terrain,
             roof_crop,
             roof_fallback,
             valid_roof_pixels,
@@ -750,6 +749,7 @@ def build(
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
         stairs=stairs.stats(stair_meshes),
+        gardens=gardens.stats(tile, inputs.gardens),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         ground_ortho_cleanup=cleanup_stats,
         ground_colour_calibration=colour_stats,

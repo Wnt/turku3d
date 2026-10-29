@@ -82,29 +82,41 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
                     vertices - tile.origin,
                     triangles,
                     color=(*map(float, linear), 1.0),
-                    extras=dict(layer="buildings", surface=surface, building_id=b.facade_key,
-                                address=b.attributes.get("address")),
+                    extras=dict(
+                        layer="buildings",
+                        surface=surface,
+                        building_id=b.facade_key,
+                        address=b.attributes.get("address"),
+                    ),
                 )
             )
     from turku3d.wall_assembly import assemble_structures
 
     raw = building_meshes + meshes
+
     def assemble():
         result = assemble_structures(raw)
         return result
+
     if cache is None:
         meshes = assemble()
     else:
         from pathlib import Path
-        from turku3d.stage_cache import source_key
-        from turku3d import wall_assembly, wall_surfaces
 
-        meshes = cache.run("basic_walls", source_key(Path(wall_assembly.__file__),
-                           Path(wall_surfaces.__file__)), raw, assemble)
+        from turku3d import wall_assembly, wall_surfaces
+        from turku3d.stage_cache import source_key
+
+        meshes = cache.run(
+            "basic_walls",
+            source_key(Path(wall_assembly.__file__), Path(wall_surfaces.__file__)),
+            raw,
+            assemble,
+        )
     if root is not None:
+        from contextlib import nullcontext
+
         from turku3d.wall_surfaces import validate_neighbours
 
-        from contextlib import nullcontext
         with cache.measure("basic_neighbours") if cache else nullcontext():
             validate_neighbours(meshes, shells, tile, root, pass_kind="first")
     data = build_glb(
@@ -131,12 +143,15 @@ def publish(
     shells=(),
     wall_context=(),
     cache=None,
+    gardens=None,
 ):
     from .build import _entry, _write
     from .collision_key import code_hash
 
     t = time.perf_counter()
-    data, triangles, height = visual(tile, cells, shells, wall_context, root=out.parent, cache=cache)
+    data, triangles, height = visual(
+        tile, cells, shells, wall_context, root=out.parent, cache=cache
+    )
     url = f"vis.{hashlib.sha256(data).hexdigest()}.glb"
     _write(out / url, data)
     roads_entry = None
@@ -155,6 +170,7 @@ def publish(
         collision_code=identity,
         inputs=input_key,
         buildings=buildings,
+        gardens=gardens or {},
         collision=collision,
         roads=roads_entry,
         visual={tile.id: _entry(url, data, level=0, tris=triangles, h=height, coarse=True)},
@@ -162,8 +178,12 @@ def publish(
     )
     # The only public pointer moves after every immutable payload exists.
     # Comparison retains only the basic visual, never an obsolete physics generation.
-    _write(out / "first.json", json.dumps({k: record[k] for k in
-           ("coarse", "tile", "pass_kind", "code", "inputs", "visual")}).encode())
+    _write(
+        out / "first.json",
+        json.dumps(
+            {k: record[k] for k in ("coarse", "tile", "pass_kind", "code", "inputs", "visual")}
+        ).encode(),
+    )
     _write(out / "collision.json", json.dumps(record).encode())
     from .audit import submit
 

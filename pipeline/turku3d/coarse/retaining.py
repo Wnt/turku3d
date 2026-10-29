@@ -9,15 +9,31 @@ from .bridge_details import appearance
 from .geometry import clip_mesh
 
 
-def produce(tile, records, sample, stairs=()):
+def produce(tile, records, sample, stairs=(), water=()):
     from .inputs import CELLS
     from .kerbs import terrain_patches
 
     meshes, openings = [], []
     stair_mask = shapely.union_all(stairs)
+    shore = shapely.union_all(water).buffer(2.5)
     window = shapely.box(*tile.bbox.as_tuple()).buffer(3)
     for index, (geom, tags, _) in enumerate(records):
-        if tags.get("barrier") != "retaining_wall" or geom.geom_type != "LineString":
+        if tags.get("barrier") not in ("retaining_wall", "wall", "city_wall"):
+            continue
+        if geom.geom_type not in ("LineString", "MultiLineString"):
+            continue
+        geom = geom.difference(shore)
+        if geom.geom_type != "LineString":
+            parts = [
+                (g, tags, False) for g in shapely.get_parts(geom) if g.geom_type == "LineString"
+            ]
+            nested, nested_cuts = produce(tile, parts, sample, stairs)
+            for part_index, part in enumerate(nested):
+                part.object_id = f"retaining:{index}:{part_index}"
+            meshes.extend(nested)
+            openings.extend(nested_cuts)
+            continue
+        if geom.is_empty:
             continue
         faces = Faces()
         cuts = []

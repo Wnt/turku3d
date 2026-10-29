@@ -80,6 +80,10 @@ def prepare(tile, path):
     window = shapely.box(*tile.bbox.as_tuple())
     for _, row in source_rows(path, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
+        if tags.get("wall") and not tags.get("barrier"):
+            tags = dict(
+                tags, barrier="retaining_wall" if tags["wall"] == "retaining_wall" else "wall"
+            )
         if tags.get("natural") == "cliff":
             tags = dict(tags, barrier="retaining_wall")
         if (
@@ -234,6 +238,11 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
             continue
         for p, q in segments(geom, roads, openings, window, on_road=on_road):
             mid = (p + q) / 2
+            if tags["barrier"] in ("wall", "city_wall") and "height" not in tags:
+                direction = (q - p) / np.linalg.norm(q - p)
+                normal = np.array([-direction[1], direction[0]]) * 2.5
+                if abs(sample(*(mid + normal)) - sample(*(mid - normal))) >= 0.6:
+                    continue  # The retaining stage owns this below-grade wall.
             bottom = min(sample(*p), sample(*q), sample(*mid))
             top = max(sample(*p), sample(*q), sample(*mid)) + h
             out.append(
@@ -315,6 +324,13 @@ def prototypes(kind):
             extras=dict(layer="structures", object_id=kind, material_key=f"draft_{kind}"),
         )
     ]
+    if kind == "hedge":
+        # Clipped faces retain fine leaf variation instead of a flat green slab.
+        rng = np.random.default_rng(5127)
+        leaf = np.clip(np.array([73, 105, 39]) + rng.normal(0, 11, (64, 64, 1)), 0, 255)
+        data = io.BytesIO()
+        Image.fromarray(leaf.astype(np.uint8)).save(data, format="PNG")
+        meshes[0].image, meshes[0].repeat, meshes[0].color = data.getvalue(), True, (1, 1, 1, 1)
     if kind == "chain":
         image = Image.new("RGBA", (64, 64))
         draw = ImageDraw.Draw(image)
