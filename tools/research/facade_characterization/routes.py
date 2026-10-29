@@ -157,14 +157,14 @@ class NoDepth:
         return None
 
 
-def prepare(root, batch, count, alternate_from=None, wall_ids=None):
+def prepare(root, batch, count, alternate_from=None, wall_ids=None, source=None):
     started = time.time()
     usage = snapshot()
     if usage["used_percent"] is None or usage["used_percent"] >= 82:
         raise RuntimeError(f"No new reading allowed: quota {usage}")
     directory = root / "batches" / batch
     directory.mkdir(parents=True, exist_ok=True)
-    save(directory / "start.json", dict(time=started, quota=usage))
+    save(directory / "start.json", dict(time=started, quota=usage, source_filter=source))
     states = statuses(root)
     originals = {}
     if alternate_from:
@@ -181,8 +181,21 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None):
         raise RuntimeError("No pending walls")
     ring = pending[0]["ring"]
     pending = [r for r in pending if r["ring"] == ring][:count]
+    rejected_sources = root / "source-rejections.jsonl"
+    excluded = {
+        (r["source"], r["pano_id"])
+        for r in (
+            map(json.loads, rejected_sources.read_text().splitlines())
+            if rejected_sources.exists()
+            else []
+        )
+    }
     panos = [
-        p for p in json.loads((root / "inputs/panoramas.json").read_text()) if p["cached_images"]
+        p
+        for p in json.loads((root / "inputs/panoramas.json").read_text())
+        if p["cached_images"]
+        and (p["source"], p["id"]) not in excluded
+        and (source is None or p["source"] == source)
     ]
     xy = np.array([[p["E"], p["N"]] for p in panos])
     from turkutex.streetview.facades import Facade
@@ -231,6 +244,16 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None):
             break
         if selected:
             selection.append(dict(row, view=selected))
+        elif states.get(row["wall_id"], {}).get("status") == "done":
+            # A missing alternate cannot invalidate an already readable view.
+            event(
+                root,
+                **dict(
+                    {k: v for k, v in states[row["wall_id"]].items() if k != "time"},
+                    alternate_batch=batch,
+                    alternate_unavailable=True,
+                ),
+            )
         else:
             event(
                 root,
@@ -428,11 +451,12 @@ def main():
     p.add_argument("--publish", type=Path)
     p.add_argument("--alternate-from")
     p.add_argument("--wall-ids", nargs="+")
+    p.add_argument("--source", choices=["google", "lookaround"])
     args = p.parse_args()
     if args.stage == "queue":
         make_queue(args.root)
     elif args.stage == "prepare":
-        prepare(args.root, args.batch, args.count, args.alternate_from, args.wall_ids)
+        prepare(args.root, args.batch, args.count, args.alternate_from, args.wall_ids, args.source)
     else:
         compile_batch(args.root, args.batch, args.publish)
 

@@ -31,16 +31,19 @@ def fit_rotation(rays, vertical, rotation, camera, corners):
         return np.where(vertical, delta @ tangent, delta[:, 2]) / length
 
     before = residual(np.zeros(3))
-    result = least_squares(residual, np.zeros(3), bounds=(-3, 3), loss="soft_l1", f_scale=0.015)
+    result = least_squares(residual, np.zeros(3), bounds=(-6, 6), loss="soft_l1", f_scale=0.015)
     after = residual(result.x)
     accepted = bool(
         np.median(abs(after)) < np.median(abs(before)) * 0.85
-        and max(abs(result.x)) < 2.95
+        and np.median(abs(after)) < np.sin(np.radians(1))
+        and max(abs(result.x)) < 5.95
+        and np.linalg.norm(result.x) < 8
         and np.linalg.matrix_rank(result.jac) == 3
     )
     correction = result.x if accepted else np.zeros(3)
     return Rotation.from_rotvec(np.radians(correction)).as_matrix() @ rotation, dict(
         accepted=accepted,
+        max_axis_correction_degrees=6,
         correction_grid_rotvec_degrees=correction.tolist(),
         proposed_grid_rotvec_degrees=result.x.tolist(),
         median_before_degrees=float(np.degrees(np.arcsin(min(1, np.median(abs(before)))))),

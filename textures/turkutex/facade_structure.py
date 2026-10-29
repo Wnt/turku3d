@@ -86,7 +86,14 @@ def validate(form):
         if any(b not in KINDS for b in row["bays"]):
             raise ValueError("bay kind")
         required = {"bay_count", "bay_kinds", "head", "surround"}
-        for field in ("opening_counts", "bay_units", "rhythm", "height_class", "material"):
+        for field in (
+            "opening_counts",
+            "bay_units",
+            "rhythm",
+            "height_class",
+            "material",
+            "opening_class",
+        ):
             if field in row:
                 required.add(field)
         if set(row["confidence"]) != required:
@@ -102,6 +109,14 @@ def validate(form):
             raise ValueError("unknown opening rhythm")
         if row.get("height_class", "regular") not in ("short", "regular", "tall"):
             raise ValueError("unknown row height class")
+        classes = row.get("opening_class", "regular")
+        if isinstance(classes, list) and len(classes) != row["bay_count"]:
+            raise ValueError("per-bay opening class count")
+        if any(
+            c not in ("small", "regular", "wide", "tall")
+            for c in (classes if isinstance(classes, list) else [classes])
+        ):
+            raise ValueError("unknown opening class")
         if row.get("material") not in (
             None,
             "render",
@@ -192,16 +207,26 @@ def compile_structure(row, form, register_floors):
             multiplicity = reading.get("opening_counts", [1] * len(reading["bays"]))[bay]
             if is_door and multiplicity != 1:
                 raise ValueError("door groups require one opening")
+            classes = reading.get("opening_class", "regular")
+            opening_class = classes[bay] if isinstance(classes, list) else classes
+            width_fraction, height_fraction = {
+                "small": (0.2, 0.28),
+                "regular": (0.48, 0.55),
+                "wide": (0.76, 0.55),
+                "tall": (0.48, 0.8),
+            }[opening_class]
             span = pitch * (
                 0.9
                 if reading.get("rhythm") == "ribbon"
                 else 0.76
                 if kind == "shop" or multiplicity > 1
-                else 0.48
+                else width_fraction
             )
             width = span / multiplicity * (1 if multiplicity == 1 else 0.85)
-            height = floor_height * (0.76 if is_door or kind == "shop" else 0.55)
-            bottom = y + (0 if is_door else floor_height * 0.17)
+            height = floor_height * (0.76 if is_door or kind == "shop" else height_fraction)
+            bottom = y + (
+                0 if is_door else floor_height * (0.42 if opening_class == "small" else 0.17)
+            )
             head_value = (
                 reading["head"][bay] if isinstance(reading["head"], list) else reading["head"]
             )
