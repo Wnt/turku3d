@@ -8,7 +8,7 @@ from pathlib import Path
 from .packaging import producer_paths
 
 VISUAL_ONLY = {
-    "ortho_cleanup.py", "ground_colour.py", "ground_colour.json", "packaging.py", "stored_facades.py", "facade_assets.py", "facade_programs.py",
+    "ortho_cleanup.py", "ground_colour.py", "ground_colour.json", "packaging.py", "facade_assets.py", "facade_programs.py",
     "facade_program_geometry.py", "facade_program.py", "facade_archetypes.py",
 }
 
@@ -29,6 +29,12 @@ def paths():
 
 def structural_source(path):
     source = path.read_bytes()
+    if path.name == "stored_facades.py" and path.parent.name == "coarse":
+        # Both passes use wall ownership; only the full pass binds facade paint.
+        functions = [node for node in ast.parse(source).body
+                     if isinstance(node, ast.FunctionDef)
+                     and node.name in {"exposed_wall_quads", "assemble_walls"}]
+        return ast.dump(ast.Module(body=functions, type_ignores=[]), include_attributes=False).encode()
     if path.name not in {"build.py", "stages.py"} or path.parent.name != "coarse":
         return source
     nodes = ast.parse(source).body

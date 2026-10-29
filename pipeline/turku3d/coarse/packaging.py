@@ -59,6 +59,8 @@ def producer_paths():
     return sorted(
         [
             *source_paths(),
+            Path(__file__).parents[1] / "wall_surfaces.py",
+            Path(__file__).parents[1] / "wall_assembly.py",
             *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
             Path(__file__).with_name("ground_colour.json"),
             Path(__file__).parents[1] / "stage_cache.py",

@@ -88,3 +88,10 @@ five-second curl smoke and a selective asynchronous test run. World tiles remain
 on-demand. Content-addressed input/stage caches reuse unaffected data and assets;
 there is no full-region rebuild. New wall helper paths also trigger OCI source
 deployment when changed independently in a later slice.
+
+The first post-deploy run passed 104 tests and exposed one dependency-classification
+failure: wall helpers had been added to the facade-only source list. The forward
+fix registers those helpers as structural producer dependencies and hashes only
+ownership functions from `stored_facades.py` for first-pass freshness. A regression
+checks that stored-map binding edits preserve structural identity while ownership
+and invariant edits invalidate it. The original cache-separation assertion remains.
