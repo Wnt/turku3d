@@ -146,7 +146,8 @@ def test_surrounds_stay_on_the_matching_wall_and_keep_opening_heads():
     row, form = fixture()
     measured = compile_structure(row, form, 2)
     wall = sample("building", dict(levels=2), [row])["walls"][0]
-    overlay(wall, measured)
+    from turku3d.facade_inference import reading_fields
+    overlay(wall, reading_fields(measured))
     wall.update(measured_geometry=measured["geometry"], measured_size=[12, 8])
     vertices = np.array([[0, 2, 0], [12, 2, 0], [12, 10, 0], [0, 10, 0]], float)
     parts = list(wall_parts(vertices, wall, compile_wall(wall, 2)))

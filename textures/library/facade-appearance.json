@@ -1,0 +1,157 @@
+{
+  "103295896N": {
+    "walls": {
+      "103295896N_770004661f": {
+        "wall": {
+          "colour": {
+            "value": "#ac9686",
+            "source": "reviewed same-wall patch medians; uncalibrated photo appearance prior",
+            "support": 0.65
+          }
+        },
+        "trim": {
+          "colour": {
+            "value": "#cabeb5",
+            "source": "reviewed same-wall patch medians; uncalibrated photo appearance prior",
+            "support": 0.65
+          }
+        },
+        "provenance": {
+          "crop_sha256": "0e3679d9f357314274e67f6abaade8fb61184c154eae2a1f6912dfd9b3a5f069",
+          "patches": {
+            "wall": [
+              [
+                0.11793916821849783,
+                0.24311183144246354,
+                0.006207324643078833,
+                0.08914100486223663
+              ],
+              [
+                0.2482929857231533,
+                0.24311183144246354,
+                0.006207324643078833,
+                0.08914100486223663
+              ],
+              [
+                0.48417132216014896,
+                0.24311183144246354,
+                0.006207324643078833,
+                0.08914100486223663
+              ],
+              [
+                0.8007448789571695,
+                0.24311183144246354,
+                0.006207324643078833,
+                0.08914100486223663
+              ]
+            ],
+            "trim": [
+              [
+                0.26,
+                0.27,
+                0.012,
+                0.1
+              ],
+              [
+                0.41,
+                0.27,
+                0.012,
+                0.1
+              ],
+              [
+                0.56,
+                0.27,
+                0.012,
+                0.1
+              ],
+              [
+                0.66,
+                0.27,
+                0.012,
+                0.1
+              ]
+            ]
+          }
+        }
+      }
+    }
+  },
+  "103295899S": {
+    "walls": {
+      "103295899S_a8098c44e3": {
+        "wall": {
+          "colour": {
+            "value": "#7e96a4",
+            "source": "reviewed same-wall patch medians; uncalibrated photo appearance prior",
+            "support": 0.65
+          }
+        },
+        "trim": {
+          "colour": {
+            "value": "#b9bebd",
+            "source": "reviewed same-wall patch medians; uncalibrated photo appearance prior",
+            "support": 0.65
+          }
+        },
+        "provenance": {
+          "crop_sha256": "06890532bf78bea8d11c9d0675c22288abc0779253b6664415c76f7687566312",
+          "patches": {
+            "wall": [
+              [
+                0.3,
+                0.3,
+                0.05,
+                0.05
+              ],
+              [
+                0.28,
+                0.43,
+                0.06,
+                0.04
+              ],
+              [
+                0.79,
+                0.43,
+                0.06,
+                0.07
+              ],
+              [
+                0.42,
+                0.64,
+                0.06,
+                0.04
+              ]
+            ],
+            "trim": [
+              [
+                0.28,
+                0.085,
+                0.06,
+                0.04
+              ],
+              [
+                0.32,
+                0.12,
+                0.07,
+                0.045
+              ],
+              [
+                0.71,
+                0.085,
+                0.05,
+                0.04
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "building": {
+      "material_class": {
+        "value": "stone",
+        "support": 1,
+        "source": "Jonni 2026-10-29: stone/granite Jugend building; register says other material"
+      }
+    }
+  }
+}

@@ -9,12 +9,18 @@ from turku3d.facade_programs import compile_wall
 
 def prepare(program):
     from turkutex.facade_sections import sections
+    from turkutex.facade_structure import compile_structure
 
     from turku3d.facade_components import components
 
     program = copy.deepcopy(program)
     for wall in program.get("walls", []):
         form = wall.get("structure", {})
+        if form.get("floors"):
+            # Recompile retained forms so old published arrays cannot bypass the
+            # current per-row confidence policy. Never mutate the source files.
+            wall.update(compile_structure({**wall, **wall["geometry"]}, form,
+                                          program.get("storeys", {}).get("value")))
         if not form.get("render_deferred"):
             # An explicitly reviewed negative clears sampled balcony rails.
             if form.get("balconies") == [] and form.get("confidence", {}).get("balconies", 0) > 0:
@@ -66,9 +72,8 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
         part = quad(max(0, ends[0]), min(width, ends[1]), y0 + y, y0 + y + h)
         if part is None:
             continue
-        mat = {"render": "plaster", "concrete_panel": "concrete"}.get(
-            section["material"], section["material"]
-        )
+        from turku3d.facade_inference import material
+        mat = material(section["material"])
         if section["kind"] is None:
             module = style["module"]
             if mat in MATERIALS:
@@ -117,7 +122,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
             base_h=y0 + y,
             normal=g.get("normal"),
         )
-        compiled = compile_structure(row, form, rows)
+        compiled = compile_structure(row, form, rows, min_support=0)
         compiled.update(measured_geometry=compiled["geometry"], measured_size=[w, h])
         section_style = compile_wall(compiled, rows)
         section_style.update(wall=style["wall"], base=style["base"], trim=style["trim"])
