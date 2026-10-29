@@ -13,7 +13,15 @@ export default defineConfig({
   cacheDir: path.join(workRoot, 'cache/vite'),
   // Dev server only: /tiles from the sandbox dist (or the localhost service's tile release, tools/dev/localhost-game),
   // POST /telemetry (also on `vite preview`, the browser checks' server) and the localhost build status.
-  plugins: [wasm(), localhostGame({ statePath: process.env.TURKU3D_LOCALHOST_STATE, tiles: tileDist,
+  plugins: [wasm(), {
+    name: 'preload-game-entry',
+    transformIndexHtml: { order: 'post', handler(_html, context) {
+      // bootstrap waits for isolation; discover the large dynamic entry during HTML parsing.
+      const main = Object.values(context.bundle ?? {}).find(chunk => chunk.type === 'chunk'
+        && chunk.moduleIds.some(id => id.endsWith('/src/main.ts')));
+      return main ? [{ tag: 'link', attrs: { rel: 'modulepreload', href: `./${main.fileName}`, crossorigin: '' }, injectTo: 'head' }] : [];
+    } },
+  }, localhostGame({ statePath: process.env.TURKU3D_LOCALHOST_STATE, tiles: tileDist,
     telemetryDir: process.env.TURKU3D_TELEMETRY_DIR ?? path.join(workRoot, 'telemetry') })],
   worker: { format: 'es', plugins: () => [wasm()] },
   build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000 },

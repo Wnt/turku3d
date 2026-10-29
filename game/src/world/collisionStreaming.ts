@@ -6,7 +6,7 @@
 import { collisionCovers } from '../physics/collisionCoverage';
 import { loading, loadBytes } from '../core/loading';
 import { COLLISION_TILE, collisionTileId, distToCollisionTile, parseCollisionId } from '../core/origin';
-import type { Manifest } from './manifest';
+import type { Manifest, ManifestEntry } from './manifest';
 import type { PhysicsClient } from '../physics/client';
 import type { CharacterInput, VehicleInput } from '../physics/protocol';
 
@@ -30,6 +30,8 @@ export class CollisionStreamer {
   /** Tiles the worker was told exist (edgeWalls.ts `known`). */
   private known = new Set<string>();
   private lastCheck = -Infinity;
+  private prepared = new Map<string, { entry: ManifestEntry; buffer: ArrayBuffer }>();
+  retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) { this.prepared.set(id, { entry, buffer }); }
   readonly maxConcurrent = 4;
   /** Tile ids within `r` of (x,z), found through the i/j grid window instead of a scan over the whole manifest
    *  (a city-wide manifest has ~80k collision tiles: a full scan with id parsing costs ~20 ms per call). */
@@ -73,6 +75,10 @@ export class CollisionStreamer {
     const now = performance.now();
     if (!force && now - this.lastCheck < 250) return [];
     this.lastCheck = now;
+    // Residency bounds the cache; consumed buffers transfer directly to the worker.
+    for (const [id, cached] of this.prepared) {
+      if (this.manifest.collision[id]?.url !== cached.entry.url) this.prepared.delete(id);
+    }
     const ahead = this.ahead(x, z, vx, vz);
     const retained = this.retainedStarts.flatMap(p => this.near(p.x, p.z, this.radius));
     const keep = new Set([...ahead, ...retained].map(t => t.id));
@@ -124,10 +130,16 @@ export class CollisionStreamer {
     const e = this.manifest.collision[id];
     const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
     try {
-      const res = await fetch(new URL(e.url, this.manifest.baseUrl), { signal: AbortSignal.timeout(15_000) });
-      // A failed/in-progress draft can temporarily answer 404 during repair; retry its payload.
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
+      const cached = this.prepared.get(id);
+      this.prepared.delete(id);
+      let buf: ArrayBuffer;
+      if (cached?.entry.url === e.url && cached.entry.sha256 === e.sha256) buf = cached.buffer;
+      else {
+        const res = await fetch(new URL(e.url, this.manifest.baseUrl), { signal: AbortSignal.timeout(15_000) });
+        // A failed/in-progress draft can temporarily answer 404 during repair; retry its payload.
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        buf = await res.arrayBuffer();
+      }
       if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
       await this.physics.loadTile(id, buf);
       this.retries.delete(id);

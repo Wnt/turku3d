@@ -5,6 +5,9 @@
 
 http://:7764 {
 	bind 127.0.0.1
+	encode zstd gzip {
+		match header Content-Type application/json* application/octet-stream* model/gltf-binary*
+	}
 	handle_path /facades/* {
 		root * /srv/turku3d/data/facade-assets
 		@cors header_regexp Origin ^(https://wnt\.github\.io|http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?)$
