@@ -11,7 +11,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { codecRunner, completed } from './codec.mjs';
+import { compileTexture } from './texture_compile.mjs';
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { externalizeLibraryImages } from './shared_images.mjs';
@@ -30,10 +31,7 @@ const meshEncoder = cachedEncoder(MeshoptEncoder,
   () => meshCache, file => useTextureCache(cacheRequest, file));
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.encoder': meshEncoder.encoder, 'meshopt.decoder': MeshoptDecoder });
-function run(tool, args) {
-  const proc = spawnSync(tool, args, { encoding:'utf8' });
-  if (proc.status !== 0) throw new Error(`${tool}: ${proc.error?.message ?? proc.stderr}\n${proc.stdout ?? ''}`);
-}
+const run = codecRunner();
 
 async function encodeFacade(t, request) {
   const { id, width, height, slot } = t.getExtras().facade_map;
@@ -59,7 +57,7 @@ async function encodeFacade(t, request) {
   let temp;
   fs.writeFileSync(source, t.getImage());
   try {
-    run('ktx', ['extract', '--transcode', 'rgb8', source, png]);
+    await run('ktx', ['extract', '--transcode', 'rgb8', source, png]);
     await sharp(png).resize(target[0], target[1], { fit:'fill' }).png().toFile(resized);
     // Equal 6-bit pixels differ by at most 3/255 in each channel. This safely
     // shares visually indistinguishable maps from independent facade exports.
@@ -71,11 +69,11 @@ async function encodeFacade(t, request) {
     const dest = path.join(request.textureCache, content + '.ktx2');
     if (!fs.existsSync(dest)) {
       temp = dest + `.${process.pid}.tmp.ktx2`;
-      run('toktx', ['--t2', '--genmipmap', '--threads', '2', '--assign_oetf', linear ? 'linear' : 'srgb',
+      await run('toktx', ['--t2', '--genmipmap', '--threads', '1', '--assign_oetf', linear ? 'linear' : 'srgb',
         '--assign_primaries', linear ? 'none' : 'bt709', '--encode', codec,
         ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80'] : ['--uastc_quality', '2', '--zcmp', '18']),
         temp, resized]);
-      run('ktx', ['validate', '--gltf-basisu', temp]);
+      await run('ktx', ['validate', '--gltf-basisu', temp]);
       fs.renameSync(temp, dest);
     }
     t.setImage(fs.readFileSync(useTextureCache(request, dest)));
@@ -164,7 +162,7 @@ async function assembleVisual(request) {
   stage('binding');
   fs.mkdirSync(request.textureCache, { recursive:true });
   if (request.level === 0 && !request.firstPass) {
-    await atlasFacades(doc, request, { sharp, run, KHRTextureBasisu });
+    request.facadeAtlas = await atlasFacades(doc, request, { sharp, run, KHRTextureBasisu });
     await atlasPropSigns(doc, sharp);
   }
   stage('facades');
@@ -218,8 +216,10 @@ async function assembleVisual(request) {
   // Cache encoded images independently of tiles. Coarse parents reuse the same GPU textures.
   fs.mkdirSync(request.textureCache, { recursive:true });
   for (const t of doc.getRoot().listTextures()) {
-    if (t.getExtras().facade_map && t.getMimeType() === 'image/ktx2') { await encodeFacade(t, request); continue; }
-    if (t.getMimeType() === 'image/ktx2') continue;
+    if (t.getExtras().facade_map && t.getMimeType() === 'image/ktx2') await encodeFacade(t, request);
+  }
+  await completed(doc.getRoot().listTextures().map(async t => {
+    if (t.getMimeType() === 'image/ktx2') return;
     const slots = listTextureSlots(t);
     const srgb = slots.some(s => s === 'baseColorTexture' || s === 'emissiveTexture');
     if (srgb && slots.some(s => s !== 'baseColorTexture' && s !== 'emissiveTexture')) {
@@ -232,22 +232,19 @@ async function assembleVisual(request) {
     const { width, height } = await sharp(Buffer.from(t.getImage())).metadata();
     const aligned = [width, height].map(v => Math.ceil(v / 4) * 4);
     const resize = aligned[0] !== width || aligned[1] !== height ? ['--resize', `${aligned[0]}x${aligned[1]}`] : [];
-    const options = ['--t2','--genmipmap','--threads','2','--assign_oetf', srgb ? 'srgb' : 'linear', ...resize,
+    const options = ['--t2','--genmipmap','--threads','1','--assign_oetf', srgb ? 'srgb' : 'linear', ...resize,
       '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128', ...effort] : ['--uastc_quality','2','--zcmp', request.draftTextures ? '6' : '18'])];
     const key = createHash('sha256').update('ktx-4.4.2-v1').update(JSON.stringify(options)).update(t.getImage()).digest('hex');
-    const dest = path.join(request.textureCache, key + '.ktx2');
-    if (!fs.existsSync(dest)) {
-      const input = path.join(path.dirname(request.output), key + (t.getMimeType() === 'image/png' ? '.png' : '.jpg'));
+    const dest = await compileTexture(request, key, 'ktx2', async output => {
+      const input = output + (t.getMimeType() === 'image/png' ? '.png' : '.jpg');
       fs.writeFileSync(input, t.getImage());
-      const temp = dest + `.${process.pid}.tmp.ktx2`;
-      const proc = spawnSync('toktx', [...options, temp, input], { encoding:'utf8' });
-      if (proc.status !== 0) throw new Error(`toktx: ${proc.error?.message ?? proc.stderr}\n${proc.stdout ?? ""}`);
-      fs.renameSync(temp, dest);
-      fs.unlinkSync(input);
-    }
-    t.setImage(fs.readFileSync(useTextureCache(request, dest))).setMimeType('image/ktx2');
+      try {
+        await run('toktx', [...options, output, input]);
+      } finally { fs.rmSync(input, { force:true }); }
+    });
+    t.setImage(fs.readFileSync(dest)).setMimeType('image/ktx2');
     doc.createExtension(KHRTextureBasisu).setRequired(true);
-  }
+  }));
   stage('textures');
   const canonicalFacade = new Map();
   let facadeShares = 0;
@@ -298,7 +295,7 @@ async function assembleVisual(request) {
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
   stage('packaging');
   retainTextureCache(request);
-  fs.writeFileSync(request.stats, JSON.stringify({ mesh_cache: { hits:meshEncoder.stats.hits-initialHits, misses:meshEncoder.stats.misses-initialMisses }, seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
+  fs.writeFileSync(request.stats, JSON.stringify({ texture_compilation:request.textureCompilation, facade_atlas:request.facadeAtlas, mesh_cache: { hits:meshEncoder.stats.hits-initialHits, misses:meshEncoder.stats.misses-initialMisses }, seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
     bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, shared_images:shared,
     textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()), facade_shares:facadeShares }));
 
