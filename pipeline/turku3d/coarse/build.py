@@ -47,7 +47,6 @@ from .stages import (
     roof_crop,
     roof_fallback,
     structures_stage,
-    terrain_stage,
     valid_roof_pixels,
 )
 

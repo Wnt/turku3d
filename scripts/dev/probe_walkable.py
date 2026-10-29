@@ -54,6 +54,8 @@ def main():
     print(json.dumps(result), flush=True)
     misses = sum(a["collision_ray_misses"] for a in result["audits"])
     assert misses == 0, f"Shipped river walk collision has {misses} misses"
+    holes = sum(a["collision_holes"] for a in result["audits"])
+    assert holes == 0, f"Shipped river walk collision has {holes} holes larger than 1 cm²"
     focus = next(
         p["recorded_reach"] for a in result["audits"] for p in a["paths"] if "recorded_reach" in p
     )

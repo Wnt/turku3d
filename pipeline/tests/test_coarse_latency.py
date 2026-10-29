@@ -208,6 +208,9 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     source.touch()
     datasets = (
         "ground",
+        "walkable",
+        "gardens",
+        "boats",
         "ortho",
         "wfs",
         "roads",
@@ -239,6 +242,12 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         called.append(dataset)
         if dataset == "ground":
             return {"points": np.zeros((4, 3)), "heights": np.zeros((129, 129))}
+        if dataset == "walkable":
+            return ["fitted-river-walk"]
+        if dataset == "gardens":
+            return {}
+        if dataset in ("boats", "barriers"):
+            return []
         if dataset == "wfs":
             assert len(sources) == 3
             return {"buildings": [building], "streets": [], "water": []}
@@ -254,8 +263,18 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     monkeypatch.setattr(inputs, "_prepare_one", prepare)
     sources = SimpleNamespace(missing=lambda _, **kw: [], input_key=lambda _, **kw: "raw-key")
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
-    assert called == ["ground", "wfs", "roads", "tunnels", "stairs"]
-    assert result.parking == ((), ())
+    assert called == [
+        "ground",
+        "walkable",
+        "gardens",
+        "boats",
+        "wfs",
+        "roads",
+        "barriers",
+        "tunnels",
+        "stairs",
+    ]
+    assert result.walkable == ["fitted-river-walk"]
     assert result.stairs == ((), ())
     assert result.parking == ((), ())
     assert result.kerbs is None

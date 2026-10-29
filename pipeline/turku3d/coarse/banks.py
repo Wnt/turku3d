@@ -96,15 +96,15 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     only; the bank faces are identical in the visual and solid meshes.
     """
     empty = Mesh(np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
-    if not water:
-        dry = Mesh(positions, indices[keep], materials[keep]).compact()
-        return dry, empty, empty, dry
-    body = shapely.union_all(water)
     from . import walkable
 
     positions, indices, materials, keep = walkable.constrain(
         positions, indices, materials, keep, walks
     )
+    if not water:
+        dry = Mesh(positions, indices[keep], materials[keep]).compact()
+        return dry, empty, empty, dry
+    body = shapely.union_all(water)
     mapped = [g for g, m in regions if m == mat_id("quay")]
     mapped.extend(p["line"].buffer(p["width"] / 2) for p in walks)
     mapped.extend(

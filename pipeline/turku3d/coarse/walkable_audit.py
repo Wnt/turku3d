@@ -53,6 +53,8 @@ def roughness(y):
 
 
 def audit(root, output):
+    from shapely.ops import substring
+
     manifest = json.loads((output / "manifest.json").read_text())
     tile = C.VisualTile.parse(manifest["tile"])
     inputs = gather(tile, root, Sources())
@@ -86,18 +88,14 @@ def audit(root, output):
             ],
         ]
     )
-    rows, total_missing = [], 0
+    rows, total_missing, domains = [], 0, []
     for patch in inputs.walkable:
         line = patch["line"]
         station = np.arange(2, line.length - 2, 0.25)
         query = shapely.get_coordinates(shapely.line_interpolate_point(line, station))
         if not len(query):
             continue
-        expected = walkable.grade(
-            np.c_[query[:, 0], np.full(len(query), np.nan), query[:, 1]], [patch]
-        )[:, 1]
-        # Grade uses the base only in its outer transition, so a finite sentinel
-        # is needed even at a core vertex where the base coefficient is zero.
+        # A sentinel distinguishes unsupported knots from measured core heights.
         expected = walkable.grade(
             np.c_[query[:, 0], np.full(len(query), -999.0), query[:, 1]], [patch]
         )[:, 1]
@@ -107,6 +105,10 @@ def audit(root, output):
         selected &= shapely.distance(shapely.points(query), shapely.union_all(inputs.water)) < 25
         if selected.sum() < 9:
             continue
+        supported = np.isfinite(patch["heights"][:, 3])
+        for i in np.flatnonzero(supported[:-1] & supported[1:]):
+            segment = substring(line, patch["knots"][i], patch["knots"][i + 1])
+            domains.append(segment.buffer(min(1, patch["width"] / 2 - 0.2), cap_style="flat"))
         old = heights(before.positions[before.indices], query[selected], expected[selected])
         new = heights(triangles, query[selected], expected[selected])
         missing = ~np.isfinite(new) | (abs(new - expected[selected]) > 0.35)
@@ -146,10 +148,25 @@ def audit(root, output):
                 ),
             )
         )
+    domain = shapely.union_all(domains).intersection(window).difference(excluded)
+    water = shapely.union_all(inputs.water)
+    domain = domain.difference(water).intersection(water.buffer(25))
+    centres = triangles.mean(axis=1)
+    expected = walkable.grade(
+        np.c_[centres[:, 0], np.full(len(centres), -999.0), centres[:, 2]], inputs.walkable
+    )[:, 1]
+    supported = (expected > -900) & (abs(centres[:, 1] - expected) < 0.35)
+    normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    supported &= np.abs(normal[:, 1]) > 1e-8
+    coverage = shapely.union_all(shapely.polygons(triangles[supported][:, :, [0, 2]]))
+    holes = [g for g in shapely.get_parts(domain.difference(coverage)) if g.area > 1e-4]
     result = dict(
         tile=tile.id,
         paths=rows,
         collision_ray_misses=total_missing,
+        collision_holes=len(holes),
+        collision_hole_area_m2=float(sum(g.area for g in holes)),
+        audited_area_m2=float(domain.area),
         stairs=manifest["stairs"],
         endpoint_corrections=corrections,
         walkable=manifest["walkable"],

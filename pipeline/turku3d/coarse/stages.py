@@ -179,7 +179,7 @@ def cached_terrain(cache, tile, inputs, common):
     from turku3d.stage_cache import source_key
 
     from . import gardens, surfaces, walkable
-    from .build import grid_mesh, terrain_stage, water_level, water_mask
+    from .build import grid_mesh, water_level, water_mask
 
     return cache.run(
         "terrain",
