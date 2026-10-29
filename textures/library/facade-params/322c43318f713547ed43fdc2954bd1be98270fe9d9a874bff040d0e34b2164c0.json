@@ -1,0 +1,33 @@
+{
+  "building_key": "1032958849",
+  "description": {
+    "facade_id": "aurakatu2_se",
+    "wall_visible": true,
+    "problem": "",
+    "material": "plaster",
+    "wall_colour": "#B98B7E",
+    "trim_colour": "#D5CBB3",
+    "storeys": 2,
+    "window_columns": 7,
+    "window_width": 0.4037,
+    "window_height": 0.5217,
+    "ground_floor": "windows",
+    "ground_openings": 7,
+    "roof_line": "cornice",
+    "plinth": true,
+    "features": [
+      "pilasters",
+      "string_courses",
+      "ornament"
+    ]
+  },
+  "width_m": 22.54,
+  "source": "retained-pilot-description",
+  "engine": "stored",
+  "provenance": {
+    "document": "docs/pilot/textures/pilot.json",
+    "facade": "aurakatu2_se",
+    "section": "label.answer",
+    "notes": "Normalized existing labels; dimensions remain pilot estimates. Reviewed wall programs override bay types and layout."
+  }
+}

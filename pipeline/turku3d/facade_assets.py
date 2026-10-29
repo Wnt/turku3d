@@ -145,6 +145,13 @@ def description_row(key):
         if f["metadata"].get("fast_description", {}).get("description")
     ]
     if not candidates:
+        # Retained descriptions can ship as ordinary parameter records without
+        # embedding a building-specific branch in the generator or asset export.
+        directory = C.REPO_ROOT / "textures/library/facade-params"
+        for identity in aliases(key):
+            path = directory / opaque(identity)
+            if path.is_file():
+                return {**json.loads(path.read_text()), "building_key": str(key)}
         return None
     best = best_description(candidates)
     return dict(

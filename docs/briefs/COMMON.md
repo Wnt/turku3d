@@ -24,7 +24,7 @@ Send a progress message only when a stage finishes or the plan changes, not whil
 
 Use `codex-task finish` to rebase, run agent-selected affected tests within 30 seconds,
 merge into main and deploy Pages immediately. Five-second curl smoke and one selective
-async run (ten minutes maximum) follow deployment. Read AGENTS.md for the current
+async run (ten minutes maximum) follow deployment. Read AGENTS.md ("Merge, deploy and test flow") for the current
 commands, active-agent register and forward-fix policy; this brief adds no verification
 or delivery requirements.
 

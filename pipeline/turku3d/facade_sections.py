@@ -9,6 +9,7 @@ from turku3d.facade_programs import compile_wall
 
 def prepare(program):
     from turkutex.facade_sections import sections
+
     from turku3d.facade_components import components
 
     program = copy.deepcopy(program)
@@ -76,7 +77,9 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                     if module >= 42
                     else MATERIALS.index(mat) * 6 + module % 6
                 )
-            yield *part, {**style, "module": module}, 1
+            # Material-only evidence cannot erase openings in preserved artwork.
+            # With no map, the existing layout still gains the reviewed material.
+            yield *part, {**style, "module": module, "unreviewed": True}, 1
             continue
         count, rows = section["count"], section["rows"]
         form = dict(
@@ -93,7 +96,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                 dict(
                     role="base" if i == 0 else "middle",
                     bay_count=count,
-                    bays=[section["kind"]] * count,
+                    bays=section.get("bays") or [section["kind"]] * count,
                     head=section["head"],
                     surround=section["surround"],
                     confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")},

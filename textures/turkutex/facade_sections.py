@@ -66,6 +66,27 @@ def integer(section, keys):
     return None
 
 
+def mixed_bays(section):
+    """Accept explicitly ordered architectural bays; never flatten a mixed row."""
+    from .facade_structure import KINDS
+
+    bays = section.get("bay_kinds")
+    count = integer(section, ("architectural_bays", "bays", "bay_count"))
+    if not isinstance(bays, list) or count != len(bays) or not count:
+        return None
+    if any(kind not in KINDS for kind in bays):
+        return None
+    return bays
+
+
+def shape(raw, *, surround=False):
+    text = str(raw or "").lower()
+    if surround:
+        return next((s for s in ("pediment", "rustication", "frame") if s in text
+                     or s == "rustication" and "rusticated" in text), "none")
+    return next((s for s in ("segmental", "round", "pointed", "flat") if s in text), "flat")
+
+
 def sections(form, floors):
     result, unsupported = [], []
     observation = form.get("facade_observations", {})
@@ -91,6 +112,7 @@ def sections(form, floors):
                 r"wall|cladding|siding|brickwork|render|timber", kind_text
             ) and not re.search(r"rail|frame|surround|soffit|balcon", kind_text):
                 mat = material(kind_text)
+        bays = mixed_bays(section)
         kind = None
         if re.search(r"\b(blank|opaque|blind)\b", text):
             kind = "blank"
@@ -124,6 +146,9 @@ def sections(form, floors):
             ),
         )
         rows = integer(section, ("rows", "row_count", "floor_count", "whole_wall_row_count"))
+        if bays:
+            count = len(bays)
+            kind = "mixed"
         if kind == "blank":
             count, rows = 1, 1
         elif rows is None and extent[3] <= 1 / max(1, floors or 3) + 0.01:
@@ -131,12 +156,17 @@ def sections(form, floors):
         # Uncounted descriptions can supply a material, never an invented grid.
         if count is None or rows is None:
             kind = None
-        head = section.get("head", "flat")
-        if head not in ("flat", "segmental", "round", "pointed"):
-            head = "flat"
-        surround = section.get("surround", "none")
-        if surround not in ("none", "frame", "pediment", "rustication"):
-            surround = "none"
+        head = shape(section.get("head"))
+        surround = shape(section.get("surround"), surround=True)
+        if bays:
+            for field, is_surround in (("heads", False), ("surrounds", True)):
+                values = section.get(field)
+                if isinstance(values, list) and len(values) == len(bays):
+                    converted = [shape(v, surround=is_surround) for v in values]
+                    if is_surround:
+                        surround = converted
+                    else:
+                        head = converted
         if mat or kind:
             result.append(
                 dict(
@@ -148,6 +178,7 @@ def sections(form, floors):
                     rows=rows,
                     head=head,
                     surround=surround,
+                    **({"bays": bays} if bays else {}),
                 )
             )
         if not kind:

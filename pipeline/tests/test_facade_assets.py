@@ -201,3 +201,76 @@ def test_gable_segments_share_eave_even_when_high_segment_fits_more_rows(monkeyp
         a, b, c = points[triangles].transpose(1, 0, 2)
         return np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2
     assert abs(sum(area(m.positions, m.indices) for m in meshes) - area(walls, indices)) < 1e-6
+
+
+def test_mixed_reviewed_section_overrides_map_but_keeps_hidden_ground(monkeypatch):
+    from turku3d import facade_programs as fp
+    from turku3d.coarse import stored_facades as sf
+    from turku3d.facade_sections import prepare
+    from turku3d.wall_surfaces import validate_meshes
+    from turkutex.facade_structure import compile_structure
+
+    row = dict(wall_id='observed', width_m=10, height_m=12, base_h=3,
+               p0=[C.ORIGIN_E, C.ORIGIN_N], p1=[C.ORIGIN_E + 10, C.ORIGIN_N], normal=[0, 1])
+    form = dict(wall_id='observed', render_deferred='mixed niches', facade_observations=dict(
+        sections=[dict(position='upper', architectural_bays=3,
+                       bay_kinds=['window', 'blind niche', 'window'],
+                       heads=['flat', 'round niche inset', 'flat'],
+                       surrounds=['triangular pediment'] * 3, material='render')],
+        confidence=dict(bays=.9)))
+    observed = prepare(dict(building_id='stable', storeys=dict(value=2),
+                            walls=[compile_structure(row, form, 2)]))
+    monkeypatch.setattr(fp, 'measured', lambda _: observed)
+    d = renderer().register_description('stable', 'stable', {}, 10, 12)
+    d['wall_colour'] = '#B98B7E'
+    monkeypatch.setattr(fp, 'read_description', lambda _: d)
+    monkeypatch.setattr(sf, 'building', lambda _: dict(facades=[facade()]))
+    b = SimpleNamespace(key='part', facade_key='stable', base=3, top=15,
+                        footprint=shapely.box(0, 0, 10, 2), attributes=dict(levels=2))
+    meshes = wall_meshes(b, wall(), np.zeros(3))
+    diagnostic = meshes[0].extras['facade_program']['walls'][0]
+    assert diagnostic['paint_source'] == 'reviewed-program'
+    assert diagnostic['wall']['colour']['value'] == '#B98B7E'
+    stored = [m for m in meshes if m.extras['material_key'] == 'facade_stored']
+    assert stored and all(m.positions[:, 1].max() <= 9 for m in stored)
+    kit = next(m for m in meshes if m.extras['material_key'] == 'facade_kit')
+    styles = kit.extras['facade_kit_walls']
+    windows = [s for s in styles if s['detail'][3] > 0 and s['detail'][3] % 4 == 1]
+    assert len(windows) == 2
+    assert all(s['origin'][1] >= 9 for s in windows)
+    niches = [s for s in styles if s['module'] >= 42 and s['wall'] == '#aa8074']
+    assert niches and all(s['detail'][3] == 0 for s in niches)
+    assert validate_meshes(meshes, 'fixture')['violations'] == 0
+
+    # A partial material observation has no authority to replace mapped openings.
+    form['facade_observations']['sections'] = [dict(position='upper', material='brick')]
+    observed = prepare(dict(building_id='stable', storeys=dict(value=2),
+                            walls=[compile_structure(row, form, 2)]))
+    meshes = wall_meshes(b, wall(), np.zeros(3))
+    assert all(m.extras['material_key'] == 'facade_stored' for m in meshes)
+    area = sum(shapely.Polygon(m.positions[:, [0, 1]]).area for m in meshes)
+    assert area == 120
+
+
+def test_bundled_description_is_normal_fallback_with_alias_and_tile_hash(tmp_path, monkeypatch):
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'work'))
+    monkeypatch.setenv('TURKU3D_DATA', str(tmp_path / 'data'))
+    monkeypatch.setenv('TURKU3D_FACADE_ASSETS', str(tmp_path / 'assets'))
+    monkeypatch.setattr(C, 'REPO_ROOT', tmp_path)
+    directory = tmp_path / 'textures/library/facade-params'
+    directory.mkdir(parents=True)
+    before = parameter_hash(['other'])
+    d = renderer().register_description('b_0', 'b', {}, 10, 12)
+    record = dict(building_key='b', description=d, width_m=10)
+    (directory / opaque('b')).write_text(json.dumps(record))
+    assert read_description('gis-b') == d
+    assert parameter_hash(['other']) == before
+    own = parameter_hash(['b'])
+    d['wall_colour'] = '#B98B7E'
+    (directory / opaque('b')).write_text(json.dumps(record))
+    assert parameter_hash(['b']) != own
+    shared = tmp_path / 'data/facade-params'
+    shared.mkdir(parents=True)
+    d['wall_colour'] = '#123456'
+    (shared / opaque('b')).write_text(json.dumps(record))
+    assert read_description('b')['wall_colour'] == '#123456'

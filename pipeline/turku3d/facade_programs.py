@@ -240,8 +240,8 @@ def resolve(building, vertices, eaves):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
         if own:
             # Geometry dimensions and register storeys belong to this actual generated shell.
-            colour = dict(value=fallback["wall_colour"], source="register palette", support=0)
-            base_colour = copy.deepcopy(colour)
+            colour = copy.deepcopy(wall["wall"]["colour"])
+            base_colour = copy.deepcopy(wall["base"]["colour"])
             overlay(
                 wall,
                 {
