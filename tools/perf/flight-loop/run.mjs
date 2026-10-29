@@ -29,7 +29,7 @@ const host = fs.readFileSync(new URL('./host.py', import.meta.url), 'utf8');
 const url = 'https://wnt.github.io/turku-game/game/?dev=1';
 const context = await chromium.launchPersistentContext(profile, {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: false,
-  viewport: { width: 1280, height: 800 }, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', `--remote-debugging-port=${port(3)}`]),
+  viewport: null, args: chromeArgs(['--window-size=1280,900', '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', `--remote-debugging-port=${port(3)}`]),
 });
 let monitor, healthTimer, trace = false, session;
 const started = Date.now();
@@ -58,6 +58,8 @@ try {
   await page.addInitScript(() => {
     window.__longTasks = [];
     window.__resources = [];
+    window.__resizes = [];
+    addEventListener('resize', () => window.__resizes.push({ at: Date.now(), width: innerWidth, height: innerHeight }));
     performance.setResourceTimingBufferSize(20000);
     new PerformanceObserver(list => window.__resources.push(...list.getEntries().map(e => ({ ...e.toJSON(), at: performance.timeOrigin + e.startTime })))).observe({ type: 'resource', buffered: true });
     new PerformanceObserver(list => window.__longTasks.push(...list.getEntries().map(e => ({ at: performance.timeOrigin + e.startTime, ms: e.duration })))).observe({ type: 'longtask', buffered: true });
@@ -90,15 +92,23 @@ try {
   await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 60000 });
   console.log(JSON.stringify({ stage: 'flight', installed: await page.evaluate(installFlight, route) }));
   let shot = 0;
+  const dimensions = () => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, resizes: window.__resizes.length,
+    canvases: [...document.querySelectorAll('canvas')].map(c => ({ width: c.width, height: c.height, clientWidth: c.clientWidth, clientHeight: c.clientHeight })) });
   while (Date.now() - started < 540000) {
     const state = await page.evaluate(() => ({ phase: window.__flight.phase, done: window.__flight.done, last: window.__flight.samples.at(-1) }));
     log('progress.jsonl', state);
-    await page.screenshot({ path: path.join(output, `screen-${String(shot++).padStart(3, '0')}.jpg`), type: 'jpeg', quality: 75, timeout: 5000 }).catch(e => log('console.jsonl', { kind: 'screenshot', text: e.message }));
+    const before = await page.evaluate(dimensions);
+    const capture = await session.send('Page.captureScreenshot', { format: 'jpeg', quality: 75, fromSurface: true });
+    fs.writeFileSync(path.join(output, `screen-${String(shot++).padStart(3, '0')}.jpg`), Buffer.from(capture.data, 'base64'));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    const after = await page.evaluate(dimensions);
+    log('screenshots.jsonl', { shot: shot - 1, before, after });
+    if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Window or renderer dimensions changed during screenshot capture');
     if (state.done) break;
     await page.waitForTimeout(4000);
   }
   const result = await page.evaluate(() => ({ ...window.__flight, longTasks: window.__longTasks, state: window.__game.state(), backend: window.__game.backend,
-    resources: window.__resources }));
+    resources: window.__resources, resizes: window.__resizes }));
   result.direction = direction; result.route = route;
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
