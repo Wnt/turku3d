@@ -81,7 +81,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
   const positionHud = new PositionHud(camera, tiles);
-  const devLayers = new DevLayers(scene, coarse);
+  const devLayers = new DevLayers(scene, coarse, renderer);
   const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle(), () => {
     if (!startScreen.active) void positionHud.copy();
   });

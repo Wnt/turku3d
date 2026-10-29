@@ -68,6 +68,16 @@ class DeploymentTests(unittest.TestCase):
             self.assertEqual(result['active_port'], 7766)
             self.assertIn('update-multiplayer.sh', calls[-1])
 
+    def test_ready_standby_is_resumed_before_allocating_another_port(self):
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp) / "slot-7769.env").write_text(
+                "TURKU3D_DRAFT_SOURCE=/standby\nTURKU3D_DRAFT_STANDBY=1\n")
+            script = shlex.split(deploy_drafts.select_port_command("/standby"))[2]
+            script = script.replace(repr(deploy_drafts.HOME), repr(temp))
+            # Matching standby avoids binding any new ports, even though earlier ports are free.
+            result = subprocess.check_output([sys.executable, "-c", script], text=True)
+            self.assertEqual(result.strip(), "7769")
+
     def test_systemd_only_signals_parent_while_build_workers_drain(self):
         unit = Path(__file__).resolve().parents[3] / 'tools/remote-drafts/turku-drafts-slot@.service'
         text = unit.read_text()
@@ -97,7 +107,7 @@ class DeploymentTests(unittest.TestCase):
             (Path(temp) / 'build/draft-deploy' / commit).mkdir(parents=True)
             destination = f'{deploy_drafts.HOME}/sources/{commit}'
             with (patch.dict(os.environ, TURKU3D_WORK=temp),
-                  patch.object(deploy_drafts, 'remote', side_effect=['', destination, 'presence ok']) as remote,
+                  patch.object(deploy_drafts, 'remote', side_effect=['', destination, commit, 'presence ok']) as remote,
                   patch.object(deploy_drafts.subprocess, 'check_output', return_value=commit)):
                 result = deploy_drafts.deploy(Path(temp), commit)
             self.assertTrue(result['reused'])

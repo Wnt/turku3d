@@ -28,6 +28,7 @@ import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
 import { BuildBadge, type BuildStatus } from './ui/buildBadge';
 import { startPlay, type PlayWorld } from './play';
 import { worldLoad } from './world/loadProgress';
+import { retireAfterFrame, frameSubmitted } from './render/retirement';
 
 declare global {
   interface Window {
@@ -87,9 +88,11 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   dayClock.set(date);
 } };
 const vegetation = idPass ? null : new VegetationLod(params.quality);
-const tiles = new VisualTiles(!!idPass);
+const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa);
-tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => { vegetation?.remove(model); materials?.release(model); });
+tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
+  retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
+});
 let graphicsReady = Promise.resolve();
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
   // Startup warms the complete scene with real draws before Ready. Per-model async compilation
@@ -113,6 +116,7 @@ const renderFrame = () => {
   dayClock.update();
   vegetation?.update(camera);
   if (post) post.render(); else renderer.render(scene, camera);
+  frameSubmitted(renderer);
 };
 
 addEventListener('resize', () => {
@@ -159,6 +163,7 @@ async function draftWorld() {
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
+    retire: release => retireAfterFrame(renderer, release),
     style: m => materials?.applyAsync(m), unstyle: m => { vegetation?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');

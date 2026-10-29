@@ -29,8 +29,7 @@ export class VisualPassComparison {
   clear(e: ComparisonEntry) {
     if (e.model) e.model.visible = true;
     if (e.comparison) {
-      this.host.untrackModel?.(e.comparison, 'comparison');
-      this.host.unstyle?.(e.comparison); e.comparison.removeFromParent(); this.dispose(e.comparison);
+      e.comparison.removeFromParent(); this.dispose(e.comparison);
       e.comparison = undefined;
     }
     e.comparisonMode = undefined;
@@ -60,7 +59,7 @@ export class VisualPassComparison {
       this.status = '';
     } catch (error) { this.status = (error as Error).message; }
     finally {
-      if (model) { this.host.unstyle?.(model); this.dispose(model); }
+      if (model) this.dispose(model);
       e.comparing = false;
     }
   }

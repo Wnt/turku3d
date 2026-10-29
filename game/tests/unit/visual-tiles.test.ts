@@ -1,6 +1,28 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { VisualTiles } from '../../src/world/tiles';
+import { FrameRetirement } from '../../src/render/retirement';
+
+test('untracking is immediate but shadow buffers wait for the next complete GPU frame', async () => {
+  const queue = new FrameRetirement(), tiles = new VisualTiles(false, release => queue.retire(release));
+  const model = new THREE.Group();
+  model.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+  tiles.trackModel(model, 'old');
+  const proxy = model.children.find(object => object.userData.shadowBatch) as THREE.Mesh;
+  const geometry = vi.spyOn(proxy.geometry, 'dispose'), draw = vi.fn();
+  proxy.addEventListener('dispose', draw);
+  tiles.untrackModel(model, 'old');
+  expect(tiles.models.size).toBe(0); expect(proxy.parent).toBeNull();
+  expect(geometry).not.toHaveBeenCalled();
+  let complete!: () => void;
+  const frame = queue.submitted(() => new Promise<void>(resolve => { complete = resolve; }));
+  const later = vi.fn(); queue.retire(later);
+  expect(geometry).not.toHaveBeenCalled();
+  complete(); await frame;
+  expect(draw).toHaveBeenCalledOnce(); expect(geometry).toHaveBeenCalledOnce();
+  expect(later).not.toHaveBeenCalled();
+  await queue.submitted(() => Promise.resolve()); expect(later).toHaveBeenCalledOnce();
+});
 
 test('publication preserves warmed shadow flags and excludes derived proxy triangles from residency', () => {
   const tiles = new VisualTiles(), model = new THREE.Group();

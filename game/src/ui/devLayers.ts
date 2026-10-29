@@ -2,6 +2,8 @@ import * as THREE from 'three/webgpu';
 import { devToolsEnabled } from '../core/localOnly';
 import type { Input } from '../input';
 import type { CoarseTiles } from '../world/coarseTiles';
+import { DevLayerRanges } from './devLayerRanges';
+import { retireAfterFrame } from '../render/retirement';
 
 const KEY = 'turku3d.dev-layers.v1';
 type Data = Record<string, unknown>;
@@ -35,7 +37,7 @@ export function layerPath(data: Data, name = ''): string | null {
   return `${group}/${label(type || layer)}`;
 }
 
-interface Filtered { original: THREE.BufferGeometry; filtered: THREE.BufferGeometry; revision: number; release: () => void }
+interface Filtered { ranges: DevLayerRanges; release: () => void }
 
 /** Visual-only filters. Camera-layer masks preserve animation, LOD and gameplay visibility owners. */
 export class DevLayers {
@@ -52,13 +54,12 @@ export class DevLayers {
   private plain = new WeakMap<THREE.Material, THREE.Material>();
   private plainOwned = new Set<THREE.Material>();
   private filtered = new Map<THREE.Mesh, Filtered>();
-  private revision = 0;
   private dirty = true;
   private open = false;
   private enabled = devToolsEnabled(location);
   private select = document.createElement('select');
 
-  constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null) {
+  constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer) {
     if (!this.enabled) return;
     let pass: 'auto' | 'first' | 'full' = 'auto';
     try {
@@ -113,6 +114,7 @@ export class DevLayers {
     this.shadows.clear();
     for (const [mesh, material] of this.materials) mesh.material = material;
     this.materials.clear();
+    for (const owned of this.filtered.values()) owned.ranges.restore();
   }
   private hide(object: THREE.Object3D) {
     this.masked.set(object, object.layers.mask); object.layers.mask = 0;
@@ -156,30 +158,29 @@ export class DevLayers {
         seen.add(mesh);
         const rows = mesh.userData.objects as (Data & { start: number; count: number })[];
         const paths = rows.map(row => this.discover(layerPath(row, mesh.name)) ?? path);
+        if (!this.filtered.has(mesh) && paths.every(p => p === paths[0])) {
+          if (paths[0] && !this.allowed(paths[0])) this.hide(mesh);
+          return;
+        }
         let owned = this.filtered.get(mesh);
-        if (owned && owned.revision !== this.revision) {
+        if (owned && !owned.ranges.current) {
           owned.release(); owned = undefined;
         }
-        if (!owned && paths.some(p => p && !this.allowed(p))) {
-          const original = mesh.geometry;
-          const indices: number[] = [];
-          rows.forEach((row, i) => {
-            if (paths[i] && !this.allowed(paths[i]!)) return;
-            for (let j = row.start; j < row.start + row.count; j++) indices.push(original.index?.getX(j) ?? j);
-          });
-          // Share vertex attributes; own only the filtered index. No physics or source geometry changes.
-          const filtered = new THREE.BufferGeometry();
-          for (const [key, value] of Object.entries(original.attributes)) filtered.setAttribute(key, value);
-          filtered.setIndex(indices); filtered.boundingBox = original.boundingBox; filtered.boundingSphere = original.boundingSphere;
-          mesh.geometry = filtered;
+        if (!owned) {
+          const ranges = new DevLayerRanges(mesh, rows, paths);
           const disposed = () => {
             mesh.removeEventListener('dispose' as never, disposed);
-            if (mesh.geometry === filtered) mesh.geometry = original;
-            filtered.dispose(); this.filtered.delete(mesh);
+            const material = this.materials.get(mesh);
+            if (material) { mesh.material = material; this.materials.delete(mesh); }
+            ranges.restore();
+            if (this.renderer) retireAfterFrame(this.renderer, () => ranges.dispose()); else ranges.dispose();
+            this.filtered.delete(mesh);
           };
           mesh.addEventListener('dispose' as never, disposed);
-          this.filtered.set(mesh, { original, filtered, revision: this.revision, release: disposed });
+          owned = { ranges, release: disposed }; this.filtered.set(mesh, owned);
         }
+        if (!this.materials.has(mesh)) this.materials.set(mesh, mesh.material);
+        owned.ranges.apply(p => this.allowed(p));
       } else if (path && !this.allowed(path)) this.hide(object);
       // Aggregate sun shadows cannot retain removed geometry. Use original casters while filtering.
       if (object.userData.shadowBatch && filtering) this.hide(object);
@@ -208,7 +209,7 @@ export class DevLayers {
         box.onchange = () => {
           if (paths.length > 1 || text === group) this.choices[group] = box.checked;
           for (const p of paths) this.choices[p] = box.checked;
-          this.revision++; this.save(); this.dirty = true;
+          this.save(); this.dirty = true;
         };
         wrapper.append(box, document.createTextNode(text)); return wrapper;
       };

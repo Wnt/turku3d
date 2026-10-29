@@ -39,6 +39,27 @@ def deploy_multiplayer(destination):
     )
 
 
+def select_port_command(destination):
+    script = """import socket,pathlib
+# A failed readiness check leaves a healthy paused standby; resume that exact
+# source rather than exhausting ports with another process on every attempt.
+for port in range(7765, 7770):
+ env=pathlib.Path(HOME)/f'slot-{port}.env'
+ if env.exists():
+  values=dict(line.split('=',1) for line in env.read_text().splitlines() if '=' in line)
+  if values.get('TURKU3D_DRAFT_SOURCE') == DESTINATION and values.get('TURKU3D_DRAFT_STANDBY') == '1':
+   print(port); break
+else:
+ for port in range(7765, 7770):
+  with socket.socket() as sock:
+   try: sock.bind(('127.0.0.1', port))
+   except OSError: continue
+   print(port); break
+ else: raise SystemExit('all producer ports are occupied by active/retiring slots')
+""".replace('HOME', repr(HOME)).replace('DESTINATION', repr(destination))
+    return "python3 -c " + shlex.quote(script)
+
+
 def deploy(repo, commit):
     started = time.monotonic()
     repo = Path(repo)
@@ -56,7 +77,7 @@ def deploy(repo, commit):
     destination = f"{HOME}/sources/{commit}"
     remote(f"mountpoint -q /srv/turku3d && mkdir -p {destination}")
     previous = remote(f"readlink -f {HOME}/repo")
-    if previous == destination:
+    if previous == destination and remote(f"cat {HOME}/SOURCE_COMMIT 2>/dev/null || true") == commit:
         multiplayer = deploy_multiplayer(destination)
         return dict(
             commit=commit,
@@ -83,7 +104,7 @@ def deploy(repo, commit):
     with ThreadPoolExecutor(max_workers=2) as pool:
         new_hash = pool.submit(remote, generator_hash_command(destination))
         old_hash = pool.submit(remote, generator_hash_command(previous))
-        generator_changed = new_hash.result() != old_hash.result()
+        generator_changed = previous == destination or new_hash.result() != old_hash.result()
     if not generator_changed:
         return dict(
             commit=commit,
@@ -97,15 +118,7 @@ def deploy(repo, commit):
     # overlap with retiring workers, which finish their existing builds.
     # A previous slot may still be finishing its admitted builds. Do not wait
     # for it or terminate useful work just to reuse its listening port.
-    select_port = """import socket
-for port in range(7765, 7770):
- with socket.socket() as sock:
-  try: sock.bind(('127.0.0.1', port))
-  except OSError: continue
-  print(port); break
-else: raise SystemExit('all producer ports are occupied by active/retiring slots')
-"""
-    port = int(remote("python3 -c " + shlex.quote(select_port)))
+    port = int(remote(select_port_command(destination)))
     unit = f"turku-drafts-slot@{port}"
     old_unit = remote(f"cat {HOME}/ACTIVE_UNIT 2>/dev/null || echo turku-drafts")
     remote(
@@ -123,15 +136,15 @@ else: raise SystemExit('all producer ports are occupied by active/retiring slots
         f"systemctl --user start {unit}"
     )
     health = f"""import time,json,urllib.request,urllib.error
-end=time.monotonic()+5
+end=time.monotonic()+30
 while time.monotonic()<end:
  try:
-  with urllib.request.urlopen('http://127.0.0.1:{port}/coarse/health',timeout=.5) as r:
+  with urllib.request.urlopen('http://127.0.0.1:{port}/coarse/health',timeout=min(2, max(.01, end-time.monotonic()))) as r:
    if r.status==200:
     print(json.load(r)['instance']); break
  except (OSError,urllib.error.URLError): pass
  time.sleep(.1)
-else: raise SystemExit('standby draft producer did not become ready within5s')
+else: raise SystemExit('standby draft producer did not become ready within30s')
 """
     instance = remote("python3 -c " + shlex.quote(health))
     upstream = (source / "tools/remote-drafts/draft-upstream.caddy").read_text().replace(":7765", f":{port}")
@@ -152,7 +165,7 @@ else: raise SystemExit('standby draft producer did not become ready within5s')
 end=time.monotonic()+5
 while time.monotonic()<end:
  try:
-  with urllib.request.urlopen('http://127.0.0.1:7764/coarse/health',timeout=.5) as r:
+  with urllib.request.urlopen('http://127.0.0.1:7764/coarse/health',timeout=min(2, max(.01, end-time.monotonic()))) as r:
    if r.status==200 and json.load(r).get('instance') == {instance!r}: break
  except OSError: pass
  time.sleep(.1)

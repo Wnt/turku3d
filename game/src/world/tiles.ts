@@ -2,6 +2,7 @@
 import * as THREE from 'three/webgpu';
 import { batchTileShadows, prepareTileShadows } from './shadowBatch';
 import { disposeShadowBatch } from './shadowChunks';
+import { disposeDraw } from '../render/sharedMaterials';
 
 type ModelEvent = { scene: THREE.Object3D; tile: { extras?: Record<string, unknown> } };
 interface TileEvents { 'load-model': ModelEvent; 'dispose-model': ModelEvent }
@@ -17,7 +18,7 @@ export class VisualTiles {
   private shadows = new Map<THREE.Object3D, THREE.Mesh>();
   private prepared = new WeakSet<THREE.Object3D>();
 
-  constructor(private idPass = false) {}
+  constructor(private idPass = false, private retire: (release: () => void) => void = release => release()) {}
 
   /** Final shader-affecting flags and derived geometry precede GPU preparation, while the model is hidden. */
   prepareModel(scene: THREE.Object3D) {
@@ -50,7 +51,14 @@ export class VisualTiles {
   /** Also releases derived resources if preparation is cancelled before publication. */
   releasePreparedModel(scene: THREE.Object3D) {
     const shadow = this.shadows.get(scene);
-    if (shadow) { disposeShadowBatch(shadow); this.shadows.delete(scene); }
+    if (shadow) {
+      shadow.removeFromParent();
+      this.retire(() => {
+        shadow.traverse(object => { if ((object as THREE.Mesh).isMesh) disposeDraw(object as THREE.Mesh); });
+        disposeShadowBatch(shadow);
+      });
+      this.shadows.delete(scene);
+    }
     this.prepared.delete(scene);
   }
 

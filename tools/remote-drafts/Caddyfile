@@ -37,7 +37,8 @@ http://:7764 {
 	handle /coarse/* {
 		import draft_cors
 		header {
-			?Retry-After 5
+			Retry-After 5
+			defer
 			match {
 				status 408 429 5xx
 			}

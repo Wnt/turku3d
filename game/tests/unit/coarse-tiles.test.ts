@@ -379,6 +379,9 @@ test('visual and collision upgrades commit together after the replacement is rea
   const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
   let phase = 'first', release!: (model: THREE.Object3D) => void;
   const first = new THREE.Group(), full = new THREE.Group(), refreshed: string[] = [];
+  const oldMesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()); first.add(oldMesh);
+  const disposed = vi.spyOn(oldMesh.geometry, 'dispose'), untracked = vi.fn(), unstyled = vi.fn();
+  const retired: (() => void)[] = [];
   const scene = new THREE.Scene();
   const graph = () => ({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
     nodes: phase === 'first' ? [500, 100, 700, 100] : [500, 101, 700, 101], edges: [[0, 1, 3, 200]] });
@@ -396,6 +399,7 @@ test('visual and collision upgrades commit together after the replacement is rea
   }) as typeof globalThis.fetch;
   const coarse = new CoarseTiles({ scene, manifest,
     pageUrl: 'http://127.0.0.1:5171/', renderer: {} as THREE.WebGPURenderer,
+    retire: release => retired.push(release), untrackModel: untracked, unstyle: unstyled,
     fetch, unloadCollision: () => {}, refreshCollision: ids => refreshed.push(...ids), checkCollision: async () => 2,
     loadModel: async () => phase === 'first' ? first : new Promise(resolve => { release = resolve; }) });
   const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };
@@ -413,6 +417,10 @@ test('visual and collision upgrades commit together after the replacement is rea
   expect(manifest.collision.c_8_0.sha256).toBe('full');
   expect(coarse.roadGraphs()[0].nodes).toEqual([500, 101, 700, 101]);
   expect(refreshed).toEqual(['c_8_0']);
+  expect(untracked).toHaveBeenCalledWith(first, id);
+  expect(disposed).not.toHaveBeenCalled(); expect(unstyled).not.toHaveBeenCalled();
+  retired.forEach(release => release());
+  expect(unstyled).toHaveBeenCalledWith(first); expect(disposed).toHaveBeenCalledOnce();
 });
 
 test('a legacy collision-only fragment stays hidden while its visual is queued', async () => {
