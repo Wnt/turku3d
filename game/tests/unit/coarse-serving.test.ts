@@ -1,7 +1,8 @@
 import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
+import { CollisionStreamer } from '../../src/world/collisionStreaming';
 import { CoarseTiles, cellsOf } from '../../src/world/coarseTiles';
-import type { Manifest } from '../../src/world/manifest';
+import type { Manifest, ManifestEntry } from '../../src/world/manifest';
 
 test('stale full stays visible until current full is prepared, with unchanged collision retained', async () => {
   const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
@@ -41,39 +42,87 @@ test('stale full stays visible until current full is prepared, with unchanged co
 });
 
 
-test('retained visual preview never loads obsolete physics and gains current collision without blanking', async () => {
-  const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
-  const scene = new THREE.Scene(), model = new THREE.Group();
-  const checkCollision = vi.fn(async () => 2), refreshCollision = vi.fn(), unloadCollision = vi.fn();
-  const loadModel = vi.fn(async () => model);
-  let preview = true;
+test('retained neighbour registers and loads its collision, removing the reported west edge', async () => {
+  const id = 't0_-2_1', manifest = { visual: {}, collision: {}, baseUrl: 'http://127.0.0.1:5171/' } as unknown as Manifest;
+  const scene = new THREE.Scene(), previous = new THREE.Group(), latest = new THREE.Group();
+  const loaded = new Map<string, unknown>([['c_-4_7', {}]]), known = new Set<string>();
+  const physics = { loaded, loadTile: vi.fn(async (cid: string) => { loaded.set(cid, {}); }),
+    unloadTile: vi.fn((cid: string) => loaded.delete(cid)),
+    setKnown: (add: string[], remove: string[]) => { add.forEach(cid => known.add(cid)); remove.forEach(cid => known.delete(cid)); } };
+  const streamer = new CollisionStreamer(manifest, physics as never, 80);
+  const checkCollision = vi.fn(async () => 2);
+  let phase = 'retained', release!: (model: THREE.Object3D) => void;
   const fetch = (async (url: string) => {
     const name = new URL(url).pathname;
-    if (name === `/coarse/${id}/manifest.json`) return new Response(JSON.stringify({
-      coarse: true, tile: id, pass_kind: 'full', stale: true, collision_pending: preview,
-      visual: { [id]: { url: 'vis.retained.glb', sha256: 'retained' } },
-      collision: preview ? {} : Object.fromEntries(cellsOf(id).map(cid => [cid, {url: `col/${cid}.col`, sha256: 'current', bytes: 4}])),
+    if (name === `/coarse/${id}/collision.json` || name === `/coarse/${id}/manifest.json`) return new Response(JSON.stringify({
+      coarse: true, tile: id, pass_kind: 'full', stale: phase === 'retained', generation: phase,
+      visual: { [id]: { url: `vis.${phase}.glb`, sha256: phase } },
+      collision: Object.fromEntries(cellsOf(id).map(cid => [cid, {url: `col/${cid}.${phase}.col`, sha256: phase, bytes: 4}])),
     }));
     if (name.endsWith('.col')) return new Response(new ArrayBuffer(4));
     if (name.endsWith('/want')) return new Response('{}');
     return new Response('{}', {status: 404});
   }) as typeof globalThis.fetch;
   const coarse = new CoarseTiles({scene, manifest, renderer: {} as THREE.WebGPURenderer,
-    pageUrl: 'http://127.0.0.1:5171/', fetch, checkCollision, refreshCollision, unloadCollision, loadModel});
+    pageUrl: manifest.baseUrl, fetch, checkCollision, refreshCollision: ids => streamer.refresh(ids),
+    retainCollision: (cid, entry, buffer) => streamer.retain(cid, entry, buffer), unloadCollision: physics.unloadTile,
+    loadModel: async () => phase === 'retained' ? previous : new Promise(r => { release = r; })});
   const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };
-  coarse.update(600, 100, 0); await settle();
-  expect(model.parent).toBe(scene);
-  expect(coarse.entries.get(id)?.collisionPending).toBe(true);
-  expect(manifest.collision).toEqual({}); expect(checkCollision).not.toHaveBeenCalled();
-  preview = false;
-  coarse.update(600, 100, 3000); await settle();
-  expect(model.parent).toBe(scene); expect(loadModel).toHaveBeenCalledTimes(1);
-  expect(coarse.entries.get(id)?.collisionPending).toBe(false);
+  previous.addEventListener('added', () => expect(Object.keys(manifest.collision)).toHaveLength(16));
+  coarse.update(-245, 478, 0); await settle();
+  expect(previous.parent).toBe(scene);
+  expect(coarse.entries.get(id)?.generation).toBe('retained');
+  for (let i = 0; i < 10; i++) { streamer.update(-245, 478, true); await settle(); }
+  expect(known.has('c_-5_7')).toBe(true);
+  expect(loaded.has('c_-5_7')).toBe(true);
+  expect(streamer.trueEdges()).not.toContainEqual([-4, 7, 1]);
+  expect(physics.loadTile).toHaveBeenCalled();
   expect(checkCollision).toHaveBeenCalledTimes(16);
-  expect(Object.keys(manifest.collision)).toHaveLength(16);
-  expect(unloadCollision).not.toHaveBeenCalled();
-  preview = true; // Another deploy must preserve the physics already supporting the player.
-  coarse.update(600, 100, 6000); await settle();
-  expect(model.parent).toBe(scene); expect(Object.keys(manifest.collision)).toHaveLength(16);
-  expect(refreshCollision).not.toHaveBeenCalled(); expect(unloadCollision).not.toHaveBeenCalled();
+  phase = 'current';
+  coarse.update(-245, 478, 3000); await settle();
+  expect(previous.parent).toBe(scene);
+  expect(manifest.collision['c_-5_7'].sha256).toBe('retained');
+  latest.addEventListener('added', () => {
+    expect(previous.parent).toBeNull();
+    expect(manifest.collision['c_-5_7'].sha256).toBe('current');
+  });
+  release(latest); await settle();
+  expect(latest.parent).toBe(scene);
+  expect(coarse.entries.get(id)?.generation).toBe('current');
+  expect(loaded.has('c_-5_7')).toBe(true);
+  expect(physics.unloadTile).not.toHaveBeenCalled();
+});
+
+test('a retained response without collision cannot expose new geometry or replace a resident pair', async () => {
+  const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  const scene = new THREE.Scene(), model = new THREE.Group();
+  let incomplete = true;
+  const cells = Object.fromEntries(cellsOf(id).map(cid => [cid, {url: `col/${cid}.col`, sha256: 'old', bytes: 4}])) as Record<string, ManifestEntry>;
+  const loadModel = vi.fn(async () => model), unloadCollision = vi.fn();
+  const fetch = (async (url: string) => {
+    const name = new URL(url).pathname;
+    if (name === `/coarse/${id}/manifest.json`) return new Response(JSON.stringify({
+      coarse: true, tile: id, stale: true, collision_pending: incomplete,
+      visual: { [id]: { url: 'vis.retained.glb', sha256: 'retained' } }, collision: incomplete ? {} : cells,
+    }));
+    if (name.endsWith('.col')) return new Response(new ArrayBuffer(4));
+    if (name.endsWith('/want')) return new Response('{}');
+    return new Response('{}', {status: 404});
+  }) as typeof globalThis.fetch;
+  const coarse = new CoarseTiles({scene, manifest, renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://127.0.0.1:5171/',
+    fetch, checkCollision: async () => 2, refreshCollision: vi.fn(), unloadCollision, loadModel});
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    coarse.update(600, 100, 0); await settle();
+    expect(model.parent).toBeNull(); expect(loadModel).not.toHaveBeenCalled();
+    expect(manifest.collision).toEqual({});
+    incomplete = false;
+    coarse.update(600, 100, 6000); await settle();
+    expect(model.parent).toBe(scene); expect(Object.keys(manifest.collision)).toHaveLength(16);
+    incomplete = true;
+    coarse.update(600, 100, 9000); await settle();
+    expect(model.parent).toBe(scene); expect(Object.keys(manifest.collision)).toHaveLength(16);
+    expect(unloadCollision).not.toHaveBeenCalled();
+  } finally { warn.mockRestore(); }
 });

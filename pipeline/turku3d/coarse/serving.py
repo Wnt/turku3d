@@ -1,13 +1,12 @@
-"""Serve retained visuals only with collision proven current for this tile."""
+"""Serve complete visual/collision generations while their replacements rebuild."""
 
 import json
 
 from turku3d import config as C
-from .collision import current as current_collision
 
 PUBLIC_FIELDS = (
     "coarse", "tile", "visual", "collision", "roads", "pass_kind", "vehicles",
-    "vehicle_models", "stale", "collision_source", "collision_pending", "failure",
+    "vehicle_models", "stale", "generation", "failure",
 )
 
 
@@ -18,18 +17,16 @@ def public_fragment(value):
     return result
 
 
-def complete(root, tile, value, *, visual_only=False):
+def complete(root, tile, value):
     from .service import FILE
 
     try:
         if not value.get("coarse") or value.get("tile") != tile:
             return False
-        if not visual_only and set(value["collision"]) != {c.id for c in C.VisualTile.parse(tile).collision_tiles()}:
+        if set(value["collision"]) != {c.id for c in C.VisualTile.parse(tile).collision_tiles()}:
             return False
-        entries = [value["visual"][tile]]
-        if not visual_only:
-            entries.extend(value["collision"].values())
-        if not visual_only and value.get("roads"):
+        entries = [value["visual"][tile], *value["collision"].values()]
+        if value.get("roads"):
             entries.append(value["roads"])
         return all(FILE.fullmatch(e["url"]) and (root / tile / e["url"]).stat().st_size == e["bytes"]
                    for e in entries)
@@ -38,48 +35,32 @@ def complete(root, tile, value, *, visual_only=False):
 
 
 def retained_fragment(builder, tile):
-    """Newest complete full visuals + current collision; never revive obsolete physics.
+    """Keep last-good full visuals with their own collision until a full pair replaces them.
 
-    The structural identity includes producer and input content. Unknown identity is
-    not permission to serve old collision, even when regeneration has failed.
+    Fresh first-pass collision belongs to its basic visual, never to retained full
+    geometry. A producer/input change schedules regeneration without removing support.
     """
     manifest = _manifest(builder, tile)
     if (manifest and manifest.get("pass_kind") == "full" and builder.built(tile)
             and complete(builder.root, tile, manifest)):
-        return manifest
+        return {**manifest, "generation": manifest.get("code")}
     candidates = []
     for name in ("manifest.json", "last-full.json", "collision.json", "first.json"):
         path = builder.root / tile / name
         try:
             value = json.loads(path.read_text())
-            if complete(builder.root, tile, value, visual_only=True):
+            if complete(builder.root, tile, value):
                 candidates.append((value.get("pass_kind") == "full", value.get("built", ""),
                                    path.stat().st_mtime_ns, value))
         except (OSError, ValueError, TypeError):
             continue
     candidates.sort(key=lambda row: row[:3], reverse=True)
-    collision = current_collision(builder, tile)
-    if collision is not None and not complete(builder.root, tile, collision):
-        collision = None
-    if collision is None:
-        collision = next((value for *_, value in candidates if _current_retained_collision(builder, tile, value)), None)
-    if collision is None or not complete(builder.root, tile, collision):
-        return preview(candidates[0][-1]) if candidates else None
-    key_for = ((builder.structural_input_key or builder.input_key)
-               if collision.get("pass_kind") == "first" else builder.input_key)
-    if key_for(tile) is None:
-        return preview(candidates[0][-1]) if candidates else None
-    value = candidates[0][-1] if candidates else collision
-    # A full replacement publishes atomically, so never prefer the retained generation
-    # over a complete current manifest. Fresh first passes still keep full visuals.
-    fresh = (value is collision and value.get("code") == builder.code())
-    result = {**value, "collision": collision["collision"]}
-    # Routes track structural support; parked visuals stay with the visual generation.
-    if collision.get("roads") is not None:
-        result["roads"] = collision["roads"]
-    if not fresh:
+    if not candidates:
+        return None
+    value = candidates[0][-1]
+    result = {**value, "generation": value.get("code")}
+    if not builder.built(tile) or value.get("code") != builder.code():
         result["stale"] = True
-        result["collision_source"] = "current"
     return result
 
 
@@ -88,23 +69,3 @@ def _manifest(builder, tile):
         return json.loads(builder.manifest(tile).read_text())
     except (OSError, ValueError):
         return None
-
-
-def _current_retained_collision(builder, tile, value):
-    if value.get("collision_code") != builder.collision_code():
-        return False
-    key = builder.input_key(tile)
-    if key is None or value.get("inputs") != key:
-        return False
-    if "building_keys" in value:
-        from turku3d.facade_kit import parameter_hash
-        if value.get("facade_params") != parameter_hash(value["building_keys"]):
-            return False
-    return True
-
-
-def preview(value):
-    """Old visuals remain useful even when no old physics can safely be served."""
-    return {"coarse": True, "tile": value["tile"], "visual": value["visual"],
-            "pass_kind": value.get("pass_kind", "first"), "collision": {},
-            "stale": True, "collision_pending": True}
