@@ -26,4 +26,8 @@ OCI source deployment compares content hashes of pipeline, texture and producer-
 
 Synthetic affected checks: 20 tests passed in 0.77 seconds, including a real child-worker protocol test for first/full outputs, injected failure and timeout. Deployment boundary tests prove a failed canary cannot switch the proxy, and unchanged generator bytes skip standby startup and canary entirely. The pre-merge budget remains 30 seconds; the canary is part of OCI deployment.
 
-Live timings will be appended from `codex-task finish` deployment evidence. Target added validation time is at most 20 seconds; the hard full-pass rejection cap remains 40 seconds.
+First live deployment attempt (`259a68114db4`): pre-merge checks passed in 2.005 seconds; Pages package/upload took 8.344 seconds. The OCI canary rejected the first pass at its 40.000-second deadline, before the proxy/source switch. Active OCI source remained `960b0c7a`. This is an observed rejection, not a successful recovery or full-pass measurement.
+
+Incremental timing evidence in `.deploy-canary/stage-times.json` showed inputs at 0.970 seconds, all geometry stages cached (each under 0.102 seconds), and all 16 collision stages cached (each under 0.002 seconds). The remaining stall was after structural collision, in first-pass visual production. The performance owner received this evidence. Full pass was never reached, and the ≤20-second added-time target was not met. The cap was not relaxed to admit the slow source.
+
+The initial mandatory policy retries exposed missing isolated Node dependencies (root TypeScript, game Playwright and QA Playwright). Installing each sandbox-local lockfile dependency set resolved them; no assertions were changed.

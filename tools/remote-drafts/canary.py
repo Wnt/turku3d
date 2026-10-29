@@ -9,6 +9,7 @@ import statistics
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 
@@ -26,6 +27,8 @@ def run(root):
     # separate output prevents a first pass replacing the live full manifest.
     out = root / '.deploy-canary'
     out.mkdir(parents=True, exist_ok=True)
+    from turku3d.coarse.build_health import BuildHealth
+    telemetry = BuildHealth(root)
     result = dict(tile='t0_0_0', full_budget_seconds=round(limit, 3))
     with (out / 'worker.log').open('w') as log:
         proc = subprocess.Popen([sys.executable, '-m', 'turku3d.coarse', 'worker'],
@@ -39,12 +42,14 @@ def run(root):
                     proc.stdin.write(json.dumps(dict(tile='t0_0_0', out=str(out), first_pass=kind == 'first')) + '\n')
                     proc.stdin.flush()
                     if not ready.select(40 if kind == 'first' else limit):
+                        telemetry.record(kind, "FAILED", time.monotonic() - t, "TimeoutError")
                         raise RuntimeError(f'{kind} canary exceeded {40 if kind == "first" else limit:.3f}s budget')
                     line = proc.stdout.readline()
                     if not line:
                         raise RuntimeError(f'{kind} canary worker exited; see {out}/worker.log')
                     row = json.loads(line)
                     if row['code'] != 0:
+                        telemetry.record(kind, 'FAILED', time.monotonic() - t, row.get('stderr', 'BuildFailure'))
                         raise RuntimeError(f'{kind} canary failed: {row}')
                     manifest = json.loads((out / ('collision.json' if kind == 'first' else 'manifest.json')).read_text())
                     if manifest.get('pass_kind') != kind:
@@ -53,6 +58,7 @@ def run(root):
                     if not entries or any(not (out / entry['url']).is_file() for entry in entries):
                         raise RuntimeError(f'{kind} canary missing visual/collision output')
                     result[kind + '_seconds'] = round(time.monotonic() - t, 3)
+                    telemetry.record(kind, 'built', result[kind + '_seconds'])
         finally:
             # Own only this canary's process group, including packager children.
             if proc.poll() is None:
@@ -63,8 +69,9 @@ def run(root):
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
     result['seconds'] = round(time.monotonic() - started, 3)
-    temporary = history_path.with_suffix('.tmp')
-    temporary.write_text(json.dumps([*history[-14:], result]) + '\n')
+    with tempfile.NamedTemporaryFile(mode='w', dir=root, prefix='.canary-history-', delete=False) as stream:
+        stream.write(json.dumps([*history[-14:], result]) + '\n')
+        temporary = Path(stream.name)
     temporary.replace(history_path)
     return result
 

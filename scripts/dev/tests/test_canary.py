@@ -2,10 +2,13 @@
 import importlib.util
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'pipeline'))
 
 spec = importlib.util.spec_from_file_location('canary', Path(__file__).resolve().parents[3] / 'tools/remote-drafts/canary.py')
 canary = importlib.util.module_from_spec(spec)
@@ -42,6 +45,8 @@ class CanaryTests(unittest.TestCase):
             self.assertIn('first_seconds', result)
             self.assertIn('full_seconds', result)
             self.assertEqual(json.loads((root / '.canary-history.json').read_text()), [result])
+            health = [json.loads(line) for line in (root / '.build-health.jsonl').read_text().splitlines()]
+            self.assertEqual([(r['pass'], r['outcome']) for r in health], [('first', 'built'), ('full', 'built')])
 
     def test_failure_and_timeout_do_not_record_success(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -54,3 +59,5 @@ class CanaryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'full canary exceeded'):
                 self.run_worker(root, delay=.2)
             self.assertEqual(json.loads((root / '.canary-history.json').read_text()), history)
+            health = [json.loads(line) for line in (root / '.build-health.jsonl').read_text().splitlines()]
+            self.assertEqual(health[-1]['error_kind'], 'TimeoutError')
