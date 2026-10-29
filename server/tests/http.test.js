@@ -74,7 +74,7 @@ test('HTTP serves health, live scores, archive index/files and CORS without expo
   assert.equal((await fetch(`${app.http}/healthz`, { method: 'POST' })).status, 405);
   assert.equal((await fetch(`${app.http}/live.json`, { method: 'OPTIONS', headers: { Origin: 'https://wnt.github.io' } })).status, 204);
   const ws = await socket(app.ws);
-  const welcome = once(ws, 'message'); ws.send(JSON.stringify({ v: 1, type: 'hello' }));
+  const welcome = once(ws, 'message'); ws.send(JSON.stringify({ v: 2, type: 'hello' }));
   const response = JSON.parse((await welcome)[0]);
   assert.equal(response.type, 'welcome'); assert.match(response.session, /^[a-f0-9]{64}$/);
   const current = await (await fetch(`${app.http}/live.json`)).text();
@@ -97,7 +97,7 @@ test('wire protocol mismatch sends reload error before close, and oversize frame
   const ws = await socket(app.ws);
   const message = once(ws, 'message'), closed = once(ws, 'close');
   ws.send(JSON.stringify({ type: 'hello', v: 999 }));
-  assert.deepEqual(JSON.parse((await message)[0]), { v: 1, type: 'error', code: 'protocol', reload: true });
+  assert.deepEqual(JSON.parse((await message)[0]), { v: 2, type: 'error', code: 'protocol', reload: true });
   assert.equal((await closed)[0], 1002);
   const big = await socket(app.ws);
   const end = once(big, 'close'); big.send('x'.repeat(65_537));
@@ -107,17 +107,17 @@ test('wire protocol mismatch sends reload error before close, and oversize frame
 test('ephemeral WebSocket server shares pole breaks and fines', async t => {
   const app = await start(t);
   const a = await socket(app.ws), b = await socket(app.ws);
-  const welcomeA = messageOf(a, 'welcome'); a.send(JSON.stringify({ v: 1, type: 'hello' }));
+  const welcomeA = messageOf(a, 'welcome'); a.send(JSON.stringify({ v: 2, type: 'hello' }));
   const own = await welcomeA;
-  const welcomeB = messageOf(b, 'welcome'); b.send(JSON.stringify({ v: 1, type: 'hello' }));
+  const welcomeB = messageOf(b, 'welcome'); b.send(JSON.stringify({ v: 2, type: 'hello' }));
   await welcomeB;
   const world = messageOf(b, 'world'), scores = messageOf(b, 'scores', m => m.scores.some(s => s.nick === own.you.nick && s.money === -50));
   const poleId = 't0_0_0:GIS_Liikennemerkit:123';
-  a.send(JSON.stringify({ v: 1, type: 'world', action: 'break', poleId, by: own.you.id, t: 1 }));
-  a.send(JSON.stringify({ v: 1, type: 'fine', reason: 'pole', poleId, amount: 50 }));
+  a.send(JSON.stringify({ v: 2, type: 'world', action: 'break', poleId, by: own.you.id, t: 1 }));
+  a.send(JSON.stringify({ v: 2, type: 'fine', reason: 'pole', poleId, amount: 50 }));
   assert.equal((await world).poleId, poleId);
   assert.equal((await scores).scores.find(s => s.nick === own.you.nick).money, -50);
   const c = await socket(app.ws), welcomeC = messageOf(c, 'welcome');
-  c.send(JSON.stringify({ v: 1, type: 'hello' }));
+  c.send(JSON.stringify({ v: 2, type: 'hello' }));
   assert.deepEqual((await welcomeC).brokenPoles.map(p => p.poleId), [poleId]);
 });

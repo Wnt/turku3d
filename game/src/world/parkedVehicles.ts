@@ -9,12 +9,29 @@ import type { Manifest, ParkedVehicle } from './manifest';
 export class ParkedVehicles {
   private spawned = new Map<string, ParkedVehicle>();
   private borrowed = new Map<string, ParkedVehicle>();
+  private sharedKey = '';
+  private shared = new Set<string>();
+  private owned = new Set<string>();
   private inventory = '';
   private busy = false;
   private next = 0;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
     private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>) {}
+
+  setShared(sources: ReadonlySet<string>, owned: ReadonlySet<string>) {
+    const key = JSON.stringify([[...sources].sort(), [...owned].sort()]);
+    if (key === this.sharedKey) return;
+    this.sharedKey = key;
+    this.shared = new Set(sources); this.owned = new Set(owned);
+    for (const id of sources) if (!owned.has(id)) {
+      this.physics.removeVehicle(id); this.spawned.delete(id); this.borrowed.delete(id);
+    }
+    for (const id of owned) {
+      const car = this.manifest.vehicles?.find(v => v.object_id === id);
+      if (car) this.borrowed.set(id, car);
+    }
+  }
 
   update(x: number, z: number, driven: string | null, now: number) {
     if (driven) {
@@ -41,7 +58,7 @@ export class ParkedVehicles {
       }
       const present = new Set(this.physics.latest?.vehicles.map(v => v.id));
       for (const [id, car] of cars) {
-        if (this.spawned.has(id) || present.has(id) || this.borrowed.has(id)) continue;
+        if (this.shared.has(id) || this.spawned.has(id) || present.has(id) || this.borrowed.has(id)) continue;
         if (Math.hypot(car.x - x, car.z - z) > 120) continue;
         // All footprint corners must have resident collision before the worker can settle it.
         const r = Math.hypot(car.width, car.length) / 2;
@@ -56,7 +73,7 @@ export class ParkedVehicles {
         this.spawned.set(id, car);
       }
       for (const [id, car] of this.spawned) {
-        if (this.borrowed.has(id)) continue;
+        if (this.owned.has(id) || this.borrowed.has(id)) continue;
         if (cars.has(id) && Math.hypot(car.x - x, car.z - z) < 170) continue;
         this.physics.removeVehicle(id);
         this.spawned.delete(id);

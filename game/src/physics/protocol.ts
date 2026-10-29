@@ -29,7 +29,7 @@ export interface CurbStrikeState { id: number; wheel: number; height: number; sp
  *  (m/s; 0 below the floor), `speed` the horizontal vehicle speed (m/s). */
 export interface BumpState { id: number; wheel: number; height: number; jolt: number; speed: number }
 export interface VehicleState { id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; bump?: BumpState | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
-export interface VehicleSpec { id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean }
+export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean }
 export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
@@ -58,6 +58,7 @@ export type ToWorker =
   | { type: 'spawnVehicle'; spec: VehicleSpec }
   | { type: 'driveVehicle'; id: string | null }
   | { type: 'resetVehicle'; id: string; pos: V3; yaw: number }
+  | { type: 'vehicleImpulse'; id: string; impulse: V3 }
   | { type: 'remotes'; bodies: RemoteBody[] }
   | { type: 'poles'; add: PoleSpec[]; remove: string[] }
   | { type: 'breakPole'; id: string }

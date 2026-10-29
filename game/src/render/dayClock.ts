@@ -4,6 +4,7 @@ import type { Environment } from './environment';
 /** Sun direction changes continuously. PMREM is reused for 30 s, and throughout the ten-second transition. */
 export class DayClock {
   time: Date;
+  private serverOffset = 0;
   private fixed: Date | null;
   private pinned: boolean;
   private lastIBL = performance.now();
@@ -25,6 +26,8 @@ export class DayClock {
     }
   }
 
+  synchronize(serverTime: number) { if (Number.isFinite(serverTime)) this.serverOffset = serverTime - Date.now(); }
+
   set(date: Date) { this.fixed = date; this.time = date; this.env.sky.showSunDisc.value = 1; this.env.setTime(date); this.env.updateIBL(); }
   /** Old saves never override a wall-clock cycle or an explicit ?time= QA pose. */
   restore(date: Date) { if (this.fixed && !this.pinned) this.set(date); }
@@ -32,7 +35,7 @@ export class DayClock {
   update() {
     const start = performance.now();
     if (!this.fixed) {
-      const cycle = dayCycle(Date.now());
+      const cycle = dayCycle(Date.now() + this.serverOffset);
       this.time = cycle.time;
       this.env.setTime(cycle.lightTime);
       this.env.sky.showSunDisc.value = cycle.sunDisc;

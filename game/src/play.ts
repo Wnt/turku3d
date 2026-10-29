@@ -34,7 +34,7 @@ import { FlyMode } from './gameplay/flyMode';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
-import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
+import { MissionSystem, OWN_VEHICLE_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { createGameplay, compassDeg } from './gameplay';
 import { recoveryVehicle } from './gameplay/flippedCar';
@@ -53,6 +53,7 @@ import { browserStorage, sessionStore } from './core/storage';
 import { StreamHint } from './ui/streamHint';
 import { prepareMultiplayer } from './net/preparedStart';
 import type { MultiplayerClient } from './net/client';
+import { SharedVehicles } from './net/sharedVehicles';
 import { RemotePlayers } from './net/remotes';
 import { VEHICLE_POSE_HEIGHT } from './net/height';
 import { vehicleIdentity } from './net/identity';
@@ -145,6 +146,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   document.body.append(crashFlash);
   let multiplayer: MultiplayerClient | null = null;
   let multiplayerPlaying = false;
+  let sharedVehicles: SharedVehicles | null = null;
   const poles = new PoleSession(tiles, physics, missions, voice, document.body);
   const mapDirection = new THREE.Vector3();
 
@@ -172,6 +174,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   });
   /** On foot again at `at` (null: wherever the character is placed next). */
   const leaveCar = (at: V3 | null) => {
+    if (multiplayerPlaying) sharedVehicles?.release(drivenId);
     mode = 'foot';
     physics.driveVehicle(null);
     drivenId = null;
@@ -215,7 +218,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
-    onQuit: () => { multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
+    onQuit: () => { sharedVehicles?.stop(drivenId); multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
       minimap.setRemotes([]); scoreboard.setClient(null); },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
@@ -234,6 +237,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   // Joining before Ready resolves both the server-assigned spawn and a retained session's actual pose.
   const { client, ready: preparedMultiplayer } = prepareMultiplayer();
   multiplayer = client;
+  sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
+  const syncClock = () => world.syncClock?.(client.state.serverTime);
+  client.addEventListener('welcome', syncClock);
+  if (client.state.connected) syncClock();
   scoreboard.setClient(client);
   let owned = missions.vehicle;
   if (hot) {
@@ -338,14 +345,18 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const resetNow = lost && !paused && (input.consume('vehicleReset') || respawn);
     if (lost) input.consume('interact');
     if (!paused && input.consume('interact')) {
-      const nearest = mode === 'foot' ? physics.latest?.vehicles
-        .map(v => ({ vehicle: v, distance: Math.hypot(v.pos.x - feet.x, v.pos.z - feet.z) }))
-        .filter(v => Math.abs(v.vehicle.pos.y - feet.y) < 3)
-        .sort((a, b) => a.distance - b.distance)[0] : null;
-      if (mode === 'foot' && nearest && nearest.distance < 4 && missions.mayDrive(nearest.vehicle.id ?? OWN_VEHICLE_ID)) {
-        enterVehicle(nearest.vehicle.id ?? 'player');
-        physics.driveVehicle(drivenId);
-        physics.setCharacterEnabled(false);
+      const nearestLocal = mode === 'foot' ? physics.latest?.vehicles
+        .filter(v => !multiplayerPlaying || !sharedVehicles?.record(v.id ?? null)?.occupant)
+        .map(v => ({ id: v.id ?? 'player', distance: Math.hypot(v.pos.x - feet.x, v.pos.z - feet.z), y: v.pos.y }))
+        .filter(v => Math.abs(v.y - feet.y) < 3).sort((a, b) => a.distance - b.distance)[0] : null;
+      const nearestShared = multiplayerPlaying && mode === 'foot' ? sharedVehicles?.nearest(feet) : null;
+      const nearest = nearestShared && (!nearestLocal || nearestShared.distance < nearestLocal.distance) ? nearestShared : nearestLocal;
+      if (mode === 'foot' && nearest && nearest.distance < 4 && missions.mayDrive(nearest.id)) {
+        const enter = (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); };
+        if (multiplayerPlaying) void sharedVehicles?.acquire(nearest.id).then(id => {
+          if (id && multiplayerPlaying && mode === 'foot') enter(id);
+        });
+        else enter(nearest.id);
       } else if (mode === 'car' && vs) {
         leaveCar(driverSide(vs));
       }
@@ -416,8 +427,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
-    if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now, feet, effectsDt);
-    physics.updateInput(charIn, carIn, !paused);
+    if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
+      if (drivenId && multiplayer.state.connected && sharedVehicles?.record(drivenId) && !sharedVehicles.hasSeat(drivenId)) leaveCar(vs ? driverSide(vs) : feet);
+      sharedVehicles?.update(now);
+      remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
+    }
+    physics.updateInput(charIn, carIn, !paused && (!multiplayerPlaying || !!multiplayer?.state.connected));
     const st = physics.latest;
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
     clock.simSeconds = (st?.tick ?? 0) * DT;
@@ -443,11 +458,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     if (multiplayerPlaying && !startScreen.active && !saveGame.loading) {
       const yaw = mode === 'car' && vs ? yawOf(vs.rot) - Math.PI / 2 : player.root.rotation.y - Math.PI;
-      const poseMode = mode === 'foot' ? 'foot' : drivenId === SCOOTER_ID ? 'scooter' : seated.of(drivenId) ? 'truck' : 'car';
-      multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
-        vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
-        ...(poseMode !== 'foot' && vs ? { rot: vs.rot, wheels: vs.wheels } : {}),
-        carrying: missions.phase === 'carrying' });
+      const shared = sharedVehicles?.record(drivenId);
+      const poseMode = mode === 'foot' ? 'foot' : vs?.kind ?? 'car';
+      const updates = sharedVehicles?.updates(now) ?? [];
+      const sent = multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
+        vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: poseMode === 'foot' ? null : shared?.pose.vehicle ?? vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
+        ...(poseMode !== 'foot' && shared ? { vehicleId: shared.id } : {}),
+        carrying: missions.phase === 'carrying' }, updates);
+      if (sent) sharedVehicles?.sentUpdates(updates);
     }
     if (!paused && !startScreen.active && !menuOpen) {
       recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y,
@@ -457,6 +475,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     // renderVehicle interpolates the driven vehicle (the start car while on foot); the others follow the latest step.
     const latestOf = (id: string) => (drivenId ?? 'player') === id ? renderVehicle : st?.vehicles.find(v => v.id === id) ?? null;
     const carState = latestOf('player');
+    car.root.visible = !!carState;
     if (carState) car.update(carState);
     if (effectsDt > 0 && mode === 'car') {
       const vehicle = latestOf(drivenId ?? 'player');

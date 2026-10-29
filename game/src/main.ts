@@ -271,7 +271,7 @@ async function runPlay() {
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, groundAt,
-    loadingScreen, clockTime: () => dayClock.time, setClock: date => dayClock.restore(date),
+    loadingScreen, syncClock: time => dayClock.synchronize(time), clockTime: () => dayClock.time, setClock: date => dayClock.restore(date),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in
   // place; the world above keeps the player, the vehicles and the loaded tiles. The build badge names main's commit

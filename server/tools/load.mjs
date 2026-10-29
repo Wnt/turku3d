@@ -27,7 +27,7 @@ try {
     ws.on('message', () => { received++; });
     await once(ws, 'open');
     const welcome = once(ws, 'message');
-    ws.send(JSON.stringify({ v: 1, type: 'hello' }));
+    ws.send(JSON.stringify({ v: 2, type: 'hello' }));
     const [message] = await welcome;
     if (JSON.parse(message).type !== 'welcome') throw Error('Expected welcome');
   }));
@@ -42,7 +42,7 @@ try {
     const t = performance.now();
     clients.forEach((ws, i) => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ v: 1, type: 'pose', t, E: 173 + i + Math.sin(t / 1000),
+      ws.send(JSON.stringify({ v: 2, type: 'pose', t, E: 173 + i + Math.sin(t / 1000),
         N: -252 + Math.cos(t / 1000), H: 3.7, yaw: 0.1, vE: 1, vN: 0, vH: 0,
         mode: i % 2 ? 'car' : 'foot', carrying: false }));
       sent++;

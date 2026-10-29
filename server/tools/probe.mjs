@@ -4,11 +4,11 @@ const url = process.argv[2] ?? 'wss://turku.lab.madekivi.fi/';
 const ws = new WebSocket(url, { origin: 'https://wnt.github.io', handshakeTimeout: 10_000 });
 let welcomed = false;
 const deadline = setTimeout(() => { console.error('Probe timed out'); process.exitCode = 1; ws.terminate(); }, 15_000);
-ws.on('open', () => ws.send(JSON.stringify({ v: 1, type: 'hello' })));
+ws.on('open', () => ws.send(JSON.stringify({ v: 2, type: 'hello' })));
 ws.on('message', data => {
   const m = JSON.parse(data.toString());
   if (m.type !== 'welcome') return;
-  if (m.v !== 1 || !m.you?.id || !m.you?.nick || !m.session || m.hour?.tz !== 'Europe/Helsinki') {
+  if (m.v !== 2 || !m.you?.id || !m.you?.nick || !m.session || m.hour?.tz !== 'Europe/Helsinki') {
     console.error('Invalid welcome'); process.exitCode = 1; ws.close(); return;
   }
   welcomed = true;

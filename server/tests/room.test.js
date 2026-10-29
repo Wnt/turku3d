@@ -113,20 +113,20 @@ test('deliveries accept bounded whole euros, reject duplicates and malformed cla
 
 test('protocol mismatch requests reload; malformed, binary, oversized and unknown messages count as rejected', () => {
   const f = fixture(), a = f.connect();
-  for (const data of ['{', '[]', 'null', JSON.stringify({ v: 1, type: 'unknown' })]) f.room.receive(a.c, data);
+  for (const data of ['{', '[]', 'null', JSON.stringify({ v: 2, type: 'unknown' })]) f.room.receive(a.c, data);
   f.room.receive(a.c, '{}', true);
   f.room.receive(a.c, ' '.repeat(65_537));
   a.send({ ...pose, E: 23459668 });
   assert.equal(f.room.stats.rejected, 7);
-  a.send({ v: 2, type: 'pose' });
-  assert.deepEqual(a.messages.at(-1), { v: 1, type: 'error', code: 'protocol', reload: true });
+  a.send({ v: 1, type: 'pose' });
+  assert.deepEqual(a.messages.at(-1), { v: 2, type: 'error', code: 'protocol', reload: true });
   assert.equal(a.closes[0][0], 1002);
 });
 
 test('uninitialized connections time out and cannot send poses', () => {
   const f = fixture(), closes = [];
   const c = f.room.connect(() => {}, (...args) => closes.push(args));
-  f.room.receive(c, JSON.stringify({ v: 1, ...pose }));
+  f.room.receive(c, JSON.stringify({ v: 2, ...pose }));
   assert.equal(f.room.stats.rejected, 1);
   f.advance(5000); assert.equal(closes[0][0], 1008);
 });

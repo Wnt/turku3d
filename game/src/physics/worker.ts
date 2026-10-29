@@ -104,6 +104,7 @@ async function handle(msg: ToWorker) {
     case 'spawnVehicle': pw.spawnVehicle(msg.spec.pos, msg.spec.yaw, msg.spec); break;
     case 'driveVehicle': pw.driveVehicle(msg.id); break;
     case 'resetVehicle': pw.resetVehicle(msg.pos, msg.yaw, msg.id); break;
+    case 'vehicleImpulse': pw.vehicleImpulse(msg.id, msg.impulse); break;
     case 'remotes': pw.setRemotes(msg.bodies); break;
     case 'poles': pw.setPoles(msg.add, msg.remove); break;
     case 'breakPole': pw.breakPole(msg.id); break;

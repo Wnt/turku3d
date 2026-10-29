@@ -93,6 +93,8 @@ export class CarVisual {
 
 /** Parked cars share draws until one is driven; driven cars keep their own scene-level mesh. */
 export class ParkedCarVisuals {
+  private manifest: Manifest | null = null;
+  private remoteLoads = new Set<string>();
   private groups = new Map<string, { mesh: THREE.InstancedMesh; cars: ParkedVehicle[] }>();
   private sources = new Map<string, THREE.Mesh>();
   private dynamic = new Map<string, THREE.Mesh>();
@@ -104,6 +106,7 @@ export class ParkedCarVisuals {
   constructor(private readonly scene: THREE.Object3D) {}
 
   async load(manifest: Manifest) {
+    this.manifest = manifest;
     const cars = (manifest.vehicles ?? []).filter(c => c.model !== 'truck' && !this.dynamic.has(c.object_id));
     const loader = new GLTFLoader();
     await Promise.all([...new Set(cars.map(c => `${c.model}/${c.color}`))].map(async key => {
@@ -162,6 +165,15 @@ export class ParkedCarVisuals {
     }
   }
 
+  requestRemoteModel(key: string) {
+    const entry = this.manifest?.vehicle_models?.[key];
+    if (!entry || this.sources.has(key) || this.remoteLoads.has(key)) return;
+    this.remoteLoads.add(key);
+    void new GLTFLoader().loadAsync(new URL(entry.url, this.manifest!.baseUrl).href).then(gltf => {
+      gltf.scene.traverse(o => { if ((o as THREE.Mesh).isMesh) this.sources.set(key, o as THREE.Mesh); });
+    }).catch(error => console.warn('[remote vehicle model]', key, error));
+  }
+
   /** A remote driver uses the same mesh and material as a local takeover. */
   remoteModel(key: string): THREE.Mesh | null {
     const source = this.sources.get(key);
@@ -189,6 +201,7 @@ export class ParkedCarVisuals {
     }
     for (const [id, actor] of this.dynamic) {
       const state = byId.get(id);
+      actor.visible = !!state;
       if (!state) continue;
       actor.position.set(state.pos.x, state.pos.y - 0.75, state.pos.z);
       actor.quaternion.set(state.rot.x, state.rot.y, state.rot.z, state.rot.w)
