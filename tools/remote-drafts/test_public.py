@@ -128,6 +128,74 @@ class PublicTest(unittest.TestCase):
             self.assertNotIn("Access-Control-Allow-Origin", headers)
             self.assertEqual(call("/coarse/health", "OPTIONS")[0], 204)
 
+    def test_retirement_joins_an_admitted_slow_response(self):
+        import socket
+        from http.server import BaseHTTPRequestHandler
+
+        admitted, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+        class Slow(BaseHTTPRequestHandler):
+            def do_GET(self):
+                admitted.set()
+                release.wait(2)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"complete")
+            def log_message(self, *_):
+                pass
+
+        server = public.PublicServer(("127.0.0.1", 0), Slow)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        with socket.create_connection(server.server_address, timeout=2) as sock:
+            sock.sendall(b"GET / HTTP/1.0\r\n\r\n")
+            self.assertTrue(admitted.wait(1))
+            server.shutdown()
+            closer = threading.Thread(target=lambda: (server.server_close(), closed.set()))
+            closer.start()
+            try:
+                self.assertFalse(closed.wait(.02))
+            finally:
+                release.set()
+                closer.join(2)
+                worker.join(2)
+            response = b""
+            while part := sock.recv(4096):
+                response += part
+            self.assertTrue(response.endswith(b"complete"))
+            self.assertTrue(closed.is_set())
+
+    def test_parser_unsupported_method_and_exception_responses_have_cors(self):
+        import socket
+        from http.server import ThreadingHTTPServer
+
+        with tempfile.TemporaryDirectory() as temp:
+            builder = SimpleNamespace(root=Path(temp))
+            cls = public.public_handler(builder, None, {"queue_max": 1, "tile_bounds": [-2, -2, 2, 2]})
+            server = ThreadingHTTPServer(("127.0.0.1", 0), cls)
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                for method, path, expected in (("PUT", "/coarse/health", 501),
+                                                ("GET", "/coarse/health", 503),
+                                                ("OPTIONS", "/coarse/health", 204),
+                                                ("GET", "/coarse/missing", 404)):
+                    with socket.create_connection(server.server_address, timeout=2) as sock:
+                        sock.sendall(f"{method} {path} HTTP/1.1\r\nHost: localhost\r\nOrigin: https://wnt.github.io\r\nConnection: close\r\n\r\n".encode())
+                        response = b""
+                        while part := sock.recv(65536):
+                            response += part
+                    headers = response.split(b"\r\n\r\n")[0].decode()
+                    self.assertIn(f" {expected} ", headers)
+                    self.assertIn("Access-Control-Allow-Origin: https://wnt.github.io", headers)
+                    if expected == 503:
+                        self.assertIn("Retry-After: 5", headers)
+                        self.assertNotIn("AttributeError", response.decode())
+            finally:
+                server.shutdown()
+                server.server_close()
+                worker.join()
+
     def test_collision_bundle_is_content_addressed_and_reuses_unchanged_cells(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

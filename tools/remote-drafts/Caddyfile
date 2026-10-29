@@ -3,6 +3,19 @@
 	auto_https off
 }
 
+(draft_cors) {
+	@draftCors header_regexp Origin ^(https://wnt\.github\.io|http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?)$
+	header @draftCors {
+		Access-Control-Allow-Origin {http.request.header.Origin}
+		Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+		Access-Control-Allow-Headers If-None-Match
+		Access-Control-Expose-Headers "ETag, Retry-After"
+		Timing-Allow-Origin {http.request.header.Origin}
+		Vary Origin
+		defer
+	}
+}
+
 http://:7764 {
 	bind 127.0.0.1
 	encode zstd gzip {
@@ -22,7 +35,22 @@ http://:7764 {
 		file_server
 	}
 	handle /coarse/* {
+		import draft_cors
+		header {
+			?Retry-After 5
+			match {
+				status 408 429 5xx
+			}
+		}
+		@preflight method OPTIONS
+		respond @preflight 204
 		import /home/ubuntu/turku3d-drafts/draft-upstream.caddy
+	}
+	handle_errors {
+		import draft_cors
+		header Retry-After 5
+		header Cache-Control no-store
+		respond "draft unavailable" {err.status_code}
 	}
 	handle {
 		reverse_proxy 127.0.0.1:7700
