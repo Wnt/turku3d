@@ -9,12 +9,18 @@ from turku3d.facade_programs import compile_wall
 
 def prepare(program):
     from turkutex.facade_sections import sections
+    from turkutex.facade_structure import compile_structure
 
     from turku3d.facade_components import components
 
     program = copy.deepcopy(program)
     for wall in program.get("walls", []):
         form = wall.get("structure", {})
+        if form.get("floors"):
+            # Recompile retained forms so old published arrays cannot bypass the
+            # current per-row confidence policy. Never mutate the source files.
+            wall.update(compile_structure({**wall, **wall["geometry"]}, form,
+                                          program.get("storeys", {}).get("value")))
         if not form.get("render_deferred"):
             # An explicitly reviewed negative clears sampled balcony rails.
             if form.get("balconies") == [] and form.get("confidence", {}).get("balconies", 0) > 0:
@@ -66,9 +72,8 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
         part = quad(max(0, ends[0]), min(width, ends[1]), y0 + y, y0 + y + h)
         if part is None:
             continue
-        mat = {"render": "plaster", "concrete_panel": "concrete"}.get(
-            section["material"], section["material"]
-        )
+        from turku3d.facade_inference import material
+        mat = material(section["material"])
         if section["kind"] is None:
             module = style["module"]
             if mat in MATERIALS:
@@ -91,7 +96,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
             string_courses=[],
             balconies=[],
             occluded_parts="Section extents are qualitative layout priors",
-            confidence={k: 0.5 for k in FIELDS},
+            confidence={k: 0.6 for k in FIELDS},
             floors=[
                 dict(
                     role="base" if i == 0 else "middle",
@@ -99,7 +104,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                     bays=section.get("bays") or [section["kind"]] * count,
                     head=section["head"],
                     surround=section["surround"],
-                    confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")},
+                    confidence={k: 0.6 for k in ("bay_count", "bay_kinds", "head", "surround")},
                 )
                 for i in range(rows)
             ],

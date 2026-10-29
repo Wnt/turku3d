@@ -6,6 +6,7 @@ import numpy as np
 
 from turku3d import config as C
 from turku3d.facade_kit import MATERIALS
+from turku3d.facade_inference import material as normalize_material
 from turku3d.facade_programs import HEAD_SHAPES, field
 
 
@@ -82,9 +83,7 @@ def _paint_layers(vertices, wall, style):
     if part:
         yield *part, blank, 0
     for band in wall.get("material_bands", []):
-        material = {"render": "plaster", "concrete_panel": "concrete"}.get(
-            band["material"], band["material"]
-        )
+        material = normalize_material(band["material"])
         if material not in MATERIALS:
             continue
         part = quad(
@@ -127,8 +126,8 @@ def _paint_layers(vertices, wall, style):
         (
             r,
             1,
-            shapes[i] if i < len(shapes) else field(windows, "head_shape", "flat"),
-            surrounds[i] if i < len(surrounds) else None,
+            shapes[i] if i < len(shapes) and shapes[i] is not None else field(windows, "head_shape", "flat"),
+            surrounds[i] if i < len(surrounds) and surrounds[i] is not None else field(windows, "surround_shape"),
         )
         for i, r in enumerate(windows.get("rectangles_m", []))
     ]
@@ -139,7 +138,7 @@ def _paint_layers(vertices, wall, style):
         (
             r,
             1,
-            base_shapes[i] if i < len(base_shapes) else field(base, "head_shape", "flat"),
+            base_shapes[i] if i < len(base_shapes) and base_shapes[i] is not None else field(base, "head_shape", "flat"),
             base_surrounds[i] if i < len(base_surrounds) else None,
         )
         for i, r in enumerate(base.get("openings_m", []))
@@ -148,7 +147,7 @@ def _paint_layers(vertices, wall, style):
         (
             d["rect_m"],
             3 if d.get("opaque") else 2,
-            d.get("head_shape", field(wall["doors"], "head_shape", "flat")),
+            d.get("head_shape") or field(wall["doors"], "head_shape", "flat"),
             d.get("surround"),
         )
         for d in wall["doors"].get("candidates", [])
@@ -244,6 +243,9 @@ def _paint_layers(vertices, wall, style):
                 )
                 if part:
                     yield *part, decoration, 3
+    from turku3d.facade_style_geometry import details
+    yield from details(wall, style, blank, boxes, quad, x0, x1, y0, y1, offset, sign)
+
     # Ornament levels are bounded layout priors, not invented sculptures or lettering.
     ornament = field(wall["trim"], "ornament_level", "none")
     if ornament in ("low", "medium", "high"):

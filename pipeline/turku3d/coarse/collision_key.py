@@ -14,6 +14,8 @@ VISUAL_ONLY = {
     "packaging.py",
     "facade_assets.py",
     "facade_programs.py",
+    "facade_inference.py",
+    "facade_style_geometry.py",
     "facade_program_geometry.py",
     # Reading-driven components are full-pass enrichment, never first-pass geometry.
     "facade_components.py",

@@ -220,9 +220,10 @@ def test_reviewed_partial_wall_overrides_stored_map_and_description_only_on_its_
         p0=[C.ORIGIN_E, C.ORIGIN_N], p1=[C.ORIGIN_E + 8, C.ORIGIN_N],
         base_h=3, normal=[0, 0, -1]),
         observation=dict(needs_review=False, scope="full-wall"))
-    reviewed["windows"].update(rectangles_m=[[1, 1, 2, 2]], head_shape={"value": "round-arch"})
-    reviewed["doors"].update(candidates=[{"rect_m": [4, 0, 1, 3]}], head_shape={"value": "segmental-arch"})
-    reviewed["split"]["base_height_m"] = {"value": 2}
+    reviewed["bays"]["support"] = 0.9
+    reviewed["windows"].update(rectangles_m=[[1, 1, 2, 2]], head_shape={"value": "round-arch", "support": .9})
+    reviewed["doors"].update(candidates=[{"rect_m": [4, 0, 1, 3]}], head_shape={"value": "segmental-arch", "support": .9})
+    reviewed["split"]["base_height_m"] = {"value": 2, "support": .9}
     monkeypatch.setattr(fp, "measured", lambda key: dict(needs_review=False, walls=[reviewed]))
     description = renderer().register_description("stable", "stable", {}, 10, 12)
     description["wall_colour"] = "#123456"

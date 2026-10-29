@@ -1,7 +1,7 @@
 """Resolve facade programs and compile metric wall instructions for the shared atlas.
 
-Reviewed walls override stored generated maps in coarse.stored_facades. Existing descriptions
-override rules; reviewed photographed wall fields then override only their own wall.
+Reviewed walls remain generated in coarse.stored_facades. Supported photographed
+fields override only their own wall; missing fields retain explicit appearance priors.
 No measured count changes register storeys. Null fields never erase a supported prior.
 """
 
@@ -17,11 +17,14 @@ import numpy as np
 from turku3d import config as C
 from turku3d.facade_assets import aliases, opaque, root
 from turku3d.facade_kit import MATERIALS, read_description, renderer
+from turku3d.facade_inference import overlay
 
 
 def source_paths():
     return [
         Path(__file__),
+        Path(__file__).with_name("facade_inference.py"),
+        Path(__file__).with_name("facade_style_geometry.py"),
         Path(__file__).with_name("facade_program_geometry.py"),
         Path(__file__).with_name("facade_sections.py"),
         Path(__file__).with_name("facade_components.py"),
@@ -68,24 +71,15 @@ def program_hash(key):
     # A pilot JSON edit invalidates just the tiles containing its changed building.
     from turku3d.facade_learning import digest
 
-    return json.dumps(measured(key), sort_keys=True, separators=(",", ":")).encode() + digest(key)
+    from turku3d.facade_inference import evidence
+
+    return json.dumps([measured(key), evidence(key)], sort_keys=True, separators=(",", ":")).encode() + digest(key)
 
 
 def field(section, key, default=None):
     item = section.get(key, {})
     result = item.get("value") if isinstance(item, dict) else item
     return default if result is None else result
-
-
-def overlay(target, source):
-    for key, val in source.items():
-        if isinstance(val, dict) and "value" in val:
-            if val["value"] is not None:
-                target[key] = copy.deepcopy(val)
-        elif isinstance(val, dict):
-            overlay(target.setdefault(key, {}), val)
-        elif val is not None and (not isinstance(val, list) or val):
-            target[key] = copy.deepcopy(val)
 
 
 def matching_wall(vertices, program):
@@ -201,7 +195,13 @@ def resolve(building, vertices, eaves):
                 height_m=max(0.1, float(eaves.get(index, min(p[2:, 1])) - building.base)),
             )
         )
+    from turku3d.facade_inference import apply_prior, evidence, reading_fields, supported
+
+    record = evidence(building.facade_key)
     attrs = dict(building.attributes)
+    for key, item in record.get("building", {}).items():
+        if supported(item):
+            attrs[key] = item["value"]
     area = building.footprint.area
     attrs.update(
         E=float(building.footprint.centroid.x + C.ORIGIN_E),
@@ -238,6 +238,7 @@ def resolve(building, vertices, eaves):
     observed = measured(building.facade_key)
     for index, wall in enumerate(program["walls"]):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
+        apply_prior(wall, program["archetype"], attrs, own, record)
         if own:
             # Geometry dimensions and register storeys belong to this actual generated shell.
             colour = copy.deepcopy(wall["wall"]["colour"])
@@ -246,10 +247,16 @@ def resolve(building, vertices, eaves):
                 wall,
                 {
                     k: v
-                    for k, v in own.items()
+                    for k, v in reading_fields(own).items()
                     if k not in ("wall_id", "width_m", "height_m", "geometry", "observation")
                 },
             )
+            for key in ("structure", "render_sections", "geometry_components", "geometry_pending", "unsupported"):
+                if key in own:
+                    wall[key] = copy.deepcopy(own[key])
+            if own.get("bays", {}).get("support", 0) >= 0.6:
+                wall["niches"] = copy.deepcopy(own.get("niches", []))
+            wall["material_bands"] = [copy.deepcopy(band) for band in own.get("material_bands", []) if band.get("support", 0) >= 0.6]
             wall["observation"] = copy.deepcopy(own["observation"])
             wall["measured_wall_id"] = own["wall_id"]
             wall["measured_geometry"] = copy.deepcopy(own.get("geometry", {}))
@@ -290,7 +297,8 @@ HEAD_SHAPES = {"flat": 0, "segmental-arch": 1, "round-arch": 2, "pointed-arch": 
 def compile_wall(wall, floors):
     width, height = wall["width_m"], wall["height_m"]
     material = field(wall["wall"], "material", "plaster")
-    material = {"render": "plaster", "concrete_panel": "concrete"}.get(material, material)
+    from turku3d.facade_inference import material as normalize_material
+    material = normalize_material(material)
     material = material if material in MATERIALS else "plaster"
     count = max(0, int(wall["bays"]["count"]))
     count = count if floors else 0
