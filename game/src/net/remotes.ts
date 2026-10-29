@@ -53,14 +53,15 @@ function distantCharacter(): THREE.Mesh {
 
 function nickname(nick: string): THREE.Sprite {
   const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 48;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = 'rgba(13, 24, 31, 0.86)'; ctx.fillRect(6, 2, 116, 42);
+  ctx.font = 'bold 30px sans-serif';
+  canvas.width = Math.ceil(ctx.measureText(nick).width) + 24; canvas.height = 48;
+  ctx.fillStyle = 'rgba(13, 24, 31, 0.86)'; ctx.fillRect(0, 2, canvas.width, 42);
   ctx.fillStyle = '#fff'; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(nick, 64, 33);
+  ctx.fillText(nick, canvas.width / 2, 33);
   const texture = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
-  sprite.scale.set(1.2, 0.45, 1);
+  sprite.scale.set(canvas.width / 48 * 0.45, 0.45, 1);
   return sprite;
 }
 

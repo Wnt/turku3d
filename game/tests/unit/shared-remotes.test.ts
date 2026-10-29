@@ -7,7 +7,7 @@ import type { SharedVehicles } from '../../src/net/sharedVehicles';
 
 // Headless scene graph: no renderer, screenshots, browser or drive route.
 test('a released remote car keeps its paint/pose/proxy after its driver leaves the roster', () => {
-  vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ fillRect() {}, fillText() {} }) }) });
+  vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ fillRect() {}, fillText() {}, measureText: (text: string) => ({ width: text.length * 18 }) }) }) });
   const root = new THREE.Group(), car = new THREE.Group(), scooter = new THREE.Group();
   const lean = new THREE.Group(); lean.name = 'scooter-lean'; scooter.add(lean);
   const red = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 2), new THREE.MeshStandardMaterial({ color: 0xff0000 }));

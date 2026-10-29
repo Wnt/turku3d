@@ -16,7 +16,7 @@ const row = (score: Pick<Score, 'rank' | 'nick' | 'money' | 'deliveries'>) =>
 export class Scoreboard {
   readonly element = document.createElement('aside');
   private readonly banner = document.createElement('div');
-  private readonly table = document.createElement('div');
+  private readonly table = document.createElement('table');
   private client: MultiplayerClient | null = null;
   private hours: Hour[] = [];
   private index = -1; // -1 is the current live hour
@@ -32,6 +32,8 @@ export class Scoreboard {
   constructor(parent: HTMLElement) {
     this.element.id = 'mp-scoreboard';
     this.element.hidden = true;
+    this.banner.className = 'mp-countdown';
+    this.table.setAttribute('aria-label', 'Hourly leaderboard');
     this.element.append(this.banner, this.table);
     parent.append(this.element);
     this.timer = setInterval(() => this.renderCountdown(), 250);
@@ -56,7 +58,27 @@ export class Scoreboard {
       this.countdownStarted = performance.now();
     }
     this.renderCountdown();
-    this.table.textContent = compactScores(state.scores, state.you?.nick ?? null).map(row).join('  |  ');
+    this.table.replaceChildren();
+    const head = this.table.createTHead().insertRow();
+    for (const title of ['#', 'Name', 'Money', 'Deliveries']) {
+      const cell = document.createElement('th'); cell.scope = 'col'; cell.textContent = title; head.append(cell);
+    }
+    const body = this.table.createTBody();
+    const visible = compactScores(state.scores, state.you?.nick ?? null);
+    for (const score of visible) {
+      const tr = body.insertRow();
+      tr.classList.toggle('mp-self', score.nick === state.you?.nick);
+      tr.classList.toggle('mp-offline', !score.online);
+      if (score.nick === state.you?.nick) tr.setAttribute('aria-current', 'true');
+      if (state.scores.indexOf(score) > 2) tr.classList.add('mp-separated');
+      for (const value of [score.rank, score.nick, `€${score.money}`, score.deliveries]) {
+        tr.insertCell().textContent = String(value);
+      }
+    }
+    if (state.scores.length > visible.length) {
+      const caption = this.table.createCaption();
+      caption.textContent = `${state.scores.length} players · top 3 + you`;
+    }
     if (this.host && this.index === -1) {
       this.displayedHour = state.hour;
       this.scores = state.scores;

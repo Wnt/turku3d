@@ -1,14 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, pose, delivery } from './helpers.js';
-import { nickname, NICKS, BLOCKED_NICKS } from '../nicks.js';
+import { nickname, NICKS, validNickname } from '../nicks.js';
 import { SPAWNS } from '../room.js';
 
-test('nicknames exhaust without collisions or blocked pairs; reroll changes nickname', () => {
+test('nicknames exhaust without collisions; reroll changes nickname', () => {
+  for (const invalid of ['', 'AB', 'sneakyPizza', 'Sneaky Pizza', 'SneakyPizza1', 'SparklyHedgehogTooLong', null]) {
+    assert.equal(validNickname(invalid), false);
+  }
+  assert.ok(NICKS.length > 3600); // More than one fresh join per second for an hour.
+  assert.equal(new Set(NICKS).size, NICKS.length);
   const used = new Set();
   for (let i = 0; i < NICKS.length; i++) {
-    const n = nickname(used); assert.match(n, /^[A-Z]{2}$/); assert.ok(!used.has(n));
-    assert.ok(!BLOCKED_NICKS.has(n)); used.add(n);
+    const n = nickname(used); assert.ok(validNickname(n)); assert.ok(!used.has(n));
+    used.add(n);
   }
   assert.equal(nickname(used), null);
   for (const old of NICKS) assert.notEqual(nickname(new Set(), old), old);
