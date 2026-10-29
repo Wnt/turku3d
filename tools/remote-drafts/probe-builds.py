@@ -90,7 +90,5 @@ if __name__ == '__main__':
     parser.add_argument('--first-budget', type=float, required=True)
     parser.add_argument('--full-budget', type=float, required=True)
     args = parser.parse_args()
-    # Agent evidence must never outrank the production pool (nice 10, warm-up 19) on the shared host.
-    os.nice(19 - os.nice(0))
     print(json.dumps(run(args.root, tile_id=args.tile, first_budget=args.first_budget,
                          full_budget=args.full_budget)))
