@@ -17,6 +17,33 @@ from turku3d.coarse.demand import Demand
 
 
 class PublicTest(unittest.TestCase):
+    def test_concurrent_polls_share_validation_and_publication_invalidates_it(self):
+        from concurrent.futures import ThreadPoolExecutor
+        calls = []
+        entered, release = threading.Event(), threading.Event()
+        cache = public.Responses()
+
+        def compute():
+            calls.append(1)
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return 200, {"state": "built"}
+
+        with tempfile.TemporaryDirectory() as temp, ThreadPoolExecutor(max_workers=32) as pool:
+            builder = SimpleNamespace(root=Path(temp), version=0)
+            key = public.publication_key(builder, "t0_0_0")
+            jobs = [pool.submit(cache.get, key, compute) for _ in range(32)]
+            self.assertTrue(entered.wait(1))
+            release.set()
+            self.assertTrue(all(job.result() == (200, {"state": "built"}) for job in jobs))
+            self.assertEqual(len(calls), 1)
+            (builder.root / "t0_0_0").mkdir()
+            (builder.root / "t0_0_0/collision.json").write_text("new structural pass")
+            replacement = public.publication_key(builder, "t0_0_0")
+            self.assertNotEqual(key, replacement)
+            cache.get(replacement, compute)
+            self.assertEqual(len(calls), 2)
+
     def test_origins_and_routes(self):
         for origin in (None, "https://wnt.github.io", "http://localhost:7761"):
             self.assertTrue(public.allowed_origin(origin))
@@ -237,7 +264,19 @@ class PublicTest(unittest.TestCase):
                 h.wfile = io.BytesIO()
                 h.send_response = lambda value: setattr(h, "status", value)
                 h.send_header = lambda *_: None
-                h.end_headers = lambda: None
+                def end_headers():
+                    # A blocked client write must never hold scheduler admission.
+                    acquired = threading.Event()
+                    def scheduler():
+                        with builder.lock:
+                            acquired.set()
+                    worker = threading.Thread(target=scheduler)
+                    worker.start()
+                    try:
+                        self.assertTrue(acquired.wait(.5))
+                    finally:
+                        worker.join(.5)
+                h.end_headers = end_headers
                 h.do_GET()
                 return h.status, json.loads(h.wfile.getvalue())
 

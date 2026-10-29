@@ -5,7 +5,8 @@ The public draft and multiplayer services run as user `ubuntu` on `oci-drafts`
 `https://turku.lab.madekivi.fi/coarse/` and `wss://turku.lab.madekivi.fi/`.
 The outbound forwarder connects to `tunnel.lab.madekivi.fi`; no DNS change,
 public application listener or new inbound firewall rule is needed.
-Caddy binds `127.0.0.1:7764`, sends `/coarse/*` to `127.0.0.1:7765`, and everything
+Caddy binds `127.0.0.1:7764`, serves hashed `/coarse/*` assets directly from the
+published coarse directory, sends mutable metadata to the active Python slot, and everything
 else, including WebSockets, to multiplayer on `127.0.0.1:7700`.
 
 The deployed pipeline is current published main `0c43828`, with structural first
@@ -295,6 +296,31 @@ ssh oci-drafts 'df -h /srv/turku3d'
 
 The public boundary caches content-addressed GLB, JSON, collision and shared
 assets for one year (`immutable`); mutable fragments and health remain revalidated.
+Caddy reads hashed assets from `/srv/turku3d/work/coarse` without opening a Python
+connection, including assets from a retained generation. Its strict route only
+admits public hashed names; manifests, collision metadata and mutable aliases
+still pass through producer freshness checks. SHA ETags, CORS, conditional GET,
+HEAD and ranges work directly from disk. Missing assets return 404 without
+falling back to scheduler work.
+
+The producer admits a 1,024-connection burst and uses persistent HTTP/1.1 with
+35-second client timeouts. Caddy retires idle upstream connections after 25
+seconds. Concurrent metadata polls share a validated snapshot for at most one
+second; atomic metadata publication or scheduler version changes invalidate it
+immediately. Source discovery and retained-fragment validation release the
+scheduler condition, and HTTP writes never hold admission.
+
+Serving capacity acceptance uses the existing forwarder load binary on native
+OCI loopback, three mixed and three cached 10-player runs at 32 parallel fetches
+per player. It checks body validation, HTTP/transport failures, cached p95 below
+1.5 seconds, CORS, ten live multiplayer sockets and concurrent producer activity.
+The probe refuses ten-player load before October 29 23:00 UTC:
+
+```sh
+source ../sandbox.env
+python3 scripts/dev/host_slots.py check -- python3 scripts/dev/probe_producer_capacity.py --commit COMMIT
+```
+
 Each complete fragment advertises a `sorted-col-v1` collision bundle assembled
 from its immutable cells by the serving layer, without invoking the generator.
 Sixteen files are concatenated by lexicographic cell id and addressed by the

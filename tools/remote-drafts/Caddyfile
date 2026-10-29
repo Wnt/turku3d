@@ -36,19 +36,53 @@ http://:7764 {
 	}
 	handle /coarse/* {
 		import draft_cors
-		header {
-			Retry-After 5
-			defer
-			match {
-				status 408 429 5xx
+		route {
+			@forbiddenOrigin {
+				header Origin *
+				not header_regexp Origin ^(https://wnt\.github\.io|http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?)$
+			}
+			respond @forbiddenOrigin 403
+			header {
+				Retry-After 5
+				defer
+				match {
+					status 408 429 5xx
+				}
+			}
+			@preflight method OPTIONS
+			respond @preflight 204
+			# Published content-addressed bytes outlive producer slots and never need
+			# scheduler admission. Mutable manifests/aliases always remain in Python.
+			@immutable {
+				method GET HEAD
+				# Same public tile bounds as config.json; shared payloads have no tile.
+				path_regexp asset ^/coarse/(?:t0_-?(?:[0-9]|1[0-9]|2[0-4])_-?(?:[0-9]|1[0-9]|2[0-4])/(?:vis\.|roads\.|bundle\.|col/c_-?[0-9]+_-?[0-9]+\.)|shared/)([0-9a-f]{64})\.(?:glb|col|json|ktx2|bin)$
+			}
+			handle @immutable {
+				root * /srv/turku3d/work/coarse
+				uri strip_prefix /coarse
+				header {
+					Cache-Control "public, max-age=31536000, immutable"
+					Cross-Origin-Resource-Policy cross-origin
+					X-Content-Type-Options nosniff
+					ETag `"{re.asset.1}"`
+				}
+				@glb path *.glb
+				header @glb Content-Type model/gltf-binary
+				@binary path *.col *.bin
+				header @binary Content-Type application/octet-stream
+				@ktx path *.ktx2
+				header @ktx Content-Type image/ktx2
+				file_server
+			}
+			handle {
+				import /home/ubuntu/turku3d-drafts/draft-upstream.caddy
 			}
 		}
-		@preflight method OPTIONS
-		respond @preflight 204
-		import /home/ubuntu/turku3d-drafts/draft-upstream.caddy
 	}
 	handle_errors {
 		import draft_cors
+		header -ETag
 		header Retry-After 5
 		header Cache-Control no-store
 		respond "draft unavailable" {err.status_code}

@@ -8,14 +8,14 @@ import os
 import re
 import signal
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from turku3d import config as C
-from turku3d.coarse.prefetch import Prefetcher
 from turku3d.coarse.demand import MAX_TILES
-from turku3d.coarse.serving import retained_fragment as collision_fragment, public_fragment
+from turku3d.coarse.prefetch import Prefetcher
 from turku3d.coarse.service import (
     FILE,
     MIME,
@@ -26,8 +26,9 @@ from turku3d.coarse.service import (
     handler,
     immutable_payload,
 )
+from turku3d.coarse.serving import public_fragment
+from turku3d.coarse.serving import retained_fragment as collision_fragment
 from turku3d.coarse.sources import Sources, Unit
-
 
 # Serving derivative only: no generator invocation or format changes to individual .col cells.
 BUNDLE = re.compile(r"^bundle\.[0-9a-f]{64}\.col$")
@@ -55,7 +56,7 @@ class CollisionBundles:
                 self.entries.move_to_end(key)
                 return self.entries[key]
             bodies = [(self.root / tile / e["url"]).read_bytes() for _, e in rows]
-            for body, (_, entry) in zip(bodies, rows):
+            for body, (_, entry) in zip(bodies, rows, strict=False):
                 if len(body) != entry["bytes"] or hashlib.sha256(body).hexdigest() != entry["sha256"]:
                     raise ValueError("collision bundle source mismatch")
             body = b"".join(bodies)
@@ -103,18 +104,82 @@ def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
 
 
 class PublicServer(Server):
+    request_queue_size = 1024  # Admit a 10 x 32 burst while the accept thread is descheduled.
     # Join admitted HTTP handlers before process exit, including slow payload writes.
     daemon_threads = False
+
+
+class Responses:
+    """Coalesce public polls; publication invalidates the one-second validated snapshot.
+
+    The lock only protects cache bookkeeping, never scheduler work, disk I/O or
+    socket writes. Bound both cached entries and simultaneous distinct lookups.
+    """
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.entries = OrderedDict()
+        self.pending = {}
+
+    def get(self, key, compute):
+        with self.lock:
+            entry = self.entries.get(key)
+            if entry and time.monotonic() < entry[0]:
+                self.entries.move_to_end(key)
+                return entry[1]
+            self.entries.pop(key, None)
+            event = self.pending.get(key)
+            if event is None:
+                if len(self.pending) >= 256:
+                    return 202, {"state": "queued"}
+                event = self.pending[key] = threading.Event()
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            # A cold source check must not tie up every HTTP connection.
+            if not event.wait(1):
+                return 202, {"state": "queued"}
+            with self.lock:
+                entry = self.entries.get(key)
+                return entry[1] if entry else (202, {"state": "queued"})
+        try:
+            result = compute()
+            if result[1].get("state") != "deferred":
+                with self.lock:
+                    self.entries[key] = (time.monotonic() + 1, result)
+                    self.entries.move_to_end(key)
+                    while len(self.entries) > 256:
+                        self.entries.popitem(last=False)
+            return result
+        finally:
+            with self.lock:
+                self.pending.pop(key, None)
+                event.set()
+
+
+def publication_key(builder, tile):
+    files = []
+    for name in ("manifest.json", "collision.json", "first.json", "last-full.json"):
+        try:
+            stat = (builder.root / tile / name).stat()
+            files.append((stat.st_ino, stat.st_mtime_ns, stat.st_size))
+        except FileNotFoundError:
+            files.append(None)
+    return tile, getattr(builder, "version", 0), tuple(files)
 
 
 def public_handler(builder, prefetcher, settings):
     base = handler(builder, prefetcher)
     instance = os.urandom(8).hex()
     bundles = CollisionBundles(builder.root)
+    responses = Responses()
+    admitting = {}
 
     class PublicHandler(base):
         server_version = "TurkuDrafts"
         sys_version = ""
+        protocol_version = "HTTP/1.1"
+        disable_nagle_algorithm = True
         timeout = 35  # Bound admitted slow clients while a retired slot drains.
 
         def handle_one_request(self):
@@ -219,62 +284,40 @@ def public_handler(builder, prefetcher, settings):
                     return self._json(400, {"error": "invalid demand"})
                 with builder.lock:
                     if not builder.demand.update(client, tiles, urgent, visible):
-                        return self._json(429, {"state": "queue-full"})
-                    builder.demand.prune(builder)
-                    builder.lock.notify_all()
-                    return self._json(200, {"version": builder.version, "queued": len(builder.priority),
-                                            "building": sorted(builder.building)})
+                        status, reply = 429, {"state": "queue-full"}
+                    else:
+                        builder.demand.prune(builder)
+                        builder.lock.notify_all()
+                        status, reply = 200, {"version": builder.version, "queued": len(builder.priority),
+                                              "building": sorted(builder.building)}
+                return self._json(status, reply)
             if route == "navigation":
                 return super().do_GET()
             if route == "health":
                 from turku3d.coarse.audit import health as audit_health
 
-                return self._json(200, {"state": "online", "instance": instance,
+                def health():
+                    return 200, {"state": "online", "instance": instance,
                                         "visual_audits": audit_health(builder.root),
                                         "failure_count": builder.failure_count, "failed_tiles": len(builder.failed),
                                         "active_builds": len(builder.building), "draining": builder.draining,
                                         "prebuild": idle.status() if idle else None,
                                         "build_health": builder.build_health.snapshot(
-                                            bool(builder.demand.clients) or bool(idle and idle.online))})
+                                            bool(builder.demand.clients) or bool(idle and idle.online))}
+                return self._json(*responses.get("health", health))
             if route == "invalid":
                 return self._json(404, {"error": "route"})
             name = urlparse(self.path).path.removeprefix("/coarse/").split("/", 1)[1]
             if route in ("manifest", "collision"):
-                # Condition uses an RLock; hold admission through Builder.request so racing
-                # requests cannot exceed the cap. Cached/running requests never consume a slot.
-                with builder.lock:
-                    q = parse_qs(urlparse(self.path).query)
-                    client = q.get("client", [None])[0]
-                    if client is not None and not builder.demand.wants(client, tile):
+                q = parse_qs(urlparse(self.path).query)
+                client = q.get("client", [None])[0]
+                if client is not None:
+                    with builder.lock:
+                        wanted = builder.demand.wants(client, tile)
+                    if not wanted:
                         return self._json(202, {"state": "deferred"})
-                    active = set(builder.priority) | set(builder.building) | set(builder.pending)
-                    if (
-                        tile not in active
-                        and not builder.built(tile)
-                        and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
-                        and not builder.demand.admit(builder, tile)
-                    ):
-                        fragment = collision_fragment(builder, tile)
-                        if fragment is None:
-                            return self._json(429, {"state": "queue-full"})
-                    lease = builder.demand.rank(tile) if hasattr(builder, "demand") else None
-                    # Legacy clients/prewarming have background priority, without player motion.
-                    t = C.VisualTile.parse(tile)
-                    spawn_x, _, spawn_z = C.en_to_local(C.OFFICE_E, C.OFFICE_N, 0)
-                    distance = ((t.origin[0] + t.size / 2 - spawn_x) ** 2
-                                + (t.origin[2] + t.size / 2 - spawn_z) ** 2) ** 0.5
-                    distance = lease[1] if lease is not None else distance + 1e6
-                    state = builder.request(tile, distance)
-                if route == "collision":
-                    fragment = state.get("fragment") or collision_fragment(builder, tile)
-                    if fragment is not None:
-                        return self._json(200, public_fragment(fragment))
-                if state["state"] == "failed":
-                    return self._json(404, {"state": "failed"})
-                if state["state"] != "built":
-                    return self._json(202, {k: state[k] for k in ("state", "eta") if k in state})
-                fragment = state.get("fragment") or json.loads(builder.manifest(tile).read_text())
-                return self._json(200, public_fragment(fragment))
+                return self._json(*responses.get((route, publication_key(builder, tile)),
+                                                lambda: self._manifest(route, tile, client)))
             if tile is not None and tile not in builder.servable and not (immutable_payload(name) or BUNDLE.fullmatch(name)):
                 return self._json(404, {"error": "unbuilt"})
             path = builder.root / (tile or "shared") / name
@@ -285,6 +328,49 @@ def public_handler(builder, prefetcher, settings):
                 IMMUTABLE_CACHE if immutable_payload(name) or BUNDLE.fullmatch(name) or (tile is None and SHARED.fullmatch(name))
                 else "public, max-age=0, must-revalidate"
             )
+
+        def _manifest(self, route, tile, client):
+            built = builder.built(tile)
+            with builder.lock:
+                if client is not None and not builder.demand.wants(client, tile):
+                    return 202, {"state": "deferred"}
+                active = set(builder.priority) | set(builder.building) | set(builder.pending) | set(admitting)
+                full = (tile not in active and not built
+                        and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
+                        and not builder.demand.admit(builder, tile))
+                if not full:
+                    admitting[tile] = admitting.get(tile, 0) + 1
+                lease = builder.demand.rank(tile)
+            if full:
+                fragment = collision_fragment(builder, tile)
+                if fragment is None:
+                    return 429, {"state": "queue-full"}
+                # Retained output bypasses admission but still requests its repair.
+                with builder.lock:
+                    admitting[tile] = admitting.get(tile, 0) + 1
+            # Legacy clients/prewarming have background priority, without player motion.
+            t = C.VisualTile.parse(tile)
+            spawn_x, _, spawn_z = C.en_to_local(C.OFFICE_E, C.OFFICE_N, 0)
+            distance = ((t.origin[0] + t.size / 2 - spawn_x) ** 2
+                        + (t.origin[2] + t.size / 2 - spawn_z) ** 2) ** 0.5
+            distance = lease[1] if lease is not None else distance + 1e6
+            try:
+                state = builder.request(tile, distance)
+            finally:
+                with builder.lock:
+                    admitting[tile] -= 1
+                    if not admitting[tile]:
+                        del admitting[tile]
+            if route == "collision":
+                fragment = state.get("fragment") or collision_fragment(builder, tile)
+                if fragment is not None:
+                    return 200, public_fragment(fragment)
+            if state["state"] == "failed":
+                return 404, {"state": "failed"}
+            if state["state"] != "built":
+                return 202, {k: state[k] for k in ("state", "eta") if k in state}
+            fragment = state.get("fragment") or json.loads(builder.manifest(tile).read_text())
+            return 200, public_fragment(fragment)
 
     return PublicHandler
 
