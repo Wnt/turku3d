@@ -511,7 +511,7 @@ def test_detailed_bridge_collision_is_clipped_instead_of_repeated_in_every_cell(
 
 
 def test_combined_deck_rails_exclude_caps_between_carriageway_openings():
-    from turku3d.coarse.bridges import railing_lines
+    from turku3d.coarse.bridge_details import railing_lines
 
     left = way("left", [(0, -8), (80, -8)], width=7.5)
     right = way("right", [(80, 8), (0, 8)], width=7.5)
@@ -525,7 +525,7 @@ def test_combined_deck_rails_exclude_caps_between_carriageway_openings():
 
 
 def test_adjacent_outlines_hide_inner_rails_but_keep_real_gaps_and_levels():
-    from turku3d.coarse.bridges import railing_lines
+    from turku3d.coarse.bridge_details import railing_lines
 
     road = way("road", [(0, 0), (80, 0)], width=8)
     road["outline"] = shapely.box(0, -4, 80, 4)

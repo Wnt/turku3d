@@ -10,13 +10,12 @@ import numpy as np
 import pyarrow.parquet as pq
 import shapely
 from turku3d import config as C
+from turku3d.coarse.bridge_details import deck_outline, railing_lines
 from turku3d.coarse.bridges import (
     RAILS,
-    deck_outline,
     footprint,
     merge_crossings,
     number,
-    railing_lines,
     way_width,
 )
 
