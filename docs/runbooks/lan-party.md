@@ -1,8 +1,8 @@
 # LAN warm-up, 30 October 2026
 
 Jonni's own OCI playtests are the primary LAN readiness evidence. This agent owns
-cache warm-up only. Until **29 October 23:00 UTC**, run no agent OCI probes,
-browser runs or ten-driver/client load tests. No automatic load test is scheduled.
+cache warm-up only. The waiting restriction is lifted; warm-up work proceeds now.
+No automatic load test is scheduled by this observer.
 
 Generator freeze: **30 October 04:00 Europe/Helsinki (02:00 UTC)** unless the
 orchestrator changes it. The host `~/turku3d-drafts/LAN_FREEZE.json` records the
@@ -30,14 +30,14 @@ source ../sandbox.env
 scripts/dev/codex-task wait-cmd -- python3 scripts/dev/lan_party.py watch
 ```
 
-It stays quiet until 23:00 UTC, sends the 03:30 freeze reminder, captures the frozen
+It sends the 03:30 freeze reminder, captures the frozen
 commit at 04:00, and reports warm-up start/50%/done or incomplete coverage by09:00.
 Receipts: `$TURKU3D_WORK/reports/lan-party/{freeze,latest,watch-state}.json` and
 `coverage.jsonl`. Coverage checks current generator/input/facade identities and
 payload lengths. Unsupported tiles remain separate from built coverage. ETA uses
 recent worker means, then observed frozen-cache growth; player interruptions count.
 
-After the protected test window, inspect operational health on OCI:
+Inspect operational warm-up health on OCI:
 
 ```sh
 curl --max-time 2 -fsS http://127.0.0.1:7764/coarse/health

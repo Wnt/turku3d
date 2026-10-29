@@ -1,4 +1,4 @@
-"""Warm-up-only LAN freeze reminder, deferred delivery and cache coverage observer."""
+"""Warm-up-only LAN freeze reminder and cache coverage observer."""
 
 import argparse
 import json
@@ -14,9 +14,6 @@ import lan_freeze
 
 HERE = Path(__file__).resolve().parent
 DEADLINE = "2026-10-30T09:00:00+02:00"
-QUIET_UNTIL = "2026-10-29T23:00:00+00:00"
-LOCAL_CHECKS = "bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_idle.py pipeline/tests/test_coarse_unavailable.py"
-LOCAL_ASYNC_CHECKS = "bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py -k 'builder_queues_nearest_first_and_reports_failures or structural_job_completes_then_visual_job_uses_spare_worker'"
 
 
 def message(subject, body, target="orchestrator", kind="note"):
@@ -33,15 +30,7 @@ def save(path, value):
     temporary.replace(path)
 
 
-def wait_until(when):
-    until = datetime.fromisoformat(when).timestamp()
-    while (remaining := until - time.time()) > 0:
-        time.sleep(min(30, remaining))
-
-
 def snapshot():
-    if time.time() < datetime.fromisoformat(QUIET_UNTIL).timestamp():
-        raise RuntimeError("OCI observer is quiet until 23:00 UTC for Jonni's own tests")
     command = "timeout --kill-after=2 75 nice -n 15 /home/ubuntu/turku3d-drafts/run.sh python -c "
     return json.loads(lan_freeze.remote(command + shlex.quote((HERE / "lan_host.py").read_text())))
 
@@ -53,58 +42,14 @@ def summary(row):
     return json.dumps(result)
 
 
-def deliver_after(output, result):
-    save(output / "delivery-state.json", dict(state="quiet", until=QUIET_UNTIL, pid=os.getpid()))
-    wait_until(QUIET_UNTIL)
-    command = [
-        str(HERE / "codex-task"),
-        "finish",
-        "lan-party-readiness",
-        "--result",
-        str(result),
-        "--keep-sandbox",
-        "--test",
-        LOCAL_CHECKS,
-        "--test",
-        "python3 -m unittest scripts/dev/tests/test_build_health.py scripts/dev/tests/test_lan_freeze.py",
-        "--async-test",
-        LOCAL_ASYNC_CHECKS,
-        "--async-reason",
-        "Warm-up-only scope: local worker-lifecycle integration on fixtures; no OCI, browser or load probes.",
-    ]
-    for attempt in range(2):
-        with (output / "delivery.log").open("w" if attempt == 0 else "a") as stream:
-            code = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT).returncode
-        if (
-            code == 0
-            or "main moved during selected tests" not in (output / "delivery.log").read_text()
-        ):
-            break  # Retry only the explicit pre-merge race, never a failed deployment.
-    save(
-        output / "delivery-state.json",
-        dict(state="delivered" if code == 0 else "blocked", exit=code, pid=os.getpid()),
-    )
-    if code:
-        message(
-            "Warm-up delivery needs attention",
-            "finish failed; inspect " + str(output / "delivery.log"),
-            kind="request",
-        )
-    else:
-        message(
-            "Warm-up-only slice delivered",
-            "Local checks and finish complete; freeze observer remains active. No load/browser tests scheduled.",
-        )
-    return code
-
-
 def watch(output, deadline):
     output.mkdir(parents=True, exist_ok=True)
     state_path = output / "watch-state.json"
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    state.update(scope="warm-up-only", pid=os.getpid())
+    save(state_path, state)
     end = datetime.fromisoformat(deadline).timestamp()
     next_snapshot = 0
-    wait_until(QUIET_UNTIL)
     while time.time() < end:
         try:
             marker = json.loads(lan_freeze.remote("cat " + lan_freeze.MARKER))
@@ -212,22 +157,17 @@ def watch(output, deadline):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["snapshot", "watch", "deliver-after"])
+    parser.add_argument("action", choices=["snapshot", "watch"])
     parser.add_argument(
         "--output", type=Path, default=Path(os.environ["TURKU3D_WORK"]) / "reports/lan-party"
     )
     parser.add_argument("--deadline", default=DEADLINE)
-    parser.add_argument("--result", type=Path)
     args = parser.parse_args()
     if args.action == "snapshot":
         row = snapshot()
         save(args.output / "latest.json", row)
         print(summary(row))
         return 0
-    if args.action == "deliver-after":
-        if args.result is None:
-            parser.error("--result is required for deliver-after")
-        deliver_after(args.output, args.result)
     return watch(args.output, args.deadline)
 
 
