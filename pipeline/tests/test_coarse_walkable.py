@@ -55,6 +55,13 @@ def test_constrained_river_paving_has_no_area_holes_and_bank_top_matches_dry_gro
     footprints = shapely.polygons(solid.positions[solid.indices][:, :, [0, 2]])
     cover = shapely.union_all(footprints[shapely.area(footprints) > 1e-12])
     assert shapely.box(0, 10, 30, 30).difference(cover).area < 1e-9
+    # A wet triangle centre must not hide its dry paving remainder. A bed ray
+    # or a water sensor below the missing paving is insufficient coverage.
+    window = shapely.box(0, 10, 30, 30)
+    dry_cover = shapely.union_all(shapely.polygons(dry.positions[dry.indices][:, :, [0, 2]]))
+    wet_cover = shapely.union_all(shapely.polygons(wet.positions[wet.indices][:, :, [0, 2]]))
+    assert dry_cover.symmetric_difference(window.difference(water)).area < 1e-9
+    assert wet_cover.symmetric_difference(window.intersection(water)).area < 1e-9
     top = bank.positions.reshape(-1, 4, 3)[:, :2].reshape(-1, 3)
     dry_points = {tuple(v.round(8)) for v in dry.positions}
     assert all(tuple(v.round(8)) in dry_points for v in top)
