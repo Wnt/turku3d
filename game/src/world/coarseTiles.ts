@@ -17,6 +17,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VISUAL_L0 } from '../core/origin';
 import { isLocalHost } from '../core/localOnly';
 import { draftsUrl } from '../net/config';
+import { ServiceDown, gatewayDown, backoff, retryAfter } from '../net/draftRetry';
 import type { Manifest, ManifestEntry, ParkedVehicle } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
@@ -33,16 +34,6 @@ export const RESTARTING = 'drafts: service restarting';
 
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
 class DraftRejected extends Error {}
-/** The service did not answer (connection error, or the dev server's 502-504 for it): it is restarting. */
-class ServiceDown extends Error { constructor(readonly retryAfter = 0) { super('draft service temporarily unavailable'); } }
-const gatewayDown = (status: number) => status === 408 || status >= 500;
-const backoff = (attempt: number) => Math.min(30_000, 2000 * 2 ** Math.min(attempt, 4)) * (0.75 + Math.random() * 0.5);
-const retryAfter = (response: Response) => {
-  const value = response.headers?.get('Retry-After');
-  if (!value) return 0;
-  const seconds = Number(value);
-  return Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(value) - Date.now()) || 0;
-};
 
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean; attempts: number }
