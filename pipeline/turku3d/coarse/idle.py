@@ -136,6 +136,9 @@ class IdlePrebuild:
 
     def tick(self):
         b = self.builder
+        if b.draining:
+            # Deployment retirement preserves in-flight idle work as well.
+            return
         try:
             online = self.presence()
         except (OSError, ValueError):

@@ -85,9 +85,19 @@ def deploy(repo, commit):
                     generator_unchanged=True,
                     multiplayer=deploy_multiplayer(destination))
     # Keep the old producer serving while a standby binds the alternate port. Its
-    # workers stay paused until the old process group has stopped writing caches.
-    active = remote(f"cat {HOME}/ACTIVE_PORT 2>/dev/null || echo 7765")
-    port = 7766 if active == "7765" else 7765
+    # workers stay paused until the proxy switches. Tile locks serialize any
+    # overlap with retiring workers, which finish their existing builds.
+    # A previous slot may still be finishing its admitted builds. Do not wait
+    # for it or terminate useful work just to reuse its listening port.
+    select_port = """import socket
+for port in range(7765, 7770):
+ with socket.socket() as sock:
+  try: sock.bind(('127.0.0.1', port))
+  except OSError: continue
+  print(port); break
+else: raise SystemExit('all producer ports are occupied by active/retiring slots')
+"""
+    port = int(remote("python3 -c " + shlex.quote(select_port)))
     unit = f"turku-drafts-slot@{port}"
     old_unit = remote(f"cat {HOME}/ACTIVE_UNIT 2>/dev/null || echo turku-drafts")
     remote(
@@ -140,12 +150,10 @@ else: raise SystemExit('proxy did not switch to standby within5s')
     remote("python3 -c " + shlex.quote(switched))
     remote("if test -f ~/.config/systemd/user/turku-drafts-prebuild.service; then "
            "systemctl --user stop turku-drafts-prebuild; fi && "
-           f"systemctl --user stop {old_unit} && "
+           f"systemctl --user stop --no-block {old_unit} && "
            f"systemctl --user disable {old_unit}")
-    cache_storage = remote(
-        f"{HOME}/run.sh python {destination}/tools/remote-drafts/cache-storage.py "
-        f"--work /srv/turku3d/work --destination /home/ubuntu/turku3d-cache"
-    )
+    # Cache relocation/compression is a completed one-time maintenance operation,
+    # not deployment work. Running it here would race retiring cache writers.
     restarted = remote(
         f"echo {commit} > {HOME}/SOURCE_COMMIT && "
         f"echo {port} > {HOME}/ACTIVE_PORT && echo {unit} > {HOME}/ACTIVE_UNIT && "
@@ -173,7 +181,7 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         active_port=port,
         rsync=result.stdout,
         multiplayer=multiplayer,
-        cache_storage=cache_storage,
+        retiring_unit=old_unit,
     )
 
 

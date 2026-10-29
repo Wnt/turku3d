@@ -207,3 +207,21 @@ def test_visual_data_wait_does_not_requeue_structural_job(tmp_path):
     assert builder.request(tile, 0)['state'] == 'queued'
     assert builder.upgrade_queue == {tile} and not builder.priority
     builder.stop()
+
+
+def test_retirement_preserves_expired_running_jobs_and_the_handover_journal(tmp_path):
+    b = Builder(tmp_path, code='test', workers=0)
+    cancelled = []
+    b.run = SimpleNamespace(cancel=lambda t: cancelled.append(t) or True)
+    tile = 't0_0_0'
+    b.request(tile, 0)
+    b.building[tile] = time.time() - 120
+    b.upgrading.add(tile)
+    b.demand.update('driver', [tile], [], [tile])
+    b.demand.update('driver', [], [], [])
+    b.drain()
+    b.demand.prune(b)
+    assert not cancelled
+    assert tile in b.journal.rows
+    assert next_job(b) is None
+    b.stop()
