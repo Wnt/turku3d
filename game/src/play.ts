@@ -48,7 +48,6 @@ import { applyHot, markResume, takeResume, type HotPlay, type PlaySession } from
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
-import { holdCar, holdFoot } from './world/collisionStreaming';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
 import { browserStorage, sessionStore } from './core/storage';
@@ -395,8 +394,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         : { throttle: input.actions.throttle, steer: input.actions.steer,
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
-    if (carIn && vs) carIn = holdCar(carIn, vs.forwardSpeed, streamer.speedLimit(feet.x, feet.z, vel.x, vel.z)); // unloaded collision ahead
-    else if (!fly?.active) charIn = holdFoot(charIn, streamer.speedLimit(feet.x, feet.z, charIn.vx, charIn.vz));
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,

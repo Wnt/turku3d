@@ -12,8 +12,8 @@ cells in the physics worker, styles the GLB offscreen, and only then exposes the
 `VisualTiles` owns resident models, shadow batches and model lifecycle events; it
 performs no HTTP requests. `CollisionStreamer` loads the draft collision inventory
 by distance and velocity, keeps edge walls at missing cells, and swaps changed cells. Entering play restores the normal 200 m ring and velocity lookahead.
-The 80 m startup footprint covers the safe-street search; worker swept coverage and
-speed holds still prevent movement onto collision that has not arrived.
+The 80 m startup footprint covers the safe-street search; worker swept coverage still
+prevents movement onto collision that has not arrived. There is no speed hold near the edge.
 
 The local service receives position/velocity hints. Pages uses the public HTTPS
 endpoint selected by `VITE_DRAFT_URL` (default `https://turku.lab.madekivi.fi/coarse/`),

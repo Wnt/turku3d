@@ -2,7 +2,7 @@
 // the worker exist (no edge wall faces them), the gentle hold near unloaded ones, and that a city-sized manifest does
 // not stall the main thread.
 import { test, expect, vi } from 'vitest';
-import { CollisionStreamer, holdCar, holdFoot } from '../../src/world/collisionStreaming';
+import { CollisionStreamer } from '../../src/world/collisionStreaming';
 
 function fakes(ni: number, nj: number) {
   const collision: Record<string, { url: string; bytes: number }> = {};
@@ -120,25 +120,6 @@ test('the worker learns the neighbours of loaded tiles that exist; a tile that f
   physics.unloadTile('c_0_0');
   s.update(500, 500, true);
   expect([...physics.known]).toEqual([]);
-});
-
-test('near a tile that exists but is not loaded the player is held to a speed that stops before it', () => {
-  const { manifest, physics } = fakes(4, 1);
-  for (const id of ['c_0_0', 'c_1_0']) physics.loaded.set(id, {});
-  const s = new CollisionStreamer(manifest, physics as never, 100);
-  // 30 m before c_2_0 (x 125), moving east: stops within 28.5 m at 6 m/s².
-  expect(s.speedLimit(95, 30, 40, 0)).toBeCloseTo(Math.sqrt(2 * 6 * 28.5), 5);
-  expect(s.speedLimit(95, 30, -40, 0)).toBe(Infinity); // moving away
-  expect(s.speedLimit(124, 30, 5, 0)).toBe(0);
-  physics.loaded.set('c_2_0', {}); physics.loaded.set('c_3_0', {});
-  expect(s.speedLimit(95, 30, 40, 0)).toBe(Infinity);
-  // A car above the limit brakes (reversing: brakes with the throttle); a walker slows down.
-  const drive = { throttle: 1, steer: 0.2, brake: 0, handbrake: false };
-  expect(holdCar(drive, 20, 25)).toBe(drive);
-  expect(holdCar(drive, 30, 20)).toEqual({ throttle: 0, steer: 0.2, brake: 1, handbrake: false });
-  expect(holdCar(drive, 20.5, 20)).toEqual({ throttle: 0, steer: 0.2, brake: 0.3, handbrake: false });
-  expect(holdCar({ ...drive, throttle: 0, brake: 1 }, -8, 2)).toEqual({ throttle: 1, steer: 0.2, brake: 0, handbrake: false });
-  expect(holdFoot({ vx: 6, vz: 8, jump: false }, 5)).toEqual({ vx: 3, vz: 4, jump: false });
 });
 
 test('preloads the union of distant starts and does not evict either while the menu focus changes', async () => {
