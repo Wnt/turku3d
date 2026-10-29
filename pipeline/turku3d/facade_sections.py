@@ -14,6 +14,13 @@ def prepare(program):
     for wall in program.get("walls", []):
         form = wall.get("structure", {})
         if not form.get("render_deferred"):
+            # An explicitly reviewed negative clears sampled balcony rails.
+            if form.get("balconies") == [] and form.get("confidence", {}).get("balconies", 0) > 0:
+                wall["balconies"] = dict(
+                    value=[],
+                    source="direct structure-only review",
+                    support=form["confidence"]["balconies"],
+                )
             continue
         parts, unsupported = sections(form, program.get("storeys", {}).get("value"))
         wall["render_sections"] = parts
@@ -25,11 +32,11 @@ def prepare(program):
     return program
 
 
-def paint(vertices, wall, style, quad, direction, normal, offset, sign, y0):
+def paint(vertices, wall, style, quad, offset, sign, y0):
     from turkutex.facade_structure import FIELDS, compile_structure
 
     from turku3d.facade_kit import MATERIALS
-    from turku3d.facade_program_geometry import wall_parts
+    from turku3d.facade_program_geometry import _paint_layers
 
     mw, mh = wall["measured_size"]
     width = float(((vertices[1] - vertices[0]) ** 2).sum() ** 0.5)
@@ -44,7 +51,8 @@ def paint(vertices, wall, style, quad, direction, normal, offset, sign, y0):
                 [0, vertices[3, 1]],
             ]
         ),
-        style,
+        {**style, "unreviewed": True},
+        0,
     )
     for section in wall["render_sections"]:
         x, y, w, h = section["bounds"]
@@ -64,7 +72,7 @@ def paint(vertices, wall, style, quad, direction, normal, offset, sign, y0):
                     if module >= 42
                     else MATERIALS.index(mat) * 6 + module % 6
                 )
-            yield part[0] + normal * 0.0005, part[1], {**style, "module": module}
+            yield *part, {**style, "module": module}, 1
             continue
         count, rows = section["count"], section["rows"]
         form = dict(
@@ -107,6 +115,13 @@ def paint(vertices, wall, style, quad, direction, normal, offset, sign, y0):
         section_style = compile_wall(compiled, rows)
         section_style.update(wall=style["wall"], base=style["base"], trim=style["trim"])
         section_style["origin"] = [0, y0 + y]
-        for points, uv, instruction in wall_parts(part[0], compiled, section_style):
-            # wall_parts UVs are local to the clipped subsection; these patches are independent.
-            yield points + normal * 0.001, uv, instruction
+        shift = max(0, ends[0])
+        for points, uv, instruction, priority in _paint_layers(part[0], compiled, section_style):
+            # The compositor and shader both need the parent wall's metric UV frame.
+            uv = uv.copy()
+            uv[:, 0] += shift
+            instruction = {
+                **instruction,
+                "origin": [instruction["origin"][0] + shift, instruction["origin"][1]],
+            }
+            yield points, uv, instruction, priority + 1

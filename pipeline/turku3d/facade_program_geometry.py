@@ -40,7 +40,8 @@ def _paint_layers(vertices, wall, style):
         yield (
             vertices,
             np.array([[0, a[1]], [width, a[1]], [width, vertices[2, 1]], [0, vertices[3, 1]]]),
-            style, 0,
+            style,
+            0,
         )
         return
     coordinates = geometry.get("coordinates") or [geometry["p0"], geometry["p1"]]
@@ -96,7 +97,8 @@ def _paint_layers(vertices, wall, style):
             yield (
                 part[0],
                 part[1],
-                {**blank, "module": 42 + MATERIALS.index(material)}, 1,
+                {**blank, "module": 42 + MATERIALS.index(material)},
+                1,
             )
     # Occluded regions have no measured negative: retain their existing/rule treatment.
     for x, y, w, h in wall.get("observation", {}).get("excluded_rectangles_m", []):

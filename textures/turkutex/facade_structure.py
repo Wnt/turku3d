@@ -344,7 +344,7 @@ def compile_structure(row, form, register_floors):
             ornament_level=observed(form["ornament"], "ornament"),
         ),
         corners={k: unknown() for k in ("quoins", "shape", "tower")},
-        balconies=observed(balconies, "balconies") if balconies else unknown(),
+        balconies=observed(balconies, "balconies") if confidence["balconies"] > 0 else unknown(),
         bay_windows=unknown(),
         style_era=unknown(),
     )
