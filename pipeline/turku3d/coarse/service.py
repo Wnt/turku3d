@@ -30,7 +30,7 @@ from .demand import Demand, write_snapshot
 from .packaging import current_code
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
-from .service_state import failed_identity, tile_current
+from .service_state import failed_identity, tile_current, unavailable_reply
 from .service_state import snapshot as state_snapshot
 from .serving import retained_fragment as collision_fragment
 from .sources import NoCoverage, Sources, Unit
@@ -249,6 +249,8 @@ class Builder:
         """Queue or re-prioritise a tile; returns its state."""
         with self.lock:
             self.requested[tile] = time.time()
+            if unavailable := unavailable_reply(self, tile):
+                return unavailable
             # A worker may have written its manifest but not committed its completion yet.
             # Publish only after counters, timings and servability are updated under this lock.
             if tile in self.building:
