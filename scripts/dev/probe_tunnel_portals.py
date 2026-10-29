@@ -1,9 +1,11 @@
-"""Local real-tile portal builds and packed collision evidence during the OCI probe hold."""
+"""Real-tile portal builds and packed collision evidence against frozen OCI source."""
 
 import argparse
 import hashlib
 import json
 import shlex
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -46,7 +48,7 @@ def audit_collision(tile, inputs, manifest, out):
 
     ground = terrain_sampler(inputs.points)
     p, ix = grid_mesh(tile, inputs.heights)
-    ways = [w for w in inputs.tunnels if w[0] in ("306412192", "547774959")]
+    ways = [w for w in inputs.tunnels if "306412192" in w[0].split("+")]
     geometry = tunnels.produce(
         tile, ways, p, ix, [], extrude, tunnels.ground_sampler(ground), ground
     )
@@ -54,9 +56,9 @@ def audit_collision(tile, inputs, manifest, out):
     for line, stations, heights, width in geometry.profiles:
         key = next(key for key, axis, _ in ways if axis.equals(line))
         floors[key] = [float(heights[0]), float(heights[-1])]
-        if key == "306412192":
+        if "306412192" in key.split("+"):
             assert 3 < heights[0] < 3.5 and 4.5 < heights[-1] < 5.3, floors
-        clearance = 4.5 if key == "306412192" else 2.5
+        clearance = 4.5 if "306412192" in key.split("+") else 2.5
         for station in np.arange(1, line.length - 1, 3):
             point = np.array(line.interpolate(float(station)).coords[0])
             tangent = np.array(line.interpolate(float(station + 0.1)).coords[0]) - point
@@ -109,10 +111,54 @@ def source_receipt(commit):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--wfs-cache", type=Path, required=True)
+    parser.add_argument("--local", action="store_true")
+    parser.add_argument("--root", type=Path)
+    parser.add_argument("--wfs-cache", type=Path)
     parser.add_argument("--commit", required=True)
     args = parser.parse_args()
+    if not args.local:
+        result = dict(commit=args.commit, builds=[])
+        for name in ("t0_-6_7", "t0_-6_6"):
+            row = json.loads(
+                subprocess.check_output(
+                    [
+                        sys.executable,
+                        "scripts/dev/probe_drafts.py",
+                        "--commit",
+                        args.commit,
+                        "--tile",
+                        name,
+                        "--first-budget",
+                        "45",
+                        "--full-budget",
+                        "150",
+                    ],
+                    text=True,
+                )
+            )
+            root = f"{HOME}/sources/{args.commit}"
+            program = """import sys,json
+from pathlib import Path
+sys.path.insert(0, 'scripts/dev')
+from probe_tunnel_portals import audit_collision
+from turku3d import config as C
+from turku3d.coarse.inputs import gather
+from turku3d.coarse.sources import Sources
+tile=C.VisualTile.parse(TILE)
+out=Path(OUTPUT)
+inputs=gather(tile,Path('/srv/turku3d/work/coarse'),Sources())
+print(json.dumps(audit_collision(tile, inputs, json.loads((out/'manifest.json').read_text()), out)))
+""".replace("TILE", repr(name)).replace("OUTPUT", repr(row["output"]))
+            command = shlex.join([f"{root}/tools/remote-drafts/run.sh", "python", "-c", program])
+            row["packed_clearance"] = json.loads(
+                remote("TURKU3D_DRAFT_SOURCE=" + shlex.quote(root) + " " + command)
+            )
+            result["builds"].append(row)
+            print(json.dumps(row), flush=True)
+        print(json.dumps(result), flush=True)
+        return
+    if args.root is None or args.wfs_cache is None:
+        parser.error("--local requires --root and --wfs-cache")
     args.root.mkdir(parents=True, exist_ok=True)
     sources = Sources()
     sources.wfs = _Files(args.wfs_cache, "*/*.summary.json")

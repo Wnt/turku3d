@@ -381,6 +381,25 @@ def cut_ground(mesh, openings):
     ).compact()
 
 
+def from_inputs(cache, tile, inputs, grid_pos, sample, dry, solid, sources, decks):
+    from .stages import kerb_inputs
+
+    neighbours = kerb_inputs(tile, sources) if inputs.stairs[0] or inputs.barriers else None
+    return stage(
+        cache,
+        tile,
+        inputs.stairs,
+        grid_pos,
+        sample,
+        dry,
+        solid,
+        neighbours,
+        decks,
+        inputs.barriers,
+        inputs.water,
+    )
+
+
 def stage(
     cache, tile, prepared, grid_pos, sample, dry, solid, neighbours, decks=(), barriers=(), water=()
 ):

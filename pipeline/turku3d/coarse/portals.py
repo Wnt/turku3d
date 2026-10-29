@@ -8,6 +8,74 @@ from turku3d.structures.geometry import Faces, profile_wall
 PATHS = {"footway", "path", "cycleway", "pedestrian", "steps"}
 
 
+def merge_companions(ways, dimensions):
+    """Adjacent road and path ways can describe lanes of one curved tunnel shell."""
+    remaining = {key: (key, line, tags) for key, line, tags in ways}
+    result = []
+    for key, line, tags in ways:
+        if key not in remaining or tags.get("highway") in PATHS or not tags.get("highway"):
+            continue
+        if tags.get("tunnel") != "yes" or tags.get("vault") or tags.get("_companions"):
+            continue
+        width, height = dimensions(tags)
+        coords = np.asarray(line.coords)
+        tangent = np.gradient(coords, axis=0)
+        length = np.linalg.norm(tangent, axis=1)
+        if np.any(length < 1e-6):
+            continue
+        tangent /= length[:, None]
+        normal = np.c_[-tangent[:, 1], tangent[:, 0]]
+        low, high = np.full(len(coords), -width / 2), np.full(len(coords), width / 2)
+        companions = []
+        for other_key, other, other_tags in list(remaining.values()):
+            if (
+                other_tags.get("highway") not in PATHS
+                or other_tags.get("tunnel") != "yes"
+                or other_tags.get("vault")
+            ):
+                continue
+            if (
+                other_tags.get("layer", "0") != tags.get("layer", "0")
+                or not 0.85 < other.length / line.length < 1.15
+            ):
+                continue
+            ow, oh = dimensions(other_tags)
+            if "maxheight" in tags and "maxheight" in other_tags and abs(height - oh) > 0.5:
+                continue
+            projected = np.array([line.project(shapely.Point(p)) for p in other.coords])
+            if abs(projected[-1] - projected[0]) < line.length * 0.85:
+                continue
+            query = shapely.line_interpolate_point(line, np.linspace(0, line.length, 16))
+            distance = shapely.distance(query, other)
+            if distance.min() < width / 2 or distance.max() > (width + ow) / 2 + 2:
+                continue
+            nearest = shapely.get_coordinates(
+                shapely.line_interpolate_point(
+                    other, shapely.line_locate_point(other, shapely.points(coords))
+                )
+            )
+            lateral = ((nearest - coords) * normal).sum(axis=1)
+            if not (np.all(lateral > 0) or np.all(lateral < 0)):
+                continue
+            low, high = np.minimum(low, lateral - ow / 2), np.maximum(high, lateral + ow / 2)
+            companions.append(dict(id=other_key, line=other, width=ow))
+        if not companions:
+            continue
+        axis = shapely.LineString(coords + normal * ((low + high) / 2)[:, None])
+        combined = dict(
+            tags,
+            width=str(float(np.max(high - low))),
+            maxheight=str(height),
+            _road_axis=line,
+            _companions=companions,
+        )
+        result.append(("+".join([key, *[p["id"] for p in companions]]), axis, combined))
+        del remaining[key]
+        for companion in companions:
+            del remaining[companion["id"]]
+    return [*result, *remaining.values()]
+
+
 def approaches(ways, roads):
     """Keep mapped continuations, including their bends, for stable portal heights."""
     tree = shapely.STRtree([line.boundary for line, _ in roads])
@@ -15,7 +83,8 @@ def approaches(ways, roads):
     for key, line, tags in ways:
         foot = tags.get("highway") in PATHS
         joined = []
-        for point in (shapely.Point(line.coords[0]), shapely.Point(line.coords[-1])):
+        axis = tags.get("_road_axis", line)
+        for point in (shapely.Point(axis.coords[0]), shapely.Point(axis.coords[-1])):
             candidates = [
                 roads[i]
                 for i in tree.query(point, predicate="dwithin", distance=0.05)
@@ -42,7 +111,8 @@ def anchors(line, tags, sample, ends, rendered=None):
         else:
             station = (
                 distance
-                if np.linalg.norm(np.asarray(road.coords[0]) - end) < 0.05
+                if np.linalg.norm(np.asarray(road.coords[0]) - end)
+                <= np.linalg.norm(np.asarray(road.coords[-1]) - end)
                 else road.length - distance
             )
             points = shapely.get_coordinates(shapely.line_interpolate_point(road, station))
@@ -57,6 +127,30 @@ def anchors(line, tags, sample, ends, rendered=None):
         ):
             ends[i], repaired[i] = min(ends[i], base), True
     return ends, repaired
+
+
+def dividers(key, tags, floor_height):
+    """A low curb separates mapped cycle/pedestrian lanes under a common roof."""
+    result = []
+    for companion in tags.get("_companions", []):
+        axis = companion["line"]
+        edges = [axis.offset_curve(sign * companion["width"] / 2) for sign in (-1, 1)]
+        edge = min(edges, key=lambda g: g.distance(tags["_road_axis"]))
+        if edge.geom_type != "LineString":
+            continue
+        points = np.asarray(edge.coords)
+        floor = floor_height(points)
+        mesh = profile_wall(
+            f"tunnel:{key}:divider",
+            points,
+            floor - 0.05,
+            floor + 0.12,
+            thickness=0.15,
+            material="curb",
+        )
+        mesh.metadata["portal"] = True
+        result.append(mesh)
+    return result
 
 
 def grounded_wall(object_id, xz, bottom, top, sample, step, *, thickness=0.3):
@@ -167,3 +261,22 @@ def mouths(corridor, xz, left, right, direction, aprons, repaired):
         a, b = left[end], right[end]
         bands.append(shapely.Polygon([a, b, b + inward * depth, a + inward * depth]))
     return shapely.union_all([*(corridor.intersection(band) for band in bands), *aprons])
+
+
+def terrain_visuals(meshes, tile, rgb, streets=(), regions=()):
+    """Cut terrain keeps its ground imagery/materials, rather than tunnel concrete."""
+    from . import surfaces
+
+    result = []
+    for mesh in meshes:
+        if mesh.object_id != "tunnel:ground-edge":
+            continue
+        ids = surfaces.classify(
+            mesh.positions[mesh.indices].mean(axis=1), rgb, tile, streets, regions
+        )
+        result.extend(
+            surfaces.visuals(
+                tile, mesh.positions, mesh.indices, ids, np.ones(len(ids), bool), ortho=rgb
+            )
+        )
+    return result

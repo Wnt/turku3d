@@ -138,6 +138,7 @@ def merge_parallel(ways):
     Group complete OSM ways before tile filtering so neighbouring tiles use identical portals.
     Curved tunnels remain separate unless their full geometry fits the same near-straight axis.
     """
+    ways = portals.merge_companions(ways, dimensions)
     groups = []
     for way in sorted(ways, key=lambda w: w[0]):
         key, line, tags = way
@@ -321,22 +322,7 @@ class Tunnels:
         ]
 
     def terrain_visuals(self, tile, rgb, streets=(), regions=()):
-        """Cut terrain keeps its ground imagery/materials, rather than tunnel concrete."""
-        from . import surfaces
-
-        result = []
-        for mesh in self.meshes:
-            if mesh.object_id != "tunnel:ground-edge":
-                continue
-            ids = surfaces.classify(
-                mesh.positions[mesh.indices].mean(axis=1), rgb, tile, streets, regions
-            )
-            result.extend(
-                surfaces.visuals(
-                    tile, mesh.positions, mesh.indices, ids, np.ones(len(ids), bool), ortho=rgb
-                )
-            )
-        return result
+        return portals.terrain_visuals(self.meshes, tile, rgb, streets, regions)
 
     def collision(self, ct, pos, idx, mat):
         positions, indices, materials = [pos], [idx], [mat]
@@ -466,8 +452,10 @@ def produce(
             if corridor.intersects(window):
                 profiles.append((line, distances, floor, width))
                 for i in range(len(xz) - 1):
-                    for side in ([left[i], left[i + 1], right[i + 1]],
-                                 [left[i], right[i + 1], right[i]]):
+                    for side in (
+                        [left[i], left[i + 1], right[i + 1]],
+                        [left[i], right[i + 1], right[i]],
+                    ):
                         q = np.asarray(side)
                         heights = np.array([height_at(x, z) for x, z in q])
                         openings.floors.append(np.c_[q[:, 0], heights, q[:, 1]])
@@ -659,6 +647,7 @@ def produce(
         )
         openings.add(meshes[-1], clearance)
         meshes.append(tube.mesh(f"tunnel:{key}:roof", "wall"))
+        meshes.extend(portals.dividers(key, tags, floor_height))
         if lamps.indices:
             lamp = lamps.mesh(f"tunnel:{key}:lights", "wall")
             lamp.metadata["lamp"] = True

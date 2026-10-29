@@ -93,3 +93,25 @@ def test_portal_header_follows_bank_cross_section_including_middle_peak():
     )
     assert abs(frames[0].positions[:, 1].max() - 14) < 0.01
     assert frames[0].positions[:, 1].min() < 2
+
+
+def test_curved_road_and_cycleway_share_one_open_shell_with_low_curb():
+    line = shapely.LineString([(30, 20), (30, 35), (45, 55)])
+    walk = shapely.LineString(list(line.offset_curve(-6.5).coords)[::-1])
+    ways = [
+        ("motor", line, dict(highway="residential", tunnel="yes", layer="-1", width="8")),
+        ("cycle", walk, dict(highway="cycleway", tunnel="yes", layer="-1", width="3")),
+    ]
+    merged = tunnels.merge_parallel(ways)
+    assert len(merged) == 1
+    assert set(merged[0][0].split("+")) == {"motor", "cycle"}
+    assert len(merged[0][1].coords) > 2
+    width, height = tunnels.dimensions(merged[0][2])
+    assert 11 < width < 14 and height == 4.5
+    tile = C.VisualTile(0, 0, 0)
+    p, ix = grid_mesh(tile, np.full((129, 129), 2.0))
+    result = tunnels.produce(tile, merged, p, ix, [], extrude, lambda x, z: 2)
+    assert len(result.profiles) == 1
+    assert sum(":portal:" in m.object_id for m in result.meshes) == 2
+    divider = next(m for m in result.meshes if m.object_id.endswith(":divider"))
+    assert abs(divider.positions[:, 1].max() - 2.12) < 1e-8
