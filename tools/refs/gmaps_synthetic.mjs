@@ -11,7 +11,7 @@ import {chromeExecutable, chromeArgs, chromeIgnoreDefaultArgs} from '../dev/chro
 const tools = process.env.GMAPS_TOOLS;
 const {chromium} = createRequire(path.join(tools, 'package.json'))('playwright');
 const invocation = JSON.parse(fs.readFileSync(process.argv[2]));
-const root = path.join(process.env.TURKU3D_WORK, 'gmaps-round3/synthetic');
+const root = path.join(process.env.GMAPS_ROOT || path.join(process.env.TURKU3D_WORK, 'gmaps-round3'), 'synthetic');
 const codeHash = crypto.createHash('sha256').update(['gmaps_synthetic.mjs', 'gmaps_synthetic_transport.mjs', 'gmaps_synthetic_plan.py', 'gmaps_capture_state.mjs'].map(name => fs.readFileSync(fileURLToPath(new URL(name, import.meta.url)))).join('\n')).digest('hex');
 const catalogue = new ResponseCatalogue(path.join(root, 'sessions', invocation.session));
 const browserStarted = Date.now();
@@ -75,7 +75,6 @@ try {
   await page.waitForFunction(() => window.__gmapsTemplates?.NodeData && window.__gmapsTemplates?.BulkMetadata, {timeout:30000});
   for (let check=0; (await mode.innerText()).trim() !== '2D' && check<40; check++) await page.waitForTimeout(250);
   if ((await mode.innerText()).trim() !== '2D') throw new Error('Native 3D mode not active');
-  await page.screenshot({path: path.join(root, `native-${invocation.session}.jpg`)});
   for (const quarter of invocation.quarters) {
     if (stopped || Date.now() >= invocation.deadline_ms) break;
     const out = path.join(root, 'captures', quarter.coverage_id);
