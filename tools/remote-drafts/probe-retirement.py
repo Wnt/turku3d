@@ -78,8 +78,11 @@ def main():
                 for tiles in ['', 't0_9_9', '', 't0_8_9']:
                     get(base + f'demand?client=retirement-test&tiles={tiles}&urgent={tiles}')
                 while time.monotonic() - signalled < 300:
-                    manifest = json.loads((root / tile / 'manifest.json').read_text())
-                    if manifest['pass_kind'] == 'full' and time.monotonic() - signalled > 13:
+                    # First-pass publication is collision.json. A fresh service
+                    # has no full manifest until this very upgrade completes.
+                    path = root / tile / 'manifest.json'
+                    manifest = json.loads(path.read_text()) if path.exists() else {}
+                    if manifest.get('pass_kind') == 'full' and time.monotonic() - signalled > 13:
                         break
                     if proc.poll() is not None:
                         raise RuntimeError('producer exited during demand churn')
@@ -106,8 +109,26 @@ def main():
             print(json.dumps(result))
         finally:
             if proc.poll() is None:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
+                proc.send_signal(signal.SIGTERM)
+                try:
+                    proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+            # Workers deliberately have independent process groups. On a probe
+            # timeout, clean only groups bearing this probe's unique work path.
+            owned = f'TURKU3D_WORK={work}'.encode()
+            for entry in Path('/proc').iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    if owned not in (entry / 'environ').read_bytes().split(b'\0'):
+                        continue
+                    pid = int(entry.name)
+                    if os.getpgid(pid) == pid:
+                        os.killpg(pid, signal.SIGKILL)
+                except (FileNotFoundError, ProcessLookupError, PermissionError):
+                    pass
 
 
 if __name__ == '__main__':
