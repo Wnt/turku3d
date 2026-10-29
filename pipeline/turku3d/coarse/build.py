@@ -315,14 +315,9 @@ def build(
     )
     # Later bank, stair and retaining aprons must respect the same walkable
     # volume as the tunnel floor. Preserve upper roads and buried foundations.
-    dry, river, bank, solid, stair_meshes = cache.run(
-        "opening_clearance",
-        source_key(Path(__file__).with_name("openings.py")),
-        [tunnels.openings, dry, river, bank, solid, stair_meshes],
-        lambda: (
-            *(tunnels.openings.ground(mesh) for mesh in (dry, river, bank, solid)),
-            tunnels.openings.structures(stair_meshes),
-        ),
+    from .openings import stage as opening_stage
+    dry, river, bank, solid, stair_meshes = opening_stage(
+        cache, tunnels.openings, dry, river, bank, solid, stair_meshes
     )
     seconds["opening_clearance"] = cache.metrics["opening_clearance"]["seconds"]
     kerb_meshes = cache.run(

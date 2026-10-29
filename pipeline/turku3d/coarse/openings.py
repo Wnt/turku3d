@@ -143,3 +143,17 @@ def subtract(poly, planes):
         if len(poly) < 3:
             break
     return result
+
+
+def stage(cache, openings, dry, river, bank, solid, structures):
+    """Apply the shared opening after terrain and retaining enrichment."""
+    from pathlib import Path
+
+    from turku3d.stage_cache import source_key
+
+    return cache.run(
+        "opening_clearance", source_key(Path(__file__)),
+        [openings, dry, river, bank, solid, structures],
+        lambda: (*(openings.ground(mesh) for mesh in (dry, river, bank, solid)),
+                 openings.structures(structures)),
+    )
