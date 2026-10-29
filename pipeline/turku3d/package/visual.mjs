@@ -24,10 +24,10 @@ const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrim
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 const sharp = (await dep('sharp')).default;
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
-let meshCache;
+let meshCache, cacheRequest;
 const meshEncoder = cachedEncoder(MeshoptEncoder,
   createHash('sha256').update(fs.readFileSync(require.resolve('meshoptimizer/encoder'))).digest('hex'),
-  () => meshCache);
+  () => meshCache, file => useTextureCache(cacheRequest, file));
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.encoder': meshEncoder.encoder, 'meshopt.decoder': MeshoptDecoder });
 function run(tool, args) {
@@ -85,6 +85,7 @@ async function encodeFacade(t, request) {
   }
 }
 async function assembleVisual(request) {
+  cacheRequest = request;
   meshCache = path.join(request.textureCache, 'meshopt');
   const initialHits = meshEncoder.stats.hits, initialMisses = meshEncoder.stats.misses;
   const seconds = {};

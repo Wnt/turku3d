@@ -29,7 +29,7 @@ COLOURS = {
 }
 
 
-def visual(tile, cells, shells=(), wall_context=(), *, root=None):
+def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
     """Reuse structural surfaces, assembling building walls once for both passes."""
     positions, indices, materials = [], [], []
     count = 0
@@ -89,12 +89,26 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None):
             )
     from turku3d.wall_assembly import assemble_structures
 
-    meshes = assemble_structures(building_meshes + meshes)
-    validate_meshes(meshes, tile.id)
+    raw = building_meshes + meshes
+    def assemble():
+        result = assemble_structures(raw)
+        validate_meshes(result, tile.id)
+        return result
+    if cache is None:
+        meshes = assemble()
+    else:
+        from pathlib import Path
+        from turku3d.stage_cache import source_key
+        from turku3d import wall_assembly, wall_surfaces
+
+        meshes = cache.run("basic_walls", source_key(Path(wall_assembly.__file__),
+                           Path(wall_surfaces.__file__)), raw, assemble)
     if root is not None:
         from turku3d.wall_surfaces import validate_neighbours
 
-        validate_neighbours(meshes, shells, tile, root, pass_kind="first")
+        from contextlib import nullcontext
+        with cache.measure("basic_neighbours") if cache else nullcontext():
+            validate_neighbours(meshes, shells, tile, root, pass_kind="first")
     data = build_glb(
         meshes, root_translation=tile.origin, root_extras={"basic": True, "tile": tile.id}
     )
@@ -118,12 +132,13 @@ def publish(
     started,
     shells=(),
     wall_context=(),
+    cache=None,
 ):
     from .build import _entry, _write
     from .collision_key import code_hash
 
     t = time.perf_counter()
-    data, triangles, height = visual(tile, cells, shells, wall_context, root=out.parent)
+    data, triangles, height = visual(tile, cells, shells, wall_context, root=out.parent, cache=cache)
     url = f"vis.{hashlib.sha256(data).hexdigest()}.glb"
     _write(out / url, data)
     roads_entry = None

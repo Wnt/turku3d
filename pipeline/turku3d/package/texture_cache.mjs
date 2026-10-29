@@ -13,8 +13,8 @@ export function retainTextureCache(request) {
   const current = [...(request.usedTextureCache ?? [])].sort();
   const generations = [current, ...previous.filter(row => JSON.stringify(row) !== JSON.stringify(current))].slice(0, 2);
   const keep = new Set(generations.flat());
-  for (const name of fs.readdirSync(request.textureCache)) {
-    // The mesh cache has its own identity; interrupted codec temporaries are disposable.
+  for (const name of fs.readdirSync(request.textureCache, { recursive:true })) {
+    // Include mesh buffers; interrupted codec temporaries are disposable.
     if (name.startsWith('.') || fs.statSync(path.join(request.textureCache, name)).isDirectory() || keep.has(name)) continue;
     fs.unlinkSync(path.join(request.textureCache, name));
   }

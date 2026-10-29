@@ -528,7 +528,7 @@ def build(
             seconds,
             started,
             shells,
-            wall_context,
+            wall_context, cache=cache,
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()

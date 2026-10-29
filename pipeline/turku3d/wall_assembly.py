@@ -84,8 +84,11 @@ def assemble_structures(meshes, protected=()):
         for j in js:
             q = points[j]
             polygon = shapely.Polygon((q - p[0]) @ basis.T)
+            polygon = surface.intersection(polygon)
+            if polygon.area <= 1e-8:
+                continue
             polygon = band_polygon(polygon, basis @ normals[j], (p[0] - q[0]) @ normals[j])
-            if not polygon.is_empty and surface.intersection(polygon).area > 1e-8:
+            if polygon.area > 1e-8:
                 occluders.append(polygon)
         if not occluders:
             continue
@@ -170,7 +173,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
 
         wall_layers = cache.run(
             "wall_meshes", source_key(Path(__file__), Path(__file__).with_name("wall_surfaces.py")),
-            protected + secondary, assemble,
+            [path.read_bytes() for path in layer_files], assemble,
         )
     validate_neighbours(wall_layers, shells, tile, out.parent)
     write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
