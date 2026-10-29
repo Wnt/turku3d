@@ -112,3 +112,22 @@ test('coplanar river tiles share a reflection and transfer ownership on unload',
   expect(disposed).toBe(1);
   styler.dispose(); env.dispose();
 });
+
+test('streamed styled graphs share exact maps and survive either tile being released first', () => {
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const env = new Environment(new THREE.Scene(), renderer, 'low'), styler = new MaterialStyler(renderer, env, 'low', true);
+  const map = new THREE.Texture();
+  const models = Array.from({ length: 3 }, (_, i) => {
+    const source = new THREE.MeshStandardMaterial({ map: i === 2 ? new THREE.Texture() : map });
+    const model = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry(), source);
+    mesh.userData.material_key = 'granite_curb'; model.add(mesh); styler.apply(model);
+    return { model, mesh, source };
+  });
+  const material = models[0].mesh.material;
+  expect(models[1].mesh.material).toBe(material); expect(models[2].mesh.material).not.toBe(material);
+  const disposed = vi.fn(); material.addEventListener('dispose', disposed);
+  styler.release(models[0].model); expect(disposed).not.toHaveBeenCalled();
+  expect(models[0].mesh.material).toBe(models[0].source);
+  styler.release(models[1].model); expect(disposed).toHaveBeenCalledOnce();
+  styler.dispose(); env.dispose();
+});

@@ -16,7 +16,7 @@ const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
 /** Compile hidden draws with stable pass state across r186's asynchronous shader stages. */
 export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene,
   camera: THREE.PerspectiveCamera, target: THREE.RenderTarget, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
-  context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false, passDepth = 0) {
+  context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false, passDepth = 0, override: THREE.Material | null = null) {
   const contexts = (renderer as unknown as { _renderContexts: RenderContexts | null })._renderContexts;
   if (!contexts) throw new Error('Streaming shader preparation requires an initialized renderer');
   let budget = budgets.get(renderer);
@@ -34,6 +34,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       if (!material.visible || (opaqueOnly && material.transparent)) continue;
       const oldTarget = renderer.getRenderTarget(), oldMrt = renderer.getMRT(), oldContext = renderer.contextNode;
       const oldMaterial = mesh.material, children = mesh.children, visible = mesh.visible, culled = mesh.frustumCulled;
+      const previousOverride = scene.overrideMaterial;
       const previousBuilder = renderer.debug.onNodeBuilderCreated;
       const onBuilder: typeof previousBuilder = (builder, value) => {
         const draw = value as { object: THREE.Object3D; material: THREE.Material; camera: THREE.Camera; context: unknown };
@@ -58,6 +59,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       try {
         contexts.get = function (target, mrt, depth = passDepth) { return getContext.call(this, target, mrt, depth); };
         renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context;
+        scene.overrideMaterial = override;
         mesh.material = material; mesh.children = []; mesh.visible = true; mesh.frustumCulled = false;
         compiled = renderer.compileAsync(mesh, camera, scene);
       } catch (error) {
@@ -65,6 +67,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         throw error;
       } finally {
         contexts.get = getContext;
+        scene.overrideMaterial = previousOverride;
         renderer.setRenderTarget(oldTarget); renderer.setMRT(oldMrt); renderer.contextNode = oldContext;
         mesh.material = oldMaterial; mesh.children = children; mesh.visible = visible; mesh.frustumCulled = culled;
       }

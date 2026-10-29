@@ -36,3 +36,14 @@ export class LoadingKtx extends KTX2Loader {
     }, error => { done(`FAILED: ${String(error)}`); onError?.(error); });
   }
 }
+
+// One transcoder worker pool for world, actors and ground on each renderer/device.
+const loaders = new WeakMap<object, LoadingKtx>();
+export function sharedKtx(renderer: Parameters<LoadingKtx['detectSupport']>[0]): LoadingKtx {
+  let loader = loaders.get(renderer);
+  if (!loader) {
+    loader = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
+    loaders.set(renderer, loader);
+  }
+  return loader;
+}

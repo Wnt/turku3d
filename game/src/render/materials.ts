@@ -1,3 +1,4 @@
+import { StyledMaterials } from './styledMaterials';
 import { reflectionSurface, REFLECTION_LAYER } from './reflections';
 import { modelTextures, textureUploads } from './textureUploads';
 // The assembler resolves COMMON §4 texture paths and binds KTX2 maps into glTF.
@@ -50,7 +51,8 @@ function detailTexture() {
 export class MaterialStyler {
   readonly ground: GroundBindings | null;
   private detail = detailTexture();
-  private owned = new Map<THREE.Object3D, { materials: THREE.Material[]; rivers: THREE.Mesh[] }>();
+  private shared = new StyledMaterials();
+  private owned = new Map<THREE.Object3D, { sources: Map<THREE.Mesh, THREE.Mesh['material']>; rivers: THREE.Mesh[] }>();
   private rivers = new Map<string, { river: RiverMaterial; meshes: Set<THREE.Mesh> }>();
   private preparing: Promise<void> = Promise.resolve();
   private riverKeys = new Map<THREE.Mesh, string>();
@@ -69,7 +71,7 @@ export class MaterialStyler {
   }
 
   apply(model: THREE.Object3D) {
-    const materials: THREE.Material[] = [], rivers: THREE.Mesh[] = [];
+    const sources = new Map<THREE.Mesh, THREE.Mesh['material']>(), rivers: THREE.Mesh[] = [];
     const cache = new Map<string, THREE.Material>();
     model.traverse(object => {
       const mesh = object as THREE.Mesh;
@@ -82,8 +84,8 @@ export class MaterialStyler {
         if (key === 'facade_kit') {
           const cached = cache.get(source.uuid);
           if (cached) return cached;
-          const kit = facadeKitMaterial(source, this.renderer);
-          if (kit) { materials.push(kit); cache.set(source.uuid, kit); return kit; }
+          const kit = this.shared.acquire(source, key, model, () => facadeKitMaterial(source, this.renderer) ?? source);
+          cache.set(source.uuid, kit); return kit;
         }
         const kind = surfaceStyle(key);
         if (kind === 'water') {
@@ -111,26 +113,30 @@ export class MaterialStyler {
         const cacheKey = `${source.uuid}:${kind}`;
         if (cache.has(cacheKey)) return cache.get(cacheKey)!;
         // NodeLibrary carries all glTF PBR fields over, including normalScale, vertex colours and UV transforms.
-        const material = this.renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial;
-        const q = QUALITY[this.tier];
-        const frequency = { asphalt: 4, granite: 2.5, cobblestone: 2, grass: 1.4 }[kind];
-        // World coordinates remain continuous across tile boundaries and independently batched objects.
-        const uv = positionWorld.xz.add(positionWorld.y.mul(0.37)).mul(frequency);
-        const grain = texture(this.detail, uv).r.sub(0.5);
-        material.colorNode = materialColor.rgb.mul(grain.mul(q.detail).add(1));
-        material.roughnessNode = materialRoughness.add(grain.mul(q.detail)).clamp(0.45, 1);
-        if (!material.normalMap && !material.bumpMap) material.normalNode = bumpMap(texture(this.detail, uv).r, float(0.002));
-        if (kind === 'grass') {
-          const patches = texture(this.detail, positionWorld.xz.mul(0.035)).r;
-          material.colorNode = material.colorNode.mul(mix(vec3(0.92, 0.93, 0.83), vec3(1.04, 1.02, 0.97), patches));
-        }
-        // Cobbles use the supplied library normal/ORM for their joints; extra grain never replaces stone relief.
-        materials.push(material); cache.set(cacheKey, material);
+        const material = this.shared.acquire(source, kind, model, () => {
+          const material = this.renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial;
+          const q = QUALITY[this.tier];
+          const frequency = { asphalt: 4, granite: 2.5, cobblestone: 2, grass: 1.4 }[kind];
+          // World coordinates remain continuous across tile boundaries and independently batched objects.
+          const uv = positionWorld.xz.add(positionWorld.y.mul(0.37)).mul(frequency);
+          const grain = texture(this.detail, uv).r.sub(0.5);
+          material.colorNode = materialColor.rgb.mul(grain.mul(q.detail).add(1));
+          material.roughnessNode = materialRoughness.add(grain.mul(q.detail)).clamp(0.45, 1);
+          if (!material.normalMap && !material.bumpMap) material.normalNode = bumpMap(texture(this.detail, uv).r, float(0.002));
+          if (kind === 'grass') {
+            const patches = texture(this.detail, positionWorld.xz.mul(0.035)).r;
+            material.colorNode = material.colorNode.mul(mix(vec3(0.92, 0.93, 0.83), vec3(1.04, 1.02, 0.97), patches));
+          }
+          // Cobbles use the supplied library normal/ORM for their joints; extra grain never replaces stone relief.
+          return material;
+        });
+        cache.set(cacheKey, material);
         return material;
       };
+      sources.set(mesh, mesh.material);
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
     });
-    this.owned.set(model, { materials, rivers });
+    this.owned.set(model, { sources, rivers });
     return this.ground?.apply(model);
   }
 
@@ -162,7 +168,8 @@ export class MaterialStyler {
       // CoarseTiles owns the glTF material; it must not dispose another tile's shared river.
       mesh.material = this.riverSources.get(mesh)!; this.riverSources.delete(mesh);
     }
-    for (const material of owned.materials) material.dispose();
+    for (const [mesh, source] of owned.sources) mesh.material = source;
+    this.shared.release(model);
     // The tile renderer owns and disposes the original GLB textures, geometries and source materials.
     this.owned.delete(model);
   }

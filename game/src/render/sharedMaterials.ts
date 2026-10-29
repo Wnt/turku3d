@@ -1,7 +1,9 @@
+import { StyledMaterials } from './styledMaterials';
 import type * as THREE from 'three/webgpu';
 
 /** Exact untextured PBR values share a material across tiles, without merging authored texture/TSL graphs. */
 export class SharedMaterials {
+  readonly styled = new StyledMaterials();
   private entries = new Map<string, { material: THREE.Material; users: number }>();
   private keys = new Map<THREE.Material, string>();
   private owners = new WeakMap<THREE.Object3D, Set<THREE.Material>>();
@@ -37,9 +39,10 @@ export class SharedMaterials {
 
   releaseModel(owner: THREE.Object3D, materials: Set<THREE.Material>) {
     const owned = this.owners.get(owner);
-    for (const material of materials) if (!owned?.has(material)) material.dispose();
+    for (const material of materials) if (!owned?.has(material) && !this.styled.has(material)) material.dispose();
     for (const material of owned ?? []) this.release(material);
     this.owners.delete(owner);
+    this.styled.release(owner);
   }
 }
 

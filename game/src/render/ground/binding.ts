@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { textureUploads } from '../textureUploads';
-import { LoadingKtx } from '../../world/loadingKtx';
+import { sharedKtx, type LoadingKtx } from '../../world/loadingKtx';
 import { loadGroundLibrary, loadGroundTile } from './material';
 
 /** Only assembler-declared URLs are requested; unbound tiles retain their source materials. */
@@ -12,7 +12,7 @@ export class GroundBindings {
   private tiles = new Map<THREE.Object3D, Awaited<ReturnType<typeof loadGroundTile>> | null>();
   private batches = new Map<THREE.Object3D, { mesh: THREE.Mesh; sources: THREE.Mesh[] }>();
   constructor(private renderer: THREE.WebGPURenderer, private base: string) {
-    this.loader = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
+    this.loader = sharedKtx(renderer);
   }
   async apply(model: THREE.Object3D) {
     let binding: { spec: string; library: string } | undefined;
@@ -117,6 +117,5 @@ export class GroundBindings {
       void library.then(maps => Object.values(maps).forEach(map => map.dispose()), () => {});
     }
     this.libraries.clear();
-    this.loader.dispose();
   }
 }
