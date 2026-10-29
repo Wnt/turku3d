@@ -48,3 +48,16 @@ def test_changed_ground_support_is_rejected(tmp_path):
     target.write_text(json.dumps(changed))
     with pytest.raises(ValueError, match='sample support changed'):
         paired(paths['before'], paths['after'])
+
+
+def test_unrelated_geometry_support_does_not_spoil_ground_pair(tmp_path):
+    paths = fixture(tmp_path)
+    before = tmp_path / 'before/q0.json'
+    after = tmp_path / 'after/q0.json'
+    for path, samples in [(before, 3), (after, 4)]:
+        report = json.loads(path.read_text())
+        report['scores']['roof_colour_dE76'] = dict(value=10, samples=samples)
+        path.write_text(json.dumps(report))
+    result = paired(paths['before'], paths['after'])
+    assert result['ground']['quarters'] == 57
+    assert result['changed_other_support']['roof_colour_dE76'] == 1

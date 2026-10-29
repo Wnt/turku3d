@@ -25,6 +25,7 @@ def paired(before, after, held=()):
     held = set(held)
     pairs = defaultdict(list)
     surfaces = defaultdict(list)
+    changed_other_support = defaultdict(int)
     for key in sorted(a):
         left, right = a[key], b[key]
         if left['status'] != right['status']:
@@ -42,7 +43,10 @@ def paired(before, after, held=()):
             if metric.get('value') is None or updated.get('value') is None:
                 continue
             if metric['samples'] != updated.get('samples'):
-                raise ValueError(f'{key}: {name} sample support changed')
+                if name == 'ground_colour_dE76':
+                    raise ValueError(f'{key}: {name} sample support changed')
+                changed_other_support[name] += 1
+                continue
             pairs[name].append((key, metric['value'], updated['value']))
         material_a = old['ground_colour_by_material']
         material_b = new['ground_colour_by_material']
@@ -75,7 +79,8 @@ def paired(before, after, held=()):
     return dict(scored=57, abstained=3, ground=summarize(ground),
                 holdout=summarize(holdout) if held else None,
                 surfaces={surface: summarize(rows) for surface, rows in sorted(surfaces.items())},
-                categories={name: summarize(rows) for name, rows in sorted(pairs.items())})
+                categories={name: summarize(rows) for name, rows in sorted(pairs.items())},
+                changed_other_support=dict(changed_other_support))
 
 
 def main():
