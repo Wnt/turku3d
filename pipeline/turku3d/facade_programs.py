@@ -23,6 +23,8 @@ def source_paths():
     return [
         Path(__file__),
         Path(__file__).with_name("facade_program_geometry.py"),
+        Path(__file__).with_name("wall_surfaces.py"),
+        Path(__file__).with_name("wall_assembly.py"),
         C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
         C.REPO_ROOT / "textures/turkutex/facade_program.py",
     ]

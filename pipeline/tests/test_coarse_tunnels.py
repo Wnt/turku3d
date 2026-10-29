@@ -375,3 +375,15 @@ def test_barrel_vault_has_clear_centre_stone_shell_and_unbroken_floor():
     polys = shapely.union_all(shapely.polygons(floor.positions[floor.indices][:, :, [0, 2]]))
     assert line.buffer(1.2, cap_style="flat").difference(polys).area < 1e-8
     assert not any(":portal:" in m.object_id for m in result.meshes)
+
+
+def test_portal_jambs_meet_sloping_header_without_coplanar_overlap():
+    from turku3d.wall_surfaces import validate_meshes
+
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [50, 2, 0], [0, 4, 50], [50, 4, 50]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    ways = [("portal", shapely.LineString([(10, 10), (30, 15)]),
+             {"highway": "service", "width": "4", "tunnel": "yes"})]
+    result = produce(tile, ways, pos, idx, [], extrude, lambda x, z: 2 + z * .04)
+    assert validate_meshes(result.visuals(tile), tile.id)["violations"] == 0

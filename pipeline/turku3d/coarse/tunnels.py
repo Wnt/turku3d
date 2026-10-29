@@ -606,6 +606,10 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             # A single U-shaped frame owns the mouth. Its jambs and thickness
             # stay outside the clear carriageway, including at skewed portals.
             frame = Faces()
+            header_line = np.array([left[end] + offset[end] * 1.7,
+                                    right[end] - offset[end] * 1.7])
+            header_bottom = np.array([left_floor[end], right_floor[end]]) + clearance
+            header_vector = header_line[1] - header_line[0]
             for sign, side, side_floor in ((1, left, left_floor), (-1, right, right_floor)):
                 a = side[end] + sign * offset[end] * 0.2
                 b = a + sign * offset[end] * 1.5
@@ -613,7 +617,8 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     "jamb",
                     [a, b],
                     [side_floor[end] - 0.2] * 2,
-                    [side_floor[end] + clearance + 0.3] * 2,
+                    header_bottom[0] + ((np.array([a, b]) - header_line[0]) @ header_vector)
+                    / (header_vector @ header_vector) * (header_bottom[1] - header_bottom[0]),
                     surface_sample or sample,
                     tile.size / CELLS,
                     thickness=0.4,
@@ -621,9 +626,9 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 frame.triangles(jamb.positions, jamb.indices, jamb.uvs)
             header = profile_wall(
                 "header",
-                [left[end] + offset[end] * 1.7, right[end] - offset[end] * 1.7],
-                [left_floor[end] + clearance, right_floor[end] + clearance],
-                [left_floor[end] + clearance + 0.3, right_floor[end] + clearance + 0.3],
+                header_line,
+                header_bottom,
+                header_bottom + 0.3,
                 thickness=0.4,
             )
             frame.triangles(header.positions, header.indices, header.uvs)
@@ -683,6 +688,6 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             shell[2][:, [0, 2]],
         )
         for i, (b, shell) in enumerate(shells)
-        if b.base > original_bases[b.key] + 1e-6
+        if b.base > original_bases[b.key] + 1e-6 and getattr(b, "visual_owner", tile.id) == tile.id
     ]
     return Tunnels(keep, meshes, profiles, shells, len(profiles), ceilings)

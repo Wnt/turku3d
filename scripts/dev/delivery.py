@@ -160,6 +160,7 @@ def after_merge(name, repo, commit, selected, path):
                 "pipeline/turku3d/facade_kit.py",
                 "pipeline/turku3d/facade_assets.py",
                 "pipeline/turku3d/facade_program*.py",
+                "pipeline/turku3d/wall_*.py",
                 "pipeline/turku3d/package/*",
                 "pipeline/turku3d/buildings/*",
                 "pipeline/turku3d/config.py",

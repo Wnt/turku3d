@@ -1,11 +1,12 @@
 """Cheap visible geometry paired with structural collision, without texture work."""
 
-import numpy as np
 import hashlib
 import json
 import time
 
-from turku3d.col.materials import table
+import numpy as np
+
+from turku3d.col.materials import mat_id, table
 from turku3d.package.gltf import GlbMesh, build_glb
 
 # sRGB colours distinguish navigable ground, building shells and water immediately.
@@ -28,8 +29,8 @@ COLOURS = {
 }
 
 
-def visual(tile, cells):
-    """Draw precisely the collision triangles, including roofs, tunnels and water surfaces."""
+def visual(tile, cells, shells=(), wall_context=(), *, root=None):
+    """Reuse structural surfaces, assembling building walls once for both passes."""
     positions, indices, materials = [], [], []
     count = 0
     for cell, col in cells:
@@ -41,6 +42,8 @@ def visual(tile, cells):
     names = {m.id: m.name for m in table()}
     meshes = []
     for material in np.unique(ids):
+        if shells and material in (mat_id("building"), mat_id("roof")):
+            continue
         selected = idx[ids == material]
         used, inverse = np.unique(selected, return_inverse=True)
         name = names[int(material)]
@@ -55,18 +58,45 @@ def visual(tile, cells):
                 extras={"layer": "basic", "surface": name},
             )
         )
+    from turku3d.wall_surfaces import validate_meshes
+
+    from .stored_facades import assemble_walls
+
+    building_meshes = []
+    for (b, shell), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):
+        roof, ridx, floor, fidx = shell[:4]
+        widx = (np.array([[0, 3, 2], [0, 2, 1]])[None, :, :]
+                + np.arange(len(walls) // 4)[:, None, None] * 4).reshape(-1, 3)
+        for surface, vertices, triangles in (("roof", roof, ridx), ("building", walls, widx),
+                                               ("building", floor, fidx)):
+            if not len(triangles):
+                continue
+            rgb = np.asarray(COLOURS[surface]) / 255
+            linear = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4)
+            building_meshes.append(GlbMesh(
+                f"basic_{b.key}_{surface}", vertices - tile.origin, triangles,
+                color=(*map(float, linear), 1.0),
+                extras=dict(layer="buildings", surface=surface, building_id=b.facade_key),
+            ))
+    from turku3d.wall_assembly import assemble_structures
+
+    meshes = building_meshes + assemble_structures(meshes, building_meshes)
+    validate_meshes(meshes, tile.id)
+    if root is not None:
+        from turku3d.wall_surfaces import validate_neighbours
+        validate_neighbours(meshes, shells, tile, root)
     data = build_glb(
         meshes, root_translation=tile.origin, root_extras={"basic": True, "tile": tile.id}
     )
-    return data, len(idx), [float(pos[:, 1].min()), float(pos[:, 1].max())]
+    return data, sum(len(m.indices) for m in meshes), [float(pos[:, 1].min()), float(pos[:, 1].max())]
 
 
-def publish(tile, out, cells, collision, roads, code, input_key, buildings, seconds, started):
+def publish(tile, out, cells, collision, roads, code, input_key, buildings, seconds, started, shells=(), wall_context=()):
     from .build import _entry, _write
     from .collision_key import code_hash
 
     t = time.perf_counter()
-    data, triangles, height = visual(tile, cells)
+    data, triangles, height = visual(tile, cells, shells, wall_context, root=out.parent)
     url = f"vis.{hashlib.sha256(data).hexdigest()}.glb"
     _write(out / url, data)
     roads_entry = None

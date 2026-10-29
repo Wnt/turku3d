@@ -9,7 +9,7 @@ from turku3d.facade_kit import MATERIALS
 from turku3d.facade_programs import HEAD_SHAPES, field
 
 
-def wall_parts(vertices, wall, style):
+def _paint_layers(vertices, wall, style):
     """Yield (quad, metric UVs, atlas instruction), preserving the measured wall's scope.
 
     Most walls keep their original four vertices. Reviewed windows are small atlas
@@ -21,7 +21,6 @@ def wall_parts(vertices, wall, style):
     horizontal[1] = 0
     width = float(np.linalg.norm(horizontal))
     direction = horizontal / max(width, 1e-6)
-    normal = np.array([direction[2], 0, -direction[0]])
 
     def quad(x0, x1, y0, y1):
         left, right = a + x0 * direction, a + x1 * direction
@@ -41,7 +40,7 @@ def wall_parts(vertices, wall, style):
         yield (
             vertices,
             np.array([[0, a[1]], [width, a[1]], [width, vertices[2, 1]], [0, vertices[3, 1]]]),
-            style,
+            style, 0,
         )
         return
     coordinates = geometry.get("coordinates") or [geometry["p0"], geometry["p1"]]
@@ -72,10 +71,10 @@ def wall_parts(vertices, wall, style):
             above_full_wall = (
                 bounds[2] == y1 and wall.get("observation", {}).get("scope") == "full-wall"
             )
-            yield *part, blank if above_full_wall else style
+            yield *part, blank if above_full_wall else {**style, "unreviewed": True}, 0
     part = quad(x0, x1, y0, y1)
     if part:
-        yield *part, blank
+        yield *part, blank, 0
     for band in wall.get("material_bands", []):
         material = {"render": "plaster", "concrete_panel": "concrete"}.get(
             band["material"], band["material"]
@@ -90,16 +89,16 @@ def wall_parts(vertices, wall, style):
         )
         if part:
             yield (
-                part[0] + normal * 0.0005,
+                part[0],
                 part[1],
-                {**blank, "module": 42 + MATERIALS.index(material)},
+                {**blank, "module": 42 + MATERIALS.index(material)}, 1,
             )
     # Occluded regions have no measured negative: retain their existing/rule treatment.
     for x, y, w, h in wall.get("observation", {}).get("excluded_rectangles_m", []):
         left, right = sorted([offset + x * sign, offset + (x + w) * sign])
         part = quad(max(x0, left), min(x1, right), max(y0, y0 + y), min(y1, y0 + y + h))
         if part:
-            yield part[0] + normal * 0.001, part[1], style
+            yield *part, style, 2
     courses = wall["trim"].get("string_courses", {}).get("value")
     if isinstance(courses, list):
         for height in courses:
@@ -113,7 +112,7 @@ def wall_parts(vertices, wall, style):
                     "bands": [0, 0, 0, 0],
                     "detail": [0, 0, 0, 0],
                 }
-                yield part[0] + normal * 0.002, part[1], band
+                yield *part, band, 3
     windows = wall["windows"]
     shapes = windows.get("head_shapes", [])
     surrounds = windows.get("surround_shapes", [])
@@ -156,7 +155,6 @@ def wall_parts(vertices, wall, style):
         if not part:
             continue
         points, uv = part
-        points = points + normal * 0.003
         patch = copy.deepcopy(style)
         material = style["module"] // 6 if style["module"] < 42 else style["module"] - 42
         patch.update(
@@ -171,7 +169,7 @@ def wall_parts(vertices, wall, style):
             opening=[0.98, 0.95, 0.02, 0],
             detail=[0, 0, 0, kind + 4 * HEAD_SHAPES.get(shape, 0)],
         )
-        yield points, uv, patch
+        yield points, uv, patch, 4
         # Qualitative reviewed surrounds use bounded metric layout priors.
         # Pediments are triangular strips; rustication is interrupted stonework.
         if surround in ("frame", "pediment", "rustication"):
@@ -206,7 +204,7 @@ def wall_parts(vertices, wall, style):
                     max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
                 )
                 if part:
-                    yield part[0] + normal * 0.002, part[1], decoration
+                    yield *part, decoration, 3
     # Reviewed balcony rails are positioned rectangles, not a repeated bay pattern.
     balconies = wall.get("balconies", {}).get("value") or []
     rail_style = {
@@ -225,4 +223,14 @@ def wall_parts(vertices, wall, style):
                 max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
             )
             if part:
-                yield part[0] + normal * 0.004, part[1], rail_style
+                yield *part, rail_style, 5
+
+
+def wall_parts(vertices, wall, style):
+    """One paint owner at every wall point, including reviewed overlapping details."""
+    from turku3d.wall_surfaces import paint_partition
+
+    direction = vertices[1] - vertices[0]
+    direction[1] = 0
+    direction /= np.linalg.norm(direction)
+    yield from paint_partition(list(_paint_layers(vertices, wall, style)), vertices[0], direction)

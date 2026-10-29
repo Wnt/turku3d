@@ -5,14 +5,12 @@ import json
 
 import numpy as np
 import pytest
-
-from turkutex.facade_archetypes import ARCHETYPES, archetype, sample
-
 from turku3d import config as C
 from turku3d.facade_assets import opaque
 from turku3d.facade_kit import parameter_hash
 from turku3d.facade_program_geometry import wall_parts
 from turku3d.facade_programs import compile_wall, matching_wall
+from turkutex.facade_archetypes import ARCHETYPES, archetype, sample
 
 
 def program(levels=4, key="registry-123"):
@@ -83,7 +81,10 @@ def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     assert [row[2]["origin"] for row in patches] == [[1, 3], [8, 3]]
     assert [row[2]["size"] for row in patches] == [[2, 2], [3, 2]]
     blank = [row for row in parts if row[2]["module"] >= 42]
-    assert len(blank) == 1 and blank[0][0][:, 1].max() == 6
+    # The blank background is cut around the two openings, never drawn behind them.
+    import shapely
+    assert max(row[0][:, 1].max() for row in blank) == 6
+    assert sum(shapely.Polygon(row[1]).area for row in blank) == pytest.approx(23.3 * 4 - 10)
     assert any(row[0][:, 1].min() == 6 and row[2]["module"] < 42 for row in parts)
     wall["observation"]["scope"] = "full-wall"
     full = list(wall_parts(vertices, wall, style))
@@ -165,12 +166,11 @@ def test_period_evidence_uses_neighbours_across_tile_edge_without_mutating_dates
 
 
 def test_cached_dated_footprints_and_osm_tags_feed_fallback(tmp_path):
-    import shapely
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from turku3d.coarse.inputs import _prepare_one
+    import shapely
+    from turku3d.coarse.inputs import Building, _prepare_one
     from turku3d.coarse.register import enrich, period_evidence
-    from turku3d.coarse.inputs import Building
 
     lod2 = tmp_path / "bldg.parquet"
     pq.write_table(pa.Table.from_pylist([
@@ -239,7 +239,12 @@ def test_reviewed_partial_wall_overrides_stored_map_and_description_only_on_its_
     assert diagnostic["storeys"]["value"] == 4
     assert diagnostic["source"] == "reviewed-overlay"
     assert [w["paint_source"] for w in diagnostic["walls"]] == ["reviewed-program", "stored-facade-map"]
-    assert [m.extras.get("facade_index") for m in meshes if m.extras["material_key"] == "facade_stored"] == [1]
+    stored = [m for m in meshes if m.extras["material_key"] == "facade_stored"]
+    assert [m.extras.get("facade_index") for m in stored] == [0, 1]
+    # The unobserved 8..10 m strip retains its existing map, with no second base wall.
+    np.testing.assert_allclose(stored[0].positions[:, 0], [8, 10, 10, 8])
+    from turku3d.wall_surfaces import validate_meshes
+    assert validate_meshes(meshes, "fixture")["violations"] == 0
     wall = diagnostic["walls"][0]
     assert wall["wall_id"] == "stable:0"
     assert wall["wall"]["colour"]["source"] == "register palette"

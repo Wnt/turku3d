@@ -1,0 +1,158 @@
+"""Subtract architectural wall coverage from secondary structural mesh surfaces."""
+
+import copy
+
+import numpy as np
+import shapely
+
+from .wall_surfaces import trapezoids
+
+
+def band_polygon(polygon, coefficients, offset, tolerance=0.006):
+    """Clip to the part of a plane within tolerance, even when the planes diverge."""
+    lo_x, lo_y, hi_x, hi_y = polygon.bounds
+    points = np.array([[lo_x, lo_y], [hi_x, lo_y], [hi_x, hi_y], [lo_x, hi_y]])
+    for sign in (1, -1):
+        output = []
+        if not len(points):
+            return shapely.Polygon()
+        distances = sign * (points @ coefficients + offset) - tolerance
+        for i, end in enumerate(points):
+            start = points[i - 1]
+            a, b = distances[i - 1], distances[i]
+            if (a <= 0) != (b <= 0):
+                output.append(start + (end - start) * a / (a - b))
+            if b <= 0:
+                output.append(end)
+        points = np.asarray(output)
+    return polygon.intersection(shapely.Polygon(points)) if len(points) >= 3 else shapely.Polygon()
+
+
+def assemble_structures(meshes, protected=()):
+    """One wall assembly across buildings, passages, portal frames and other layers.
+
+    Facade paint is already partitioned and remains authoritative. Secondary wall
+    triangles retain UVs/materials on exposed remainders; collision is unchanged.
+    """
+    records, refs = [], []
+    for mi, mesh in enumerate([*protected, *meshes]):
+        triangles = np.asarray(mesh.positions, float)[mesh.indices]
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        lengths = np.linalg.norm(normals, axis=1)
+        for ti in np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths)):
+            records.append((triangles[ti], normals[ti] / lengths[ti]))
+            refs.append((mi - len(protected), ti))
+    if not records:
+        return list(meshes)
+    points = np.array([p for p, _ in records])
+    normals = np.array([n for _, n in records])
+    low, high = points.min(axis=1), points.max(axis=1)
+    boxes = shapely.box(
+        low[:, 0] - 0.006, low[:, 2] - 0.006, high[:, 0] + 0.006, high[:, 2] + 0.006
+    )
+    tree = shapely.STRtree(boxes)
+    changed = {}
+    for i, (mi, ti) in enumerate(refs):
+        if mi < 0:
+            continue
+        js = tree.query(boxes[i])
+        js = js[
+            (js < i)
+            & (normals[js] @ normals[i] > 0.99998)
+            & (high[js, 1] > low[i, 1])
+            & (low[js, 1] < high[i, 1])
+        ]
+        if not len(js):
+            continue
+        p, n = records[i]
+        u = np.array([-n[2], 0, n[0]])
+        u /= np.linalg.norm(u)
+        v = np.cross(n, u)
+        basis = np.array([u, v])
+        xy = (p - p[0]) @ basis.T
+        surface = shapely.Polygon(xy)
+        occluders = []
+        for j in js:
+            q = points[j]
+            polygon = shapely.Polygon((q - p[0]) @ basis.T)
+            polygon = band_polygon(polygon, basis @ normals[j], (p[0] - q[0]) @ normals[j])
+            if not polygon.is_empty and surface.intersection(polygon).area > 1e-8:
+                occluders.append(polygon)
+        if not occluders:
+            continue
+        remainder = surface.difference(shapely.union_all(occluders))
+        pieces = []
+        for quad in trapezoids(remainder):
+            for indices in ([0, 1, 2], [0, 2, 3]):
+                coords = quad[indices]
+                if shapely.Polygon(coords).area > 1e-9:
+                    # The basis follows the original normal: preserve front-face winding.
+                    pieces.append(coords)
+        changed[mi, ti] = (pieces, xy, p[0], basis)
+    result = []
+    for mi, original in enumerate(meshes):
+        if not any(key[0] == mi for key in changed):
+            result.append(original)
+            continue
+        mesh = copy.copy(original)
+        positions, uvs, normals_out = [], [], []
+        for ti, indices in enumerate(original.indices):
+            replacement = changed.get((mi, ti))
+            if replacement is None:
+                positions.append(original.positions[indices])
+                if original.uvs is not None:
+                    uvs.append(original.uvs[indices])
+                if original.normals is not None:
+                    normals_out.append(original.normals[indices])
+                continue
+            pieces, xy, origin, basis = replacement
+            for coords in pieces:
+                weights = np.linalg.solve(np.c_[xy, np.ones(3)].T, np.c_[coords, np.ones(3)].T).T
+                positions.append(origin + coords @ basis)
+                if original.uvs is not None:
+                    uvs.append(weights @ original.uvs[indices])
+                if original.normals is not None:
+                    normals_out.append(weights @ original.normals[indices])
+        if not positions:
+            continue
+        mesh.positions = np.concatenate(positions)
+        mesh.indices = np.arange(len(mesh.positions), dtype=np.uint32).reshape(-1, 3)
+        mesh.uvs = np.concatenate(uvs) if uvs else None
+        mesh.normals = np.concatenate(normals_out) if normals_out else None
+        result.append(mesh)
+    return result
+
+
+def assemble_layers(tile, layer_files, building_meshes, shells, out, stage):
+    """Single architectural assembly before any packaged visual can be published."""
+    import json
+
+    from turku3d.coarse.build import _write
+    from turku3d.layers import write_visual
+    from turku3d.wall_surfaces import layer_meshes, validate_meshes, validate_neighbours
+
+    if building_meshes:
+        programs = [
+            m.extras.pop("facade_program") for m in building_meshes if "facade_program" in m.extras
+        ]
+        _write(out / "facade-programs.json", json.dumps(programs, sort_keys=True).encode())
+        write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
+        layer_files.append(stage / "buildings.vis.glb")
+
+    wall_layers = layer_meshes(layer_files)
+    protected = [
+        m for m in wall_layers if m.extras.get("material_key") in {"facade_kit", "facade_stored"}
+    ]
+    secondary = [
+        m
+        for m in wall_layers
+        if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}
+    ]
+    wall_layers = protected + assemble_structures(secondary, protected)
+    validate_meshes(wall_layers, tile.id)
+    validate_neighbours(wall_layers, shells, tile, out.parent)
+    write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
+    layer_files = [p for p in layer_files if p.name in {"vegetation.vis.glb", "props.vis.glb"}]
+    layer_files.append(stage / "architecture.vis.glb")
+
+    return layer_files

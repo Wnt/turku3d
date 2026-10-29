@@ -229,10 +229,8 @@ def build(
     sources=None,
     first_pass: bool = False,
 ) -> dict:
-    """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
-
-    ``roads.json`` is the tile's OSM street graph (``turku3d.roads`` format, clipped to the tile, every
-    connected piece kept); it is absent without an OSM extract.
+    """Write tile visuals, collision and manifest; shared KTX2 go to out/../shared.
+    roads.json contains every clipped OSM street component, when an extract is available.
     """
     tile = C.VisualTile.parse(tile_id)
     if tile.level != 0:
@@ -302,8 +300,8 @@ def build(
         source_key(
             *common, Path(__file__).with_name("extrusion.py"), Path(__file__).with_name("roofs.py")
         ),
-        blds,
-        lambda: [(b, shell) for b in blds if len((shell := extrude(b))[1])],
+        blds + list(inputs.wall_context),
+        lambda: [(b, shell) for b in [*blds, *inputs.wall_context] if len((shell := extrude(b))[1])],
     )
     seconds["buildings"] = time.perf_counter() - t
 
@@ -349,7 +347,9 @@ def build(
             surface_sample,
         ),
     )
-    shells = tunnels.shells
+    own_keys = {b.key for b in blds}
+    wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
+    shells = [(b, shell) for b, shell in tunnels.shells if b.key in own_keys]
     seconds["tunnels"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -526,6 +526,8 @@ def build(
             len(blds),
             seconds,
             started,
+            shells,
+            wall_context,
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -672,21 +674,19 @@ def build(
             *palette_sources(),
             base / "facade_programs.py",
             base / "facade_program_geometry.py",
+            base / "wall_surfaces.py",
             C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
             C.REPO_ROOT / "textures/turkutex/facade_program.py",
             jpeg,
             ortho_uv,
             *common,
         ),
-        [tile, shells, inputs.ortho, False, facade_params],
-        lambda: building_visual(tile, shells, inputs.ortho, False),
+        [tile, shells, wall_context, inputs.ortho, False, facade_params],
+        lambda: building_visual(tile, shells, inputs.ortho, False, wall_context),
     )
-    if building_meshes:
-        programs = [m.extras.pop("facade_program") for m in building_meshes
-                    if "facade_program" in m.extras]
-        _write(out / "facade-programs.json", json.dumps(programs, sort_keys=True).encode())
-        write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
-        layer_files.append(stage / "buildings.vis.glb")
+    from turku3d.wall_assembly import assemble_layers
+
+    layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage)
 
     surface_channels = {
         surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))
