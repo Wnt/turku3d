@@ -72,12 +72,17 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         for start in range(0, len(rows), 512):
             local, js = tree.query(boxes[rows[start:start+512]])
             ii = rows[start:start+512][local]
-            keep = ((js < ii) & (high[js, 1] > low[ii, 1]) & (low[js, 1] < high[ii, 1])
-                    & (np.einsum("ij,ij->i", normals[js], normals[ii]) > 0.99998))
+            keep = (js < ii) & (high[js, 1] > low[ii, 1]) & (low[js, 1] < high[ii, 1])
+            ii, js = ii[keep], js[keep]
             # Both old x/z boxes expanded by 6 mm, so retain the full 12 mm
-            # broadphase band. Exact plane distance below still uses 6 mm.
-            keep &= ((high[js][:, [0, 2]] + 0.012 >= low[ii][:, [0, 2]])
-                     & (low[js][:, [0, 2]] - 0.012 <= high[ii][:, [0, 2]])).all(axis=1)
+            # broadphase band before gathering normals. Exact plane distance
+            # below still uses 6 mm.
+            keep = ((high[js, 0] + 0.012 >= low[ii, 0])
+                    & (low[js, 0] - 0.012 <= high[ii, 0])
+                    & (high[js, 2] + 0.012 >= low[ii, 2])
+                    & (low[js, 2] - 0.012 <= high[ii, 2]))
+            ii, js = ii[keep], js[keep]
+            keep = np.einsum("ij,ij->i", normals[js], normals[ii]) > 0.99998
             ii, js = ii[keep], js[keep]
             if not len(ii):
                 continue

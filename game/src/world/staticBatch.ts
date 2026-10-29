@@ -8,6 +8,50 @@ interface Batch { mesh: THREE.Mesh; sources: THREE.Mesh[]; parent: THREE.Object3
 const owners = new WeakMap<THREE.Object3D, Batch[]>();
 const budget = new PreparationBudget();
 
+/** Only the canonical, tightly packed facade layout can bypass the general attribute merger. */
+function packedPrograms(sources: THREE.Mesh[]) {
+  const names = Object.keys(sources[0].geometry.attributes).filter(name => name.startsWith('_kit_'));
+  if (!names.includes('_kit_opening')) return null;
+  const fields: { name: string; itemSize: number; offset: number }[] = [];
+  let stride = 0;
+  for (const name of names) {
+    const attribute = sources[0].geometry.getAttribute(name);
+    if (!(attribute instanceof THREE.InterleavedBufferAttribute) || attribute.normalized || attribute.offset !== stride) return null;
+    fields.push({ name, itemSize: attribute.itemSize, offset: stride });
+    stride += attribute.itemSize;
+  }
+  const buffers: THREE.InterleavedBuffer[] = [];
+  for (const { geometry } of sources) {
+    const first = geometry.getAttribute(names[0]) as THREE.InterleavedBufferAttribute;
+    if (!(first instanceof THREE.InterleavedBufferAttribute)) return null;
+    const buffer = first.data;
+    if (!(buffer.array instanceof Float32Array) || buffer instanceof THREE.InstancedInterleavedBuffer
+      || buffer.stride !== stride || buffer.count !== geometry.attributes.position.count
+      || Object.keys(geometry.attributes).filter(name => name.startsWith('_kit_')).length !== names.length) return null;
+    for (const { name, itemSize, offset } of fields) {
+      const attribute = geometry.getAttribute(name);
+      if (!(attribute instanceof THREE.InterleavedBufferAttribute) || attribute.data !== buffer
+        || attribute.itemSize !== itemSize || attribute.offset !== offset || attribute.normalized) return null;
+    }
+    // Transforming a base attribute must never change bytes belonging to the program.
+    for (const [name, attribute] of Object.entries(geometry.attributes)) {
+      if (!name.startsWith('_kit_') && attribute instanceof THREE.InterleavedBufferAttribute && attribute.data === buffer) return null;
+    }
+    buffers.push(buffer);
+  }
+  return { fields, stride, buffers };
+}
+
+/** Clone the same base attributes and bounds without copying immutable facade program data. */
+function cloneBase(geometry: THREE.BufferGeometry) {
+  const base = new THREE.BufferGeometry();
+  base.index = geometry.index;
+  base.attributes = Object.fromEntries(Object.entries(geometry.attributes).filter(([name]) => !name.startsWith('_kit_')));
+  base.boundingBox = geometry.boundingBox; base.boundingSphere = geometry.boundingSphere;
+  base.morphTargetsRelative = geometry.morphTargetsRelative;
+  return base.clone();
+}
+
 /** Merge opaque static neighbours with the same material/layout, retaining semantic index ranges.
  * Small spatial buckets preserve culling; mutable props, instances and transparent ordering stay separate. */
 export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
@@ -35,11 +79,18 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
     if (sources.length < 2) continue;
     yield;
     const parent = sources[0].parent!, inverse = parent.matrixWorld.clone().invert();
+    const program = packedPrograms(sources);
+    const packed = program ? new Float32Array(program.buffers.reduce((sum, buffer) => sum + buffer.array.length, 0)) : null;
     const geometries: THREE.BufferGeometry[] = [], rows: Record<string, unknown>[] = [];
-    let offset = 0;
-    for (const source of sources) {
+    let offset = 0, programOffset = 0;
+    for (const [sourceIndex, source] of sources.entries()) {
       yield;
-      const geometry = source.geometry.clone().applyMatrix4(inverse.clone().multiply(source.matrixWorld));
+      const geometry = (program ? cloneBase(source.geometry) : source.geometry.clone())
+        .applyMatrix4(inverse.clone().multiply(source.matrixWorld));
+      if (program && packed) {
+        const array = program.buffers[sourceIndex].array;
+        packed.set(array, programOffset); programOffset += array.length;
+      }
       geometries.push(geometry);
       const count = geometry.index?.count ?? geometry.attributes.position.count;
       const objects = source.userData.objects ?? [{ ...source.userData, start: 0, count }];
@@ -49,7 +100,11 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
     const geometry = mergeGeometries(geometries);
     for (const temporary of geometries) temporary.dispose();
     if (!geometry) continue;
-    interleaveProgram(geometry);
+    if (program && packed) {
+      const buffer = new THREE.InterleavedBuffer(packed, program.stride);
+      for (const { name, itemSize, offset } of program.fields)
+        geometry.setAttribute(name, new THREE.InterleavedBufferAttribute(buffer, itemSize, offset));
+    } else interleaveProgram(geometry);
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, sources[0].material);
     mesh.name = 'static-tile-batch'; mesh.userData = { layer: sources[0].userData.layer, objects: rows };

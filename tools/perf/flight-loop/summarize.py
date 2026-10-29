@@ -127,6 +127,9 @@ def summarize(root):
             sources=dict(collections.Counter(source(r) for r in assets)),
         ),
         peak_heap_mib=max((r.get("heap") or 0 for r in result["samples"]), default=0) / 1024**2,
+        heap_after_flight_mib={
+            k: v / 1024**2 for k, v in result.get("heapAfterFlight", {}).items() if v is not None
+        },
         public={
             route: percentiles(
                 [r["ms"] for r in rows(root / "public.jsonl") if r["route"] == route]

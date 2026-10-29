@@ -133,6 +133,12 @@ try {
     await page.waitForTimeout(4000);
   }
   const result = await saveResult();
+  // After flight timings end, separate transient allocations from retained main-thread heap.
+  const beforeGc = await page.evaluate(() => performance.memory?.usedJSHeapSize);
+  await session.send('HeapProfiler.collectGarbage');
+  const afterGc = await page.evaluate(() => performance.memory?.usedJSHeapSize);
+  result.heapAfterFlight = { beforeGc, afterGc };
+  fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
   if (!result.done) throw new Error('Flight did not complete before deadline');
 } catch (error) {
