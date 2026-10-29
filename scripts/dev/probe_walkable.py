@@ -56,11 +56,18 @@ def main():
     assert misses == 0, f"Shipped river walk collision has {misses} misses"
     holes = sum(a["collision_holes"] for a in result["audits"])
     assert holes == 0, f"Shipped river walk collision has {holes} holes larger than 1 cm²"
+    height_misses = sum(a["collision_area_height_misses"] for a in result["audits"])
+    assert height_misses == 0, (
+        f"Shipped river walk collision has {height_misses} area height misses"
+    )
     focus = next(
         p["recorded_reach"] for a in result["audits"] for p in a["paths"] if "recorded_reach" in p
     )
     assert focus["after"]["max_step_25cm_m"] < 0.05, focus
     assert focus["after"]["max_dent_2m_m"] < 0.05, focus
+    transition = next(p for a in result["audits"] for p in a["paths"] if p["id"] == "776088930")
+    assert transition["after"]["max_step_25cm_m"] < 0.05, transition
+    assert transition["after"]["max_dent_2m_m"] < 0.05, transition
     assert sum(a["stairs"]["lidar_flights"] for a in result["audits"]) > 0
 
 
