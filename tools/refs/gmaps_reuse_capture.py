@@ -1,7 +1,7 @@
 """Recover missing quarter inventories from already observed native responses.
 
 No network requests or browser launches. Completeness is independently re-audited;
-missing payloads remain missing. Only the invoking sandbox is writable.
+missing payloads remain missing. The configured reference root is writable; original response bodies are preserved.
 """
 
 import json
@@ -17,19 +17,34 @@ from detail import metadata  # noqa: E402
 
 
 def main():
-    root = Path(os.environ["TURKU3D_WORK"]) / "gmaps-round3/synthetic"
+    root = base.ROOT / "synthetic"
+    from gmaps_inventory import restore_pointers
+
+    restore_pointers(base.ROOT)
     observations = {}
     for catalogue in (root / "sessions").glob("*/catalogue.json"):
         for row in json.loads(catalogue.read_text()):
-            observations[row["url"], row["sha256"]] = row, catalogue.parent / row["file"]
+            source = catalogue.parent / row["file"]
+            if source.is_file():
+                observations[row["url"], row["sha256"]] = row, source
+    # Captures can retain responses removed from a session catalogue by compaction.
+    for capture in (root / "captures").glob("*/capture.json"):
+        for row in json.loads(capture.read_text()).get("responses", []):
+            source = capture.parent / row["file"]
+            if source.is_file():
+                observations.setdefault((row["url"], row.get("sha256")), (row, source))
     summary = []
     for quarter in base.PLAN["quarters"]:
         key = quarter["coverage_id"]
         out = root / "captures" / key
         path = out / "capture.json"
-        if path.exists() and json.loads(path.read_text()).get("inventory_state") == "eligible":
+        if path.exists() and metadata(out)["complete"]:
+            record = json.loads(path.read_text())
+            record.update(inventory_state="eligible", output=str(out))
+            base.atomic_json(path, record)
             continue
         record = base.config(quarter, "offline-reuse")
+        record["output"] = str(out)
         record.update(
             responses=[],
             errors=[],

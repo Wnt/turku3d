@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO / 'scripts/dev'))
 from storage import atomic_json
 import browser_budget
 
-ROOT = Path(os.environ['TURKU3D_WORK']) / 'gmaps-round3'
+ROOT = Path(os.environ.get('GMAPS_ROOT', str(Path(os.environ['TURKU3D_WORK']) / 'gmaps-round3')))
 ROOT.mkdir(parents=True, exist_ok=True)
 PLAN = json.loads(Path(os.environ.get('GMAPS_PLAN', Path.home() / 'turku3d/private/gmaps-data/round2/plan.json')).read_text())
 
