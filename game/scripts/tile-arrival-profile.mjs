@@ -68,7 +68,7 @@ try {
       await apply(id,entry,fragment);
       if(entry.model && entry.visualHash===fragment.visual[id].sha256) {
         const now=performance.now();
-        if(fragment.stale) state.stale[id] ??= {shown:now,current:null};
+        if(fragment.stale) state.stale[id] ??= {shown:now,current:null,left:null};
         else if(state.stale[id] && state.stale[id].current===null) state.stale[id].current=now;
       }
       if(entry.model && entry.visualHash===fragment.visual[id].sha256)
@@ -86,6 +86,8 @@ try {
       const now=performance.now();state.frames.push(now-previous);previous=now;
       for(const [id,pass] of state.pending){const row=request(id);row.basic ??= now;if(pass==='full')row.full ??= now;}
       state.pending.clear();
+      for(const [id,row] of Object.entries(state.stale))
+        if(row.current===null && row.left===null && !coarse.entries.get(id)?.model) row.left=now;
     };
     const update=coarse.update.bind(coarse), stream=game.streamer.update.bind(game.streamer);
     const pose=()=>{const t=(performance.now()-started)/1000;return {x:-375+t*speed/3.6,z:-375};};
@@ -118,8 +120,8 @@ try {
       full_by_arrival_plus_5:crossings.filter(r=>r.full_delay_seconds!==null && r.full_delay_seconds<=5).length,
       unsupported_seconds:p.samples.filter(r=>!r.supported).length*.25,
       stale_versions:Object.entries(p.stale).map(([tile,r])=>({tile,
-        shown_seconds:(r.shown-p.started)/1000,stale_seconds:((r.current ?? now)-r.shown)/1000,
-        current:r.current!==null})),
+        shown_seconds:(r.shown-p.started)/1000,stale_seconds:((r.current ?? r.left ?? now)-r.shown)/1000,
+        current:r.current!==null,departed:r.left!==null})),
       samples:p.samples,frames:p.frames,errors:window.__game.state().errors};
   });
   result.page_errors=errors;
