@@ -191,6 +191,9 @@ class Builder:
             with self.lock:
                 if self.stopped:
                     return
+                if self.draining:
+                    self.lock.wait(timeout=1)
+                    continue
                 self.demand.prune(self)
                 snapshot = self.status()
                 snapshot["at"] = time.time()
@@ -584,6 +587,13 @@ class Builder:
         """No further builds start; the running ones finish (the service is about to restart)."""
         with self.lock:
             self.draining = True
+            self.lock.notify_all()
+
+    def wait_drained(self):
+        """Retire after admitted work publishes; the process supervisor bounds shutdown."""
+        self.drain()
+        with self.lock:
+            self.lock.wait_for(lambda: not self.building)
 
     def stop(self):
         with self.lock:

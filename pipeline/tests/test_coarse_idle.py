@@ -79,3 +79,14 @@ def test_route_walk_exact_grid_crossings_neighbours_and_spawn_ring():
     assert rings['t0_5_0'] > rings['t0_1_0']
     assert walk == sorted(walk)
     assert summary['landmarks'] == 1
+
+
+def test_retirement_does_not_cancel_an_admitted_idle_build(tmp_path):
+    b, idle, now = idle_builder(tmp_path, [(0, 't0_0_0')])
+    now[0] = IDLE_SECONDS + 1
+    idle.tick()
+    b.building['t0_0_0'] = now[0]
+    b.drain()
+    idle.tick()
+    b.run.cancel.assert_not_called()
+    b.stop()

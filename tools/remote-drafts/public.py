@@ -148,6 +148,7 @@ def public_handler(builder, prefetcher, settings):
             if route == "health":
                 return self._json(200, {"state": "online", "instance": instance,
                                         "failure_count": builder.failure_count, "failed_tiles": len(builder.failed),
+                                        "active_builds": len(builder.building), "draining": builder.draining,
                                         "prebuild": idle.status() if idle else None,
                                         "build_health": builder.build_health.snapshot(
                                             bool(builder.demand.clients) or bool(idle and idle.online))})
@@ -248,6 +249,7 @@ def main():
     server = Server(("127.0.0.1", int(os.environ.get("TURKU3D_DRAFT_PORT", settings["port"]))), public_handler(builder, prefetcher, settings))
 
     def stop(*_):
+        builder.drain()
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, stop)
@@ -261,6 +263,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        builder.wait_drained()
         builder.stop()
         prefetcher.stop()
         server.server_close()

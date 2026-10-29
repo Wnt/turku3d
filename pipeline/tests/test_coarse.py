@@ -465,7 +465,8 @@ def test_service_drain_lets_running_builds_finish_and_starts_no_more(tmp_path):
         with urllib.request.urlopen(drain) as r:
             assert json.loads(r.read()) == {"draining": True, "building": ["t0_1_0"]}
         assert builder.request("t0_2_0", 20)["state"] == "queued"
-        _wait(lambda: not status()["building"])
+        builder.wait_drained()
+        assert not status()["building"]
         time.sleep(0.2)  # a worker that would take t0_2_0 has had its chance
         s = status()
         assert s["built"] == 1 and s["queue"] == ["t0_2_0"] and s["draining"] is True

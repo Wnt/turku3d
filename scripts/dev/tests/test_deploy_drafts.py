@@ -29,6 +29,8 @@ class DeploymentTests(unittest.TestCase):
                     return '/home/ubuntu/turku3d-drafts/sources/previous'
                 if 'ACTIVE_PORT' in command and command.startswith('cat '):
                     return '7765'
+                if 'for port in range(7765, 7770)' in command:
+                    return '7766'
                 if 'ACTIVE_UNIT' in command and command.startswith('cat '):
                     return 'turku-drafts'
                 if "standby draft producer did not become ready" in command:
@@ -46,20 +48,27 @@ class DeploymentTests(unittest.TestCase):
             health = next(i for i, c in enumerate(calls) if '7766/coarse/health' in c)
             switch = next(i for i, c in enumerate(calls) if '--signal=USR1 turku-drafts-proxy' in c)
             confirm = next(i for i, c in enumerate(calls) if 'proxy did not switch' in c)
-            stop = next(i for i, c in enumerate(calls) if 'systemctl --user stop turku-drafts &&' in c)
+            stop = next(i for i, c in enumerate(calls) if 'systemctl --user stop --no-block turku-drafts &&' in c)
             self.assertLess(start, health)
             self.assertLess(health, switch)
             self.assertLess(switch, confirm)
             self.assertLess(confirm, stop)
             self.assertIn("json.load(r).get('instance') == 'standby-instance'", shlex.split(calls[confirm])[2])
             self.assertIn('TURKU3D_DRAFT_STANDBY=1', calls[start])
-            storage = next(i for i, c in enumerate(calls) if 'cache-storage.py' in c)
-            self.assertLess(stop, storage)
-            self.assertIn('TURKU3D_DRAFT_STANDBY=0', calls[storage + 1])
-            self.assertIn('--signal=USR1 turku-drafts-slot@7766', calls[storage + 1])
+            self.assertFalse(any('cache-storage.py' in c for c in calls))
+            self.assertIn('TURKU3D_DRAFT_STANDBY=0', calls[stop + 1])
+            self.assertIn('--signal=USR1 turku-drafts-slot@7766', calls[stop + 1])
+            self.assertEqual(result['retiring_unit'], 'turku-drafts')
             self.assertFalse(result['proxy_restarted'])
             self.assertEqual(result['active_port'], 7766)
             self.assertIn('update-multiplayer.sh', calls[-1])
+
+    def test_systemd_only_signals_parent_while_build_workers_drain(self):
+        unit = Path(__file__).resolve().parents[3] / 'tools/remote-drafts/turku-drafts-slot@.service'
+        text = unit.read_text()
+        self.assertIn('KillMode=mixed', text)
+        self.assertIn('TimeoutStopSec=600', text)
+        self.assertNotIn('KillMode=control-group', text)
 
     def test_client_only_source_skips_standby_start(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -55,6 +55,9 @@ class Demand:
         return True
 
     def prune(self, builder):
+        # A retiring producer finishes admitted work even after client leases expire.
+        if getattr(builder, "draining", False):
+            return
         self.expire()
         now = time.time()
         active = set(builder.priority) | set(builder.pending) | builder.upgrade_queue | set(builder.building)
