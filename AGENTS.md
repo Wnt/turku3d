@@ -48,7 +48,7 @@ Jonni's flow for every slice; working rules 4–7 give the details and commands.
    grep/name filters. All selected pre-merge commands run in parallel within one **hard
    30-second wall budget**. Fix rebase failures and rerun the relevant selection. The
    quick suite stays tiny; a new quick test needs a strong reason. Full tiles, area
-   rebuilds, exhaustive renders and browser suites are not completion requirements.
+   rebuilds, exhaustive renders and browser suites are not pre-merge gates.
 6. Immediately after merging into main, deploy to Pages. Deployment is **package +
    upload only**: no tests, tile builds, deploy lock, queue/coalescing rules, verified-only
    releases, rollback or rollback preparation. OCI source publication has no build gate.

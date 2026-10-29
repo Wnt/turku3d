@@ -47,6 +47,17 @@ class ProbeTests(unittest.TestCase):
             health = [json.loads(line) for line in (root / '.build-health.jsonl').read_text().splitlines()]
             self.assertEqual([(r['pass'], r['outcome']) for r in health], [('first', 'built'), ('full', 'built')])
 
+    def test_independent_frozen_jobs_never_share_outputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = self.run_worker(root)
+            second = self.run_worker(root)
+            self.assertNotEqual(first['output'], second['output'])
+            self.assertEqual(Path(first['output']).parent, root)
+            self.assertEqual(Path(second['output']).parent, root)
+            self.assertTrue((Path(first['output']) / 'result.json').exists())
+            self.assertTrue((Path(second['output']) / 'result.json').exists())
+
     def test_source_count_mismatch_fails_probe(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch.object(probe, 'source_counts', return_value={'buildings': 99, 'collision': 1}):
@@ -64,7 +75,7 @@ class ProbeTests(unittest.TestCase):
             root = Path(temp)
             with self.assertRaisesRegex(RuntimeError, 'first probe failed'):
                 self.run_worker(root, code=1)
-            self.assertFalse((root / '.build-probe/result.json').exists())
+            self.assertFalse(list(root.glob('.build-probe-*/result.json')))
             with self.assertRaisesRegex(TimeoutError, 'full probe exceeded'):
                 self.run_worker(root, delay=.2)
             health = [json.loads(line) for line in (root / '.build-health.jsonl').read_text().splitlines()]
