@@ -317,13 +317,13 @@ class Builder:
                 return {"state": "queued"}
             self.servable = self.servable - {tile}
             error, at = self.failed.get(tile, (None, 0.0))
-            current_code = self.failure_key(tile)
-            if (
-                error
-                and self.failure_codes.get(tile, current_code) == current_code
-                and time.time() - at < RETRY_SECONDS
-            ):
-                return {"state": "failed", "error": error}
+            if error and time.time() - at < RETRY_SECONDS:
+                # Only a recorded failure needs a retry identity. Computing the
+                # full input key on every new first-pass request hashes optional
+                # imagery/lidar under the HTTP scheduler lock on a cold cache.
+                current_code = self.failure_key(tile)
+                if self.failure_codes.get(tile, current_code) == current_code:
+                    return {"state": "failed", "error": error}
             self.failed.pop(tile, None)
             self.failure_codes.pop(tile, None)
         try:
