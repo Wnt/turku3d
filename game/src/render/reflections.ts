@@ -1,10 +1,16 @@
-import type * as THREE from 'three/webgpu';
+import * as THREE from 'three/webgpu';
 
 /** Static large surfaces only; actor, vegetation, pole and small-prop work stays out of the river pass. */
 export const REFLECTION_LAYER = 2;
 const SURFACES = new Set(['ground', 'buildings', 'structures', 'massing', 'roads']);
 export function reflectionSurface(mesh: THREE.Mesh): boolean {
   if (mesh.userData.shadowBatch || (mesh as THREE.InstancedMesh).isInstancedMesh) return false;
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  if (materials.some(material => material.transparent || (material as THREE.MeshPhysicalMaterial).transmission > 0)) return false;
+  if (mesh.userData.prop_type || mesh.userData.objects?.some((row: Record<string, unknown>) => row.prop_type)) return false;
+  if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+  // A four-metre diameter keeps facades, banks and road surfaces, not individual trim/rail pieces.
+  if ((mesh.geometry.boundingSphere?.radius ?? 0) * mesh.matrixWorld.getMaxScaleOnAxis() < 2) return false;
   for (let node: THREE.Object3D | null = mesh; node; node = node.parent) {
     if (node.userData.material_key === 'water' || node.userData.material_key === 'river') return false;
     if (node.userData.layer) return SURFACES.has(node.userData.layer);
@@ -32,5 +38,27 @@ export class ReflectionShadows {
       if (!shadow || lights[i]?.shadow !== shadow) continue;
       shadow.autoUpdate = this.automatic[i]; shadow.needsUpdate = this.dirty[i];
     }
+  }
+}
+
+/** Compare with the last captured pose, so slow movement accumulates instead of resetting the clock.
+ * Small movement can reuse the water image; fast travel/turns still have a hard secondary-pass budget. */
+export class ReflectionCadence {
+  private last = -Infinity;
+  private position = new THREE.Vector3();
+  private rotation = new THREE.Quaternion();
+  private nextPosition = new THREE.Vector3();
+  private nextRotation = new THREE.Quaternion();
+  constructor(private fps: number, private slowFps: number) {}
+
+  shouldUpdate(camera: THREE.Camera, now: number, hasOutput: boolean, force = false): boolean {
+    this.nextPosition.setFromMatrixPosition(camera.matrixWorld);
+    this.nextRotation.setFromRotationMatrix(camera.matrixWorld);
+    const moved = this.nextPosition.distanceToSquared(this.position) > 0.5 ** 2
+      || this.nextRotation.angleTo(this.rotation) > Math.PI / 180;
+    if (hasOutput && !force && now - this.last < 1000 / (moved ? this.fps : this.slowFps)) return false;
+    this.last = now;
+    this.position.copy(this.nextPosition); this.rotation.copy(this.nextRotation);
+    return true;
   }
 }
