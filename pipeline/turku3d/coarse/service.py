@@ -506,6 +506,9 @@ class Builder:
                     and tile not in self.upgrade_queue
                 ):
                     self.requested.pop(tile, None)
+                from turku3d.stage_cache import finish_report
+
+                finish_report(out / "stage-times.json", outcome, proc.stderr if outcome == "FAILED" else None)
                 self.lock.notify_all()
                 print(json.dumps({"job": tile, "at": time.time(), "seconds": round(seconds, 3),
                                   "pass": "full" if upgrade else "first", "outcome": outcome}), flush=True)

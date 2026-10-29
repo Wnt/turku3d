@@ -313,3 +313,28 @@ def test_existing_stage_entries_compress_once(tmp_path):
     assert cache.run('large', 'v1', [], lambda: b'wrong') == b'brick' * 200000
     second = module.compress_existing(tmp_path)
     assert second['before'] == second['after'] == target.stat().st_size
+
+
+def test_live_stage_report_survives_failure_and_external_termination(tmp_path):
+    import json
+    import pytest
+    from turku3d.stage_cache import finish_report
+
+    path = tmp_path / "stage-times.json"
+    cache = StageCache(tmp_path / "cache", report_path=path)
+    def failed():
+        assert json.loads(path.read_text())["mesh"]["status"] == "running"
+        raise ValueError("broken geometry")
+    with pytest.raises(ValueError, match="broken geometry"):
+        cache.run("mesh", "code", [], failed)
+    assert json.loads(path.read_text())["mesh"]["status"] == "failed"
+    cache.run("good", "code", [], lambda: 42)
+    assert json.loads(path.read_text())["good"]["status"] == "complete"
+    cache.metrics["pack"] = dict(status="running", started=0, seconds=0)
+    cache.flush()
+    finish_report(path, "cancelled", "SIGKILL")
+    report = json.loads(path.read_text())
+    assert report["good"]["status"] == "complete"
+    assert report["pack"]["status"] == "cancelled"
+    assert report["pack"]["seconds"] > 0
+    assert report["_build"]["error"] == "SIGKILL"

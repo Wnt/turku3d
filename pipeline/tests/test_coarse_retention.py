@@ -101,3 +101,28 @@ def test_managed_publish_keeps_old_and_removes_only_intermediates(tmp_path):
     assert (out / old).exists() and (out / new).exists()
     assert not (out / ".texture-cache").exists()
     assert json.loads((out / ".retention.json").read_text())[0]["files"] == [old]
+
+
+def test_last_full_survives_first_passes_until_next_full(tmp_path):
+    from turku3d.coarse.retention import remember_full
+
+    old, first, new = [payload(tmp_path, d) for d in "abc"]
+    def full(name):
+        publish(tmp_path, name)
+        path = tmp_path / "manifest.json"
+        record = json.loads(path.read_text())
+        record["pass_kind"] = "full"
+        path.write_text(json.dumps(record))
+        remember_full(tmp_path)
+    full(old)
+    publish(tmp_path, first)
+    remember_full(tmp_path)
+    remember(tmp_path, 1000)
+    prune_tile(tmp_path, 1000 + 2 * GRACE_SECONDS)
+    assert (tmp_path / old).exists()
+    assert json.loads((tmp_path / "last-full.json").read_text())["visual"]["t0_0_0"]["url"] == old
+    new = payload(tmp_path, "c")
+    full(new)
+    prune_tile(tmp_path, 1000 + 3 * GRACE_SECONDS)
+    assert not (tmp_path / old).exists()
+    assert (tmp_path / new).exists()

@@ -126,11 +126,22 @@ def test_new_crossings_preempt_visual_upgrades_and_keep_their_demand(tmp_path):
     for tile in urgent:
         b.priority[tile] = 0
     b.demand.prune(b)
-    assert len(cancelled) == 2  # one free worker plus two reclaimed slots
-    assert b.upgrade_queue == set(cancelled)
-    assert set(b.priority) == set(urgent)
+    assert not cancelled  # a free worker already serves the collision queue
+    b.building[urgent[0]] = time.time()
+    b.priority.pop(urgent[0])
     b.demand.prune(b)
-    assert len(cancelled) == 2  # pending cancellation already releases its slot
+    assert not cancelled  # one first-pass worker is enough; let all upgrades finish
+    b.building.pop(urgent[0])
+    extra = "t0_9_0"
+    b.demand.update("driver-b", [extra], [], [extra])
+    b.building[extra] = time.time() + 1
+    b.upgrading.add(extra)
+    b.demand.prune(b)
+    assert cancelled == [extra]  # reclaim only the youngest of four full workers
+    assert b.upgrade_queue == set(cancelled)
+    assert set(b.priority) == set(urgent[1:])
+    b.demand.prune(b)
+    assert cancelled == [extra]  # repeated heartbeats cannot cancel survivors
     b.stop()
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import dataclasses
 import fcntl
 import hashlib
@@ -126,12 +127,37 @@ class StageCache:
     Entries are immutable, so reverting a source edit reuses the older result too.
     """
 
-    def __init__(self, root: Path, *, retain=False):
+    def __init__(self, root: Path, *, retain=False, report_path=None):
         self.root = root
         self.retain = retain
         self.metrics = {}
+        self.report_path = report_path
+
+    @contextmanager
+    def measure(self, name):
+        started = time.perf_counter()
+        self.metrics[name] = dict(status="running", started=time.time(), seconds=0)
+        self.flush()
+        try:
+            yield
+        except BaseException as error:
+            self.metrics[name].update(status="failed", error=f"{type(error).__name__}: {error}")
+            raise
+        else:
+            self.metrics[name]["status"] = "complete"
+        finally:
+            self.metrics[name]["seconds"] = round(time.perf_counter() - started, 6)
+            self.flush()
+
+    def flush(self):
+        if self.report_path is not None:
+            self.report(self.report_path)
 
     def run(self, name, code, inputs, operation):
+        with self.measure(name):
+            return self._run(name, code, inputs, operation)
+
+    def _run(self, name, code, inputs, operation):
         started = time.perf_counter()
         key = content_key(["stage-v1", name, code, inputs])
         directory = self.root / name
@@ -187,4 +213,22 @@ class StageCache:
 
     def report(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.metrics, indent=2) + "\n")
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(json.dumps(self.metrics, indent=2) + "\n")
+        temporary.replace(path)
+
+
+def finish_report(path, outcome, error=None):
+    """The supervising process also records SIGKILL/OOM, which cannot run finally."""
+    if not path.exists():
+        return
+    metrics = json.loads(path.read_text())
+    for row in metrics.values():
+        if row.get("status") == "running":
+            row.update(status=outcome, seconds=round(time.time() - row["started"], 6))
+    metrics["_build"] = dict(status=outcome, finished=time.time())
+    if error:
+        metrics["_build"]["error"] = str(error)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(metrics, indent=2) + "\n")
+    temporary.replace(path)
