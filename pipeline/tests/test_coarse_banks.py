@@ -110,3 +110,49 @@ def test_osm_quay_wall_and_embankment_tags_reach_bank_materials(tmp_path):
     regions = osm_surfaces(C.VisualTile(0, 0, 0), path)
     assert len(regions) == len(tags)
     assert all(m == mat_id("quay") for _, m in regions)
+
+
+def test_small_pond_has_its_own_level_shallow_bed_and_gentle_grassy_bank():
+    from turku3d.coarse.banks import small_bodies
+
+    tile = C.VisualTile(0, 0, 0)
+    p, ix = grid_mesh(tile, np.full((CELLS + 1, CELLS + 1), 23.0))
+    pond = shapely.box(80.3, 80.3, 110.3, 100.3)
+    river = shapely.box(180, -50, 280, 300)
+    assert len(small_bodies([pond, river])) == 1
+    assert small_bodies([pond, river])[0].equals(pond)
+    dry, wet, bank, solid = produce(
+        p, ix, np.full(len(ix), mat_id("grass"), np.uint8), np.ones(len(ix), bool),
+        [pond, river], 0.2, ponds=[(pond, 22.65)],
+    )
+    inside = shapely.contains_xy(pond.buffer(1e-7), wet.positions[:, 0], wet.positions[:, 2])
+    assert np.all(wet.positions[inside, 1] == 22.65)
+    assert np.all(wet.positions[~inside, 1] == 0.2)
+    faces = bank.positions[bank.indices]
+    normals = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])
+    assert np.all(np.abs(normals[bank.material == mat_id("grass"), 1]) > 0)
+    near = shapely.contains_xy(pond.buffer(2), dry.positions[:, 0], dry.positions[:, 2])
+    assert np.max(dry.positions[near, 1]) - 22.65 <= 0.35 + 1e-8
+    tri = dry.positions[dry.indices]
+    centres = tri.mean(axis=1)
+    near_tri = shapely.contains_xy(pond.buffer(4), centres[:, 0], centres[:, 2])
+    normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])[near_tri]
+    slope = np.linalg.norm(normal[:, [0, 2]], axis=1) / np.abs(normal[:, 1])
+    assert np.max(slope) <= np.tan(np.deg2rad(30))
+    lip_tri = shapely.contains_xy(pond.buffer(2), centres[:, 0], centres[:, 2])
+    assert np.all(dry.material[lip_tri] == mat_id("grass"))
+    wet_solid = solid.positions[shapely.contains_xy(pond.buffer(1e-7), solid.positions[:, 0], solid.positions[:, 2])]
+    assert wet_solid[:, 1].min() >= 22.0 - 1e-8
+
+
+def test_small_pond_keeps_mapped_retaining_edge():
+    p, ix = grid_mesh(C.VisualTile(0, 0, 0), np.full((CELLS + 1, CELLS + 1), 23.0))
+    pond = shapely.box(80.3, 80.3, 110.3, 100.3)
+    *_, bank, _ = produce(
+        p, ix, np.full(len(ix), mat_id("grass"), np.uint8), np.ones(len(ix), bool),
+        [pond], 0.2, [(pond.boundary.buffer(0.5), mat_id("quay"))], ponds=[(pond, 22.65)],
+    )
+    assert len(bank.indices)
+    stone = bank.positions[bank.indices[bank.material == mat_id("quay")]]
+    assert len(stone)
+    np.testing.assert_allclose(stone[:, :, 1].max(axis=1), 23)
