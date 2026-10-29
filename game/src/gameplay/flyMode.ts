@@ -1,7 +1,7 @@
 // Developer fly mode (localhost only, like Minecraft's creative flight): a double tap of jump or the Developer menu
 // toggles it. While flying the character has no gravity; the move stick or keys move it in the camera's ground plane,
 // flyUp / flyDown (jump or RT, B or LT or Q) move it vertically, and sprint is the fast modifier. The physics worker
-// keeps the character's collisions (physics/world.ts, CharacterInput.fly), so it cannot pass through buildings.
+// keeps real collisions (physics/world.ts, CharacterInput.fly), so buildings block it; area edges do not.
 import { SPEED } from '../actors/player';
 
 export const FLY = {

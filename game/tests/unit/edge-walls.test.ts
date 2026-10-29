@@ -96,3 +96,22 @@ test('checkTile decodes without adding colliders and rejects a damaged tile', as
   await expect(pw.checkTile(bad)).rejects.toThrow(/CRC/);
   pw.world.free();
 });
+
+
+test('runtime flight crosses edge walls both ways; walking restores the same barriers', async () => {
+  const pw = new PhysicsWorld(R);
+  await pw.loadTile('c_3_2', col('c_3_2'));
+  pw.world.step();
+  pw.spawnCharacter({ x: 245, y: 5, z: 156 });
+  const fly = (vx: number) => {
+    for (let k = 0; k < 120; k++) pw.step(DT, { vx, vz: 0, jump: false, fly: { vy: 0 } }, null);
+  };
+  fly(10);
+  expect(pw.characterState()!.pos.x).toBeCloseTo(265, 2);
+  expect(pw.edges.edges()).toHaveLength(4); // vehicles and normal play retain their walls
+  fly(-10);
+  expect(pw.characterState()!.pos.x).toBeCloseTo(245, 2);
+  for (let k = 0; k < 120; k++) pw.step(DT, { vx: 10, vz: 0, jump: false }, null);
+  expect(pw.characterState()!.pos.x).toBeLessThan(250);
+  pw.world.free();
+});

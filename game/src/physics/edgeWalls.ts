@@ -27,6 +27,7 @@ interface Cell { i: number; j: number; lo: number; hi: number }
 export class EdgeWalls {
   private cells = new Map<string, Cell>();
   private walls = new Map<string, RAPIER_NS.Collider>();
+  private wallHandles = new Set<number>();
   /** Cells whose collision exists somewhere (published or draft), loaded or not. */
   private known = new Set<string>();
 
@@ -60,6 +61,9 @@ export class EdgeWalls {
     for (const [i, j] of touched) for (const [di, dj] of SIDES) this.sync(i + di, j + dj);
   }
 
+  /** Flight ignores only these artificial barriers; real world colliders still block it. */
+  isWall(collider: RAPIER_NS.Collider): boolean { return this.wallHandles.has(collider.handle); }
+
   /** Open edges as [i, j, side] with side an index into +x, -x, +z, -z (tests, stats and the edge marker). */
   edges(): [number, number, number][] {
     return [...this.walls.keys()].map(k => k.split('_').map(Number) as [number, number, number]).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
@@ -72,8 +76,12 @@ export class EdgeWalls {
       const n = key(i + di, j + dj);
       const open = cell !== undefined && !this.cells.has(n) && !this.known.has(n);
       const wall = this.walls.get(id);
-      if (open && !wall) this.walls.set(id, this.build(cell, side));
-      else if (!open && wall) { this.world.removeCollider(wall, false); this.walls.delete(id); }
+      if (open && !wall) {
+        const built = this.build(cell, side);
+        this.walls.set(id, built); this.wallHandles.add(built.handle);
+      } else if (!open && wall) {
+        this.wallHandles.delete(wall.handle); this.world.removeCollider(wall, false); this.walls.delete(id);
+      }
     });
   }
 

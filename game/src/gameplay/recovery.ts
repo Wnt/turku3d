@@ -144,7 +144,7 @@ export class RecoveryMonitor {
   private waterSince: number | null = null;
   private airSince: number | null = null;
   private graceUntil = -Infinity;
-  /** The player flew (developer fly mode): the rules wait for the first grounded contact. */
+  /** The player flew (developer fly mode): the rules wait for ground inside the area, or for flight to end outside it. */
   private awaitingGround = false;
 
   constructor(private readonly area: PlayableArea) {}
@@ -161,8 +161,8 @@ export class RecoveryMonitor {
   update(p: Probe, minGround: number): boolean {
     if (p.time < this.graceUntil) return false;
     if (this.awaitingGround) {
-      if (!p.grounded) return false;
-      // Landed: the samples from before the flight are the way back, else the first safe frame arms the rules.
+      if (!p.grounded && this.area.has(p.x, p.z)) return false;
+      // Landed or left the generated area: pre-flight samples are the way back.
       this.awaitingGround = false;
       this.armed = this.samples.length > 0;
     }
@@ -207,7 +207,7 @@ export class RecoveryMonitor {
   }
 
   /** The player flies (developer fly mode, gameplay/flyMode.ts): nothing is sampled and nobody is lost until the
-   *  first grounded contact after the flight. Called every flying frame. */
+   *  first grounded contact after the flight, or until flight ends outside the area. Called every flying frame. */
   hold() {
     this.lost = null;
     this.armed = false;

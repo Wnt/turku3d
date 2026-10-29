@@ -230,14 +230,14 @@ for (const height of [0.07, 0.15, 0.32, 0.35, 0.4]) test(`autostep handles ${hei
   }
 });
 
-test('runtime holds gravity after flight over missing collision and resumes when the cell arrives', async () => {
+test('runtime allows descent in flight, holds gravity after flight over missing collision and resumes when the cell arrives', async () => {
   const pw = new PhysicsWorld(RAPIER);
   pw.spawnCharacter({ x: 168, y: 10, z: 246 });
   const idle = { vx: 0, vz: 0, jump: false };
   for (let i = 0; i < 30; i++) pw.step(1 / 60, { ...idle, fly: { vy: -10 } }, null);
-  expect(pw.characterState()!.pos.y).toBeCloseTo(10, 4);
+  expect(pw.characterState()!.pos.y).toBeCloseTo(5, 4);
   for (let i = 0; i < 60; i++) pw.step(1 / 60, idle, null);
-  expect(pw.characterState()!.pos.y).toBeCloseTo(10, 4);
+  expect(pw.characterState()!.pos.y).toBeCloseTo(5, 4);
   await pw.loadTile('c_2_3', load('c_2_3'));
   for (let i = 0; i < 120; i++) pw.step(1 / 60, idle, null);
   expect(pw.characterState()!.pos.y).toBeCloseTo(2, 1);
