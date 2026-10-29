@@ -93,15 +93,24 @@ def overlaps(faces, ids, *, split=None):
         direction /= np.linalg.norm(direction)
         vertical = np.cross(normals[i], direction)
         basis = np.array([direction, vertical])
-        a = shapely.Polygon((p - p[0]) @ basis.T)
+        projected_p = (p - p[0]) @ basis.T
+        a = shapely.Polygon(projected_p)
+        inner_a = a.buffer(-0.00005)
         for j in js:
             from turku3d.wall_assembly import band_polygon
 
             q = points[j]
-            b = shapely.Polygon((q - p[0]) @ basis.T)
+            separation = (p - q[0]) @ normals[j]
+            if separation.min() > DISTANCE or separation.max() < -DISTANCE:
+                continue
+            projected_q = (q - p[0]) @ basis.T
+            if (np.any(projected_q.max(axis=0) <= projected_p.min(axis=0) + 0.00005)
+                    or np.any(projected_q.min(axis=0) >= projected_p.max(axis=0) - 0.00005)):
+                continue
+            b = shapely.Polygon(projected_q)
             # Solve the plane-distance band over the actual shared polygon,
             # including sloping triangles and only partly coincident planes.
-            common = a.buffer(-0.00005).intersection(b.buffer(-0.00005))
+            common = inner_a.intersection(b.buffer(-0.00005))
             common = (
                 band_polygon(common, basis @ normals[j], (p[0] - q[0]) @ normals[j], DISTANCE)
                 if not common.is_empty

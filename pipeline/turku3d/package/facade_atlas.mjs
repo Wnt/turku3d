@@ -1,3 +1,4 @@
+import { useTextureCache } from './texture_cache.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -27,7 +28,8 @@ function imageSize(texture) {
   return [image.readUInt32LE(20), image.readUInt32LE(24)];
 }
 
-async function extract(texture, target, cache, run, sharp) {
+async function extract(texture, target, request, run, sharp) {
+  const cache = request.textureCache;
   const bytes = texture.getImage();
   const key = createHash('sha256').update('facade-atlas-extract-v2').update(bytes)
     .update(JSON.stringify(target)).digest('hex');
@@ -46,7 +48,7 @@ async function extract(texture, target, cache, run, sharp) {
       for (const file of [input, temp, resized]) if (fs.existsSync(file)) fs.unlinkSync(file);
     }
   }
-  return output;
+  return useTextureCache(request, output);
 }
 
 function pack(entries) {
@@ -115,7 +117,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
     const images = [];
     for (const [slotIndex, slot] of slots.entries()) {
       const inputs = await Promise.all(page.entries.map(async entry => ({ entry,
-        file:await extract(entry.maps[slotIndex], [entry.width, entry.height], request.textureCache, run, sharp) })));
+        file:await extract(entry.maps[slotIndex], [entry.width, entry.height], request, run, sharp) })));
       const overlays = await Promise.all(inputs.map(async ({ entry, file }) => ({
         input:await sharp(file).extend({ top:GUTTER, bottom:GUTTER, left:GUTTER, right:GUTTER, extendWith:'copy' }).png().toBuffer(),
         top:entry.y, left:entry.x,
@@ -128,7 +130,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
       const image = slot === 'normal'
         ? await sharp(png).resize(PAGE / 2, Math.max(4, align4(page.height / 2)), { fit:'fill' }).png().toBuffer()
         : png;
-      const hash = createHash('sha256').update('facade-atlas-v1').update(slot).update(image).digest('hex');
+      const hash = createHash('sha256').update('facade-atlas-v2-fast').update(slot).update(image).digest('hex');
       const dest = path.join(request.textureCache, `${hash}.ktx2`);
       if (!fs.existsSync(dest)) {
         const source = path.join(request.textureCache, `${hash}.${process.pid}.png`);
@@ -138,7 +140,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
           const codec = slot === 'normal' ? 'uastc' : 'etc1s';
           run('toktx', ['--t2', '--genmipmap', '--threads', '2', '--assign_oetf', slot === 'albedo' ? 'srgb' : 'linear',
             '--assign_primaries', slot === 'albedo' ? 'bt709' : 'none', '--encode', codec,
-            ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80'] : ['--uastc_quality', '2', '--zcmp', '18']),
+            ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80', '--clevel', '0'] : ['--uastc_quality', '2', '--zcmp', '6']),
             temp, source]);
           run('ktx', ['validate', '--gltf-basisu', temp]);
           fs.renameSync(temp, dest);
@@ -146,7 +148,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
           for (const file of [source, temp]) if (fs.existsSync(file)) fs.unlinkSync(file);
         }
       }
-      images.push(doc.createTexture(`facade_atlas_${pageIndex}_${slot}`).setImage(fs.readFileSync(dest)).setMimeType('image/ktx2'));
+      images.push(doc.createTexture(`facade_atlas_${pageIndex}_${slot}`).setImage(fs.readFileSync(useTextureCache(request, dest))).setMimeType('image/ktx2'));
     }
     const material = doc.createMaterial(`facade_atlas_${pageIndex}`).setExtras({ material_key:'facade_atlas' })
       .setBaseColorTexture(images[0]).setBaseColorFactor([1,1,1,1])
